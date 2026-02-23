@@ -54,10 +54,20 @@ export function useGenerate() {
       });
 
       // 2. Call the Edge Function
-      const { data: fnData, error: fnError } = await supabase.functions.invoke(
-        "generate",
+      const { data: { session: authSession } } = await supabase.auth.getSession();
+      const token = authSession?.access_token;
+      if (!token) throw new Error("Not authenticated");
+
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate`,
         {
-          body: {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
+          },
+          body: JSON.stringify({
             system_prompt: systemPrompt,
             messages,
             project_context: {
@@ -66,27 +76,24 @@ export function useGenerate() {
             },
             generation_mode: generationMode,
             stream: false,
-          },
+          }),
         }
       );
 
-      if (fnError) {
-        // fnData may contain the actual error details from the Edge Function
-        const detail =
-          (fnData as { error?: string } | null)?.error ??
-          fnError.message ??
-          "Generation failed";
-        throw new Error(detail);
+      if (!response.ok) {
+        const body = await response.text();
+        let detail: string;
+        try {
+          const parsed = JSON.parse(body);
+          detail = parsed.error ?? parsed.details ?? body;
+        } catch {
+          detail = body;
+        }
+        throw new Error(`Generation failed (${response.status}): ${detail}`);
       }
 
-      if (!fnData || typeof (fnData as { content?: string }).content !== "string") {
-        throw new Error(
-          "Unexpected response from generate function: " +
-            JSON.stringify(fnData).slice(0, 200)
-        );
-      }
-
-      const rawResponse = (fnData as { content: string }).content;
+      const result = await response.json();
+      const rawResponse = result.content as string;
 
       // 3. Parse artifacts from response
       const { artifacts: parsedArtifacts, summary, errors: parseErrors } =
