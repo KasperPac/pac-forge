@@ -1,59 +1,6 @@
-import type { Project, Agent, IoEntry, TagDbDefinition, GenerationMode, PatternCandidate } from "@/types";
-
-/**
- * Platform rules for Siemens TIA — hardcoded from PLATFORM_RULES_SIEMENS_TIA.md.
- * These never change per-session, so we embed them.
- */
-const PLATFORM_RULES = `## Siemens TIA Platform Rules
-
-### SCL Language Rules (CRITICAL — violations cause compile errors)
-
-1. CASE labels MUST be integer literals, NEVER variables.
-   WRONG: \`CASE #State OF STATE_INIT: ...\` (where STATE_INIT is a VAR)
-   CORRECT: \`CASE #State OF 0: (* INIT *) 1: (* IDLE *) ...\`
-
-2. IEC Timer calls (TON, TOF, TP) MUST always include both IN and PT parameters.
-   WRONG: \`#MyTimer(IN := FALSE);\`
-   CORRECT: \`#MyTimer(IN := FALSE, PT := T#0s);\`
-
-3. Use # prefix for instance variables in FBs (e.g., #Data.State, #l_IO).
-
-4. Use PLC data types (UDTs) instead of anonymous STRUCTs in block interfaces.
-
-5. ARRAY indices are 1-based: ARRAY[1..n].
-
-6. Every block needs { S7_Optimized_Access := 'TRUE' } and VERSION : 0.1
-
-### Core Requirements
-- Deterministic CASE-based state machines with integer literal labels.
-- Human-readable variable names and structure.
-- Avoid copy/paste per zone; use arrays where applicable.
-- Use clear separation: IO mapping, state machine, alarms/faults, timer management, output mapping.
-
-### Alarm Philosophy
-- Latching alarms.
-- No auto reset.
-- Operator reset only.
-- Reset only when fault condition is cleared.
-
-### IO Indexing Rules
-- IO mapping must be deterministic and explicit.
-- Prefer UDT + arrays for IO structures.
-- Validate index bounds before array access.
-- Flag misalignment risk as high severity.
-
-### Output / Artifact Rules
-- Generate artifacts as separate files:
-  - UDTs (imported first), FBs, FCs, DBs, OBs
-- Provide a manifest describing dependencies:
-  - UDTs before FBs
-  - DBs after UDTs
-  - OB after FB/DB when needed
-- File naming: UDT_Name.scl, FB_Name.scl, FC_Name.scl, DB_Name.scl
-
-### Safety
-- May generate unsafe code if requested, but must clearly warn.
-- Label safety-impacting outputs.`;
+import type { Project, Agent, IoEntry, TagDbDefinition, GenerationMode, PatternCandidate, FbTemplate } from "@/types";
+import { PLATFORM_RULES } from "@/lib/platform-rules";
+import { getAgentProfile } from "@/lib/agent-profiles";
 
 /**
  * Output format instructions telling Claude how to structure its response
@@ -97,6 +44,7 @@ interface PromptBuilderInput {
   agents: Agent[];
   generationMode: GenerationMode;
   approvedPatterns?: PatternCandidate[];
+  fbTemplates?: FbTemplate[];
   userMessage: string;
   conversationHistory?: Array<{ role: "user" | "assistant"; content: string }>;
 }
@@ -131,27 +79,76 @@ function formatTagDbs(tagDbs: TagDbDefinition[]): string {
 function formatAgentRoles(agents: Agent[]): string {
   if (agents.length === 0) return "No agents assigned.";
   return agents
-    .map((a) => `### ${a.display_name} [${a.specialties.join(", ")}]\n${a.system_prompt}`)
+    .map((a) => {
+      const profile = getAgentProfile(a.display_name);
+      const skillsList = profile.skills.map((s) => `  - ${s}`).join("\n");
+      const sections = [
+        `### ${a.display_name} [${a.specialties.join(", ")}]`,
+        `**Role:** ${profile.tagline}`,
+        `**Personality:** ${profile.description}`,
+        `**Skills:**\n${skillsList}`,
+      ];
+      if (a.system_prompt) {
+        sections.push(`**Instructions:** ${a.system_prompt}`);
+      }
+      return sections.join("\n");
+    })
     .join("\n\n");
 }
 
-function formatPatterns(patterns: PatternCandidate[]): string {
-  if (patterns.length === 0) return "No approved patterns yet.";
-  return patterns
-    .map(
-      (p) =>
-        `- **${p.correction_type}** (${p.device_type}): ${p.explanation_tag}\n  Original:\n  \`\`\`scl\n  ${p.original_snippet}\n  \`\`\`\n  Corrected:\n  \`\`\`scl\n  ${p.corrected_snippet}\n  \`\`\``
-    )
+function formatFbTemplates(templates: FbTemplate[]): string {
+  if (templates.length === 0) return "";
+  const blocks = templates.map((t) => {
+    const header = `### ${t.name} [${t.device_category}]`;
+    const desc = t.description ? `${t.description}\n` : "";
+    return `${header}\n${desc}\`\`\`scl\n${t.base_scl}\n\`\`\``;
+  });
+  return `## FB Library Templates
+
+The following are company-standard FB templates. When generating code for matching device types, use these as the starting base and customize as needed for the project requirements. Do NOT deviate from their structure unless the user explicitly requests it.
+
+${blocks.join("\n\n")}`;
+}
+
+export function formatPatterns(patterns: PatternCandidate[]): string {
+  if (patterns.length === 0) return "No learned corrections.";
+  const rules = patterns
+    .map((p, i) => {
+      const parts = [
+        `### Rule ${i + 1}: ${p.explanation_tag}`,
+        `**Category:** ${p.correction_type} | **Device:** ${p.device_type}`,
+      ];
+      if (p.original_snippet) {
+        parts.push(`**WRONG (do NOT generate this):**\n\`\`\`scl\n${p.original_snippet}\n\`\`\``);
+      }
+      if (p.corrected_snippet) {
+        parts.push(`**CORRECT (use this instead):**\n\`\`\`scl\n${p.corrected_snippet}\n\`\`\``);
+      }
+      return parts.join("\n");
+    })
     .join("\n\n");
+  return rules;
 }
 
 export function buildPrompt(input: PromptBuilderInput): BuiltPrompt {
-  const { project, agents, generationMode, approvedPatterns, userMessage, conversationHistory } = input;
+  const { project, agents, generationMode, approvedPatterns, fbTemplates, userMessage, conversationHistory } = input;
 
   const generationModeDesc =
     generationMode === "FB_PER_DEVICE"
       ? "Generate one FB per device type with UDT-based IO arrays. Each device type gets its own FB, UDT, and instance DB template."
       : "Generate a complete project-level structure with all FBs, UDTs, DBs, and OBs needed for the full system.";
+
+  // Debug: log pattern injection so we can verify patterns reach the prompt
+  console.log("[prompt-builder] approvedPatterns count:", approvedPatterns?.length ?? 0);
+  if (approvedPatterns && approvedPatterns.length > 0) {
+    console.log("[prompt-builder] patterns:", approvedPatterns.map(p => ({
+      id: p.id,
+      type: p.correction_type,
+      explanation: p.explanation_tag?.slice(0, 100),
+      original: p.original_snippet?.slice(0, 80),
+      corrected: p.corrected_snippet?.slice(0, 80),
+    })));
+  }
 
   const systemPrompt = `You are Pac-ST, a deterministic PLC code generation assistant for Siemens TIA Portal.
 You generate production-ready SCL (Structured Control Language) code artifacts.
@@ -178,7 +175,12 @@ ${generationModeDesc}
 ## Agent Roles
 ${formatAgentRoles(agents)}
 
-## Approved Patterns
+${formatFbTemplates(fbTemplates ?? [])}
+
+## MANDATORY: Learned Corrections from Previous Compile Errors
+
+The following corrections were learned from real TIA Portal compile failures. You MUST apply every one of these rules. Generating code that violates these rules will cause compile errors.
+
 ${formatPatterns(approvedPatterns ?? [])}
 
 ${OUTPUT_FORMAT}`;

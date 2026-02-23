@@ -76,6 +76,11 @@ export default function ProjectDetailPage() {
           <h1 className="text-xl font-semibold tracking-tight">
             {project.client_name}
           </h1>
+          {project.project_number && (
+            <div className="mt-0.5 font-mono text-xs text-muted-foreground">
+              {project.project_number}
+            </div>
+          )}
           <div className="mt-1 flex items-center gap-2">
             <Badge variant="secondary" className="font-mono text-[10px]">
               {project.plc_brand}

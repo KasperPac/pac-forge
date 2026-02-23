@@ -84,6 +84,40 @@ namespace PacForgeBridge
         public string BridgeVersion { get; set; }
     }
 
+    // --- TIA Action Requests/Responses ---
+
+    public class ConnectRequest
+    {
+        public string Mode { get; set; } = "attach"; // "attach" or "start"
+        public bool WithUi { get; set; } = true;     // Open TIA Portal with visible UI
+    }
+
+    public class OpenProjectRequest
+    {
+        public string ProjectPath { get; set; }
+    }
+
+    public class DemoRequest
+    {
+        public string ProjectPath { get; set; }
+        public string ProjectName { get; set; }
+    }
+
+    public class CreateProjectWithSourcesRequest
+    {
+        public string ProjectPath { get; set; }
+        public string ProjectName { get; set; }
+        public Dictionary<string, string> Sources { get; set; }  // name → SCL content
+        public List<string> ImportOrder { get; set; }             // ordered artifact names
+    }
+
+    public class TiaActionResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+        public Dictionary<string, object> Details { get; set; } = new Dictionary<string, object>();
+    }
+
     // --- Compile Results ---
 
     public class CompileResultDto
@@ -92,6 +126,31 @@ namespace PacForgeBridge
         public List<CompileErrorDto> Errors { get; set; } = new List<CompileErrorDto>();
         public List<CompileErrorDto> Warnings { get; set; } = new List<CompileErrorDto>();
         public string CompiledAt { get; set; }
+    }
+
+    public class CompileResultWithSourcesDto
+    {
+        public bool Success { get; set; }
+        public List<CompileErrorDto> Errors { get; set; } = new List<CompileErrorDto>();
+        public List<CompileErrorDto> Warnings { get; set; } = new List<CompileErrorDto>();
+        public string CompiledAt { get; set; }
+        public Dictionary<string, string> Sources { get; set; } = new Dictionary<string, string>();
+
+        public CompileResultWithSourcesDto() { }
+
+        public CompileResultWithSourcesDto(CompileResultDto result, Dictionary<string, string> sources)
+        {
+            Success = result.Success;
+            Errors = result.Errors;
+            Warnings = result.Warnings;
+            CompiledAt = result.CompiledAt;
+            Sources = sources ?? new Dictionary<string, string>();
+        }
+    }
+
+    public class ReimportRequest
+    {
+        public Dictionary<string, string> Sources { get; set; } = new Dictionary<string, string>();
     }
 
     public class CompileErrorDto

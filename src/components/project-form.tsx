@@ -32,6 +32,7 @@ export function ProjectForm({
   mode,
 }: ProjectFormProps) {
   const [clientName, setClientName] = useState(initialValues?.client_name ?? "");
+  const [projectNumber, setProjectNumber] = useState(initialValues?.project_number ?? "");
   const [plcBrand] = useState(initialValues?.plc_brand ?? PLC_BRANDS.SIEMENS_TIA);
   const [tiaVersion, setTiaVersion] = useState(initialValues?.tia_version ?? "V17");
   const [cpuType, setCpuType] = useState<CpuType>(
@@ -44,6 +45,7 @@ export function ProjectForm({
     e.preventDefault();
     const data: ProjectCreate = {
       client_name: clientName,
+      project_number: projectNumber || null,
       plc_brand: plcBrand,
       tia_version: tiaVersion,
       cpu_type: cpuType,
@@ -59,6 +61,7 @@ export function ProjectForm({
     if (mode === "edit") {
       const updates: ProjectUpdate = {};
       if (clientName !== initialValues?.client_name) updates.client_name = clientName;
+      if (projectNumber !== (initialValues?.project_number ?? "")) updates.project_number = projectNumber || null;
       if (tiaVersion !== initialValues?.tia_version) updates.tia_version = tiaVersion;
       if (cpuType !== initialValues?.cpu_type) updates.cpu_type = cpuType;
       if (safetyLevel !== initialValues?.safety_level) updates.safety_level = safetyLevel;
@@ -72,7 +75,7 @@ export function ProjectForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
-        <div className="col-span-2">
+        <div>
           <Label className="font-mono text-xs">Client Name</Label>
           <Input
             value={clientName}
@@ -80,6 +83,16 @@ export function ProjectForm({
             required
             placeholder="e.g. ACME Industries"
             className="mt-1"
+          />
+        </div>
+
+        <div>
+          <Label className="font-mono text-xs">Project Number</Label>
+          <Input
+            value={projectNumber}
+            onChange={(e) => setProjectNumber(e.target.value)}
+            placeholder="e.g. P-2024-0042"
+            className="mt-1 font-mono"
           />
         </div>
 

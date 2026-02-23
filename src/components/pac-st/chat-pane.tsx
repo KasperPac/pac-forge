@@ -101,6 +101,11 @@ export function ChatPane({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium">{project.client_name}</span>
+              {project.project_number && (
+                <span className="font-mono text-xs text-muted-foreground">
+                  {project.project_number}
+                </span>
+              )}
               <Badge variant="outline" className="font-mono text-xs">
                 <Cpu className="mr-0.5 h-2.5 w-2.5" />
                 {project.cpu_type}

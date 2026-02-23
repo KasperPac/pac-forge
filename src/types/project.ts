@@ -54,6 +54,7 @@ export interface RackSlotLayout {
 export interface Project {
   id: string;
   client_name: string;
+  project_number: string | null;
   plc_brand: PlcBrand;
   tia_version: string;
   cpu_type: CpuType;

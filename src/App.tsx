@@ -7,8 +7,10 @@ import ProjectsPage from "@/routes/projects";
 import ProjectDetailPage from "@/routes/project-detail";
 import PacStPage from "@/routes/pac-st";
 import AgentsPage from "@/routes/agents";
+import AgentProfilePage from "@/routes/agent-profile";
 import PatternsPage from "@/routes/patterns";
 import TiaConsolePage from "@/routes/tia-console";
+import FbLibraryPage from "@/routes/fb-library";
 
 const router = createBrowserRouter([
   {
@@ -26,8 +28,10 @@ const router = createBrowserRouter([
           { path: "projects/:id", element: <ProjectDetailPage /> },
           { path: "pac-st", element: <PacStPage /> },
           { path: "agents", element: <AgentsPage /> },
+          { path: "agents/:id", element: <AgentProfilePage /> },
           { path: "patterns", element: <PatternsPage /> },
           { path: "tia-console", element: <TiaConsolePage /> },
+          { path: "fb-library", element: <FbLibraryPage /> },
         ],
       },
     ],

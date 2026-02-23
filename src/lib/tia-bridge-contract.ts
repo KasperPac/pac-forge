@@ -146,7 +146,7 @@ export interface BridgeConfig {
 }
 
 export const DEFAULT_BRIDGE_CONFIG: BridgeConfig = {
-  baseUrl: "http://localhost:5100",
-  wsUrl: "ws://localhost:5100/tia/ws",
+  baseUrl: "http://localhost:5102",
+  wsUrl: "ws://localhost:5102/tia/ws",
   timeout: 5000,
 };

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using Siemens.Engineering;
 using Siemens.Engineering.Compiler;
 using Siemens.Engineering.HW;
@@ -22,6 +23,8 @@ namespace PacForgeBridge
 
         public bool IsConnected => _tiaPortal != null;
         public bool IsProjectOpen => _project != null;
+        public CompileResultDto LastCompileResult { get; private set; }
+        public Dictionary<string, string> LastImportedSources { get; private set; } = new Dictionary<string, string>();
 
         /// <summary>
         /// Get current bridge/TIA status for the /tia/status endpoint.
@@ -47,9 +50,9 @@ namespace PacForgeBridge
         }
 
         /// <summary>
-        /// Connect to TIA Portal — attach to running instance or start new headless instance.
+        /// Connect to TIA Portal — attach to running instance or start new one.
         /// </summary>
-        public void Connect(bool preferAttach = true)
+        public void Connect(bool preferAttach = true, bool withUi = true)
         {
             if (IsConnected) return;
 
@@ -73,10 +76,62 @@ namespace PacForgeBridge
                 }
             }
 
-            // Start new headless instance
-            Console.WriteLine("[TIA] Starting TIA Portal (headless)...");
-            _tiaPortal = new TiaPortal(TiaPortalMode.WithoutUserInterface);
+            // Start new instance
+            var mode = withUi ? TiaPortalMode.WithUserInterface : TiaPortalMode.WithoutUserInterface;
+            Console.WriteLine($"[TIA] Starting TIA Portal ({(withUi ? "with UI" : "headless")})...");
+            _tiaPortal = new TiaPortal(mode);
             Console.WriteLine("[TIA] TIA Portal started.");
+        }
+
+        /// <summary>
+        /// Disconnect from TIA Portal — close project and dispose instance.
+        /// Unlike Dispose(), this allows reconnecting afterwards.
+        /// </summary>
+        public void Disconnect()
+        {
+            try
+            {
+                if (_project != null)
+                {
+                    Console.WriteLine("[TIA] Closing project...");
+                    _project.Close();
+                    _project = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TIA] Error closing project: {ex.Message}");
+                _project = null;
+            }
+
+            try
+            {
+                if (_tiaPortal != null)
+                {
+                    _tiaPortal.Dispose();
+                    _tiaPortal = null;
+                    Console.WriteLine("[TIA] Disconnected from TIA Portal.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TIA] Error disconnecting: {ex.Message}");
+                _tiaPortal = null;
+            }
+        }
+
+        /// <summary>
+        /// Create a new TIA Portal project.
+        /// </summary>
+        public void CreateProject(string directory, string name)
+        {
+            if (_tiaPortal == null)
+                throw new InvalidOperationException("TIA Portal not connected. Call Connect() first.");
+
+            Console.WriteLine($"[TIA] Creating project: {name} in {directory}");
+            Directory.CreateDirectory(directory);
+            _project = _tiaPortal.Projects.Create(new DirectoryInfo(directory), name);
+            Console.WriteLine($"[TIA] Project created: {_project.Name}");
         }
 
         /// <summary>
@@ -166,6 +221,17 @@ namespace PacForgeBridge
             PlcExternalSource existing = plcSoftware.ExternalSourceGroup.ExternalSources.Find(sourceName);
             existing?.Delete();
 
+            // Store source content for compile-fix chat
+            try
+            {
+                string sourceContent = File.ReadAllText(sclFilePath);
+                LastImportedSources[artifactName] = sourceContent;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TIA] Warning: Could not read source for {artifactName}: {ex.Message}");
+            }
+
             Console.WriteLine($"[TIA] Importing external source: {artifactName} from {sclFilePath}");
 
             // Step 1: Add external source file
@@ -221,6 +287,7 @@ namespace PacForgeBridge
 
             Console.WriteLine($"[TIA] Compilation {result.State}: {compileResult.Errors.Count} errors, {compileResult.Warnings.Count} warnings");
 
+            LastCompileResult = compileResult;
             return compileResult;
         }
 
@@ -402,6 +469,415 @@ namespace PacForgeBridge
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Create a new TIA project and import provided SCL sources.
+        /// Generic method — the frontend supplies the sources and import order.
+        /// </summary>
+        public DemoResult CreateProjectWithSources(string projectDir, string projectName, Dictionary<string, string> sources, List<string> importOrder)
+        {
+            var result = new DemoResult();
+
+            // Step 1: Connect if not already
+            Connect(preferAttach: true);
+
+            // Step 2: Create project
+            CreateProject(projectDir, projectName);
+
+            // Step 3: Add S7-1500 CPU
+            Console.WriteLine("[TIA] Adding S7-1500 CPU device...");
+            Device device = _project.Devices.CreateWithItem(
+                "OrderNumber:6ES7 516-3AN02-0AB0/V2.9",  // S7-1516 CPU
+                "PLC_1",
+                "PLC_1");
+            Console.WriteLine($"[TIA] Device added: {device.Name}");
+
+            PlcSoftware plcSoftware = GetPlcSoftware();
+            result.DeviceName = device.Name;
+
+            // Step 3b: Delete auto-created OB1
+            try
+            {
+                PlcBlock existingMain = plcSoftware.BlockGroup.Blocks.Find("Main");
+                if (existingMain != null)
+                {
+                    Console.WriteLine("[TIA] Deleting auto-created OB1 (Main) before import...");
+                    existingMain.Delete();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TIA] Warning: Could not delete existing OB1: {ex.Message}");
+            }
+
+            // Step 4: Write SCL files to temp and import in order
+            string tempDir = Path.Combine(Path.GetTempPath(), "PacForge", "proj_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                LastImportedSources.Clear();
+                foreach (var kvp in sources)
+                {
+                    LastImportedSources[kvp.Key] = kvp.Value;
+                }
+
+                foreach (string name in importOrder)
+                {
+                    if (!sources.ContainsKey(name))
+                    {
+                        result.Warnings.Add($"{name}: not found in sources, skipping");
+                        continue;
+                    }
+
+                    string filePath = Path.Combine(tempDir, name + ".scl");
+                    File.WriteAllText(filePath, sources[name], new UTF8Encoding(true));
+
+                    try
+                    {
+                        var generated = ImportArtifact(plcSoftware, name, filePath, "Program blocks");
+                        result.ImportedBlocks.AddRange(generated);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[TIA] Warning importing {name}: {ex.Message}");
+                        result.Warnings.Add($"{name}: {ex.Message}");
+                    }
+                }
+
+                // Step 5: Compile
+                Console.WriteLine("[TIA] Compiling project...");
+                result.CompileResult = CompileAll(plcSoftware);
+
+                // Step 6: Save
+                SaveProject();
+
+                result.Success = true;
+                result.ProjectPath = _project.Path?.FullName;
+            }
+            finally
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Create a demo motor control project with UDT, FB, and OB.
+        /// </summary>
+        public DemoResult CreateDemoMotorProject(string projectDir, string projectName)
+        {
+            var result = new DemoResult();
+
+            // Step 1: Connect if not already
+            Connect(preferAttach: true);
+
+            // Step 2: Create project
+            CreateProject(projectDir, projectName);
+
+            // Step 3: Get PLC software
+            // The project is empty — we need to add a device first.
+            // Use Siemens Openness to add an S7-1500 CPU.
+            Console.WriteLine("[TIA] Adding S7-1500 CPU device...");
+            Device device = _project.Devices.CreateWithItem(
+                "OrderNumber:6ES7 516-3AN02-0AB0/V2.9",  // S7-1516 CPU
+                "PLC_1",
+                "PLC_1");
+            Console.WriteLine($"[TIA] Device added: {device.Name}");
+
+            PlcSoftware plcSoftware = GetPlcSoftware();
+            result.DeviceName = device.Name;
+
+            // Step 3b: Delete auto-created OB1 (TIA Portal creates it by default)
+            try
+            {
+                PlcBlock existingMain = plcSoftware.BlockGroup.Blocks.Find("Main");
+                if (existingMain != null)
+                {
+                    Console.WriteLine("[TIA] Deleting auto-created OB1 (Main) before import...");
+                    existingMain.Delete();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TIA] Warning: Could not delete existing OB1: {ex.Message}");
+            }
+
+            // Step 4: Write demo SCL files to temp and import
+            string tempDir = Path.Combine(Path.GetTempPath(), "PacForge", "demo_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                // Import in dependency order: UDT → FB → OB
+                var demoFiles = new[]
+                {
+                    ("UDT_Motor", DEMO_UDT_MOTOR),
+                    ("FB_MotorControl", DEMO_FB_MOTOR_CONTROL),
+                    ("Main", DEMO_OB_MAIN),
+                };
+
+                // Store demo sources for compile-fix chat
+                LastImportedSources.Clear();
+                foreach (var (name, content) in demoFiles)
+                {
+                    LastImportedSources[name] = content;
+                }
+
+                foreach (var (name, content) in demoFiles)
+                {
+                    string filePath = Path.Combine(tempDir, name + ".scl");
+                    File.WriteAllText(filePath, content, new UTF8Encoding(true));
+
+                    try
+                    {
+                        var generated = ImportArtifact(plcSoftware, name, filePath, "Program blocks");
+                        result.ImportedBlocks.AddRange(generated);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[TIA] Warning importing {name}: {ex.Message}");
+                        result.Warnings.Add($"{name}: {ex.Message}");
+                    }
+                }
+
+                // Step 5: Compile
+                Console.WriteLine("[TIA] Compiling demo project...");
+                result.CompileResult = CompileAll(plcSoftware);
+
+                // Step 6: Save
+                SaveProject();
+
+                result.Success = true;
+                result.ProjectPath = _project.Path?.FullName;
+            }
+            finally
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+
+            return result;
+        }
+
+        public class DemoResult
+        {
+            public bool Success { get; set; }
+            public string ProjectPath { get; set; }
+            public string DeviceName { get; set; }
+            public List<string> ImportedBlocks { get; set; } = new List<string>();
+            public List<string> Warnings { get; set; } = new List<string>();
+            public CompileResultDto CompileResult { get; set; }
+        }
+
+        // --- Demo SCL Constants ---
+
+        private const string DEMO_UDT_MOTOR = @"TYPE ""UDT_Motor""
+VERSION : 0.1
+   STRUCT
+      Start : Bool;           // Start command
+      Stop : Bool;            // Stop command
+      Running : Bool;         // Motor is running
+      Faulted : Bool;         // Motor fault active
+      SpeedSetpoint : Real;   // Speed setpoint (0-100%)
+      SpeedActual : Real;     // Actual speed feedback
+      RunTimeHours : Real;    // Accumulated run time
+   END_STRUCT;
+END_TYPE
+";
+
+        private const string DEMO_FB_MOTOR_CONTROL = @"FUNCTION_BLOCK ""FB_MotorControl""
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+VAR_INPUT
+   i_Start : Bool;
+   i_Stop : Bool;
+   i_SpeedSetpoint : Real;
+   i_Reset : Bool;
+END_VAR
+VAR_OUTPUT
+   o_Running : Bool;
+   o_Faulted : Bool;
+   o_SpeedActual : Real;
+END_VAR
+VAR
+   state : Int;               // 0=Stopped, 1=Starting, 2=Running, 3=Stopping, 4=Faulted
+   rampValue : Real;
+   runTimer : Real;           // Accumulated seconds
+END_VAR
+VAR_TEMP
+   dt : Real;
+END_VAR
+BEGIN
+    #dt := 0.1;  // Assume 100ms cycle
+
+    CASE #state OF
+        0:  // Stopped
+            #o_Running := FALSE;
+            #o_Faulted := FALSE;
+            #o_SpeedActual := 0.0;
+            #rampValue := 0.0;
+            IF #i_Start AND NOT #i_Stop THEN
+                #state := 1;
+            END_IF;
+
+        1:  // Starting - ramp up
+            #rampValue := #rampValue + (#dt * 20.0);  // 5s ramp
+            IF #rampValue >= #i_SpeedSetpoint THEN
+                #rampValue := #i_SpeedSetpoint;
+                #state := 2;
+            END_IF;
+            #o_SpeedActual := #rampValue;
+            #o_Running := TRUE;
+            #o_Faulted := FALSE;
+
+        2:  // Running
+            #o_Running := TRUE;
+            #o_Faulted := FALSE;
+            #o_SpeedActual := #i_SpeedSetpoint;
+            #runTimer := #runTimer + #dt;
+            IF #i_Stop THEN
+                #state := 3;
+            END_IF;
+
+        3:  // Stopping - ramp down
+            #rampValue := #rampValue - (#dt * 25.0);  // 4s ramp
+            IF #rampValue <= 0.0 THEN
+                #rampValue := 0.0;
+                #state := 0;
+            END_IF;
+            #o_SpeedActual := #rampValue;
+            #o_Running := FALSE;
+            #o_Faulted := FALSE;
+
+        4:  // Faulted
+            #o_Running := FALSE;
+            #o_Faulted := TRUE;
+            #o_SpeedActual := 0.0;
+            IF #i_Reset THEN
+                #o_Faulted := FALSE;
+                #state := 0;
+            END_IF;
+
+        ELSE  // Invalid state - go to stopped
+            #state := 0;
+            #o_Running := FALSE;
+            #o_Faulted := FALSE;
+            #o_SpeedActual := 0.0;
+    END_CASE;
+END_FUNCTION_BLOCK
+";
+
+        private const string DEMO_OB_MAIN = @"ORGANIZATION_BLOCK ""Main""
+TITLE = 'Main Program Sweep'
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+VAR
+   Pump_1 : ""FB_MotorControl"";
+   Fan_1 : ""FB_MotorControl"";
+   Conveyor_1 : ""FB_MotorControl"";
+   Pump_1_Running : Bool;
+   Pump_1_Speed : Real;
+   Fan_1_Running : Bool;
+   Fan_1_Speed : Real;
+   Conv_1_Running : Bool;
+   Conv_1_Speed : Real;
+END_VAR
+VAR_TEMP
+   tempInt : Int;
+END_VAR
+BEGIN
+    // Pump 1 - 75% speed
+    #Pump_1(i_Start := TRUE,
+            i_Stop := FALSE,
+            i_SpeedSetpoint := 75.0,
+            i_Reset := FALSE,
+            o_Running => #Pump_1_Running,
+            o_SpeedActual => #Pump_1_Speed);
+
+    // Fan 1 - 100% speed
+    #Fan_1(i_Start := TRUE,
+           i_Stop := FALSE,
+           i_SpeedSetpoint := 100.0,
+           i_Reset := FALSE,
+           o_Running => #Fan_1_Running,
+           o_SpeedActual => #Fan_1_Speed);
+
+    // Conveyor 1 - 50% speed
+    #Conveyor_1(i_Start := TRUE,
+                i_Stop := FALSE,
+                i_SpeedSetpoint := 50.0,
+                i_Reset := FALSE,
+                o_Running => #Conv_1_Running,
+                o_SpeedActual => #Conv_1_Speed);
+END_ORGANIZATION_BLOCK
+";
+
+        /// <summary>
+        /// Reimport corrected SCL sources and recompile.
+        /// Used by the compile-fix chat to apply AI-corrected code.
+        /// </summary>
+        public CompileResultDto ReimportAndCompile(Dictionary<string, string> sources)
+        {
+            if (!IsConnected || !IsProjectOpen)
+                throw new InvalidOperationException("TIA Portal not connected or no project open.");
+
+            PlcSoftware plcSoftware = GetPlcSoftware();
+
+            string tempDir = Path.Combine(Path.GetTempPath(), "PacForge", "reimport_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                foreach (var kvp in sources)
+                {
+                    string artifactName = kvp.Key;
+                    string sclContent = kvp.Value;
+                    string filePath = Path.Combine(tempDir, artifactName + ".scl");
+                    File.WriteAllText(filePath, sclContent, new UTF8Encoding(true));
+
+                    try
+                    {
+                        // Delete existing block so reimport can replace it
+                        PlcBlock existing = plcSoftware.BlockGroup.Blocks.Find(artifactName);
+                        if (existing != null)
+                        {
+                            Console.WriteLine($"[TIA] Deleting existing block: {artifactName}");
+                            existing.Delete();
+                        }
+
+                        // Also check types (UDTs)
+                        PlcType existingType = plcSoftware.TypeGroup.Types.Find(artifactName);
+                        if (existingType != null)
+                        {
+                            Console.WriteLine($"[TIA] Deleting existing type: {artifactName}");
+                            existingType.Delete();
+                        }
+
+                        ImportArtifact(plcSoftware, artifactName, filePath, "Program blocks");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[TIA] Reimport error for {artifactName}: {ex.Message}");
+                    }
+                }
+
+                // Update stored sources
+                foreach (var kvp in sources)
+                {
+                    LastImportedSources[kvp.Key] = kvp.Value;
+                }
+
+                // Compile and save
+                var compileResult = CompileAll(plcSoftware);
+                SaveProject();
+                return compileResult;
+            }
+            finally
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
         }
 
         public void Dispose()

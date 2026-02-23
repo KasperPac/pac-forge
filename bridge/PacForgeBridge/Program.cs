@@ -9,7 +9,7 @@ namespace PacForgeBridge
 
         static void Main(string[] args)
         {
-            int port = 5100;
+            int port = 5102;
 
             // Parse command-line arguments
             for (int i = 0; i < args.Length - 1; i++)
@@ -52,6 +52,12 @@ namespace PacForgeBridge
                 Console.WriteLine();
                 Console.WriteLine("Endpoints:");
                 Console.WriteLine($"  GET  /tia/status            Bridge status");
+                Console.WriteLine($"  GET  /tia/compile-result    Last compile result");
+                Console.WriteLine($"  POST /tia/connect           Connect to TIA Portal");
+                Console.WriteLine($"  POST /tia/disconnect        Disconnect TIA Portal");
+                Console.WriteLine($"  POST /tia/open-project      Open TIA project");
+                Console.WriteLine($"  POST /tia/demo/motor-control Create motor demo");
+                Console.WriteLine($"  POST /tia/demo/create       Create project from SCL");
                 Console.WriteLine($"  POST /tia/jobs              Submit job");
                 Console.WriteLine($"  GET  /tia/jobs/{{id}}         Job status");
                 Console.WriteLine($"  GET  /tia/jobs/{{id}}/results Job results");

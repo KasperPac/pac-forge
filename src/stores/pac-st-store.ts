@@ -20,6 +20,9 @@ interface PacStState {
   activeGeneratedIndex: number;
   activeApprovedIndex: number;
 
+  // Streaming
+  streamingContent: string | null;
+
   // TIA integration
   currentTiaJobId: string | null;
   pendingEditorNavigation: PendingEditorNavigation | null;
@@ -38,6 +41,10 @@ interface PacStState {
   approveArtifact: (index: number) => void;
   approveAllArtifacts: () => void;
   updateApprovedContent: (index: number, content: string) => void;
+
+  // Actions — streaming
+  appendStreamChunk: (chunk: string) => void;
+  clearStreaming: () => void;
 
   // Actions — TIA integration
   setCurrentTiaJobId: (id: string | null) => void;
@@ -60,6 +67,7 @@ export const usePacStStore = create<PacStState>((set) => ({
   approvedArtifacts: [],
   activeGeneratedIndex: 0,
   activeApprovedIndex: 0,
+  streamingContent: null,
   currentTiaJobId: null,
   pendingEditorNavigation: null,
   bottomPanelOpen: false,
@@ -106,6 +114,10 @@ export const usePacStStore = create<PacStState>((set) => ({
       return { approvedArtifacts: updated };
     }),
 
+  appendStreamChunk: (chunk) =>
+    set((s) => ({ streamingContent: (s.streamingContent ?? "") + chunk })),
+  clearStreaming: () => set({ streamingContent: null }),
+
   setCurrentTiaJobId: (id) => set({ currentTiaJobId: id }),
 
   navigateToArtifact: (artifactName, line) =>
@@ -146,6 +158,7 @@ export const usePacStStore = create<PacStState>((set) => ({
       approvedArtifacts: [],
       activeGeneratedIndex: 0,
       activeApprovedIndex: 0,
+      streamingContent: null,
       currentTiaJobId: null,
       pendingEditorNavigation: null,
       bottomPanelOpen: false,

@@ -72,6 +72,44 @@ export function useCreatePatternCandidate() {
   });
 }
 
+/**
+ * Create a pattern that is auto-approved (direct user teaching, no admin review needed).
+ */
+export function useCreateApprovedPattern() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (candidate: {
+      plc_brand: string;
+      device_type: string;
+      context: string;
+      original_snippet: string;
+      corrected_snippet: string;
+      correction_type: string;
+      explanation_tag: string;
+    }) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user?.id ?? "";
+      const { data, error } = await supabase
+        .from("pattern_candidates")
+        .insert({
+          ...candidate,
+          status: "APPROVED",
+          created_by: userId,
+          reviewed_by: userId,
+          reviewed_at: new Date().toISOString(),
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: PATTERNS_KEY });
+    },
+  });
+}
+
 export function useApprovePattern() {
   const queryClient = useQueryClient();
 
@@ -107,6 +145,23 @@ export function useRejectPattern() {
           reviewed_by: user?.id ?? "",
           reviewed_at: new Date().toISOString(),
         })
+        .eq("id", patternId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: PATTERNS_KEY });
+    },
+  });
+}
+
+export function useDeletePattern() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (patternId: string) => {
+      const { error } = await supabase
+        .from("pattern_candidates")
+        .delete()
         .eq("id", patternId);
       if (error) throw error;
     },

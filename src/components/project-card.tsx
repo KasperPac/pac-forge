@@ -21,6 +21,9 @@ export function ProjectCard({ project, onDelete }: ProjectCardProps) {
       <div className="flex items-start justify-between">
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-sm font-semibold">{project.client_name}</h3>
+          {project.project_number && (
+            <div className="font-mono text-xs text-muted-foreground">{project.project_number}</div>
+          )}
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Badge variant="secondary" className="font-mono text-[10px]">
               {project.plc_brand}

@@ -14,10 +14,11 @@ import {
   useAutoRenewLeases,
 } from "@/hooks/use-agent-reservation";
 import { useConversationHistory, useClearConversation } from "@/hooks/use-conversation";
-import { useGenerate } from "@/hooks/use-generation";
+import { useGenerateStream } from "@/hooks/use-generation";
 import { useCreatePatternCandidate, useActivePatterns } from "@/hooks/use-patterns";
 import { useAuditLog } from "@/hooks/use-audit-log";
 import { useSubmitTiaJob, useBridgeStatus, useTiaJob } from "@/hooks/use-tia-jobs";
+import { useFbTemplates } from "@/hooks/use-fb-templates";
 import { useTiaBridgeWs } from "@/hooks/use-tia-bridge-ws";
 import { usePacStStore } from "@/stores/pac-st-store";
 import { computeDiff } from "@/lib/diff-engine";
@@ -66,12 +67,13 @@ export default function PacStPage() {
   const { data: dbMessages } = useConversationHistory(sessionId);
   const clearConversation = useClearConversation();
 
-  // Generation
-  const generate = useGenerate();
+  // Generation (streaming)
+  const { generateStream, isStreaming } = useGenerateStream();
   const { setGeneratedArtifacts, currentTiaJobId, setCurrentTiaJobId, navigateToArtifact } = usePacStStore();
 
-  // Pattern detection + audit
+  // Pattern detection + audit + FB templates
   const { data: approvedPatterns } = useActivePatterns(project?.plc_brand ?? "SIEMENS_TIA");
+  const { data: fbTemplates } = useFbTemplates();
   const createPattern = useCreatePatternCandidate();
   const auditLog = useAuditLog();
 
@@ -158,7 +160,7 @@ export default function PacStPage() {
       };
       setOptimisticMessages((prev) => [...prev, userTurn]);
 
-      generate.mutate(
+      generateStream(
         {
           project,
           sessionId,
@@ -172,6 +174,7 @@ export default function PacStPage() {
               content: m.content,
             })),
           approvedPatterns: approvedPatterns ?? [],
+          fbTemplates: fbTemplates ?? [],
         },
         {
           onSuccess: (result) => {
@@ -218,10 +221,10 @@ export default function PacStPage() {
             setOptimisticMessages((prev) => [...prev, errorTurn]);
             setLogs((prev) => [...prev, `[ERROR] ${error.message}`]);
           },
-        }
+        },
       );
     },
-    [project, sessionId, sessionAgents, messages, renewNow, generate, setGeneratedArtifacts, auditLog, approvedPatterns]
+    [project, sessionId, sessionAgents, messages, renewNow, generateStream, setGeneratedArtifacts, auditLog, approvedPatterns, fbTemplates]
   );
 
   const handleAcknowledgeWarning = useCallback((id: string) => {
@@ -551,7 +554,7 @@ export default function PacStPage() {
             onReleaseAgent={handleReleaseAgent}
             onClearChat={handleClearChat}
             onEndSession={activeSession ? () => endSession.mutate(activeSession.id) : undefined}
-            sending={generate.isPending}
+            sending={isStreaming}
             clearing={clearConversation.isPending}
             endingSession={endSession.isPending}
           />

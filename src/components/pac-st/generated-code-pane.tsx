@@ -1,5 +1,5 @@
 import { useRef, useEffect } from "react";
-import { CheckCheck, Check } from "lucide-react";
+import { CheckCheck, Check, Loader2 } from "lucide-react";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ export function GeneratedCodePane() {
     approveAllArtifacts,
     pendingEditorNavigation,
     clearPendingNavigation,
+    streamingContent,
   } = usePacStStore();
 
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
@@ -80,9 +81,22 @@ export function GeneratedCodePane() {
         onSelect={setActiveGeneratedIndex}
       />
 
-      {/* Monaco editor */}
+      {/* Monaco editor or streaming view */}
       <div className="flex-1">
-        {activeArtifact ? (
+        {streamingContent != null ? (
+          <div className="flex h-full flex-col">
+            <div className="flex items-center gap-2 border-b px-3 py-1.5">
+              <Loader2 className="h-3 w-3 animate-spin text-blue-400" />
+              <span className="font-mono text-xs text-blue-400">Streaming response...</span>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto bg-[#1e1e1e] p-4">
+              <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-[#d4d4d4]">
+                {streamingContent}
+                <span className="animate-pulse">|</span>
+              </pre>
+            </div>
+          </div>
+        ) : activeArtifact ? (
           <Editor
             language={SCL_LANGUAGE_ID}
             theme="pac-dark"
