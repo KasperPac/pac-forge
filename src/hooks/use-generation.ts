@@ -71,7 +71,19 @@ export function useGenerate() {
       );
 
       if (fnError) {
-        throw new Error(fnError.message ?? "Generation failed");
+        // fnData may contain the actual error details from the Edge Function
+        const detail =
+          (fnData as { error?: string } | null)?.error ??
+          fnError.message ??
+          "Generation failed";
+        throw new Error(detail);
+      }
+
+      if (!fnData || typeof (fnData as { content?: string }).content !== "string") {
+        throw new Error(
+          "Unexpected response from generate function: " +
+            JSON.stringify(fnData).slice(0, 200)
+        );
       }
 
       const rawResponse = (fnData as { content: string }).content;
