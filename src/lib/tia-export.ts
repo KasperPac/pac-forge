@@ -1,27 +1,52 @@
 import JSZip from "jszip";
 import type { Artifact, TiaManifest } from "@/types";
+import { buildArtifactXml, toXmlFilename } from "@/lib/simatic-xml-builder";
+
+export type ExportFormat = "scl" | "xml" | "both";
+
+export interface ExportOptions {
+  format: ExportFormat;
+}
 
 /**
  * Generate a downloadable zip bundle containing all artifacts and the TIA manifest.
  * This is Mode A (offline export) — the engineer manually imports into TIA Portal.
+ *
+ * @param format - "scl" for SCL-only, "xml" for SimaticML XML-only, "both" for both
  */
 export async function generateExportBundle(
   artifacts: Artifact[],
-  manifest: TiaManifest
+  manifest: TiaManifest,
+  options: ExportOptions = { format: "both" }
 ): Promise<Blob> {
   const zip = new JSZip();
+  const { format } = options;
+  const tiaVersion = manifest.tia_version;
 
-  // Add each artifact file
   for (const artifact of artifacts) {
-    // Use approved_content if available, otherwise generated content
     const content = artifact.approved_content ?? artifact.content;
-    zip.file(artifact.filename, content);
+
+    // Add SCL file
+    if (format === "scl" || format === "both") {
+      zip.file(artifact.filename, content);
+    }
+
+    // Add XML file (if the artifact type supports it)
+    if (format === "xml" || format === "both") {
+      const xml = buildArtifactXml(artifact, tiaVersion);
+      if (xml) {
+        zip.file(toXmlFilename(artifact.filename), xml);
+      } else if (format === "xml") {
+        // For types without XML support (SCL_SOURCE, TAG_TABLE),
+        // fall back to including the raw SCL file
+        zip.file(artifact.filename, content);
+      }
+    }
   }
 
   // Add the manifest
   zip.file("tia_manifest.json", JSON.stringify(manifest, null, 2));
 
-  // Generate the zip
   return zip.generateAsync({ type: "blob" });
 }
 
@@ -31,9 +56,10 @@ export async function generateExportBundle(
 export async function downloadExportBundle(
   artifacts: Artifact[],
   manifest: TiaManifest,
-  projectName: string
+  projectName: string,
+  options: ExportOptions = { format: "both" }
 ): Promise<void> {
-  const blob = await generateExportBundle(artifacts, manifest);
+  const blob = await generateExportBundle(artifacts, manifest, options);
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
   const filename = `${projectName.replace(/[^a-zA-Z0-9-_]/g, "_")}_${timestamp}.zip`;

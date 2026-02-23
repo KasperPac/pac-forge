@@ -11,7 +11,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
 import { downloadExportBundle } from "@/lib/tia-export";
+import type { ExportFormat } from "@/lib/tia-export";
 import type { Artifact, TiaManifest, SafetyWarning } from "@/types";
 
 interface ExportDialogProps {
@@ -35,6 +38,7 @@ export function ExportDialog({
 }: ExportDialogProps) {
   const [acknowledged, setAcknowledged] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [format, setFormat] = useState<ExportFormat>("both");
 
   const unacknowledgedWarnings = warnings.filter((w) => !w.acknowledged);
   const hasSafetyWarnings = unacknowledgedWarnings.length > 0;
@@ -42,7 +46,7 @@ export function ExportDialog({
   async function handleExport() {
     setExporting(true);
     try {
-      await downloadExportBundle(artifacts, manifest, projectName);
+      await downloadExportBundle(artifacts, manifest, projectName, { format });
       onExported?.();
       onOpenChange(false);
     } catch (err) {
@@ -101,6 +105,37 @@ export function ExportDialog({
             ))}
           </div>
         </ScrollArea>
+
+        <Separator />
+
+        {/* Export format selector */}
+        <div className="space-y-2">
+          <div className="font-mono text-[10px] text-muted-foreground">EXPORT FORMAT</div>
+          <RadioGroup
+            value={format}
+            onValueChange={(v) => setFormat(v as ExportFormat)}
+            className="gap-1.5"
+          >
+            <div className="flex items-center gap-2">
+              <RadioGroupItem value="both" id="fmt-both" />
+              <Label htmlFor="fmt-both" className="font-mono text-[10px] cursor-pointer">
+                Both SCL + SimaticML XML
+              </Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <RadioGroupItem value="scl" id="fmt-scl" />
+              <Label htmlFor="fmt-scl" className="font-mono text-[10px] cursor-pointer">
+                SCL only (External Source import)
+              </Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <RadioGroupItem value="xml" id="fmt-xml" />
+              <Label htmlFor="fmt-xml" className="font-mono text-[10px] cursor-pointer">
+                SimaticML XML only (native TIA import)
+              </Label>
+            </div>
+          </RadioGroup>
+        </div>
 
         {/* Safety warnings */}
         {hasSafetyWarnings && (
