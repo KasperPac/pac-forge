@@ -15,6 +15,7 @@ import type {
   TiaManifest,
   PatternCandidate,
   FbTemplate,
+  DesignProfile,
 } from "@/types";
 
 const ARTIFACTS_KEY = ["artifacts"] as const;
@@ -28,6 +29,7 @@ export interface GenerateInput {
   conversationHistory?: Array<{ role: "user" | "assistant"; content: string }>;
   approvedPatterns?: PatternCandidate[];
   fbTemplates?: FbTemplate[];
+  designProfile?: DesignProfile;
 }
 
 export interface GenerateResult {
@@ -42,7 +44,7 @@ export interface GenerateResult {
 
 // --- Shared post-processing pipeline (steps 3-9) ---
 
-async function processRawResponse(
+export async function processRawResponse(
   rawResponse: string,
   input: GenerateInput,
 ): Promise<GenerateResult> {
@@ -162,23 +164,99 @@ async function processRawResponse(
   };
 }
 
-// --- Auth + prompt helpers ---
+// --- Auth + streaming helpers (exported for reuse by other hooks) ---
 
-async function getAuthToken(): Promise<string> {
+export async function getAuthToken(): Promise<string> {
   const { data: { session: authSession } } = await supabase.auth.getSession();
   const token = authSession?.access_token;
   if (!token) throw new Error("Not authenticated");
   return token;
 }
 
+/**
+ * Streams SSE from the Edge Function and returns the full accumulated content.
+ * Calls `onChunk` with each text delta as it arrives.
+ */
+export async function streamFromEdgeFunction(
+  body: Record<string, unknown>,
+  signal: AbortSignal,
+  onChunk: (text: string) => void,
+): Promise<string> {
+  const token = await getAuthToken();
+
+  const response = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
+      },
+      body: JSON.stringify(body),
+      signal,
+    }
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    let detail: string;
+    try {
+      const parsed = JSON.parse(text);
+      detail = parsed.error ?? parsed.details ?? text;
+    } catch {
+      detail = text;
+    }
+    throw new Error(`Generation failed (${response.status}): ${detail}`);
+  }
+
+  if (!response.body) {
+    throw new Error("No response body for streaming");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let fullContent = "";
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const jsonStr = line.slice(6).trim();
+      if (!jsonStr || jsonStr === "[DONE]") continue;
+
+      try {
+        const data = JSON.parse(jsonStr);
+        if (data.type === "content_block_delta" && data.delta?.type === "text_delta") {
+          const text = data.delta.text as string;
+          fullContent += text;
+          onChunk(text);
+        }
+      } catch {
+        // Skip malformed JSON lines
+      }
+    }
+  }
+
+  return fullContent;
+}
+
 function buildRequestBody(input: GenerateInput, stream: boolean) {
-  const { project, sessionId, generationMode, approvedPatterns, fbTemplates, userMessage, conversationHistory, agents } = input;
+  const { project, sessionId, generationMode, approvedPatterns, fbTemplates, designProfile, userMessage, conversationHistory, agents } = input;
   const { systemPrompt, messages } = buildPrompt({
     project,
     agents,
     generationMode,
     approvedPatterns,
     fbTemplates,
+    designProfile,
     userMessage,
     conversationHistory,
   });
@@ -272,72 +350,11 @@ export function useGenerateStream() {
       abortRef.current = abort;
 
       try {
-        const token = await getAuthToken();
-
-        const response = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-              apikey: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
-            },
-            body: JSON.stringify(fetchBody),
-            signal: abort.signal,
-          }
+        const fullContent = await streamFromEdgeFunction(
+          fetchBody,
+          abort.signal,
+          appendStreamChunk,
         );
-
-        if (!response.ok) {
-          const body = await response.text();
-          let detail: string;
-          try {
-            const parsed = JSON.parse(body);
-            detail = parsed.error ?? parsed.details ?? body;
-          } catch {
-            detail = body;
-          }
-          throw new Error(`Generation failed (${response.status}): ${detail}`);
-        }
-
-        if (!response.body) {
-          throw new Error("No response body for streaming");
-        }
-
-        // Read SSE stream
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let fullContent = "";
-        let buffer = "";
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-
-          // Process complete SSE lines
-          const lines = buffer.split("\n");
-          // Keep the last potentially incomplete line in the buffer
-          buffer = lines.pop() ?? "";
-
-          for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
-            const jsonStr = line.slice(6).trim();
-            if (!jsonStr || jsonStr === "[DONE]") continue;
-
-            try {
-              const data = JSON.parse(jsonStr);
-              if (data.type === "content_block_delta" && data.delta?.type === "text_delta") {
-                const text = data.delta.text as string;
-                fullContent += text;
-                appendStreamChunk(text);
-              }
-            } catch {
-              // Skip malformed JSON lines
-            }
-          }
-        }
 
         // Stream complete — run post-processing pipeline
         setIsStreaming(false);

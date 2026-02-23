@@ -50,6 +50,7 @@ export type InteractionMode =
 export const GENERATION_MODES = {
   FB_PER_DEVICE: "FB_PER_DEVICE",
   PROJECT_LEVEL: "PROJECT_LEVEL",
+  PROCESS_CODE: "PROCESS_CODE",
 } as const;
 
 export type GenerationMode =

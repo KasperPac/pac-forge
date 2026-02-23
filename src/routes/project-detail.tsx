@@ -12,6 +12,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { useProject, useUpdateProject } from "@/hooks/use-projects";
+import { useDesignProfile } from "@/hooks/use-design-profiles";
 import { ProjectForm } from "@/components/project-form";
 import { IoListEditor } from "@/components/io-list-editor";
 import type { IoEntry, ProjectUpdate } from "@/types";
@@ -21,6 +22,7 @@ export default function ProjectDetailPage() {
   const navigate = useNavigate();
   const { data: project, isLoading, error } = useProject(id);
   const updateProject = useUpdateProject();
+  const { data: designProfile } = useDesignProfile(project?.design_profile_id ?? undefined);
   const [editing, setEditing] = useState(false);
 
   if (isLoading) {
@@ -162,6 +164,10 @@ export default function ProjectDetailPage() {
                   <div>
                     <div className="text-xs text-muted-foreground">Safety Level</div>
                     <div>{project.safety_level || "None"}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Design Profile</div>
+                    <div>{designProfile?.name ?? "None"}</div>
                   </div>
                   <div>
                     <div className="text-xs text-muted-foreground">Created</div>

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ProjectCreate, ProjectUpdate, CpuType } from "@/types";
 import { PLC_BRANDS, CPU_TYPES } from "@/types";
+import { useDesignProfiles } from "@/hooks/use-design-profiles";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -40,6 +41,8 @@ export function ProjectForm({
   );
   const [safetyLevel, setSafetyLevel] = useState(initialValues?.safety_level ?? "None");
   const [safetyNotes, setSafetyNotes] = useState(initialValues?.safety_notes ?? "");
+  const [designProfileId, setDesignProfileId] = useState(initialValues?.design_profile_id ?? "none");
+  const { data: profiles } = useDesignProfiles();
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -56,6 +59,9 @@ export function ProjectForm({
       safety_level: safetyLevel,
       safety_notes: safetyNotes,
       revision_log: initialValues?.revision_log ?? [],
+      design_profile_id: designProfileId !== "none" ? designProfileId : null,
+      functional_description: initialValues?.functional_description ?? null,
+      functional_description_filename: initialValues?.functional_description_filename ?? null,
     };
 
     if (mode === "edit") {
@@ -66,6 +72,8 @@ export function ProjectForm({
       if (cpuType !== initialValues?.cpu_type) updates.cpu_type = cpuType;
       if (safetyLevel !== initialValues?.safety_level) updates.safety_level = safetyLevel;
       if (safetyNotes !== initialValues?.safety_notes) updates.safety_notes = safetyNotes;
+      const newProfileId = designProfileId !== "none" ? designProfileId : null;
+      if (newProfileId !== (initialValues?.design_profile_id ?? null)) updates.design_profile_id = newProfileId;
       onSubmit(updates);
     } else {
       onSubmit(data);
@@ -142,6 +150,23 @@ export function ProjectForm({
             <SelectContent>
               {SAFETY_LEVELS.map((v) => (
                 <SelectItem key={v} value={v}>{v}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div>
+          <Label className="font-mono text-xs">Design Profile</Label>
+          <Select value={designProfileId} onValueChange={setDesignProfileId}>
+            <SelectTrigger className="mt-1">
+              <SelectValue placeholder="None" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">None</SelectItem>
+              {profiles?.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name}{p.client_name ? ` (${p.client_name})` : ""}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>

@@ -55,6 +55,7 @@ export interface Project {
   id: string;
   client_name: string;
   project_number: string | null;
+  design_profile_id: string | null;
   plc_brand: PlcBrand;
   tia_version: string;
   cpu_type: CpuType;
@@ -65,6 +66,8 @@ export interface Project {
   safety_level: string;
   safety_notes: string;
   revision_log: RevisionLogEntry[];
+  functional_description: string | null;
+  functional_description_filename: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;

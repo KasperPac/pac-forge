@@ -39,6 +39,7 @@ interface ChatPaneProps {
   onReleaseAgent?: (reservationId: string, agentId: string) => void;
   onClearChat?: () => void;
   onEndSession?: () => void;
+  profileName?: string;
   sending?: boolean;
   clearing?: boolean;
   endingSession?: boolean;
@@ -55,6 +56,7 @@ export function ChatPane({
   onReleaseAgent,
   onClearChat,
   onEndSession,
+  profileName,
   sending,
   clearing,
   endingSession,
@@ -113,6 +115,11 @@ export function ChatPane({
               <Badge variant="outline" className="font-mono text-xs">
                 {project.tia_version}
               </Badge>
+              {profileName && (
+                <Badge variant="secondary" className="font-mono text-xs">
+                  {profileName}
+                </Badge>
+              )}
             </div>
             <div className="flex items-center gap-0.5">
               {onClearChat && messages.length > 0 && (

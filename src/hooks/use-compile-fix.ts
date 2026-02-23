@@ -4,7 +4,7 @@ import { buildCompileFixSystemPrompt, formatCompileErrorContext } from "@/lib/co
 import { parseCompileFixResponse } from "@/lib/compile-fix-parser";
 import type { CompileErrorInfo } from "@/lib/compile-fix-prompt";
 import type { FixedSource } from "@/lib/compile-fix-parser";
-import type { PatternCandidate } from "@/types";
+import type { PatternCandidate, DesignProfile } from "@/types";
 
 interface CompileFixInput {
   errors: CompileErrorInfo[];
@@ -16,6 +16,8 @@ interface CompileFixInput {
   conversationHistory?: Array<{ role: "user" | "assistant"; content: string }>;
   /** Approved correction patterns to inject into the system prompt */
   approvedPatterns?: PatternCandidate[];
+  /** Design profile for customer-specific code rules */
+  designProfile?: DesignProfile;
 }
 
 interface CompileFixResult {
@@ -27,9 +29,9 @@ interface CompileFixResult {
 export function useCompileFix() {
   return useMutation({
     mutationFn: async (input: CompileFixInput): Promise<CompileFixResult> => {
-      const { errors, warnings, sources, userMessage, conversationHistory, approvedPatterns } = input;
+      const { errors, warnings, sources, userMessage, conversationHistory, approvedPatterns, designProfile } = input;
 
-      const systemPrompt = buildCompileFixSystemPrompt(approvedPatterns);
+      const systemPrompt = buildCompileFixSystemPrompt(approvedPatterns, designProfile);
 
       // Build the user message — either the auto-generated context or a follow-up
       const autoContext = formatCompileErrorContext(errors, warnings, sources);

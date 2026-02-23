@@ -11,6 +11,7 @@ import AgentProfilePage from "@/routes/agent-profile";
 import PatternsPage from "@/routes/patterns";
 import TiaConsolePage from "@/routes/tia-console";
 import FbLibraryPage from "@/routes/fb-library";
+import ProfilesPage from "@/routes/profiles";
 
 const router = createBrowserRouter([
   {
@@ -32,6 +33,7 @@ const router = createBrowserRouter([
           { path: "patterns", element: <PatternsPage /> },
           { path: "tia-console", element: <TiaConsolePage /> },
           { path: "fb-library", element: <FbLibraryPage /> },
+          { path: "profiles", element: <ProfilesPage /> },
         ],
       },
     ],

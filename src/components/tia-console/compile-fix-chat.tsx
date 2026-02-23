@@ -33,6 +33,7 @@ import { computeDiff, getChangedContent } from "@/lib/diff-engine";
 import { CORRECTION_TYPES } from "@/types";
 import type { CompileErrorInfo } from "@/lib/compile-fix-prompt";
 import type { FixedSource } from "@/lib/compile-fix-parser";
+import type { DesignProfile } from "@/types";
 
 const DEFAULT_MAX_ROUNDS = 5;
 
@@ -63,6 +64,8 @@ interface CompileFixChatProps {
   }) => void;
   /** Called when the fix session is fully done (user dismissed remember prompt or cleared chat) */
   onFixSessionEnd?: () => void;
+  /** Optional design profile for customer-specific code rules */
+  designProfile?: DesignProfile;
 }
 
 /** Fingerprint errors for stuck detection */
@@ -80,6 +83,7 @@ export function CompileFixChat({
   isConnected,
   onCompileResultUpdate,
   onFixSessionEnd,
+  designProfile,
 }: CompileFixChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -215,6 +219,7 @@ export function CompileFixChat({
           userMessage: userMsg,
           approvedPatterns,
           conversationHistory,
+          designProfile,
         },
         {
           onSuccess: (result) => {

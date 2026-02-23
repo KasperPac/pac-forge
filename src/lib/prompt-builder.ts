@@ -1,4 +1,4 @@
-import type { Project, Agent, IoEntry, TagDbDefinition, GenerationMode, PatternCandidate, FbTemplate } from "@/types";
+import type { Project, Agent, IoEntry, TagDbDefinition, GenerationMode, PatternCandidate, FbTemplate, DesignProfile } from "@/types";
 import { PLATFORM_RULES } from "@/lib/platform-rules";
 import { getAgentProfile } from "@/lib/agent-profiles";
 
@@ -45,6 +45,7 @@ interface PromptBuilderInput {
   generationMode: GenerationMode;
   approvedPatterns?: PatternCandidate[];
   fbTemplates?: FbTemplate[];
+  designProfile?: DesignProfile;
   userMessage: string;
   conversationHistory?: Array<{ role: "user" | "assistant"; content: string }>;
 }
@@ -96,6 +97,15 @@ function formatAgentRoles(agents: Agent[]): string {
     .join("\n\n");
 }
 
+function formatDesignProfile(profile: DesignProfile): string {
+  if (!profile.rules.trim()) return "";
+  return `## Code Design Profile: ${profile.name}
+
+The following rules define the customer's code standards. ALL generated code MUST follow these rules exactly.
+
+${profile.rules}`;
+}
+
 function formatFbTemplates(templates: FbTemplate[]): string {
   if (templates.length === 0) return "";
   const blocks = templates.map((t) => {
@@ -131,7 +141,7 @@ export function formatPatterns(patterns: PatternCandidate[]): string {
 }
 
 export function buildPrompt(input: PromptBuilderInput): BuiltPrompt {
-  const { project, agents, generationMode, approvedPatterns, fbTemplates, userMessage, conversationHistory } = input;
+  const { project, agents, generationMode, approvedPatterns, fbTemplates, designProfile, userMessage, conversationHistory } = input;
 
   const generationModeDesc =
     generationMode === "FB_PER_DEVICE"
@@ -163,6 +173,7 @@ ${PLATFORM_RULES}
 - Safety Level: ${project.safety_level}
 ${project.safety_notes ? `- Safety Notes: ${project.safety_notes}` : ""}
 
+${designProfile ? formatDesignProfile(designProfile) : ""}
 ## IO List
 ${formatIoList(project.io_lists)}
 

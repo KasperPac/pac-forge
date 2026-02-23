@@ -15,10 +15,12 @@ import {
 } from "@/hooks/use-agent-reservation";
 import { useConversationHistory, useClearConversation } from "@/hooks/use-conversation";
 import { useGenerateStream } from "@/hooks/use-generation";
+import { useProcessGenerate } from "@/hooks/use-process-generate";
 import { useCreatePatternCandidate, useActivePatterns } from "@/hooks/use-patterns";
 import { useAuditLog } from "@/hooks/use-audit-log";
 import { useSubmitTiaJob, useBridgeStatus, useTiaJob } from "@/hooks/use-tia-jobs";
 import { useFbTemplates } from "@/hooks/use-fb-templates";
+import { useDesignProfile } from "@/hooks/use-design-profiles";
 import { useTiaBridgeWs } from "@/hooks/use-tia-bridge-ws";
 import { usePacStStore } from "@/stores/pac-st-store";
 import { computeDiff } from "@/lib/diff-engine";
@@ -28,6 +30,7 @@ import { SessionStartDialog } from "@/components/session-start-dialog";
 import { ExportDialog } from "@/components/pac-st/export-dialog";
 import { TiaSubmitDialog } from "@/components/pac-st/tia-submit-dialog";
 import { ChatPane } from "@/components/pac-st/chat-pane";
+import { ProcessUploadPane } from "@/components/pac-st/process-upload-pane";
 import { GeneratedCodePane } from "@/components/pac-st/generated-code-pane";
 import { ApprovedCodePane } from "@/components/pac-st/approved-code-pane";
 import { BottomPanel } from "@/components/pac-st/bottom-panel";
@@ -69,11 +72,16 @@ export default function PacStPage() {
 
   // Generation (streaming)
   const { generateStream, isStreaming } = useGenerateStream();
+  const { generateProcess, isStreaming: isProcessStreaming } = useProcessGenerate();
   const { setGeneratedArtifacts, currentTiaJobId, setCurrentTiaJobId, navigateToArtifact } = usePacStStore();
+
+  // Left panel mode: chat vs process code
+  const [leftPanelMode, setLeftPanelMode] = useState<"chat" | "process">("chat");
 
   // Pattern detection + audit + FB templates
   const { data: approvedPatterns } = useActivePatterns(project?.plc_brand ?? "SIEMENS_TIA");
   const { data: fbTemplates } = useFbTemplates();
+  const { data: designProfile } = useDesignProfile(project?.design_profile_id ?? undefined);
   const createPattern = useCreatePatternCandidate();
   const auditLog = useAuditLog();
 
@@ -175,6 +183,7 @@ export default function PacStPage() {
             })),
           approvedPatterns: approvedPatterns ?? [],
           fbTemplates: fbTemplates ?? [],
+          designProfile,
         },
         {
           onSuccess: (result) => {
@@ -224,7 +233,57 @@ export default function PacStPage() {
         },
       );
     },
-    [project, sessionId, sessionAgents, messages, renewNow, generateStream, setGeneratedArtifacts, auditLog, approvedPatterns, fbTemplates]
+    [project, sessionId, sessionAgents, messages, renewNow, generateStream, setGeneratedArtifacts, auditLog, approvedPatterns, fbTemplates, designProfile]
+  );
+
+  const handleProcessGenerate = useCallback(
+    (functionalDescription: string) => {
+      if (!project || !sessionId) return;
+
+      renewNow();
+
+      generateProcess(
+        {
+          project,
+          sessionId,
+          agents: sessionAgents,
+          approvedPatterns: approvedPatterns ?? [],
+          fbTemplates: fbTemplates ?? [],
+          designProfile,
+          functionalDescription,
+        },
+        {
+          onSuccess: (result) => {
+            setGeneratedArtifacts(result.artifacts);
+            setCurrentManifest(result.manifest);
+
+            if (result.warnings.length > 0) {
+              setWarnings((prev) => [...prev, ...result.warnings]);
+            }
+
+            setLogs((prev) => [
+              ...prev,
+              `[INFO] Process code: generated ${result.artifacts.length} artifact(s)`,
+            ]);
+
+            auditLog.mutate({
+              action: "GENERATION",
+              projectId: project.id,
+              details: {
+                session_id: sessionId,
+                mode: "PROCESS_CODE",
+                artifact_count: result.artifacts.length,
+                warning_count: result.warnings.length,
+              },
+            });
+          },
+          onError: (error) => {
+            setLogs((prev) => [...prev, `[ERROR] Process code generation failed: ${error.message}`]);
+          },
+        },
+      );
+    },
+    [project, sessionId, sessionAgents, renewNow, generateProcess, setGeneratedArtifacts, auditLog, approvedPatterns, fbTemplates, designProfile],
   );
 
   const handleAcknowledgeWarning = useCallback((id: string) => {
@@ -543,21 +602,58 @@ export default function PacStPage() {
       {/* Main three-pane area */}
       <ResizablePanelGroup orientation="horizontal" className="flex-1">
         <ResizablePanel defaultSize={30} minSize={15}>
-          <ChatPane
-            project={project ?? null}
-            agents={sessionAgents}
-            reservations={reservations ?? undefined}
-            messages={messages}
-            warnings={warnings}
-            onSend={handleSend}
-            onAcknowledgeWarning={handleAcknowledgeWarning}
-            onReleaseAgent={handleReleaseAgent}
-            onClearChat={handleClearChat}
-            onEndSession={activeSession ? () => endSession.mutate(activeSession.id) : undefined}
-            sending={isStreaming}
-            clearing={clearConversation.isPending}
-            endingSession={endSession.isPending}
-          />
+          <div className="flex h-full flex-col">
+            {/* Mode toggle */}
+            <div className="flex border-b">
+              <button
+                onClick={() => setLeftPanelMode("chat")}
+                className={`flex-1 px-3 py-1.5 font-mono text-xs transition-colors ${
+                  leftPanelMode === "chat"
+                    ? "border-b-2 border-foreground text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Chat
+              </button>
+              <button
+                onClick={() => setLeftPanelMode("process")}
+                className={`flex-1 px-3 py-1.5 font-mono text-xs transition-colors ${
+                  leftPanelMode === "process"
+                    ? "border-b-2 border-foreground text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Process Code
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="min-h-0 flex-1">
+              {leftPanelMode === "chat" ? (
+                <ChatPane
+                  project={project ?? null}
+                  agents={sessionAgents}
+                  reservations={reservations ?? undefined}
+                  messages={messages}
+                  warnings={warnings}
+                  onSend={handleSend}
+                  onAcknowledgeWarning={handleAcknowledgeWarning}
+                  onReleaseAgent={handleReleaseAgent}
+                  onClearChat={handleClearChat}
+                  onEndSession={activeSession ? () => endSession.mutate(activeSession.id) : undefined}
+                  profileName={designProfile?.name}
+                  sending={isStreaming}
+                  clearing={clearConversation.isPending}
+                  endingSession={endSession.isPending}
+                />
+              ) : (
+                <ProcessUploadPane
+                  onGenerate={handleProcessGenerate}
+                  generating={isProcessStreaming}
+                />
+              )}
+            </div>
+          </div>
         </ResizablePanel>
 
         <ResizableHandle withHandle />

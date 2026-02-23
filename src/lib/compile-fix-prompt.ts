@@ -1,6 +1,6 @@
 import { PLATFORM_RULES } from "@/lib/platform-rules";
 import { formatPatterns } from "@/lib/prompt-builder";
-import type { PatternCandidate } from "@/types";
+import type { PatternCandidate, DesignProfile } from "@/types";
 
 export interface CompileErrorInfo {
   artifact_name: string;
@@ -14,10 +14,15 @@ export interface CompileErrorInfo {
  * Build the system prompt for the compile-fix chat.
  * Optionally injects approved correction patterns so the AI learns from past fixes.
  */
-export function buildCompileFixSystemPrompt(approvedPatterns?: PatternCandidate[]): string {
+export function buildCompileFixSystemPrompt(approvedPatterns?: PatternCandidate[], designProfile?: DesignProfile): string {
   const patternsSection =
     approvedPatterns && approvedPatterns.length > 0
       ? `\n\n## Learned Corrections\n\nThese corrections were taught by the user from previous compile errors. Apply them when relevant:\n\n${formatPatterns(approvedPatterns)}`
+      : "";
+
+  const profileSection =
+    designProfile?.rules?.trim()
+      ? `\n\n## Code Design Profile: ${designProfile.name}\n\n${designProfile.rules}`
       : "";
 
   return `You are Pac-ST Compile Fix, a specialist in fixing Siemens TIA Portal SCL compile errors.
@@ -25,7 +30,7 @@ export function buildCompileFixSystemPrompt(approvedPatterns?: PatternCandidate[
 You will receive compile errors/warnings along with the original SCL source code.
 Your job is to analyze the errors, identify root causes, and return corrected SCL code.
 
-${PLATFORM_RULES}${patternsSection}
+${PLATFORM_RULES}${profileSection}${patternsSection}
 
 ## Output Format
 

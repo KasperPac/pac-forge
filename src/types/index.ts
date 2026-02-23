@@ -8,3 +8,4 @@ export * from "./pattern";
 export * from "./snapshot";
 export * from "./tia";
 export * from "./fb-template";
+export * from "./design-profile";
