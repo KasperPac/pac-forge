@@ -6,7 +6,11 @@ export type PlcBrand = (typeof PLC_BRANDS)[keyof typeof PLC_BRANDS];
 
 export const CPU_TYPES = {
   "S7-1200": "S7-1200",
+  "S7-1200F": "S7-1200F",
   "S7-1500": "S7-1500",
+  "S7-1500F": "S7-1500F",
+  "S7-1500T": "S7-1500T",
+  "S7-1500TF": "S7-1500TF",
 } as const;
 
 export type CpuType = (typeof CPU_TYPES)[keyof typeof CPU_TYPES];
