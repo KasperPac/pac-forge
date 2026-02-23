@@ -6,11 +6,29 @@ import type { Project, Agent, IoEntry, TagDbDefinition, GenerationMode, PatternC
  */
 const PLATFORM_RULES = `## Siemens TIA Platform Rules
 
+### SCL Language Rules (CRITICAL — violations cause compile errors)
+
+1. CASE labels MUST be integer literals, NEVER variables.
+   WRONG: \`CASE #State OF STATE_INIT: ...\` (where STATE_INIT is a VAR)
+   CORRECT: \`CASE #State OF 0: (* INIT *) 1: (* IDLE *) ...\`
+
+2. IEC Timer calls (TON, TOF, TP) MUST always include both IN and PT parameters.
+   WRONG: \`#MyTimer(IN := FALSE);\`
+   CORRECT: \`#MyTimer(IN := FALSE, PT := T#0s);\`
+
+3. Use # prefix for instance variables in FBs (e.g., #Data.State, #l_IO).
+
+4. Use PLC data types (UDTs) instead of anonymous STRUCTs in block interfaces.
+
+5. ARRAY indices are 1-based: ARRAY[1..n].
+
+6. Every block needs { S7_Optimized_Access := 'TRUE' } and VERSION : 0.1
+
 ### Core Requirements
-- Deterministic CASE-based state machines.
+- Deterministic CASE-based state machines with integer literal labels.
 - Human-readable variable names and structure.
 - Avoid copy/paste per zone; use arrays where applicable.
-- Use clear separation: IO mapping, state machine, alarms/faults, outputs.
+- Use clear separation: IO mapping, state machine, alarms/faults, timer management, output mapping.
 
 ### Alarm Philosophy
 - Latching alarms.
@@ -21,16 +39,17 @@ const PLATFORM_RULES = `## Siemens TIA Platform Rules
 ### IO Indexing Rules
 - IO mapping must be deterministic and explicit.
 - Prefer UDT + arrays for IO structures.
-- Validate index bounds.
+- Validate index bounds before array access.
 - Flag misalignment risk as high severity.
 
 ### Output / Artifact Rules
 - Generate artifacts as separate files:
-  - UDTs, FBs, FCs, DBs, OBs
+  - UDTs (imported first), FBs, FCs, DBs, OBs
 - Provide a manifest describing dependencies:
   - UDTs before FBs
   - DBs after UDTs
   - OB after FB/DB when needed
+- File naming: UDT_Name.scl, FB_Name.scl, FC_Name.scl, DB_Name.scl
 
 ### Safety
 - May generate unsafe code if requested, but must clearly warn.
