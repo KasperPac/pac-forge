@@ -57,14 +57,14 @@ export function VersionSelector({ artifactId, projectId, onRollback }: VersionSe
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 px-2 font-mono text-[10px]"
+            className="h-6 px-2 font-mono text-xs"
             disabled={!hasSnapshots}
             title="Version history"
           >
             <History className="mr-1 h-3 w-3" />
             Versions
             {hasSnapshots && (
-              <Badge variant="secondary" className="ml-1 px-1 py-0 font-mono text-[8px]">
+              <Badge variant="secondary" className="ml-1 px-1 py-0 font-mono text-xs">
                 {snapshots.length}
               </Badge>
             )}
@@ -79,14 +79,14 @@ export function VersionSelector({ artifactId, projectId, onRollback }: VersionSe
             >
               <div className="flex items-center gap-1.5">
                 <RotateCcw className="h-3 w-3 text-muted-foreground" />
-                <span className="font-mono text-[10px]">
+                <span className="font-mono text-xs">
                   v{snapshot.version_number}
                 </span>
-                <Badge variant="outline" className="px-1 py-0 font-mono text-[8px]">
+                <Badge variant="outline" className="px-1 py-0 font-mono text-xs">
                   {snapshot.trigger}
                 </Badge>
               </div>
-              <span className="font-mono text-[9px] text-muted-foreground">
+              <span className="font-mono text-xs text-muted-foreground">
                 {new Date(snapshot.created_at).toLocaleString()}
               </span>
             </DropdownMenuItem>

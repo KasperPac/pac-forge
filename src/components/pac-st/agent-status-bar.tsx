@@ -32,7 +32,7 @@ function LeaseCountdown({ expiresAt }: { expiresAt: string }) {
   const isLow = remaining !== "expired" && parseInt(remaining) < 5;
 
   return (
-    <span className={`font-mono text-[9px] ${isLow ? "text-amber-400" : "text-muted-foreground"}`}>
+    <span className={`font-mono text-xs ${isLow ? "text-amber-400" : "text-muted-foreground"}`}>
       {remaining}
     </span>
   );
@@ -49,8 +49,7 @@ export function AgentStatusBar({ agents, reservations, onReleaseAgent }: AgentSt
   }
 
   return (
-    <div className="space-y-1">
-      <div className="font-mono text-[10px] text-muted-foreground">AGENTS</div>
+    <div>
       <div className="flex flex-wrap gap-1">
         {agents.map((agent) => {
           const reservation = reservations?.find((r) => r.agent_id === agent.id);
@@ -61,9 +60,9 @@ export function AgentStatusBar({ agents, reservations, onReleaseAgent }: AgentSt
               className="flex items-center gap-1 rounded-md border px-2 py-1"
             >
               <div className="h-1.5 w-1.5 shrink-0 rounded-full bg-green-500" />
-              <span className="font-mono text-[10px]">{agent.display_name}</span>
+              <span className="font-mono text-xs">{agent.display_name}</span>
               {agent.specialties.slice(0, 2).map((s) => (
-                <Badge key={s} variant="outline" className="px-1 py-0 text-[8px]">
+                <Badge key={s} variant="outline" className="px-1 py-0 text-xs">
                   {s}
                 </Badge>
               ))}
@@ -88,3 +87,5 @@ export function AgentStatusBar({ agents, reservations, onReleaseAgent }: AgentSt
     </div>
   );
 }
+
+export { LeaseCountdown };

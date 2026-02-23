@@ -41,7 +41,7 @@ export function ArtifactTabs({ artifacts, activeIndex, onSelect }: ArtifactTabsP
         >
           <Badge
             variant="secondary"
-            className={cn("px-1 py-0 text-[9px] font-bold", TYPE_COLORS[artifact.type])}
+            className={cn("px-1 py-0 text-xs font-bold", TYPE_COLORS[artifact.type])}
           >
             {artifact.type}
           </Badge>

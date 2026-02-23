@@ -39,14 +39,14 @@ export function RollbackDialog({
               A new snapshot will be created to record the rollback.
             </div>
             <div className="flex items-center gap-2 rounded-md border px-3 py-2">
-              <Badge variant="outline" className="font-mono text-[9px]">
+              <Badge variant="outline" className="font-mono text-xs">
                 {snapshot.trigger}
               </Badge>
-              <span className="font-mono text-[10px] text-muted-foreground">
+              <span className="font-mono text-xs text-muted-foreground">
                 {new Date(snapshot.created_at).toLocaleString()}
               </span>
             </div>
-            <pre className="max-h-32 overflow-auto rounded bg-muted/50 p-2 font-mono text-[10px]">
+            <pre className="max-h-32 overflow-auto rounded bg-muted/50 p-2 font-mono text-xs">
               {snapshot.content.slice(0, 500)}
               {snapshot.content.length > 500 ? "\n..." : ""}
             </pre>

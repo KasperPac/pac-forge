@@ -71,17 +71,17 @@ export function ExportDialog({
 
         {/* Manifest summary */}
         <div className="space-y-2">
-          <div className="font-mono text-[10px] text-muted-foreground">MANIFEST</div>
+          <div className="font-mono text-xs text-muted-foreground">MANIFEST</div>
           <div className="rounded-md border">
             <div className="grid grid-cols-2 gap-x-4 gap-y-1 px-3 py-2">
-              <div className="font-mono text-[10px] text-muted-foreground">Platform</div>
-              <div className="font-mono text-[10px]">{manifest.platform}</div>
-              <div className="font-mono text-[10px] text-muted-foreground">TIA Version</div>
-              <div className="font-mono text-[10px]">{manifest.tia_version}</div>
-              <div className="font-mono text-[10px] text-muted-foreground">CPU</div>
-              <div className="font-mono text-[10px]">{manifest.cpu_type}</div>
-              <div className="font-mono text-[10px] text-muted-foreground">Artifacts</div>
-              <div className="font-mono text-[10px]">{manifest.artifacts.length}</div>
+              <div className="font-mono text-xs text-muted-foreground">Platform</div>
+              <div className="font-mono text-xs">{manifest.platform}</div>
+              <div className="font-mono text-xs text-muted-foreground">TIA Version</div>
+              <div className="font-mono text-xs">{manifest.tia_version}</div>
+              <div className="font-mono text-xs text-muted-foreground">CPU</div>
+              <div className="font-mono text-xs">{manifest.cpu_type}</div>
+              <div className="font-mono text-xs text-muted-foreground">Artifacts</div>
+              <div className="font-mono text-xs">{manifest.artifacts.length}</div>
             </div>
           </div>
         </div>
@@ -91,13 +91,13 @@ export function ExportDialog({
           <div className="space-y-1">
             {manifest.artifacts.map((a, i) => (
               <div key={a.name} className="flex items-center gap-2 px-1">
-                <span className="font-mono text-[9px] text-muted-foreground">{i + 1}.</span>
-                <Badge variant="outline" className="px-1 py-0 font-mono text-[8px]">
+                <span className="font-mono text-xs text-muted-foreground">{i + 1}.</span>
+                <Badge variant="outline" className="px-1 py-0 font-mono text-xs">
                   {a.type}
                 </Badge>
-                <span className="font-mono text-[10px]">{a.name}</span>
+                <span className="font-mono text-xs">{a.name}</span>
                 {a.dependencies.length > 0 && (
-                  <span className="font-mono text-[8px] text-muted-foreground">
+                  <span className="font-mono text-xs text-muted-foreground">
                     dep: {a.dependencies.join(", ")}
                   </span>
                 )}
@@ -110,7 +110,7 @@ export function ExportDialog({
 
         {/* Export format selector */}
         <div className="space-y-2">
-          <div className="font-mono text-[10px] text-muted-foreground">EXPORT FORMAT</div>
+          <div className="font-mono text-xs text-muted-foreground">EXPORT FORMAT</div>
           <RadioGroup
             value={format}
             onValueChange={(v) => setFormat(v as ExportFormat)}
@@ -118,19 +118,19 @@ export function ExportDialog({
           >
             <div className="flex items-center gap-2">
               <RadioGroupItem value="both" id="fmt-both" />
-              <Label htmlFor="fmt-both" className="font-mono text-[10px] cursor-pointer">
+              <Label htmlFor="fmt-both" className="font-mono text-xs cursor-pointer">
                 Both SCL + SimaticML XML
               </Label>
             </div>
             <div className="flex items-center gap-2">
               <RadioGroupItem value="scl" id="fmt-scl" />
-              <Label htmlFor="fmt-scl" className="font-mono text-[10px] cursor-pointer">
+              <Label htmlFor="fmt-scl" className="font-mono text-xs cursor-pointer">
                 SCL only (External Source import)
               </Label>
             </div>
             <div className="flex items-center gap-2">
               <RadioGroupItem value="xml" id="fmt-xml" />
-              <Label htmlFor="fmt-xml" className="font-mono text-[10px] cursor-pointer">
+              <Label htmlFor="fmt-xml" className="font-mono text-xs cursor-pointer">
                 SimaticML XML only (native TIA import)
               </Label>
             </div>
@@ -151,7 +151,7 @@ export function ExportDialog({
               <ScrollArea className="max-h-24">
                 <div className="space-y-1">
                   {unacknowledgedWarnings.map((w) => (
-                    <div key={w.id} className="font-mono text-[9px] text-destructive">
+                    <div key={w.id} className="font-mono text-xs text-destructive">
                       [{w.type}] {w.artifact_name}: {w.description}
                     </div>
                   ))}
@@ -164,7 +164,7 @@ export function ExportDialog({
                   onChange={(e) => setAcknowledged(e.target.checked)}
                   className="mt-0.5 h-3.5 w-3.5 rounded border-destructive"
                 />
-                <span className="font-mono text-[10px] text-destructive">
+                <span className="font-mono text-xs text-destructive">
                   I acknowledge these safety warnings and take responsibility for this export
                 </span>
               </label>

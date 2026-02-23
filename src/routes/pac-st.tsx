@@ -15,7 +15,7 @@ import {
 } from "@/hooks/use-agent-reservation";
 import { useConversationHistory, useClearConversation } from "@/hooks/use-conversation";
 import { useGenerate } from "@/hooks/use-generation";
-import { useCreatePatternCandidate } from "@/hooks/use-patterns";
+import { useCreatePatternCandidate, useActivePatterns } from "@/hooks/use-patterns";
 import { useAuditLog } from "@/hooks/use-audit-log";
 import { useSubmitTiaJob, useBridgeStatus, useTiaJob } from "@/hooks/use-tia-jobs";
 import { useTiaBridgeWs } from "@/hooks/use-tia-bridge-ws";
@@ -26,7 +26,6 @@ import { buildManifest } from "@/lib/manifest-builder";
 import { SessionStartDialog } from "@/components/session-start-dialog";
 import { ExportDialog } from "@/components/pac-st/export-dialog";
 import { TiaSubmitDialog } from "@/components/pac-st/tia-submit-dialog";
-import { TiaJobPanel } from "@/components/pac-st/tia-job-panel";
 import { ChatPane } from "@/components/pac-st/chat-pane";
 import { GeneratedCodePane } from "@/components/pac-st/generated-code-pane";
 import { ApprovedCodePane } from "@/components/pac-st/approved-code-pane";
@@ -72,6 +71,7 @@ export default function PacStPage() {
   const { setGeneratedArtifacts, currentTiaJobId, setCurrentTiaJobId, navigateToArtifact } = usePacStStore();
 
   // Pattern detection + audit
+  const { data: approvedPatterns } = useActivePatterns(project?.plc_brand ?? "SIEMENS_TIA");
   const createPattern = useCreatePatternCandidate();
   const auditLog = useAuditLog();
 
@@ -171,6 +171,7 @@ export default function PacStPage() {
               role: m.role === "USER" ? "user" as const : "assistant" as const,
               content: m.content,
             })),
+          approvedPatterns: approvedPatterns ?? [],
         },
         {
           onSuccess: (result) => {
@@ -220,7 +221,7 @@ export default function PacStPage() {
         }
       );
     },
-    [project, sessionId, sessionAgents, messages, renewNow, generate, setGeneratedArtifacts, auditLog]
+    [project, sessionId, sessionAgents, messages, renewNow, generate, setGeneratedArtifacts, auditLog, approvedPatterns]
   );
 
   const handleAcknowledgeWarning = useCallback((id: string) => {
@@ -454,11 +455,11 @@ export default function PacStPage() {
 
   if (!projectId) {
     return (
-      <div className="flex h-[calc(100vh-7rem)] items-center justify-center">
+      <div className="-m-4 flex flex-1 items-center justify-center">
         <div className="w-full max-w-sm space-y-4 text-center">
           <div className="font-mono text-xs text-muted-foreground">PAC-ST</div>
           <h2 className="text-lg font-semibold">Select a Project</h2>
-          <p className="font-mono text-xs text-muted-foreground">
+          <p className="font-mono text-sm text-muted-foreground">
             Choose a project to open a Pac-ST code generation session.
           </p>
           <div className="space-y-2">
@@ -470,17 +471,17 @@ export default function PacStPage() {
               >
                 <div>
                   <div className="text-sm font-medium">{p.client_name}</div>
-                  <div className="font-mono text-[10px] text-muted-foreground">
+                  <div className="font-mono text-xs text-muted-foreground">
                     {p.cpu_type} &middot; {p.tia_version}
                   </div>
                 </div>
-                <div className="font-mono text-[9px] text-muted-foreground">
+                <div className="font-mono text-xs text-muted-foreground">
                   {new Date(p.updated_at).toLocaleDateString()}
                 </div>
               </button>
             ))}
             {allProjects?.length === 0 && (
-              <div className="rounded-md border border-dashed px-4 py-6 font-mono text-xs text-muted-foreground">
+              <div className="rounded-md border border-dashed px-4 py-6 font-mono text-sm text-muted-foreground">
                 No projects yet. Create one from the Projects page.
               </div>
             )}
@@ -501,7 +502,7 @@ export default function PacStPage() {
   }));
 
   return (
-    <div className="-m-4 flex h-[calc(100vh-3.5rem)] flex-col">
+    <div className="-m-4 flex min-h-0 flex-1 flex-col">
       {/* Session start dialog */}
       {projectId && (needsSession || showStartDialog) && (
         <SessionStartDialog
@@ -536,23 +537,6 @@ export default function PacStPage() {
         submitting={submitTiaJob.isPending}
       />
 
-      {/* End session button */}
-      {activeSession && (
-        <div className="flex items-center justify-end border-b px-3 py-1.5">
-          <button
-            onClick={() => {
-              if (activeSession) {
-                endSession.mutate(activeSession.id);
-              }
-            }}
-            disabled={endSession.isPending}
-            className="font-mono text-[10px] text-muted-foreground hover:text-destructive"
-          >
-            {endSession.isPending ? "Ending..." : "End Session"}
-          </button>
-        </div>
-      )}
-
       {/* Main three-pane area */}
       <ResizablePanelGroup orientation="horizontal" className="flex-1">
         <ResizablePanel defaultSize={30} minSize={15}>
@@ -566,8 +550,10 @@ export default function PacStPage() {
             onAcknowledgeWarning={handleAcknowledgeWarning}
             onReleaseAgent={handleReleaseAgent}
             onClearChat={handleClearChat}
+            onEndSession={activeSession ? () => endSession.mutate(activeSession.id) : undefined}
             sending={generate.isPending}
             clearing={clearConversation.isPending}
+            endingSession={endSession.isPending}
           />
         </ResizablePanel>
 
@@ -588,31 +574,19 @@ export default function PacStPage() {
         </ResizablePanel>
       </ResizablePanelGroup>
 
-      {/* Bottom panel area — TiaJobPanel + BottomPanel side by side */}
-      <div className="flex">
-        {sessionId && projectId && (
-          <div className="w-80 shrink-0 border-r">
-            <TiaJobPanel
-              projectId={projectId}
-              sessionId={sessionId}
-              manifest={currentManifest}
-              currentJob={currentTiaJob ?? null}
-              onErrorClick={handleErrorClick}
-              onRegenerateAffected={handleRegenerateAffected}
-              onSubmitRequest={handleTiaSubmit}
-              submitting={submitTiaJob.isPending}
-            />
-          </div>
-        )}
-        <div className="flex-1">
-          <BottomPanel
-            compileErrors={compileErrors}
-            logs={logs}
-            warnings={warnings}
-            onErrorClick={handleErrorClick}
-          />
-        </div>
-      </div>
+      {/* Bottom panel */}
+      <BottomPanel
+        compileErrors={compileErrors}
+        logs={logs}
+        warnings={warnings}
+        onErrorClick={handleErrorClick}
+        bridgeConnected={bridgeConnected}
+        onSubmitRequest={sessionId ? handleTiaSubmit : undefined}
+        submitDisabled={!currentManifest}
+        submitting={submitTiaJob.isPending}
+        currentJob={currentTiaJob ?? null}
+        onRegenerateAffected={handleRegenerateAffected}
+      />
     </div>
   );
 }

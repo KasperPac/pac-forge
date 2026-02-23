@@ -1,8 +1,7 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Cpu, AlertTriangle, Trash2 } from "lucide-react";
+import { Send, Cpu, AlertTriangle, Trash2, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -39,8 +38,10 @@ interface ChatPaneProps {
   onAcknowledgeWarning: (id: string) => void;
   onReleaseAgent?: (reservationId: string, agentId: string) => void;
   onClearChat?: () => void;
+  onEndSession?: () => void;
   sending?: boolean;
   clearing?: boolean;
+  endingSession?: boolean;
 }
 
 export function ChatPane({
@@ -53,8 +54,10 @@ export function ChatPane({
   onAcknowledgeWarning,
   onReleaseAgent,
   onClearChat,
+  onEndSession,
   sending,
   clearing,
+  endingSession,
 }: ChatPaneProps) {
   const [input, setInput] = useState("");
   const [mode, setMode] = useState<InteractionMode>("FREEFORM");
@@ -91,85 +94,94 @@ export function ChatPane({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Project summary */}
+      {/* Compact session header */}
       {project && (
-        <div className="flex items-start justify-between p-3">
-          <div className="space-y-1">
-            <div className="font-mono text-[10px] text-muted-foreground">PROJECT</div>
-            <div className="text-sm font-medium">{project.client_name}</div>
-            <div className="flex items-center gap-1.5">
-              <Badge variant="outline" className="font-mono text-[9px]">
+        <div className="space-y-2 border-b px-3 py-2.5">
+          {/* Project info + actions */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium">{project.client_name}</span>
+              <Badge variant="outline" className="font-mono text-xs">
                 <Cpu className="mr-0.5 h-2.5 w-2.5" />
                 {project.cpu_type}
               </Badge>
-              <Badge variant="outline" className="font-mono text-[9px]">
+              <Badge variant="outline" className="font-mono text-xs">
                 {project.tia_version}
               </Badge>
             </div>
-          </div>
-          {onClearChat && messages.length > 0 && (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
+            <div className="flex items-center gap-0.5">
+              {onClearChat && messages.length > 0 && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                      disabled={clearing}
+                      title="Clear workspace"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Clear workspace?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will permanently delete all messages, generated code,
+                        and approved code in the current session.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={onClearChat}
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      >
+                        Clear All
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+              {onEndSession && (
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                  disabled={clearing}
+                  onClick={onEndSession}
+                  disabled={endingSession}
+                  title="End session"
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
+                  <LogOut className="h-3.5 w-3.5" />
                 </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Clear workspace?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will permanently delete all messages, generated code,
-                    and approved code in the current session.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={onClearChat}
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  >
-                    Clear All
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          )}
+              )}
+            </div>
+          </div>
+
+          {/* Agents */}
+          <AgentStatusBar
+            agents={agents}
+            reservations={reservations}
+            onReleaseAgent={onReleaseAgent}
+          />
         </div>
       )}
-
-      <Separator />
-
-      {/* Agent status */}
-      <div className="p-3">
-        <AgentStatusBar
-          agents={agents}
-          reservations={reservations}
-          onReleaseAgent={onReleaseAgent}
-        />
-      </div>
 
       {/* Safety warnings */}
       {warnings.length > 0 && (
-        <div className="px-3 pb-2">
+        <div className="border-b px-3 py-2">
           <SafetyBanner warnings={warnings} onAcknowledge={onAcknowledgeWarning} />
         </div>
       )}
-
-      <Separator />
 
       {/* Messages */}
       <ScrollArea className="flex-1" ref={scrollRef}>
         <div className="space-y-3 p-3">
           {messages.length === 0 && (
-            <div className="py-8 text-center font-mono text-xs text-muted-foreground">
+            <div className="py-8 text-center font-mono text-sm text-muted-foreground">
               Start a conversation to generate PLC code.
               <br />
-              <span className="text-[10px]">Ctrl+Enter to send</span>
+              <span className="text-xs">Ctrl+Enter to send</span>
             </div>
           )}
           {messages.map((msg) => (
@@ -182,28 +194,27 @@ export function ChatPane({
               }`}
             >
               <div className="mb-1 flex items-center gap-1.5">
-                <span className="font-mono text-[10px] font-medium text-muted-foreground">
+                <span className="font-mono text-xs font-medium text-muted-foreground">
                   {msg.role === "USER"
                     ? "You"
                     : msg.agent_id
                       ? agentMap.get(msg.agent_id) ?? "Agent"
                       : "Agent"}
                 </span>
-                <span className="font-mono text-[9px] text-muted-foreground">
+                <span className="font-mono text-xs text-muted-foreground">
                   {new Date(msg.created_at).toLocaleTimeString()}
                 </span>
               </div>
-              <div className="whitespace-pre-wrap text-xs">{msg.content}</div>
+              <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
               {msg.artifacts_generated.length > 0 && (
                 <div className="mt-1.5 flex flex-wrap gap-1">
                   {msg.artifacts_generated.map((name) => (
-                    <Badge key={name} variant="secondary" className="font-mono text-[9px]">
+                    <Badge key={name} variant="secondary" className="font-mono text-xs">
                       {name}
                     </Badge>
                   ))}
                 </div>
               )}
-              {/* Inline safety warnings per message */}
               {msg.safety_warnings.length > 0 && (
                 <div className="mt-1.5 space-y-0.5">
                   {msg.safety_warnings.map((w) => (
@@ -212,7 +223,7 @@ export function ChatPane({
                       className="flex items-start gap-1 rounded bg-destructive/10 px-2 py-1"
                     >
                       <AlertTriangle className="mt-0.5 h-2.5 w-2.5 shrink-0 text-destructive" />
-                      <span className="font-mono text-[9px] text-destructive">
+                      <span className="font-mono text-xs text-destructive">
                         [{w.type}] {w.artifact_name}: {w.description}
                         {w.line ? ` (line ${w.line})` : ""}
                       </span>
@@ -260,7 +271,7 @@ export function ChatPane({
                     ? "Additional instructions..."
                     : "Describe what to generate..."
                 }
-                className="min-h-[60px] resize-none font-mono text-xs"
+                className="min-h-[60px] resize-none font-mono text-sm"
                 rows={3}
               />
               <Button

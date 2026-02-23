@@ -44,14 +44,14 @@ export function GeneratedCodePane() {
     <div className="flex h-full flex-col">
       {/* Header */}
       <div className="flex items-center justify-between border-b px-3 py-1.5">
-        <div className="font-mono text-[10px] font-medium text-muted-foreground">
+        <div className="font-mono text-xs font-medium text-muted-foreground">
           GENERATED CODE
         </div>
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 px-2 font-mono text-[10px]"
+            className="h-6 px-2 font-mono text-xs"
             onClick={() => approveArtifact(activeGeneratedIndex)}
             disabled={!activeArtifact}
             title="Approve current artifact"
@@ -62,7 +62,7 @@ export function GeneratedCodePane() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 px-2 font-mono text-[10px]"
+            className="h-6 px-2 font-mono text-xs"
             onClick={approveAllArtifacts}
             disabled={generatedArtifacts.length === 0}
             title="Approve all artifacts"
@@ -106,9 +106,9 @@ export function GeneratedCodePane() {
           />
         ) : (
           <div className="flex h-full items-center justify-center">
-            <div className="text-center font-mono text-xs text-muted-foreground">
+            <div className="text-center font-mono text-sm text-muted-foreground">
               <div>No generated code yet.</div>
-              <div className="mt-1 text-[10px]">
+              <div className="mt-1 text-xs">
                 Use the chat to generate PLC artifacts.
               </div>
             </div>

@@ -86,17 +86,17 @@ export function TiaSubmitDialog({
 
         {/* Manifest summary */}
         <div className="space-y-2">
-          <div className="font-mono text-[10px] text-muted-foreground">MANIFEST</div>
+          <div className="font-mono text-xs text-muted-foreground">MANIFEST</div>
           <div className="rounded-md border">
             <div className="grid grid-cols-2 gap-x-4 gap-y-1 px-3 py-2">
-              <div className="font-mono text-[10px] text-muted-foreground">Platform</div>
-              <div className="font-mono text-[10px]">{manifest.platform}</div>
-              <div className="font-mono text-[10px] text-muted-foreground">TIA Version</div>
-              <div className="font-mono text-[10px]">{manifest.tia_version}</div>
-              <div className="font-mono text-[10px] text-muted-foreground">CPU</div>
-              <div className="font-mono text-[10px]">{manifest.cpu_type}</div>
-              <div className="font-mono text-[10px] text-muted-foreground">Artifacts</div>
-              <div className="font-mono text-[10px]">{manifest.artifacts.length}</div>
+              <div className="font-mono text-xs text-muted-foreground">Platform</div>
+              <div className="font-mono text-xs">{manifest.platform}</div>
+              <div className="font-mono text-xs text-muted-foreground">TIA Version</div>
+              <div className="font-mono text-xs">{manifest.tia_version}</div>
+              <div className="font-mono text-xs text-muted-foreground">CPU</div>
+              <div className="font-mono text-xs">{manifest.cpu_type}</div>
+              <div className="font-mono text-xs text-muted-foreground">Artifacts</div>
+              <div className="font-mono text-xs">{manifest.artifacts.length}</div>
             </div>
           </div>
         </div>
@@ -106,13 +106,13 @@ export function TiaSubmitDialog({
           <div className="space-y-1">
             {manifest.artifacts.map((a, i) => (
               <div key={a.name} className="flex items-center gap-2 px-1">
-                <span className="font-mono text-[9px] text-muted-foreground">{i + 1}.</span>
-                <Badge variant="outline" className="px-1 py-0 font-mono text-[8px]">
+                <span className="font-mono text-xs text-muted-foreground">{i + 1}.</span>
+                <Badge variant="outline" className="px-1 py-0 font-mono text-xs">
                   {a.type}
                 </Badge>
-                <span className="font-mono text-[10px]">{a.name}</span>
+                <span className="font-mono text-xs">{a.name}</span>
                 {a.dependencies.length > 0 && (
-                  <span className="font-mono text-[8px] text-muted-foreground">
+                  <span className="font-mono text-xs text-muted-foreground">
                     dep: {a.dependencies.join(", ")}
                   </span>
                 )}
@@ -125,7 +125,7 @@ export function TiaSubmitDialog({
 
         {/* TIA project path */}
         <div className="space-y-2">
-          <Label htmlFor="tia-path" className="font-mono text-[10px] text-muted-foreground">
+          <Label htmlFor="tia-path" className="font-mono text-xs text-muted-foreground">
             TIA PROJECT PATH
           </Label>
           <Input
@@ -142,12 +142,12 @@ export function TiaSubmitDialog({
           {bridgeConnected ? (
             <>
               <Wifi className="h-3.5 w-3.5 text-green-400" />
-              <span className="font-mono text-[10px] text-green-400">Bridge Online</span>
+              <span className="font-mono text-xs text-green-400">Bridge Online</span>
             </>
           ) : (
             <>
               <WifiOff className="h-3.5 w-3.5 text-amber-400" />
-              <span className="font-mono text-[10px] text-amber-400">
+              <span className="font-mono text-xs text-amber-400">
                 Bridge Offline — Job will be queued
               </span>
             </>
@@ -168,7 +168,7 @@ export function TiaSubmitDialog({
               <ScrollArea className="max-h-24">
                 <div className="space-y-1">
                   {unacknowledgedWarnings.map((w) => (
-                    <div key={w.id} className="font-mono text-[9px] text-destructive">
+                    <div key={w.id} className="font-mono text-xs text-destructive">
                       [{w.type}] {w.artifact_name}: {w.description}
                     </div>
                   ))}
@@ -181,7 +181,7 @@ export function TiaSubmitDialog({
                   onChange={(e) => setAcknowledged(e.target.checked)}
                   className="mt-0.5 h-3.5 w-3.5 rounded border-destructive"
                 />
-                <span className="font-mono text-[10px] text-destructive">
+                <span className="font-mono text-xs text-destructive">
                   I acknowledge these safety warnings and take responsibility for this TIA import
                 </span>
               </label>

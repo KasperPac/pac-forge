@@ -22,7 +22,7 @@ export function ModeSelector({ mode, onModeChange }: ModeSelectorProps) {
           variant="ghost"
           size="sm"
           className={cn(
-            "h-6 px-2 font-mono text-[10px]",
+            "h-6 px-2 font-mono text-xs",
             mode === m.value && "bg-accent text-accent-foreground"
           )}
           onClick={() => onModeChange(m.value)}

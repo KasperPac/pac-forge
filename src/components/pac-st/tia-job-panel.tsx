@@ -62,12 +62,12 @@ export function TiaJobPanel({
       <div className="flex items-center justify-between border-b px-3 py-2">
         <div className="flex items-center gap-2">
           {isConnected ? (
-            <div className="flex items-center gap-1 font-mono text-[10px] text-green-400">
+            <div className="flex items-center gap-1 font-mono text-xs text-green-400">
               <Wifi className="h-3 w-3" />
               Bridge Online
             </div>
           ) : (
-            <div className="flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
+            <div className="flex items-center gap-1 font-mono text-xs text-muted-foreground">
               <WifiOff className="h-3 w-3" />
               Bridge Offline
             </div>
@@ -77,7 +77,7 @@ export function TiaJobPanel({
           <select
             value={selectedJobType}
             onChange={(e) => setSelectedJobType(e.target.value as TiaJobType)}
-            className="h-6 rounded border bg-background px-1.5 font-mono text-[10px]"
+            className="h-6 rounded border bg-background px-1.5 font-mono text-xs"
           >
             {Object.entries(JOB_TYPE_LABELS).map(([value, label]) => (
               <option key={value} value={value}>
@@ -89,7 +89,7 @@ export function TiaJobPanel({
 
         <Button
           size="sm"
-          className="h-6 px-2 font-mono text-[10px]"
+          className="h-6 px-2 font-mono text-xs"
           onClick={handleSubmit}
           disabled={!manifest || submitting}
         >
@@ -108,14 +108,14 @@ export function TiaJobPanel({
           <div className="flex items-center gap-2">
             <Badge
               variant="outline"
-              className={`font-mono text-[9px] ${STATUS_STYLES[currentJob.status]?.className ?? ""}`}
+              className={`font-mono text-xs ${STATUS_STYLES[currentJob.status]?.className ?? ""}`}
             >
               {STATUS_STYLES[currentJob.status]?.label ?? currentJob.status}
             </Badge>
-            <span className="font-mono text-[10px] text-muted-foreground">
+            <span className="font-mono text-xs text-muted-foreground">
               {currentJob.job_type}
             </span>
-            <span className="font-mono text-[9px] text-muted-foreground">
+            <span className="font-mono text-xs text-muted-foreground">
               {new Date(currentJob.created_at).toLocaleTimeString()}
             </span>
           </div>
@@ -129,7 +129,7 @@ export function TiaJobPanel({
       <ScrollArea className="flex-1">
         <div className="p-3">
           {compileErrors.length === 0 && compileWarnings.length === 0 && (
-            <div className="py-4 text-center font-mono text-[10px] text-muted-foreground">
+            <div className="py-4 text-center font-mono text-xs text-muted-foreground">
               {currentJob
                 ? currentJob.status === "COMPLETED"
                   ? "Compilation successful — no errors."
@@ -140,7 +140,7 @@ export function TiaJobPanel({
 
           {compileErrors.length > 0 && (
             <div className="space-y-1">
-              <div className="font-mono text-[10px] font-medium text-red-400">
+              <div className="font-mono text-xs font-medium text-red-400">
                 Errors ({compileErrors.length})
               </div>
               {compileErrors.map((err, i) => (
@@ -151,12 +151,12 @@ export function TiaJobPanel({
                 >
                   <AlertCircle className="mt-0.5 h-3 w-3 shrink-0 text-red-400" />
                   <div>
-                    <span className="font-mono text-[10px] text-red-400">
+                    <span className="font-mono text-xs text-red-400">
                       {err.artifact_name}
                       {err.line ? `:${err.line}` : ""}
                       {err.column ? `:${err.column}` : ""}
                     </span>
-                    <div className="font-mono text-[9px] text-muted-foreground">
+                    <div className="font-mono text-xs text-muted-foreground">
                       {err.error_text}
                     </div>
                   </div>
@@ -167,17 +167,17 @@ export function TiaJobPanel({
 
           {compileWarnings.length > 0 && (
             <div className="mt-2 space-y-1">
-              <div className="font-mono text-[10px] font-medium text-amber-400">
+              <div className="font-mono text-xs font-medium text-amber-400">
                 Warnings ({compileWarnings.length})
               </div>
               {compileWarnings.map((w, i) => (
                 <div key={i} className="flex items-start gap-1.5 px-2 py-1">
                   <AlertCircle className="mt-0.5 h-3 w-3 shrink-0 text-amber-400" />
                   <div>
-                    <span className="font-mono text-[10px] text-amber-400">
+                    <span className="font-mono text-xs text-amber-400">
                       {w.artifact_name}{w.line ? `:${w.line}` : ""}
                     </span>
-                    <div className="font-mono text-[9px] text-muted-foreground">
+                    <div className="font-mono text-xs text-muted-foreground">
                       {w.error_text}
                     </div>
                   </div>
@@ -194,7 +194,7 @@ export function TiaJobPanel({
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 w-full font-mono text-[10px]"
+            className="h-6 w-full font-mono text-xs"
             onClick={() => onRegenerateAffected(errorArtifacts)}
           >
             <RefreshCw className="mr-1 h-3 w-3" />

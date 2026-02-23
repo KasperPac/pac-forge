@@ -87,7 +87,7 @@ export function PromptBuilder({ onSubmit, disabled }: PromptBuilderProps) {
     <div className="space-y-3 p-3">
       {/* Progress */}
       <div className="flex items-center gap-1.5">
-        <div className="font-mono text-[10px] text-muted-foreground">
+        <div className="font-mono text-xs text-muted-foreground">
           GUIDED MODE — Step {step + 1}/{TOTAL_STEPS}
         </div>
         <div className="flex-1" />
@@ -114,7 +114,7 @@ export function PromptBuilder({ onSubmit, disabled }: PromptBuilderProps) {
                 key={dt}
                 variant={deviceType === dt ? "default" : "outline"}
                 size="sm"
-                className="h-7 px-2 font-mono text-[10px]"
+                className="h-7 px-2 font-mono text-xs"
                 onClick={() => setDeviceType(dt)}
               >
                 {dt}
@@ -144,7 +144,7 @@ export function PromptBuilder({ onSubmit, disabled }: PromptBuilderProps) {
             onChange={(e) => setInstanceCount(Math.max(1, parseInt(e.target.value) || 1))}
             className="h-7 w-24 font-mono text-xs"
           />
-          <div className="font-mono text-[9px] text-muted-foreground">
+          <div className="font-mono text-xs text-muted-foreground">
             Number of {effectiveDevice} instances to generate
           </div>
         </div>
@@ -174,7 +174,7 @@ export function PromptBuilder({ onSubmit, disabled }: PromptBuilderProps) {
                       : "border-muted-foreground"
                   )}
                 />
-                <span className="font-mono text-[10px]">{opt.label}</span>
+                <span className="font-mono text-xs">{opt.label}</span>
               </button>
             ))}
           </div>
@@ -190,7 +190,7 @@ export function PromptBuilder({ onSubmit, disabled }: PromptBuilderProps) {
               <Badge
                 key={s}
                 variant="secondary"
-                className="cursor-pointer font-mono text-[9px]"
+                className="cursor-pointer font-mono text-xs"
                 onClick={() => removeState(s)}
                 title="Click to remove"
               >
@@ -209,7 +209,7 @@ export function PromptBuilder({ onSubmit, disabled }: PromptBuilderProps) {
             <Button
               variant="outline"
               size="sm"
-              className="h-7 px-2 text-[10px]"
+              className="h-7 px-2 text-xs"
               onClick={addCustomState}
               disabled={!customState.trim()}
             >
@@ -229,7 +229,7 @@ export function PromptBuilder({ onSubmit, disabled }: PromptBuilderProps) {
             className="min-h-[60px] resize-none font-mono text-xs"
             rows={3}
           />
-          <div className="font-mono text-[9px] text-muted-foreground">
+          <div className="font-mono text-xs text-muted-foreground">
             Default: latching alarms, no auto-reset, operator reset only
           </div>
         </div>
@@ -254,7 +254,7 @@ export function PromptBuilder({ onSubmit, disabled }: PromptBuilderProps) {
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 font-mono text-[10px]"
+          className="h-7 font-mono text-xs"
           onClick={() => setStep(Math.max(0, step - 1))}
           disabled={step === 0}
         >
@@ -266,7 +266,7 @@ export function PromptBuilder({ onSubmit, disabled }: PromptBuilderProps) {
           <Button
             variant="default"
             size="sm"
-            className="h-7 font-mono text-[10px]"
+            className="h-7 font-mono text-xs"
             onClick={() => setStep(step + 1)}
             disabled={!canAdvance()}
           >
@@ -277,7 +277,7 @@ export function PromptBuilder({ onSubmit, disabled }: PromptBuilderProps) {
           <Button
             variant="default"
             size="sm"
-            className="h-7 font-mono text-[10px]"
+            className="h-7 font-mono text-xs"
             onClick={handleGenerate}
             disabled={disabled || !canAdvance()}
           >

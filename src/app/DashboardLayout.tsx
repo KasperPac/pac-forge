@@ -1,8 +1,8 @@
 import { NavLink, Outlet } from "react-router";
 import { FolderOpen, Bot, Code, Terminal, BookOpen, LogOut } from "lucide-react";
+import pacLogo from "@/../media/logos/PacTechnologiesEdit_White.png";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 
@@ -17,9 +17,12 @@ const NAV_ITEMS = [
 function Sidebar() {
   return (
     <aside className="flex w-64 flex-col border-r bg-background">
-      <div className="p-4">
-        <div className="font-mono text-xs text-muted-foreground">PAC-FORGE</div>
-        <div className="mt-1 text-lg font-semibold tracking-tight">Pac-ST</div>
+      <div className="flex flex-col items-center p-4">
+        <img
+          src={pacLogo}
+          alt="Pac Technologies"
+          className="h-10 w-auto"
+        />
       </div>
 
       <Separator />
@@ -73,13 +76,11 @@ export function DashboardLayout() {
   return (
     <div className="flex h-screen">
       <Sidebar />
-      <div className="flex flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <TopBar />
-        <ScrollArea className="flex-1">
-          <main className="p-4">
-            <Outlet />
-          </main>
-        </ScrollArea>
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto p-4">
+          <Outlet />
+        </main>
       </div>
     </div>
   );

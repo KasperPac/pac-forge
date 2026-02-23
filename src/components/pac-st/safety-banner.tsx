@@ -32,10 +32,10 @@ export function SafetyBanner({ warnings, onAcknowledge }: SafetyBannerProps) {
           className="flex items-start justify-between gap-2 rounded bg-destructive/5 px-2 py-1.5"
         >
           <div className="min-w-0">
-            <div className="font-mono text-[10px] font-medium text-destructive">
+            <div className="font-mono text-xs font-medium text-destructive">
               {WARNING_LABELS[warning.type] ?? warning.type}
             </div>
-            <div className="text-[10px] text-muted-foreground">
+            <div className="text-xs text-muted-foreground">
               {warning.artifact_name}
               {warning.line != null ? `:${warning.line}` : ""} — {warning.description}
             </div>

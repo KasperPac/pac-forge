@@ -17,6 +17,16 @@ npm run preview   # Preview production build locally
 
 No test runner is configured yet.
 
+### .NET TIA Bridge
+
+```bash
+dotnet build bridge/PacForgeBridge.sln                # Build bridge (requires .NET Framework 4.8 SDK)
+dotnet run --project bridge/PacForgeBridge             # Run bridge (default port 5102)
+dotnet run --project bridge/PacForgeBridge -- --port 5200  # Run on custom port
+```
+
+Requires TIA Portal Openness DLL — update `HintPath` in `.csproj` for your TIA Portal version (V17–V20).
+
 ### Supabase
 
 ```bash
@@ -49,6 +59,7 @@ src/
     tia-console.tsx           # TIA bridge status + job history table
   components/
     pac-st/                   # Pac-ST workspace sub-components (14 files)
+    tia-console/              # TIA console sub-components (compile-fix-chat, learned-corrections-log)
     ui/                       # shadcn/ui primitives
     auth-guard.tsx            # Route protection via Supabase session
     session-start-dialog.tsx  # Agent selection + session creation modal
@@ -61,6 +72,10 @@ src/
     use-patterns.ts           # Correction pattern CRUD + approval workflow
     use-snapshots.ts          # Artifact version snapshots + rollback
     use-tia-jobs.ts           # TIA job submission + polling + bridge status
+    use-tia-bridge-ws.ts      # WebSocket connection to .NET bridge
+    use-compile-fix.ts        # Compile error → AI fix generation
+    use-demo-generate.ts      # Demo program generation (inline system prompt)
+    use-reimport-compile.ts   # Re-import fixed code + recompile via bridge
     use-audit-log.ts          # Fire-and-forget audit log insertion
     use-projects.ts, use-agents.ts, use-auth.ts
   lib/                        # Pure logic libraries (no React)
@@ -72,6 +87,12 @@ src/
     correction-classifier.ts  # Maps diff hunks to correction types for pattern learning
     tia-export.ts             # JSZip bundle generator for TIA Portal import
     tia-bridge-contract.ts    # TypeScript API contract types for .NET TIA Openness bridge
+    simatic-xml-builder.ts    # SimaticML XML generation for TIA import
+    compile-fix-parser.ts     # Parse TIA compile errors from bridge output
+    compile-fix-prompt.ts     # System prompt builder for compile-fix generation path
+    demo-programs.ts          # Demo SCL program templates
+    platform-rules.ts         # Load platform rules from markdown
+    agent-profiles.ts         # Agent specialization configuration
     monaco-scl.ts             # Monaco Editor SCL language definition (Monarch tokenizer)
     supabase.ts               # Supabase client singleton
     auth.ts                   # Auth helpers
@@ -90,6 +111,7 @@ supabase/
     cleanup-expired/          # Expired lease cleanup
 ai/
   PLATFORM_RULES_SIEMENS_TIA.md  # PLC generation rules (injected into Claude prompts)
+  SCL_LANGUAGE_REFERENCE.md      # SCL syntax & built-in function reference
   TIA_MANIFEST_SCHEMA.md         # tia_manifest.json schema
 Docs/
   PAC_ST_MASTER_SPEC.md          # Full Pac-ST specification
@@ -115,6 +137,29 @@ Supabase (hosted Postgres + Edge Functions + Auth + RLS). No custom backend serv
 - **Edge Functions** proxy Claude API calls (keeps API key server-side)
 - **Agent leases**: 30-minute leases with auto-renewal every 10 minutes via `useAutoRenewLeases`
 - **All mutations** go through TanStack Query `useMutation` with `queryClient.invalidateQueries`
+
+### Three Generation Paths (CRITICAL)
+
+There are 3 separate AI code-generation paths, each with its own hook and system prompt builder. When adding rules, patterns, or context to "all generation prompts", **all three must be updated**:
+
+| Path | Hook | Prompt Builder | Entry Point |
+|------|------|---------------|-------------|
+| Pac-ST chat | `use-generation.ts` | `buildPrompt()` in `prompt-builder.ts` | `pac-st.tsx` |
+| TIA Console demo | `use-demo-generate.ts` | `buildDemoSystemPrompt()` (inline) | `tia-console.tsx` |
+| Compile fix | `use-compile-fix.ts` | `buildCompileFixSystemPrompt()` in `compile-fix-prompt.ts` | `compile-fix-chat.tsx` |
+
+The demo generate path is easy to miss because it has its own inline system prompt rather than using `prompt-builder.ts`.
+
+### .NET TIA Bridge
+
+The bridge (`bridge/PacForgeBridge/`) is a .NET Framework 4.8 console app that wraps TIA Portal Openness for the frontend.
+
+- **Target**: .NET Framework 4.8 (not .NET Core) — required by TIA Openness
+- **Language version**: C# 7.3
+- **Default port**: 5102 (HTTP + WebSocket)
+- **WebSocket**: `ws://localhost:5102/tia/ws` — real-time job status + compile output
+- **Key services**: `BridgeServer` (HTTP/WS), `TiaPortalService` (Openness wrapper), `JobExecutor` (async job queue)
+- **Frontend contract**: `src/lib/tia-bridge-contract.ts` defines all request/response types
 
 ### Path Aliases
 
@@ -144,7 +189,8 @@ Style: `new-york` / Base color: `neutral` / Icons: `lucide-react`. Add component
 3. `Docs/AGENT_POOL_ARCHITECTURE.md`
 4. `Docs/TIA_OPENNESS_INTEGRATION.md`
 5. `ai/PLATFORM_RULES_SIEMENS_TIA.md`
-6. `ai/TIA_MANIFEST_SCHEMA.md`
+6. `ai/SCL_LANGUAGE_REFERENCE.md`
+7. `ai/TIA_MANIFEST_SCHEMA.md`
 
 ## Tech Constraints (Non-negotiable)
 
