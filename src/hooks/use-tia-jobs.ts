@@ -1,8 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { DEFAULT_BRIDGE_CONFIG } from "@/lib/tia-bridge-contract";
-import type { TiaJob, TiaJobType, TiaManifest } from "@/types";
-import type { SubmitJobResponse, JobStatusResponse } from "@/lib/tia-bridge-contract";
+import type { TiaJob, TiaJobType, TiaManifest, Artifact } from "@/types";
+import type { SubmitJobResponse, BridgeStatusEvent } from "@/lib/tia-bridge-contract";
+import { generateExportBundle } from "@/lib/tia-export";
 
 const TIA_JOBS_KEY = ["tia-jobs"] as const;
 
@@ -55,6 +56,9 @@ export function useSubmitTiaJob() {
       sessionId: string;
       jobType: TiaJobType;
       manifest: TiaManifest;
+      tiaProjectPath?: string;
+      /** Approved artifacts for building the import bundle */
+      artifacts?: Artifact[];
     }): Promise<TiaJob> => {
       const { data: { user } } = await supabase.auth.getUser();
 
@@ -73,15 +77,28 @@ export function useSubmitTiaJob() {
         .single();
       if (error) throw error;
 
+      // Build base64-encoded artifact bundle for IMPORT jobs
+      let artifactBundle: string | undefined;
+      const needsBundle = input.jobType === "IMPORT_ONLY" || input.jobType === "IMPORT_AND_COMPILE";
+      if (needsBundle && input.artifacts && input.artifacts.length > 0) {
+        const blob = await generateExportBundle(input.artifacts, input.manifest, { format: "scl" });
+        const buffer = await blob.arrayBuffer();
+        artifactBundle = btoa(
+          new Uint8Array(buffer).reduce((s, b) => s + String.fromCharCode(b), "")
+        );
+      }
+
       // Attempt to call the bridge — graceful failure if offline
       try {
         const response = await fetch(`${DEFAULT_BRIDGE_CONFIG.baseUrl}/tia/jobs`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            job_id: job.id,
             job_type: input.jobType,
             manifest: input.manifest,
-            tia_project_path: "",
+            artifact_bundle: artifactBundle,
+            tia_project_path: input.tiaProjectPath ?? "",
           }),
           signal: AbortSignal.timeout(DEFAULT_BRIDGE_CONFIG.timeout),
         });
@@ -121,8 +138,8 @@ export function useBridgeStatus() {
           { signal: AbortSignal.timeout(DEFAULT_BRIDGE_CONFIG.timeout) }
         );
         if (response.ok) {
-          const data: JobStatusResponse = await response.json();
-          return { connected: true, version: data.current_step };
+          const data = (await response.json()) as BridgeStatusEvent["data"];
+          return { connected: true, version: data.tia_version };
         }
       } catch {
         // Bridge offline

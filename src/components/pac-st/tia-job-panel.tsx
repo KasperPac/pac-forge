@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useSubmitTiaJob, useBridgeStatus } from "@/hooks/use-tia-jobs";
+import { useBridgeStatus } from "@/hooks/use-tia-jobs";
 import type { TiaManifest, TiaJobType, TiaJob, CompileError } from "@/types";
 
 interface TiaJobPanelProps {
@@ -14,6 +14,8 @@ interface TiaJobPanelProps {
   currentJob: TiaJob | null;
   onErrorClick?: (artifactName: string, line: number) => void;
   onRegenerateAffected?: (errorArtifacts: string[]) => void;
+  onSubmitRequest?: (jobType: TiaJobType) => void;
+  submitting?: boolean;
 }
 
 const JOB_TYPE_LABELS: Record<TiaJobType, string> = {
@@ -32,14 +34,13 @@ const STATUS_STYLES: Record<string, { className: string; label: string }> = {
 };
 
 export function TiaJobPanel({
-  projectId,
-  sessionId,
   manifest,
   currentJob,
   onErrorClick,
   onRegenerateAffected,
+  onSubmitRequest,
+  submitting,
 }: TiaJobPanelProps) {
-  const submitJob = useSubmitTiaJob();
   const { data: bridgeStatus } = useBridgeStatus();
   const [selectedJobType, setSelectedJobType] = useState<TiaJobType>("IMPORT_AND_COMPILE");
 
@@ -47,12 +48,7 @@ export function TiaJobPanel({
 
   function handleSubmit() {
     if (!manifest) return;
-    submitJob.mutate({
-      projectId,
-      sessionId,
-      jobType: selectedJobType,
-      manifest,
-    });
+    onSubmitRequest?.(selectedJobType);
   }
 
   // Collect compile errors from current job
@@ -95,9 +91,9 @@ export function TiaJobPanel({
           size="sm"
           className="h-6 px-2 font-mono text-[10px]"
           onClick={handleSubmit}
-          disabled={!manifest || submitJob.isPending}
+          disabled={!manifest || submitting}
         >
-          {submitJob.isPending ? (
+          {submitting ? (
             <Loader2 className="mr-1 h-3 w-3 animate-spin" />
           ) : (
             <Play className="mr-1 h-3 w-3" />

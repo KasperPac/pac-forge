@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <RootNamespace>PacForgeBridge</RootNamespace>
+    <AssemblyName>PacForgeBridge</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <!--
+    TIA Portal Openness reference.
+    Update the HintPath to match your installed TIA Portal version:
+      V17: Portal V17\PublicAPI\V17\
+      V18: Portal V18\PublicAPI\V18\
+      V19: Portal V19\PublicAPI\V19\
+      V20: Portal V20\PublicAPI\V20\
+  -->
+  <ItemGroup>
+    <Reference Include="Siemens.Engineering">
+      <HintPath>C:\Program Files\Siemens\Automation\Portal V18\PublicAPI\V18\Siemens.Engineering.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+  </ItemGroup>
+
+</Project>

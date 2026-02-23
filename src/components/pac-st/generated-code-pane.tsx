@@ -1,5 +1,7 @@
+import { useRef, useEffect } from "react";
 import { CheckCheck, Check } from "lucide-react";
 import Editor, { type OnMount } from "@monaco-editor/react";
+import type { editor } from "monaco-editor";
 import { Button } from "@/components/ui/button";
 import { ArtifactTabs } from "./artifact-tabs";
 import { registerSclLanguage, SCL_LANGUAGE_ID } from "@/lib/monaco-scl";
@@ -12,13 +14,31 @@ export function GeneratedCodePane() {
     setActiveGeneratedIndex,
     approveArtifact,
     approveAllArtifacts,
+    pendingEditorNavigation,
+    clearPendingNavigation,
   } = usePacStStore();
+
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
   const activeArtifact = generatedArtifacts[activeGeneratedIndex];
 
   const handleEditorMount: OnMount = (_editor, monaco) => {
+    editorRef.current = _editor;
     registerSclLanguage(monaco);
   };
+
+  // Navigate to artifact + line when pendingEditorNavigation matches
+  useEffect(() => {
+    if (!pendingEditorNavigation || !editorRef.current || !activeArtifact) return;
+    if (pendingEditorNavigation.artifactName !== activeArtifact.name) return;
+
+    const ed = editorRef.current;
+    const line = pendingEditorNavigation.line;
+    ed.revealLineInCenter(line);
+    ed.setPosition({ lineNumber: line, column: 1 });
+    ed.focus();
+    clearPendingNavigation();
+  }, [pendingEditorNavigation, activeArtifact, clearPendingNavigation]);
 
   return (
     <div className="flex h-full flex-col">

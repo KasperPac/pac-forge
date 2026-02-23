@@ -5,7 +5,7 @@
  * The bridge runs locally on the engineer's machine and communicates with TIA Portal
  * via the TIA Openness API.
  *
- * Implementation is OUT OF SCOPE — this is the contract only.
+ * Implemented by the .NET bridge in bridge/PacForgeBridge/.
  */
 
 import type { TiaManifest, TiaJobType, TiaJobStatus, CompileResult } from "@/types";
@@ -17,6 +17,8 @@ import type { TiaManifest, TiaJobType, TiaJobStatus, CompileResult } from "@/typ
  * Submit a new TIA job for execution.
  */
 export interface SubmitJobRequest {
+  /** Supabase job ID — bridge uses this as its own job ID for consistent tracking */
+  job_id: string;
   job_type: TiaJobType;
   manifest: TiaManifest;
   /** Base64-encoded zip of artifact files (for IMPORT jobs) */

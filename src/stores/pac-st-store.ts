@@ -8,12 +8,21 @@ interface ApprovedArtifact {
   content: string;
 }
 
+interface PendingEditorNavigation {
+  artifactName: string;
+  line: number;
+}
+
 interface PacStState {
   // Artifacts
   generatedArtifacts: Artifact[];
   approvedArtifacts: ApprovedArtifact[];
   activeGeneratedIndex: number;
   activeApprovedIndex: number;
+
+  // TIA integration
+  currentTiaJobId: string | null;
+  pendingEditorNavigation: PendingEditorNavigation | null;
 
   // Bottom panel
   bottomPanelOpen: boolean;
@@ -29,6 +38,11 @@ interface PacStState {
   approveArtifact: (index: number) => void;
   approveAllArtifacts: () => void;
   updateApprovedContent: (index: number, content: string) => void;
+
+  // Actions — TIA integration
+  setCurrentTiaJobId: (id: string | null) => void;
+  navigateToArtifact: (artifactName: string, line: number) => void;
+  clearPendingNavigation: () => void;
 
   // Actions — bottom panel
   setBottomPanelOpen: (open: boolean) => void;
@@ -46,6 +60,8 @@ export const usePacStStore = create<PacStState>((set) => ({
   approvedArtifacts: [],
   activeGeneratedIndex: 0,
   activeApprovedIndex: 0,
+  currentTiaJobId: null,
+  pendingEditorNavigation: null,
   bottomPanelOpen: false,
   bottomPanelTab: "compile",
   showDiff: false,
@@ -90,6 +106,35 @@ export const usePacStStore = create<PacStState>((set) => ({
       return { approvedArtifacts: updated };
     }),
 
+  setCurrentTiaJobId: (id) => set({ currentTiaJobId: id }),
+
+  navigateToArtifact: (artifactName, line) =>
+    set((s) => {
+      // Try approved artifacts first
+      const approvedIdx = s.approvedArtifacts.findIndex(
+        (a) => a.artifact.name === artifactName
+      );
+      if (approvedIdx >= 0) {
+        return {
+          activeApprovedIndex: approvedIdx,
+          pendingEditorNavigation: { artifactName, line },
+        };
+      }
+      // Fall back to generated artifacts
+      const generatedIdx = s.generatedArtifacts.findIndex(
+        (a) => a.name === artifactName
+      );
+      if (generatedIdx >= 0) {
+        return {
+          activeGeneratedIndex: generatedIdx,
+          pendingEditorNavigation: { artifactName, line },
+        };
+      }
+      return s;
+    }),
+
+  clearPendingNavigation: () => set({ pendingEditorNavigation: null }),
+
   setBottomPanelOpen: (open) => set({ bottomPanelOpen: open }),
   setBottomPanelTab: (tab) => set({ bottomPanelTab: tab, bottomPanelOpen: true }),
 
@@ -101,6 +146,8 @@ export const usePacStStore = create<PacStState>((set) => ({
       approvedArtifacts: [],
       activeGeneratedIndex: 0,
       activeApprovedIndex: 0,
+      currentTiaJobId: null,
+      pendingEditorNavigation: null,
       bottomPanelOpen: false,
       bottomPanelTab: "compile",
       showDiff: false,

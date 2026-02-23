@@ -1,5 +1,7 @@
+import { useRef, useEffect } from "react";
 import { Save, GitCompare, Download } from "lucide-react";
 import Editor, { type OnMount } from "@monaco-editor/react";
+import type { editor } from "monaco-editor";
 import { Button } from "@/components/ui/button";
 import { ArtifactTabs } from "./artifact-tabs";
 import { DiffView } from "./diff-view";
@@ -23,7 +25,11 @@ export function ApprovedCodePane({ projectId, onSaveSnapshot, onExport }: Approv
     updateApprovedContent,
     showDiff,
     toggleDiff,
+    pendingEditorNavigation,
+    clearPendingNavigation,
   } = usePacStStore();
+
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
   const activeApproved = approvedArtifacts[activeApprovedIndex];
   const matchingGenerated = activeApproved
@@ -31,8 +37,22 @@ export function ApprovedCodePane({ projectId, onSaveSnapshot, onExport }: Approv
     : generatedArtifacts[activeGeneratedIndex];
 
   const handleEditorMount: OnMount = (_editor, monaco) => {
+    editorRef.current = _editor;
     registerSclLanguage(monaco);
   };
+
+  // Navigate to artifact + line when pendingEditorNavigation matches
+  useEffect(() => {
+    if (!pendingEditorNavigation || !editorRef.current || !activeApproved) return;
+    if (pendingEditorNavigation.artifactName !== activeApproved.artifact.name) return;
+
+    const ed = editorRef.current;
+    const line = pendingEditorNavigation.line;
+    ed.revealLineInCenter(line);
+    ed.setPosition({ lineNumber: line, column: 1 });
+    ed.focus();
+    clearPendingNavigation();
+  }, [pendingEditorNavigation, activeApproved, clearPendingNavigation]);
 
   function handleRollback(content: string) {
     if (activeApproved) {

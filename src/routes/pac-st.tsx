@@ -17,18 +17,23 @@ import { useConversationHistory, useClearConversation } from "@/hooks/use-conver
 import { useGenerate } from "@/hooks/use-generation";
 import { useCreatePatternCandidate } from "@/hooks/use-patterns";
 import { useAuditLog } from "@/hooks/use-audit-log";
+import { useSubmitTiaJob, useBridgeStatus, useTiaJob } from "@/hooks/use-tia-jobs";
+import { useTiaBridgeWs } from "@/hooks/use-tia-bridge-ws";
 import { usePacStStore } from "@/stores/pac-st-store";
 import { computeDiff } from "@/lib/diff-engine";
 import { classifyCorrections } from "@/lib/correction-classifier";
 import { buildManifest } from "@/lib/manifest-builder";
 import { SessionStartDialog } from "@/components/session-start-dialog";
 import { ExportDialog } from "@/components/pac-st/export-dialog";
+import { TiaSubmitDialog } from "@/components/pac-st/tia-submit-dialog";
+import { TiaJobPanel } from "@/components/pac-st/tia-job-panel";
 import { ChatPane } from "@/components/pac-st/chat-pane";
 import { GeneratedCodePane } from "@/components/pac-st/generated-code-pane";
 import { ApprovedCodePane } from "@/components/pac-st/approved-code-pane";
 import { BottomPanel } from "@/components/pac-st/bottom-panel";
 import { supabase } from "@/lib/supabase";
-import type { ConversationTurn, SafetyWarning, CompileError, TiaManifest } from "@/types";
+import type { BridgeEvent, CompileErrorEvent } from "@/lib/tia-bridge-contract";
+import type { ConversationTurn, SafetyWarning, CompileError, TiaManifest, TiaJobType } from "@/types";
 
 export default function PacStPage() {
   const [searchParams] = useSearchParams();
@@ -64,16 +69,65 @@ export default function PacStPage() {
 
   // Generation
   const generate = useGenerate();
-  const { setGeneratedArtifacts } = usePacStStore();
+  const { setGeneratedArtifacts, currentTiaJobId, setCurrentTiaJobId, navigateToArtifact } = usePacStStore();
 
   // Pattern detection + audit
   const createPattern = useCreatePatternCandidate();
   const auditLog = useAuditLog();
 
+  // TIA integration
+  const { data: bridgeStatus } = useBridgeStatus();
+  const bridgeConnected = bridgeStatus?.connected ?? false;
+  const submitTiaJob = useSubmitTiaJob();
+  const { data: currentTiaJob } = useTiaJob(currentTiaJobId);
+  const [liveCompileErrors, setLiveCompileErrors] = useState<CompileError[]>([]);
+  const [showSubmitDialog, setShowSubmitDialog] = useState(false);
+  const [selectedJobType, setSelectedJobType] = useState<TiaJobType>("IMPORT_AND_COMPILE");
+
+  const handleBridgeEvent = useCallback((event: BridgeEvent) => {
+    if (event.type === "compile_error") {
+      const ceEvent = event as CompileErrorEvent;
+      setLiveCompileErrors((prev) => [
+        ...prev,
+        {
+          artifact_name: ceEvent.data.artifact_name,
+          line: ceEvent.data.line,
+          column: ceEvent.data.column,
+          error_text: ceEvent.data.error_text,
+          severity: ceEvent.data.severity,
+        },
+      ]);
+    }
+    if (event.type === "job_completed" || event.type === "job_failed") {
+      setLogs((prev) => [
+        ...prev,
+        `[TIA] Job ${event.type === "job_completed" ? "completed" : "failed"}: ${event.job_id}`,
+      ]);
+    }
+    if (event.type === "artifact_imported") {
+      const data = event.data as { artifact_name?: string; success?: boolean };
+      setLogs((prev) => [
+        ...prev,
+        `[TIA] Imported: ${data.artifact_name ?? "unknown"} — ${data.success ? "OK" : "FAILED"}`,
+      ]);
+    }
+  }, []);
+
+  useTiaBridgeWs({
+    enabled: bridgeConnected && !!currentTiaJobId,
+    jobId: currentTiaJobId,
+    onEvent: handleBridgeEvent,
+  });
+
+  // Derive compile errors from DB job results, falling back to live WS errors
+  const compileErrors: CompileError[] = useMemo(() => {
+    const dbErrors = currentTiaJob?.compile_results?.errors ?? [];
+    return dbErrors.length > 0 ? dbErrors : liveCompileErrors;
+  }, [currentTiaJob, liveCompileErrors]);
+
   // Local UI state
   const [optimisticMessages, setOptimisticMessages] = useState<ConversationTurn[]>([]);
   const [warnings, setWarnings] = useState<SafetyWarning[]>([]);
-  const [compileErrors] = useState<CompileError[]>([]);
   const [logs, setLogs] = useState<string[]>([]);
   const [showExport, setShowExport] = useState(false);
   const [currentManifest, setCurrentManifest] = useState<TiaManifest | null>(null);
@@ -314,6 +368,87 @@ export default function PacStPage() {
     });
   }, [project, sessionId, auditLog]);
 
+  // TIA job submission flow
+  const handleTiaSubmit = useCallback((jobType: TiaJobType) => {
+    // Build manifest from current approved artifacts if not already built
+    const { approvedArtifacts: approved } = usePacStStore.getState();
+    if (!project || approved.length === 0) return;
+
+    if (!currentManifest) {
+      const artifacts = approved.map((a) => ({
+        ...a.artifact,
+        content: a.content,
+        approved_content: a.content,
+      }));
+      const { manifest } = buildManifest(artifacts, {
+        projectId: project.id,
+        tiaVersion: project.tia_version,
+        cpuType: project.cpu_type,
+        userId: "",
+        sessionId: sessionId ?? "",
+      });
+      setCurrentManifest(manifest);
+    }
+
+    setSelectedJobType(jobType);
+    setShowSubmitDialog(true);
+  }, [project, sessionId, currentManifest]);
+
+  const handleTiaSubmitConfirm = useCallback((tiaProjectPath: string) => {
+    if (!project || !sessionId || !currentManifest) return;
+
+    setLiveCompileErrors([]);
+    submitTiaJob.mutate(
+      {
+        projectId: project.id,
+        sessionId,
+        jobType: selectedJobType,
+        manifest: currentManifest,
+        tiaProjectPath,
+      },
+      {
+        onSuccess: (job) => {
+          setCurrentTiaJobId(job.id);
+          setShowSubmitDialog(false);
+          setLogs((prev) => [
+            ...prev,
+            `[TIA] Job submitted: ${job.id} (${selectedJobType})`,
+          ]);
+          auditLog.mutate({
+            action: "TIA_SUBMIT",
+            projectId: project.id,
+            details: {
+              job_id: job.id,
+              job_type: selectedJobType,
+              artifact_count: currentManifest.artifacts.length,
+            },
+          });
+        },
+        onError: (error) => {
+          setLogs((prev) => [...prev, `[ERROR] TIA submit failed: ${error.message}`]);
+        },
+      }
+    );
+  }, [project, sessionId, currentManifest, selectedJobType, submitTiaJob, setCurrentTiaJobId, auditLog]);
+
+  const handleErrorClick = useCallback((artifactName: string, line: number | null) => {
+    if (!line) return;
+    navigateToArtifact(artifactName, line);
+  }, [navigateToArtifact]);
+
+  const handleRegenerateAffected = useCallback((errorArtifacts: string[]) => {
+    if (!currentTiaJob) return;
+    const errors = currentTiaJob.compile_results?.errors ?? liveCompileErrors;
+    const relevantErrors = errors.filter((e) => errorArtifacts.includes(e.artifact_name));
+
+    const errorSummary = relevantErrors
+      .map((e) => `- ${e.artifact_name}${e.line ? `:${e.line}` : ""}: ${e.error_text}`)
+      .join("\n");
+
+    const prompt = `The following artifacts had compile errors in TIA Portal. Please fix them:\n\n${errorSummary}\n\nRegenerate the affected artifacts: ${errorArtifacts.join(", ")}`;
+    handleSend(prompt);
+  }, [currentTiaJob, liveCompileErrors, handleSend]);
+
   const navigate = useNavigate();
   const { data: allProjects } = useProjects();
 
@@ -389,6 +524,18 @@ export default function PacStPage() {
         />
       )}
 
+      {/* TIA submit confirmation dialog */}
+      <TiaSubmitDialog
+        open={showSubmitDialog}
+        onOpenChange={setShowSubmitDialog}
+        manifest={currentManifest}
+        warnings={warnings}
+        bridgeConnected={bridgeConnected}
+        jobType={selectedJobType}
+        onConfirm={handleTiaSubmitConfirm}
+        submitting={submitTiaJob.isPending}
+      />
+
       {/* End session button */}
       {activeSession && (
         <div className="flex items-center justify-end border-b px-3 py-1.5">
@@ -441,12 +588,31 @@ export default function PacStPage() {
         </ResizablePanel>
       </ResizablePanelGroup>
 
-      {/* Bottom panel */}
-      <BottomPanel
-        compileErrors={compileErrors}
-        logs={logs}
-        warnings={warnings}
-      />
+      {/* Bottom panel area — TiaJobPanel + BottomPanel side by side */}
+      <div className="flex">
+        {sessionId && projectId && (
+          <div className="w-80 shrink-0 border-r">
+            <TiaJobPanel
+              projectId={projectId}
+              sessionId={sessionId}
+              manifest={currentManifest}
+              currentJob={currentTiaJob ?? null}
+              onErrorClick={handleErrorClick}
+              onRegenerateAffected={handleRegenerateAffected}
+              onSubmitRequest={handleTiaSubmit}
+              submitting={submitTiaJob.isPending}
+            />
+          </div>
+        )}
+        <div className="flex-1">
+          <BottomPanel
+            compileErrors={compileErrors}
+            logs={logs}
+            warnings={warnings}
+            onErrorClick={handleErrorClick}
+          />
+        </div>
+      </div>
     </div>
   );
 }
