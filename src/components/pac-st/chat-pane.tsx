@@ -121,10 +121,10 @@ export function ChatPane({
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Clear conversation?</AlertDialogTitle>
+                  <AlertDialogTitle>Clear workspace?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This will permanently delete all messages in the current session.
-                    Generated artifacts will not be affected.
+                    This will permanently delete all messages, generated code,
+                    and approved code in the current session.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -133,7 +133,7 @@ export function ChatPane({
                     onClick={onClearChat}
                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                   >
-                    Clear Chat
+                    Clear All
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>

@@ -196,7 +196,10 @@ export default function PacStPage() {
       onSuccess: () => {
         setOptimisticMessages([]);
         setWarnings([]);
-        setLogs((prev) => [...prev, "[INFO] Conversation cleared"]);
+        setLogs([]);
+        usePacStStore.getState().reset();
+        setCurrentManifest(null);
+        setLogs(["[INFO] Session workspace cleared"]);
       },
     });
   }, [sessionId, clearConversation]);
