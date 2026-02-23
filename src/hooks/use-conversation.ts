@@ -44,9 +44,8 @@ export function useClearConversation() {
       if (error) throw error;
     },
     onSuccess: (_data, sessionId) => {
-      queryClient.invalidateQueries({
-        queryKey: [...CONVERSATION_KEY, sessionId],
-      });
+      // Immediately clear the cached data so UI updates instantly
+      queryClient.setQueryData([...CONVERSATION_KEY, sessionId], []);
     },
   });
 }
