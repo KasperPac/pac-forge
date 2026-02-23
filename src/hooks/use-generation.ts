@@ -54,37 +54,27 @@ export function useGenerate() {
       });
 
       // 2. Call the Edge Function
-      const { data: { session: authSession } } = await supabase.auth.getSession();
-      const token = authSession?.access_token;
-      if (!token) throw new Error("Not authenticated");
-
-      const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate`;
-
-      const response = await fetch(functionUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          system_prompt: systemPrompt,
-          messages,
-          project_context: {
-            project_id: project.id,
-            session_id: sessionId,
+      const { data: fnData, error: fnError } = await supabase.functions.invoke(
+        "generate",
+        {
+          body: {
+            system_prompt: systemPrompt,
+            messages,
+            project_context: {
+              project_id: project.id,
+              session_id: sessionId,
+            },
+            generation_mode: generationMode,
+            stream: false,
           },
-          generation_mode: generationMode,
-          stream: false,
-        }),
-      });
+        }
+      );
 
-      if (!response.ok) {
-        const errorBody = await response.json().catch(() => ({ error: response.statusText }));
-        throw new Error(errorBody.error ?? `Generation failed: ${response.status}`);
+      if (fnError) {
+        throw new Error(fnError.message ?? "Generation failed");
       }
 
-      const result = await response.json();
-      const rawResponse = result.content as string;
+      const rawResponse = (fnData as { content: string }).content;
 
       // 3. Parse artifacts from response
       const { artifacts: parsedArtifacts, summary, errors: parseErrors } =
