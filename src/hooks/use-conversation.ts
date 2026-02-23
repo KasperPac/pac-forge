@@ -32,6 +32,25 @@ export function useConversationHistory(sessionId: string | null) {
   });
 }
 
+export function useClearConversation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (sessionId: string) => {
+      const { error } = await supabase
+        .from("conversation_turns")
+        .delete()
+        .eq("session_id", sessionId);
+      if (error) throw error;
+    },
+    onSuccess: (_data, sessionId) => {
+      queryClient.invalidateQueries({
+        queryKey: [...CONVERSATION_KEY, sessionId],
+      });
+    },
+  });
+}
+
 export function useSaveConversationTurn() {
   const queryClient = useQueryClient();
 

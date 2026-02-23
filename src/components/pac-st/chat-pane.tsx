@@ -1,10 +1,21 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Cpu, AlertTriangle } from "lucide-react";
+import { Send, Cpu, AlertTriangle, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { AgentStatusBar } from "./agent-status-bar";
 import { SafetyBanner } from "./safety-banner";
 import { ModeSelector } from "./mode-selector";
@@ -27,7 +38,9 @@ interface ChatPaneProps {
   onSend: (message: string) => void;
   onAcknowledgeWarning: (id: string) => void;
   onReleaseAgent?: (reservationId: string, agentId: string) => void;
+  onClearChat?: () => void;
   sending?: boolean;
+  clearing?: boolean;
 }
 
 export function ChatPane({
@@ -39,7 +52,9 @@ export function ChatPane({
   onSend,
   onAcknowledgeWarning,
   onReleaseAgent,
+  onClearChat,
   sending,
+  clearing,
 }: ChatPaneProps) {
   const [input, setInput] = useState("");
   const [mode, setMode] = useState<InteractionMode>("FREEFORM");
@@ -78,18 +93,52 @@ export function ChatPane({
     <div className="flex h-full flex-col">
       {/* Project summary */}
       {project && (
-        <div className="space-y-1 p-3">
-          <div className="font-mono text-[10px] text-muted-foreground">PROJECT</div>
-          <div className="text-sm font-medium">{project.client_name}</div>
-          <div className="flex items-center gap-1.5">
-            <Badge variant="outline" className="font-mono text-[9px]">
-              <Cpu className="mr-0.5 h-2.5 w-2.5" />
-              {project.cpu_type}
-            </Badge>
-            <Badge variant="outline" className="font-mono text-[9px]">
-              {project.tia_version}
-            </Badge>
+        <div className="flex items-start justify-between p-3">
+          <div className="space-y-1">
+            <div className="font-mono text-[10px] text-muted-foreground">PROJECT</div>
+            <div className="text-sm font-medium">{project.client_name}</div>
+            <div className="flex items-center gap-1.5">
+              <Badge variant="outline" className="font-mono text-[9px]">
+                <Cpu className="mr-0.5 h-2.5 w-2.5" />
+                {project.cpu_type}
+              </Badge>
+              <Badge variant="outline" className="font-mono text-[9px]">
+                {project.tia_version}
+              </Badge>
+            </div>
           </div>
+          {onClearChat && messages.length > 0 && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                  disabled={clearing}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Clear conversation?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently delete all messages in the current session.
+                    Generated artifacts will not be affected.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={onClearChat}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    Clear Chat
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
         </div>
       )}
 

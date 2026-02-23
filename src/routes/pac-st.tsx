@@ -13,7 +13,7 @@ import {
   useReleaseAgent,
   useAutoRenewLeases,
 } from "@/hooks/use-agent-reservation";
-import { useConversationHistory } from "@/hooks/use-conversation";
+import { useConversationHistory, useClearConversation } from "@/hooks/use-conversation";
 import { useGenerate } from "@/hooks/use-generation";
 import { useCreatePatternCandidate } from "@/hooks/use-patterns";
 import { useAuditLog } from "@/hooks/use-audit-log";
@@ -60,6 +60,7 @@ export default function PacStPage() {
 
   // Conversation history from DB
   const { data: dbMessages } = useConversationHistory(sessionId);
+  const clearConversation = useClearConversation();
 
   // Generation
   const generate = useGenerate();
@@ -188,6 +189,17 @@ export default function PacStPage() {
   const handleSessionCreated = useCallback(() => {
     setShowStartDialog(false);
   }, []);
+
+  const handleClearChat = useCallback(() => {
+    if (!sessionId) return;
+    clearConversation.mutate(sessionId, {
+      onSuccess: () => {
+        setOptimisticMessages([]);
+        setWarnings([]);
+        setLogs((prev) => [...prev, "[INFO] Conversation cleared"]);
+      },
+    });
+  }, [sessionId, clearConversation]);
 
   const handleSaveSnapshot = useCallback(async () => {
     const { approvedArtifacts, activeApprovedIndex, generatedArtifacts } = usePacStStore.getState();
@@ -403,7 +415,9 @@ export default function PacStPage() {
             onSend={handleSend}
             onAcknowledgeWarning={handleAcknowledgeWarning}
             onReleaseAgent={handleReleaseAgent}
+            onClearChat={handleClearChat}
             sending={generate.isPending}
+            clearing={clearConversation.isPending}
           />
         </ResizablePanel>
 
