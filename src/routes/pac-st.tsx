@@ -393,7 +393,7 @@ export default function PacStPage() {
 
       {/* Main three-pane area */}
       <ResizablePanelGroup orientation="horizontal" className="flex-1">
-        <ResizablePanel defaultSize={25} minSize={15} maxSize={40}>
+        <ResizablePanel defaultSize={30} minSize={15}>
           <ChatPane
             project={project ?? null}
             agents={sessionAgents}
