@@ -19,6 +19,7 @@ import { AgentStatusBar } from "./agent-status-bar";
 import { SafetyBanner } from "./safety-banner";
 import { ModeSelector } from "./mode-selector";
 import { PromptBuilder } from "./prompt-builder";
+import { PipelineActivity } from "./pipeline-activity";
 import type {
   Project,
   Agent,
@@ -246,10 +247,8 @@ export function ChatPane({
             </div>
           ))}
           {sending && (
-            <div className="mr-4 rounded-md border bg-card px-3 py-2">
-              <div className="font-mono text-xs text-muted-foreground">
-                <span className="inline-block animate-pulse">Generating...</span>
-              </div>
+            <div className="mr-4 rounded-md border bg-card">
+              <PipelineActivity />
             </div>
           )}
         </div>

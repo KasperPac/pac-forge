@@ -1,4 +1,4 @@
-import type { Project, Agent, PatternCandidate, FbTemplate, DesignProfile } from "@/types";
+import type { Project, Agent, PatternCandidate, FbTemplate, DesignProfile, AgentKnowledgeDoc } from "@/types";
 import { PLATFORM_RULES } from "@/lib/platform-rules";
 import { formatPatterns } from "@/lib/prompt-builder";
 import { getAgentProfile } from "@/lib/agent-profiles";
@@ -9,6 +9,7 @@ export interface ProcessPromptInput {
   designProfile?: DesignProfile;
   approvedPatterns?: PatternCandidate[];
   fbTemplates?: FbTemplate[];
+  agentKnowledgeDocs?: Record<string, AgentKnowledgeDoc[]>;
   functionalDescription: string;
 }
 
@@ -17,12 +18,24 @@ interface BuiltPrompt {
   messages: Array<{ role: "user" | "assistant"; content: string }>;
 }
 
-function formatAgentRoles(agents: Agent[]): string {
+function formatAgentRoles(
+  agents: Agent[],
+  knowledgeDocs?: Record<string, AgentKnowledgeDoc[]>
+): string {
   if (agents.length === 0) return "No agents assigned.";
   return agents
     .map((a) => {
       const profile = getAgentProfile(a.display_name);
-      return `### ${a.display_name} [${a.specialties.join(", ")}]\n**Role:** ${profile.tagline}`;
+      const sections = [
+        `### ${a.display_name} [${a.specialties.join(", ")}]`,
+        `**Role:** ${profile.tagline}`,
+      ];
+      const docs = knowledgeDocs?.[a.id];
+      if (docs && docs.length > 0) {
+        const docSections = docs.map((d) => `#### ${d.title}\n${d.content}`);
+        sections.push(`**Reference Documentation:**\n${docSections.join("\n\n")}`);
+      }
+      return sections.join("\n");
     })
     .join("\n\n");
 }
@@ -42,7 +55,7 @@ ${blocks.join("\n\n")}`;
 }
 
 export function buildProcessPrompt(input: ProcessPromptInput): BuiltPrompt {
-  const { project, agents, designProfile, approvedPatterns, fbTemplates, functionalDescription } = input;
+  const { project, agents, designProfile, approvedPatterns, fbTemplates, agentKnowledgeDocs, functionalDescription } = input;
 
   const profileSection = designProfile?.rules?.trim()
     ? `## Code Design Profile: ${designProfile.name}
@@ -84,7 +97,7 @@ ${PLATFORM_RULES}
 ${project.safety_notes ? `- Safety Notes: ${project.safety_notes}` : ""}
 
 ${profileSection}## Agent Roles
-${formatAgentRoles(agents)}
+${formatAgentRoles(agents, agentKnowledgeDocs)}
 
 ${formatFbTemplates(fbTemplates ?? [])}
 

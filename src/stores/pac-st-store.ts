@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { Artifact } from "@/types";
+import type { PipelineExecution, PipelineStepResult } from "@/lib/pipeline";
 
 type BottomPanelTab = "compile" | "logs" | "warnings";
 
@@ -34,6 +35,11 @@ interface PacStState {
   // Diff
   showDiff: boolean;
 
+  // Pipeline
+  pipelineExecution: PipelineExecution | null;
+  activeAgentName: string | null;
+  debugDrawerOpen: boolean;
+
   // Actions — artifacts
   setGeneratedArtifacts: (artifacts: Artifact[]) => void;
   setActiveGeneratedIndex: (index: number) => void;
@@ -58,6 +64,14 @@ interface PacStState {
   // Actions — diff
   toggleDiff: () => void;
 
+  // Actions — pipeline
+  startPipeline: (id: string) => void;
+  addPipelineStep: (step: PipelineStepResult) => void;
+  updatePipelineStep: (agentId: string, updates: Partial<PipelineStepResult>) => void;
+  completePipeline: (finalArtifactCount: number) => void;
+  setActiveAgentName: (name: string | null) => void;
+  setDebugDrawerOpen: (open: boolean) => void;
+
   // Reset
   reset: () => void;
 }
@@ -73,6 +87,9 @@ export const usePacStStore = create<PacStState>((set) => ({
   bottomPanelOpen: false,
   bottomPanelTab: "compile",
   showDiff: false,
+  pipelineExecution: null,
+  activeAgentName: null,
+  debugDrawerOpen: false,
 
   setGeneratedArtifacts: (artifacts) =>
     set({ generatedArtifacts: artifacts, activeGeneratedIndex: 0 }),
@@ -152,6 +169,58 @@ export const usePacStStore = create<PacStState>((set) => ({
 
   toggleDiff: () => set((s) => ({ showDiff: !s.showDiff })),
 
+  startPipeline: (id) =>
+    set({
+      pipelineExecution: {
+        id,
+        startedAt: new Date().toISOString(),
+        completedAt: null,
+        steps: [],
+        finalArtifactCount: 0,
+      },
+      activeAgentName: null,
+    }),
+
+  addPipelineStep: (step) =>
+    set((s) => {
+      if (!s.pipelineExecution) return s;
+      return {
+        pipelineExecution: {
+          ...s.pipelineExecution,
+          steps: [...s.pipelineExecution.steps, step],
+        },
+      };
+    }),
+
+  updatePipelineStep: (agentId, updates) =>
+    set((s) => {
+      if (!s.pipelineExecution) return s;
+      return {
+        pipelineExecution: {
+          ...s.pipelineExecution,
+          steps: s.pipelineExecution.steps.map((step) =>
+            step.agentId === agentId ? { ...step, ...updates } : step
+          ),
+        },
+      };
+    }),
+
+  completePipeline: (finalArtifactCount) =>
+    set((s) => {
+      if (!s.pipelineExecution) return s;
+      return {
+        pipelineExecution: {
+          ...s.pipelineExecution,
+          completedAt: new Date().toISOString(),
+          finalArtifactCount,
+        },
+        activeAgentName: null,
+      };
+    }),
+
+  setActiveAgentName: (name) => set({ activeAgentName: name }),
+  setDebugDrawerOpen: (open) => set({ debugDrawerOpen: open }),
+
   reset: () =>
     set({
       generatedArtifacts: [],
@@ -164,5 +233,8 @@ export const usePacStStore = create<PacStState>((set) => ({
       bottomPanelOpen: false,
       bottomPanelTab: "compile",
       showDiff: false,
+      pipelineExecution: null,
+      activeAgentName: null,
+      debugDrawerOpen: false,
     }),
 }));

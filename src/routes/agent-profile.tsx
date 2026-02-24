@@ -1,5 +1,18 @@
+import { useState, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router";
-import { ArrowLeft, CalendarDays, Cpu, Power, Zap, Quote } from "lucide-react";
+import {
+  ArrowLeft,
+  CalendarDays,
+  Cpu,
+  Power,
+  Zap,
+  Quote,
+  Upload,
+  FileText,
+  Trash2,
+  AlertTriangle,
+  Loader2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +24,12 @@ import {
   type ProfileColor,
 } from "@/lib/agent-profiles";
 import { useAgents } from "@/hooks/use-agents";
+import {
+  useAgentKnowledgeDocs,
+  useCreateAgentKnowledgeDoc,
+  useDeleteAgentKnowledgeDoc,
+} from "@/hooks/use-agent-knowledge";
+import { readFileAsText, getFileType, countWords } from "@/lib/document-reader";
 
 const STATUS_STYLES: Record<string, { dot: string; label: string }> = {
   AVAILABLE: { dot: "bg-green-500", label: "Available" },
@@ -19,12 +38,72 @@ const STATUS_STYLES: Record<string, { dot: string; label: string }> = {
   DISABLED: { dot: "bg-neutral-600", label: "Disabled" },
 };
 
+const ACCEPTED_EXTENSIONS = ".md,.txt,.docx,.scl";
+const WORD_COUNT_WARNING = 40_000;
+
 export default function AgentProfilePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data: agents, isLoading, error } = useAgents();
+  const { data: knowledgeDocs } = useAgentKnowledgeDocs(id);
+  const createDoc = useCreateAgentKnowledgeDoc();
+  const deleteDoc = useDeleteAgentKnowledgeDoc();
+
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const agent = agents?.find((a) => a.id === id);
+
+  const totalWordCount = knowledgeDocs?.reduce((sum, d) => sum + d.word_count, 0) ?? 0;
+
+  const handleFileUpload = useCallback(
+    async (file: File) => {
+      if (!id) return;
+      setUploadError(null);
+      setUploading(true);
+
+      try {
+        const content = await readFileAsText(file);
+        if (!content.trim()) {
+          setUploadError("The document appears to be empty.");
+          setUploading(false);
+          return;
+        }
+
+        const words = countWords(content);
+        await createDoc.mutateAsync({
+          agent_id: id,
+          title: file.name.replace(/\.[^.]+$/, ""),
+          content,
+          source_filename: file.name,
+          file_type: getFileType(file.name),
+          word_count: words,
+        });
+      } catch (err) {
+        setUploadError(
+          err instanceof Error ? err.message : "Failed to upload document"
+        );
+      } finally {
+        setUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
+    },
+    [id, createDoc]
+  );
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      const file = e.dataTransfer.files[0];
+      if (file) handleFileUpload(file);
+    },
+    [handleFileUpload]
+  );
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+  }, []);
 
   if (isLoading) {
     return (
@@ -241,6 +320,125 @@ export default function AgentProfilePage() {
           </div>
         </Card>
       )}
+
+      {/* Knowledge Base */}
+      <Card className="p-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Knowledge Base
+            </h2>
+            {knowledgeDocs && knowledgeDocs.length > 0 && (
+              <Badge variant="secondary" className="font-mono text-xs">
+                {knowledgeDocs.length} doc{knowledgeDocs.length !== 1 ? "s" : ""}
+                {" \u00B7 "}
+                {totalWordCount.toLocaleString()} words
+              </Badge>
+            )}
+            {totalWordCount > WORD_COUNT_WARNING && (
+              <Badge variant="destructive" className="gap-1 text-xs">
+                <AlertTriangle className="h-3 w-3" />
+                Large KB — may impact prompt size
+              </Badge>
+            )}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+          >
+            {uploading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Upload className="h-3.5 w-3.5" />
+            )}
+            Upload Document
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={ACCEPTED_EXTENSIONS}
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) handleFileUpload(f);
+            }}
+          />
+        </div>
+
+        {uploadError && (
+          <div className="mt-3 rounded-md bg-destructive/10 px-3 py-2 font-mono text-xs text-destructive">
+            {uploadError}
+          </div>
+        )}
+
+        {/* Document list */}
+        {knowledgeDocs && knowledgeDocs.length > 0 && (
+          <div className="mt-4 space-y-2">
+            {knowledgeDocs.map((doc) => (
+              <div
+                key={doc.id}
+                className="flex items-center gap-3 rounded-md border px-3 py-2.5"
+              >
+                <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium">{doc.title}</div>
+                  <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
+                    {doc.source_filename && (
+                      <>
+                        <span>{doc.source_filename}</span>
+                        <span>&middot;</span>
+                      </>
+                    )}
+                    <span>{doc.word_count.toLocaleString()} words</span>
+                    <span>&middot;</span>
+                    <span>{doc.file_type.toUpperCase()}</span>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 shrink-0 p-0 text-muted-foreground hover:text-destructive"
+                  onClick={() => deleteDoc.mutate({ id: doc.id, agentId: agent.id })}
+                  disabled={deleteDoc.isPending}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Drop zone (when empty or as additional upload area) */}
+        {(!knowledgeDocs || knowledgeDocs.length === 0) && !uploading && (
+          <div
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onClick={() => fileInputRef.current?.click()}
+            className="mt-4 cursor-pointer rounded-md border-2 border-dashed border-muted-foreground/25 px-4 py-8 text-center transition-colors hover:border-muted-foreground/50 hover:bg-accent/30"
+          >
+            <Upload className="mx-auto mb-2 h-6 w-6 text-muted-foreground/50" />
+            <div className="font-mono text-sm text-muted-foreground">
+              Drop files here or click to browse
+            </div>
+            <div className="mt-1 font-mono text-xs text-muted-foreground/60">
+              Supports .md, .txt, .docx, .scl
+            </div>
+          </div>
+        )}
+
+        {knowledgeDocs && knowledgeDocs.length > 0 && (
+          <div
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            className="mt-3 rounded-md border border-dashed border-muted-foreground/20 px-3 py-2 text-center font-mono text-xs text-muted-foreground/50 transition-colors hover:border-muted-foreground/40"
+          >
+            Drop more files here to add to knowledge base
+          </div>
+        )}
+      </Card>
     </div>
   );
 }

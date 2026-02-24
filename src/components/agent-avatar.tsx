@@ -8,6 +8,7 @@ import { getAgentAvatar } from "@/components/agent-avatars";
 import type { AgentStatus } from "@/types";
 
 const SIZE_CLASSES = {
+  xs: { container: "h-5 w-5", icon: "h-3 w-3", dot: "h-1.5 w-1.5" },
   sm: { container: "h-8 w-8", icon: "h-4 w-4", dot: "h-2 w-2" },
   md: { container: "h-12 w-12", icon: "h-6 w-6", dot: "h-2.5 w-2.5" },
   lg: { container: "h-16 w-16", icon: "h-8 w-8", dot: "h-3 w-3" },

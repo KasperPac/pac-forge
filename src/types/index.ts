@@ -9,3 +9,4 @@ export * from "./snapshot";
 export * from "./tia";
 export * from "./fb-template";
 export * from "./design-profile";
+export * from "./agent-knowledge";

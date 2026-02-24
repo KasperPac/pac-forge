@@ -13,6 +13,7 @@ export const AGENT_SPECIALTIES = {
   SAFETY: "SAFETY",
   REVIEW: "REVIEW",
   PATTERNS: "PATTERNS",
+  ORCHESTRATE: "ORCHESTRATE",
 } as const;
 
 export type AgentSpecialty = (typeof AGENT_SPECIALTIES)[keyof typeof AGENT_SPECIALTIES];

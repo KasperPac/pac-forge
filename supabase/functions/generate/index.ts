@@ -31,7 +31,7 @@ interface GenerateRequest {
     project_id: string;
     session_id: string;
   };
-  generation_mode: "FB_PER_DEVICE" | "PROJECT_LEVEL";
+  generation_mode: "FB_PER_DEVICE" | "PROJECT_LEVEL" | "PROCESS_CODE";
   stream?: boolean;
 }
 

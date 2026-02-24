@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronUp, Play, Loader2, Wifi, WifiOff, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronUp, Play, Loader2, Wifi, WifiOff, RefreshCw, Bug, GraduationCap, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -27,6 +27,11 @@ interface BottomPanelProps {
   submitting?: boolean;
   currentJob?: TiaJob | null;
   onRegenerateAffected?: (errorArtifacts: string[]) => void;
+  // Debug + Teach
+  onDebugOpen?: () => void;
+  debugAvailable?: boolean;
+  onTeachOpen?: () => void;
+  onTeachUploadOpen?: () => void;
 }
 
 const SEVERITY_COLORS: Record<string, string> = {
@@ -46,6 +51,10 @@ export function BottomPanel({
   submitting,
   currentJob,
   onRegenerateAffected,
+  onDebugOpen,
+  debugAvailable,
+  onTeachOpen,
+  onTeachUploadOpen,
 }: BottomPanelProps) {
   const { bottomPanelOpen, bottomPanelTab, setBottomPanelOpen, setBottomPanelTab } = useUiStore();
   const [selectedJobType, setSelectedJobType] = useState<TiaJobType>("IMPORT_AND_COMPILE");
@@ -132,6 +141,42 @@ export function BottomPanel({
                 Submit
               </Button>
             </div>
+          )}
+
+          {onTeachOpen && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 px-2 font-mono text-xs text-muted-foreground hover:text-foreground"
+              onClick={onTeachOpen}
+            >
+              <GraduationCap className="h-3 w-3" />
+              Teach
+            </Button>
+          )}
+
+          {onTeachUploadOpen && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 px-2 font-mono text-xs text-muted-foreground hover:text-foreground"
+              onClick={onTeachUploadOpen}
+            >
+              <Upload className="h-3 w-3" />
+              Learn from File
+            </Button>
+          )}
+
+          {debugAvailable && onDebugOpen && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 px-2 font-mono text-xs text-muted-foreground hover:text-foreground"
+              onClick={onDebugOpen}
+            >
+              <Bug className="h-3 w-3" />
+              Debug
+            </Button>
           )}
 
           <Button

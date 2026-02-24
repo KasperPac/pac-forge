@@ -4,6 +4,7 @@ import {
   Cable,
   ShieldAlert,
   Library,
+  ClipboardList,
   Bot,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -151,6 +152,32 @@ const PROFILES: Record<string, AgentProfile> = {
     whyUseful:
       "Transforms every manual code correction into a lasting improvement. The Pattern Librarian ensures the system learns from your engineering judgment, making each generation cycle more aligned with your standards and reducing the need for repetitive edits.",
   },
+  "Project Manager": {
+    icon: ClipboardList,
+    color: "cyan",
+    tagline: "Orchestrates the agent pipeline and summarizes results",
+    catchphrase: "A good plan today is better than a perfect plan tomorrow.",
+    personality:
+      "The natural coordinator who sees the big picture before anyone else does. Reads the user's intent between the lines, knows each agent's strengths, and delegates accordingly. Keeps meetings short and reports shorter. Celebrates when the pipeline runs without a single rework cycle.",
+    description:
+      "The Project Manager orchestrates the multi-agent pipeline. In the planning phase, it analyzes the user's request, identifies which specialist agents should be engaged, and outlines an execution plan. After all agents have completed their work, it synthesizes results, flags any disagreements between reviewers, and delivers a clear final status report. It never modifies code directly — its role is coordination and communication.",
+    skills: [
+      "Request analysis and task decomposition",
+      "Agent delegation and pipeline planning",
+      "Cross-agent conflict resolution",
+      "Final report synthesis and quality assessment",
+      "Risk identification and mitigation planning",
+      "Pipeline optimization recommendations",
+    ],
+    whenToUse: [
+      "When using multiple agents in a single session",
+      "When you want a structured execution plan before code generation",
+      "When you need a summary of what each agent contributed",
+      "For complex projects where agent coordination matters",
+    ],
+    whyUseful:
+      "Transforms a collection of independent agents into a coordinated team. The Project Manager ensures each specialist focuses on what they do best, catches conflicts between reviewers early, and gives you a clear picture of the generation pipeline's output — so you can make informed decisions about the generated code.",
+  },
 };
 
 const FALLBACK_PROFILE: AgentProfile = {
@@ -177,6 +204,7 @@ export const COLOR_CLASSES = {
   emerald: { bg: "bg-emerald-500/15", text: "text-emerald-500", ring: "ring-emerald-500/30" },
   red: { bg: "bg-red-500/15", text: "text-red-500", ring: "ring-red-500/30" },
   violet: { bg: "bg-violet-500/15", text: "text-violet-500", ring: "ring-violet-500/30" },
+  cyan: { bg: "bg-cyan-500/15", text: "text-cyan-500", ring: "ring-cyan-500/30" },
   neutral: { bg: "bg-neutral-500/15", text: "text-neutral-500", ring: "ring-neutral-500/30" },
 } as const;
 

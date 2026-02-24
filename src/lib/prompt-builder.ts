@@ -1,4 +1,4 @@
-import type { Project, Agent, IoEntry, TagDbDefinition, GenerationMode, PatternCandidate, FbTemplate, DesignProfile } from "@/types";
+import type { Project, Agent, IoEntry, TagDbDefinition, GenerationMode, PatternCandidate, FbTemplate, DesignProfile, AgentKnowledgeDoc } from "@/types";
 import { PLATFORM_RULES } from "@/lib/platform-rules";
 import { getAgentProfile } from "@/lib/agent-profiles";
 
@@ -46,6 +46,7 @@ interface PromptBuilderInput {
   approvedPatterns?: PatternCandidate[];
   fbTemplates?: FbTemplate[];
   designProfile?: DesignProfile;
+  agentKnowledgeDocs?: Record<string, AgentKnowledgeDoc[]>;
   userMessage: string;
   conversationHistory?: Array<{ role: "user" | "assistant"; content: string }>;
 }
@@ -77,7 +78,10 @@ function formatTagDbs(tagDbs: TagDbDefinition[]): string {
     .join("\n\n");
 }
 
-function formatAgentRoles(agents: Agent[]): string {
+function formatAgentRoles(
+  agents: Agent[],
+  knowledgeDocs?: Record<string, AgentKnowledgeDoc[]>
+): string {
   if (agents.length === 0) return "No agents assigned.";
   return agents
     .map((a) => {
@@ -91,6 +95,12 @@ function formatAgentRoles(agents: Agent[]): string {
       ];
       if (a.system_prompt) {
         sections.push(`**Instructions:** ${a.system_prompt}`);
+      }
+      // Inject agent's knowledge base documents
+      const docs = knowledgeDocs?.[a.id];
+      if (docs && docs.length > 0) {
+        const docSections = docs.map((d) => `#### ${d.title}\n${d.content}`);
+        sections.push(`**Reference Documentation:**\n${docSections.join("\n\n")}`);
       }
       return sections.join("\n");
     })
@@ -141,7 +151,7 @@ export function formatPatterns(patterns: PatternCandidate[]): string {
 }
 
 export function buildPrompt(input: PromptBuilderInput): BuiltPrompt {
-  const { project, agents, generationMode, approvedPatterns, fbTemplates, designProfile, userMessage, conversationHistory } = input;
+  const { project, agents, generationMode, approvedPatterns, fbTemplates, designProfile, agentKnowledgeDocs, userMessage, conversationHistory } = input;
 
   const generationModeDesc =
     generationMode === "FB_PER_DEVICE"
@@ -184,7 +194,7 @@ ${formatTagDbs(project.tag_db_definitions)}
 ${generationModeDesc}
 
 ## Agent Roles
-${formatAgentRoles(agents)}
+${formatAgentRoles(agents, agentKnowledgeDocs)}
 
 ${formatFbTemplates(fbTemplates ?? [])}
 

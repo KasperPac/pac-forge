@@ -30,7 +30,7 @@ export function useProcessGenerate() {
         onError?: (error: Error) => void;
       },
     ) => {
-      const { project, agents, approvedPatterns, fbTemplates, designProfile, functionalDescription } = input;
+      const { project, agents, approvedPatterns, fbTemplates, designProfile, agentKnowledgeDocs, functionalDescription } = input;
 
       const promptInput: ProcessPromptInput = {
         project,
@@ -38,6 +38,7 @@ export function useProcessGenerate() {
         designProfile,
         approvedPatterns,
         fbTemplates,
+        agentKnowledgeDocs,
         functionalDescription,
       };
 

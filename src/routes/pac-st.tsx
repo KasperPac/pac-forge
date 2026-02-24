@@ -14,8 +14,9 @@ import {
   useAutoRenewLeases,
 } from "@/hooks/use-agent-reservation";
 import { useConversationHistory, useClearConversation } from "@/hooks/use-conversation";
-import { useGenerateStream } from "@/hooks/use-generation";
+import { usePipelineGenerate } from "@/hooks/use-pipeline-generate";
 import { useProcessGenerate } from "@/hooks/use-process-generate";
+import { useMultiAgentKnowledgeDocs } from "@/hooks/use-agent-knowledge";
 import { useCreatePatternCandidate, useActivePatterns } from "@/hooks/use-patterns";
 import { useAuditLog } from "@/hooks/use-audit-log";
 import { useSubmitTiaJob, useBridgeStatus, useTiaJob } from "@/hooks/use-tia-jobs";
@@ -34,6 +35,9 @@ import { ProcessUploadPane } from "@/components/pac-st/process-upload-pane";
 import { GeneratedCodePane } from "@/components/pac-st/generated-code-pane";
 import { ApprovedCodePane } from "@/components/pac-st/approved-code-pane";
 import { BottomPanel } from "@/components/pac-st/bottom-panel";
+import { DebugDrawer } from "@/components/pac-st/debug-drawer";
+import { TeachPatternDialog } from "@/components/pac-st/teach-pattern-dialog";
+import { TeachUploadDialog } from "@/components/pac-st/teach-upload-dialog";
 import { supabase } from "@/lib/supabase";
 import type { BridgeEvent, CompileErrorEvent } from "@/lib/tia-bridge-contract";
 import type { ConversationTurn, SafetyWarning, CompileError, TiaManifest, TiaJobType } from "@/types";
@@ -70,10 +74,14 @@ export default function PacStPage() {
   const { data: dbMessages } = useConversationHistory(sessionId);
   const clearConversation = useClearConversation();
 
-  // Generation (streaming)
-  const { generateStream, isStreaming } = useGenerateStream();
+  // Knowledge docs for session agents
+  const sessionAgentIds = useMemo(() => sessionAgents.map((a) => a.id), [sessionAgents]);
+  const { data: agentKnowledgeDocs } = useMultiAgentKnowledgeDocs(sessionAgentIds);
+
+  // Generation (pipeline for chat, streaming for process)
+  const { executePipeline, isRunning: isPipelineRunning } = usePipelineGenerate();
   const { generateProcess, isStreaming: isProcessStreaming } = useProcessGenerate();
-  const { setGeneratedArtifacts, currentTiaJobId, setCurrentTiaJobId, navigateToArtifact } = usePacStStore();
+  const { setGeneratedArtifacts, currentTiaJobId, setCurrentTiaJobId, navigateToArtifact, setDebugDrawerOpen } = usePacStStore();
 
   // Left panel mode: chat vs process code
   const [leftPanelMode, setLeftPanelMode] = useState<"chat" | "process">("chat");
@@ -93,6 +101,8 @@ export default function PacStPage() {
   const [liveCompileErrors, setLiveCompileErrors] = useState<CompileError[]>([]);
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
   const [selectedJobType, setSelectedJobType] = useState<TiaJobType>("IMPORT_AND_COMPILE");
+  const [showTeachDialog, setShowTeachDialog] = useState(false);
+  const [showTeachUploadDialog, setShowTeachUploadDialog] = useState(false);
 
   const handleBridgeEvent = useCallback((event: BridgeEvent) => {
     if (event.type === "compile_error") {
@@ -168,7 +178,7 @@ export default function PacStPage() {
       };
       setOptimisticMessages((prev) => [...prev, userTurn]);
 
-      generateStream(
+      executePipeline(
         {
           project,
           sessionId,
@@ -184,6 +194,7 @@ export default function PacStPage() {
           approvedPatterns: approvedPatterns ?? [],
           fbTemplates: fbTemplates ?? [],
           designProfile,
+          agentKnowledgeDocs,
         },
         {
           onSuccess: (result) => {
@@ -233,7 +244,7 @@ export default function PacStPage() {
         },
       );
     },
-    [project, sessionId, sessionAgents, messages, renewNow, generateStream, setGeneratedArtifacts, auditLog, approvedPatterns, fbTemplates, designProfile]
+    [project, sessionId, sessionAgents, messages, renewNow, executePipeline, setGeneratedArtifacts, auditLog, approvedPatterns, fbTemplates, designProfile, agentKnowledgeDocs]
   );
 
   const handleProcessGenerate = useCallback(
@@ -250,6 +261,7 @@ export default function PacStPage() {
           approvedPatterns: approvedPatterns ?? [],
           fbTemplates: fbTemplates ?? [],
           designProfile,
+          agentKnowledgeDocs,
           functionalDescription,
         },
         {
@@ -283,7 +295,7 @@ export default function PacStPage() {
         },
       );
     },
-    [project, sessionId, sessionAgents, renewNow, generateProcess, setGeneratedArtifacts, auditLog, approvedPatterns, fbTemplates, designProfile],
+    [project, sessionId, sessionAgents, renewNow, generateProcess, setGeneratedArtifacts, auditLog, approvedPatterns, fbTemplates, designProfile, agentKnowledgeDocs],
   );
 
   const handleAcknowledgeWarning = useCallback((id: string) => {
@@ -587,6 +599,21 @@ export default function PacStPage() {
         />
       )}
 
+      {/* Debug drawer */}
+      <DebugDrawer />
+
+      {/* Teach pattern dialogs */}
+      <TeachPatternDialog
+        open={showTeachDialog}
+        onOpenChange={setShowTeachDialog}
+        plcBrand={project?.plc_brand ?? "SIEMENS_TIA"}
+      />
+      <TeachUploadDialog
+        open={showTeachUploadDialog}
+        onOpenChange={setShowTeachUploadDialog}
+        plcBrand={project?.plc_brand ?? "SIEMENS_TIA"}
+      />
+
       {/* TIA submit confirmation dialog */}
       <TiaSubmitDialog
         open={showSubmitDialog}
@@ -642,7 +669,7 @@ export default function PacStPage() {
                   onClearChat={handleClearChat}
                   onEndSession={activeSession ? () => endSession.mutate(activeSession.id) : undefined}
                   profileName={designProfile?.name}
-                  sending={isStreaming}
+                  sending={isPipelineRunning}
                   clearing={clearConversation.isPending}
                   endingSession={endSession.isPending}
                 />
@@ -685,6 +712,10 @@ export default function PacStPage() {
         submitting={submitTiaJob.isPending}
         currentJob={currentTiaJob ?? null}
         onRegenerateAffected={handleRegenerateAffected}
+        onDebugOpen={() => setDebugDrawerOpen(true)}
+        debugAvailable={!!usePacStStore.getState().pipelineExecution}
+        onTeachOpen={() => setShowTeachDialog(true)}
+        onTeachUploadOpen={() => setShowTeachUploadDialog(true)}
       />
     </div>
   );

@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { buildPrompt } from "@/lib/prompt-builder";
 import { parseArtifacts } from "@/lib/artifact-parser";
+import type { ParsedArtifact } from "@/lib/artifact-parser";
 import { buildManifest } from "@/lib/manifest-builder";
 import { analyzeArtifacts } from "@/lib/safety-analyzer";
 import { usePacStStore } from "@/stores/pac-st-store";
@@ -16,6 +17,7 @@ import type {
   PatternCandidate,
   FbTemplate,
   DesignProfile,
+  AgentKnowledgeDoc,
 } from "@/types";
 
 const ARTIFACTS_KEY = ["artifacts"] as const;
@@ -30,6 +32,7 @@ export interface GenerateInput {
   approvedPatterns?: PatternCandidate[];
   fbTemplates?: FbTemplate[];
   designProfile?: DesignProfile;
+  agentKnowledgeDocs?: Record<string, AgentKnowledgeDoc[]>;
 }
 
 export interface GenerateResult {
@@ -42,22 +45,25 @@ export interface GenerateResult {
   rawResponse: string;
 }
 
-// --- Shared post-processing pipeline (steps 3-9) ---
+// --- Shared post-processing pipeline ---
 
-export async function processRawResponse(
-  rawResponse: string,
+/**
+ * Saves pre-parsed artifacts to DB, runs safety analysis, builds manifest,
+ * saves snapshots and conversation turns. Used by both processRawResponse()
+ * and the pipeline hook.
+ */
+export async function saveArtifactsAndTurns(
+  parsedArtifacts: ParsedArtifact[],
+  summary: string,
   input: GenerateInput,
+  rawResponse: string,
 ): Promise<GenerateResult> {
   const { project, sessionId, agents, userMessage } = input;
 
-  // 3. Parse artifacts from response
-  const { artifacts: parsedArtifacts, summary, errors: parseErrors } =
-    parseArtifacts(rawResponse);
-
-  // 4. Run safety analyzer
+  // Run safety analyzer
   const warnings = analyzeArtifacts(parsedArtifacts);
 
-  // 5. Build full Artifact objects
+  // Build full Artifact objects
   const { data: { user } } = await supabase.auth.getUser();
   const userId = user?.id ?? "";
 
@@ -79,7 +85,8 @@ export async function processRawResponse(
     created_at: new Date().toISOString(),
   }));
 
-  // 6. Build manifest
+  // Build manifest
+  const parseErrors: string[] = [];
   const { manifest, errors: manifestErrors } = buildManifest(artifacts, {
     projectId: project.id,
     tiaVersion: project.tia_version,
@@ -88,7 +95,7 @@ export async function processRawResponse(
     sessionId,
   });
 
-  // 7. Save artifacts to DB
+  // Save artifacts to DB
   if (artifacts.length > 0) {
     const { error: insertError } = await supabase
       .from("artifacts")
@@ -115,7 +122,7 @@ export async function processRawResponse(
     }
   }
 
-  // 8. Save GENERATION snapshot for each artifact
+  // Save GENERATION snapshot for each artifact
   if (artifacts.length > 0) {
     const snapshots = artifacts.map((a) => ({
       project_id: project.id,
@@ -134,7 +141,7 @@ export async function processRawResponse(
     }
   }
 
-  // 9. Save conversation turns (user + agent)
+  // Save conversation turns (user + agent)
   await supabase.from("conversation_turns").insert({
     session_id: sessionId,
     role: "USER",
@@ -161,6 +168,25 @@ export async function processRawResponse(
     parseErrors,
     manifestErrors,
     rawResponse,
+  };
+}
+
+/**
+ * Parses raw Claude response text into artifacts, then saves everything.
+ * Convenience wrapper around parseArtifacts() + saveArtifactsAndTurns().
+ */
+export async function processRawResponse(
+  rawResponse: string,
+  input: GenerateInput,
+): Promise<GenerateResult> {
+  const { artifacts: parsedArtifacts, summary, errors: parseErrors } =
+    parseArtifacts(rawResponse);
+
+  const result = await saveArtifactsAndTurns(parsedArtifacts, summary, input, rawResponse);
+
+  return {
+    ...result,
+    parseErrors: [...parseErrors, ...result.parseErrors],
   };
 }
 
@@ -249,7 +275,7 @@ export async function streamFromEdgeFunction(
 }
 
 function buildRequestBody(input: GenerateInput, stream: boolean) {
-  const { project, sessionId, generationMode, approvedPatterns, fbTemplates, designProfile, userMessage, conversationHistory, agents } = input;
+  const { project, sessionId, generationMode, approvedPatterns, fbTemplates, designProfile, agentKnowledgeDocs, userMessage, conversationHistory, agents } = input;
   const { systemPrompt, messages } = buildPrompt({
     project,
     agents,
@@ -257,6 +283,7 @@ function buildRequestBody(input: GenerateInput, stream: boolean) {
     approvedPatterns,
     fbTemplates,
     designProfile,
+    agentKnowledgeDocs,
     userMessage,
     conversationHistory,
   });
