@@ -23,6 +23,7 @@ import { useSubmitTiaJob, useBridgeStatus, useTiaJob } from "@/hooks/use-tia-job
 import { useFbTemplates } from "@/hooks/use-fb-templates";
 import { useDesignProfile } from "@/hooks/use-design-profiles";
 import { useTiaBridgeWs } from "@/hooks/use-tia-bridge-ws";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { usePacStStore } from "@/stores/pac-st-store";
 import { computeDiff } from "@/lib/diff-engine";
 import { classifyCorrections } from "@/lib/correction-classifier";
@@ -442,6 +443,12 @@ export default function PacStPage() {
       details: { artifact_count: artifacts.length },
     });
   }, [project, sessionId, auditLog]);
+
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    "ctrl+s": () => handleSaveSnapshot(),
+    "ctrl+shift+e": () => handleExport(),
+  });
 
   // TIA job submission flow
   const handleTiaSubmit = useCallback((jobType: TiaJobType) => {

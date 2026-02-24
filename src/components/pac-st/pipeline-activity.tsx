@@ -1,4 +1,5 @@
-import { Loader2, CheckCircle2, XCircle, Clock, MinusCircle } from "lucide-react";
+import { useState } from "react";
+import { Loader2, CheckCircle2, XCircle, Clock, MinusCircle, ChevronDown, ChevronRight } from "lucide-react";
 import { usePacStStore } from "@/stores/pac-st-store";
 import { AgentAvatar } from "@/components/agent-avatar";
 import type { PipelineStepStatus } from "@/lib/pipeline";
@@ -27,21 +28,49 @@ const ROLE_LABELS: Record<string, string> = {
   summary: "Summarizing",
 };
 
-export function PipelineActivity() {
+interface PipelineActivityProps {
+  defaultCollapsed?: boolean;
+}
+
+export function PipelineActivity({ defaultCollapsed = false }: PipelineActivityProps) {
   const execution = usePacStStore((s) => s.pipelineExecution);
   const activeAgent = usePacStStore((s) => s.activeAgentName);
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
 
   if (!execution || execution.steps.length === 0) return null;
 
   const isComplete = !!execution.completedAt;
   const totalDuration = execution.steps.reduce((sum, s) => sum + s.durationMs, 0);
+  const completedCount = execution.steps.filter((s) => s.status === "completed").length;
+  const artifactCount = execution.steps.reduce(
+    (sum, s) => sum + (s.artifactsModified?.length ?? 0),
+    0,
+  );
+
+  if (collapsed && isComplete) {
+    return (
+      <button
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-accent/30"
+        onClick={() => setCollapsed(false)}
+      >
+        <ChevronRight className="h-3 w-3 text-muted-foreground" />
+        <span className="font-mono text-[10px] text-muted-foreground">
+          Pipeline: {completedCount} agents, {artifactCount} artifacts, {(totalDuration / 1000).toFixed(1)}s
+        </span>
+      </button>
+    );
+  }
 
   return (
     <div className="space-y-1 px-3 py-2">
       <div className="flex items-center justify-between">
-        <div className="font-mono text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        <button
+          className="flex items-center gap-1 font-mono text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
+          onClick={() => isComplete && setCollapsed(true)}
+        >
+          {isComplete && <ChevronDown className="h-3 w-3" />}
           Pipeline {isComplete ? "Complete" : "Running"}
-        </div>
+        </button>
         {isComplete && totalDuration > 0 && (
           <div className="font-mono text-[10px] text-muted-foreground">
             {(totalDuration / 1000).toFixed(1)}s total

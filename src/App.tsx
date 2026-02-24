@@ -1,17 +1,25 @@
+import { lazy, Suspense } from "react";
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router";
 import { QueryProvider } from "@/providers/query-provider";
 import { AuthGuard } from "@/components/auth-guard";
 import { DashboardLayout } from "@/app/DashboardLayout";
+import { RouteLoader } from "@/components/route-loader";
 import LoginPage from "@/routes/login";
 import ProjectsPage from "@/routes/projects";
-import ProjectDetailPage from "@/routes/project-detail";
-import PacStPage from "@/routes/pac-st";
-import AgentsPage from "@/routes/agents";
-import AgentProfilePage from "@/routes/agent-profile";
-import PatternsPage from "@/routes/patterns";
-import TiaConsolePage from "@/routes/tia-console";
-import FbLibraryPage from "@/routes/fb-library";
-import ProfilesPage from "@/routes/profiles";
+
+// Lazy-loaded routes (heavy pages)
+const ProjectDetailPage = lazy(() => import("@/routes/project-detail"));
+const PacStPage = lazy(() => import("@/routes/pac-st"));
+const AgentsPage = lazy(() => import("@/routes/agents"));
+const AgentProfilePage = lazy(() => import("@/routes/agent-profile"));
+const PatternsPage = lazy(() => import("@/routes/patterns"));
+const TiaConsolePage = lazy(() => import("@/routes/tia-console"));
+const FbLibraryPage = lazy(() => import("@/routes/fb-library"));
+const ProfilesPage = lazy(() => import("@/routes/profiles"));
+
+function LazyRoute({ children }: { children: React.ReactNode }) {
+  return <Suspense fallback={<RouteLoader />}>{children}</Suspense>;
+}
 
 const router = createBrowserRouter([
   {
@@ -26,14 +34,14 @@ const router = createBrowserRouter([
         children: [
           { index: true, element: <Navigate to="/projects" replace /> },
           { path: "projects", element: <ProjectsPage /> },
-          { path: "projects/:id", element: <ProjectDetailPage /> },
-          { path: "pac-st", element: <PacStPage /> },
-          { path: "agents", element: <AgentsPage /> },
-          { path: "agents/:id", element: <AgentProfilePage /> },
-          { path: "patterns", element: <PatternsPage /> },
-          { path: "tia-console", element: <TiaConsolePage /> },
-          { path: "fb-library", element: <FbLibraryPage /> },
-          { path: "profiles", element: <ProfilesPage /> },
+          { path: "projects/:id", element: <LazyRoute><ProjectDetailPage /></LazyRoute> },
+          { path: "pac-st", element: <LazyRoute><PacStPage /></LazyRoute> },
+          { path: "agents", element: <LazyRoute><AgentsPage /></LazyRoute> },
+          { path: "agents/:id", element: <LazyRoute><AgentProfilePage /></LazyRoute> },
+          { path: "patterns", element: <LazyRoute><PatternsPage /></LazyRoute> },
+          { path: "tia-console", element: <LazyRoute><TiaConsolePage /></LazyRoute> },
+          { path: "fb-library", element: <LazyRoute><FbLibraryPage /></LazyRoute> },
+          { path: "profiles", element: <LazyRoute><ProfilesPage /></LazyRoute> },
         ],
       },
     ],

@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Cpu, AlertTriangle, Trash2, LogOut } from "lucide-react";
+import { Send, Cpu, AlertTriangle, Trash2, LogOut, ChevronDown, ChevronRight, Code2 } from "lucide-react";
+import { usePacStStore } from "@/stores/pac-st-store";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -20,6 +21,7 @@ import { SafetyBanner } from "./safety-banner";
 import { ModeSelector } from "./mode-selector";
 import { PromptBuilder } from "./prompt-builder";
 import { PipelineActivity } from "./pipeline-activity";
+import { SUGGESTED_PROMPTS } from "@/lib/suggested-prompts";
 import type {
   Project,
   Agent,
@@ -64,7 +66,10 @@ export function ChatPane({
 }: ChatPaneProps) {
   const [input, setInput] = useState("");
   const [mode, setMode] = useState<InteractionMode>("FREEFORM");
+  const [showLiveOutput, setShowLiveOutput] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const liveOutputRef = useRef<HTMLPreElement>(null);
+  const streamingContent = usePacStStore((s) => s.streamingContent);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -72,6 +77,13 @@ export function ChatPane({
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages.length, sending]);
+
+  // Auto-scroll live output
+  useEffect(() => {
+    if (liveOutputRef.current) {
+      liveOutputRef.current.scrollTop = liveOutputRef.current.scrollHeight;
+    }
+  }, [streamingContent]);
 
   function handleSend() {
     const trimmed = input.trim();
@@ -191,10 +203,27 @@ export function ChatPane({
       <ScrollArea className="flex-1" ref={scrollRef}>
         <div className="space-y-3 p-3">
           {messages.length === 0 && (
-            <div className="py-8 text-center font-mono text-sm text-muted-foreground">
-              Start a conversation to generate PLC code.
-              <br />
-              <span className="text-xs">Ctrl+Enter to send</span>
+            <div className="space-y-3 py-4">
+              <div className="text-center font-mono text-xs text-muted-foreground">
+                Quick Start — click a template or type your own prompt
+              </div>
+              <div className="grid grid-cols-2 gap-2 px-1">
+                {SUGGESTED_PROMPTS.map((sp) => (
+                  <button
+                    key={sp.label}
+                    className="rounded-md bg-accent/30 px-3 py-2 text-left transition-colors hover:bg-accent/50"
+                    onClick={() => onSend(sp.prompt)}
+                  >
+                    <div className="font-mono text-xs font-medium">{sp.label}</div>
+                    <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+                      {sp.category}
+                    </div>
+                    <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                      {sp.prompt.slice(0, 100)}...
+                    </div>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           {messages.map((msg) => (
@@ -247,8 +276,41 @@ export function ChatPane({
             </div>
           ))}
           {sending && (
+            <div className="mr-4 space-y-1">
+              <div className="rounded-md border bg-card">
+                <PipelineActivity />
+              </div>
+              {streamingContent && (
+                <div className="rounded-md border bg-card">
+                  <button
+                    className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left"
+                    onClick={() => setShowLiveOutput((v) => !v)}
+                  >
+                    {showLiveOutput ? (
+                      <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                    ) : (
+                      <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                    )}
+                    <Code2 className="h-3 w-3 text-muted-foreground" />
+                    <span className="font-mono text-[10px] text-muted-foreground">
+                      Live Output ({streamingContent.split("\n").length} lines)
+                    </span>
+                  </button>
+                  {showLiveOutput && (
+                    <pre
+                      ref={liveOutputRef}
+                      className="max-h-40 overflow-auto border-t bg-black/30 px-3 py-2 font-mono text-[11px] text-muted-foreground"
+                    >
+                      {streamingContent.split("\n").slice(-20).join("\n")}
+                    </pre>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          {!sending && (
             <div className="mr-4 rounded-md border bg-card">
-              <PipelineActivity />
+              <PipelineActivity defaultCollapsed />
             </div>
           )}
         </div>

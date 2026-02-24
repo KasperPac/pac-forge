@@ -90,7 +90,7 @@ export function ApprovedCodePane({ projectId, onSaveSnapshot, onExport }: Approv
             className="h-6 px-2 font-mono text-xs"
             onClick={onSaveSnapshot}
             disabled={!activeApproved}
-            title="Save snapshot"
+            title="Save snapshot (Ctrl+S)"
           >
             <Save className="mr-1 h-3 w-3" />
             Save
@@ -102,7 +102,7 @@ export function ApprovedCodePane({ projectId, onSaveSnapshot, onExport }: Approv
               className="h-6 px-2 font-mono text-xs"
               onClick={onExport}
               disabled={approvedArtifacts.length === 0}
-              title="Export bundle"
+              title="Export bundle (Ctrl+Shift+E)"
             >
               <Download className="mr-1 h-3 w-3" />
               Export

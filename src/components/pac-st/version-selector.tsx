@@ -1,14 +1,16 @@
 import { useState } from "react";
-import { History, RotateCcw } from "lucide-react";
+import { History, RotateCcw, GitCompareArrows } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { RollbackDialog } from "./rollback-dialog";
+import { SnapshotDiffDialog } from "./snapshot-diff-dialog";
 import { useSnapshots, useRollback } from "@/hooks/use-snapshots";
 import type { Snapshot } from "@/types";
 
@@ -23,8 +25,22 @@ export function VersionSelector({ artifactId, projectId, onRollback }: VersionSe
   const rollback = useRollback();
   const [selectedSnapshot, setSelectedSnapshot] = useState<Snapshot | null>(null);
   const [showRollback, setShowRollback] = useState(false);
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareA, setCompareA] = useState<Snapshot | null>(null);
+  const [showDiff, setShowDiff] = useState(false);
 
   function handleSelectVersion(snapshot: Snapshot) {
+    if (compareMode) {
+      if (!compareA) {
+        setCompareA(snapshot);
+      } else {
+        // Second selection — show diff
+        setSelectedSnapshot(snapshot);
+        setShowDiff(true);
+        setCompareMode(false);
+      }
+      return;
+    }
     setSelectedSnapshot(snapshot);
     setShowRollback(true);
   }
@@ -71,6 +87,27 @@ export function VersionSelector({ artifactId, projectId, onRollback }: VersionSe
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-64">
+          {(snapshots?.length ?? 0) >= 2 && (
+            <>
+              <DropdownMenuItem
+                className="flex items-center gap-1.5 font-mono text-xs"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setCompareMode(!compareMode);
+                  setCompareA(null);
+                }}
+              >
+                <GitCompareArrows className="h-3 w-3" />
+                {compareMode ? "Cancel Compare" : "Compare Two Versions"}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
+          {compareMode && (
+            <div className="px-2 py-1 font-mono text-[10px] text-muted-foreground">
+              {compareA ? `Select second version (base: v${compareA.version_number})` : "Select first version to compare"}
+            </div>
+          )}
           {snapshots?.map((snapshot) => (
             <DropdownMenuItem
               key={snapshot.id}
@@ -85,6 +122,11 @@ export function VersionSelector({ artifactId, projectId, onRollback }: VersionSe
                 <Badge variant="outline" className="px-1 py-0 font-mono text-xs">
                   {snapshot.trigger}
                 </Badge>
+                {compareA?.id === snapshot.id && (
+                  <Badge variant="secondary" className="px-1 py-0 font-mono text-xs">
+                    base
+                  </Badge>
+                )}
               </div>
               <span className="font-mono text-xs text-muted-foreground">
                 {new Date(snapshot.created_at).toLocaleString()}
@@ -101,6 +143,27 @@ export function VersionSelector({ artifactId, projectId, onRollback }: VersionSe
           snapshot={selectedSnapshot}
           onConfirm={handleConfirmRollback}
           isPending={rollback.isPending}
+        />
+      )}
+
+      {compareA && selectedSnapshot && (
+        <SnapshotDiffDialog
+          open={showDiff}
+          onOpenChange={(open) => {
+            setShowDiff(open);
+            if (!open) {
+              setCompareA(null);
+              setSelectedSnapshot(null);
+            }
+          }}
+          snapshotA={compareA}
+          snapshotB={selectedSnapshot}
+          onRollback={(snapshot) => {
+            setShowDiff(false);
+            setSelectedSnapshot(snapshot);
+            setShowRollback(true);
+            setCompareA(null);
+          }}
         />
       )}
     </>

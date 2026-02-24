@@ -33,8 +33,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useTiaJobs, useBridgeStatus } from "@/hooks/use-tia-jobs";
+import { useTiaBridgeWs } from "@/hooks/use-tia-bridge-ws";
+import { useDesignProfiles, useDesignProfile } from "@/hooks/use-design-profiles";
+import { useProjects } from "@/hooks/use-projects";
 import { DEFAULT_BRIDGE_CONFIG } from "@/lib/tia-bridge-contract";
+import { Progress } from "@/components/ui/progress";
 import { CompileFixChat } from "@/components/tia-console/compile-fix-chat";
 import { LearnedCorrectionsLog } from "@/components/tia-console/learned-corrections-log";
 import { DEMO_PROGRAMS, getRandomDemo } from "@/lib/demo-programs";
@@ -212,10 +223,39 @@ function JobDetailRow({ job }: { job: TiaJob }) {
 export default function TiaConsolePage() {
   const { data: bridgeStatus } = useBridgeStatus();
   const { data: jobs, isLoading } = useTiaJobs(undefined);
+  const queryClient = useQueryClient();
   const [localCompileResult, setLocalCompileResult] = useState<CompileResult | null>(null);
   const [fixSessionActive, setFixSessionActive] = useState(false);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [designProfileId, setDesignProfileId] = useState(
+    () => localStorage.getItem("tia-design-profile-id") ?? ""
+  );
+
+  const [selectedProjectId, setSelectedProjectId] = useState(
+    () => localStorage.getItem("tia-selected-project-id") ?? ""
+  );
+
+  // Design profile + project list for compile-fix
+  const { data: designProfiles } = useDesignProfiles();
+  const { data: selectedDesignProfile } = useDesignProfile(designProfileId || undefined);
+  const { data: projects } = useProjects();
 
   const isConnected = bridgeStatus?.connected ?? false;
+
+  // WebSocket for real-time job progress
+  const { progress: wsProgress, currentStep: wsCurrentStep } = useTiaBridgeWs({
+    enabled: isConnected,
+    jobId: activeJobId,
+    onEvent: (event) => {
+      if (event.type === "job_started") {
+        setActiveJobId(event.job_id);
+      }
+      if (event.type === "job_completed" || event.type === "job_failed") {
+        queryClient.invalidateQueries({ queryKey: ["tia-compile-result"] });
+        setActiveJobId(null);
+      }
+    },
+  });
 
   // Lift compile result to page level so both CompileResultsCard and CompileFixChat can use it
   const { data: fetchedCompileResult, isLoading: compileLoading, isFetching: compileFetching } =
@@ -273,12 +313,18 @@ export default function TiaConsolePage() {
   function handleRunDemo() {
     localStorage.setItem("tia-demo-path", demoPath);
     localStorage.setItem("tia-demo-name", demoName);
-    createProjectMutation.mutate({
-      project_path: demoPath,
-      project_name: demoName,
-      sources: selectedDemo.sources,
-      import_order: selectedDemo.importOrder,
-    });
+    setActiveJobId("pending"); // Will be replaced by WS job_started event
+    createProjectMutation.mutate(
+      {
+        project_path: demoPath,
+        project_name: demoName,
+        sources: selectedDemo.sources,
+        import_order: selectedDemo.importOrder,
+      },
+      {
+        onError: () => setActiveJobId(null),
+      }
+    );
   }
 
   function handleCustomGenerate() {
@@ -367,7 +413,7 @@ export default function TiaConsolePage() {
                 size="sm"
                 variant="outline"
                 className="h-6 flex-1 font-mono text-xs"
-                disabled={!isConnected}
+                disabled={isConnected || connectMutation.isPending}
                 onClick={() => connectMutation.mutate({ mode: "attach" })}
               >
                 {connectMutation.isPending ? (
@@ -381,7 +427,7 @@ export default function TiaConsolePage() {
                 size="sm"
                 variant="outline"
                 className="h-6 flex-1 font-mono text-xs"
-                disabled={!isConnected}
+                disabled={isConnected || connectMutation.isPending}
                 onClick={() => connectMutation.mutate({ mode: "start" })}
               >
                 {connectMutation.isPending ? (
@@ -459,6 +505,56 @@ export default function TiaConsolePage() {
       {/* Shared project path/name inputs */}
       <div>
         <div className="mb-2 font-mono text-sm text-muted-foreground">PROJECT SETTINGS</div>
+
+        {/* Project selector */}
+        <div className="mb-2 flex items-end gap-2">
+          <div className="flex-1">
+            <div className="mb-1 font-mono text-xs text-muted-foreground">LINKED PROJECT</div>
+            <Select
+              value={selectedProjectId || "none"}
+              onValueChange={(v) => {
+                const id = v === "none" ? "" : v;
+                setSelectedProjectId(id);
+                localStorage.setItem("tia-selected-project-id", id);
+
+                // Auto-fill from project
+                const project = projects?.find((p) => p.id === id);
+                if (project) {
+                  setDemoName(project.client_name);
+                  localStorage.setItem("tia-demo-name", project.client_name);
+                  if (project.design_profile_id) {
+                    setDesignProfileId(project.design_profile_id);
+                    localStorage.setItem("tia-design-profile-id", project.design_profile_id);
+                  }
+                }
+              }}
+            >
+              <SelectTrigger className="h-6 font-mono text-xs">
+                <SelectValue placeholder="None (manual)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none" className="font-mono text-xs">
+                  None (manual)
+                </SelectItem>
+                {projects?.map((p) => (
+                  <SelectItem key={p.id} value={p.id} className="font-mono text-xs">
+                    {p.client_name}{p.project_number ? ` (${p.project_number})` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {selectedProjectId && projects?.find((p) => p.id === selectedProjectId) && (() => {
+            const project = projects!.find((p) => p.id === selectedProjectId)!;
+            return (
+              <div className="flex items-center gap-1.5 pb-0.5">
+                <Badge variant="outline" className="font-mono text-xs">{project.cpu_type}</Badge>
+                <Badge variant="outline" className="font-mono text-xs">TIA {project.tia_version}</Badge>
+              </div>
+            );
+          })()}
+        </div>
+
         <div className="flex gap-2">
           <div className="flex-1">
             <div className="mb-1 font-mono text-xs text-muted-foreground">PROJECT DIRECTORY</div>
@@ -478,8 +574,51 @@ export default function TiaConsolePage() {
               className="h-6 font-mono text-xs"
             />
           </div>
+          <div className="w-52">
+            <div className="mb-1 font-mono text-xs text-muted-foreground">DESIGN PROFILE</div>
+            <Select
+              value={designProfileId}
+              onValueChange={(v) => {
+                const id = v === "none" ? "" : v;
+                setDesignProfileId(id);
+                localStorage.setItem("tia-design-profile-id", id);
+              }}
+            >
+              <SelectTrigger className="h-6 font-mono text-xs">
+                <SelectValue placeholder="None" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none" className="font-mono text-xs">
+                  None
+                </SelectItem>
+                {designProfiles?.map((p) => (
+                  <SelectItem key={p.id} value={p.id} className="font-mono text-xs">
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
+
+      {/* Job progress bar */}
+      {activeJobId && (
+        <Card className="flex items-center gap-3 px-3 py-2">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-400" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-xs text-blue-400">
+                {wsCurrentStep || "Running..."}
+              </span>
+              <span className="font-mono text-xs text-muted-foreground">
+                {Math.round(wsProgress)}%
+              </span>
+            </div>
+            <Progress value={wsProgress} className="mt-1 h-1" />
+          </div>
+        </Card>
+      )}
 
       {/* Demo + Custom project in 2 columns */}
       <div className="grid gap-3 lg:grid-cols-2">
@@ -641,6 +780,7 @@ export default function TiaConsolePage() {
           compileWarnings={compileResult.warnings}
           sources={compileResult.sources!}
           isConnected={isConnected}
+          designProfile={selectedDesignProfile}
           onCompileResultUpdate={(result) => {
             if (!fixSessionActive) {
               setFixSessionActive(true);
