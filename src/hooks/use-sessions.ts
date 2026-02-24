@@ -4,6 +4,30 @@ import type { Session } from "@/types";
 
 const SESSIONS_KEY = ["sessions"] as const;
 
+/**
+ * Returns the most recent active session for the current user across all projects.
+ */
+export function useGlobalActiveSession() {
+  return useQuery({
+    queryKey: [...SESSIONS_KEY, "global-active"],
+    queryFn: async (): Promise<Session | null> => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      const { data, error } = await supabase
+        .from("sessions")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("status", "ACTIVE")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return (data as Session) ?? null;
+    },
+  });
+}
+
 export function useActiveSession(projectId: string | undefined) {
   return useQuery({
     queryKey: [...SESSIONS_KEY, "active", projectId],

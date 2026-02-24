@@ -1,13 +1,25 @@
-import { Check, X } from "lucide-react";
+import { Check, X, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import type { PatternCandidate } from "@/types";
 
 interface PatternReviewCardProps {
   pattern: PatternCandidate;
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
+  onDelete?: (id: string) => void;
 }
 
 const TYPE_COLORS: Record<string, string> = {
@@ -25,7 +37,7 @@ const STATUS_STYLES: Record<string, string> = {
   REJECTED: "bg-neutral-500/10 text-neutral-400",
 };
 
-export function PatternReviewCard({ pattern, onApprove, onReject }: PatternReviewCardProps) {
+export function PatternReviewCard({ pattern, onApprove, onReject, onDelete }: PatternReviewCardProps) {
   const typeClass = TYPE_COLORS[pattern.correction_type] ?? "";
   const statusClass = STATUS_STYLES[pattern.status] ?? "";
   const isPending = pattern.status === "PENDING";
@@ -81,28 +93,58 @@ export function PatternReviewCard({ pattern, onApprove, onReject }: PatternRevie
       )}
 
       {/* Actions */}
-      {isPending && (
-        <div className="flex justify-end gap-1 border-t px-4 py-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 font-mono text-[10px] text-red-400 hover:text-red-300"
-            onClick={() => onReject(pattern.id)}
-          >
-            <X className="mr-1 h-3 w-3" />
-            Reject
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 font-mono text-[10px] text-green-400 hover:text-green-300"
-            onClick={() => onApprove(pattern.id)}
-          >
-            <Check className="mr-1 h-3 w-3" />
-            Approve
-          </Button>
-        </div>
-      )}
+      <div className="flex justify-end gap-1 border-t px-4 py-2">
+        {onDelete && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 font-mono text-[10px] text-muted-foreground hover:text-destructive"
+              >
+                <Trash2 className="mr-1 h-3 w-3" />
+                Delete
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete pattern permanently?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently remove this correction pattern. This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={() => onDelete(pattern.id)}>
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
+        {isPending && (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 font-mono text-[10px] text-red-400 hover:text-red-300"
+              onClick={() => onReject(pattern.id)}
+            >
+              <X className="mr-1 h-3 w-3" />
+              Reject
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 font-mono text-[10px] text-green-400 hover:text-green-300"
+              onClick={() => onApprove(pattern.id)}
+            >
+              <Check className="mr-1 h-3 w-3" />
+              Approve
+            </Button>
+          </>
+        )}
+      </div>
     </Card>
   );
 }

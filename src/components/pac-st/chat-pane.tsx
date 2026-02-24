@@ -43,6 +43,7 @@ interface ChatPaneProps {
   onClearChat?: () => void;
   onEndSession?: () => void;
   profileName?: string;
+  expiringSoon?: boolean;
   sending?: boolean;
   clearing?: boolean;
   endingSession?: boolean;
@@ -60,6 +61,7 @@ export function ChatPane({
   onClearChat,
   onEndSession,
   profileName,
+  expiringSoon,
   sending,
   clearing,
   endingSession,
@@ -315,6 +317,15 @@ export function ChatPane({
           )}
         </div>
       </ScrollArea>
+
+      {/* Lease expiry warning */}
+      {expiringSoon && (
+        <div className="border-t bg-amber-500/10 px-3 py-1.5">
+          <span className="font-mono text-xs text-amber-500">
+            Agent lease expiring soon — save your work
+          </span>
+        </div>
+      )}
 
       {/* Input area */}
       <div className="border-t">

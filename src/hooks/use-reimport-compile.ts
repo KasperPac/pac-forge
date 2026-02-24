@@ -1,23 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { DEFAULT_BRIDGE_CONFIG } from "@/lib/tia-bridge-contract";
+import type { CompileResultWithSources } from "@/types/tia";
 
 interface ReimportCompileInput {
-  sources: Record<string, string>;
-}
-
-interface CompileErrorDto {
-  artifact_name: string;
-  line: number | null;
-  column: number | null;
-  error_text: string;
-  severity: "ERROR" | "WARNING" | "INFO";
-}
-
-interface CompileResultWithSources {
-  success: boolean;
-  errors: CompileErrorDto[];
-  warnings: CompileErrorDto[];
-  compiled_at: string;
   sources: Record<string, string>;
 }
 

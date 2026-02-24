@@ -1,7 +1,7 @@
-import { useState } from "react";
-import { Bot } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { ClipboardList, Lock, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -9,9 +9,10 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAgents } from "@/hooks/use-agents";
 import { useCreateSession } from "@/hooks/use-sessions";
+import { PIPELINE_STEP_CONFIG } from "@/lib/pipeline";
+import type { PipelineStepKey } from "@/lib/pipeline";
 import { cn } from "@/lib/utils";
 
 interface SessionStartDialogProps {
@@ -21,13 +22,6 @@ interface SessionStartDialogProps {
   onCancel?: () => void;
 }
 
-const STATUS_LABELS: Record<string, { label: string; className: string }> = {
-  AVAILABLE: { label: "Available", className: "bg-green-500" },
-  RESERVED: { label: "In use", className: "bg-amber-500" },
-  OFFLINE: { label: "Offline", className: "bg-neutral-500" },
-  DISABLED: { label: "Disabled", className: "bg-neutral-600" },
-};
-
 export function SessionStartDialog({
   projectId,
   open,
@@ -36,28 +30,66 @@ export function SessionStartDialog({
 }: SessionStartDialogProps) {
   const { data: agents, isLoading } = useAgents();
   const createSession = useCreateSession();
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
-  function toggleAgent(id: string) {
-    setSelectedIds((prev) => {
+  // Track which pipeline steps are enabled (all on by default)
+  const [enabledSteps, setEnabledSteps] = useState<Set<PipelineStepKey>>(
+    () => new Set(PIPELINE_STEP_CONFIG.map((s) => s.key)),
+  );
+
+  // Reset steps when dialog opens
+  useEffect(() => {
+    if (open) {
+      setEnabledSteps(new Set(PIPELINE_STEP_CONFIG.map((s) => s.key)));
+      setError(null);
+    }
+  }, [open]);
+
+  // Find the PM agent
+  const pmAgent = useMemo(
+    () => agents?.find((a) => a.specialties.includes("ORCHESTRATE")),
+    [agents],
+  );
+
+  function toggleStep(key: PipelineStepKey) {
+    const config = PIPELINE_STEP_CONFIG.find((s) => s.key === key);
+    if (!config || config.locked) return;
+
+    setEnabledSteps((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }
 
   async function handleStart() {
-    if (selectedIds.size === 0) return;
+    if (!agents) return;
     setError(null);
+
+    // Resolve enabled steps → agent IDs
+    const selectedAgentIds: string[] = [];
+
+    // PM is always included
+    if (pmAgent) selectedAgentIds.push(pmAgent.id);
+
+    for (const step of PIPELINE_STEP_CONFIG) {
+      if (!enabledSteps.has(step.key)) continue;
+      const agent = agents.find((a) => a.display_name === step.agentName);
+      if (agent && agent.is_enabled && agent.status === "AVAILABLE") {
+        selectedAgentIds.push(agent.id);
+      }
+    }
+
+    if (selectedAgentIds.length === 0) {
+      setError("No agents available");
+      return;
+    }
+
     try {
       const session = await createSession.mutateAsync({
         projectId,
-        agentIds: Array.from(selectedIds),
+        agentIds: selectedAgentIds,
       });
       onSessionCreated(session.id);
     } catch (err) {
@@ -65,16 +97,18 @@ export function SessionStartDialog({
     }
   }
 
+  const enabledCount = enabledSteps.size;
+
   return (
     <Dialog open={open}>
       <DialogContent className="sm:max-w-md" onInteractOutside={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Bot className="h-5 w-5" />
+            <ClipboardList className="h-5 w-5" />
             Start Pac-ST Session
           </DialogTitle>
           <DialogDescription>
-            Select agents for this session. Reserved agents are locked exclusively.
+            The Project Manager orchestrates your session, delegating tasks to specialist agents based on your requests.
           </DialogDescription>
         </DialogHeader>
 
@@ -85,66 +119,90 @@ export function SessionStartDialog({
         )}
 
         {agents && (
-          <ScrollArea className="max-h-64">
-            <div className="space-y-1.5 pr-3">
-              {agents.map((agent) => {
-                const isAvailable = agent.is_enabled && agent.status === "AVAILABLE";
-                const isSelected = selectedIds.has(agent.id);
-                const statusInfo = STATUS_LABELS[agent.status] ?? STATUS_LABELS.OFFLINE;
+          <div className="space-y-4">
+            {/* PM agent header */}
+            {pmAgent && (
+              <div className="flex items-start gap-3 rounded-md border border-primary/30 bg-accent/50 px-3 py-2.5">
+                <Lock className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">
+                      {pmAgent.display_name}
+                    </span>
+                    <span className="font-mono text-[9px] text-primary">
+                      Always active
+                    </span>
+                  </div>
+                  <p className="mt-0.5 font-mono text-[10px] leading-relaxed text-muted-foreground">
+                    Plans the pipeline, delegates to specialists, and summarizes results.
+                  </p>
+                </div>
+              </div>
+            )}
 
-                return (
-                  <button
-                    key={agent.id}
-                    onClick={() => isAvailable && toggleAgent(agent.id)}
-                    disabled={!isAvailable}
-                    className={cn(
-                      "flex w-full items-start gap-3 rounded-md border px-3 py-2.5 text-left transition-colors",
-                      isAvailable
-                        ? isSelected
-                          ? "border-primary bg-accent"
-                          : "border-border hover:bg-accent/50"
-                        : "cursor-not-allowed border-border/50 opacity-50"
-                    )}
-                  >
-                    {/* Checkbox indicator */}
+            {/* Pipeline step toggles */}
+            <div className="space-y-1">
+              <div className="font-mono text-xs font-medium text-muted-foreground">
+                Pipeline Steps
+              </div>
+              <div className="space-y-1">
+                {PIPELINE_STEP_CONFIG.map((step) => {
+                  const isEnabled = enabledSteps.has(step.key);
+                  const agent = agents.find(
+                    (a) => a.display_name === step.agentName,
+                  );
+                  const isAvailable =
+                    agent?.is_enabled && agent.status === "AVAILABLE";
+
+                  return (
                     <div
+                      key={step.key}
                       className={cn(
-                        "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border",
-                        isSelected
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-muted-foreground"
+                        "flex items-center gap-3 rounded-md border px-3 py-2 transition-colors",
+                        step.locked
+                          ? "border-primary/20 bg-accent/30"
+                          : isEnabled
+                            ? "border-border"
+                            : "border-border/50 opacity-60",
+                        !isAvailable && !step.locked && "opacity-40",
                       )}
                     >
-                      {isSelected && (
-                        <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none">
-                          <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
+                      {step.locked ? (
+                        <Check className="h-4 w-4 shrink-0 text-primary" />
+                      ) : (
+                        <Switch
+                          checked={isEnabled}
+                          onCheckedChange={() => toggleStep(step.key)}
+                          disabled={!isAvailable}
+                          className="shrink-0 scale-75"
+                        />
                       )}
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">{agent.display_name}</span>
-                        <div className="flex items-center gap-1">
-                          <div className={cn("h-1.5 w-1.5 rounded-full", statusInfo.className)} />
-                          <span className="font-mono text-[9px] text-muted-foreground">
-                            {statusInfo.label}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">
+                            {step.label}
                           </span>
+                          {step.locked && (
+                            <span className="font-mono text-[9px] text-primary">
+                              Required
+                            </span>
+                          )}
+                          {!isAvailable && !step.locked && (
+                            <span className="font-mono text-[9px] text-destructive">
+                              Unavailable
+                            </span>
+                          )}
                         </div>
-                      </div>
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {agent.specialties.map((s) => (
-                          <Badge key={s} variant="outline" className="px-1 py-0 text-[9px]">
-                            {s}
-                          </Badge>
-                        ))}
+                        <p className="font-mono text-[10px] text-muted-foreground">
+                          {step.description}
+                        </p>
                       </div>
                     </div>
-                  </button>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </ScrollArea>
+          </div>
         )}
 
         {error && (
@@ -161,11 +219,11 @@ export function SessionStartDialog({
           )}
           <Button
             onClick={handleStart}
-            disabled={selectedIds.size === 0 || createSession.isPending}
+            disabled={createSession.isPending}
           >
             {createSession.isPending
               ? "Starting..."
-              : `Start Session (${selectedIds.size} agent${selectedIds.size !== 1 ? "s" : ""})`}
+              : `Start Session (${enabledCount} step${enabledCount !== 1 ? "s" : ""})`}
           </Button>
         </div>
       </DialogContent>

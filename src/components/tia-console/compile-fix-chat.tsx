@@ -33,7 +33,7 @@ import { computeDiff, getChangedContent } from "@/lib/diff-engine";
 import { CORRECTION_TYPES } from "@/types";
 import type { CompileErrorInfo } from "@/lib/compile-fix-prompt";
 import type { FixedSource } from "@/lib/compile-fix-parser";
-import type { DesignProfile } from "@/types";
+import type { DesignProfile, AgentKnowledgeDoc } from "@/types";
 
 const DEFAULT_MAX_ROUNDS = 5;
 
@@ -66,6 +66,8 @@ interface CompileFixChatProps {
   onFixSessionEnd?: () => void;
   /** Optional design profile for customer-specific code rules */
   designProfile?: DesignProfile;
+  /** Agent knowledge docs for the Code Architect (injected into compile-fix prompts) */
+  agentKnowledgeDocs?: AgentKnowledgeDoc[];
 }
 
 /** Fingerprint errors for stuck detection */
@@ -84,6 +86,7 @@ export function CompileFixChat({
   onCompileResultUpdate,
   onFixSessionEnd,
   designProfile,
+  agentKnowledgeDocs,
 }: CompileFixChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -220,6 +223,7 @@ export function CompileFixChat({
           approvedPatterns,
           conversationHistory,
           designProfile,
+          agentKnowledgeDocs,
         },
         {
           onSuccess: (result) => {
@@ -249,7 +253,7 @@ export function CompileFixChat({
       );
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [compileFix, setAutoRunningSync, approvedPatterns],
+    [compileFix, setAutoRunningSync, approvedPatterns, agentKnowledgeDocs],
   );
 
   const applyAndRecompile = useCallback(

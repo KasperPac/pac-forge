@@ -5,7 +5,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
 const CLAUDE_MODEL = "claude-sonnet-4-20250514";
-const MAX_TOKENS = 8192;
+const DEFAULT_MAX_TOKENS = 8192;
+const MAX_TOKENS_CAP = 32768;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -27,12 +28,13 @@ function jsonResponse(
 interface GenerateRequest {
   system_prompt: string;
   messages: Array<{ role: "user" | "assistant"; content: string }>;
-  project_context: {
+  project_context?: {
     project_id: string;
     session_id: string;
   };
-  generation_mode: "FB_PER_DEVICE" | "PROJECT_LEVEL" | "PROCESS_CODE";
+  generation_mode?: "FB_PER_DEVICE" | "PROJECT_LEVEL" | "PROCESS_CODE";
   stream?: boolean;
+  max_tokens?: number;
 }
 
 Deno.serve(async (req) => {
@@ -75,18 +77,38 @@ Deno.serve(async (req) => {
 
   try {
     const body: GenerateRequest = await req.json();
-    const { system_prompt, messages, stream } = body;
+    const { system_prompt, messages, stream, max_tokens: requestedMaxTokens } = body;
 
-    if (!system_prompt || !messages || messages.length === 0) {
-      return jsonResponse(
-        { error: "system_prompt and messages are required" },
-        400
-      );
+    if (!system_prompt || typeof system_prompt !== "string") {
+      return jsonResponse({ error: "system_prompt is required and must be a string" }, 400);
     }
+    if (system_prompt.length > 100_000) {
+      return jsonResponse({ error: "system_prompt exceeds 100,000 character limit" }, 400);
+    }
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return jsonResponse({ error: "messages must be a non-empty array" }, 400);
+    }
+    if (messages.length > 50) {
+      return jsonResponse({ error: "messages exceeds 50 entry limit" }, 400);
+    }
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      if (!msg || typeof msg.content !== "string" || !msg.content.trim()) {
+        return jsonResponse({ error: `messages[${i}].content must be a non-empty string` }, 400);
+      }
+      if (msg.role !== "user" && msg.role !== "assistant") {
+        return jsonResponse({ error: `messages[${i}].role must be "user" or "assistant"` }, 400);
+      }
+    }
+
+    const maxTokens = Math.min(
+      Math.max(requestedMaxTokens ?? DEFAULT_MAX_TOKENS, 1),
+      MAX_TOKENS_CAP,
+    );
 
     const claudeBody = {
       model: CLAUDE_MODEL,
-      max_tokens: MAX_TOKENS,
+      max_tokens: maxTokens,
       system: system_prompt,
       messages,
       stream: stream ?? false,

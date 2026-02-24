@@ -24,6 +24,8 @@ import { useFbTemplates } from "@/hooks/use-fb-templates";
 import { useDesignProfile } from "@/hooks/use-design-profiles";
 import { useTiaBridgeWs } from "@/hooks/use-tia-bridge-ws";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import { useLeaseCheck } from "@/hooks/use-lease-check";
+import { toast } from "@/hooks/use-toast";
 import { usePacStStore } from "@/stores/pac-st-store";
 import { computeDiff } from "@/lib/diff-engine";
 import { classifyCorrections } from "@/lib/correction-classifier";
@@ -59,6 +61,7 @@ export default function PacStPage() {
   // Agents & reservations
   const { data: allAgents } = useAgents();
   const { data: reservations } = useSessionReservations(sessionId);
+  const { expiringSoon } = useLeaseCheck(reservations);
   const { renewNow } = useAutoRenewLeases(sessionId);
   const releaseAgent = useReleaseAgent();
   const endSession = useEndSession();
@@ -211,6 +214,11 @@ export default function PacStPage() {
               setLogs((prev) => [...prev, ...allErrors.map((e) => `[WARN] ${e}`)]);
             }
 
+            if (result.dbWarnings.length > 0) {
+              setLogs((prev) => [...prev, ...result.dbWarnings.map((w) => `[DB] ${w}`)]);
+              toast({ title: "DB Warning", description: result.dbWarnings[0], variant: "destructive" });
+            }
+
             setLogs((prev) => [
               ...prev,
               `[INFO] Generated ${result.artifacts.length} artifact(s)`,
@@ -279,6 +287,11 @@ export default function PacStPage() {
               `[INFO] Process code: generated ${result.artifacts.length} artifact(s)`,
             ]);
 
+            if (result.dbWarnings.length > 0) {
+              setLogs((prev) => [...prev, ...result.dbWarnings.map((w) => `[DB] ${w}`)]);
+              toast({ title: "DB Warning", description: result.dbWarnings[0], variant: "destructive" });
+            }
+
             auditLog.mutate({
               action: "GENERATION",
               projectId: project.id,
@@ -330,6 +343,8 @@ export default function PacStPage() {
         usePacStStore.getState().reset();
         setCurrentManifest(null);
         setLogs(["[INFO] Session workspace cleared"]);
+        toast({ title: "Workspace cleared" });
+        auditLog.mutate({ action: "CLEAR_WORKSPACE", projectId: project?.id });
       },
     });
   }, [sessionId, clearConversation]);
@@ -362,8 +377,10 @@ export default function PacStPage() {
 
     if (error) {
       setLogs((prev) => [...prev, `[ERROR] Failed to save snapshot: ${error.message}`]);
+      toast({ title: "Snapshot failed", description: error.message, variant: "destructive" });
     } else {
       setLogs((prev) => [...prev, `[INFO] Snapshot v${nextVersion} saved for ${active.artifact.name}`]);
+      toast({ title: "Snapshot saved", description: `v${nextVersion} — ${active.artifact.name}` });
     }
 
     // Persist approved content
@@ -415,10 +432,45 @@ export default function PacStPage() {
     });
   }, [project, createPattern, auditLog]);
 
-  const handleExport = useCallback(() => {
+  const saveSnapshotsForApproved = useCallback(async (trigger: string) => {
+    const { approvedArtifacts: approved } = usePacStStore.getState();
+    if (!project || approved.length === 0) return;
+
+    const { data: { user } } = await supabase.auth.getUser();
+    const userId = user?.id ?? "";
+
+    for (const item of approved) {
+      try {
+        const { data: existing } = await supabase
+          .from("snapshots")
+          .select("version_number")
+          .eq("artifact_id", item.artifact.id)
+          .order("version_number", { ascending: false })
+          .limit(1);
+
+        const nextVersion = (existing?.[0]?.version_number ?? 0) + 1;
+
+        await supabase.from("snapshots").insert({
+          project_id: project.id,
+          artifact_id: item.artifact.id,
+          content: item.content,
+          trigger,
+          version_number: nextVersion,
+          created_by: userId,
+        });
+      } catch (err) {
+        console.error(`Snapshot failed for ${item.artifact.name}:`, err);
+      }
+    }
+  }, [project]);
+
+  const handleExport = useCallback(async () => {
     // Build manifest from current approved artifacts
     const { approvedArtifacts } = usePacStStore.getState();
     if (!project || approvedArtifacts.length === 0) return;
+
+    // Save snapshots for all approved artifacts
+    await saveSnapshotsForApproved("EXPORT");
 
     const artifacts = approvedArtifacts.map((a) => ({
       ...a.artifact,
@@ -436,13 +488,14 @@ export default function PacStPage() {
 
     setCurrentManifest(manifest);
     setShowExport(true);
+    toast({ title: "Export ready", description: `${artifacts.length} artifact(s) bundled` });
 
     auditLog.mutate({
       action: "EXPORT",
       projectId: project.id,
       details: { artifact_count: artifacts.length },
     });
-  }, [project, sessionId, auditLog]);
+  }, [project, sessionId, auditLog, saveSnapshotsForApproved]);
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
@@ -476,8 +529,11 @@ export default function PacStPage() {
     setShowSubmitDialog(true);
   }, [project, sessionId, currentManifest]);
 
-  const handleTiaSubmitConfirm = useCallback((tiaProjectPath: string) => {
+  const handleTiaSubmitConfirm = useCallback(async (tiaProjectPath: string) => {
     if (!project || !sessionId || !currentManifest) return;
+
+    // Save snapshots for all approved artifacts before TIA submit
+    await saveSnapshotsForApproved("TIA_SUBMIT");
 
     setLiveCompileErrors([]);
     submitTiaJob.mutate(
@@ -511,7 +567,7 @@ export default function PacStPage() {
         },
       }
     );
-  }, [project, sessionId, currentManifest, selectedJobType, submitTiaJob, setCurrentTiaJobId, auditLog]);
+  }, [project, sessionId, currentManifest, selectedJobType, submitTiaJob, setCurrentTiaJobId, auditLog, saveSnapshotsForApproved]);
 
   const handleErrorClick = useCallback((artifactName: string, line: number | null) => {
     if (!line) return;
@@ -676,6 +732,7 @@ export default function PacStPage() {
                   onClearChat={handleClearChat}
                   onEndSession={activeSession ? () => endSession.mutate(activeSession.id) : undefined}
                   profileName={designProfile?.name}
+                  expiringSoon={expiringSoon}
                   sending={isPipelineRunning}
                   clearing={clearConversation.isPending}
                   endingSession={endSession.isPending}

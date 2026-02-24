@@ -1,14 +1,19 @@
-import { extractTextFromDocx } from "@/lib/document-extractor";
+import { extractTextFromDocx, extractTextFromPdf } from "@/lib/document-extractor";
 
 const TEXT_EXTENSIONS = new Set([".md", ".txt", ".scl", ".csv", ".json"]);
 
 /**
  * Reads a file and returns its text content.
+ * - .pdf files are extracted via PDF.js
  * - .docx files are extracted via mammoth
  * - .md, .txt, .scl, and other text files use the File API
  */
 export async function readFileAsText(file: File): Promise<string> {
   const ext = getExtension(file.name);
+
+  if (ext === ".pdf") {
+    return extractTextFromPdf(file);
+  }
 
   if (ext === ".docx") {
     return extractTextFromDocx(file);

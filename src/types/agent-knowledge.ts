@@ -6,11 +6,42 @@ export interface AgentKnowledgeDoc {
   source_filename: string | null;
   file_type: string;
   word_count: number;
+  source_upload_id: string | null;
+  distribution_reasoning: string | null;
   created_by: string | null;
   created_at: string;
 }
 
 export type AgentKnowledgeDocCreate = Omit<
   AgentKnowledgeDoc,
-  "id" | "created_at" | "created_by"
->;
+  "id" | "created_at" | "created_by" | "source_upload_id" | "distribution_reasoning"
+> & {
+  source_upload_id?: string | null;
+  distribution_reasoning?: string | null;
+};
+
+export interface KnowledgeUpload {
+  id: string;
+  source_filename: string;
+  file_type: string;
+  word_count: number;
+  full_content: string;
+  distribution: KnowledgeDistributionEntry[];
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface KnowledgeDistributionEntry {
+  agent_id: string;
+  agent_name: string;
+  doc_id: string;
+  title: string;
+  reasoning: string;
+}
+
+export interface KnowledgeUploadCreate {
+  source_filename: string;
+  file_type: string;
+  word_count: number;
+  full_content: string;
+}

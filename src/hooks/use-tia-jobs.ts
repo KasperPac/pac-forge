@@ -126,12 +126,23 @@ export function useSubmitTiaJob() {
 }
 
 /**
- * Check if the TIA bridge is reachable.
+ * Check if the TIA bridge is reachable, and whether TIA Portal is connected.
+ *
+ * - `bridgeOnline`: the .NET bridge HTTP server is responding
+ * - `tiaConnected`: the bridge has attached to / started a TIA Portal instance
+ * - `projectOpen`: a TIA project is currently open
  */
 export function useBridgeStatus() {
   return useQuery({
     queryKey: ["tia-bridge-status"],
-    queryFn: async (): Promise<{ connected: boolean; version: string | null }> => {
+    queryFn: async (): Promise<{
+      connected: boolean;        // legacy — true when bridge is reachable (kept for compat)
+      bridgeOnline: boolean;
+      tiaConnected: boolean;
+      projectOpen: boolean;
+      version: string | null;
+      bridgeVersion: string | null;
+    }> => {
       try {
         const response = await fetch(
           `${DEFAULT_BRIDGE_CONFIG.baseUrl}/tia/status`,
@@ -139,14 +150,28 @@ export function useBridgeStatus() {
         );
         if (response.ok) {
           const data = (await response.json()) as BridgeStatusEvent["data"];
-          return { connected: true, version: data.tia_version };
+          return {
+            connected: true,
+            bridgeOnline: true,
+            tiaConnected: data.connected ?? false,
+            projectOpen: data.tia_project_open ?? false,
+            version: data.tia_version,
+            bridgeVersion: data.bridge_version ?? null,
+          };
         }
       } catch {
         // Bridge offline
       }
-      return { connected: false, version: null };
+      return {
+        connected: false,
+        bridgeOnline: false,
+        tiaConnected: false,
+        projectOpen: false,
+        version: null,
+        bridgeVersion: null,
+      };
     },
-    refetchInterval: 30_000, // Check every 30s
+    refetchInterval: 10_000, // Check every 10s for snappier status updates
     retry: false,
   });
 }

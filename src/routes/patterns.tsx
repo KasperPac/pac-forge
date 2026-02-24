@@ -9,7 +9,10 @@ import {
   usePatternCandidates,
   useApprovePattern,
   useRejectPattern,
+  useDeletePattern,
 } from "@/hooks/use-patterns";
+import { toast } from "@/hooks/use-toast";
+import { useAuditLog } from "@/hooks/use-audit-log";
 import type { PatternStatus, CorrectionType } from "@/types";
 
 const STATUS_TABS: Array<{ value: PatternStatus | "all"; label: string }> = [
@@ -38,6 +41,8 @@ export default function PatternsPage() {
   );
   const approvePattern = useApprovePattern();
   const rejectPattern = useRejectPattern();
+  const deletePattern = useDeletePattern();
+  const auditLog = useAuditLog();
 
   const filteredPatterns = (patterns ?? []).filter(
     (p) => typeFilter === "all" || p.correction_type === typeFilter
@@ -110,8 +115,24 @@ export default function PatternsPage() {
             <PatternReviewCard
               key={pattern.id}
               pattern={pattern}
-              onApprove={(id) => approvePattern.mutate(id)}
-              onReject={(id) => rejectPattern.mutate(id)}
+              onApprove={(id) => approvePattern.mutate(id, {
+                onSuccess: () => {
+                  toast({ title: "Pattern approved" });
+                  auditLog.mutate({ action: "PATTERN_APPROVE", details: { patternId: id } });
+                },
+              })}
+              onReject={(id) => rejectPattern.mutate(id, {
+                onSuccess: () => {
+                  toast({ title: "Pattern rejected" });
+                  auditLog.mutate({ action: "PATTERN_REJECT", details: { patternId: id } });
+                },
+              })}
+              onDelete={(id) => deletePattern.mutate(id, {
+                onSuccess: () => {
+                  toast({ title: "Pattern deleted" });
+                  auditLog.mutate({ action: "PATTERN_REJECT", details: { patternId: id, action: "delete" } });
+                },
+              })}
             />
           ))}
         </div>

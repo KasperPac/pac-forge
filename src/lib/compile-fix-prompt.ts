@@ -1,6 +1,6 @@
 import { PLATFORM_RULES } from "@/lib/platform-rules";
 import { formatPatterns } from "@/lib/prompt-builder";
-import type { PatternCandidate, DesignProfile } from "@/types";
+import type { PatternCandidate, DesignProfile, AgentKnowledgeDoc } from "@/types";
 
 export interface CompileErrorInfo {
   artifact_name: string;
@@ -12,9 +12,13 @@ export interface CompileErrorInfo {
 
 /**
  * Build the system prompt for the compile-fix chat.
- * Optionally injects approved correction patterns so the AI learns from past fixes.
+ * Optionally injects approved correction patterns and agent knowledge so the AI learns from past fixes.
  */
-export function buildCompileFixSystemPrompt(approvedPatterns?: PatternCandidate[], designProfile?: DesignProfile): string {
+export function buildCompileFixSystemPrompt(
+  approvedPatterns?: PatternCandidate[],
+  designProfile?: DesignProfile,
+  knowledgeDocs?: AgentKnowledgeDoc[],
+): string {
   const patternsSection =
     approvedPatterns && approvedPatterns.length > 0
       ? `\n\n## Learned Corrections\n\nThese corrections were taught by the user from previous compile errors. Apply them when relevant:\n\n${formatPatterns(approvedPatterns)}`
@@ -25,12 +29,17 @@ export function buildCompileFixSystemPrompt(approvedPatterns?: PatternCandidate[
       ? `\n\n## Code Design Profile: ${designProfile.name}\n\n${designProfile.rules}`
       : "";
 
+  const knowledgeSection =
+    knowledgeDocs && knowledgeDocs.length > 0
+      ? `\n\n## Reference Documentation\n\nThe following knowledge has been provided to help you write correct SCL code. Apply this knowledge when fixing errors:\n\n${knowledgeDocs.map((d) => `### ${d.title}\n${d.content}`).join("\n\n")}`
+      : "";
+
   return `You are Pac-ST Compile Fix, a specialist in fixing Siemens TIA Portal SCL compile errors.
 
 You will receive compile errors/warnings along with the original SCL source code.
 Your job is to analyze the errors, identify root causes, and return corrected SCL code.
 
-${PLATFORM_RULES}${profileSection}${patternsSection}
+${PLATFORM_RULES}${profileSection}${patternsSection}${knowledgeSection}
 
 ## Output Format
 

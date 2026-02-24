@@ -3,6 +3,8 @@ import { useParams, useNavigate } from "react-router";
 import {
   ArrowLeft,
   CalendarDays,
+  ChevronDown,
+  ChevronRight,
   Cpu,
   Power,
   Zap,
@@ -38,7 +40,7 @@ const STATUS_STYLES: Record<string, { dot: string; label: string }> = {
   DISABLED: { dot: "bg-neutral-600", label: "Disabled" },
 };
 
-const ACCEPTED_EXTENSIONS = ".md,.txt,.docx,.scl";
+const ACCEPTED_EXTENSIONS = ".md,.txt,.docx,.scl,.pdf";
 const WORD_COUNT_WARNING = 40_000;
 
 export default function AgentProfilePage() {
@@ -51,6 +53,7 @@ export default function AgentProfilePage() {
 
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const agent = agents?.find((a) => a.id === id);
@@ -321,12 +324,12 @@ export default function AgentProfilePage() {
         </Card>
       )}
 
-      {/* Knowledge Base */}
+      {/* Learnings & Knowledge */}
       <Card className="p-5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Knowledge Base
+              Learnings
             </h2>
             {knowledgeDocs && knowledgeDocs.length > 0 && (
               <Badge variant="secondary" className="font-mono text-xs">
@@ -377,37 +380,95 @@ export default function AgentProfilePage() {
         {/* Document list */}
         {knowledgeDocs && knowledgeDocs.length > 0 && (
           <div className="mt-4 space-y-2">
-            {knowledgeDocs.map((doc) => (
-              <div
-                key={doc.id}
-                className="flex items-center gap-3 rounded-md border px-3 py-2.5"
-              >
-                <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium">{doc.title}</div>
-                  <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
-                    {doc.source_filename && (
-                      <>
-                        <span>{doc.source_filename}</span>
-                        <span>&middot;</span>
-                      </>
-                    )}
-                    <span>{doc.word_count.toLocaleString()} words</span>
-                    <span>&middot;</span>
-                    <span>{doc.file_type.toUpperCase()}</span>
-                  </div>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 w-7 shrink-0 p-0 text-muted-foreground hover:text-destructive"
-                  onClick={() => deleteDoc.mutate({ id: doc.id, agentId: agent.id })}
-                  disabled={deleteDoc.isPending}
+            {knowledgeDocs.map((doc) => {
+              const isExpanded = expandedDocs.has(doc.id);
+              const snippet = doc.content.length > 200
+                ? doc.content.slice(0, 200) + "..."
+                : doc.content;
+
+              return (
+                <div
+                  key={doc.id}
+                  className="rounded-md border"
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            ))}
+                  <div className="flex items-center gap-3 px-3 py-2.5">
+                    <button
+                      type="button"
+                      className="shrink-0 text-muted-foreground hover:text-foreground"
+                      onClick={() =>
+                        setExpandedDocs((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(doc.id)) next.delete(doc.id);
+                          else next.add(doc.id);
+                          return next;
+                        })
+                      }
+                    >
+                      {isExpanded ? (
+                        <ChevronDown className="h-4 w-4" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4" />
+                      )}
+                    </button>
+                    <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate text-sm font-medium">{doc.title}</span>
+                        <Badge
+                          variant="outline"
+                          className="shrink-0 px-1.5 py-0 text-[9px]"
+                        >
+                          {doc.source_upload_id ? "PM Distribution" : "Direct Upload"}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
+                        {doc.source_filename && (
+                          <>
+                            <span>{doc.source_filename}</span>
+                            <span>&middot;</span>
+                          </>
+                        )}
+                        <span>{doc.word_count.toLocaleString()} words</span>
+                        <span>&middot;</span>
+                        <span>{doc.file_type.toUpperCase()}</span>
+                      </div>
+                      {doc.distribution_reasoning && (
+                        <div className="mt-0.5 font-mono text-[10px] italic text-muted-foreground/70">
+                          PM: {doc.distribution_reasoning}
+                        </div>
+                      )}
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 shrink-0 p-0 text-muted-foreground hover:text-destructive"
+                      onClick={() => deleteDoc.mutate({ id: doc.id, agentId: agent.id })}
+                      disabled={deleteDoc.isPending}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+
+                  {/* Content preview — always show snippet, expand for full */}
+                  {!isExpanded && doc.content && (
+                    <div className="border-t px-3 py-2">
+                      <p className="line-clamp-3 font-mono text-xs leading-relaxed text-muted-foreground">
+                        {snippet}
+                      </p>
+                    </div>
+                  )}
+                  {isExpanded && doc.content && (
+                    <div className="border-t px-3 py-2">
+                      <div className="max-h-48 overflow-y-auto rounded-md bg-muted/50 p-3">
+                        <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed">
+                          {doc.content}
+                        </pre>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -424,7 +485,7 @@ export default function AgentProfilePage() {
               Drop files here or click to browse
             </div>
             <div className="mt-1 font-mono text-xs text-muted-foreground/60">
-              Supports .md, .txt, .docx, .scl
+              Supports .md, .txt, .docx, .scl, .pdf
             </div>
           </div>
         )}

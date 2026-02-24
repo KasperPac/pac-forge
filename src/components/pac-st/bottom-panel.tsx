@@ -4,6 +4,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useUiStore } from "@/stores/ui-store";
 import type { CompileError, SafetyWarning, TiaJob, TiaJobType } from "@/types";
@@ -115,17 +122,21 @@ export function BottomPanel({
                 </div>
               )}
 
-              <select
+              <Select
                 value={selectedJobType}
-                onChange={(e) => setSelectedJobType(e.target.value as TiaJobType)}
-                className="h-6 rounded border bg-background px-1.5 font-mono text-xs"
+                onValueChange={(v) => setSelectedJobType(v as TiaJobType)}
               >
-                {Object.entries(JOB_TYPE_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="h-6 w-auto gap-1 rounded border bg-background px-1.5 font-mono text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(JOB_TYPE_LABELS).map(([value, label]) => (
+                    <SelectItem key={value} value={value} className="font-mono text-xs">
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
               <Button
                 size="sm"

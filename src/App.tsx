@@ -4,6 +4,8 @@ import { QueryProvider } from "@/providers/query-provider";
 import { AuthGuard } from "@/components/auth-guard";
 import { DashboardLayout } from "@/app/DashboardLayout";
 import { RouteLoader } from "@/components/route-loader";
+import { RouteErrorBoundary } from "@/components/route-error-boundary";
+import { Toaster } from "@/components/ui/toaster";
 import LoginPage from "@/routes/login";
 import ProjectsPage from "@/routes/projects";
 
@@ -16,9 +18,14 @@ const PatternsPage = lazy(() => import("@/routes/patterns"));
 const TiaConsolePage = lazy(() => import("@/routes/tia-console"));
 const FbLibraryPage = lazy(() => import("@/routes/fb-library"));
 const ProfilesPage = lazy(() => import("@/routes/profiles"));
+const KnowledgePage = lazy(() => import("@/routes/knowledge"));
 
 function LazyRoute({ children }: { children: React.ReactNode }) {
-  return <Suspense fallback={<RouteLoader />}>{children}</Suspense>;
+  return (
+    <RouteErrorBoundary>
+      <Suspense fallback={<RouteLoader />}>{children}</Suspense>
+    </RouteErrorBoundary>
+  );
 }
 
 const router = createBrowserRouter([
@@ -42,6 +49,7 @@ const router = createBrowserRouter([
           { path: "tia-console", element: <LazyRoute><TiaConsolePage /></LazyRoute> },
           { path: "fb-library", element: <LazyRoute><FbLibraryPage /></LazyRoute> },
           { path: "profiles", element: <LazyRoute><ProfilesPage /></LazyRoute> },
+          { path: "knowledge", element: <LazyRoute><KnowledgePage /></LazyRoute> },
         ],
       },
     ],
@@ -52,6 +60,7 @@ export default function App() {
   return (
     <QueryProvider>
       <RouterProvider router={router} />
+      <Toaster />
     </QueryProvider>
   );
 }

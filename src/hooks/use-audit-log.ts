@@ -1,5 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import type { AuditAction } from "@/types/tia";
 
 /**
  * Hook to log audit actions. Fire-and-forget — errors are logged but not thrown.
@@ -7,7 +8,7 @@ import { supabase } from "@/lib/supabase";
 export function useAuditLog() {
   return useMutation({
     mutationFn: async (input: {
-      action: string;
+      action: AuditAction;
       projectId?: string;
       details?: Record<string, unknown>;
     }) => {

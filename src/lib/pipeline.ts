@@ -58,6 +58,47 @@ export interface PipelineExecution {
   finalArtifactCount: number;
 }
 
+/** Pipeline step configuration for the session start dialog. */
+export const PIPELINE_STEP_CONFIG = [
+  {
+    key: "generate",
+    label: "Code Generation",
+    description: "Generates SCL code from your requests",
+    locked: true,
+    agentName: "Code Architect",
+  },
+  {
+    key: "standards",
+    label: "Standards Review",
+    description: "Checks code against TIA Portal best practices",
+    locked: false,
+    agentName: "PLC Standards Enforcer",
+  },
+  {
+    key: "io",
+    label: "IO Validation",
+    description: "Verifies IO mappings and address consistency",
+    locked: false,
+    agentName: "IO Validator",
+  },
+  {
+    key: "safety",
+    label: "Safety Audit",
+    description: "Audits code for safety compliance",
+    locked: false,
+    agentName: "Safety Auditor",
+  },
+  {
+    key: "patterns",
+    label: "Pattern Learning",
+    description: "Learns correction patterns to improve future generations",
+    locked: false,
+    agentName: "Pattern Librarian",
+  },
+] as const;
+
+export type PipelineStepKey = (typeof PIPELINE_STEP_CONFIG)[number]["key"];
+
 /** Sort agents by pipeline execution order. */
 export function sortAgentsByPipelineOrder(agents: Agent[]): Agent[] {
   return [...agents].sort(

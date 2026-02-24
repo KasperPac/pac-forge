@@ -4,7 +4,7 @@ import { buildCompileFixSystemPrompt, formatCompileErrorContext } from "@/lib/co
 import { parseCompileFixResponse } from "@/lib/compile-fix-parser";
 import type { CompileErrorInfo } from "@/lib/compile-fix-prompt";
 import type { FixedSource } from "@/lib/compile-fix-parser";
-import type { PatternCandidate, DesignProfile } from "@/types";
+import type { PatternCandidate, DesignProfile, AgentKnowledgeDoc } from "@/types";
 
 interface CompileFixInput {
   errors: CompileErrorInfo[];
@@ -18,6 +18,8 @@ interface CompileFixInput {
   approvedPatterns?: PatternCandidate[];
   /** Design profile for customer-specific code rules */
   designProfile?: DesignProfile;
+  /** Agent knowledge docs for the Code Architect (injected into system prompt) */
+  agentKnowledgeDocs?: AgentKnowledgeDoc[];
 }
 
 interface CompileFixResult {
@@ -29,9 +31,9 @@ interface CompileFixResult {
 export function useCompileFix() {
   return useMutation({
     mutationFn: async (input: CompileFixInput): Promise<CompileFixResult> => {
-      const { errors, warnings, sources, userMessage, conversationHistory, approvedPatterns, designProfile } = input;
+      const { errors, warnings, sources, userMessage, conversationHistory, approvedPatterns, designProfile, agentKnowledgeDocs } = input;
 
-      const systemPrompt = buildCompileFixSystemPrompt(approvedPatterns, designProfile);
+      const systemPrompt = buildCompileFixSystemPrompt(approvedPatterns, designProfile, agentKnowledgeDocs);
 
       // Build the user message — either the auto-generated context or a follow-up
       const autoContext = formatCompileErrorContext(errors, warnings, sources);

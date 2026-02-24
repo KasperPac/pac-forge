@@ -48,11 +48,35 @@ export interface TiaJob {
   completed_at: string | null;
 }
 
+export interface CompileResultWithSources extends CompileResult {
+  sources: Record<string, string>;
+}
+
+export const AUDIT_ACTIONS = {
+  GENERATION: "GENERATION",
+  APPROVAL: "APPROVAL",
+  APPROVE_ALL: "APPROVE_ALL",
+  EXPORT: "EXPORT",
+  TIA_SUBMIT: "TIA_SUBMIT",
+  SNAPSHOT_CREATE: "SNAPSHOT_CREATE",
+  SNAPSHOT_ROLLBACK: "SNAPSHOT_ROLLBACK",
+  CLEAR_WORKSPACE: "CLEAR_WORKSPACE",
+  PATTERN_APPROVE: "PATTERN_APPROVE",
+  PATTERN_REJECT: "PATTERN_REJECT",
+  TIA_IMPORT: "TIA_IMPORT",
+  TIA_COMPILE: "TIA_COMPILE",
+  COMPILE_FIX: "COMPILE_FIX",
+  SESSION_START: "SESSION_START",
+  SESSION_END: "SESSION_END",
+} as const;
+
+export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
+
 export interface AuditLogEntry {
   id: string;
   user_id: string;
   project_id: string | null;
-  action: string;
+  action: AuditAction;
   details: Record<string, unknown>;
   created_at: string;
 }

@@ -24,6 +24,7 @@ import {
 import type { PipelineStepResult } from "@/lib/pipeline";
 import { classifyCorrections } from "@/lib/correction-classifier";
 import { computeDiff } from "@/lib/diff-engine";
+import { supabase } from "@/lib/supabase";
 import type { AgentKnowledgeDoc } from "@/types";
 
 const ARTIFACTS_KEY = ["artifacts"] as const;
@@ -292,6 +293,28 @@ export function usePipelineGenerate() {
                   deviceType: original.type,
                 });
                 patternCount += corrections.length;
+
+                // Persist corrections to pattern_candidates table
+                if (corrections.length > 0) {
+                  try {
+                    const { data: { user } } = await supabase.auth.getUser();
+                    const rows = corrections.map((c) => ({
+                      plc_brand: input.project.plc_brand,
+                      device_type: c.correctionType,
+                      context: original.name,
+                      original_snippet: c.originalSnippet,
+                      corrected_snippet: c.correctedSnippet,
+                      correction_type: c.correctionType,
+                      explanation_tag: c.explanationTag,
+                      status: "PENDING" as const,
+                      created_by: user?.id ?? "",
+                    }));
+                    await supabase.from("pattern_candidates").insert(rows);
+                  } catch (persistErr) {
+                    // Pattern persistence failure is non-fatal
+                    console.error("Failed to persist pipeline patterns:", persistErr);
+                  }
+                }
               }
             }
 
@@ -299,7 +322,7 @@ export function usePipelineGenerate() {
               status: "completed",
               durationMs: Date.now() - patternStartTime,
               summary: patternCount > 0
-                ? `Detected ${patternCount} correction pattern(s) from reviewer changes`
+                ? `Persisted ${patternCount} correction pattern(s) from reviewer changes`
                 : "No corrections detected between pipeline stages",
             });
           } catch (err) {

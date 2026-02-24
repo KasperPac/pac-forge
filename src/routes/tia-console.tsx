@@ -44,12 +44,16 @@ import { useTiaJobs, useBridgeStatus } from "@/hooks/use-tia-jobs";
 import { useTiaBridgeWs } from "@/hooks/use-tia-bridge-ws";
 import { useDesignProfiles, useDesignProfile } from "@/hooks/use-design-profiles";
 import { useProjects } from "@/hooks/use-projects";
+import { useAgents } from "@/hooks/use-agents";
+import { useAgentKnowledgeDocs } from "@/hooks/use-agent-knowledge";
 import { DEFAULT_BRIDGE_CONFIG } from "@/lib/tia-bridge-contract";
 import { Progress } from "@/components/ui/progress";
 import { CompileFixChat } from "@/components/tia-console/compile-fix-chat";
 import { LearnedCorrectionsLog } from "@/components/tia-console/learned-corrections-log";
 import { DEMO_PROGRAMS, getRandomDemo } from "@/lib/demo-programs";
 import { useDemoGenerate } from "@/hooks/use-demo-generate";
+import { toast } from "@/hooks/use-toast";
+import { useAuditLog } from "@/hooks/use-audit-log";
 import type { DemoProgram } from "@/lib/demo-programs";
 import type { TiaJob } from "@/types";
 
@@ -224,6 +228,7 @@ export default function TiaConsolePage() {
   const { data: bridgeStatus } = useBridgeStatus();
   const { data: jobs, isLoading } = useTiaJobs(undefined);
   const queryClient = useQueryClient();
+  const auditLog = useAuditLog();
   const [localCompileResult, setLocalCompileResult] = useState<CompileResult | null>(null);
   const [fixSessionActive, setFixSessionActive] = useState(false);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -240,7 +245,16 @@ export default function TiaConsolePage() {
   const { data: selectedDesignProfile } = useDesignProfile(designProfileId || undefined);
   const { data: projects } = useProjects();
 
-  const isConnected = bridgeStatus?.connected ?? false;
+  // Fetch Code Architect agent knowledge for compile-fix prompts
+  const { data: agents } = useAgents();
+  const codeArchitectId = agents?.find((a) => a.display_name === "Code Architect")?.id;
+  const { data: codeArchitectKnowledge } = useAgentKnowledgeDocs(codeArchitectId);
+
+  const bridgeOnline = bridgeStatus?.bridgeOnline ?? false;
+  const tiaConnected = bridgeStatus?.tiaConnected ?? false;
+  const projectOpen = bridgeStatus?.projectOpen ?? false;
+  // For features needing the bridge (WS, compile results, etc.)
+  const isConnected = bridgeOnline;
 
   // WebSocket for real-time job progress
   const { progress: wsProgress, currentStep: wsCurrentStep } = useTiaBridgeWs({
@@ -250,9 +264,17 @@ export default function TiaConsolePage() {
       if (event.type === "job_started") {
         setActiveJobId(event.job_id);
       }
-      if (event.type === "job_completed" || event.type === "job_failed") {
+      if (event.type === "job_completed") {
         queryClient.invalidateQueries({ queryKey: ["tia-compile-result"] });
         setActiveJobId(null);
+        toast({ title: "TIA job completed" });
+        auditLog.mutate({ action: "TIA_COMPILE", details: { jobId: event.job_id, status: "completed" } });
+      }
+      if (event.type === "job_failed") {
+        queryClient.invalidateQueries({ queryKey: ["tia-compile-result"] });
+        setActiveJobId(null);
+        toast({ title: "TIA job failed", variant: "destructive" });
+        auditLog.mutate({ action: "TIA_COMPILE", details: { jobId: event.job_id, status: "failed" } });
       }
     },
   });
@@ -366,16 +388,20 @@ export default function TiaConsolePage() {
         {/* Bridge status */}
         <Card className="px-3 py-2">
           <div className="flex items-center gap-2">
-            {isConnected ? (
+            {bridgeOnline ? (
               <>
-                <Wifi className="h-4 w-4 text-green-400" />
+                <Wifi className={`h-4 w-4 ${tiaConnected ? "text-green-400" : "text-amber-400"}`} />
                 <div>
-                  <div className="font-mono text-sm text-green-400">Bridge Online</div>
-                  {bridgeStatus?.version && (
-                    <div className="font-mono text-xs text-muted-foreground">
-                      TIA {bridgeStatus.version}
-                    </div>
-                  )}
+                  <div className={`font-mono text-sm ${tiaConnected ? "text-green-400" : "text-amber-400"}`}>
+                    {tiaConnected ? "TIA Connected" : "Bridge Online"}
+                  </div>
+                  <div className="font-mono text-xs text-muted-foreground">
+                    {tiaConnected
+                      ? bridgeStatus?.version
+                        ? `TIA ${bridgeStatus.version}${projectOpen ? " — Project Open" : ""}`
+                        : projectOpen ? "Project Open" : "No project open"
+                      : "TIA Portal not connected"}
+                  </div>
                 </div>
               </>
             ) : (
@@ -406,14 +432,18 @@ export default function TiaConsolePage() {
               <span className="font-mono text-sm font-medium">Connect TIA Portal</span>
             </div>
             <p className="mb-3 font-mono text-xs text-muted-foreground">
-              Attach to a running TIA Portal instance or start a new headless one.
+              {tiaConnected
+                ? "TIA Portal is connected."
+                : bridgeOnline
+                  ? "Bridge is online. Attach to a running TIA Portal or start a new instance."
+                  : "Start the TIA Bridge first, then connect to TIA Portal."}
             </p>
             <div className="flex gap-1.5">
               <Button
                 size="sm"
                 variant="outline"
                 className="h-6 flex-1 font-mono text-xs"
-                disabled={isConnected || connectMutation.isPending}
+                disabled={!bridgeOnline || tiaConnected || connectMutation.isPending}
                 onClick={() => connectMutation.mutate({ mode: "attach" })}
               >
                 {connectMutation.isPending ? (
@@ -427,7 +457,7 @@ export default function TiaConsolePage() {
                 size="sm"
                 variant="outline"
                 className="h-6 flex-1 font-mono text-xs"
-                disabled={isConnected || connectMutation.isPending}
+                disabled={!bridgeOnline || tiaConnected || connectMutation.isPending}
                 onClick={() => connectMutation.mutate({ mode: "start" })}
               >
                 {connectMutation.isPending ? (
@@ -461,7 +491,7 @@ export default function TiaConsolePage() {
                 size="sm"
                 variant="outline"
                 className="h-6 shrink-0 font-mono text-xs"
-                disabled={!isConnected || !projectPath}
+                disabled={!tiaConnected || !projectPath || openProjectMutation.isPending}
                 onClick={handleOpenProject}
               >
                 {openProjectMutation.isPending ? (
@@ -487,7 +517,7 @@ export default function TiaConsolePage() {
               size="sm"
               variant="outline"
               className="h-6 w-full font-mono text-xs"
-              disabled={!isConnected}
+              disabled={!tiaConnected || disconnectMutation.isPending}
               onClick={() => disconnectMutation.mutate()}
             >
               {disconnectMutation.isPending ? (
@@ -781,6 +811,7 @@ export default function TiaConsolePage() {
           sources={compileResult.sources!}
           isConnected={isConnected}
           designProfile={selectedDesignProfile}
+          agentKnowledgeDocs={codeArchitectKnowledge}
           onCompileResultUpdate={(result) => {
             if (!fixSessionActive) {
               setFixSessionActive(true);

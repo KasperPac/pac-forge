@@ -43,6 +43,7 @@ export interface GenerateResult {
   parseErrors: string[];
   manifestErrors: string[];
   rawResponse: string;
+  dbWarnings: string[];
 }
 
 // --- Shared post-processing pipeline ---
@@ -87,6 +88,7 @@ export async function saveArtifactsAndTurns(
 
   // Build manifest
   const parseErrors: string[] = [];
+  const dbWarnings: string[] = [];
   const { manifest, errors: manifestErrors } = buildManifest(artifacts, {
     projectId: project.id,
     tiaVersion: project.tia_version,
@@ -119,6 +121,7 @@ export async function saveArtifactsAndTurns(
       );
     if (insertError) {
       console.error("Failed to save artifacts:", insertError);
+      dbWarnings.push(`Failed to save artifacts: ${insertError.message}`);
     }
   }
 
@@ -138,6 +141,7 @@ export async function saveArtifactsAndTurns(
       .insert(snapshots);
     if (snapError) {
       console.error("Failed to save snapshots:", snapError);
+      dbWarnings.push(`Failed to save snapshots: ${snapError.message}`);
     }
   }
 
@@ -168,6 +172,7 @@ export async function saveArtifactsAndTurns(
     parseErrors,
     manifestErrors,
     rawResponse,
+    dbWarnings,
   };
 }
 

@@ -1,14 +1,17 @@
 import { NavLink, Outlet } from "react-router";
-import { FolderOpen, Bot, Code, Terminal, BookOpen, Layers, SlidersHorizontal, LogOut } from "lucide-react";
+import { FolderOpen, Bot, Code, Terminal, BookOpen, GraduationCap, Layers, SlidersHorizontal, LogOut } from "lucide-react";
 import pacLogo from "@/../media/logos/PacTechnologiesEdit_White.png";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { useAuth } from "@/hooks/use-auth";
+import { useGlobalActiveSession } from "@/hooks/use-sessions";
+import { useProject } from "@/hooks/use-projects";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
   { to: "/projects", label: "Projects", icon: FolderOpen },
   { to: "/agents", label: "Agents", icon: Bot },
+  { to: "/knowledge", label: "Knowledge", icon: GraduationCap },
   { to: "/pac-st", label: "Pac-ST", icon: Code },
   { to: "/patterns", label: "Patterns", icon: BookOpen },
   { to: "/profiles", label: "Profiles", icon: SlidersHorizontal },
@@ -54,11 +57,20 @@ function Sidebar() {
 
 function TopBar() {
   const { user, signOut } = useAuth();
+  const { data: activeSession } = useGlobalActiveSession();
+  const { data: sessionProject } = useProject(activeSession?.project_id);
 
   return (
     <header className="flex h-14 items-center justify-between border-b bg-background px-4">
-      <div className="font-mono text-xs text-muted-foreground">
-        Session: <span className="text-foreground">ACTIVE</span>
+      <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
+        {activeSession ? (
+          <>
+            <span className="inline-block h-2 w-2 rounded-full bg-green-500" />
+            <span>Session: <span className="text-foreground">{sessionProject?.client_name ?? "Loading..."}</span></span>
+          </>
+        ) : (
+          <span>No active session</span>
+        )}
       </div>
       <div className="flex items-center gap-3">
         {user && (

@@ -158,18 +158,6 @@ export function buildPrompt(input: PromptBuilderInput): BuiltPrompt {
       ? "Generate one FB per device type with UDT-based IO arrays. Each device type gets its own FB, UDT, and instance DB template."
       : "Generate a complete project-level structure with all FBs, UDTs, DBs, and OBs needed for the full system.";
 
-  // Debug: log pattern injection so we can verify patterns reach the prompt
-  console.log("[prompt-builder] approvedPatterns count:", approvedPatterns?.length ?? 0);
-  if (approvedPatterns && approvedPatterns.length > 0) {
-    console.log("[prompt-builder] patterns:", approvedPatterns.map(p => ({
-      id: p.id,
-      type: p.correction_type,
-      explanation: p.explanation_tag?.slice(0, 100),
-      original: p.original_snippet?.slice(0, 80),
-      corrected: p.corrected_snippet?.slice(0, 80),
-    })));
-  }
-
   const systemPrompt = `You are Pac-ST, a deterministic PLC code generation assistant for Siemens TIA Portal.
 You generate production-ready SCL (Structured Control Language) code artifacts.
 
