@@ -41,10 +41,10 @@ const ROLE_COLORS: Record<string, string> = {
 };
 
 function StatusDot({ status }: { status: string }) {
-  if (status === "completed") return <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />;
-  if (status === "failed") return <span className="inline-block h-2 w-2 rounded-full bg-red-500" />;
-  if (status === "running") return <Loader2 className="h-3 w-3 animate-spin text-blue-400" />;
-  return <span className="inline-block h-2 w-2 rounded-full bg-muted-foreground/30" />;
+  if (status === "completed") return <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" role="img" aria-label="Completed" />;
+  if (status === "failed") return <span className="inline-block h-2 w-2 rounded-full bg-red-500" role="img" aria-label="Failed" />;
+  if (status === "running") return <Loader2 className="h-3 w-3 animate-spin text-blue-400" role="img" aria-label="Running" />;
+  return <span className="inline-block h-2 w-2 rounded-full bg-muted-foreground/30" role="img" aria-label="Pending" />;
 }
 
 function formatDuration(ms: number): string {
@@ -74,12 +74,12 @@ function CollapsibleSection({ label, content, defaultOpen = false, expanded = fa
     <div className="mt-1.5">
       <button
         type="button"
-        className="flex items-center gap-1 font-mono text-[10px] text-muted-foreground hover:text-foreground"
+        className="flex items-center gap-1 font-mono text-xs text-muted-foreground hover:text-foreground"
         onClick={() => setOpen(!open)}
       >
         {open ? <ChevronDown className="h-2.5 w-2.5" /> : <ChevronRight className="h-2.5 w-2.5" />}
         {label}
-        <span className="text-muted-foreground/50">
+        <span className="text-muted-foreground/70">
           ({content.length.toLocaleString()} chars)
         </span>
       </button>
@@ -167,11 +167,11 @@ function UsageSummary({ steps }: { steps: PipelineStepResult[] }) {
           <table className="w-full font-mono text-[10px]">
             <thead>
               <tr className="text-muted-foreground/60">
-                <th className="pb-1 text-left font-medium">Agent</th>
-                <th className="pb-1 text-right font-medium">Input</th>
-                <th className="pb-1 text-right font-medium">Output</th>
-                <th className="pb-1 text-right font-medium">Total</th>
-                <th className="pb-1 text-right font-medium">Time</th>
+                <th className="pb-1 text-left font-medium" scope="col">Agent</th>
+                <th className="pb-1 text-right font-medium" scope="col">Input</th>
+                <th className="pb-1 text-right font-medium" scope="col">Output</th>
+                <th className="pb-1 text-right font-medium" scope="col">Total</th>
+                <th className="pb-1 text-right font-medium" scope="col">Time</th>
               </tr>
             </thead>
             <tbody>
@@ -181,7 +181,7 @@ function UsageSummary({ steps }: { steps: PipelineStepResult[] }) {
                     <span className="text-foreground">{a.agentName}</span>
                     <Badge
                       variant="outline"
-                      className={`ml-1.5 px-1 py-0 text-[8px] ${ROLE_COLORS[a.role] ?? ""}`}
+                      className={`ml-1.5 px-1 py-0 text-[10px] ${ROLE_COLORS[a.role] ?? ""}`}
                     >
                       {ROLE_LABELS[a.role] ?? a.role}
                     </Badge>
@@ -218,7 +218,7 @@ function StepEntry({ step, expanded = false }: { step: PipelineStepResult; expan
         <span className="text-xs font-semibold">{step.agentName}</span>
         <Badge
           variant="outline"
-          className={`px-1.5 py-0 text-[9px] font-medium ${ROLE_COLORS[step.role] ?? ""}`}
+          className={`px-1.5 py-0 text-[10px] font-medium ${ROLE_COLORS[step.role] ?? ""}`}
         >
           {ROLE_LABELS[step.role] ?? step.role}
         </Badge>
@@ -242,7 +242,7 @@ function StepEntry({ step, expanded = false }: { step: PipelineStepResult; expan
       {/* Step summary */}
       {step.summary && step.status !== "running" && (
         <p className="mt-0.5 pl-4 font-mono text-[10px] italic text-muted-foreground/70">
-          {step.summary.slice(0, 200)}
+          {step.summary.length > 200 ? `${step.summary.slice(0, 200)}\u2026` : step.summary}
         </p>
       )}
 
@@ -283,12 +283,12 @@ export function PipelineConsole({ steps, isRunning, onClear }: PipelineConsolePr
   if (steps.length === 0 && !isRunning) return null;
 
   const headerBadge = isRunning ? (
-    <Badge variant="outline" className="gap-1 px-1.5 py-0 text-[9px]">
+    <Badge variant="outline" className="gap-1 px-1.5 py-0 text-[10px]">
       <Loader2 className="h-2.5 w-2.5 animate-spin" />
       Running
     </Badge>
   ) : steps.length > 0 ? (
-    <Badge variant="outline" className="px-1.5 py-0 text-[9px]">
+    <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
       {steps.filter((s) => s.status === "completed").length}/{steps.length} steps
     </Badge>
   ) : null;
@@ -333,17 +333,19 @@ export function PipelineConsole({ steps, isRunning, onClear }: PipelineConsolePr
               size="sm"
               className="h-6 w-6 p-0 text-muted-foreground"
               onClick={() => setFullscreen(true)}
-              title="Expand"
+              aria-label="Expand pipeline console"
             >
-              <Maximize2 className="h-3 w-3" />
+              <Maximize2 className="h-3 w-3" aria-hidden="true" />
             </Button>
             <Button
               variant="ghost"
               size="sm"
               className="h-6 w-6 p-0 text-muted-foreground"
               onClick={() => setCollapsed(!collapsed)}
+              aria-label={collapsed ? "Expand pipeline console" : "Collapse pipeline console"}
+              aria-expanded={!collapsed}
             >
-              {collapsed ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              {collapsed ? <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" /> : <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />}
             </Button>
           </div>
         </div>
@@ -364,8 +366,8 @@ export function PipelineConsole({ steps, isRunning, onClear }: PipelineConsolePr
       {/* Fullscreen dialog */}
       <Dialog open={fullscreen} onOpenChange={setFullscreen}>
         <DialogContent className="flex max-h-[90vh] max-w-[90vw] flex-col gap-0 overflow-hidden p-0">
-          <DialogHeader className="shrink-0 border-b bg-accent/30 px-4 py-3 pr-12">
-            <div className="flex items-center gap-2">
+          <DialogHeader className="shrink-0 border-b bg-accent/30 px-4 py-3">
+            <div className="flex items-center gap-2 pr-8">
               <Terminal className="h-4 w-4 text-muted-foreground" />
               <DialogTitle className="text-sm font-semibold uppercase tracking-wide">
                 Pipeline Console

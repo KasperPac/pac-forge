@@ -226,8 +226,10 @@ export function TiaManualFixPanel({
   return (
     <div className="space-y-1.5 rounded-lg border border-amber-500/20 bg-amber-500/5 p-2">
       <button
+        type="button"
         className="flex w-full items-center gap-1.5 text-left"
         onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
       >
         {expanded ? (
           <ChevronDown className="h-3 w-3 text-amber-400" />
@@ -364,8 +366,10 @@ export function TiaManualFixPanel({
                 {blockDiffs.map((bd) => (
                   <div key={bd.blockName} className="rounded border border-border/50 bg-muted/20">
                     <button
+                      type="button"
                       className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-muted/30"
                       onClick={() => toggleBlock(bd.blockName)}
+                      aria-expanded={expandedBlocks.has(bd.blockName)}
                     >
                       {expandedBlocks.has(bd.blockName) ? (
                         <ChevronDown className="h-2.5 w-2.5" />

@@ -31,6 +31,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -139,6 +140,10 @@ function JobDetailRow({ job }: { job: TiaJob }) {
       <TableRow
         className="cursor-pointer hover:bg-accent/50"
         onClick={() => setExpanded(!expanded)}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setExpanded(!expanded); } }}
+        tabIndex={0}
+        role="button"
+        aria-expanded={expanded}
       >
         <TableCell className="w-8">
           {expanded ? (
@@ -354,6 +359,9 @@ export default function TiaConsolePage() {
     setSelectedDemo(next);
   }, [selectedDemo.id]);
 
+  // Track which section last ran (so idle-state ActionResult only shows in the right section)
+  const [lastRunSection, setLastRunSection] = useState<"demo" | "custom" | null>(null);
+
   // Custom project state
   const [customDescription, setCustomDescription] = useState("");
 
@@ -397,6 +405,7 @@ export default function TiaConsolePage() {
   function handleRunDemo() {
     localStorage.setItem("tia-demo-path", demoPath);
     localStorage.setItem("tia-demo-name", demoName);
+    setLastRunSection("demo");
     setDemoStep("generating");
     setPipelineSteps([]);
     demoPipelineMutation.mutate(
@@ -439,6 +448,7 @@ export default function TiaConsolePage() {
     if (!customDescription.trim()) return;
     localStorage.setItem("tia-demo-path", demoPath);
     localStorage.setItem("tia-demo-name", demoName);
+    setLastRunSection("custom");
     setCustomStep("generating");
     setPipelineSteps([]);
     demoPipelineMutation.mutate(
@@ -661,7 +671,7 @@ export default function TiaConsolePage() {
                 }
               }}
             >
-              <SelectTrigger className="h-6 font-mono text-xs">
+              <SelectTrigger className="h-6 font-mono text-xs" aria-label="Linked project">
                 <SelectValue placeholder="None (manual)" />
               </SelectTrigger>
               <SelectContent>
@@ -695,6 +705,7 @@ export default function TiaConsolePage() {
               onChange={(e) => setDemoPath(e.target.value)}
               placeholder="C:\TIA_Projects"
               className="h-6 font-mono text-xs"
+              aria-label="Project directory path"
             />
           </div>
           <div className="w-48">
@@ -704,6 +715,7 @@ export default function TiaConsolePage() {
               onChange={(e) => setDemoName(e.target.value)}
               placeholder="PacForge_Demo"
               className="h-6 font-mono text-xs"
+              aria-label="Project name"
             />
           </div>
           <div className="w-52">
@@ -716,7 +728,7 @@ export default function TiaConsolePage() {
                 localStorage.setItem("tia-design-profile-id", id);
               }}
             >
-              <SelectTrigger className="h-6 font-mono text-xs">
+              <SelectTrigger className="h-6 font-mono text-xs" aria-label="Design profile">
                 <SelectValue placeholder="None" />
               </SelectTrigger>
               <SelectContent>
@@ -867,6 +879,7 @@ export default function TiaConsolePage() {
                 )}
 
                 {demoStep === "idle" &&
+                  lastRunSection === "demo" &&
                   demoPipelineMutation.isSuccess &&
                   createProjectMutation.isSuccess &&
                   createProjectMutation.data && (
@@ -896,11 +909,13 @@ export default function TiaConsolePage() {
                   Describe what you want to build. Claude generates SCL, imports into TIA, and compiles.
                 </p>
 
-                <textarea
+                <Textarea
                   value={customDescription}
                   onChange={(e) => setCustomDescription(e.target.value)}
                   placeholder="e.g., Bottle filling line with 3 stations: fill, cap, label. Each station has a presence sensor and actuator cylinder..."
-                  className="mt-2 h-20 w-full resize-none rounded-md border border-border bg-background px-2 py-1.5 font-mono text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+                  aria-label="Custom project description"
+                  className="mt-2 h-20 resize-none font-mono text-sm"
+                  rows={4}
                 />
 
                 <div className="mt-2">
@@ -951,6 +966,7 @@ export default function TiaConsolePage() {
                 )}
 
                 {customStep === "idle" &&
+                  lastRunSection === "custom" &&
                   demoPipelineMutation.isSuccess &&
                   createProjectMutation.isSuccess &&
                   createProjectMutation.data && (
@@ -1018,7 +1034,7 @@ export default function TiaConsolePage() {
 
       {/* Download generated SCL */}
       {lastGeneratedSources && !demoPipelineMutation.isPending && (
-        <div className="flex items-center gap-2">
+        <Card className="flex items-center gap-2 px-3 py-2">
           <Button
             variant="outline"
             size="sm"
@@ -1031,7 +1047,7 @@ export default function TiaConsolePage() {
           <span className="font-mono text-[10px] text-muted-foreground">
             {lastGeneratedSources.importOrder.join(", ")}
           </span>
-        </div>
+        </Card>
       )}
 
       <Separator />
@@ -1109,7 +1125,7 @@ function CompileResultDisplay({ result, expanded = false }: { result: CompileRes
               <div key={i} className="flex items-start gap-1.5">
                 <XCircle className="mt-0.5 h-2.5 w-2.5 shrink-0 text-red-400" />
                 <span className="font-mono text-xs text-red-300">
-                  <span className="text-red-400">{err.artifact_name}</span>
+                  <span className="text-red-300 font-medium">{err.artifact_name}</span>
                   {err.line != null && <span>:{err.line}</span>}
                   {err.column != null && <span>:{err.column}</span>}
                   {" \u2014 "}
@@ -1127,7 +1143,7 @@ function CompileResultDisplay({ result, expanded = false }: { result: CompileRes
               <div key={i} className="flex items-start gap-1.5">
                 <AlertTriangle className="mt-0.5 h-2.5 w-2.5 shrink-0 text-amber-400" />
                 <span className="font-mono text-xs text-amber-300">
-                  <span className="text-amber-400">{w.artifact_name}</span>
+                  <span className="text-amber-300 font-medium">{w.artifact_name}</span>
                   {w.line != null && <span>:{w.line}</span>}
                   {" \u2014 "}
                   {w.error_text}
@@ -1167,63 +1183,61 @@ function CompileResultsCard({
 
   return (
     <>
-      <div>
-        <div className="mb-2 flex items-center justify-between">
-          <div className="font-mono text-sm text-muted-foreground">LAST COMPILE RESULT</div>
-          <div className="flex items-center gap-1">
-            {hasResult && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-5 w-5 p-0 text-muted-foreground"
-                onClick={() => setFullscreen(true)}
-                title="Expand"
-              >
-                <Maximize2 className="h-2.5 w-2.5" />
-              </Button>
-            )}
+      <div className="mb-2 flex items-center justify-between">
+        <div className="font-mono text-sm text-muted-foreground">LAST COMPILE RESULT</div>
+        <div className="flex items-center gap-1">
+          {hasResult && (
             <Button
               variant="ghost"
               size="sm"
-              className="h-5 px-1.5 font-mono text-xs"
-              onClick={handleRefresh}
-              disabled={isFetching}
+              className="h-5 w-5 p-0 text-muted-foreground"
+              onClick={() => setFullscreen(true)}
+              aria-label="Expand compile results"
             >
-              <RefreshCw className={`mr-1 h-2.5 w-2.5 ${isFetching ? "animate-spin" : ""}`} />
-              Refresh
+              <Maximize2 className="h-2.5 w-2.5" aria-hidden="true" />
             </Button>
-          </div>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-5 px-1.5 font-mono text-xs"
+            onClick={handleRefresh}
+            disabled={isFetching}
+          >
+            <RefreshCw className={`mr-1 h-2.5 w-2.5 ${isFetching ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
         </div>
-        <Card className="p-3">
-          {isLoading && (
-            <div className="flex items-center gap-2 font-mono text-sm text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              Loading compile results...
-            </div>
-          )}
-          {!isLoading && !compileResult && (
-            <div className="font-mono text-sm text-muted-foreground">
-              No compile results available. Run a demo or import job first.
-            </div>
-          )}
-          {hasResult && (
-            <CompileResultDisplay result={compileResult} />
-          )}
-        </Card>
       </div>
+      <Card className="p-3">
+        {isLoading && (
+          <div className="flex items-center gap-2 font-mono text-sm text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Loading compile results...
+          </div>
+        )}
+        {!isLoading && !compileResult && (
+          <div className="font-mono text-sm text-muted-foreground">
+            No compile results available. Run a demo or import job first.
+          </div>
+        )}
+        {hasResult && (
+          <CompileResultDisplay result={compileResult} />
+        )}
+      </Card>
 
       {/* Fullscreen dialog */}
       {hasResult && (
         <Dialog open={fullscreen} onOpenChange={setFullscreen}>
           <DialogContent className="flex max-h-[90vh] max-w-[90vw] flex-col gap-0 overflow-hidden p-0">
-            <DialogHeader className="shrink-0 border-b px-4 py-3 pr-12">
-              <div className="flex items-center gap-2">
+            <DialogHeader className="shrink-0 border-b px-4 py-3">
+              <div className="flex items-center gap-2 pr-8">
                 <DialogTitle className="font-mono text-sm">
                   Compile Results
                 </DialogTitle>
                 <Badge
                   variant="outline"
-                  className={`px-1.5 py-0 text-[9px] ${compileResult.success ? "border-green-500/30 text-green-400" : "border-red-500/30 text-red-400"}`}
+                  className={`px-1.5 py-0 text-[10px] ${compileResult.success ? "border-green-500/30 text-green-400" : "border-red-500/30 text-red-400"}`}
                 >
                   {compileResult.success ? "OK" : "Failed"}
                 </Badge>

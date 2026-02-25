@@ -18,6 +18,13 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useCompileFix } from "@/hooks/use-compile-fix";
 import { useReimportCompile } from "@/hooks/use-reimport-compile";
 import { useActivePatterns, useCreateApprovedPattern } from "@/hooks/use-patterns";
@@ -712,16 +719,16 @@ export function CompileFixChat({
         <div className="flex items-center gap-1">
           {messages.length === 0 && (
             <>
-              <select
-                value={maxRounds}
-                onChange={(e) => setMaxRounds(Number(e.target.value))}
-                className="h-5 rounded border bg-background px-1 font-mono text-xs"
-                title="Max auto-fix rounds"
-              >
-                {[1, 2, 3, 5, 7, 10].map((n) => (
-                  <option key={n} value={n}>{n}x</option>
-                ))}
-              </select>
+              <Select value={String(maxRounds)} onValueChange={(v) => setMaxRounds(Number(v))}>
+                <SelectTrigger className="h-5 w-14 font-mono text-xs" aria-label="Max auto-fix rounds">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[1, 2, 3, 5, 7, 10].map((n) => (
+                    <SelectItem key={n} value={String(n)} className="font-mono text-xs">{n}x</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Button
                 variant="outline"
                 size="sm"
@@ -751,8 +758,9 @@ export function CompileFixChat({
             className="h-5 px-1.5"
             onClick={handleClear}
             disabled={messages.length === 0 || isLoading}
+            aria-label="Clear chat"
           >
-            <Trash2 className="h-2.5 w-2.5" />
+            <Trash2 className="h-2.5 w-2.5" aria-hidden="true" />
           </Button>
         </div>
       </div>
@@ -921,7 +929,7 @@ function StuckPanel({ stuck }: { stuck: StuckInfo }) {
                 <div className="flex items-start gap-1.5">
                   <XCircle className="mt-0.5 h-2.5 w-2.5 shrink-0 text-red-400" />
                   <span className="font-mono text-xs text-red-300">
-                    {err.line != null && <span className="text-red-400">Line {err.line}: </span>}
+                    {err.line != null && <span className="text-red-300 font-medium">Line {err.line}: </span>}
                     {err.error_text}
                   </span>
                 </div>
@@ -1001,11 +1009,16 @@ function MessageBubble({
   if (message.role === "system") {
     const isSuccess = message.content.includes("successful");
     const isFail = message.content.includes("failed") || message.content.includes("Error:");
+    const isInProgress = message.content.includes("Recompiling") || message.content.includes("Continuing");
     return (
       <div className="flex items-center justify-center gap-1.5 py-1">
         {isSuccess && <CheckCircle2 className="h-2.5 w-2.5 text-green-400" />}
         {isFail && <XCircle className="h-2.5 w-2.5 text-red-400" />}
-        {!isSuccess && !isFail && <Loader2 className="h-2.5 w-2.5 text-muted-foreground" />}
+        {!isSuccess && !isFail && (
+          isInProgress
+            ? <Loader2 className="h-2.5 w-2.5 animate-spin text-muted-foreground" />
+            : <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-muted-foreground/40" />
+        )}
         <span
           className={`font-mono text-xs ${
             isSuccess ? "text-green-400" : isFail ? "text-red-400" : "text-muted-foreground"
@@ -1050,8 +1063,10 @@ function MessageBubble({
               {message.fixes.map((fix, fi) => (
                 <div key={fi} className="rounded border border-border/50 bg-muted/30">
                   <button
+                    type="button"
                     className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-muted/50"
                     onClick={() => toggleFix(fi)}
+                    aria-expanded={expandedFixes.has(fi)}
                   >
                     {expandedFixes.has(fi) ? (
                       <ChevronDown className="h-2.5 w-2.5" />
