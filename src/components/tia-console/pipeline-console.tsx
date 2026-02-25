@@ -7,7 +7,6 @@ import {
   Trash2,
   Loader2,
   Maximize2,
-  Minimize2,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -364,8 +363,8 @@ export function PipelineConsole({ steps, isRunning, onClear }: PipelineConsolePr
 
       {/* Fullscreen dialog */}
       <Dialog open={fullscreen} onOpenChange={setFullscreen}>
-        <DialogContent className="flex max-h-[90vh] max-w-[90vw] flex-col gap-0 p-0">
-          <DialogHeader className="flex-row items-center justify-between border-b bg-accent/30 px-4 py-3">
+        <DialogContent className="flex max-h-[90vh] max-w-[90vw] flex-col gap-0 overflow-hidden p-0">
+          <DialogHeader className="shrink-0 border-b bg-accent/30 px-4 py-3 pr-12">
             <div className="flex items-center gap-2">
               <Terminal className="h-4 w-4 text-muted-foreground" />
               <DialogTitle className="text-sm font-semibold uppercase tracking-wide">
@@ -373,18 +372,10 @@ export function PipelineConsole({ steps, isRunning, onClear }: PipelineConsolePr
               </DialogTitle>
               {headerBadge}
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0 text-muted-foreground"
-              onClick={() => setFullscreen(false)}
-            >
-              <Minimize2 className="h-3.5 w-3.5" />
-            </Button>
           </DialogHeader>
-          <ScrollArea className="min-h-0 flex-1">
+          <div className="min-h-0 flex-1 overflow-y-auto">
             {stepsContent}
-          </ScrollArea>
+          </div>
           {!isRunning && steps.length > 0 && <UsageSummary steps={steps} />}
         </DialogContent>
       </Dialog>

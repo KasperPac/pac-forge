@@ -20,7 +20,6 @@ import {
   Sparkles,
   Download,
   Maximize2,
-  Minimize2,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -1216,8 +1215,8 @@ function CompileResultsCard({
       {/* Fullscreen dialog */}
       {hasResult && (
         <Dialog open={fullscreen} onOpenChange={setFullscreen}>
-          <DialogContent className="flex max-h-[90vh] max-w-[90vw] flex-col gap-0 p-0">
-            <DialogHeader className="flex-row items-center justify-between border-b px-4 py-3">
+          <DialogContent className="flex max-h-[90vh] max-w-[90vw] flex-col gap-0 overflow-hidden p-0">
+            <DialogHeader className="shrink-0 border-b px-4 py-3 pr-12">
               <div className="flex items-center gap-2">
                 <DialogTitle className="font-mono text-sm">
                   Compile Results
@@ -1229,18 +1228,10 @@ function CompileResultsCard({
                   {compileResult.success ? "OK" : "Failed"}
                 </Badge>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 w-7 p-0 text-muted-foreground"
-                onClick={() => setFullscreen(false)}
-              >
-                <Minimize2 className="h-3.5 w-3.5" />
-              </Button>
             </DialogHeader>
-            <ScrollArea className="min-h-0 flex-1 p-4">
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
               <CompileResultDisplay result={compileResult} expanded />
-            </ScrollArea>
+            </div>
           </DialogContent>
         </Dialog>
       )}

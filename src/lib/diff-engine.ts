@@ -185,56 +185,101 @@ export function getChangedContent(diff: DiffResult): {
 
 /**
  * Extract focused before/after snippets from a diff with surrounding context.
- * Instead of returning ALL changed lines (which may be entire blocks),
- * this finds the first meaningful change region with a few context lines.
+ * Finds change regions (consecutive removed+added hunks at the same position)
+ * and builds PAIRED snippets so original and corrected show the same code area.
  */
 export function extractFocusedSnippets(
   diff: DiffResult,
   contextLines = 3,
-  maxLines = 15
+  maxLines = 20
 ): { originalSnippet: string; correctedSnippet: string } {
-  const removedParts: string[] = [];
-  const addedParts: string[] = [];
+  // Identify "change regions" — groups of consecutive non-unchanged hunks
+  // A change region has removed lines (original) and/or added lines (corrected)
+  // at the same position in the file, with shared context around them.
+  interface ChangeRegion {
+    removedLines: string[];
+    addedLines: string[];
+    contextBefore: string[];
+    contextAfter: string[];
+  }
 
-  // Walk hunks, collecting changed regions with surrounding context
-  for (let i = 0; i < diff.hunks.length; i++) {
+  const regions: ChangeRegion[] = [];
+  let i = 0;
+
+  while (i < diff.hunks.length) {
     const hunk = diff.hunks[i];
-    if (hunk.type === "unchanged") continue;
 
-    // Get preceding context
+    if (hunk.type === "unchanged") {
+      i++;
+      continue;
+    }
+
+    // Start of a change region — collect all consecutive non-unchanged hunks
+    const removedLines: string[] = [];
+    const addedLines: string[] = [];
+
+    // Context before: last N lines of the preceding unchanged hunk
     const prevHunk = i > 0 ? diff.hunks[i - 1] : null;
     const contextBefore =
       prevHunk?.type === "unchanged"
         ? prevHunk.lines.slice(-contextLines)
         : [];
 
-    // Get following context
-    const nextHunk = i + 1 < diff.hunks.length ? diff.hunks[i + 1] : null;
+    // Collect all consecutive changed hunks as one region
+    while (i < diff.hunks.length && diff.hunks[i].type !== "unchanged") {
+      if (diff.hunks[i].type === "removed") {
+        removedLines.push(...diff.hunks[i].lines);
+      } else if (diff.hunks[i].type === "added") {
+        addedLines.push(...diff.hunks[i].lines);
+      }
+      i++;
+    }
+
+    // Context after: first N lines of the following unchanged hunk
+    const nextHunk = i < diff.hunks.length ? diff.hunks[i] : null;
     const contextAfter =
       nextHunk?.type === "unchanged"
         ? nextHunk.lines.slice(0, contextLines)
         : [];
 
-    if (hunk.type === "removed") {
-      removedParts.push(
-        ...contextBefore,
-        ...hunk.lines,
-        ...contextAfter
-      );
-    } else if (hunk.type === "added") {
-      addedParts.push(
-        ...contextBefore,
-        ...hunk.lines,
-        ...contextAfter
-      );
+    regions.push({ removedLines, addedLines, contextBefore, contextAfter });
+  }
+
+  if (regions.length === 0) {
+    return { originalSnippet: "(no changes)", correctedSnippet: "(no changes)" };
+  }
+
+  // Build paired snippets from regions until we hit maxLines
+  const originalParts: string[] = [];
+  const correctedParts: string[] = [];
+
+  for (const region of regions) {
+    // Both snippets get the same context so they visually correspond
+    const origRegion = [
+      ...region.contextBefore,
+      ...region.removedLines,
+      ...region.contextAfter,
+    ];
+    const corrRegion = [
+      ...region.contextBefore,
+      ...region.addedLines,
+      ...region.contextAfter,
+    ];
+
+    // Add separator between regions if we already have content
+    if (originalParts.length > 0) {
+      originalParts.push("  // ...");
+      correctedParts.push("  // ...");
     }
 
-    // Stop once we have enough lines
-    if (removedParts.length >= maxLines && addedParts.length >= maxLines) break;
+    originalParts.push(...origRegion);
+    correctedParts.push(...corrRegion);
+
+    if (originalParts.length >= maxLines || correctedParts.length >= maxLines) break;
   }
 
   return {
-    originalSnippet: removedParts.slice(0, maxLines).join("\n") || "(no removed lines)",
-    correctedSnippet: addedParts.slice(0, maxLines).join("\n") || "(no added lines)",
+    originalSnippet: originalParts.slice(0, maxLines).join("\n") || "(no removed lines)",
+    correctedSnippet: correctedParts.slice(0, maxLines).join("\n") || "(no added lines)",
   };
 }
