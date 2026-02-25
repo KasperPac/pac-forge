@@ -106,13 +106,43 @@ function groupIntoHunks(
 }
 
 /**
+ * Normalize line endings: strip \r so TIA Portal exports (\r\n) and
+ * generated code (\n) compare cleanly.
+ */
+function normalizeLineEndings(text: string): string {
+  return text.replace(/\r/g, "");
+}
+
+/**
+ * Check if two code strings have functional (non-whitespace) differences.
+ * Used by pattern-saving paths to skip formatting-only changes.
+ */
+export function hasFunctionalChanges(original: string, modified: string): boolean {
+  const normA = normalizeLineEndings(original)
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0)
+    .join("\n");
+  const normB = normalizeLineEndings(modified)
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0)
+    .join("\n");
+  return normA !== normB;
+}
+
+/**
  * Compute a line-level diff between two code strings.
  */
 export function computeDiff(original: string, modified: string): DiffResult {
-  const oldLines = original.split("\n");
-  const newLines = modified.split("\n");
+  // Normalize line endings — TIA Portal exports \r\n, generated code uses \n
+  const normOriginal = normalizeLineEndings(original);
+  const normModified = normalizeLineEndings(modified);
 
-  if (original === modified) {
+  const oldLines = normOriginal.split("\n");
+  const newLines = normModified.split("\n");
+
+  if (normOriginal === normModified) {
     return {
       hunks: [{ type: "unchanged", lines: oldLines, oldStart: 0, newStart: 0 }],
       hasChanges: false,
@@ -151,4 +181,60 @@ export function getChangedContent(diff: DiffResult): {
   }
 
   return { addedLines, removedLines };
+}
+
+/**
+ * Extract focused before/after snippets from a diff with surrounding context.
+ * Instead of returning ALL changed lines (which may be entire blocks),
+ * this finds the first meaningful change region with a few context lines.
+ */
+export function extractFocusedSnippets(
+  diff: DiffResult,
+  contextLines = 3,
+  maxLines = 15
+): { originalSnippet: string; correctedSnippet: string } {
+  const removedParts: string[] = [];
+  const addedParts: string[] = [];
+
+  // Walk hunks, collecting changed regions with surrounding context
+  for (let i = 0; i < diff.hunks.length; i++) {
+    const hunk = diff.hunks[i];
+    if (hunk.type === "unchanged") continue;
+
+    // Get preceding context
+    const prevHunk = i > 0 ? diff.hunks[i - 1] : null;
+    const contextBefore =
+      prevHunk?.type === "unchanged"
+        ? prevHunk.lines.slice(-contextLines)
+        : [];
+
+    // Get following context
+    const nextHunk = i + 1 < diff.hunks.length ? diff.hunks[i + 1] : null;
+    const contextAfter =
+      nextHunk?.type === "unchanged"
+        ? nextHunk.lines.slice(0, contextLines)
+        : [];
+
+    if (hunk.type === "removed") {
+      removedParts.push(
+        ...contextBefore,
+        ...hunk.lines,
+        ...contextAfter
+      );
+    } else if (hunk.type === "added") {
+      addedParts.push(
+        ...contextBefore,
+        ...hunk.lines,
+        ...contextAfter
+      );
+    }
+
+    // Stop once we have enough lines
+    if (removedParts.length >= maxLines && addedParts.length >= maxLines) break;
+  }
+
+  return {
+    originalSnippet: removedParts.slice(0, maxLines).join("\n") || "(no removed lines)",
+    correctedSnippet: addedParts.slice(0, maxLines).join("\n") || "(no added lines)",
+  };
 }

@@ -1,5 +1,5 @@
 import type { Project, Agent, IoEntry, TagDbDefinition, GenerationMode, PatternCandidate, FbTemplate, DesignProfile, AgentKnowledgeDoc } from "@/types";
-import { PLATFORM_RULES } from "@/lib/platform-rules";
+import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { getAgentProfile } from "@/lib/agent-profiles";
 
 /**
@@ -47,6 +47,7 @@ interface PromptBuilderInput {
   fbTemplates?: FbTemplate[];
   designProfile?: DesignProfile;
   agentKnowledgeDocs?: Record<string, AgentKnowledgeDoc[]>;
+  promptSections?: Record<string, string>;
   userMessage: string;
   conversationHistory?: Array<{ role: "user" | "assistant"; content: string }>;
 }
@@ -56,7 +57,7 @@ interface BuiltPrompt {
   messages: Array<{ role: "user" | "assistant"; content: string }>;
 }
 
-function formatIoList(ioList: IoEntry[]): string {
+export function formatIoList(ioList: IoEntry[]): string {
   if (ioList.length === 0) return "No IO entries defined.";
   const header = "| Address | Tag Name | Data Type | Description | Module | Slot |";
   const separator = "|---------|----------|-----------|-------------|--------|------|";
@@ -116,7 +117,7 @@ The following rules define the customer's code standards. ALL generated code MUS
 ${profile.rules}`;
 }
 
-function formatFbTemplates(templates: FbTemplate[]): string {
+export function formatFbTemplates(templates: FbTemplate[]): string {
   if (templates.length === 0) return "";
   const blocks = templates.map((t) => {
     const header = `### ${t.name} [${t.device_category}]`;
@@ -151,17 +152,26 @@ export function formatPatterns(patterns: PatternCandidate[]): string {
 }
 
 export function buildPrompt(input: PromptBuilderInput): BuiltPrompt {
-  const { project, agents, generationMode, approvedPatterns, fbTemplates, designProfile, agentKnowledgeDocs, userMessage, conversationHistory } = input;
+  const { project, agents, generationMode, approvedPatterns, fbTemplates, designProfile, agentKnowledgeDocs, promptSections, userMessage, conversationHistory } = input;
+
+  const codeArchitect = getAgentProfile("Code Architect");
+  const identity = interpolateAgent(
+    resolveSection(promptSections, "generate", "identity"),
+    { name: "Code Architect", tagline: codeArchitect.tagline, description: codeArchitect.description, personality: codeArchitect.personality },
+  );
+  const instructions = resolveSection(promptSections, "generate", "instructions");
+  const platformRules = resolveSection(promptSections, "shared", "platform_rules");
 
   const generationModeDesc =
     generationMode === "FB_PER_DEVICE"
       ? "Generate one FB per device type with UDT-based IO arrays. Each device type gets its own FB, UDT, and instance DB template."
       : "Generate a complete project-level structure with all FBs, UDTs, DBs, and OBs needed for the full system.";
 
-  const systemPrompt = `You are Pac-ST, a deterministic PLC code generation assistant for Siemens TIA Portal.
-You generate production-ready SCL (Structured Control Language) code artifacts.
+  const systemPrompt = `${identity}
 
-${PLATFORM_RULES}
+${instructions}
+
+${platformRules}
 
 ## Project Context
 - Client: ${project.client_name}

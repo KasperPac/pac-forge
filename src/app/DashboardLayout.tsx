@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from "react-router";
-import { FolderOpen, Bot, Code, Terminal, BookOpen, GraduationCap, Layers, SlidersHorizontal, LogOut } from "lucide-react";
+import { FolderOpen, Bot, Code, Terminal, BookOpen, GraduationCap, Layers, SlidersHorizontal, FileText, LogOut } from "lucide-react";
 import pacLogo from "@/../media/logos/PacTechnologiesEdit_White.png";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -16,6 +16,7 @@ const NAV_ITEMS = [
   { to: "/patterns", label: "Patterns", icon: BookOpen },
   { to: "/profiles", label: "Profiles", icon: SlidersHorizontal },
   { to: "/fb-library", label: "FB Library", icon: Layers },
+  { to: "/prompts", label: "Prompts", icon: FileText },
   { to: "/tia-console", label: "TIA Console", icon: Terminal },
 ] as const;
 

@@ -1,0 +1,208 @@
+---
+config:
+  theme: dark
+  themeVariables:
+    primaryColor: "#6366f1"
+    primaryTextColor: "#e2e8f0"
+    primaryBorderColor: "#818cf8"
+    secondaryColor: "#1e293b"
+    tertiaryColor: "#0f172a"
+    lineColor: "#64748b"
+    textColor: "#e2e8f0"
+    mainBkg: "#1e293b"
+    nodeBorder: "#475569"
+    clusterBkg: "#0f172a"
+    clusterBorder: "#334155"
+---
+flowchart TB
+    %% ============================================================
+    %% PAC-FORGE AGENT ARCHITECTURE & DATA FLOW
+    %% ============================================================
+
+    %% --- Triggers ---
+    UserPacST([User: Pac-ST Chat])
+    UserTIA([User: TIA Console])
+
+    %% ============================================================
+    %% PATH 1: PAC-ST GENERATION PIPELINE
+    %% ============================================================
+
+    subgraph Pipeline["PAC-ST GENERATION PIPELINE"]
+        direction TB
+
+        PM_Plan["0. Project Manager\n─────────────\nAnalyzes request\nPlans agent delegation"]
+
+        Generator["1. Code Architect\n─────────────\nGenerates SCL blocks\nStreaming via Edge Fn"]
+
+        subgraph Reviewers["REVIEWER LOOP (each modifies artifacts in-memory)"]
+            direction LR
+            PLC["2. PLC Standards\nEnforcer"]
+            IOV["3. IO Validator"]
+            Safety["4. Safety Auditor"]
+        end
+
+        PatternLib["5. Pattern Librarian\n─────────────\nAI analyzes diffs\n(original vs reviewed)\nFallback: regex classifier"]
+
+        PM_Summary["6. Project Manager\n─────────────\nSynthesizes results\nFinal status report"]
+    end
+
+    %% Pipeline flow
+    UserPacST --> PM_Plan
+    PM_Plan -->|"execution plan"| Generator
+    Generator -->|"ParsedArtifact[]"| PLC
+    PLC -->|"modified artifacts"| IOV
+    IOV -->|"modified artifacts"| Safety
+    Safety -->|"final artifacts + original artifacts"| PatternLib
+    PatternLib -->|"all step results"| PM_Summary
+
+    %% ============================================================
+    %% PATH 2: COMPILE-FIX LOOP (TIA Console)
+    %% ============================================================
+
+    subgraph CompileFix["COMPILE-FIX LOOP"]
+        direction TB
+
+        CompileErr["Compile Errors\nDetected"]
+
+        CodeArchFix["Code Architect\n─────────────\nAnalyzes errors + code\nGenerates SCL fixes\nNon-streaming"]
+
+        Bridge["TIA Bridge\n(.NET localhost:5102)\n─────────────\nReimports SCL → TIA Portal\nRecompiles\nReturns new errors"]
+
+        CheckResult{Success?}
+
+        AutoLearn["Auto-Learn\n─────────────\nSaves diff as pattern\nstatus: APPROVED"]
+
+        StuckCheck{Stuck?}
+    end
+
+    UserTIA --> CompileErr
+    CompileErr --> CodeArchFix
+    CodeArchFix -->|"fixed SCL blocks"| Bridge
+    Bridge -->|"compile result"| CheckResult
+    CheckResult -->|"Yes: 0 errors"| AutoLearn
+    CheckResult -->|"No: errors remain"| StuckCheck
+    StuckCheck -->|"No: progress made"| CodeArchFix
+    StuckCheck -->|"Yes: same errors / max rounds"| ManualPanel
+
+    %% ============================================================
+    %% PATH 3: MANUAL FIX PANEL
+    %% ============================================================
+
+    subgraph ManualFix["MANUAL FIX PANEL"]
+        direction TB
+
+        ManualPanel["User fixes code\nin TIA Portal"]
+
+        PullExport["Pull from TIA\n─────────────\nExport sources via bridge\nPOST /tia/export-sources"]
+
+        LibrarianAI["Pattern Librarian AI\n─────────────\nAnalyzes before/after diffs\nClassifies corrections\nGenerates explanations"]
+
+        UserReview["User Reviews\n─────────────\nEdit types & explanations\nSelect which to save"]
+
+        SavePatterns["Save Learnings\n─────────────\nstatus: APPROVED"]
+    end
+
+    ManualPanel --> PullExport
+    PullExport -->|"exported sources"| LibrarianAI
+    LibrarianAI -->|"AI-classified corrections"| UserReview
+    UserReview --> SavePatterns
+
+    %% ============================================================
+    %% DATABASE LAYER
+    %% ============================================================
+
+    subgraph DB["SUPABASE DATABASE"]
+        direction LR
+
+        ArtifactsDB[("artifacts\n─────────────\nGenerated SCL blocks\nWritten by: Code Architect")]
+
+        PatternsDB[("pattern_candidates\n─────────────\nLearned corrections\nPENDING or APPROVED")]
+
+        KnowledgeDB[("agent_knowledge_docs\n─────────────\nPer-agent reference docs\nUploaded by admin")]
+
+        ConvoDB[("conversation_turns\n─────────────\nChat history\nUser + agent messages")]
+    end
+
+    %% ============================================================
+    %% EDGE FUNCTION (Claude API Proxy)
+    %% ============================================================
+
+    EdgeFn["Supabase Edge Function\n/functions/v1/generate\n─────────────\nProxies all agent calls\nto Claude API"]
+
+    %% ============================================================
+    %% DB CONNECTIONS — WRITES
+    %% ============================================================
+
+    Generator -->|"writes"| ArtifactsDB
+    Generator -->|"writes"| ConvoDB
+    PatternLib -->|"writes PENDING"| PatternsDB
+    AutoLearn -->|"writes APPROVED"| PatternsDB
+    SavePatterns -->|"writes APPROVED"| PatternsDB
+
+    %% ============================================================
+    %% DB CONNECTIONS — READS
+    %% ============================================================
+
+    PatternsDB -.->|"approved patterns\ninjected into ALL prompts"| Generator
+    PatternsDB -.->|"approved patterns"| PLC
+    PatternsDB -.->|"approved patterns"| IOV
+    PatternsDB -.->|"approved patterns"| Safety
+    PatternsDB -.->|"existing patterns\n(avoid duplicates)"| PatternLib
+    PatternsDB -.->|"approved patterns"| CodeArchFix
+    PatternsDB -.->|"existing patterns"| LibrarianAI
+
+    KnowledgeDB -.->|"Code Architect docs"| Generator
+    KnowledgeDB -.->|"per-reviewer docs"| Reviewers
+    KnowledgeDB -.->|"Librarian docs"| PatternLib
+    KnowledgeDB -.->|"PM docs"| PM_Plan
+    KnowledgeDB -.->|"Code Architect docs"| CodeArchFix
+    KnowledgeDB -.->|"Librarian docs"| LibrarianAI
+
+    %% ============================================================
+    %% EDGE FUNCTION CONNECTIONS
+    %% ============================================================
+
+    PM_Plan -->|"non-streaming"| EdgeFn
+    Generator -->|"streaming SSE"| EdgeFn
+    PLC -->|"non-streaming"| EdgeFn
+    IOV -->|"non-streaming"| EdgeFn
+    Safety -->|"non-streaming"| EdgeFn
+    PatternLib -->|"non-streaming JSON"| EdgeFn
+    PM_Summary -->|"non-streaming"| EdgeFn
+    CodeArchFix -->|"non-streaming"| EdgeFn
+    LibrarianAI -->|"non-streaming JSON"| EdgeFn
+
+    %% ============================================================
+    %% THE LEARNING LOOP (key feedback cycle)
+    %% ============================================================
+
+    PatternsDB -.->|"LEARNING LOOP\napproved patterns improve\nall future generations"| Generator
+
+    %% ============================================================
+    %% STYLES
+    %% ============================================================
+
+    classDef agent fill:#312e81,stroke:#6366f1,color:#e2e8f0
+    classDef reviewer fill:#1e3a5f,stroke:#3b82f6,color:#e2e8f0
+    classDef librarian fill:#3b1764,stroke:#8b5cf6,color:#e2e8f0
+    classDef pm fill:#164e63,stroke:#06b6d4,color:#e2e8f0
+    classDef trigger fill:#1a1a2e,stroke:#f59e0b,color:#fbbf24
+    classDef db fill:#0f172a,stroke:#22d3ee,color:#e2e8f0
+    classDef edge fill:#1e293b,stroke:#10b981,color:#e2e8f0
+    classDef bridge fill:#1e293b,stroke:#f97316,color:#e2e8f0
+    classDef decision fill:#1e293b,stroke:#f59e0b,color:#fbbf24
+    classDef autolearn fill:#14532d,stroke:#22c55e,color:#e2e8f0
+    classDef manual fill:#713f12,stroke:#f59e0b,color:#e2e8f0
+
+    class Generator,CodeArchFix agent
+    class PLC,IOV,Safety reviewer
+    class PatternLib,LibrarianAI librarian
+    class PM_Plan,PM_Summary pm
+    class UserPacST,UserTIA trigger
+    class ArtifactsDB,PatternsDB,KnowledgeDB,ConvoDB db
+    class EdgeFn edge
+    class Bridge bridge
+    class CheckResult,StuckCheck decision
+    class AutoLearn autolearn
+    class ManualPanel,PullExport,UserReview,SavePatterns manual
+    class CompileErr manual

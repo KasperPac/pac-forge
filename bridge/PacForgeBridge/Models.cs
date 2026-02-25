@@ -153,6 +153,14 @@ namespace PacForgeBridge
         public Dictionary<string, string> Sources { get; set; } = new Dictionary<string, string>();
     }
 
+    public class ExportSourcesResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+        public Dictionary<string, string> Sources { get; set; } = new Dictionary<string, string>();
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
     public class CompileErrorDto
     {
         public string ArtifactName { get; set; }

@@ -1,6 +1,7 @@
-import { PLATFORM_RULES } from "@/lib/platform-rules";
-import { formatPatterns } from "@/lib/prompt-builder";
-import type { PatternCandidate, DesignProfile, AgentKnowledgeDoc } from "@/types";
+import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
+import { formatPatterns, formatIoList, formatFbTemplates } from "@/lib/prompt-builder";
+import { getAgentProfile } from "@/lib/agent-profiles";
+import type { PatternCandidate, DesignProfile, AgentKnowledgeDoc, Project, FbTemplate } from "@/types";
 
 export interface CompileErrorInfo {
   artifact_name: string;
@@ -10,18 +11,47 @@ export interface CompileErrorInfo {
   severity: "ERROR" | "WARNING" | "INFO";
 }
 
+export interface CompileFixPromptInput {
+  approvedPatterns?: PatternCandidate[];
+  designProfile?: DesignProfile;
+  knowledgeDocs?: AgentKnowledgeDoc[];
+  promptSections?: Record<string, string>;
+  /** Project context — so the fix agent knows IO mappings, CPU, safety level, etc. */
+  project?: Project;
+  /** FB templates — so the fix agent preserves company-standard block structures */
+  fbTemplates?: FbTemplate[];
+}
+
 /**
  * Build the system prompt for the compile-fix chat.
- * Optionally injects approved correction patterns and agent knowledge so the AI learns from past fixes.
+ * Includes the full project context so the Code Architect can fix errors
+ * without losing awareness of IO mappings, FB templates, and project rules.
  */
-export function buildCompileFixSystemPrompt(
-  approvedPatterns?: PatternCandidate[],
-  designProfile?: DesignProfile,
-  knowledgeDocs?: AgentKnowledgeDoc[],
-): string {
-  const patternsSection =
-    approvedPatterns && approvedPatterns.length > 0
-      ? `\n\n## Learned Corrections\n\nThese corrections were taught by the user from previous compile errors. Apply them when relevant:\n\n${formatPatterns(approvedPatterns)}`
+export function buildCompileFixSystemPrompt(input: CompileFixPromptInput): string {
+  const { approvedPatterns, designProfile, knowledgeDocs, promptSections, project, fbTemplates } = input;
+
+  const codeArchitect = getAgentProfile("Code Architect");
+  const identity = interpolateAgent(
+    resolveSection(promptSections, "compile_fix", "identity"),
+    { name: "Code Architect", tagline: codeArchitect.tagline, description: codeArchitect.description, personality: codeArchitect.personality },
+  );
+  const platformRules = resolveSection(promptSections, "shared", "platform_rules");
+  const instructions = resolveSection(promptSections, "compile_fix", "instructions");
+
+  const projectSection = project
+    ? `\n\n## Project Context
+- Client: ${project.client_name}
+- PLC Brand: ${project.plc_brand}
+- TIA Version: ${project.tia_version}
+- CPU Type: ${project.cpu_type}
+- Safety Level: ${project.safety_level}${project.safety_notes ? `\n- Safety Notes: ${project.safety_notes}` : ""}
+
+## IO List
+${formatIoList(project.io_lists)}` : "";
+
+  const fbSection =
+    fbTemplates && fbTemplates.length > 0
+      ? `\n\n${formatFbTemplates(fbTemplates)}`
       : "";
 
   const profileSection =
@@ -29,17 +59,21 @@ export function buildCompileFixSystemPrompt(
       ? `\n\n## Code Design Profile: ${designProfile.name}\n\n${designProfile.rules}`
       : "";
 
-  const knowledgeSection =
-    knowledgeDocs && knowledgeDocs.length > 0
-      ? `\n\n## Reference Documentation\n\nThe following knowledge has been provided to help you write correct SCL code. Apply this knowledge when fixing errors:\n\n${knowledgeDocs.map((d) => `### ${d.title}\n${d.content}`).join("\n\n")}`
+  const patternsSection =
+    approvedPatterns && approvedPatterns.length > 0
+      ? `\n\n## MANDATORY: Learned Corrections from Previous Compile Errors\n\nThe following corrections were learned from real TIA Portal compile failures. You MUST apply every one of these rules.\n\n${formatPatterns(approvedPatterns)}`
       : "";
 
-  return `You are Pac-ST Compile Fix, a specialist in fixing Siemens TIA Portal SCL compile errors.
+  const knowledgeSection =
+    knowledgeDocs && knowledgeDocs.length > 0
+      ? `\n\n## Reference Documentation\n\n${knowledgeDocs.map((d) => `### ${d.title}\n${d.content}`).join("\n\n")}`
+      : "";
 
-You will receive compile errors/warnings along with the original SCL source code.
-Your job is to analyze the errors, identify root causes, and return corrected SCL code.
+  return `${identity}
 
-${PLATFORM_RULES}${profileSection}${patternsSection}${knowledgeSection}
+${platformRules}${projectSection}${profileSection}${fbSection}${patternsSection}${knowledgeSection}
+
+${instructions}
 
 ## Output Format
 
@@ -47,13 +81,7 @@ For each corrected artifact, output the full corrected SCL inside a fenced code 
 
 \`\`\`scl filename="<ArtifactName>"
 <full corrected SCL code>
-\`\`\`
-
-IMPORTANT:
-- Always output the COMPLETE corrected file, not just the changed lines.
-- The filename attribute must match the original artifact name exactly.
-- Only output blocks that you actually changed. If a file has no errors, do not include it.
-- After the code blocks, provide a brief explanation of what you fixed and why.`;
+\`\`\``;
 }
 
 /**

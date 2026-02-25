@@ -1,4 +1,5 @@
 import type { Agent, Project, AgentKnowledgeDoc } from "@/types";
+import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { getAgentProfile } from "@/lib/agent-profiles";
 import type { PipelineStepResult } from "@/lib/pipeline";
 
@@ -21,6 +22,7 @@ export interface PlanPromptInput {
   project: Project;
   knowledgeDocs?: AgentKnowledgeDoc[];
   userMessage: string;
+  promptSections?: Record<string, string>;
 }
 
 /**
@@ -28,7 +30,14 @@ export interface PlanPromptInput {
  * The PM analyzes the request and outlines which agents should be engaged.
  */
 export function buildPlanPrompt(input: PlanPromptInput): BuiltPrompt {
-  const { pmAgent, availableAgents, project, knowledgeDocs, userMessage } = input;
+  const { pmAgent, availableAgents, project, knowledgeDocs, userMessage, promptSections } = input;
+
+  const pmProfile = getAgentProfile("Project Manager");
+  const identity = interpolateAgent(
+    resolveSection(promptSections, "plan", "identity"),
+    { name: "Project Manager", tagline: pmProfile.tagline, description: pmProfile.description, personality: pmProfile.personality },
+  );
+  const instructions = resolveSection(promptSections, "plan", "instructions");
 
   const agentList = availableAgents
     .map((a) => {
@@ -39,9 +48,7 @@ export function buildPlanPrompt(input: PlanPromptInput): BuiltPrompt {
 
   const knowledgeSection = formatKnowledgeDocs(knowledgeDocs ?? []);
 
-  const systemPrompt = `You are the Project Manager for the Pac-ST agent pipeline.
-
-Your role is to analyze the user's request and create a brief execution plan. You do NOT generate or modify code — you coordinate.
+  const systemPrompt = `${identity}
 
 ## Available Agents
 ${agentList}
@@ -58,15 +65,7 @@ ${knowledgeSection}
 
 ${pmAgent.system_prompt ? `## Additional Instructions\n${pmAgent.system_prompt}` : ""}
 
-## Your Task
-
-Analyze the user's request and respond with:
-1. **Request Analysis**: What is being asked? What are the key requirements?
-2. **Execution Plan**: Which agents should be engaged and in what order?
-3. **Key Concerns**: Any risks, ambiguities, or things to watch for?
-4. **Expected Output**: What artifacts should the pipeline produce?
-
-Keep your response concise — this is an internal planning document, not user-facing.`;
+${instructions}`;
 
   return {
     systemPrompt,
@@ -82,6 +81,7 @@ export interface SummaryPromptInput {
   knowledgeDocs?: AgentKnowledgeDoc[];
   steps: PipelineStepResult[];
   artifactCount: number;
+  promptSections?: Record<string, string>;
 }
 
 /**
@@ -89,7 +89,14 @@ export interface SummaryPromptInput {
  * The PM synthesizes results from all agents into a final report.
  */
 export function buildSummaryPrompt(input: SummaryPromptInput): BuiltPrompt {
-  const { pmAgent, project, knowledgeDocs, steps, artifactCount } = input;
+  const { pmAgent, project, knowledgeDocs, steps, artifactCount, promptSections } = input;
+
+  const pmProfile2 = getAgentProfile("Project Manager");
+  const identity = interpolateAgent(
+    resolveSection(promptSections, "summary", "identity"),
+    { name: "Project Manager", tagline: pmProfile2.tagline, description: pmProfile2.description, personality: pmProfile2.personality },
+  );
+  const instructions = resolveSection(promptSections, "summary", "instructions");
 
   const knowledgeSection = formatKnowledgeDocs(knowledgeDocs ?? []);
 
@@ -104,26 +111,18 @@ export function buildSummaryPrompt(input: SummaryPromptInput): BuiltPrompt {
     })
     .join("\n");
 
-  const systemPrompt = `You are the Project Manager wrapping up a Pac-ST pipeline execution.
+  const systemPrompt = `${identity}
 
 ## Project Context
 - Client: ${project.client_name}
 - CPU: ${project.cpu_type} / TIA ${project.tia_version}
+- Artifacts generated: ${artifactCount}
 
 ${knowledgeSection}
 
 ${pmAgent.system_prompt ? `## Additional Instructions\n${pmAgent.system_prompt}` : ""}
 
-## Your Task
-
-Synthesize the pipeline results into a clear, concise summary report:
-1. **Status**: Overall pipeline outcome (success / partial / failure)
-2. **What was generated**: ${artifactCount} artifact(s) — list key blocks
-3. **Agent Contributions**: What each agent did (keep brief)
-4. **Conflicts**: Any disagreements between reviewers?
-5. **Recommendations**: Next steps or things to review manually
-
-Keep the summary focused and actionable.`;
+${instructions}`;
 
   const userMessage = `The pipeline has completed. Here are the results from each agent:\n\n${stepSummaries}`;
 

@@ -266,6 +266,7 @@ type PMDistribution = {
   title: string;
   content: string;
   reasoning: string;
+  compatible_cpus: string[];
 };
 
 type PMSectionPick = {
@@ -360,11 +361,14 @@ ${agentDesc}
 1. For each agent, extract ONLY content relevant to their specialty.
 2. Keep extracted content concise — summarize into key rules, patterns, and reference information.
 3. If a section is relevant to multiple agents, include it for each.
-4. Respond with ONLY a JSON array. No other text.
+4. For each extracted section, determine which PLC CPU models it applies to.
+   Valid CPU values: "S7-1200", "S7-1200F", "S7-1500", "S7-1500F", "S7-1500T", "S7-1500TF"
+   Use "ALL" if the content applies to all CPU models or if no specific CPU is mentioned.
+5. Respond with ONLY a JSON array. No other text.
 
 Response format:
 [
-  { "agent_id": "<uuid>", "agent_name": "<name>", "title": "<short title>", "content": "<extracted knowledge>", "reasoning": "<why relevant>" }
+  { "agent_id": "<uuid>", "agent_name": "<name>", "title": "<short title>", "content": "<extracted knowledge>", "reasoning": "<why relevant>", "compatible_cpus": ["ALL"] }
 ]
 
 If nothing is relevant, respond with: []`;
@@ -403,11 +407,14 @@ ${agentDesc}
 1. For each agent, extract ONLY sections directly relevant to their specialty.
 2. If a section is relevant to multiple agents, include it for each.
 3. Keep extracted content concise — summarize into key rules and reference information.
-4. Respond with ONLY a JSON array. No other text.
+4. For each extracted section, determine which PLC CPU models it applies to.
+   Valid CPU values: "S7-1200", "S7-1200F", "S7-1500", "S7-1500F", "S7-1500T", "S7-1500TF"
+   Use "ALL" if the content applies to all CPU models or if no specific CPU is mentioned.
+5. Respond with ONLY a JSON array. No other text.
 
 Response format:
 [
-  { "agent_id": "<uuid>", "agent_name": "<name>", "title": "<short title>", "content": "<extracted knowledge>", "reasoning": "<why relevant>" }
+  { "agent_id": "<uuid>", "agent_name": "<name>", "title": "<short title>", "content": "<extracted knowledge>", "reasoning": "<why relevant>", "compatible_cpus": ["ALL"] }
 ]
 
 If nothing is relevant, respond with: []`;
@@ -431,6 +438,7 @@ export interface ProposedDistribution {
   title: string;
   content: string;
   reasoning: string;
+  compatible_cpus: string[];
   /** Unique key for the UI to track selection state. */
   key: string;
 }
@@ -445,6 +453,8 @@ export interface AnalyzeInput {
   sourceFilename: string;
   fileType: string;
   wordCount: number;
+  plcBrand: string;
+  compatibleCpus: string[];
   onProgress?: (message: string) => void;
 }
 
@@ -452,6 +462,7 @@ export interface ConfirmInput {
   uploadId: string;
   sourceFilename: string;
   fileType: string;
+  plcBrand: string;
   /** Only the proposals the user confirmed. */
   confirmed: ProposedDistribution[];
 }
@@ -486,6 +497,8 @@ export function useAnalyzeKnowledge() {
           word_count: input.wordCount,
           full_content: input.content,
           distribution: [],
+          plc_brand: input.plcBrand,
+          compatible_cpus: input.compatibleCpus,
           created_by: user.id,
         })
         .select()
@@ -519,6 +532,9 @@ export function useAnalyzeKnowledge() {
         .filter((d) => agents.some((a) => a.id === d.agent_id))
         .map((d, i) => ({
           ...d,
+          compatible_cpus: Array.isArray(d.compatible_cpus) && d.compatible_cpus.length > 0
+            ? d.compatible_cpus
+            : input.compatibleCpus,
           key: `${d.agent_id}-${i}`,
         }));
 
@@ -551,6 +567,8 @@ export function useConfirmDistribution() {
             word_count: dist.content.split(/\s+/).filter(Boolean).length,
             source_upload_id: input.uploadId,
             distribution_reasoning: dist.reasoning,
+            plc_brand: input.plcBrand,
+            compatible_cpus: dist.compatible_cpus,
             created_by: user.id,
           })
           .select()

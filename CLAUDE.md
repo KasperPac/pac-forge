@@ -55,58 +55,71 @@ src/
     project-detail.tsx        # Single project view with IO list editor
     pac-st.tsx                # Main 3-pane workspace (chat + generated + approved)
     agents.tsx                # Agent pool status display
+    agent-profile.tsx         # Individual agent detail page with learnings
+    knowledge.tsx             # Centralized knowledge upload + PM distribution
+    profiles.tsx              # Design profile management
+    fb-library.tsx            # FB template library (company-standard FBs)
     patterns.tsx              # Correction pattern review/approval admin
-    tia-console.tsx           # TIA bridge status + job history table
+    tia-console.tsx           # TIA bridge status + demo generate + compile-fix
   components/
-    pac-st/                   # Pac-ST workspace sub-components (14 files)
-    tia-console/              # TIA console sub-components (compile-fix-chat, learned-corrections-log)
+    pac-st/                   # Pac-ST workspace sub-components
+    tia-console/              # compile-fix-chat, tia-manual-fix-panel, learned-corrections-log
     ui/                       # shadcn/ui primitives
     auth-guard.tsx            # Route protection via Supabase session
-    session-start-dialog.tsx  # Agent selection + session creation modal
-    project-card.tsx, project-form.tsx, pattern-review-card.tsx, io-list-editor.tsx
+    session-start-dialog.tsx  # PM-centric session creation with pipeline step toggles
   hooks/                      # TanStack Query hooks (all server state)
-    use-generation.ts         # Full pipeline: prompt → Edge Function → parse → analyze → manifest
-    use-agent-reservation.ts  # Lease-based agent locking with auto-renewal
-    use-sessions.ts           # Session CRUD + active session lookup
-    use-conversation.ts       # Chat history persistence
+    use-generation.ts         # Shared helpers: streamFromEdgeFunction(), processRawResponse(), getAuthToken()
+    use-pipeline-generate.ts  # Multi-agent pipeline orchestration (PM → Generator → Reviewers → Pattern Librarian)
+    use-process-generate.ts   # Process code generation from functional description documents
+    use-demo-generate.ts      # TIA Console demo program generation (inline system prompt)
+    use-compile-fix.ts        # Compile error → AI fix generation
+    use-reimport-compile.ts   # Re-import fixed code + recompile via bridge
+    use-export-from-tia.ts    # Export current sources from TIA Portal via bridge
+    use-pattern-librarian-analysis.ts  # AI-powered correction analysis (with regex fallback)
+    use-knowledge-distribute.ts  # Knowledge upload → PM analysis → agent distribution
+    use-design-profiles.ts    # Design profile CRUD
+    use-fb-templates.ts       # FB template library CRUD
+    use-agent-knowledge.ts    # Per-agent knowledge document management
     use-patterns.ts           # Correction pattern CRUD + approval workflow
-    use-snapshots.ts          # Artifact version snapshots + rollback
     use-tia-jobs.ts           # TIA job submission + polling + bridge status
     use-tia-bridge-ws.ts      # WebSocket connection to .NET bridge
-    use-compile-fix.ts        # Compile error → AI fix generation
-    use-demo-generate.ts      # Demo program generation (inline system prompt)
-    use-reimport-compile.ts   # Re-import fixed code + recompile via bridge
-    use-audit-log.ts          # Fire-and-forget audit log insertion
-    use-projects.ts, use-agents.ts, use-auth.ts
+    use-agent-reservation.ts  # Lease-based agent locking with auto-renewal
+    use-sessions.ts, use-conversation.ts, use-snapshots.ts
+    use-projects.ts, use-agents.ts, use-auth.ts, use-audit-log.ts
   lib/                        # Pure logic libraries (no React)
-    prompt-builder.ts         # Builds system prompts from platform rules + project context + patterns
+    prompt-builder.ts         # System prompts: project context + patterns + FB templates + design profiles + knowledge
+    process-prompt-builder.ts # System prompt for process code generation path
+    compile-fix-prompt.ts     # System prompt for compile-fix generation path
+    pattern-librarian-prompt.ts  # System prompt for Pattern Librarian AI analysis
+    review-prompt-builder.ts  # System prompt for Standards Review agent
+    review-response-parser.ts # Parse Standards Review agent response
+    pm-prompt-builder.ts      # System prompts for PM orchestration (plan + summary)
+    pipeline.ts               # Pipeline step config, agent type checks, step ordering
     artifact-parser.ts        # Parses ```scl fenced blocks from Claude responses
     manifest-builder.ts       # Topological sort (Kahn's algorithm) for TIA import ordering
     safety-analyzer.ts        # 6 rule-based safety checks on generated PLC code
-    diff-engine.ts            # LCS-based line-level diff
-    correction-classifier.ts  # Maps diff hunks to correction types for pattern learning
+    diff-engine.ts            # LCS-based line-level diff (normalizes \r\n line endings)
+    correction-classifier.ts  # Regex-based diff → correction type classification (fallback for AI)
     tia-export.ts             # JSZip bundle generator for TIA Portal import
     tia-bridge-contract.ts    # TypeScript API contract types for .NET TIA Openness bridge
     simatic-xml-builder.ts    # SimaticML XML generation for TIA import
     compile-fix-parser.ts     # Parse TIA compile errors from bridge output
-    compile-fix-prompt.ts     # System prompt builder for compile-fix generation path
-    demo-programs.ts          # Demo SCL program templates
+    document-extractor.ts     # Client-side .docx/.pdf text extraction (mammoth + pdfjs-dist)
+    agent-profiles.ts         # Agent specialization configuration (identity, skills, color)
     platform-rules.ts         # Load platform rules from markdown
-    agent-profiles.ts         # Agent specialization configuration
     monaco-scl.ts             # Monaco Editor SCL language definition (Monarch tokenizer)
     supabase.ts               # Supabase client singleton
-    auth.ts                   # Auth helpers
     utils.ts                  # cn() helper (clsx + tailwind-merge)
   stores/                     # Zustand stores (UI-only state)
-    pac-st-store.ts           # Generated/approved artifacts, active tabs
+    pac-st-store.ts           # Generated/approved artifacts, active tabs, pipeline steps
     session-store.ts, ui-store.ts
   types/                      # TypeScript type definitions (one file per domain)
   providers/
     query-provider.tsx        # TanStack Query client setup
 supabase/
-  migrations/001_initial_schema.sql  # Full DB schema (projects, agents, sessions, artifacts, etc.)
+  migrations/                 # DB schema migrations (003–005+)
   functions/
-    generate/                 # Claude API proxy Edge Function (streaming support)
+    generate/                 # Claude API proxy Edge Function (streaming + non-streaming)
     renew-lease/              # Agent lease renewal
     cleanup-expired/          # Expired lease cleanup
 ai/
@@ -117,38 +130,72 @@ Docs/
   PAC_ST_MASTER_SPEC.md          # Full Pac-ST specification
   AGENT_POOL_ARCHITECTURE.md     # Agent reservation system design
   TIA_OPENNESS_INTEGRATION.md    # TIA Portal bridge integration spec
+  agent-flow.mmd                 # Mermaid diagram of agent pipeline + data flows
 UI_STYLE_GUIDE.md                # Visual design rules
 ```
 
 ### Routing
 
-React Router v7 (`react-router`) with `createBrowserRouter`. All authenticated routes are children of `AuthGuard` → `DashboardLayout`. Sidebar nav: Projects, Agents, Pac-ST, Patterns, TIA Console.
+React Router v7 (`react-router`) with `createBrowserRouter`. All authenticated routes are children of `AuthGuard` → `DashboardLayout`. Sidebar nav: Projects, Agents, Knowledge, Pac-ST, Patterns, Profiles, FB Library, TIA Console.
 
 ### State Management
 
 - **Server state**: TanStack Query (`@tanstack/react-query`) — all hooks in `src/hooks/`
-- **UI state**: Zustand stores in `src/stores/` — artifact selections, tab state
+- **UI state**: Zustand stores in `src/stores/` — artifact selections, tab state, pipeline steps
 - **Optimistic updates**: Chat messages use local optimistic state merged with DB history
 
 ### Backend
 
 Supabase (hosted Postgres + Edge Functions + Auth + RLS). No custom backend server.
 
-- **Edge Functions** proxy Claude API calls (keeps API key server-side)
+- **Edge Functions** proxy Claude API calls (keeps API key server-side). Single endpoint `POST /functions/v1/generate` handles all agent calls — streaming and non-streaming, with configurable `max_tokens` (default 8192, cap 32768)
 - **Agent leases**: 30-minute leases with auto-renewal every 10 minutes via `useAutoRenewLeases`
 - **All mutations** go through TanStack Query `useMutation` with `queryClient.invalidateQueries`
 
-### Three Generation Paths (CRITICAL)
+### Multi-Agent Pipeline (Pac-ST Main Path)
 
-There are 3 separate AI code-generation paths, each with its own hook and system prompt builder. When adding rules, patterns, or context to "all generation prompts", **all three must be updated**:
+The main code generation path (`usePipelineGenerate`) orchestrates multiple agents in sequence:
+
+1. **Project Manager** — Plans the generation approach (`buildPlanPrompt()`)
+2. **Code Architect** — Generates SCL code (`buildPrompt()`)
+3. **Standards Reviewer** — Reviews code against rules (`buildReviewPrompt()`)
+4. **IO Validator** — Validates IO mappings (optional)
+5. **Safety Auditor** — Runs safety checks (optional)
+6. **Pattern Librarian** — Analyzes diffs between stages, persists correction patterns (`buildPatternLibrarianPrompt()`)
+7. **Project Manager** — Summarizes results (`buildSummaryPrompt()`)
+
+Steps 3–6 are toggleable via the session start dialog. The pipeline config lives in `src/lib/pipeline.ts`.
+
+### Four Generation Paths (CRITICAL)
+
+There are 4 separate AI code-generation paths, each with its own hook and system prompt builder. When adding rules, patterns, or context to "all generation prompts", **all four must be updated**:
 
 | Path | Hook | Prompt Builder | Entry Point |
 |------|------|---------------|-------------|
-| Pac-ST chat | `use-generation.ts` | `buildPrompt()` in `prompt-builder.ts` | `pac-st.tsx` |
+| Pac-ST pipeline | `use-pipeline-generate.ts` | `buildPrompt()` in `prompt-builder.ts` | `pac-st.tsx` |
+| Process code | `use-process-generate.ts` | `buildProcessPrompt()` in `process-prompt-builder.ts` | `pac-st.tsx` (Process tab) |
 | TIA Console demo | `use-demo-generate.ts` | `buildDemoSystemPrompt()` (inline) | `tia-console.tsx` |
 | Compile fix | `use-compile-fix.ts` | `buildCompileFixSystemPrompt()` in `compile-fix-prompt.ts` | `compile-fix-chat.tsx` |
 
 The demo generate path is easy to miss because it has its own inline system prompt rather than using `prompt-builder.ts`.
+
+**Shared helpers** in `use-generation.ts`: `streamFromEdgeFunction()` (SSE reading), `processRawResponse()` (parse → safety → manifest → save), `getAuthToken()`. Both pipeline and process paths use these.
+
+### Two Separate Knowledge Systems
+
+1. **Correction patterns** (`pattern_candidates` table) — Structured WRONG/CORRECT code pairs with correction type. Created via compile-fix auto-learn, manual fix panel, or pipeline pattern step. Injected into ALL generation prompts via `formatPatterns()`. Status workflow: PENDING → APPROVED/REJECTED.
+
+2. **Agent knowledge docs** (`agent_knowledge_docs` table) — Free-form reference documents per agent. Created via Knowledge page (PM distributes uploaded docs to relevant agents) or direct teaching. Injected into generation prompts for the agent that owns them.
+
+### Pattern Learning Flow
+
+When code corrections happen (compile-fix, manual TIA fix, or pipeline review), the system:
+1. Computes diffs with `\r\n` normalization (TIA Portal exports `\r\n`, generated code uses `\n`)
+2. Filters out whitespace-only changes via `hasFunctionalChanges()`
+3. Extracts focused WRONG/CORRECT snippets with context via `extractFocusedSnippets()`
+4. Tries AI analysis (Pattern Librarian agent) → falls back to regex (`classifyCorrections()`)
+5. Saves to `pattern_candidates` with status APPROVED (auto-learn, manual) or PENDING (pipeline)
+6. Approved patterns are fetched by `useActivePatterns("SIEMENS_TIA")` and injected into all future generation prompts
 
 ### .NET TIA Bridge
 
@@ -158,8 +205,10 @@ The bridge (`bridge/PacForgeBridge/`) is a .NET Framework 4.8 console app that w
 - **Language version**: C# 7.3
 - **Default port**: 5102 (HTTP + WebSocket)
 - **WebSocket**: `ws://localhost:5102/tia/ws` — real-time job status + compile output
-- **Key services**: `BridgeServer` (HTTP/WS), `TiaPortalService` (Openness wrapper), `JobExecutor` (async job queue)
+- **Key services**: `BridgeServer` (HTTP/WS), `TiaPortalService` (Openness wrapper), `JobExecutor` (async job queue), `WebSocketHandler` (real-time updates)
 - **Frontend contract**: `src/lib/tia-bridge-contract.ts` defines all request/response types
+- **Key endpoints**: `/tia/status`, `/tia/import-compile`, `/tia/export-sources`, `/tia/create-project`
+- **TIA Openness `GenerateSource`** requires 3 params: `(IEnumerable<IGenerateSource>, FileInfo, GenerateOptions)`. File extension must match block type (`.scl` for SCL, `.awl` for STL, `.db` for DBs)
 
 ### Path Aliases
 
@@ -181,6 +230,8 @@ Style: `new-york` / Base color: `neutral` / Icons: `lucide-react`. Add component
 - `@monaco-editor/react` — code editors with custom SCL language via `monaco-scl.ts`
 - `jszip` — TIA export bundle generation
 - `zustand` — lightweight UI state stores
+- `mammoth` — .docx text extraction for process code / knowledge uploads
+- `pdfjs-dist` — PDF text extraction for knowledge uploads
 
 ## MUST READ Before Domain Work
 

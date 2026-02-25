@@ -44,6 +44,76 @@ export function useMultiAgentKnowledgeDocs(agentIds: string[]) {
   });
 }
 
+/**
+ * Fetch knowledge docs for a single agent, filtered by platform and CPU.
+ * If cpuType is undefined, filters by brand only.
+ * Docs with compatible_cpus containing 'ALL' always match.
+ */
+export function useFilteredAgentKnowledgeDocs(
+  agentId: string | undefined,
+  plcBrand: string,
+  cpuType?: string
+) {
+  return useQuery({
+    queryKey: [...KNOWLEDGE_KEY, "filtered", agentId, plcBrand, cpuType ?? "any"],
+    queryFn: async (): Promise<AgentKnowledgeDoc[]> => {
+      let query = supabase
+        .from("agent_knowledge_docs")
+        .select("*")
+        .eq("agent_id", agentId!)
+        .eq("plc_brand", plcBrand);
+
+      if (cpuType) {
+        query = query.or(`compatible_cpus.cs.{ALL},compatible_cpus.cs.{${cpuType}}`);
+      }
+
+      const { data, error } = await query.order("created_at", { ascending: false });
+      if (error) throw error;
+      return data as AgentKnowledgeDoc[];
+    },
+    enabled: !!agentId,
+  });
+}
+
+/**
+ * Fetch knowledge docs for multiple agents, filtered by platform and CPU.
+ * If cpuType is undefined, filters by brand only.
+ * Docs with compatible_cpus containing 'ALL' always match.
+ */
+export function useFilteredMultiAgentKnowledgeDocs(
+  agentIds: string[],
+  plcBrand: string,
+  cpuType?: string
+) {
+  return useQuery({
+    queryKey: [...KNOWLEDGE_KEY, "filtered-multi", plcBrand, cpuType ?? "any", ...agentIds],
+    queryFn: async (): Promise<Record<string, AgentKnowledgeDoc[]>> => {
+      if (agentIds.length === 0) return {};
+
+      let query = supabase
+        .from("agent_knowledge_docs")
+        .select("*")
+        .in("agent_id", agentIds)
+        .eq("plc_brand", plcBrand);
+
+      if (cpuType) {
+        query = query.or(`compatible_cpus.cs.{ALL},compatible_cpus.cs.{${cpuType}}`);
+      }
+
+      const { data, error } = await query.order("created_at", { ascending: false });
+      if (error) throw error;
+
+      const grouped: Record<string, AgentKnowledgeDoc[]> = {};
+      for (const doc of data as AgentKnowledgeDoc[]) {
+        if (!grouped[doc.agent_id]) grouped[doc.agent_id] = [];
+        grouped[doc.agent_id].push(doc);
+      }
+      return grouped;
+    },
+    enabled: agentIds.length > 0,
+  });
+}
+
 export function useCreateAgentKnowledgeDoc() {
   const queryClient = useQueryClient();
 

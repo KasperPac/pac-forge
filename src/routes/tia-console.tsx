@@ -18,10 +18,19 @@ import {
   RefreshCw,
   Shuffle,
   Sparkles,
+  Download,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -45,15 +54,22 @@ import { useTiaBridgeWs } from "@/hooks/use-tia-bridge-ws";
 import { useDesignProfiles, useDesignProfile } from "@/hooks/use-design-profiles";
 import { useProjects } from "@/hooks/use-projects";
 import { useAgents } from "@/hooks/use-agents";
-import { useAgentKnowledgeDocs } from "@/hooks/use-agent-knowledge";
+import { useFilteredAgentKnowledgeDocs, useFilteredMultiAgentKnowledgeDocs } from "@/hooks/use-agent-knowledge";
 import { DEFAULT_BRIDGE_CONFIG } from "@/lib/tia-bridge-contract";
 import { Progress } from "@/components/ui/progress";
 import { CompileFixChat } from "@/components/tia-console/compile-fix-chat";
 import { LearnedCorrectionsLog } from "@/components/tia-console/learned-corrections-log";
 import { DEMO_PROGRAMS, getRandomDemo } from "@/lib/demo-programs";
-import { useDemoGenerate } from "@/hooks/use-demo-generate";
+import { useDemoPipeline } from "@/hooks/use-demo-pipeline";
+import { useActivePatterns } from "@/hooks/use-patterns";
+import { useFbTemplates } from "@/hooks/use-fb-templates";
+import { useActivePromptSections } from "@/hooks/use-prompt-sections";
+import { PipelineConsole } from "@/components/tia-console/pipeline-console";
 import { toast } from "@/hooks/use-toast";
 import { useAuditLog } from "@/hooks/use-audit-log";
+import { useTiaConsoleStore } from "@/stores/tia-console-store";
+import type { TiaCompileResult } from "@/stores/tia-console-store";
+import JSZip from "jszip";
 import type { DemoProgram } from "@/lib/demo-programs";
 import type { TiaJob } from "@/types";
 
@@ -63,21 +79,8 @@ interface TiaActionResponse {
   details?: Record<string, unknown>;
 }
 
-interface CompileError {
-  artifact_name: string;
-  line: number | null;
-  column: number | null;
-  error_text: string;
-  severity: "ERROR" | "WARNING" | "INFO";
-}
-
-interface CompileResult {
-  success: boolean;
-  errors: CompileError[];
-  warnings: CompileError[];
-  compiled_at: string;
-  sources?: Record<string, string>;
-}
+// Re-use types from the Zustand store
+type CompileResult = TiaCompileResult;
 
 function useCompileResult(enabled: boolean) {
   return useQuery<CompileResult | null>({
@@ -229,8 +232,17 @@ export default function TiaConsolePage() {
   const { data: jobs, isLoading } = useTiaJobs(undefined);
   const queryClient = useQueryClient();
   const auditLog = useAuditLog();
-  const [localCompileResult, setLocalCompileResult] = useState<CompileResult | null>(null);
-  const [fixSessionActive, setFixSessionActive] = useState(false);
+
+  // Persisted state (survives navigation)
+  const {
+    pipelineSteps, setPipelineSteps,
+    localCompileResult, setLocalCompileResult,
+    fixSessionActive, setFixSessionActive,
+    demoStep, setDemoStep,
+    customStep, setCustomStep,
+    lastGeneratedSources, setLastGeneratedSources,
+  } = useTiaConsoleStore();
+
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [designProfileId, setDesignProfileId] = useState(
     () => localStorage.getItem("tia-design-profile-id") ?? ""
@@ -245,10 +257,42 @@ export default function TiaConsolePage() {
   const { data: selectedDesignProfile } = useDesignProfile(designProfileId || undefined);
   const { data: projects } = useProjects();
 
-  // Fetch Code Architect agent knowledge for compile-fix prompts
+  // Fetch agent knowledge for compile-fix prompts (filtered by project platform)
+  const selectedProject = projects?.find((p) => p.id === selectedProjectId);
   const { data: agents } = useAgents();
   const codeArchitectId = agents?.find((a) => a.display_name === "Code Architect")?.id;
-  const { data: codeArchitectKnowledge } = useAgentKnowledgeDocs(codeArchitectId);
+  const { data: codeArchitectKnowledge } = useFilteredAgentKnowledgeDocs(
+    codeArchitectId,
+    selectedProject?.plc_brand ?? "SIEMENS_TIA",
+    selectedProject?.cpu_type,
+  );
+  const patternLibrarianId = agents?.find((a) => a.display_name === "Pattern Librarian")?.id;
+  const { data: patternLibrarianKnowledge } = useFilteredAgentKnowledgeDocs(
+    patternLibrarianId,
+    selectedProject?.plc_brand ?? "SIEMENS_TIA",
+    selectedProject?.cpu_type,
+  );
+
+  // Additional data for demo pipeline
+  const allAgentIds = (agents ?? []).map((a) => a.id);
+  const { data: allAgentKnowledge, isLoading: knowledgeLoading } = useFilteredMultiAgentKnowledgeDocs(
+    allAgentIds,
+    selectedProject?.plc_brand ?? "SIEMENS_TIA",
+    selectedProject?.cpu_type,
+  );
+  const { data: approvedPatterns, isLoading: patternsLoading } = useActivePatterns(
+    selectedProject?.plc_brand ?? "SIEMENS_TIA",
+  );
+  const { data: fbTemplates, isLoading: fbLoading } = useFbTemplates();
+  const { data: promptSections } = useActivePromptSections();
+  const pipelineDataReady = !knowledgeLoading && !patternsLoading && !fbLoading;
+
+  // Count learnings for diagnostic display
+  const knowledgeDocCount = allAgentKnowledge
+    ? Object.values(allAgentKnowledge).reduce((sum, docs) => sum + docs.length, 0)
+    : 0;
+  const patternCount = approvedPatterns?.length ?? 0;
+  const fbTemplateCount = fbTemplates?.length ?? 0;
 
   const bridgeOnline = bridgeStatus?.bridgeOnline ?? false;
   const tiaConnected = bridgeStatus?.tiaConnected ?? false;
@@ -298,8 +342,8 @@ export default function TiaConsolePage() {
     import_order: string[];
   }>("/tia/demo/create");
 
-  // Demo generate (Claude) — fetches approved patterns internally
-  const demoGenerateMutation = useDemoGenerate();
+  // Demo pipeline (full multi-agent pipeline)
+  const demoPipelineMutation = useDemoPipeline();
 
   // Demo pool state
   const [selectedDemo, setSelectedDemo] = useState<DemoProgram>(() => getRandomDemo());
@@ -313,7 +357,6 @@ export default function TiaConsolePage() {
 
   // Custom project state
   const [customDescription, setCustomDescription] = useState("");
-  const [customStep, setCustomStep] = useState<"idle" | "generating" | "creating">("idle");
 
   // Persisted inputs
   const [projectPath, setProjectPath] = useState(
@@ -326,6 +369,26 @@ export default function TiaConsolePage() {
     () => localStorage.getItem("tia-demo-name") ?? "PacForge_Demo"
   );
 
+  async function handleDownloadSources() {
+    if (!lastGeneratedSources) return;
+    const zip = new JSZip();
+    for (const name of lastGeneratedSources.importOrder) {
+      const content = lastGeneratedSources.sources[name];
+      if (content) zip.file(`${name}.scl`, content);
+    }
+    const blob = await zip.generateAsync({ type: "blob" });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const filename = `${demoName.replace(/[^a-zA-Z0-9_-]/g, "_")}_${timestamp}.zip`;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
   function handleOpenProject() {
     if (!projectPath) return;
     localStorage.setItem("tia-project-path", projectPath);
@@ -335,17 +398,41 @@ export default function TiaConsolePage() {
   function handleRunDemo() {
     localStorage.setItem("tia-demo-path", demoPath);
     localStorage.setItem("tia-demo-name", demoName);
-    setActiveJobId("pending"); // Will be replaced by WS job_started event
-    createProjectMutation.mutate(
+    setDemoStep("generating");
+    setPipelineSteps([]);
+    demoPipelineMutation.mutate(
       {
-        project_path: demoPath,
-        project_name: demoName,
-        sources: selectedDemo.sources,
-        import_order: selectedDemo.importOrder,
+        description: selectedDemo.description,
+        project: selectedProject,
+        agents: agents ?? [],
+        designProfile: selectedDesignProfile,
+        fbTemplates,
+        agentKnowledgeDocs: allAgentKnowledge,
+        approvedPatterns,
+        promptSections,
+        onStepUpdate: setPipelineSteps,
       },
       {
-        onError: () => setActiveJobId(null),
-      }
+        onSuccess: (generated) => {
+          setPipelineSteps(generated.steps);
+          setLastGeneratedSources({ sources: generated.sources, importOrder: generated.importOrder });
+          setDemoStep("creating");
+          setActiveJobId("pending");
+          createProjectMutation.mutate(
+            {
+              project_path: demoPath,
+              project_name: demoName,
+              sources: generated.sources,
+              import_order: generated.importOrder,
+            },
+            {
+              onSettled: () => setDemoStep("idle"),
+              onError: () => setActiveJobId(null),
+            },
+          );
+        },
+        onError: () => setDemoStep("idle"),
+      },
     );
   }
 
@@ -354,23 +441,39 @@ export default function TiaConsolePage() {
     localStorage.setItem("tia-demo-path", demoPath);
     localStorage.setItem("tia-demo-name", demoName);
     setCustomStep("generating");
-    demoGenerateMutation.mutate(customDescription.trim(), {
-      onSuccess: (generated) => {
-        setCustomStep("creating");
-        createProjectMutation.mutate(
-          {
-            project_path: demoPath,
-            project_name: demoName,
-            sources: generated.sources,
-            import_order: generated.importOrder,
-          },
-          {
-            onSettled: () => setCustomStep("idle"),
-          }
-        );
+    setPipelineSteps([]);
+    demoPipelineMutation.mutate(
+      {
+        description: customDescription.trim(),
+        project: selectedProject,
+        agents: agents ?? [],
+        designProfile: selectedDesignProfile,
+        fbTemplates,
+        agentKnowledgeDocs: allAgentKnowledge,
+        approvedPatterns,
+        promptSections,
+        onStepUpdate: setPipelineSteps,
       },
-      onError: () => setCustomStep("idle"),
-    });
+      {
+        onSuccess: (generated) => {
+          setPipelineSteps(generated.steps);
+          setLastGeneratedSources({ sources: generated.sources, importOrder: generated.importOrder });
+          setCustomStep("creating");
+          createProjectMutation.mutate(
+            {
+              project_path: demoPath,
+              project_name: demoName,
+              sources: generated.sources,
+              import_order: generated.importOrder,
+            },
+            {
+              onSettled: () => setCustomStep("idle"),
+            },
+          );
+        },
+        onError: () => setCustomStep("idle"),
+      },
+    );
   }
 
   return (
@@ -630,6 +733,44 @@ export default function TiaConsolePage() {
             </Select>
           </div>
         </div>
+
+        {/* Pipeline learnings summary */}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span className="font-mono text-xs text-muted-foreground">PIPELINE CONTEXT:</span>
+          {!pipelineDataReady ? (
+            <Badge variant="outline" className="gap-1 px-1.5 py-0 font-mono text-xs">
+              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+              Loading...
+            </Badge>
+          ) : (
+            <>
+              <Badge
+                variant="outline"
+                className={`px-1.5 py-0 font-mono text-xs ${knowledgeDocCount > 0 ? "text-emerald-400 border-emerald-500/30" : "text-muted-foreground"}`}
+              >
+                {knowledgeDocCount} knowledge doc{knowledgeDocCount !== 1 ? "s" : ""}
+              </Badge>
+              <Badge
+                variant="outline"
+                className={`px-1.5 py-0 font-mono text-xs ${patternCount > 0 ? "text-emerald-400 border-emerald-500/30" : "text-muted-foreground"}`}
+              >
+                {patternCount} pattern{patternCount !== 1 ? "s" : ""}
+              </Badge>
+              <Badge
+                variant="outline"
+                className={`px-1.5 py-0 font-mono text-xs ${fbTemplateCount > 0 ? "text-emerald-400 border-emerald-500/30" : "text-muted-foreground"}`}
+              >
+                {fbTemplateCount} FB template{fbTemplateCount !== 1 ? "s" : ""}
+              </Badge>
+              <Badge
+                variant="outline"
+                className={`px-1.5 py-0 font-mono text-xs ${selectedDesignProfile ? "text-emerald-400 border-emerald-500/30" : "text-muted-foreground"}`}
+              >
+                {selectedDesignProfile ? selectedDesignProfile.name : "No profile"}
+              </Badge>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Job progress bar */}
@@ -688,24 +829,55 @@ export default function TiaConsolePage() {
                   <Button
                     size="sm"
                     className="h-6 font-mono text-xs"
-                    disabled={!isConnected || createProjectMutation.isPending}
+                    disabled={!isConnected || demoStep !== "idle" || !pipelineDataReady}
                     onClick={handleRunDemo}
                   >
-                    {createProjectMutation.isPending && customStep === "idle" ? (
-                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    {demoStep === "generating" ? (
+                      <>
+                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                        Generating SCL...
+                      </>
+                    ) : demoStep === "creating" ? (
+                      <>
+                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                        Creating project...
+                      </>
                     ) : (
-                      <Zap className="mr-1 h-3 w-3" />
+                      <>
+                        <Zap className="mr-1 h-3 w-3" />
+                        Generate & Create
+                      </>
                     )}
-                    Create & Open
                   </Button>
                 </div>
 
-                <ActionResult
-                  isPending={createProjectMutation.isPending && customStep === "idle"}
-                  isError={createProjectMutation.isError && customStep === "idle"}
-                  data={customStep === "idle" ? createProjectMutation.data : undefined}
-                  showDetails
-                />
+                {demoPipelineMutation.isError && demoStep === "idle" && (
+                  <div className="mt-2 flex items-center gap-1 font-mono text-xs text-red-400">
+                    <XCircle className="h-3 w-3 shrink-0" />
+                    {demoPipelineMutation.error?.message ?? "Generation failed"}
+                  </div>
+                )}
+
+                {demoStep !== "idle" && createProjectMutation.data && (
+                  <ActionResult
+                    isPending={false}
+                    isError={createProjectMutation.isError}
+                    data={createProjectMutation.data}
+                    showDetails
+                  />
+                )}
+
+                {demoStep === "idle" &&
+                  demoPipelineMutation.isSuccess &&
+                  createProjectMutation.isSuccess &&
+                  createProjectMutation.data && (
+                    <ActionResult
+                      isPending={false}
+                      isError={false}
+                      data={createProjectMutation.data}
+                      showDetails
+                    />
+                  )}
               </div>
             </div>
           </Card>
@@ -739,7 +911,8 @@ export default function TiaConsolePage() {
                     disabled={
                       !isConnected ||
                       !customDescription.trim() ||
-                      customStep !== "idle"
+                      customStep !== "idle" ||
+                      !pipelineDataReady
                     }
                     onClick={handleCustomGenerate}
                   >
@@ -762,10 +935,10 @@ export default function TiaConsolePage() {
                   </Button>
                 </div>
 
-                {demoGenerateMutation.isError && (
+                {demoPipelineMutation.isError && customStep === "idle" && (
                   <div className="mt-2 flex items-center gap-1 font-mono text-xs text-red-400">
                     <XCircle className="h-3 w-3 shrink-0" />
-                    {demoGenerateMutation.error?.message ?? "Generation failed"}
+                    {demoPipelineMutation.error?.message ?? "Generation failed"}
                   </div>
                 )}
 
@@ -779,7 +952,7 @@ export default function TiaConsolePage() {
                 )}
 
                 {customStep === "idle" &&
-                  demoGenerateMutation.isSuccess &&
+                  demoPipelineMutation.isSuccess &&
                   createProjectMutation.isSuccess &&
                   createProjectMutation.data && (
                     <ActionResult
@@ -812,6 +985,12 @@ export default function TiaConsolePage() {
           isConnected={isConnected}
           designProfile={selectedDesignProfile}
           agentKnowledgeDocs={codeArchitectKnowledge}
+          patternLibrarianKnowledgeDocs={patternLibrarianKnowledge}
+          promptSections={promptSections}
+          project={selectedProject}
+          fbTemplates={fbTemplates}
+          generationPipelineSteps={pipelineSteps.filter((s) => s.role !== "compile_fix")}
+          onStepUpdate={setPipelineSteps}
           onCompileResultUpdate={(result) => {
             if (!fixSessionActive) {
               setFixSessionActive(true);
@@ -830,6 +1009,31 @@ export default function TiaConsolePage() {
 
       {/* Learned corrections log */}
       {isConnected && <LearnedCorrectionsLog />}
+
+      {/* Pipeline Console — shows agent prompts/responses */}
+      <PipelineConsole
+        steps={pipelineSteps}
+        isRunning={demoPipelineMutation.isPending}
+        onClear={() => setPipelineSteps([])}
+      />
+
+      {/* Download generated SCL */}
+      {lastGeneratedSources && !demoPipelineMutation.isPending && (
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 gap-1 font-mono text-xs"
+            onClick={handleDownloadSources}
+          >
+            <Download className="h-3 w-3" />
+            Download SCL ({lastGeneratedSources.importOrder.length} files)
+          </Button>
+          <span className="font-mono text-[10px] text-muted-foreground">
+            {lastGeneratedSources.importOrder.join(", ")}
+          </span>
+        </div>
+      )}
 
       <Separator />
 
@@ -879,7 +1083,7 @@ export default function TiaConsolePage() {
 
 // --- Compile result display ---
 
-function CompileResultDisplay({ result }: { result: CompileResult }) {
+function CompileResultDisplay({ result, expanded = false }: { result: CompileResult; expanded?: boolean }) {
   if (!result) return null;
 
   const errorCount = result.errors?.length ?? 0;
@@ -900,7 +1104,7 @@ function CompileResultDisplay({ result }: { result: CompileResult }) {
         </span>
       </div>
       {errorCount > 0 && (
-        <ScrollArea className="max-h-72 rounded border border-red-500/20 bg-red-500/5">
+        <ScrollArea className={`rounded border border-red-500/20 bg-red-500/5 ${expanded ? "" : "max-h-72"}`}>
           <div className="space-y-0.5 p-2">
             {result.errors.map((err, i) => (
               <div key={i} className="flex items-start gap-1.5">
@@ -918,7 +1122,7 @@ function CompileResultDisplay({ result }: { result: CompileResult }) {
         </ScrollArea>
       )}
       {warningCount > 0 && (
-        <ScrollArea className="max-h-48 rounded border border-amber-500/20 bg-amber-500/5">
+        <ScrollArea className={`rounded border border-amber-500/20 bg-amber-500/5 ${expanded ? "" : "max-h-48"}`}>
           <div className="space-y-0.5 p-2">
             {result.warnings.map((w, i) => (
               <div key={i} className="flex items-start gap-1.5">
@@ -952,6 +1156,7 @@ function CompileResultsCard({
   isFetching: boolean;
 }) {
   const queryClient = useQueryClient();
+  const [fullscreen, setFullscreen] = useState(false);
 
   function handleRefresh() {
     queryClient.invalidateQueries({ queryKey: ["tia-compile-result"] });
@@ -959,38 +1164,87 @@ function CompileResultsCard({
 
   if (!isConnected) return null;
 
+  const hasResult = !isLoading && compileResult;
+
   return (
-    <div>
-      <div className="mb-2 flex items-center justify-between">
-        <div className="font-mono text-sm text-muted-foreground">LAST COMPILE RESULT</div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-5 px-1.5 font-mono text-xs"
-          onClick={handleRefresh}
-          disabled={isFetching}
-        >
-          <RefreshCw className={`mr-1 h-2.5 w-2.5 ${isFetching ? "animate-spin" : ""}`} />
-          Refresh
-        </Button>
+    <>
+      <div>
+        <div className="mb-2 flex items-center justify-between">
+          <div className="font-mono text-sm text-muted-foreground">LAST COMPILE RESULT</div>
+          <div className="flex items-center gap-1">
+            {hasResult && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-5 w-5 p-0 text-muted-foreground"
+                onClick={() => setFullscreen(true)}
+                title="Expand"
+              >
+                <Maximize2 className="h-2.5 w-2.5" />
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-5 px-1.5 font-mono text-xs"
+              onClick={handleRefresh}
+              disabled={isFetching}
+            >
+              <RefreshCw className={`mr-1 h-2.5 w-2.5 ${isFetching ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+          </div>
+        </div>
+        <Card className="p-3">
+          {isLoading && (
+            <div className="flex items-center gap-2 font-mono text-sm text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Loading compile results...
+            </div>
+          )}
+          {!isLoading && !compileResult && (
+            <div className="font-mono text-sm text-muted-foreground">
+              No compile results available. Run a demo or import job first.
+            </div>
+          )}
+          {hasResult && (
+            <CompileResultDisplay result={compileResult} />
+          )}
+        </Card>
       </div>
-      <Card className="p-3">
-        {isLoading && (
-          <div className="flex items-center gap-2 font-mono text-sm text-muted-foreground">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            Loading compile results...
-          </div>
-        )}
-        {!isLoading && !compileResult && (
-          <div className="font-mono text-sm text-muted-foreground">
-            No compile results available. Run a demo or import job first.
-          </div>
-        )}
-        {!isLoading && compileResult && (
-          <CompileResultDisplay result={compileResult} />
-        )}
-      </Card>
-    </div>
+
+      {/* Fullscreen dialog */}
+      {hasResult && (
+        <Dialog open={fullscreen} onOpenChange={setFullscreen}>
+          <DialogContent className="flex max-h-[90vh] max-w-[90vw] flex-col gap-0 p-0">
+            <DialogHeader className="flex-row items-center justify-between border-b px-4 py-3">
+              <div className="flex items-center gap-2">
+                <DialogTitle className="font-mono text-sm">
+                  Compile Results
+                </DialogTitle>
+                <Badge
+                  variant="outline"
+                  className={`px-1.5 py-0 text-[9px] ${compileResult.success ? "border-green-500/30 text-green-400" : "border-red-500/30 text-red-400"}`}
+                >
+                  {compileResult.success ? "OK" : "Failed"}
+                </Badge>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 text-muted-foreground"
+                onClick={() => setFullscreen(false)}
+              >
+                <Minimize2 className="h-3.5 w-3.5" />
+              </Button>
+            </DialogHeader>
+            <ScrollArea className="min-h-0 flex-1 p-4">
+              <CompileResultDisplay result={compileResult} expanded />
+            </ScrollArea>
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
   );
 }
 

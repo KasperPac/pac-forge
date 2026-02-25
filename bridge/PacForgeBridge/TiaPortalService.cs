@@ -815,6 +815,105 @@ END_ORGANIZATION_BLOCK
 ";
 
         /// <summary>
+        /// Export current PLC block sources from TIA Portal.
+        /// Uses GenerateSource to produce .scl files from compiled blocks.
+        /// </summary>
+        public ExportSourcesResponse ExportSources()
+        {
+            if (!IsConnected || !IsProjectOpen)
+                throw new InvalidOperationException("TIA Portal not connected or no project open.");
+
+            PlcSoftware plcSoftware = GetPlcSoftware();
+            var result = new ExportSourcesResponse { Success = true };
+
+            string tempDir = Path.Combine(Path.GetTempPath(), "PacForge",
+                "export_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                // Collect all blocks recursively
+                var allBlocks = new List<PlcBlock>();
+                CollectBlocks(plcSoftware.BlockGroup, allBlocks);
+
+                Console.WriteLine($"[TIA] Exporting {allBlocks.Count} block(s) from project...");
+
+                // Export each block individually (try/catch per block so one failure doesn't stop others)
+                foreach (PlcBlock block in allBlocks)
+                {
+                    try
+                    {
+                        // Determine correct file extension based on programming language
+                        string ext = ".scl";
+                        try
+                        {
+                            string lang = block.ProgrammingLanguage.ToString();
+                            if (lang == "STL") ext = ".awl";
+                            else if (lang == "DB") ext = ".db";
+                            // SCL is the default; LAD/FBD will throw in GenerateSource (caught below)
+                        }
+                        catch { }
+
+                        string outputFile = Path.Combine(tempDir, block.Name + ext);
+
+                        // GenerateSource requires 3 params: blocks, fileInfo, generateOptions
+                        plcSoftware.ExternalSourceGroup.GenerateSource(
+                            new PlcBlock[] { block },
+                            new FileInfo(outputFile),
+                            GenerateOptions.None);
+
+                        if (File.Exists(outputFile))
+                        {
+                            result.Sources[block.Name] = File.ReadAllText(outputFile);
+                            Console.WriteLine($"[TIA] Exported: {block.Name}");
+                        }
+                        else
+                        {
+                            result.Warnings.Add($"{block.Name}: No output file generated");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        // LAD/FBD blocks or system blocks may not be exportable as SCL
+                        Console.WriteLine($"[TIA] Export skipped for {block.Name}: {ex.Message}");
+                        result.Warnings.Add($"{block.Name}: {ex.Message}");
+                    }
+                }
+
+                result.Message = $"Exported {result.Sources.Count} source(s)";
+                Console.WriteLine($"[TIA] Export complete: {result.Sources.Count} source(s), {result.Warnings.Count} warning(s)");
+            }
+            finally
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Collect all blocks from the system block group (root level + user groups).
+        /// </summary>
+        private void CollectBlocks(PlcBlockSystemGroup group, List<PlcBlock> blocks)
+        {
+            foreach (PlcBlock block in group.Blocks)
+                blocks.Add(block);
+            foreach (PlcBlockUserGroup subGroup in group.Groups)
+                CollectBlocksFromUserGroup(subGroup, blocks);
+        }
+
+        /// <summary>
+        /// Recursively collect blocks from user-created block groups.
+        /// </summary>
+        private void CollectBlocksFromUserGroup(PlcBlockUserGroup group, List<PlcBlock> blocks)
+        {
+            foreach (PlcBlock block in group.Blocks)
+                blocks.Add(block);
+            foreach (PlcBlockUserGroup subGroup in group.Groups)
+                CollectBlocksFromUserGroup(subGroup, blocks);
+        }
+
+        /// <summary>
         /// Reimport corrected SCL sources and recompile.
         /// Used by the compile-fix chat to apply AI-corrected code.
         /// </summary>

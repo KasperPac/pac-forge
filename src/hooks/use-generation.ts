@@ -33,6 +33,7 @@ export interface GenerateInput {
   fbTemplates?: FbTemplate[];
   designProfile?: DesignProfile;
   agentKnowledgeDocs?: Record<string, AgentKnowledgeDoc[]>;
+  promptSections?: Record<string, string>;
 }
 
 export interface GenerateResult {
@@ -279,8 +280,58 @@ export async function streamFromEdgeFunction(
   return fullContent;
 }
 
+/**
+ * Makes a non-streaming call to the Edge Function and returns the content + token usage.
+ * Used by pipeline steps (PM plan, reviews, pattern analysis, summary).
+ */
+export async function callNonStreaming(
+  systemPrompt: string,
+  messages: Array<{ role: "user" | "assistant"; content: string }>,
+  signal: AbortSignal,
+): Promise<{ content: string; usage: { input: number; output: number } | null }> {
+  const token = await getAuthToken();
+
+  const response = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
+      },
+      body: JSON.stringify({
+        system_prompt: systemPrompt,
+        messages,
+        stream: false,
+      }),
+      signal,
+    },
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    let detail: string;
+    try {
+      const parsed = JSON.parse(text);
+      detail = parsed.error ?? parsed.details ?? text;
+    } catch {
+      detail = text;
+    }
+    throw new Error(`API call failed (${response.status}): ${detail}`);
+  }
+
+  const result = await response.json();
+  const content = result.content as string;
+  const usage = result.usage
+    ? { input: result.usage.input_tokens as number, output: result.usage.output_tokens as number }
+    : null;
+
+  return { content, usage };
+}
+
 function buildRequestBody(input: GenerateInput, stream: boolean) {
-  const { project, sessionId, generationMode, approvedPatterns, fbTemplates, designProfile, agentKnowledgeDocs, userMessage, conversationHistory, agents } = input;
+  const { project, sessionId, generationMode, approvedPatterns, fbTemplates, designProfile, agentKnowledgeDocs, promptSections, userMessage, conversationHistory, agents } = input;
   const { systemPrompt, messages } = buildPrompt({
     project,
     agents,
@@ -289,6 +340,7 @@ function buildRequestBody(input: GenerateInput, stream: boolean) {
     fbTemplates,
     designProfile,
     agentKnowledgeDocs,
+    promptSections,
     userMessage,
     conversationHistory,
   });

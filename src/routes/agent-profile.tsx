@@ -82,6 +82,8 @@ export default function AgentProfilePage() {
           source_filename: file.name,
           file_type: getFileType(file.name),
           word_count: words,
+          plc_brand: "SIEMENS_TIA",
+          compatible_cpus: ["ALL"],
         });
       } catch (err) {
         setUploadError(

@@ -4,7 +4,8 @@ import { buildCompileFixSystemPrompt, formatCompileErrorContext } from "@/lib/co
 import { parseCompileFixResponse } from "@/lib/compile-fix-parser";
 import type { CompileErrorInfo } from "@/lib/compile-fix-prompt";
 import type { FixedSource } from "@/lib/compile-fix-parser";
-import type { PatternCandidate, DesignProfile, AgentKnowledgeDoc } from "@/types";
+import type { CompileFixPromptInput } from "@/lib/compile-fix-prompt";
+import type { PatternCandidate, DesignProfile, AgentKnowledgeDoc, Project, FbTemplate } from "@/types";
 
 interface CompileFixInput {
   errors: CompileErrorInfo[];
@@ -20,20 +21,33 @@ interface CompileFixInput {
   designProfile?: DesignProfile;
   /** Agent knowledge docs for the Code Architect (injected into system prompt) */
   agentKnowledgeDocs?: AgentKnowledgeDoc[];
+  /** Custom prompt sections (DB overrides for identity/instructions/platform_rules) */
+  promptSections?: Record<string, string>;
+  /** Project context for IO list, CPU type, safety level, etc. */
+  project?: Project;
+  /** FB templates for company-standard block structures */
+  fbTemplates?: FbTemplate[];
 }
 
 interface CompileFixResult {
   fixes: FixedSource[];
   explanation: string;
   rawResponse: string;
+  /** The system prompt that was sent (for pipeline console visibility) */
+  systemPrompt: string;
+  /** The user message that was sent (for pipeline console visibility) */
+  userMessage: string;
+  /** Token usage if available */
+  tokenUsage: { input: number; output: number } | null;
 }
 
 export function useCompileFix() {
   return useMutation({
     mutationFn: async (input: CompileFixInput): Promise<CompileFixResult> => {
-      const { errors, warnings, sources, userMessage, conversationHistory, approvedPatterns, designProfile, agentKnowledgeDocs } = input;
+      const { errors, warnings, sources, userMessage, conversationHistory, approvedPatterns, designProfile, agentKnowledgeDocs, promptSections, project, fbTemplates } = input;
 
-      const systemPrompt = buildCompileFixSystemPrompt(approvedPatterns, designProfile, agentKnowledgeDocs);
+      const promptInput: CompileFixPromptInput = { approvedPatterns, designProfile, knowledgeDocs: agentKnowledgeDocs, promptSections, project, fbTemplates };
+      const systemPrompt = buildCompileFixSystemPrompt(promptInput);
 
       // Build the user message — either the auto-generated context or a follow-up
       const autoContext = formatCompileErrorContext(errors, warnings, sources);
@@ -82,10 +96,13 @@ export function useCompileFix() {
 
       const result = await response.json();
       const rawResponse = result.content as string;
+      const tokenUsage = result.usage
+        ? { input: result.usage.input_tokens as number, output: result.usage.output_tokens as number }
+        : null;
 
       const { fixes, explanation } = parseCompileFixResponse(rawResponse);
 
-      return { fixes, explanation, rawResponse };
+      return { fixes, explanation, rawResponse, systemPrompt, userMessage: finalUserMessage, tokenUsage };
     },
   });
 }

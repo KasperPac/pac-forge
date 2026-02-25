@@ -134,6 +134,17 @@ export interface BridgeStatusEvent {
   };
 }
 
+/**
+ * POST /tia/export-sources
+ * Export current PLC block sources from TIA Portal.
+ */
+export interface ExportSourcesResponse {
+  success: boolean;
+  message: string;
+  sources: Record<string, string>;
+  warnings: string[];
+}
+
 // --- Bridge Configuration ---
 
 export interface BridgeConfig {

@@ -8,6 +8,8 @@ export interface AgentKnowledgeDoc {
   word_count: number;
   source_upload_id: string | null;
   distribution_reasoning: string | null;
+  plc_brand: string;
+  compatible_cpus: string[];
   created_by: string | null;
   created_at: string;
 }
@@ -27,6 +29,8 @@ export interface KnowledgeUpload {
   word_count: number;
   full_content: string;
   distribution: KnowledgeDistributionEntry[];
+  plc_brand: string;
+  compatible_cpus: string[];
   created_by: string | null;
   created_at: string;
 }
@@ -44,4 +48,6 @@ export interface KnowledgeUploadCreate {
   file_type: string;
   word_count: number;
   full_content: string;
+  plc_brand: string;
+  compatible_cpus: string[];
 }

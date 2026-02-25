@@ -5,7 +5,7 @@ import type {
   PatternCandidate,
   AgentKnowledgeDoc,
 } from "@/types";
-import { PLATFORM_RULES } from "@/lib/platform-rules";
+import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { getAgentProfile } from "@/lib/agent-profiles";
 import { formatPatterns } from "@/lib/prompt-builder";
 import type { ParsedArtifact } from "@/lib/artifact-parser";
@@ -17,6 +17,7 @@ export interface ReviewPromptInput {
   knowledgeDocs?: AgentKnowledgeDoc[];
   designProfile?: DesignProfile;
   approvedPatterns?: PatternCandidate[];
+  promptSections?: Record<string, string>;
 }
 
 interface BuiltPrompt {
@@ -52,9 +53,16 @@ function formatArtifactsForReview(artifacts: ParsedArtifact[]): string {
  * return corrected versions or indicate no changes are needed.
  */
 export function buildReviewPrompt(input: ReviewPromptInput): BuiltPrompt {
-  const { agent, artifacts, project, knowledgeDocs, designProfile, approvedPatterns } = input;
+  const { agent, artifacts, project, knowledgeDocs, designProfile, approvedPatterns, promptSections } = input;
 
   const profile = getAgentProfile(agent.display_name);
+
+  const identity = interpolateAgent(
+    resolveSection(promptSections, "review", "identity"),
+    { name: agent.display_name, tagline: profile.tagline, description: profile.description },
+  );
+  const instructions = resolveSection(promptSections, "review", "instructions");
+  const platformRules = resolveSection(promptSections, "shared", "platform_rules");
 
   const knowledgeSection = formatKnowledgeDocs(knowledgeDocs ?? []);
   const profileSection = designProfile ? formatDesignProfile(designProfile) : "";
@@ -62,30 +70,31 @@ export function buildReviewPrompt(input: ReviewPromptInput): BuiltPrompt {
     ? `## MANDATORY: Learned Corrections from Previous Compile Errors\n\n${formatPatterns(approvedPatterns)}`
     : "";
 
-  const systemPrompt = `You are ${agent.display_name}, a specialist PLC code reviewer for Siemens TIA Portal.
+  const systemPrompt = `${identity}
 
-**Role:** ${profile.tagline}
-**Personality:** ${profile.description}
+${instructions}
 
-## Your Review Task
+## Output Format
 
-You are reviewing generated SCL (Structured Control Language) code artifacts. Your job is to:
-1. Inspect each artifact according to your specialty
-2. If you find issues, return the CORRECTED artifacts using the same output format
-3. If all artifacts pass your review, respond with: NO_CHANGES: [brief explanation of what you checked]
+If no issues found:
+NO_CHANGES: [brief explanation of what you checked]
 
-## Output Format for Corrections
+If issues found, respond with a structured report:
 
-When returning corrected artifacts, use this exact format:
+## Findings
 
-\`\`\`scl filename="<path>" type="<TYPE>" name="<BlockName>" dependencies="<deps>"
-<corrected SCL code>
-\`\`\`
+### [ArtifactName]
+- **[CRITICAL]**: [description of issue and what should be changed]
+- **[WARNING]**: [description of issue and what should be changed]
+- **[INFO]**: [description of observation or suggestion]
 
-Only include artifacts you have MODIFIED. Unchanged artifacts should NOT be repeated.
-After the corrected artifacts, provide a brief summary of what you changed and why.
+### [NextArtifactName]
+- ...
 
-${PLATFORM_RULES}
+## Summary
+[brief summary of what you found and the overall quality assessment]
+
+${platformRules}
 
 ## Project Context
 - Client: ${project.client_name}

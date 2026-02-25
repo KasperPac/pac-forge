@@ -6,12 +6,14 @@ import { parseArtifacts } from "@/lib/artifact-parser";
 import type { ParsedArtifact } from "@/lib/artifact-parser";
 import {
   streamFromEdgeFunction,
-  getAuthToken,
+  callNonStreaming,
   saveArtifactsAndTurns,
 } from "@/hooks/use-generation";
 import type { GenerateInput, GenerateResult } from "@/hooks/use-generation";
 import { buildReviewPrompt } from "@/lib/review-prompt-builder";
-import { parseReviewResponse, mergeReviewedArtifacts } from "@/lib/review-response-parser";
+import { parseReviewReport } from "@/lib/review-response-parser";
+import type { ReviewReport } from "@/lib/review-response-parser";
+import { buildRewritePrompt } from "@/lib/rewrite-prompt-builder";
 import { buildPlanPrompt, buildSummaryPrompt } from "@/lib/pm-prompt-builder";
 import {
   sortAgentsByPipelineOrder,
@@ -23,7 +25,8 @@ import {
 } from "@/lib/pipeline";
 import type { PipelineStepResult } from "@/lib/pipeline";
 import { classifyCorrections } from "@/lib/correction-classifier";
-import { computeDiff } from "@/lib/diff-engine";
+import { computeDiff, hasFunctionalChanges, extractFocusedSnippets } from "@/lib/diff-engine";
+import { buildPatternLibrarianPrompt, parsePatternLibrarianResponse } from "@/lib/pattern-librarian-prompt";
 import { supabase } from "@/lib/supabase";
 import type { AgentKnowledgeDoc } from "@/types";
 
@@ -31,52 +34,6 @@ const ARTIFACTS_KEY = ["artifacts"] as const;
 
 export interface PipelineInput extends GenerateInput {
   agentKnowledgeDocs?: Record<string, AgentKnowledgeDoc[]>;
-}
-
-async function callNonStreaming(
-  systemPrompt: string,
-  messages: Array<{ role: "user" | "assistant"; content: string }>,
-  signal: AbortSignal
-): Promise<{ content: string; usage: { input: number; output: number } | null }> {
-  const token = await getAuthToken();
-
-  const response = await fetch(
-    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
-      },
-      body: JSON.stringify({
-        system_prompt: systemPrompt,
-        messages,
-        stream: false,
-      }),
-      signal,
-    }
-  );
-
-  if (!response.ok) {
-    const text = await response.text();
-    let detail: string;
-    try {
-      const parsed = JSON.parse(text);
-      detail = parsed.error ?? parsed.details ?? text;
-    } catch {
-      detail = text;
-    }
-    throw new Error(`API call failed (${response.status}): ${detail}`);
-  }
-
-  const result = await response.json();
-  const content = result.content as string;
-  const usage = result.usage
-    ? { input: result.usage.input_tokens as number, output: result.usage.output_tokens as number }
-    : null;
-
-  return { content, usage };
 }
 
 export function usePipelineGenerate() {
@@ -94,7 +51,7 @@ export function usePipelineGenerate() {
         onError?: (error: Error) => void;
       },
     ) => {
-      const { agents, project, agentKnowledgeDocs } = input;
+      const { agents, project, agentKnowledgeDocs, promptSections } = input;
 
       setError(null);
       setIsRunning(true);
@@ -132,6 +89,7 @@ export function usePipelineGenerate() {
               project,
               knowledgeDocs: agentKnowledgeDocs?.[orchestrator.id],
               userMessage: input.userMessage,
+              promptSections,
             });
 
             const { content, usage } = await callNonStreaming(systemPrompt, messages, abort.signal);
@@ -139,6 +97,7 @@ export function usePipelineGenerate() {
             store.getState().updatePipelineStep(orchestrator.id, {
               status: "completed",
               systemPrompt,
+              userMessage: messages[0]?.content ?? "",
               rawResponse: content,
               tokenUsage: usage,
               durationMs: Date.now() - startTime,
@@ -168,7 +127,6 @@ export function usePipelineGenerate() {
 
         const genStartTime = Date.now();
         try {
-          // Build prompt with only the generator agent
           const { systemPrompt, messages } = buildPrompt({
             ...input,
             agents: [generator],
@@ -201,6 +159,7 @@ export function usePipelineGenerate() {
           store.getState().updatePipelineStep(generator.id, {
             status: "completed",
             systemPrompt,
+            userMessage: messages[0]?.content ?? "",
             rawResponse: fullContent,
             tokenUsage: null, // streaming doesn't return usage
             durationMs: Date.now() - genStartTime,
@@ -218,7 +177,9 @@ export function usePipelineGenerate() {
           throw err;
         }
 
-        // --- Steps 2-N: Review agents ---
+        // --- Steps 2-N: Review agents (report-only, no rewriting) ---
+        const reviewReports: Array<{ reviewerName: string; report: ReviewReport }> = [];
+
         for (const reviewer of reviewers) {
           if (abort.signal.aborted) break;
 
@@ -236,28 +197,28 @@ export function usePipelineGenerate() {
               knowledgeDocs: agentKnowledgeDocs?.[reviewer.id],
               designProfile: input.designProfile,
               approvedPatterns: input.approvedPatterns,
+              promptSections,
             });
 
             const { content, usage } = await callNonStreaming(systemPrompt, messages, abort.signal);
-            const review = parseReviewResponse(content);
+            const report = parseReviewReport(content);
 
-            let modifiedNames: string[] = [];
-            if (review.modified) {
-              const result = mergeReviewedArtifacts(currentArtifacts, review.artifacts);
-              currentArtifacts = result.merged;
-              modifiedNames = result.modifiedNames;
-            }
+            reviewReports.push({ reviewerName: reviewer.display_name, report });
+
+            const findingCount = report.findings.length;
+            const criticalCount = report.findings.filter((f) => f.severity === "CRITICAL").length;
 
             store.getState().updatePipelineStep(reviewer.id, {
               status: "completed",
               systemPrompt,
+              userMessage: messages[0]?.content ?? "",
               rawResponse: content,
               tokenUsage: usage,
               durationMs: Date.now() - reviewStartTime,
-              artifactsModified: modifiedNames,
-              summary: review.modified
-                ? `Modified ${modifiedNames.length} artifact(s): ${review.explanation.slice(0, 200)}`
-                : `No changes: ${review.explanation.slice(0, 200)}`,
+              artifactsModified: [],
+              summary: report.hasFindings
+                ? `${findingCount} finding(s) (${criticalCount} critical): ${report.summary.slice(0, 200)}`
+                : `No issues: ${report.summary.slice(0, 200)}`,
             });
           } catch (err) {
             if (abort.signal.aborted) throw err;
@@ -271,6 +232,62 @@ export function usePipelineGenerate() {
           }
         }
 
+        // --- Rewrite step: Code Architect addresses review findings ---
+        const hasAnyFindings = reviewReports.some((r) => r.report.hasFindings);
+
+        if (hasAnyFindings && generator && !abort.signal.aborted) {
+          const rewriteStepId = `${generator.id}-rewrite`;
+          const rewriteStep: PipelineStepResult = {
+            ...createPendingStep(generator, "rewrite"),
+            agentId: rewriteStepId,
+          };
+          store.getState().addPipelineStep(rewriteStep);
+          store.getState().setActiveAgentName(`${generator.display_name} (Rewrite)`);
+          store.getState().updatePipelineStep(rewriteStepId, { status: "running" });
+
+          const rewriteStartTime = Date.now();
+          try {
+            const { systemPrompt, messages } = buildRewritePrompt({
+              generator,
+              artifacts: currentArtifacts,
+              reviewReports,
+              project,
+              knowledgeDocs: agentKnowledgeDocs?.[generator.id],
+              designProfile: input.designProfile,
+              approvedPatterns: input.approvedPatterns,
+              fbTemplates: input.fbTemplates,
+              promptSections,
+            });
+
+            const { content, usage } = await callNonStreaming(systemPrompt, messages, abort.signal);
+            const { artifacts: rewrittenArtifacts, errors } = parseArtifacts(content);
+
+            if (rewrittenArtifacts.length > 0) {
+              currentArtifacts = rewrittenArtifacts;
+            }
+
+            store.getState().updatePipelineStep(rewriteStepId, {
+              status: "completed",
+              systemPrompt,
+              userMessage: messages[0]?.content ?? "",
+              rawResponse: content,
+              tokenUsage: usage,
+              durationMs: Date.now() - rewriteStartTime,
+              artifactsModified: rewrittenArtifacts.map((a) => a.name),
+              summary: `Rewrote ${rewrittenArtifacts.length} artifact(s) addressing ${reviewReports.reduce((n, r) => n + r.report.findings.length, 0)} finding(s)${errors.length > 0 ? ` with ${errors.length} parse error(s)` : ""}`,
+            });
+          } catch (err) {
+            if (abort.signal.aborted) throw err;
+            store.getState().updatePipelineStep(rewriteStepId, {
+              status: "failed",
+              durationMs: Date.now() - rewriteStartTime,
+              error: err instanceof Error ? err.message : String(err),
+              summary: "Rewrite failed",
+            });
+            // Rewrite failure is non-fatal — continue with original artifacts
+          }
+        }
+
         // --- Step 5: Pattern Librarian (if selected) ---
         if (patternAgent && !abort.signal.aborted) {
           const patternStep = createPendingStep(patternAgent, "patterns");
@@ -280,41 +297,113 @@ export function usePipelineGenerate() {
 
           const patternStartTime = Date.now();
           try {
-            let patternCount = 0;
-            // Compare original vs final artifacts to detect corrections
+            // Collect diffs between original and final artifacts, skipping whitespace-only
+            const diffs: Array<{ blockName: string; originalCode: string; correctedCode: string }> = [];
             for (const original of originalArtifacts) {
               const final = currentArtifacts.find((a) => a.name === original.name);
               if (!final || final.content === original.content) continue;
-
+              if (!hasFunctionalChanges(original.content, final.content)) continue;
               const diff = computeDiff(original.content, final.content);
               if (diff.hasChanges) {
-                const corrections = classifyCorrections(diff, {
-                  artifactName: original.name,
-                  deviceType: original.type,
+                diffs.push({
+                  blockName: original.name,
+                  originalCode: original.content,
+                  correctedCode: final.content,
                 });
-                patternCount += corrections.length;
+              }
+            }
 
-                // Persist corrections to pattern_candidates table
-                if (corrections.length > 0) {
-                  try {
-                    const { data: { user } } = await supabase.auth.getUser();
-                    const rows = corrections.map((c) => ({
+            let patternCount = 0;
+            let analysisMethod = "none";
+
+            if (diffs.length > 0) {
+              // Try AI analysis via Pattern Librarian
+              let aiCorrections: Array<{
+                blockName: string;
+                correctionType: string;
+                explanation: string;
+                confidence: number;
+              }> | null = null;
+
+              try {
+                const { systemPrompt, messages: promptMessages } = buildPatternLibrarianPrompt({
+                  diffs,
+                  knowledgeDocs: agentKnowledgeDocs?.[patternAgent.id],
+                  approvedPatterns: input.approvedPatterns,
+                  promptSections,
+                });
+
+                const { content, usage } = await callNonStreaming(
+                  systemPrompt,
+                  promptMessages,
+                  abort.signal
+                );
+
+                aiCorrections = parsePatternLibrarianResponse(content);
+                if (aiCorrections && aiCorrections.length > 0) {
+                  analysisMethod = "ai";
+                }
+
+                // Store raw response + token usage on step
+                store.getState().updatePipelineStep(patternAgent.id, {
+                  systemPrompt,
+                  userMessage: promptMessages[0]?.content ?? "",
+                  rawResponse: content,
+                  tokenUsage: usage,
+                });
+              } catch (aiErr) {
+                console.warn("Pattern Librarian AI failed, falling back to regex:", aiErr);
+              }
+
+              // Persist corrections — AI results or regex fallback
+              try {
+                const { data: { user } } = await supabase.auth.getUser();
+
+                if (aiCorrections && aiCorrections.length > 0) {
+                  // AI-analyzed corrections with focused snippets
+                  const rows = aiCorrections.map((c) => {
+                    const diffEntry = diffs.find((d) => d.blockName === c.blockName);
+                    const diff = diffEntry ? computeDiff(diffEntry.originalCode, diffEntry.correctedCode) : null;
+                    const focused = diff ? extractFocusedSnippets(diff) : { originalSnippet: "(no removed lines)", correctedSnippet: "(no added lines)" };
+                    return {
                       plc_brand: input.project.plc_brand,
                       device_type: c.correctionType,
-                      context: original.name,
-                      original_snippet: c.originalSnippet,
-                      corrected_snippet: c.correctedSnippet,
+                      context: c.blockName,
+                      original_snippet: focused.originalSnippet,
+                      corrected_snippet: focused.correctedSnippet,
                       correction_type: c.correctionType,
-                      explanation_tag: c.explanationTag,
+                      explanation_tag: c.explanation,
                       status: "PENDING" as const,
                       created_by: user?.id ?? "",
-                    }));
-                    await supabase.from("pattern_candidates").insert(rows);
-                  } catch (persistErr) {
-                    // Pattern persistence failure is non-fatal
-                    console.error("Failed to persist pipeline patterns:", persistErr);
+                    };
+                  });
+                  await supabase.from("pattern_candidates").insert(rows);
+                  patternCount = rows.length;
+                } else {
+                  // Regex fallback
+                  analysisMethod = "regex";
+                  for (const d of diffs) {
+                    const diff = computeDiff(d.originalCode, d.correctedCode);
+                    const corrections = classifyCorrections(diff, { artifactName: d.blockName });
+                    if (corrections.length > 0) {
+                      const rows = corrections.map((c) => ({
+                        plc_brand: input.project.plc_brand,
+                        device_type: c.correctionType,
+                        context: d.blockName,
+                        original_snippet: c.originalSnippet,
+                        corrected_snippet: c.correctedSnippet,
+                        correction_type: c.correctionType,
+                        explanation_tag: c.explanationTag,
+                        status: "PENDING" as const,
+                        created_by: user?.id ?? "",
+                      }));
+                      await supabase.from("pattern_candidates").insert(rows);
+                      patternCount += rows.length;
+                    }
                   }
                 }
+              } catch (persistErr) {
+                console.error("Failed to persist pipeline patterns:", persistErr);
               }
             }
 
@@ -322,7 +411,7 @@ export function usePipelineGenerate() {
               status: "completed",
               durationMs: Date.now() - patternStartTime,
               summary: patternCount > 0
-                ? `Persisted ${patternCount} correction pattern(s) from reviewer changes`
+                ? `Persisted ${patternCount} correction pattern(s) via ${analysisMethod} analysis`
                 : "No corrections detected between pipeline stages",
             });
           } catch (err) {
@@ -355,6 +444,7 @@ export function usePipelineGenerate() {
               knowledgeDocs: agentKnowledgeDocs?.[orchestrator.id],
               steps: pipelineSteps.filter((s) => s.role !== "summary"),
               artifactCount: currentArtifacts.length,
+              promptSections,
             });
 
             const { content, usage } = await callNonStreaming(systemPrompt, messages, abort.signal);
@@ -362,6 +452,7 @@ export function usePipelineGenerate() {
             store.getState().updatePipelineStep(summaryStepId, {
               status: "completed",
               systemPrompt,
+              userMessage: messages[0]?.content ?? "",
               rawResponse: content,
               tokenUsage: usage,
               durationMs: Date.now() - summaryStartTime,

@@ -1,5 +1,5 @@
 import type { Project, Agent, PatternCandidate, FbTemplate, DesignProfile, AgentKnowledgeDoc } from "@/types";
-import { PLATFORM_RULES } from "@/lib/platform-rules";
+import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { formatPatterns } from "@/lib/prompt-builder";
 import { getAgentProfile } from "@/lib/agent-profiles";
 
@@ -11,6 +11,7 @@ export interface ProcessPromptInput {
   fbTemplates?: FbTemplate[];
   agentKnowledgeDocs?: Record<string, AgentKnowledgeDoc[]>;
   functionalDescription: string;
+  promptSections?: Record<string, string>;
 }
 
 interface BuiltPrompt {
@@ -55,7 +56,15 @@ ${blocks.join("\n\n")}`;
 }
 
 export function buildProcessPrompt(input: ProcessPromptInput): BuiltPrompt {
-  const { project, agents, designProfile, approvedPatterns, fbTemplates, agentKnowledgeDocs, functionalDescription } = input;
+  const { project, agents, designProfile, approvedPatterns, fbTemplates, agentKnowledgeDocs, functionalDescription, promptSections } = input;
+
+  const codeArchitect = getAgentProfile("Code Architect");
+  const identity = interpolateAgent(
+    resolveSection(promptSections, "process", "identity"),
+    { name: "Code Architect", tagline: codeArchitect.tagline, description: codeArchitect.description, personality: codeArchitect.personality },
+  );
+  const platformRules = resolveSection(promptSections, "shared", "platform_rules");
+  const processInstructions = resolveSection(promptSections, "process", "instructions");
 
   const profileSection = designProfile?.rules?.trim()
     ? `## Code Design Profile: ${designProfile.name}
@@ -77,16 +86,9 @@ ${formatPatterns(approvedPatterns)}
 `
     : "";
 
-  const systemPrompt = `You are Pac-ST Process, a specialist in generating process control code from functional descriptions for Siemens TIA Portal.
+  const systemPrompt = `${identity}
 
-You generate production-ready SCL code that implements complete process control systems including:
-- Sequence control (step-based state machines using CASE with integer literals)
-- Interlock logic (safety interlocks, permissive conditions)
-- HMI interface tags (status, commands, setpoints)
-- Alarm management (latching alarms with operator reset)
-- Timer-based operations (using TON/TOF with IN and PT always supplied)
-
-${PLATFORM_RULES}
+${platformRules}
 
 ## Project Context
 - Client: ${project.client_name}
@@ -115,14 +117,7 @@ Where:
 - name: the block name
 - dependencies: comma-separated list of artifact names this block depends on
 
-## Process Code Requirements
-
-1. **Sequences**: Implement each process sequence as an FB with a CASE-based state machine. Steps should be numbered (0, 10, 20, 30...) with clear transitions.
-2. **Interlocks**: Generate interlock checks at the start of each sequence step. Use a dedicated #interlockOK BOOL variable.
-3. **HMI Interface**: Every process FB must expose VAR_OUTPUT variables for HMI: #currentStep (INT), #stepName (STRING), #running (BOOL), #faulted (BOOL), #complete (BOOL).
-4. **Alarms**: Use latching alarm patterns — set on fault condition, require operator reset via #resetAlarms (BOOL) input.
-5. **Timers**: All timed operations use TON with configurable PT as VAR_INPUT.
-6. **Main OB**: Generate an OB1 (Main) that instantiates and calls all process FBs.
+${processInstructions}
 
 After all artifact blocks, provide a brief summary of what was generated.`;
 

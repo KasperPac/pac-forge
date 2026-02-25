@@ -16,12 +16,13 @@ import {
 import { useConversationHistory, useClearConversation } from "@/hooks/use-conversation";
 import { usePipelineGenerate } from "@/hooks/use-pipeline-generate";
 import { useProcessGenerate } from "@/hooks/use-process-generate";
-import { useMultiAgentKnowledgeDocs } from "@/hooks/use-agent-knowledge";
+import { useFilteredMultiAgentKnowledgeDocs } from "@/hooks/use-agent-knowledge";
 import { useCreatePatternCandidate, useActivePatterns } from "@/hooks/use-patterns";
 import { useAuditLog } from "@/hooks/use-audit-log";
 import { useSubmitTiaJob, useBridgeStatus, useTiaJob } from "@/hooks/use-tia-jobs";
 import { useFbTemplates } from "@/hooks/use-fb-templates";
 import { useDesignProfile } from "@/hooks/use-design-profiles";
+import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 import { useTiaBridgeWs } from "@/hooks/use-tia-bridge-ws";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useLeaseCheck } from "@/hooks/use-lease-check";
@@ -80,7 +81,11 @@ export default function PacStPage() {
 
   // Knowledge docs for session agents
   const sessionAgentIds = useMemo(() => sessionAgents.map((a) => a.id), [sessionAgents]);
-  const { data: agentKnowledgeDocs } = useMultiAgentKnowledgeDocs(sessionAgentIds);
+  const { data: agentKnowledgeDocs } = useFilteredMultiAgentKnowledgeDocs(
+    sessionAgentIds,
+    project?.plc_brand ?? "SIEMENS_TIA",
+    project?.cpu_type,
+  );
 
   // Generation (pipeline for chat, streaming for process)
   const { executePipeline, isRunning: isPipelineRunning } = usePipelineGenerate();
@@ -94,6 +99,7 @@ export default function PacStPage() {
   const { data: approvedPatterns } = useActivePatterns(project?.plc_brand ?? "SIEMENS_TIA");
   const { data: fbTemplates } = useFbTemplates();
   const { data: designProfile } = useDesignProfile(project?.design_profile_id ?? undefined);
+  const { data: promptSections } = useActivePromptSections();
   const createPattern = useCreatePatternCandidate();
   const auditLog = useAuditLog();
 
@@ -199,6 +205,7 @@ export default function PacStPage() {
           fbTemplates: fbTemplates ?? [],
           designProfile,
           agentKnowledgeDocs,
+          promptSections,
         },
         {
           onSuccess: (result) => {
@@ -253,7 +260,7 @@ export default function PacStPage() {
         },
       );
     },
-    [project, sessionId, sessionAgents, messages, renewNow, executePipeline, setGeneratedArtifacts, auditLog, approvedPatterns, fbTemplates, designProfile, agentKnowledgeDocs]
+    [project, sessionId, sessionAgents, messages, renewNow, executePipeline, setGeneratedArtifacts, auditLog, approvedPatterns, fbTemplates, designProfile, agentKnowledgeDocs, promptSections]
   );
 
   const handleProcessGenerate = useCallback(
@@ -271,6 +278,7 @@ export default function PacStPage() {
           fbTemplates: fbTemplates ?? [],
           designProfile,
           agentKnowledgeDocs,
+          promptSections,
           functionalDescription,
         },
         {
@@ -309,7 +317,7 @@ export default function PacStPage() {
         },
       );
     },
-    [project, sessionId, sessionAgents, renewNow, generateProcess, setGeneratedArtifacts, auditLog, approvedPatterns, fbTemplates, designProfile, agentKnowledgeDocs],
+    [project, sessionId, sessionAgents, renewNow, generateProcess, setGeneratedArtifacts, auditLog, approvedPatterns, fbTemplates, designProfile, agentKnowledgeDocs, promptSections],
   );
 
   const handleAcknowledgeWarning = useCallback((id: string) => {

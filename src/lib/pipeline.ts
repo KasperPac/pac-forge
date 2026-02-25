@@ -29,8 +29,10 @@ export const PIPELINE_ROLES = {
   PLAN: "plan",
   GENERATE: "generate",
   REVIEW: "review",
+  REWRITE: "rewrite",
   PATTERNS: "patterns",
   SUMMARY: "summary",
+  COMPILE_FIX: "compile_fix",
 } as const;
 
 export type PipelineRole =
@@ -42,6 +44,7 @@ export interface PipelineStepResult {
   role: PipelineRole;
   status: PipelineStepStatus;
   systemPrompt: string;
+  userMessage: string;
   rawResponse: string;
   tokenUsage: { input: number; output: number } | null;
   durationMs: number;
@@ -150,6 +153,7 @@ export function createPendingStep(
     role,
     status: "pending",
     systemPrompt: "",
+    userMessage: "",
     rawResponse: "",
     tokenUsage: null,
     durationMs: 0,

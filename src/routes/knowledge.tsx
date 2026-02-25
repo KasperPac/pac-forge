@@ -30,9 +30,18 @@ import type {
   AnalyzeResult,
 } from "@/hooks/use-knowledge-distribute";
 import { readFileAsText, getFileType, countWords } from "@/lib/document-reader";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { KnowledgeUpload, KnowledgeDistributionEntry } from "@/types";
+import { PLC_BRANDS, CPU_TYPES } from "@/types";
 
 const ACCEPTED_EXTENSIONS = ".md,.txt,.docx,.scl,.pdf";
+const CPU_TYPE_KEYS = Object.keys(CPU_TYPES) as (keyof typeof CPU_TYPES)[];
 
 export default function KnowledgePage() {
   const { data: uploads, isLoading } = useKnowledgeUploads();
@@ -58,6 +67,10 @@ export default function KnowledgePage() {
     sourceFilename: string;
   } | null>(null);
 
+  // Platform / CPU selection
+  const [uploadPlcBrand, setUploadPlcBrand] = useState<string>("SIEMENS_TIA");
+  const [uploadCpus, setUploadCpus] = useState<string[]>(["ALL"]);
+
   // Manual teach
   const [teachText, setTeachText] = useState("");
 
@@ -80,6 +93,8 @@ export default function KnowledgePage() {
           sourceFilename: filename,
           fileType,
           wordCount: countWords(content),
+          plcBrand: uploadPlcBrand,
+          compatibleCpus: uploadCpus,
           onProgress: setProgressMsg,
         });
 
@@ -98,7 +113,7 @@ export default function KnowledgePage() {
         setProgressMsg(null);
       }
     },
-    [analyze],
+    [analyze, uploadPlcBrand, uploadCpus],
   );
 
   const handleFileUpload = useCallback(
@@ -139,6 +154,7 @@ export default function KnowledgePage() {
         uploadId: pendingReview.uploadId,
         sourceFilename,
         fileType: sourceFileType,
+        plcBrand: uploadPlcBrand,
         confirmed,
       });
       setLastResult({ entries: result.entries, sourceFilename });
@@ -148,7 +164,7 @@ export default function KnowledgePage() {
     } finally {
       setProcessing(false);
     }
-  }, [pendingReview, selectedKeys, sourceFilename, sourceFileType, confirm]);
+  }, [pendingReview, selectedKeys, sourceFilename, sourceFileType, uploadPlcBrand, confirm]);
 
   const handleCancelReview = useCallback(async () => {
     if (!pendingReview) return;
@@ -217,6 +233,68 @@ export default function KnowledgePage() {
           Upload documents or teach agents directly. The Project Manager analyzes content and proposes distributions — you review and confirm before anything is saved.
         </p>
       </div>
+
+      {/* Platform & CPU Selection */}
+      <Card className="p-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Platform &amp; CPU Compatibility
+        </h2>
+        <div className="mt-3 flex flex-wrap items-start gap-4">
+          <div className="space-y-1.5">
+            <label className="font-mono text-xs text-muted-foreground">Platform</label>
+            <Select value={uploadPlcBrand} onValueChange={setUploadPlcBrand}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(PLC_BRANDS).map(([key, val]) => (
+                  <SelectItem key={key} value={val}>
+                    {val.replace(/_/g, " ")}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <label className="font-mono text-xs text-muted-foreground">Compatible CPUs</label>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-1.5">
+                <Checkbox
+                  checked={uploadCpus.includes("ALL")}
+                  onCheckedChange={(checked) => {
+                    if (checked) setUploadCpus(["ALL"]);
+                    else setUploadCpus([]);
+                  }}
+                />
+                <span className="font-mono text-xs">All CPUs</span>
+              </label>
+              {CPU_TYPE_KEYS.map((cpu) => (
+                <label key={cpu} className="flex items-center gap-1.5">
+                  <Checkbox
+                    checked={uploadCpus.includes("ALL") || uploadCpus.includes(cpu)}
+                    disabled={uploadCpus.includes("ALL")}
+                    onCheckedChange={(checked) => {
+                      setUploadCpus((prev) => {
+                        const without = prev.filter((c) => c !== cpu && c !== "ALL");
+                        if (checked) {
+                          const next = [...without, cpu];
+                          if (next.length === CPU_TYPE_KEYS.length) return ["ALL"];
+                          return next;
+                        }
+                        return without;
+                      });
+                    }}
+                  />
+                  <span className="font-mono text-xs">{cpu}</span>
+                </label>
+              ))}
+            </div>
+            <p className="font-mono text-[10px] text-muted-foreground/60">
+              PM will auto-detect per-section CPU compatibility from document content
+            </p>
+          </div>
+        </div>
+      </Card>
 
       {/* Upload + Teach side by side */}
       <div className="grid gap-4 lg:grid-cols-2">
@@ -509,11 +587,16 @@ function ProposalItem({
           className="mt-0.5"
         />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-medium">{item.title}</span>
             <Badge variant="outline" className="px-1 py-0 text-[9px]">
               {wordCount} words
             </Badge>
+            {item.compatible_cpus.length > 0 && !item.compatible_cpus.includes("ALL") && (
+              <Badge variant="secondary" className="px-1 py-0 text-[9px]">
+                {item.compatible_cpus.join(", ")}
+              </Badge>
+            )}
           </div>
           <p className="mt-0.5 font-mono text-[10px] italic leading-relaxed text-muted-foreground">
             {item.reasoning}
@@ -577,7 +660,7 @@ function UploadRow({
           <div className="truncate text-sm font-medium">
             {upload.source_filename}
           </div>
-          <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-muted-foreground">
             <span>{upload.word_count.toLocaleString()} words</span>
             <span>&middot;</span>
             <span>{upload.file_type.toUpperCase()}</span>
@@ -587,6 +670,14 @@ function UploadRow({
             </span>
             <span>&middot;</span>
             <span>{new Date(upload.created_at).toLocaleDateString()}</span>
+            <Badge variant="secondary" className="px-1 py-0 text-[9px]">
+              {upload.plc_brand.replace(/_/g, " ")}
+            </Badge>
+            {upload.compatible_cpus.length > 0 && !upload.compatible_cpus.includes("ALL") && (
+              <Badge variant="outline" className="px-1 py-0 text-[9px]">
+                {upload.compatible_cpus.join(", ")}
+              </Badge>
+            )}
           </div>
         </div>
         <Button

@@ -120,6 +120,13 @@ namespace PacForgeBridge
                     return;
                 }
 
+                // Route: POST /tia/export-sources
+                if (method == "POST" && path == "/tia/export-sources")
+                {
+                    await HandleExportSources(res);
+                    return;
+                }
+
                 // Route: POST /tia/connect
                 if (method == "POST" && path == "/tia/connect")
                 {
@@ -475,6 +482,25 @@ namespace PacForgeBridge
                 Console.WriteLine($"[DEMO] Create failed: {ex.Message}");
                 Console.WriteLine($"[DEMO] Stack: {ex.StackTrace}");
                 await WriteJson(res, 500, new TiaActionResponse
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+        }
+
+        private async Task HandleExportSources(HttpListenerResponse res)
+        {
+            try
+            {
+                Console.WriteLine("[TIA] Exporting sources from TIA Portal...");
+                var result = _tiaService.ExportSources();
+                await WriteJson(res, 200, result);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TIA] Export sources failed: {ex.Message}");
+                await WriteJson(res, 500, new ExportSourcesResponse
                 {
                     Success = false,
                     Message = ex.Message
