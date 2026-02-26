@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Plus, Trash2, Pencil, Clock, User, Loader2 } from "lucide-react";
+import { Plus, Trash2, Pencil, Clock, User, Loader2, SlidersHorizontal } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -104,18 +105,26 @@ export default function ProfilesPage() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-lg font-semibold">Design Profiles</h1>
-          <p className="font-mono text-xs text-muted-foreground">
-            Per-customer code generation rules — naming, comments, structure
+          <div className="text-sm text-muted-foreground">CONFIGURATION</div>
+          <h1 className="mt-1 flex items-center gap-2 text-2xl font-semibold tracking-tight">
+            <SlidersHorizontal className="h-5 w-5" />
+            Design Profiles
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Per-customer code generation rules &mdash; naming, comments,
+            structure. Assign a profile to a project to enforce its rules
+            across all generation paths.
           </p>
         </div>
-        <Button size="sm" onClick={openCreate} className="gap-1">
+        <Button size="sm" onClick={openCreate} className="mt-4 gap-1.5">
           <Plus className="h-3.5 w-3.5" />
           New Profile
         </Button>
       </div>
+
+      <Separator />
 
       {/* Profile grid */}
       {isLoading ? (

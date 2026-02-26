@@ -6,9 +6,11 @@ import {
   Clock,
   Tag,
   Loader2,
+  Layers,
 } from "lucide-react";
 import Editor from "@monaco-editor/react";
 import { Card } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -138,18 +140,26 @@ export default function FbLibraryPage() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-lg font-semibold">FB Library</h1>
-          <p className="font-mono text-xs text-muted-foreground">
-            Reusable function block templates for code generation
+          <div className="text-sm text-muted-foreground">CONFIGURATION</div>
+          <h1 className="mt-1 flex items-center gap-2 text-2xl font-semibold tracking-tight">
+            <Layers className="h-5 w-5" />
+            FB Library
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Reusable function block templates injected into generation prompts.
+            The Code Architect uses these as a starting point when generating
+            blocks for matching device categories.
           </p>
         </div>
-        <Button size="sm" onClick={openCreate} className="gap-1">
+        <Button size="sm" onClick={openCreate} className="mt-4 gap-1.5">
           <Plus className="h-3.5 w-3.5" />
           New Template
         </Button>
       </div>
+
+      <Separator />
 
       {/* Category filter */}
       <div className="flex flex-wrap gap-1">

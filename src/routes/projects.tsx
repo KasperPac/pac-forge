@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 import {
   Dialog,
   DialogContent,
@@ -32,16 +33,25 @@ export default function ProjectsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between">
         <div>
-          <div className="font-mono text-xs text-muted-foreground">PAC-FORGE</div>
-          <h1 className="mt-1 text-xl font-semibold tracking-tight">Projects</h1>
+          <div className="text-sm text-muted-foreground">PAC-FORGE</div>
+          <h1 className="mt-1 flex items-center gap-2 text-2xl font-semibold tracking-tight">
+            <FolderOpen className="h-5 w-5" />
+            Projects
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Manage your PLC projects. Each project links to a design profile,
+            IO list, and generation sessions.
+          </p>
         </div>
-        <Button size="sm" onClick={() => setCreateOpen(true)}>
-          <Plus className="mr-1 h-4 w-4" />
+        <Button size="sm" onClick={() => setCreateOpen(true)} className="mt-4 gap-1.5">
+          <Plus className="h-4 w-4" />
           New Project
         </Button>
       </div>
+
+      <Separator />
 
       {isLoading && (
         <div className="py-12 text-center font-mono text-sm text-muted-foreground">

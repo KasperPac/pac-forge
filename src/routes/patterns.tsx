@@ -95,15 +95,20 @@ export default function PatternsPage() {
     <TooltipProvider>
       <div className="space-y-4">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-start justify-between">
           <div>
-            <div className="font-mono text-xs text-muted-foreground">LEARNING SYSTEM</div>
-            <h1 className="mt-1 flex items-center gap-2 text-xl font-semibold tracking-tight">
+            <div className="text-sm text-muted-foreground">LEARNING</div>
+            <h1 className="mt-1 flex items-center gap-2 text-2xl font-semibold tracking-tight">
               <BookOpen className="h-5 w-5" />
               Pattern Library
             </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Review, approve, and manage correction patterns learned from
+              compile fixes and code reviews. Approved patterns are injected
+              into all future generation prompts.
+            </p>
           </div>
-          <Badge variant="outline" className="font-mono text-xs">
+          <Badge variant="outline" className="mt-4 font-mono text-xs">
             {filteredPatterns.length} pattern{filteredPatterns.length !== 1 ? "s" : ""}
           </Badge>
         </div>
