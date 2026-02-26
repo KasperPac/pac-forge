@@ -4,6 +4,21 @@ import type { AgentKnowledgeDoc, AgentKnowledgeDocCreate } from "@/types";
 
 const KNOWLEDGE_KEY = ["agent-knowledge"] as const;
 
+/** Fetch all agent knowledge docs (for global conflict detection). */
+export function useAllAgentKnowledgeDocs() {
+  return useQuery({
+    queryKey: [...KNOWLEDGE_KEY, "all"],
+    queryFn: async (): Promise<AgentKnowledgeDoc[]> => {
+      const { data, error } = await supabase
+        .from("agent_knowledge_docs")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data as AgentKnowledgeDoc[];
+    },
+  });
+}
+
 export function useAgentKnowledgeDocs(agentId: string | undefined) {
   return useQuery({
     queryKey: [...KNOWLEDGE_KEY, agentId],

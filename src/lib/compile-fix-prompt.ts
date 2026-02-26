@@ -1,6 +1,7 @@
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { formatPatterns, formatIoList, formatFbTemplates } from "@/lib/prompt-builder";
 import { getAgentProfile } from "@/lib/agent-profiles";
+import { buildPriorityHierarchyBlock } from "@/lib/knowledge-priority";
 import type { PatternCandidate, DesignProfile, AgentKnowledgeDoc, Project, FbTemplate } from "@/types";
 
 export interface CompileErrorInfo {
@@ -70,6 +71,8 @@ ${formatIoList(project.io_lists)}` : "";
       : "";
 
   return `${identity}
+
+${buildPriorityHierarchyBlock()}
 
 ${platformRules}${projectSection}${profileSection}${fbSection}${patternsSection}${knowledgeSection}
 

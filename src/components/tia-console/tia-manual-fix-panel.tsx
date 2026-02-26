@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useExportFromTia } from "@/hooks/use-export-from-tia";
-import { useCreateApprovedPattern } from "@/hooks/use-patterns";
+import { useCreatePatternCandidate } from "@/hooks/use-patterns";
 import { usePatternLibrarianAnalysis } from "@/hooks/use-pattern-librarian-analysis";
 import { computeDiff, hasFunctionalChanges } from "@/lib/diff-engine";
 import { CORRECTION_TYPES } from "@/types";
@@ -77,7 +77,7 @@ export function TiaManualFixPanel({
   const [aiAnalyzed, setAiAnalyzed] = useState(false);
 
   const exportMutation = useExportFromTia();
-  const createPattern = useCreateApprovedPattern();
+  const createPattern = useCreatePatternCandidate();
   const librarianAnalysis = usePatternLibrarianAnalysis();
 
   // Track the exported sources so we can pass them to AI analysis
@@ -512,7 +512,7 @@ export function TiaManualFixPanel({
               <div className="flex items-center gap-1.5">
                 <CheckCircle2 className="h-3 w-3 text-green-400" />
                 <span className="font-mono text-xs text-green-400">
-                  {savedCount} pattern{savedCount !== 1 ? "s" : ""} saved! Will be used in future fix rounds.
+                  {savedCount} pattern{savedCount !== 1 ? "s" : ""} saved for review. Approve on the Patterns page to use in future generations.
                 </span>
               </div>
               <Button

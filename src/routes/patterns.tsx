@@ -1,25 +1,35 @@
-import { useState } from "react";
-import { BookOpen } from "lucide-react";
+import { useState, useMemo } from "react";
+import { BookOpen, AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { PatternReviewCard } from "@/components/pattern-review-card";
 import {
   usePatternCandidates,
+  useActivePatterns,
   useApprovePattern,
   useRejectPattern,
   useDeletePattern,
 } from "@/hooks/use-patterns";
+import { useFbTemplates } from "@/hooks/use-fb-templates";
+import { useAllAgentKnowledgeDocs } from "@/hooks/use-agent-knowledge";
+import { useAllReferenceSections } from "@/hooks/use-reference-library";
+import { usePriorityOverrides } from "@/hooks/use-knowledge-priority";
+import { detectConflicts } from "@/lib/conflict-detector";
 import { toast } from "@/hooks/use-toast";
 import { useAuditLog } from "@/hooks/use-audit-log";
 import type { PatternStatus, CorrectionType } from "@/types";
 
-const STATUS_TABS: Array<{ value: PatternStatus | "all"; label: string }> = [
+type StatusFilter = PatternStatus | "all" | "conflicts";
+
+const STATUS_TABS: Array<{ value: StatusFilter; label: string }> = [
   { value: "all", label: "All" },
   { value: "PENDING", label: "Pending" },
   { value: "APPROVED", label: "Approved" },
   { value: "REJECTED", label: "Rejected" },
+  { value: "conflicts", label: "Conflicts" },
 ];
 
 const CORRECTION_FILTERS: Array<{ value: CorrectionType | "all"; label: string }> = [
@@ -33,110 +43,159 @@ const CORRECTION_FILTERS: Array<{ value: CorrectionType | "all"; label: string }
 ];
 
 export default function PatternsPage() {
-  const [statusFilter, setStatusFilter] = useState<PatternStatus | "all">("PENDING");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("PENDING");
   const [typeFilter, setTypeFilter] = useState<CorrectionType | "all">("all");
 
   const { data: patterns, isLoading } = usePatternCandidates(
-    statusFilter === "all" ? undefined : statusFilter
+    statusFilter === "all" || statusFilter === "conflicts" ? undefined : statusFilter
   );
+  const { data: approvedPatterns } = useActivePatterns("SIEMENS_TIA");
+  const { data: fbTemplates } = useFbTemplates();
+  const { data: allKnowledgeDocs } = useAllAgentKnowledgeDocs();
+  const { data: allRefSections } = useAllReferenceSections();
+  const { data: overrides } = usePriorityOverrides();
   const approvePattern = useApprovePattern();
   const rejectPattern = useRejectPattern();
   const deletePattern = useDeletePattern();
   const auditLog = useAuditLog();
 
-  const filteredPatterns = (patterns ?? []).filter(
-    (p) => typeFilter === "all" || p.correction_type === typeFilter
-  );
+  // Run conflict detection on approved patterns
+  const conflicts = useMemo(() => {
+    if (!approvedPatterns) return [];
+    return detectConflicts({
+      patterns: approvedPatterns,
+      fbTemplates: fbTemplates ?? [],
+      agentKnowledgeDocs: allKnowledgeDocs ?? [],
+      referenceSections: allRefSections ?? [],
+      overrides: overrides ?? [],
+    });
+  }, [approvedPatterns, fbTemplates, allKnowledgeDocs, allRefSections, overrides]);
+
+  // Build a map: pattern ID → conflict description
+  const conflictMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const conflict of conflicts) {
+      if (conflict.sourceA.type === "CORRECTION_PATTERN") {
+        map.set(conflict.sourceA.id, conflict.description);
+      }
+      if (conflict.sourceB.type === "CORRECTION_PATTERN") {
+        map.set(conflict.sourceB.id, conflict.description);
+      }
+    }
+    return map;
+  }, [conflicts]);
+
+  // Set of pattern IDs involved in conflicts
+  const conflictPatternIds = useMemo(() => new Set(conflictMap.keys()), [conflictMap]);
+
+  const filteredPatterns = (patterns ?? []).filter((p) => {
+    // Type filter
+    if (typeFilter !== "all" && p.correction_type !== typeFilter) return false;
+    // Conflicts tab: show only patterns involved in conflicts
+    if (statusFilter === "conflicts") return conflictPatternIds.has(p.id);
+    return true;
+  });
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="font-mono text-xs text-muted-foreground">LEARNING SYSTEM</div>
-          <h1 className="mt-1 flex items-center gap-2 text-xl font-semibold tracking-tight">
-            <BookOpen className="h-5 w-5" />
-            Pattern Library
-          </h1>
+    <TooltipProvider>
+      <div className="space-y-4">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="font-mono text-xs text-muted-foreground">LEARNING SYSTEM</div>
+            <h1 className="mt-1 flex items-center gap-2 text-xl font-semibold tracking-tight">
+              <BookOpen className="h-5 w-5" />
+              Pattern Library
+            </h1>
+          </div>
+          <Badge variant="outline" className="font-mono text-xs">
+            {filteredPatterns.length} pattern{filteredPatterns.length !== 1 ? "s" : ""}
+          </Badge>
         </div>
-        <Badge variant="outline" className="font-mono text-xs">
-          {filteredPatterns.length} pattern{filteredPatterns.length !== 1 ? "s" : ""}
-        </Badge>
+
+        <Separator />
+
+        {/* Filters */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-1 rounded-md border p-0.5">
+            {STATUS_TABS.map((tab) => (
+              <Button
+                key={tab.value}
+                variant={statusFilter === tab.value ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 gap-1 px-2 font-mono text-[10px]"
+                onClick={() => setStatusFilter(tab.value)}
+              >
+                {tab.value === "conflicts" && <AlertTriangle className="h-2.5 w-2.5 text-amber-400" />}
+                {tab.label}
+                {tab.value === "conflicts" && conflicts.length > 0 && (
+                  <span className="ml-0.5 rounded-full bg-amber-500/20 px-1 font-mono text-[9px] text-amber-400">
+                    {conflicts.length}
+                  </span>
+                )}
+              </Button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-1 rounded-md border p-0.5">
+            {CORRECTION_FILTERS.map((f) => (
+              <Button
+                key={f.value}
+                variant={typeFilter === f.value ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 px-2 font-mono text-[10px]"
+                onClick={() => setTypeFilter(f.value)}
+              >
+                {f.label}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {/* Pattern list */}
+        {isLoading && (
+          <div className="py-8 text-center font-mono text-sm text-muted-foreground">
+            Loading patterns...
+          </div>
+        )}
+
+        <ScrollArea className="h-[calc(100vh-14rem)]">
+          <div className="space-y-3 pr-3">
+            {filteredPatterns.length === 0 && !isLoading && (
+              <div className="py-8 text-center font-mono text-sm text-muted-foreground">
+                {statusFilter === "conflicts"
+                  ? "No conflicts detected between knowledge sources."
+                  : "No patterns match the current filters."}
+              </div>
+            )}
+            {filteredPatterns.map((pattern) => (
+              <PatternReviewCard
+                key={pattern.id}
+                pattern={pattern}
+                conflictWarning={conflictMap.get(pattern.id)}
+                onApprove={(id) => approvePattern.mutate(id, {
+                  onSuccess: () => {
+                    toast({ title: "Pattern approved" });
+                    auditLog.mutate({ action: "PATTERN_APPROVE", details: { patternId: id } });
+                  },
+                })}
+                onReject={(id) => rejectPattern.mutate(id, {
+                  onSuccess: () => {
+                    toast({ title: "Pattern rejected" });
+                    auditLog.mutate({ action: "PATTERN_REJECT", details: { patternId: id } });
+                  },
+                })}
+                onDelete={(id) => deletePattern.mutate(id, {
+                  onSuccess: () => {
+                    toast({ title: "Pattern deleted" });
+                    auditLog.mutate({ action: "PATTERN_REJECT", details: { patternId: id, action: "delete" } });
+                  },
+                })}
+              />
+            ))}
+          </div>
+        </ScrollArea>
       </div>
-
-      <Separator />
-
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-1 rounded-md border p-0.5">
-          {STATUS_TABS.map((tab) => (
-            <Button
-              key={tab.value}
-              variant={statusFilter === tab.value ? "secondary" : "ghost"}
-              size="sm"
-              className="h-7 px-2 font-mono text-[10px]"
-              onClick={() => setStatusFilter(tab.value)}
-            >
-              {tab.label}
-            </Button>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-1 rounded-md border p-0.5">
-          {CORRECTION_FILTERS.map((f) => (
-            <Button
-              key={f.value}
-              variant={typeFilter === f.value ? "secondary" : "ghost"}
-              size="sm"
-              className="h-7 px-2 font-mono text-[10px]"
-              onClick={() => setTypeFilter(f.value)}
-            >
-              {f.label}
-            </Button>
-          ))}
-        </div>
-      </div>
-
-      {/* Pattern list */}
-      {isLoading && (
-        <div className="py-8 text-center font-mono text-sm text-muted-foreground">
-          Loading patterns...
-        </div>
-      )}
-
-      <ScrollArea className="h-[calc(100vh-14rem)]">
-        <div className="space-y-3 pr-3">
-          {filteredPatterns.length === 0 && !isLoading && (
-            <div className="py-8 text-center font-mono text-sm text-muted-foreground">
-              No patterns match the current filters.
-            </div>
-          )}
-          {filteredPatterns.map((pattern) => (
-            <PatternReviewCard
-              key={pattern.id}
-              pattern={pattern}
-              onApprove={(id) => approvePattern.mutate(id, {
-                onSuccess: () => {
-                  toast({ title: "Pattern approved" });
-                  auditLog.mutate({ action: "PATTERN_APPROVE", details: { patternId: id } });
-                },
-              })}
-              onReject={(id) => rejectPattern.mutate(id, {
-                onSuccess: () => {
-                  toast({ title: "Pattern rejected" });
-                  auditLog.mutate({ action: "PATTERN_REJECT", details: { patternId: id } });
-                },
-              })}
-              onDelete={(id) => deletePattern.mutate(id, {
-                onSuccess: () => {
-                  toast({ title: "Pattern deleted" });
-                  auditLog.mutate({ action: "PATTERN_REJECT", details: { patternId: id, action: "delete" } });
-                },
-              })}
-            />
-          ))}
-        </div>
-      </ScrollArea>
-    </div>
+    </TooltipProvider>
   );
 }

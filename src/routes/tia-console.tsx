@@ -1,5 +1,8 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useKnowledgeConflicts } from "@/hooks/use-knowledge-conflicts";
+import { KnowledgeConflictBanner } from "@/components/knowledge-conflict-banner";
+import { KnowledgeConflictDialog } from "@/components/knowledge-conflict-dialog";
 import {
   Terminal,
   Wifi,
@@ -291,6 +294,27 @@ export default function TiaConsolePage() {
   const { data: promptSections } = useActivePromptSections();
   const pipelineDataReady = !knowledgeLoading && !patternsLoading && !fbLoading;
 
+  // Knowledge conflict detection
+  const [showConflictDialog, setShowConflictDialog] = useState(false);
+  const conflictContext = useMemo(() => {
+    if (!approvedPatterns) return null;
+    return {
+      patterns: approvedPatterns,
+      designProfile: selectedDesignProfile ?? undefined,
+      fbTemplates: fbTemplates ?? [],
+      agentKnowledgeDocs: allAgentKnowledge
+        ? Object.values(allAgentKnowledge).flat()
+        : [],
+    };
+  }, [approvedPatterns, selectedDesignProfile, fbTemplates, allAgentKnowledge]);
+
+  const {
+    conflicts,
+    unresolvedCount,
+    resolveConflict,
+    getResolution,
+  } = useKnowledgeConflicts(conflictContext);
+
   // Count learnings for diagnostic display
   const knowledgeDocCount = allAgentKnowledge
     ? Object.values(allAgentKnowledge).reduce((sum, docs) => sum + docs.length, 0)
@@ -487,6 +511,21 @@ export default function TiaConsolePage() {
 
   return (
     <div className="space-y-4">
+      {/* Knowledge conflict dialog */}
+      <KnowledgeConflictDialog
+        open={showConflictDialog}
+        onOpenChange={setShowConflictDialog}
+        conflicts={conflicts}
+        onResolve={resolveConflict}
+        getResolution={getResolution}
+      />
+
+      {/* Knowledge conflict banner */}
+      <KnowledgeConflictBanner
+        unresolvedCount={unresolvedCount}
+        onReview={() => setShowConflictDialog(true)}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

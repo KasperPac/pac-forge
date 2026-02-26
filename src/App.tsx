@@ -20,6 +20,7 @@ const FbLibraryPage = lazy(() => import("@/routes/fb-library"));
 const ProfilesPage = lazy(() => import("@/routes/profiles"));
 const KnowledgePage = lazy(() => import("@/routes/knowledge"));
 const PromptEditorPage = lazy(() => import("@/routes/prompt-editor"));
+const ReferenceLibraryPage = lazy(() => import("@/routes/reference-library"));
 
 function LazyRoute({ children }: { children: React.ReactNode }) {
   return (
@@ -52,6 +53,7 @@ const router = createBrowserRouter([
           { path: "profiles", element: <LazyRoute><ProfilesPage /></LazyRoute> },
           { path: "knowledge", element: <LazyRoute><KnowledgePage /></LazyRoute> },
           { path: "prompts", element: <LazyRoute><PromptEditorPage /></LazyRoute> },
+          { path: "reference-library", element: <LazyRoute><ReferenceLibraryPage /></LazyRoute> },
         ],
       },
     ],

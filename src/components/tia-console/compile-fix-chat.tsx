@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/select";
 import { useCompileFix } from "@/hooks/use-compile-fix";
 import { useReimportCompile } from "@/hooks/use-reimport-compile";
-import { useActivePatterns, useCreateApprovedPattern } from "@/hooks/use-patterns";
+import { useActivePatterns, useCreatePatternCandidate } from "@/hooks/use-patterns";
 import { computeDiff, hasFunctionalChanges, extractFocusedSnippets } from "@/lib/diff-engine";
 import { classifyCorrections } from "@/lib/correction-classifier";
 import { TiaManualFixPanel } from "@/components/tia-console/tia-manual-fix-panel";
@@ -172,7 +172,7 @@ export function CompileFixChat({
   const compileFix = useCompileFix();
   const reimportCompile = useReimportCompile();
   const { data: approvedPatterns } = useActivePatterns("SIEMENS_TIA");
-  const createApprovedPattern = useCreateApprovedPattern();
+  const createPatternCandidate = useCreatePatternCandidate();
 
   // Sync props into state on mount / when parent changes
   useEffect(() => {
@@ -241,7 +241,7 @@ export function CompileFixChat({
       }
     }
 
-    createApprovedPattern.mutate(
+    createPatternCandidate.mutate(
       {
         plc_brand: "SIEMENS_TIA",
         device_type: "General",
@@ -255,7 +255,7 @@ export function CompileFixChat({
         onSuccess: () => {
           setMessages((prev) => [
             ...prev,
-            { role: "system", content: "Pattern learned and saved for future generations." },
+            { role: "system", content: "Correction saved for review. Approve it on the Patterns page to use in future generations." },
           ]);
         },
       },
@@ -824,7 +824,7 @@ export function CompileFixChat({
                 </span>
               </div>
               <p className="font-mono text-xs text-muted-foreground">
-                Correction pattern auto-saved for future generations.
+                Correction saved for review on the Patterns page.
               </p>
               <Button
                 size="sm"

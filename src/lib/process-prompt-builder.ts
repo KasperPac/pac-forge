@@ -2,6 +2,7 @@ import type { Project, Agent, PatternCandidate, FbTemplate, DesignProfile, Agent
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { formatPatterns } from "@/lib/prompt-builder";
 import { getAgentProfile } from "@/lib/agent-profiles";
+import { buildPriorityHierarchyBlock } from "@/lib/knowledge-priority";
 
 export interface ProcessPromptInput {
   project: Project;
@@ -87,6 +88,8 @@ ${formatPatterns(approvedPatterns)}
     : "";
 
   const systemPrompt = `${identity}
+
+${buildPriorityHierarchyBlock()}
 
 ${platformRules}
 

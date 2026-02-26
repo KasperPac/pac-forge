@@ -8,6 +8,7 @@ import type {
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { getAgentProfile } from "@/lib/agent-profiles";
 import { formatPatterns } from "@/lib/prompt-builder";
+import { buildPriorityHierarchyBlock } from "@/lib/knowledge-priority";
 import type { ParsedArtifact } from "@/lib/artifact-parser";
 
 export interface ReviewPromptInput {
@@ -73,6 +74,8 @@ export function buildReviewPrompt(input: ReviewPromptInput): BuiltPrompt {
   const systemPrompt = `${identity}
 
 ${instructions}
+
+${buildPriorityHierarchyBlock()}
 
 ## Output Format
 
