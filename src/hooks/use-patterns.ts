@@ -73,39 +73,18 @@ export function useCreatePatternCandidate() {
 }
 
 /**
- * Create a pattern that is auto-approved (direct user teaching, no admin review needed).
+ * Query the count of PENDING patterns for notification badges.
  */
-export function useCreateApprovedPattern() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (candidate: {
-      plc_brand: string;
-      device_type: string;
-      context: string;
-      original_snippet: string;
-      corrected_snippet: string;
-      correction_type: string;
-      explanation_tag: string;
-    }) => {
-      const { data: { user } } = await supabase.auth.getUser();
-      const userId = user?.id ?? "";
-      const { data, error } = await supabase
+export function usePendingPatternCount() {
+  return useQuery({
+    queryKey: [...PATTERNS_KEY, "pending-count"],
+    queryFn: async (): Promise<number> => {
+      const { count, error } = await supabase
         .from("pattern_candidates")
-        .insert({
-          ...candidate,
-          status: "APPROVED",
-          created_by: userId,
-          reviewed_by: userId,
-          reviewed_at: new Date().toISOString(),
-        })
-        .select()
-        .single();
+        .select("*", { count: "exact", head: true })
+        .eq("status", "PENDING");
       if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: PATTERNS_KEY });
+      return count ?? 0;
     },
   });
 }

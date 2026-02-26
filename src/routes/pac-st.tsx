@@ -1,5 +1,8 @@
 import { useState, useCallback, useMemo } from "react";
 import { useSearchParams, useNavigate } from "react-router";
+import { useKnowledgeConflicts } from "@/hooks/use-knowledge-conflicts";
+import { KnowledgeConflictBanner } from "@/components/knowledge-conflict-banner";
+import { KnowledgeConflictDialog } from "@/components/knowledge-conflict-dialog";
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -113,6 +116,27 @@ export default function PacStPage() {
   const [selectedJobType, setSelectedJobType] = useState<TiaJobType>("IMPORT_AND_COMPILE");
   const [showTeachDialog, setShowTeachDialog] = useState(false);
   const [showTeachUploadDialog, setShowTeachUploadDialog] = useState(false);
+  const [showConflictDialog, setShowConflictDialog] = useState(false);
+
+  // Knowledge conflict detection
+  const conflictContext = useMemo(() => {
+    if (!approvedPatterns) return null;
+    return {
+      patterns: approvedPatterns,
+      designProfile: designProfile ?? undefined,
+      fbTemplates: fbTemplates ?? [],
+      agentKnowledgeDocs: agentKnowledgeDocs
+        ? Object.values(agentKnowledgeDocs).flat()
+        : [],
+    };
+  }, [approvedPatterns, designProfile, fbTemplates, agentKnowledgeDocs]);
+
+  const {
+    conflicts,
+    unresolvedCount,
+    resolveConflict,
+    getResolution,
+  } = useKnowledgeConflicts(conflictContext);
 
   const handleBridgeEvent = useCallback((event: BridgeEvent) => {
     if (event.type === "compile_error") {
@@ -685,6 +709,15 @@ export default function PacStPage() {
         plcBrand={project?.plc_brand ?? "SIEMENS_TIA"}
       />
 
+      {/* Knowledge conflict dialog */}
+      <KnowledgeConflictDialog
+        open={showConflictDialog}
+        onOpenChange={setShowConflictDialog}
+        conflicts={conflicts}
+        onResolve={resolveConflict}
+        getResolution={getResolution}
+      />
+
       {/* TIA submit confirmation dialog */}
       <TiaSubmitDialog
         open={showSubmitDialog}
@@ -695,6 +728,12 @@ export default function PacStPage() {
         jobType={selectedJobType}
         onConfirm={handleTiaSubmitConfirm}
         submitting={submitTiaJob.isPending}
+      />
+
+      {/* Knowledge conflict banner */}
+      <KnowledgeConflictBanner
+        unresolvedCount={unresolvedCount}
+        onReview={() => setShowConflictDialog(true)}
       />
 
       {/* Main three-pane area */}

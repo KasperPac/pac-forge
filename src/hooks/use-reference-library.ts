@@ -41,6 +41,21 @@ export function useReferenceLibrarySections(docId: string | undefined) {
   });
 }
 
+/** Fetch all reference library sections (for global conflict detection). */
+export function useAllReferenceSections() {
+  return useQuery({
+    queryKey: [...REF_DOCS_KEY, "all-sections"],
+    queryFn: async (): Promise<ReferenceLibrarySection[]> => {
+      const { data, error } = await supabase
+        .from("reference_library_sections")
+        .select("id, doc_id, section_index, heading, content, char_count, topic_tags, created_at")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data as ReferenceLibrarySection[];
+    },
+  });
+}
+
 // ---- Upload ----
 
 const TOPIC_TAG_SYSTEM_PROMPT = `You are a topic tag generator for PLC documentation sections. Given a batch of document sections about Siemens S7-1200/S7-1500 PLC programming, generate 3-8 topic tags per section.

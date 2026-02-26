@@ -1,11 +1,12 @@
 import { NavLink, Outlet } from "react-router";
-import { FolderOpen, Bot, Code, Terminal, BookOpen, GraduationCap, Layers, SlidersHorizontal, FileText, LogOut, Library } from "lucide-react";
+import { FolderOpen, Bot, Code, Terminal, BookOpen, GraduationCap, Layers, SlidersHorizontal, FileText, Library, LogOut } from "lucide-react";
 import pacLogo from "@/../media/logos/PacTechnologiesEdit_White.png";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { useAuth } from "@/hooks/use-auth";
 import { useGlobalActiveSession } from "@/hooks/use-sessions";
 import { useProject } from "@/hooks/use-projects";
+import { usePendingPatternCount } from "@/hooks/use-patterns";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -22,6 +23,8 @@ const NAV_ITEMS = [
 ] as const;
 
 function Sidebar() {
+  const { data: pendingCount } = usePendingPatternCount();
+
   return (
     <aside className="flex w-64 flex-col border-r bg-background">
       <div className="flex flex-col items-center p-4">
@@ -50,6 +53,11 @@ function Sidebar() {
           >
             <item.icon className="h-4 w-4" />
             {item.label}
+            {item.to === "/patterns" && pendingCount != null && pendingCount > 0 && (
+              <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500/20 px-1.5 font-mono text-xs text-amber-400">
+                {pendingCount}
+              </span>
+            )}
           </NavLink>
         ))}
       </nav>

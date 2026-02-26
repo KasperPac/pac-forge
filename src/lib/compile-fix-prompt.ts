@@ -2,6 +2,7 @@ import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { formatPatterns, formatIoList, formatFbTemplates } from "@/lib/prompt-builder";
 import { getAgentProfile } from "@/lib/agent-profiles";
 import { formatReferenceSections } from "@/lib/reference-lookup";
+import { buildPriorityHierarchyBlock } from "@/lib/knowledge-priority";
 import type { PatternCandidate, DesignProfile, AgentKnowledgeDoc, Project, FbTemplate, ReferenceLibrarySection } from "@/types";
 
 export interface CompileErrorInfo {
@@ -77,6 +78,8 @@ ${formatIoList(project.io_lists)}` : "";
   const refBlock = refSection ? `\n\n${refSection}` : "";
 
   return `${identity}
+
+${buildPriorityHierarchyBlock()}
 
 ${platformRules}
 

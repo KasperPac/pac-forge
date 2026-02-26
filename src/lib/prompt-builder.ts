@@ -2,6 +2,7 @@ import type { Project, Agent, IoEntry, TagDbDefinition, GenerationMode, PatternC
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { getAgentProfile } from "@/lib/agent-profiles";
 import { formatReferenceSections } from "@/lib/reference-lookup";
+import { buildPriorityHierarchyBlock } from "@/lib/knowledge-priority";
 
 /**
  * Output format instructions telling Claude how to structure its response
@@ -191,6 +192,8 @@ export function buildPrompt(input: PromptBuilderInput): BuiltPrompt {
   const systemPrompt = `${identity}
 
 ${instructions}
+
+${buildPriorityHierarchyBlock()}
 
 ${platformRules}
 

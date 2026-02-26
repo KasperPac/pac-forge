@@ -1,4 +1,4 @@
-import { Check, X, Trash2, RotateCcw } from "lucide-react";
+import { Check, X, Trash2, RotateCcw, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -15,12 +15,15 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { PatternCandidate } from "@/types";
 
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+
 interface PatternReviewCardProps {
   pattern: PatternCandidate;
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
   onRevoke?: (id: string) => void;
   onDelete?: (id: string) => void;
+  conflictWarning?: string;
 }
 
 const TYPE_COLORS: Record<string, string> = {
@@ -38,7 +41,7 @@ const STATUS_STYLES: Record<string, string> = {
   REJECTED: "bg-neutral-500/10 text-neutral-400",
 };
 
-export function PatternReviewCard({ pattern, onApprove, onReject, onRevoke, onDelete }: PatternReviewCardProps) {
+export function PatternReviewCard({ pattern, onApprove, onReject, onRevoke, onDelete, conflictWarning }: PatternReviewCardProps) {
   const typeClass = TYPE_COLORS[pattern.correction_type] ?? "";
   const statusClass = STATUS_STYLES[pattern.status] ?? "";
   const isPending = pattern.status === "PENDING";
@@ -59,6 +62,19 @@ export function PatternReviewCard({ pattern, onApprove, onReject, onRevoke, onDe
           <span className="font-mono text-[10px] text-muted-foreground">
             {pattern.device_type}
           </span>
+          {conflictWarning && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant="outline" className="gap-0.5 border-amber-500/30 font-mono text-[9px] text-amber-400">
+                  <AlertTriangle className="h-2.5 w-2.5" />
+                  Conflict
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs">
+                <p className="font-mono text-xs">{conflictWarning}</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
         <span className="font-mono text-[9px] text-muted-foreground">
           {new Date(pattern.created_at).toLocaleDateString()}

@@ -18,7 +18,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useCreateApprovedPattern } from "@/hooks/use-patterns";
+import { useCreatePatternCandidate } from "@/hooks/use-patterns";
+import { toast } from "@/hooks/use-toast";
 import type { CorrectionType } from "@/types";
 
 const CATEGORY_LABELS: Record<CorrectionType, string> = {
@@ -47,7 +48,7 @@ export function TeachPatternDialog({
   const [category, setCategory] = useState<CorrectionType>("NAMING");
   const [deviceType, setDeviceType] = useState("");
 
-  const createPattern = useCreateApprovedPattern();
+  const createPattern = useCreatePatternCandidate();
 
   function reset() {
     setExplanation("");
@@ -74,6 +75,7 @@ export function TeachPatternDialog({
         onSuccess: () => {
           reset();
           onOpenChange(false);
+          toast({ title: "Pattern saved for review", description: "Review it on the Patterns page before it takes effect." });
         },
       },
     );
@@ -85,8 +87,8 @@ export function TeachPatternDialog({
         <DialogHeader>
           <DialogTitle className="font-mono text-sm">Teach a Rule</DialogTitle>
           <DialogDescription>
-            Define a correction rule that will be enforced in all future generations.
-            Rules are saved as approved patterns immediately.
+            Define a correction rule for future generations.
+            Rules are saved for review before activation.
           </DialogDescription>
         </DialogHeader>
 

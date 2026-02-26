@@ -32,7 +32,7 @@ import {
 } from "@/components/ui/select";
 import { useCompileFix } from "@/hooks/use-compile-fix";
 import { useReimportCompile } from "@/hooks/use-reimport-compile";
-import { useActivePatterns, useCreateApprovedPattern } from "@/hooks/use-patterns";
+import { useActivePatterns, useCreatePatternCandidate } from "@/hooks/use-patterns";
 import { usePatternLibrarianAnalysis } from "@/hooks/use-pattern-librarian-analysis";
 import { computeDiff, hasFunctionalChanges, extractFocusedSnippets } from "@/lib/diff-engine";
 import { classifyCorrections } from "@/lib/correction-classifier";
@@ -196,7 +196,7 @@ export function CompileFixChat({
   const reimportCompile = useReimportCompile();
   const librarianAnalysis = usePatternLibrarianAnalysis();
   const { data: approvedPatterns } = useActivePatterns("SIEMENS_TIA");
-  const createApprovedPattern = useCreateApprovedPattern();
+  const createPatternCandidate = useCreatePatternCandidate();
 
   // Sync props into state on mount / when parent changes
   // Skip the initial sync if we hydrated from a saved session
@@ -739,7 +739,7 @@ export function CompileFixChat({
       const classified = classifyCorrections(diff, { artifactName: name });
       const correctionType = classified.length > 0 ? classified[0].correctionType : "STATE_LOGIC";
 
-      createApprovedPattern.mutate(
+      createPatternCandidate.mutate(
         {
           plc_brand: "SIEMENS_TIA",
           device_type: "General",
@@ -912,7 +912,7 @@ export function CompileFixChat({
     let pending = toSave.length;
 
     for (const c of toSave) {
-      createApprovedPattern.mutate(
+      createPatternCandidate.mutate(
         {
           plc_brand: "SIEMENS_TIA",
           device_type: "General",
