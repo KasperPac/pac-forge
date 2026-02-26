@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabase";
 import { buildCompileFixSystemPrompt, formatCompileErrorContext } from "@/lib/compile-fix-prompt";
 import { parseCompileFixResponse } from "@/lib/compile-fix-parser";
 import { getRelevantReferenceSections } from "@/lib/reference-lookup";
+import { buildContextMessages } from "@/lib/prompt-builder";
 import type { CompileErrorInfo } from "@/lib/compile-fix-prompt";
 import type { FixedSource } from "@/lib/compile-fix-parser";
 import type { CompileFixPromptInput } from "@/lib/compile-fix-prompt";
@@ -74,7 +75,12 @@ export function useCompileFix() {
         ? `${autoContext}\n\n## Additional Instructions\n\n${userMessage}`
         : autoContext;
 
+      // Reference sections + patterns are sent as prefixed context messages
+      // to keep the system prompt under the 100K character limit
+      const contextMessages = buildContextMessages(referenceSections ?? [], approvedPatterns ?? []);
+
       const messages: Array<{ role: "user" | "assistant"; content: string }> = [
+        ...contextMessages,
         ...(conversationHistory ?? []),
         { role: "user" as const, content: finalUserMessage },
       ];

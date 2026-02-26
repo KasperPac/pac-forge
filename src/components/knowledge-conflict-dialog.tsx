@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertTriangle, CheckCircle2, Shield } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Shield, Lightbulb } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { KNOWLEDGE_SOURCES } from "@/lib/knowledge-priority";
 import type { KnowledgeConflict } from "@/lib/conflict-detector";
 import type { KnowledgeSource } from "@/lib/knowledge-priority";
@@ -21,6 +22,8 @@ interface KnowledgeConflictDialogProps {
   onOpenChange: (open: boolean) => void;
   conflicts: KnowledgeConflict[];
   onResolve: (conflictId: string, winner: KnowledgeSource, scope: "instance" | "permanent", reason?: string) => void;
+  onDismiss: (conflictId: string, reason: string) => void;
+  onConfirm?: (conflictId: string, reason: string) => void;
   getResolution: (conflictId: string) => KnowledgeSource | null;
 }
 
@@ -29,6 +32,8 @@ export function KnowledgeConflictDialog({
   onOpenChange,
   conflicts,
   onResolve,
+  onDismiss,
+  onConfirm,
   getResolution,
 }: KnowledgeConflictDialogProps) {
   return (
@@ -40,7 +45,8 @@ export function KnowledgeConflictDialog({
             Knowledge Conflicts
           </DialogTitle>
           <DialogDescription>
-            These knowledge sources contain contradictory guidance. Choose which should take priority.
+            Contradictory guidance detected. Resolve, dismiss, or confirm each conflict.
+            Your feedback teaches the Pattern Librarian.
           </DialogDescription>
         </DialogHeader>
 
@@ -52,6 +58,8 @@ export function KnowledgeConflictDialog({
                 conflict={conflict}
                 resolution={getResolution(conflict.id)}
                 onResolve={onResolve}
+                onDismiss={onDismiss}
+                onConfirm={onConfirm}
               />
             ))}
             {conflicts.length === 0 && (
@@ -73,12 +81,18 @@ function ConflictCard({
   conflict,
   resolution,
   onResolve,
+  onDismiss,
+  onConfirm,
 }: {
   conflict: KnowledgeConflict;
   resolution: KnowledgeSource | null;
   onResolve: (conflictId: string, winner: KnowledgeSource, scope: "instance" | "permanent") => void;
+  onDismiss: (conflictId: string, reason: string) => void;
+  onConfirm?: (conflictId: string, reason: string) => void;
 }) {
   const [scope, setScope] = useState<"instance" | "permanent">("instance");
+  const [feedbackMode, setFeedbackMode] = useState<"none" | "dismiss" | "confirm">("none");
+  const [feedbackReason, setFeedbackReason] = useState("");
   const isResolved = resolution !== null;
 
   const severityColor = conflict.severity === "error"
@@ -88,6 +102,28 @@ function ConflictCard({
   const severityBadge = conflict.severity === "error"
     ? <Badge variant="outline" className="border-red-500/30 font-mono text-xs text-red-400">Contradiction</Badge>
     : <Badge variant="outline" className="border-amber-500/30 font-mono text-xs text-amber-400">Potential Conflict</Badge>;
+
+  // Confidence color
+  const confidencePct = Math.round(conflict.confidence * 100);
+  const confidenceBarColor = conflict.confidence >= 0.8
+    ? "bg-red-500"
+    : conflict.confidence >= 0.65
+      ? "bg-amber-500"
+      : "bg-yellow-500/50";
+
+  function handleDismissSubmit() {
+    if (!feedbackReason.trim()) return;
+    onDismiss(conflict.id, feedbackReason.trim());
+    setFeedbackMode("none");
+    setFeedbackReason("");
+  }
+
+  function handleConfirmSubmit() {
+    if (!feedbackReason.trim() || !onConfirm) return;
+    onConfirm(conflict.id, feedbackReason.trim());
+    setFeedbackMode("none");
+    setFeedbackReason("");
+  }
 
   return (
     <div className={`space-y-3 rounded-lg border p-3 ${isResolved ? "border-border/50 bg-muted/10 opacity-60" : severityColor}`}>
@@ -102,11 +138,22 @@ function ConflictCard({
           {conflict.category}
         </Badge>
         {severityBadge}
+        <Badge variant="outline" className="font-mono text-xs text-muted-foreground">
+          {confidencePct}%
+        </Badge>
         {isResolved && (
           <Badge variant="outline" className="border-green-500/30 font-mono text-xs text-green-400">
             Resolved
           </Badge>
         )}
+      </div>
+
+      {/* Confidence bar */}
+      <div className="h-1 rounded-full bg-muted">
+        <div
+          className={`h-1 rounded-full transition-all ${confidenceBarColor}`}
+          style={{ width: `${confidencePct}%` }}
+        />
       </div>
 
       {/* Description */}
@@ -125,7 +172,7 @@ function ConflictCard({
       </div>
 
       {/* Resolution controls */}
-      {!isResolved && (
+      {!isResolved && feedbackMode === "none" && (
         <div className="space-y-2 rounded border border-border/50 bg-muted/20 p-2">
           <div className="flex items-center gap-1.5">
             <Shield className="h-3 w-3 text-muted-foreground" />
@@ -163,6 +210,99 @@ function ConflictCard({
               onClick={() => onResolve(conflict.id, conflict.sourceB.type, scope)}
             >
               Use {KNOWLEDGE_SOURCES[conflict.sourceB.type].label}
+            </Button>
+          </div>
+
+          <div className="flex items-center gap-3 border-t border-border/50 pt-2">
+            <button
+              className="flex items-center gap-1 font-mono text-[10px] text-muted-foreground hover:text-foreground"
+              onClick={() => setFeedbackMode("dismiss")}
+            >
+              <AlertTriangle className="h-2.5 w-2.5" />
+              Not a conflict
+            </button>
+            {onConfirm && (
+              <button
+                className="flex items-center gap-1 font-mono text-[10px] text-muted-foreground hover:text-foreground"
+                onClick={() => setFeedbackMode("confirm")}
+              >
+                <Lightbulb className="h-2.5 w-2.5" />
+                Confirm with feedback
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Dismiss feedback form */}
+      {!isResolved && feedbackMode === "dismiss" && (
+        <div className="space-y-2 rounded border border-amber-500/30 bg-amber-500/5 p-2">
+          <div className="flex items-center gap-1.5">
+            <Lightbulb className="h-3 w-3 text-amber-400" />
+            <span className="font-mono text-xs text-amber-300">
+              Why is this not a conflict? (Teaches Pattern Librarian)
+            </span>
+          </div>
+          <Textarea
+            className="min-h-[60px] font-mono text-xs"
+            placeholder="e.g., These rules apply to different contexts — one is for motors, the other is for valves..."
+            value={feedbackReason}
+            onChange={(e) => setFeedbackReason(e.target.value)}
+          />
+          <div className="flex gap-1.5">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 font-mono text-xs"
+              disabled={!feedbackReason.trim()}
+              onClick={handleDismissSubmit}
+            >
+              Dismiss & Teach
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 font-mono text-xs"
+              onClick={() => { setFeedbackMode("none"); setFeedbackReason(""); }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm feedback form */}
+      {!isResolved && feedbackMode === "confirm" && onConfirm && (
+        <div className="space-y-2 rounded border border-green-500/30 bg-green-500/5 p-2">
+          <div className="flex items-center gap-1.5">
+            <Lightbulb className="h-3 w-3 text-green-400" />
+            <span className="font-mono text-xs text-green-300">
+              Why is this a real conflict? (Teaches Pattern Librarian)
+            </span>
+          </div>
+          <Textarea
+            className="min-h-[60px] font-mono text-xs"
+            placeholder="e.g., Both rules apply to the same block type and they contradict each other on naming..."
+            value={feedbackReason}
+            onChange={(e) => setFeedbackReason(e.target.value)}
+          />
+          <div className="flex gap-1.5">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 font-mono text-xs"
+              disabled={!feedbackReason.trim()}
+              onClick={handleConfirmSubmit}
+            >
+              Confirm & Teach
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 font-mono text-xs"
+              onClick={() => { setFeedbackMode("none"); setFeedbackReason(""); }}
+            >
+              Cancel
             </Button>
           </div>
         </div>

@@ -12,3 +12,5 @@ export * from "./design-profile";
 export * from "./agent-knowledge";
 export * from "./prompt-section";
 export * from "./reference-library";
+export * from "./agent-chat";
+export * from "./conflict-dismissal";

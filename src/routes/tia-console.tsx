@@ -314,6 +314,8 @@ export default function TiaConsolePage() {
     conflicts,
     unresolvedCount,
     resolveConflict,
+    dismissConflict,
+    confirmConflict,
     getResolution,
   } = useKnowledgeConflicts(conflictContext);
 
@@ -536,6 +538,8 @@ export default function TiaConsolePage() {
         onOpenChange={setShowConflictDialog}
         conflicts={conflicts}
         onResolve={resolveConflict}
+        onDismiss={dismissConflict}
+        onConfirm={confirmConflict}
         getResolution={getResolution}
       />
 

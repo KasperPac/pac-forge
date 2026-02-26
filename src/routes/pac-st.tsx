@@ -19,7 +19,7 @@ import {
 import { useConversationHistory, useClearConversation } from "@/hooks/use-conversation";
 import { usePipelineGenerate } from "@/hooks/use-pipeline-generate";
 import { useProcessGenerate } from "@/hooks/use-process-generate";
-import { useFilteredMultiAgentKnowledgeDocs } from "@/hooks/use-agent-knowledge";
+import { useFilteredMultiAgentKnowledgeDocs, useAllAgentKnowledgeDocs } from "@/hooks/use-agent-knowledge";
 import { useCreatePatternCandidate, useActivePatterns } from "@/hooks/use-patterns";
 import { useAuditLog } from "@/hooks/use-audit-log";
 import { useSubmitTiaJob, useBridgeStatus, useTiaJob } from "@/hooks/use-tia-jobs";
@@ -118,21 +118,22 @@ export default function PacStPage() {
   const [showTeachUploadDialog, setShowTeachUploadDialog] = useState(false);
   const [showConflictDialog, setShowConflictDialog] = useState(false);
 
-  // Knowledge conflict detection — only prescriptive sources (design profile + agent knowledge)
+  // Knowledge conflict detection — all knowledge docs, not just session-scoped
+  const { data: allKnowledgeDocs } = useAllAgentKnowledgeDocs();
   const conflictContext = useMemo(() => ({
     patterns: [],
     designProfile: designProfile ?? undefined,
     fbTemplates: [],
-    agentKnowledgeDocs: agentKnowledgeDocs
-      ? Object.values(agentKnowledgeDocs).flat()
-      : [],
+    agentKnowledgeDocs: allKnowledgeDocs ?? [],
     overrides: [],
-  }), [designProfile, agentKnowledgeDocs]);
+  }), [designProfile, allKnowledgeDocs]);
 
   const {
     conflicts,
     unresolvedCount,
     resolveConflict,
+    dismissConflict,
+    confirmConflict,
     getResolution,
   } = useKnowledgeConflicts(conflictContext);
 
@@ -713,6 +714,8 @@ export default function PacStPage() {
         onOpenChange={setShowConflictDialog}
         conflicts={conflicts}
         onResolve={resolveConflict}
+        onDismiss={dismissConflict}
+        onConfirm={confirmConflict}
         getResolution={getResolution}
       />
 
