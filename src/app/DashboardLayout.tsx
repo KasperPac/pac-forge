@@ -13,12 +13,12 @@ const NAV_ITEMS = [
   { to: "/projects", label: "Projects", icon: FolderOpen },
   { to: "/agents", label: "Agents", icon: Bot },
   { to: "/knowledge", label: "Knowledge", icon: GraduationCap },
+  { to: "/reference-library", label: "Reference Library", icon: Library },
   { to: "/pac-st", label: "Pac-ST", icon: Code },
   { to: "/patterns", label: "Patterns", icon: BookOpen },
   { to: "/profiles", label: "Profiles", icon: SlidersHorizontal },
   { to: "/fb-library", label: "FB Library", icon: Layers },
   { to: "/prompts", label: "Prompts", icon: FileText },
-  { to: "/reference-library", label: "Reference Library", icon: Library },
   { to: "/tia-console", label: "TIA Console", icon: Terminal },
 ] as const;
 

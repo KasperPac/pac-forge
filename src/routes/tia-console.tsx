@@ -298,19 +298,17 @@ export default function TiaConsolePage() {
   const { data: promptSections } = useActivePromptSections();
   const pipelineDataReady = !knowledgeLoading && !patternsLoading && !fbLoading;
 
-  // Knowledge conflict detection
+  // Knowledge conflict detection — only prescriptive sources (design profile + agent knowledge)
   const [showConflictDialog, setShowConflictDialog] = useState(false);
-  const conflictContext = useMemo(() => {
-    if (!approvedPatterns) return null;
-    return {
-      patterns: approvedPatterns,
-      designProfile: selectedDesignProfile ?? undefined,
-      fbTemplates: fbTemplates ?? [],
-      agentKnowledgeDocs: allAgentKnowledge
-        ? Object.values(allAgentKnowledge).flat()
-        : [],
-    };
-  }, [approvedPatterns, selectedDesignProfile, fbTemplates, allAgentKnowledge]);
+  const conflictContext = useMemo(() => ({
+    patterns: [],
+    designProfile: selectedDesignProfile ?? undefined,
+    fbTemplates: [],
+    agentKnowledgeDocs: allAgentKnowledge
+      ? Object.values(allAgentKnowledge).flat()
+      : [],
+    overrides: [],
+  }), [selectedDesignProfile, allAgentKnowledge]);
 
   const {
     conflicts,

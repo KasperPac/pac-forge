@@ -8,16 +8,13 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { PatternReviewCard } from "@/components/pattern-review-card";
 import {
   usePatternCandidates,
-  useActivePatterns,
   useApprovePattern,
   useRejectPattern,
   useRevokePattern,
   useDeletePattern,
 } from "@/hooks/use-patterns";
-import { useFbTemplates } from "@/hooks/use-fb-templates";
+import { useDesignProfiles } from "@/hooks/use-design-profiles";
 import { useAllAgentKnowledgeDocs } from "@/hooks/use-agent-knowledge";
-import { useAllReferenceSections } from "@/hooks/use-reference-library";
-import { usePriorityOverrides } from "@/hooks/use-knowledge-priority";
 import { detectConflicts } from "@/lib/conflict-detector";
 import { toast } from "@/hooks/use-toast";
 import { useAuditLog } from "@/hooks/use-audit-log";
@@ -50,28 +47,24 @@ export default function PatternsPage() {
   const { data: patterns, isLoading } = usePatternCandidates(
     statusFilter === "all" || statusFilter === "conflicts" ? undefined : statusFilter
   );
-  const { data: approvedPatterns } = useActivePatterns("SIEMENS_TIA");
-  const { data: fbTemplates } = useFbTemplates();
+  const { data: designProfiles } = useDesignProfiles();
   const { data: allKnowledgeDocs } = useAllAgentKnowledgeDocs();
-  const { data: allRefSections } = useAllReferenceSections();
-  const { data: overrides } = usePriorityOverrides();
   const approvePattern = useApprovePattern();
   const rejectPattern = useRejectPattern();
   const revokePattern = useRevokePattern();
   const deletePattern = useDeletePattern();
   const auditLog = useAuditLog();
 
-  // Run conflict detection on approved patterns
+  // Run conflict detection — only prescriptive sources (design profile + agent knowledge)
   const conflicts = useMemo(() => {
-    if (!approvedPatterns) return [];
     return detectConflicts({
-      patterns: approvedPatterns,
-      fbTemplates: fbTemplates ?? [],
+      patterns: [],
+      designProfile: designProfiles?.[0],
+      fbTemplates: [],
       agentKnowledgeDocs: allKnowledgeDocs ?? [],
-      referenceSections: allRefSections ?? [],
-      overrides: overrides ?? [],
+      overrides: [],
     });
-  }, [approvedPatterns, fbTemplates, allKnowledgeDocs, allRefSections, overrides]);
+  }, [designProfiles, allKnowledgeDocs]);
 
   // Build a map: pattern ID → conflict description
   const conflictMap = useMemo(() => {

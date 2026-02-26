@@ -19,6 +19,10 @@ export interface AgentProfile {
   skills: string[];
   whenToUse: string[];
   whyUseful: string;
+  /** Types of knowledge this agent should receive during PM distribution. */
+  knowledgeScope: string[];
+  /** Types of knowledge this agent should NOT receive. */
+  knowledgeExclusions: string[];
 }
 
 const PROFILES: Record<string, AgentProfile> = {
@@ -47,6 +51,18 @@ const PROFILES: Record<string, AgentProfile> = {
     ],
     whyUseful:
       "Eliminates hours of manual SCL typing and reduces copy-paste errors. The Code Architect ensures every generated block follows your project's conventions and is ready for direct TIA Portal import, cutting initial development time significantly.",
+    knowledgeScope: [
+      "SCL syntax and language features",
+      "Block structure patterns (FB, FC, DB, UDT)",
+      "Data type references and usage",
+      "TIA Portal import/export conventions",
+      "Code generation patterns and best practices",
+    ],
+    knowledgeExclusions: [
+      "Project management methodology",
+      "Safety regulation text (not code patterns)",
+      "IO hardware specifications and datasheets",
+    ],
   },
   "PLC Standards Enforcer": {
     icon: ShieldCheck,
@@ -73,6 +89,17 @@ const PROFILES: Record<string, AgentProfile> = {
     ],
     whyUseful:
       "Catches standards violations early, before they cause issues during commissioning. Consistent code style across the entire project reduces maintenance burden and makes handoffs between engineers smoother.",
+    knowledgeScope: [
+      "Naming conventions and coding standards",
+      "IEC 61131-3 compliance rules",
+      "Code style guidelines and anti-pattern documentation",
+      "TIA Portal version compatibility notes",
+    ],
+    knowledgeExclusions: [
+      "Raw hardware datasheets",
+      "Project management methodology",
+      "Basic SCL syntax reference",
+    ],
   },
   "IO Validator": {
     icon: Cable,
@@ -99,6 +126,17 @@ const PROFILES: Record<string, AgentProfile> = {
     ],
     whyUseful:
       "IO mismatches are among the most time-consuming errors to debug on-site. The IO Validator catches these issues at generation time, preventing costly commissioning delays and reducing field troubleshooting.",
+    knowledgeScope: [
+      "IO module specifications and addressing",
+      "Hardware configuration guides",
+      "Signal type references (analog, digital, special)",
+      "Module slot and channel mappings",
+    ],
+    knowledgeExclusions: [
+      "SCL programming patterns",
+      "Naming conventions",
+      "Project management methodology",
+    ],
   },
   "Safety Auditor": {
     icon: ShieldAlert,
@@ -125,6 +163,18 @@ const PROFILES: Record<string, AgentProfile> = {
     ],
     whyUseful:
       "Safety defects in PLC code can lead to equipment damage, injury, or worse. The Safety Auditor provides an automated first-pass review that catches common safety issues, supporting your compliance obligations and protecting personnel.",
+    knowledgeScope: [
+      "Safety standards and regulations (IEC 62061, ISO 13849)",
+      "Safety function block documentation",
+      "Emergency stop circuit patterns",
+      "SIL/PL requirements and verification",
+      "Safety-related PLC features (F-CPU, F-blocks)",
+    ],
+    knowledgeExclusions: [
+      "General naming conventions",
+      "Non-safety SCL patterns",
+      "Project management methodology",
+    ],
   },
   "Pattern Librarian": {
     icon: Library,
@@ -151,6 +201,16 @@ const PROFILES: Record<string, AgentProfile> = {
     ],
     whyUseful:
       "Transforms every manual code correction into a lasting improvement. The Pattern Librarian ensures the system learns from your engineering judgment, making each generation cycle more aligned with your standards and reducing the need for repetitive edits.",
+    knowledgeScope: [
+      "Correction classification guidelines",
+      "Code quality metrics",
+      "Common SCL anti-patterns",
+    ],
+    knowledgeExclusions: [
+      "Raw hardware specifications",
+      "Project management methodology",
+      "Full SCL language references",
+    ],
   },
   "Project Manager": {
     icon: ClipboardList,
@@ -177,6 +237,16 @@ const PROFILES: Record<string, AgentProfile> = {
     ],
     whyUseful:
       "Transforms a collection of independent agents into a coordinated team. The Project Manager ensures each specialist focuses on what they do best, catches conflicts between reviewers early, and gives you a clear picture of the generation pipeline's output — so you can make informed decisions about the generated code.",
+    knowledgeScope: [
+      "Pipeline orchestration patterns",
+      "Project planning and task decomposition",
+      "Cross-agent coordination guidelines",
+    ],
+    knowledgeExclusions: [
+      "Detailed SCL syntax references",
+      "Hardware specifications",
+      "Safety regulation text",
+    ],
   },
 };
 
@@ -192,6 +262,8 @@ const FALLBACK_PROFILE: AgentProfile = {
   whenToUse: ["General-purpose tasks"],
   whyUseful:
     "Provides flexible assistance when no specialized agent is required.",
+  knowledgeScope: ["General reference material"],
+  knowledgeExclusions: [],
 };
 
 export function getAgentProfile(displayName: string): AgentProfile {

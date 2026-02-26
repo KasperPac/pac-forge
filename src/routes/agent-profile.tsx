@@ -390,34 +390,29 @@ export default function AgentProfilePage() {
           <div className="mt-4 space-y-2">
             {knowledgeDocs.map((doc) => {
               const isExpanded = expandedDocs.has(doc.id);
-              const snippet = doc.content.length > 200
-                ? doc.content.slice(0, 200) + "..."
-                : doc.content;
 
               return (
                 <div
                   key={doc.id}
                   className="rounded-md border"
                 >
-                  <div className="flex items-center gap-3 px-3 py-2.5">
-                    <button
-                      type="button"
-                      className="shrink-0 text-muted-foreground hover:text-foreground"
-                      onClick={() =>
-                        setExpandedDocs((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(doc.id)) next.delete(doc.id);
-                          else next.add(doc.id);
-                          return next;
-                        })
-                      }
-                    >
-                      {isExpanded ? (
-                        <ChevronDown className="h-4 w-4" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4" />
-                      )}
-                    </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-accent/30"
+                    onClick={() =>
+                      setExpandedDocs((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(doc.id)) next.delete(doc.id);
+                        else next.add(doc.id);
+                        return next;
+                      })
+                    }
+                  >
+                    {isExpanded ? (
+                      <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    )}
                     <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
@@ -429,51 +424,52 @@ export default function AgentProfilePage() {
                           {doc.source_upload_id ? "PM Distribution" : "Direct Upload"}
                         </Badge>
                       </div>
-                      <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
-                        {doc.source_filename && (
-                          <>
-                            <span>{doc.source_filename}</span>
-                            <span>&middot;</span>
-                          </>
-                        )}
-                        <span>{doc.word_count.toLocaleString()} words</span>
-                        <span>&middot;</span>
-                        <span>{doc.file_type.toUpperCase()}</span>
-                      </div>
-                      {doc.distribution_reasoning && (
-                        <div className="mt-0.5 font-mono text-[10px] italic text-muted-foreground/70">
-                          PM: {doc.distribution_reasoning}
-                        </div>
-                      )}
                     </div>
                     <Button
                       variant="ghost"
                       size="sm"
                       className="h-7 w-7 shrink-0 p-0 text-muted-foreground hover:text-destructive"
-                      onClick={() => deleteDoc.mutate({ id: doc.id, agentId: agent.id })}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteDoc.mutate({ id: doc.id, agentId: agent.id });
+                      }}
                       disabled={deleteDoc.isPending}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
-                  </div>
+                  </button>
 
-                  {/* Content preview — always show snippet, expand for full */}
-                  {!isExpanded && doc.content && (
-                    <div className="border-t px-3 py-2">
-                      <p className="line-clamp-3 font-mono text-xs leading-relaxed text-muted-foreground">
-                        {snippet}
+                  {/* Content — always visible */}
+                  <div className="border-t px-3 py-2">
+                    {!isExpanded ? (
+                      <p className="line-clamp-3 font-mono text-xs leading-relaxed text-foreground/80">
+                        {doc.content}
                       </p>
-                    </div>
-                  )}
-                  {isExpanded && doc.content && (
-                    <div className="border-t px-3 py-2">
+                    ) : (
                       <div className="max-h-48 overflow-y-auto rounded-md bg-muted/50 p-3">
                         <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed">
                           {doc.content}
                         </pre>
                       </div>
+                    )}
+                    <div className="mt-1.5 flex items-center gap-2 font-mono text-[10px] text-muted-foreground/60">
+                      {doc.source_filename && (
+                        <>
+                          <span>{doc.source_filename}</span>
+                          <span>&middot;</span>
+                        </>
+                      )}
+                      <span>{doc.word_count.toLocaleString()} words</span>
+                      <span>&middot;</span>
+                      <span>{doc.file_type.toUpperCase()}</span>
+                      {doc.distribution_reasoning && (
+                        <>
+                          <span>&middot;</span>
+                          <span className="italic">PM: {doc.distribution_reasoning}</span>
+                        </>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
               );
             })}

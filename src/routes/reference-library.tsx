@@ -194,8 +194,10 @@ export default function ReferenceLibraryPage() {
             Reference Library
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Upload large reference documents. Agents automatically look up
-            relevant sections during code generation and review.
+            The canonical source for platform-specific technical documentation.
+            Upload Siemens manuals, SCL function references, and PLC model
+            specifications here. Agents automatically look up relevant sections
+            during code generation and review.
           </p>
         </div>
         <Button
@@ -225,6 +227,24 @@ export default function ReferenceLibraryPage() {
       </div>
 
       <Separator />
+
+      {/* Guidance card */}
+      <Card className="border-primary/20 bg-primary/5 px-4 py-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-primary">
+          What belongs here
+        </h3>
+        <ul className="mt-1.5 space-y-1 font-mono text-xs text-muted-foreground">
+          <li>Siemens TIA Portal manuals and programming guides</li>
+          <li>SCL language references and built-in function documentation</li>
+          <li>PLC model specifications (S7-1200, S7-1500 feature matrices)</li>
+          <li>IEC 61131-3 standard excerpts</li>
+          <li>Hardware module datasheets with addressing details</li>
+        </ul>
+        <p className="mt-2 font-mono text-[10px] text-muted-foreground/70">
+          For project-specific rules and operational guidelines, use the{" "}
+          <span className="text-primary">Knowledge</span> page instead.
+        </p>
+      </Card>
 
       {/* Upload error */}
       {uploadError && (

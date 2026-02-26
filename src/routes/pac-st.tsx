@@ -118,18 +118,16 @@ export default function PacStPage() {
   const [showTeachUploadDialog, setShowTeachUploadDialog] = useState(false);
   const [showConflictDialog, setShowConflictDialog] = useState(false);
 
-  // Knowledge conflict detection
-  const conflictContext = useMemo(() => {
-    if (!approvedPatterns) return null;
-    return {
-      patterns: approvedPatterns,
-      designProfile: designProfile ?? undefined,
-      fbTemplates: fbTemplates ?? [],
-      agentKnowledgeDocs: agentKnowledgeDocs
-        ? Object.values(agentKnowledgeDocs).flat()
-        : [],
-    };
-  }, [approvedPatterns, designProfile, fbTemplates, agentKnowledgeDocs]);
+  // Knowledge conflict detection — only prescriptive sources (design profile + agent knowledge)
+  const conflictContext = useMemo(() => ({
+    patterns: [],
+    designProfile: designProfile ?? undefined,
+    fbTemplates: [],
+    agentKnowledgeDocs: agentKnowledgeDocs
+      ? Object.values(agentKnowledgeDocs).flat()
+      : [],
+    overrides: [],
+  }), [designProfile, agentKnowledgeDocs]);
 
   const {
     conflicts,

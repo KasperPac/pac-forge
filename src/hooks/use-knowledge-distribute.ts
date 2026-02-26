@@ -21,13 +21,13 @@ const KNOWLEDGE_DOCS_KEY = ["agent-knowledge"] as const;
 const TWO_PASS_THRESHOLD = 80_000;
 
 /** Max characters per chunk when processing sections. */
-const CHUNK_CHAR_LIMIT = 30_000;
+const CHUNK_CHAR_LIMIT = 60_000;
 
 /** Preview chars per section in the table of contents. */
-const SECTION_PREVIEW_CHARS = 200;
+const SECTION_PREVIEW_CHARS = 600;
 
 /** Max tokens for PM distribution responses. */
-const DISTRIBUTION_MAX_TOKENS = 16_384;
+const DISTRIBUTION_MAX_TOKENS = 32_768;
 
 // ---- Queries ----
 
@@ -229,10 +229,28 @@ function buildAgentDescriptions(agents: Agent[]): string {
     .filter((a) => !a.specialties.includes("ORCHESTRATE"))
     .map((a) => {
       const profile = getAgentProfile(a.display_name);
-      return `- **${a.display_name}** (ID: ${a.id}): ${profile.tagline}. Skills: ${profile.skills.join(", ")}`;
+      const scopeList = profile.knowledgeScope.map((s) => `    + ${s}`).join("\n");
+      const excludeList = profile.knowledgeExclusions.map((s) => `    - ${s}`).join("\n");
+      return [
+        `- **${a.display_name}** (ID: ${a.id}): ${profile.tagline}`,
+        `  Relevant knowledge:`,
+        scopeList,
+        ...(excludeList ? [`  NOT relevant:`, excludeList] : []),
+      ].join("\n");
     })
-    .join("\n");
+    .join("\n\n");
 }
+
+const DISTRIBUTION_RULES = `
+## Distribution Rules
+- Be SELECTIVE. Not every agent needs content from every document.
+- Match content to each agent's "Relevant knowledge" list. Skip agents whose scope does not match.
+- If content is generic SCL reference material (syntax, built-in functions), it belongs with the Code Architect only.
+- If content is about safety standards/regulations, it belongs with the Safety Auditor only.
+- Hardware IO specifications go to IO Validator only.
+- Do NOT distribute the same content to multiple agents unless it genuinely serves different purposes for each.
+- When in doubt, distribute to FEWER agents rather than more.`;
+
 
 // ---- Pass 1: Structure scan (large docs only) ----
 
@@ -254,12 +272,16 @@ async function scanStructure(
 
 ## Available Agents
 ${agentDesc}
+${DISTRIBUTION_RULES}
 
 ## Instructions
-1. Review each section's heading and preview text.
-2. For each agent, list which section NUMBERS contain content relevant to their specialty.
-3. Be selective — skip boilerplate, table of contents, indexes, appendixes.
-4. Respond with ONLY a JSON array. No other text.
+1. Review each section's heading and preview text carefully.
+2. For each agent, list which section NUMBERS contain content relevant to their specialty and "Relevant knowledge" list.
+3. Be selective — skip boilerplate, table of contents, indexes, appendixes, and generic introductions.
+4. Skip agents whose scope does not match the document's content.
+5. Note: Some sections may have generic headings like "Section 1" — judge relevance by the preview content, not the heading.
+6. When in doubt about a section's relevance, INCLUDE it — we can filter later. It's better to capture useful content than to miss it.
+7. Respond with ONLY a JSON array. No other text.
 
 Response format:
 [
@@ -304,19 +326,22 @@ async function extractFromSections(
 
 ## Available Agents
 ${agentDesc}
+${DISTRIBUTION_RULES}
 
 ## Instructions
-1. For each agent, extract ONLY content relevant to their specialty.
-2. Keep extracted content concise — summarize into key rules, patterns, and reference information.
-3. If a section is relevant to multiple agents, include it for each.
-4. For each extracted section, determine which PLC CPU models it applies to.
+1. For each agent, extract ONLY content that matches their "Relevant knowledge" list.
+2. **PRESERVE COMPLETE CONTENT** — include all relevant details, code examples, parameter tables, constraints, and technical specifications. Do NOT summarize or condense. The agents need the full information to do their jobs correctly. Longer extractions are fine.
+3. Create a **descriptive title** that clearly identifies the topic (e.g., "SCL Timer Function Reference", "S7-1500 Memory Addressing Rules"). Do NOT use generic titles like "Section 1" or "Part 2".
+4. If a document section covers multiple distinct topics relevant to the same agent, split them into SEPARATE entries with distinct titles.
+5. Only include content for multiple agents if it genuinely serves different purposes for each.
+6. For each extracted section, determine which PLC CPU models it applies to.
    Valid CPU values: "S7-1200", "S7-1200F", "S7-1500", "S7-1500F", "S7-1500T", "S7-1500TF"
    Use "ALL" if the content applies to all CPU models or if no specific CPU is mentioned.
-5. Respond with ONLY a JSON array. No other text.
+7. Respond with ONLY a JSON array. No other text.
 
 Response format:
 [
-  { "agent_id": "<uuid>", "agent_name": "<name>", "title": "<short title>", "content": "<extracted knowledge>", "reasoning": "<why relevant>", "compatible_cpus": ["ALL"] }
+  { "agent_id": "<uuid>", "agent_name": "<name>", "title": "<descriptive topic title>", "content": "<full extracted knowledge — include all details, examples, tables>", "reasoning": "<why relevant>", "compatible_cpus": ["ALL"] }
 ]
 
 If nothing is relevant, respond with: []`;
@@ -350,19 +375,22 @@ async function distributeSmallDoc(
 
 ## Available Agents
 ${agentDesc}
+${DISTRIBUTION_RULES}
 
 ## Instructions
-1. For each agent, extract ONLY sections directly relevant to their specialty.
-2. If a section is relevant to multiple agents, include it for each.
-3. Keep extracted content concise — summarize into key rules and reference information.
-4. For each extracted section, determine which PLC CPU models it applies to.
+1. For each agent, extract ONLY sections that match their "Relevant knowledge" list.
+2. **PRESERVE COMPLETE CONTENT** — include all relevant details, code examples, parameter tables, constraints, and technical specifications. Do NOT summarize or condense. The agents need the full information to do their jobs correctly. Longer extractions are fine.
+3. Create a **descriptive title** that clearly identifies the topic (e.g., "SCL Timer Function Reference", "S7-1500 Memory Addressing Rules"). Do NOT use generic titles like "Section 1" or "Part 2".
+4. If a document covers multiple distinct topics relevant to the same agent, split them into SEPARATE entries with distinct titles.
+5. Only include content for multiple agents if it genuinely serves different purposes for each.
+6. For each extracted section, determine which PLC CPU models it applies to.
    Valid CPU values: "S7-1200", "S7-1200F", "S7-1500", "S7-1500F", "S7-1500T", "S7-1500TF"
    Use "ALL" if the content applies to all CPU models or if no specific CPU is mentioned.
-5. Respond with ONLY a JSON array. No other text.
+7. Respond with ONLY a JSON array. No other text.
 
 Response format:
 [
-  { "agent_id": "<uuid>", "agent_name": "<name>", "title": "<short title>", "content": "<extracted knowledge>", "reasoning": "<why relevant>", "compatible_cpus": ["ALL"] }
+  { "agent_id": "<uuid>", "agent_name": "<name>", "title": "<descriptive topic title>", "content": "<full extracted knowledge — include all details, examples, tables>", "reasoning": "<why relevant>", "compatible_cpus": ["ALL"] }
 ]
 
 If nothing is relevant, respond with: []`;
@@ -533,6 +561,7 @@ export function useConfirmDistribution() {
           doc_id: doc.id,
           title: dist.title,
           reasoning: dist.reasoning,
+          content_preview: dist.content.slice(0, 300),
         });
       }
 
@@ -570,7 +599,3 @@ export function useCancelUpload() {
     },
   });
 }
-
-// ---- Legacy single-shot hook (kept for backward compat, used by nothing now) ----
-
-export { useKnowledgeUploads as _useKnowledgeUploads };

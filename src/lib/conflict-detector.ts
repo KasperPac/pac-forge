@@ -1,14 +1,21 @@
 /**
- * Deterministic conflict detection between knowledge sources.
+ * Deterministic conflict detection across prescriptive knowledge sources.
  *
- * Runs before prompt assembly to flag contradictions between:
- * - Pattern vs Pattern (same category + device, different correction)
- * - Pattern vs Design Profile (keyword overlap with contradictory guidance)
- * - Pattern vs FB Template (structural contradiction for same device)
- * - Agent Knowledge vs Design Profile (keyword overlap)
- * - Agent Knowledge vs Pattern (keyword overlap with different guidance)
- * - Reference Library vs Design Profile (keyword overlap)
- * - Reference Library vs Pattern (keyword overlap with different guidance)
+ * Only scans sources that express prescriptive rules (Design Profiles,
+ * Agent Knowledge Docs). Descriptive sources like correction patterns,
+ * FB templates, and reference library sections are excluded because they
+ * describe facts or past fixes, not mandates — scanning them produces
+ * false positives.
+ *
+ * Detection strategy:
+ * 1. Normalize prescriptive sources into comparable text blocks
+ * 2. Extract "stance phrases" — what each source mandates or prohibits
+ * 3. Flag when two sources take opposite stances on the same subject
+ *    (e.g., "always prefix inputs with i_" vs "never prefix inputs")
+ *
+ * A "conflict" requires:
+ * - Both sources mention the same subject/topic
+ * - One source mandates it (positive) and another prohibits it (negative)
  */
 
 import type { PatternCandidate, DesignProfile, FbTemplate, AgentKnowledgeDoc, ReferenceLibrarySection } from "@/types";
@@ -46,82 +53,187 @@ export interface ConflictDetectionContext {
   overrides: KnowledgePriorityOverride[];
 }
 
-// --- SCL-specific vocabulary for keyword matching ---
+// --- Stance extraction ---
 
-const NAMING_TERMS = [
-  "stat", "inst", "temp", "prefix", "suffix", "naming", "convention",
-  "FB_", "FC_", "UDT_", "DB_", "iDB_", "OB_", "camelCase", "snake_case",
-  "PascalCase", "lowercase", "uppercase",
+/** Positive mandate indicators — the source says DO this. */
+const POSITIVE_INDICATORS = [
+  "always", "must", "shall", "should", "require", "mandatory",
+  "use", "prefix", "include", "add", "ensure", "apply",
 ];
 
-const TIMER_TERMS = [
-  "TON", "TOF", "TP", "TONR", "timer", "T#", "delay", "pulse",
-  "IEC_Timer", "IEC_TIMER",
+/** Negative mandate indicators — the source says DON'T do this. */
+const NEGATIVE_INDICATORS = [
+  "never", "don't", "do not", "must not", "shall not", "should not",
+  "avoid", "no ", "without", "remove", "exclude", "not required",
+  "not necessary", "unnecessary", "don't use", "do not use",
+  "no prefix", "no suffix",
 ];
-
-const STATE_TERMS = [
-  "CASE", "state", "machine", "ELSE", "enum", "transition",
-  "statState", "step", "sequence",
-];
-
-const IO_TERMS = [
-  "%I", "%Q", "%M", "%IW", "%QW", "%MW", "io_mapping", "IO",
-  "address", "tag", "input", "output",
-];
-
-const SAFETY_TERMS = [
-  "interlock", "safety", "e-stop", "estop", "emergency", "fault",
-  "safeguard", "F-",
-];
-
-const ALARM_TERMS = [
-  "alarm", "reset", "latch", "acknowledge", "fault_handling",
-];
-
-/** Map correction types to their relevant term lists. */
-const CATEGORY_TERMS: Record<string, string[]> = {
-  NAMING: NAMING_TERMS,
-  TIMING: TIMER_TERMS,
-  STATE_LOGIC: STATE_TERMS,
-  IO_MAPPING: IO_TERMS,
-  SAFETY: SAFETY_TERMS,
-  ALARM: ALARM_TERMS,
-};
 
 /**
- * Extract relevant terms from a text string, case-insensitive.
- * Returns the set of matched terms from our vocabulary.
+ * A stance extracted from a source: a subject + whether the source
+ * is for or against it.
  */
-function extractTerms(text: string): Set<string> {
-  const found = new Set<string>();
-  const lower = text.toLowerCase();
-  for (const terms of Object.values(CATEGORY_TERMS)) {
-    for (const term of terms) {
-      if (lower.includes(term.toLowerCase())) {
-        found.add(term.toLowerCase());
-      }
-    }
-  }
-  return found;
+interface Stance {
+  /** The subject phrase (lowercased, normalized) */
+  subject: string;
+  /** Whether the source mandates (true) or prohibits (false) this subject */
+  positive: boolean;
+  /** The original sentence containing this stance */
+  sentence: string;
+  /** Best-guess correction category */
+  category: CorrectionType | "GENERAL";
 }
 
 /**
- * Determine which correction category a set of terms most aligns with.
+ * Subject keywords and the categories they belong to.
  */
-function inferCategory(terms: Set<string>): CorrectionType | null {
-  let best: CorrectionType | null = null;
-  let bestCount = 0;
-  for (const [cat, catTerms] of Object.entries(CATEGORY_TERMS)) {
-    let count = 0;
-    for (const t of catTerms) {
-      if (terms.has(t.toLowerCase())) count++;
-    }
-    if (count > bestCount) {
-      bestCount = count;
-      best = cat as CorrectionType;
+const SUBJECT_CATEGORIES: Array<{ pattern: RegExp; category: CorrectionType }> = [
+  { pattern: /\b(prefix|suffix|naming|camelcase|snake.?case|pascal.?case|convention|variable.?name)\b/i, category: "NAMING" },
+  { pattern: /\b(timer|ton|tof|tp|t#|delay|pulse|pt\b)/i, category: "TIMING" },
+  { pattern: /\b(state|case\b|machine|enum|transition|sequence|step)\b/i, category: "STATE_LOGIC" },
+  { pattern: /\b(io|input|output|%[IQ]|address|tag|mapping)\b/i, category: "IO_MAPPING" },
+  { pattern: /\b(safety|interlock|e.?stop|emergency|safeguard)\b/i, category: "SAFETY" },
+  { pattern: /\b(alarm|reset|latch|acknowledge|fault)\b/i, category: "ALARM" },
+];
+
+function inferCategory(text: string): CorrectionType | "GENERAL" {
+  for (const { pattern, category } of SUBJECT_CATEGORIES) {
+    if (pattern.test(text)) return category;
+  }
+  return "GENERAL";
+}
+
+/**
+ * Split text into sentences (handles common separators in teachings/docs).
+ */
+function splitSentences(text: string): string[] {
+  // Split on periods, newlines, semicolons, bullet points
+  return text
+    .split(/(?:\.\s+|\n+|;\s*|(?:^|\n)\s*[-•*]\s*)/g)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 10); // Skip very short fragments
+}
+
+/**
+ * Extract the "subject" from a sentence — what it's talking about.
+ * Returns a normalized key that can be compared across sources.
+ *
+ * Strategy: find the noun phrase after the mandate verb.
+ * "always prefix inputs with i_" → "prefix inputs"
+ * "never use TON timers" → "use ton timers"
+ * "do not include PT parameter" → "include pt parameter"
+ */
+function extractSubject(sentence: string): string | null {
+  const lower = sentence.toLowerCase().trim();
+
+  // Try to extract what comes after the mandate/prohibition word
+  // Pattern: [mandate word] [subject phrase]
+  const mandatePatterns = [
+    // Negative first (longer patterns match first to avoid "use" matching inside "do not use")
+    /(?:never|don't|do not|must not|shall not|should not|avoid)\s+(.{5,60})/i,
+    /(?:no\s+)(.{3,60})/i,
+    /(?:without)\s+(.{3,60})/i,
+    /(?:not required|not necessary|unnecessary)\s*(?:to\s+)?(.{3,60})/i,
+    // Positive
+    /(?:always|must|shall|should|require)\s+(.{5,60})/i,
+    /(?:ensure|make sure)\s+(?:that\s+)?(.{5,60})/i,
+  ];
+
+  for (const re of mandatePatterns) {
+    const m = lower.match(re);
+    if (m?.[1]) {
+      // Clean up the extracted subject
+      return m[1]
+        .replace(/[.,;:!?]+$/, "") // trim trailing punctuation
+        .replace(/\s+/g, " ")
+        .trim();
     }
   }
-  return best;
+
+  return null;
+}
+
+/**
+ * Extract stances from a text — what it mandates and what it prohibits.
+ */
+function extractStances(text: string): Stance[] {
+  const stances: Stance[] = [];
+  const sentences = splitSentences(text);
+
+  for (const sentence of sentences) {
+    const lower = sentence.toLowerCase();
+
+    // Determine if this sentence is positive or negative
+    let isNegative = false;
+    for (const neg of NEGATIVE_INDICATORS) {
+      if (lower.includes(neg)) {
+        isNegative = true;
+        break;
+      }
+    }
+
+    let isPositive = false;
+    if (!isNegative) {
+      for (const pos of POSITIVE_INDICATORS) {
+        if (lower.includes(pos)) {
+          isPositive = true;
+          break;
+        }
+      }
+    }
+
+    // Skip sentences that don't express a clear stance
+    if (!isPositive && !isNegative) continue;
+
+    // Extract the subject
+    const subject = extractSubject(sentence);
+    if (!subject) continue;
+
+    const category = inferCategory(subject);
+
+    stances.push({
+      subject,
+      positive: !isNegative,
+      sentence,
+      category,
+    });
+  }
+
+  return stances;
+}
+
+/**
+ * Check if two subjects are similar enough to be about the same thing.
+ * Uses word overlap — if >50% of the words in the shorter subject
+ * appear in the longer one, they're about the same topic.
+ */
+function subjectsSimilar(a: string, b: string): boolean {
+  const aWords = new Set(a.split(/\s+/).filter((w) => w.length > 2));
+  const bWords = new Set(b.split(/\s+/).filter((w) => w.length > 2));
+
+  if (aWords.size === 0 || bWords.size === 0) return false;
+
+  // Count overlapping words
+  let overlap = 0;
+  const smaller = aWords.size <= bWords.size ? aWords : bWords;
+  const larger = aWords.size <= bWords.size ? bWords : aWords;
+
+  for (const word of smaller) {
+    if (larger.has(word)) overlap++;
+  }
+
+  // Need >50% of the smaller set to overlap
+  return overlap / smaller.size > 0.5;
+}
+
+// --- Source normalization ---
+
+interface NormalizedSource {
+  type: KnowledgeSource;
+  id: string;
+  label: string;
+  text: string;
+  displayExcerpt: string;
 }
 
 /** Truncate text to a reasonable excerpt length. */
@@ -139,514 +251,135 @@ function nextConflictId(): string {
 }
 
 /**
- * Detect conflicts between all knowledge sources.
+ * Normalize knowledge sources into a flat list of comparable text blocks.
+ *
+ * Only sources that express **prescriptive rules** are scanned:
+ * - Design Profile — user-written mandates and conventions
+ * - Agent Knowledge Docs — may contain operational rules distributed by PM
+ *
+ * Sources NOT scanned (they don't express mandates):
+ * - Correction Patterns — descriptive text about past fixes (WRONG/CORRECT pairs)
+ * - FB Templates — structural descriptions, not prescriptive rules
+ * - Reference Library — factual technical documentation
  */
-export function detectConflicts(ctx: ConflictDetectionContext): KnowledgeConflict[] {
-  // Reset ID counter for deterministic results
-  conflictIdCounter = 0;
+function normalizeSources(ctx: ConflictDetectionContext): NormalizedSource[] {
+  const sources: NormalizedSource[] = [];
 
-  const conflicts: KnowledgeConflict[] = [];
-
-  // 1. Pattern vs Pattern — same (correction_type, device_type) but different corrections
-  conflicts.push(...detectPatternVsPattern(ctx.patterns, ctx.overrides));
-
-  // 2. Pattern vs Design Profile
-  if (ctx.designProfile?.rules) {
-    conflicts.push(...detectPatternVsDesignProfile(ctx.patterns, ctx.designProfile, ctx.overrides));
+  // Design Profile — prescriptive rules, scan for stances
+  if (ctx.designProfile?.rules?.trim()) {
+    sources.push({
+      type: "DESIGN_PROFILE",
+      id: ctx.designProfile.id,
+      label: `Design Profile: ${ctx.designProfile.name}`,
+      text: ctx.designProfile.rules,
+      displayExcerpt: excerpt(ctx.designProfile.rules),
+    });
   }
 
-  // 3. Pattern vs FB Template
-  conflicts.push(...detectPatternVsFbTemplate(ctx.patterns, ctx.fbTemplates, ctx.overrides));
-
-  // 4. Agent Knowledge vs Design Profile
-  if (ctx.designProfile?.rules && ctx.agentKnowledgeDocs.length > 0) {
-    conflicts.push(...detectKnowledgeVsDesignProfile(ctx.agentKnowledgeDocs, ctx.designProfile, ctx.overrides));
+  // Agent Knowledge Docs — may contain operational rules, scan for stances
+  for (const doc of ctx.agentKnowledgeDocs) {
+    sources.push({
+      type: "AGENT_KNOWLEDGE",
+      id: doc.id,
+      label: `Knowledge: ${doc.title}`,
+      text: [doc.title, doc.content].join("\n"),
+      displayExcerpt: excerpt(doc.content),
+    });
   }
 
-  // 5. Agent Knowledge vs Pattern
-  if (ctx.agentKnowledgeDocs.length > 0) {
-    conflicts.push(...detectKnowledgeVsPattern(ctx.agentKnowledgeDocs, ctx.patterns, ctx.overrides));
-  }
-
-  // 6. Reference Library vs Design Profile
-  const refSections = ctx.referenceSections ?? [];
-  if (ctx.designProfile?.rules && refSections.length > 0) {
-    conflicts.push(...detectRefLibraryVsDesignProfile(refSections, ctx.designProfile, ctx.overrides));
-  }
-
-  // 7. Reference Library vs Pattern
-  if (refSections.length > 0) {
-    conflicts.push(...detectRefLibraryVsPattern(refSections, ctx.patterns, ctx.overrides));
-  }
-
-  return conflicts;
+  return sources;
 }
 
 /**
- * Two approved patterns with same correction_type + device_type but
- * meaningfully different corrected snippets.
+ * Detect conflicts across ALL knowledge sources.
+ *
+ * Strategy:
+ * 1. Normalize every knowledge source into a text block
+ * 2. Extract "stances" from each — what it mandates and what it prohibits
+ * 3. Compare stances across all source pairs
+ * 4. Flag when source A mandates something that source B prohibits (or vice versa)
+ *    about the same subject
  */
-function detectPatternVsPattern(
-  patterns: PatternCandidate[],
-  overrides: KnowledgePriorityOverride[],
-): KnowledgeConflict[] {
+export function detectConflicts(ctx: ConflictDetectionContext): KnowledgeConflict[] {
+  conflictIdCounter = 0;
+
+  const sources = normalizeSources(ctx);
   const conflicts: KnowledgeConflict[] = [];
-  const approved = patterns.filter((p) => p.status === "APPROVED");
 
-  // Group by (correction_type, device_type)
-  const groups = new Map<string, PatternCandidate[]>();
-  for (const p of approved) {
-    const key = `${p.correction_type}:${p.device_type}`;
-    const group = groups.get(key) ?? [];
-    group.push(p);
-    groups.set(key, group);
-  }
+  // Extract stances for each source
+  const sourceStances = sources.map((s) => ({
+    source: s,
+    stances: extractStances(s.text),
+  }));
 
-  for (const [, group] of groups) {
-    if (group.length < 2) continue;
+  // Track already-flagged pairs to avoid duplicates
+  const flagged = new Set<string>();
 
-    // Compare each pair for contradictions
-    for (let i = 0; i < group.length; i++) {
-      for (let j = i + 1; j < group.length; j++) {
-        const a = group[i];
-        const b = group[j];
+  // Compare stances across every source pair
+  for (let i = 0; i < sourceStances.length; i++) {
+    for (let j = i + 1; j < sourceStances.length; j++) {
+      const a = sourceStances[i];
+      const b = sourceStances[j];
 
-        // Skip if both have empty corrected snippets
-        if (!a.corrected_snippet && !b.corrected_snippet) continue;
+      for (const stanceA of a.stances) {
+        for (const stanceB of b.stances) {
+          // Skip if same polarity — both mandate or both prohibit
+          if (stanceA.positive === stanceB.positive) continue;
 
-        // If both have corrected snippets and they're meaningfully different
-        if (a.corrected_snippet && b.corrected_snippet) {
-          const aNorm = a.corrected_snippet.replace(/\s+/g, " ").trim().toLowerCase();
-          const bNorm = b.corrected_snippet.replace(/\s+/g, " ").trim().toLowerCase();
+          // Skip if subjects aren't similar
+          if (!subjectsSimilar(stanceA.subject, stanceB.subject)) continue;
 
-          if (aNorm === bNorm) continue; // Same correction, no conflict
+          // Deduplicate — one conflict per source pair per subject
+          const pairKey = [a.source.id, b.source.id].sort().join(":");
+          const conflictKey = `${pairKey}:${stanceA.subject}`;
+          if (flagged.has(conflictKey)) continue;
+          flagged.add(conflictKey);
 
-          // Check if the terms overlap significantly (same topic, different answer)
-          const aTerms = extractTerms(a.corrected_snippet + " " + a.explanation_tag);
-          const bTerms = extractTerms(b.corrected_snippet + " " + b.explanation_tag);
-          const overlap = new Set([...aTerms].filter((t) => bTerms.has(t)));
-
-          if (overlap.size < 2) continue; // Not enough overlap to be a real conflict
+          const category = stanceA.category !== "GENERAL" ? stanceA.category : stanceB.category;
 
           const winner = resolveConflictWinner(
-            "CORRECTION_PATTERN",
-            "CORRECTION_PATTERN",
-            a.correction_type,
-            overrides,
+            a.source.type,
+            b.source.type,
+            category,
+            ctx.overrides,
           );
+
+          // Higher severity when both are mandatory sources
+          const mandatorySources: KnowledgeSource[] = [
+            "DESIGN_PROFILE",
+            "PLATFORM_RULES",
+          ];
+          const severity = mandatorySources.includes(a.source.type) && mandatorySources.includes(b.source.type)
+            ? "error"
+            : "warning";
+
+          // Determine which is the positive and which is negative
+          const positive = stanceA.positive ? stanceA : stanceB;
+          const negative = stanceA.positive ? stanceB : stanceA;
+          const posSource = stanceA.positive ? a.source : b.source;
+          const negSource = stanceA.positive ? b.source : a.source;
 
           conflicts.push({
             id: nextConflictId(),
             sourceA: {
-              type: "CORRECTION_PATTERN",
-              id: a.id,
-              label: `Pattern: ${a.explanation_tag}`,
-              excerpt: excerpt(a.corrected_snippet),
+              type: posSource.type,
+              id: posSource.id,
+              label: posSource.label,
+              excerpt: excerpt(positive.sentence),
             },
             sourceB: {
-              type: "CORRECTION_PATTERN",
-              id: b.id,
-              label: `Pattern: ${b.explanation_tag}`,
-              excerpt: excerpt(b.corrected_snippet),
+              type: negSource.type,
+              id: negSource.id,
+              label: negSource.label,
+              excerpt: excerpt(negative.sentence),
             },
-            category: a.correction_type,
-            description: `Two ${a.correction_type} patterns for ${a.device_type} devices give contradictory corrections.`,
-            severity: "error",
+            category,
+            description: `Contradictory guidance: "${posSource.label}" says to ${positive.subject}, but "${negSource.label}" says not to ${negative.subject}.`,
+            severity,
             defaultWinner: winner,
           });
         }
       }
-    }
-  }
-
-  return conflicts;
-}
-
-/**
- * A pattern's correction contradicts guidance in the design profile.
- */
-function detectPatternVsDesignProfile(
-  patterns: PatternCandidate[],
-  profile: DesignProfile,
-  overrides: KnowledgePriorityOverride[],
-): KnowledgeConflict[] {
-  const conflicts: KnowledgeConflict[] = [];
-  const approved = patterns.filter((p) => p.status === "APPROVED");
-  const profileTerms = extractTerms(profile.rules);
-
-  if (profileTerms.size === 0) return conflicts;
-
-  for (const pattern of approved) {
-    const patternText = [
-      pattern.explanation_tag,
-      pattern.original_snippet,
-      pattern.corrected_snippet,
-    ].join(" ");
-    const patternTerms = extractTerms(patternText);
-
-    // Find overlapping terms
-    const overlap = new Set([...patternTerms].filter((t) => profileTerms.has(t)));
-    if (overlap.size < 2) continue;
-
-    // Infer the conflict category from overlapping terms
-    const category = inferCategory(overlap) ?? pattern.correction_type;
-
-    // Find the profile text around the matching terms for the excerpt
-    const profileRulesLower = profile.rules.toLowerCase();
-    let profileExcerpt = "";
-    for (const term of overlap) {
-      const idx = profileRulesLower.indexOf(term);
-      if (idx >= 0) {
-        const start = Math.max(0, idx - 40);
-        const end = Math.min(profile.rules.length, idx + term.length + 60);
-        profileExcerpt = profile.rules.slice(start, end).replace(/\s+/g, " ").trim();
-        break;
-      }
-    }
-
-    const winner = resolveConflictWinner(
-      "CORRECTION_PATTERN",
-      "DESIGN_PROFILE",
-      category,
-      overrides,
-    );
-
-    conflicts.push({
-      id: nextConflictId(),
-      sourceA: {
-        type: "CORRECTION_PATTERN",
-        id: pattern.id,
-        label: `Pattern: ${pattern.explanation_tag}`,
-        excerpt: excerpt(pattern.corrected_snippet || pattern.explanation_tag),
-      },
-      sourceB: {
-        type: "DESIGN_PROFILE",
-        id: profile.id,
-        label: `Design Profile: ${profile.name}`,
-        excerpt: excerpt(profileExcerpt || profile.rules),
-      },
-      category,
-      description: `Pattern (${pattern.correction_type}) may conflict with Design Profile "${profile.name}" on: ${[...overlap].join(", ")}.`,
-      severity: "warning",
-      defaultWinner: winner,
-    });
-  }
-
-  return conflicts;
-}
-
-/**
- * A pattern's corrected code contradicts the structure of an FB template
- * for the same device category.
- */
-function detectPatternVsFbTemplate(
-  patterns: PatternCandidate[],
-  templates: FbTemplate[],
-  overrides: KnowledgePriorityOverride[],
-): KnowledgeConflict[] {
-  const conflicts: KnowledgeConflict[] = [];
-  const approved = patterns.filter((p) => p.status === "APPROVED");
-
-  for (const pattern of approved) {
-    if (!pattern.corrected_snippet) continue;
-
-    // Find templates matching the device type
-    const matchingTemplates = templates.filter((t) => {
-      const pDevice = pattern.device_type.toLowerCase();
-      const tCategory = t.device_category.toLowerCase();
-      return pDevice.includes(tCategory) || tCategory.includes(pDevice);
-    });
-
-    for (const template of matchingTemplates) {
-      const patternTerms = extractTerms(pattern.corrected_snippet);
-      const templateTerms = extractTerms(template.base_scl);
-
-      const overlap = new Set([...patternTerms].filter((t) => templateTerms.has(t)));
-      if (overlap.size < 2) continue;
-
-      // Check for structural contradictions (different VAR sections, different patterns)
-      const patternHasVar = /\bVAR(_TEMP|_INPUT|_OUTPUT|_IN_OUT)?\b/i.test(pattern.corrected_snippet);
-      const templateHasVar = /\bVAR(_TEMP|_INPUT|_OUTPUT|_IN_OUT)?\b/i.test(template.base_scl);
-
-      if (!patternHasVar || !templateHasVar) continue;
-
-      const category = inferCategory(overlap) ?? pattern.correction_type;
-
-      const winner = resolveConflictWinner(
-        "CORRECTION_PATTERN",
-        "FB_TEMPLATE",
-        category,
-        overrides,
-      );
-
-      conflicts.push({
-        id: nextConflictId(),
-        sourceA: {
-          type: "CORRECTION_PATTERN",
-          id: pattern.id,
-          label: `Pattern: ${pattern.explanation_tag}`,
-          excerpt: excerpt(pattern.corrected_snippet),
-        },
-        sourceB: {
-          type: "FB_TEMPLATE",
-          id: template.id,
-          label: `Template: ${template.name} [${template.device_category}]`,
-          excerpt: excerpt(template.base_scl),
-        },
-        category,
-        description: `Pattern for ${pattern.device_type} may conflict with FB template "${template.name}" structure.`,
-        severity: "warning",
-        defaultWinner: winner,
-      });
-    }
-  }
-
-  return conflicts;
-}
-
-/**
- * Agent knowledge doc content contradicts design profile rules.
- */
-function detectKnowledgeVsDesignProfile(
-  docs: AgentKnowledgeDoc[],
-  profile: DesignProfile,
-  overrides: KnowledgePriorityOverride[],
-): KnowledgeConflict[] {
-  const conflicts: KnowledgeConflict[] = [];
-  const profileTerms = extractTerms(profile.rules);
-
-  if (profileTerms.size === 0) return conflicts;
-
-  for (const doc of docs) {
-    const docTerms = extractTerms(doc.title + " " + doc.content);
-    const overlap = new Set([...docTerms].filter((t) => profileTerms.has(t)));
-
-    if (overlap.size < 2) continue;
-
-    const category = inferCategory(overlap) ?? "GENERAL";
-
-    // Find excerpt from profile around the matching terms
-    const profileRulesLower = profile.rules.toLowerCase();
-    let profileExcerpt = "";
-    for (const term of overlap) {
-      const idx = profileRulesLower.indexOf(term);
-      if (idx >= 0) {
-        const start = Math.max(0, idx - 40);
-        const end = Math.min(profile.rules.length, idx + term.length + 60);
-        profileExcerpt = profile.rules.slice(start, end).replace(/\s+/g, " ").trim();
-        break;
-      }
-    }
-
-    const winner = resolveConflictWinner(
-      "AGENT_KNOWLEDGE",
-      "DESIGN_PROFILE",
-      category,
-      overrides,
-    );
-
-    conflicts.push({
-      id: nextConflictId(),
-      sourceA: {
-        type: "AGENT_KNOWLEDGE",
-        id: doc.id,
-        label: `Knowledge: ${doc.title}`,
-        excerpt: excerpt(doc.content),
-      },
-      sourceB: {
-        type: "DESIGN_PROFILE",
-        id: profile.id,
-        label: `Design Profile: ${profile.name}`,
-        excerpt: excerpt(profileExcerpt || profile.rules),
-      },
-      category,
-      description: `Knowledge doc "${doc.title}" may conflict with Design Profile "${profile.name}" on: ${[...overlap].join(", ")}.`,
-      severity: "warning",
-      defaultWinner: winner,
-    });
-  }
-
-  return conflicts;
-}
-
-/**
- * Agent knowledge doc content contradicts an approved correction pattern.
- */
-function detectKnowledgeVsPattern(
-  docs: AgentKnowledgeDoc[],
-  patterns: PatternCandidate[],
-  overrides: KnowledgePriorityOverride[],
-): KnowledgeConflict[] {
-  const conflicts: KnowledgeConflict[] = [];
-  const approved = patterns.filter((p) => p.status === "APPROVED");
-
-  for (const doc of docs) {
-    const docTerms = extractTerms(doc.title + " " + doc.content);
-    if (docTerms.size === 0) continue;
-
-    for (const pattern of approved) {
-      const patternText = [
-        pattern.explanation_tag,
-        pattern.original_snippet,
-        pattern.corrected_snippet,
-      ].join(" ");
-      const patternTerms = extractTerms(patternText);
-
-      const overlap = new Set([...docTerms].filter((t) => patternTerms.has(t)));
-      if (overlap.size < 2) continue;
-
-      const category = inferCategory(overlap) ?? pattern.correction_type;
-
-      const winner = resolveConflictWinner(
-        "AGENT_KNOWLEDGE",
-        "CORRECTION_PATTERN",
-        category,
-        overrides,
-      );
-
-      conflicts.push({
-        id: nextConflictId(),
-        sourceA: {
-          type: "AGENT_KNOWLEDGE",
-          id: doc.id,
-          label: `Knowledge: ${doc.title}`,
-          excerpt: excerpt(doc.content),
-        },
-        sourceB: {
-          type: "CORRECTION_PATTERN",
-          id: pattern.id,
-          label: `Pattern: ${pattern.explanation_tag}`,
-          excerpt: excerpt(pattern.corrected_snippet || pattern.explanation_tag),
-        },
-        category,
-        description: `Knowledge doc "${doc.title}" may conflict with ${pattern.correction_type} pattern on: ${[...overlap].join(", ")}.`,
-        severity: "warning",
-        defaultWinner: winner,
-      });
-    }
-  }
-
-  return conflicts;
-}
-
-/**
- * Reference library section content contradicts design profile rules.
- */
-function detectRefLibraryVsDesignProfile(
-  sections: ReferenceLibrarySection[],
-  profile: DesignProfile,
-  overrides: KnowledgePriorityOverride[],
-): KnowledgeConflict[] {
-  const conflicts: KnowledgeConflict[] = [];
-  const profileTerms = extractTerms(profile.rules);
-
-  if (profileTerms.size === 0) return conflicts;
-
-  for (const section of sections) {
-    const sectionTerms = extractTerms(section.heading + " " + section.content);
-    const overlap = new Set([...sectionTerms].filter((t) => profileTerms.has(t)));
-
-    if (overlap.size < 2) continue;
-
-    const category = inferCategory(overlap) ?? "GENERAL";
-
-    const profileRulesLower = profile.rules.toLowerCase();
-    let profileExcerpt = "";
-    for (const term of overlap) {
-      const idx = profileRulesLower.indexOf(term);
-      if (idx >= 0) {
-        const start = Math.max(0, idx - 40);
-        const end = Math.min(profile.rules.length, idx + term.length + 60);
-        profileExcerpt = profile.rules.slice(start, end).replace(/\s+/g, " ").trim();
-        break;
-      }
-    }
-
-    const winner = resolveConflictWinner(
-      "REFERENCE_LIBRARY",
-      "DESIGN_PROFILE",
-      category,
-      overrides,
-    );
-
-    conflicts.push({
-      id: nextConflictId(),
-      sourceA: {
-        type: "REFERENCE_LIBRARY",
-        id: section.id,
-        label: `Ref: ${section.heading}`,
-        excerpt: excerpt(section.content),
-      },
-      sourceB: {
-        type: "DESIGN_PROFILE",
-        id: profile.id,
-        label: `Design Profile: ${profile.name}`,
-        excerpt: excerpt(profileExcerpt || profile.rules),
-      },
-      category,
-      description: `Reference section "${section.heading}" may conflict with Design Profile "${profile.name}" on: ${[...overlap].join(", ")}.`,
-      severity: "warning",
-      defaultWinner: winner,
-    });
-  }
-
-  return conflicts;
-}
-
-/**
- * Reference library section content contradicts an approved correction pattern.
- */
-function detectRefLibraryVsPattern(
-  sections: ReferenceLibrarySection[],
-  patterns: PatternCandidate[],
-  overrides: KnowledgePriorityOverride[],
-): KnowledgeConflict[] {
-  const conflicts: KnowledgeConflict[] = [];
-  const approved = patterns.filter((p) => p.status === "APPROVED");
-
-  for (const section of sections) {
-    const sectionTerms = extractTerms(section.heading + " " + section.content);
-    if (sectionTerms.size === 0) continue;
-
-    for (const pattern of approved) {
-      const patternText = [
-        pattern.explanation_tag,
-        pattern.original_snippet,
-        pattern.corrected_snippet,
-      ].join(" ");
-      const patternTerms = extractTerms(patternText);
-
-      const overlap = new Set([...sectionTerms].filter((t) => patternTerms.has(t)));
-      if (overlap.size < 2) continue;
-
-      const category = inferCategory(overlap) ?? pattern.correction_type;
-
-      const winner = resolveConflictWinner(
-        "REFERENCE_LIBRARY",
-        "CORRECTION_PATTERN",
-        category,
-        overrides,
-      );
-
-      conflicts.push({
-        id: nextConflictId(),
-        sourceA: {
-          type: "REFERENCE_LIBRARY",
-          id: section.id,
-          label: `Ref: ${section.heading}`,
-          excerpt: excerpt(section.content),
-        },
-        sourceB: {
-          type: "CORRECTION_PATTERN",
-          id: pattern.id,
-          label: `Pattern: ${pattern.explanation_tag}`,
-          excerpt: excerpt(pattern.corrected_snippet || pattern.explanation_tag),
-        },
-        category,
-        description: `Reference section "${section.heading}" may conflict with ${pattern.correction_type} pattern on: ${[...overlap].join(", ")}.`,
-        severity: "warning",
-        defaultWinner: winner,
-      });
     }
   }
 

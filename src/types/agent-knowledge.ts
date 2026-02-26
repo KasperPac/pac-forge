@@ -41,6 +41,8 @@ export interface KnowledgeDistributionEntry {
   doc_id: string;
   title: string;
   reasoning: string;
+  /** First ~300 chars of the distributed content (for display in upload history). */
+  content_preview?: string;
 }
 
 export interface KnowledgeUploadCreate {
