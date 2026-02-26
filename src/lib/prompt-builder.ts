@@ -1,6 +1,7 @@
-import type { Project, Agent, IoEntry, TagDbDefinition, GenerationMode, PatternCandidate, FbTemplate, DesignProfile, AgentKnowledgeDoc } from "@/types";
+import type { Project, Agent, IoEntry, TagDbDefinition, GenerationMode, PatternCandidate, FbTemplate, DesignProfile, AgentKnowledgeDoc, ReferenceLibrarySection } from "@/types";
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { getAgentProfile } from "@/lib/agent-profiles";
+import { formatReferenceSections } from "@/lib/reference-lookup";
 
 /**
  * Output format instructions telling Claude how to structure its response
@@ -10,34 +11,51 @@ const OUTPUT_FORMAT = `## Output Format
 
 You MUST output each artifact as a separate delimited block using this format:
 
-\`\`\`scl filename="<relative_path>" type="<ARTIFACT_TYPE>" name="<BlockName>" dependencies="<comma-separated names>"
+\`\`\`scl filename="<BlockName>.scl" type="<ARTIFACT_TYPE>" name="<BlockName>" dependencies="<comma-separated names>"
 <SCL code content>
 \`\`\`
 
 Where:
-- filename: relative path in the bundle (e.g., "udt/UDT_ZoneIO.scl", "fb/FB_ConveyorZone.scl")
-- type: one of UDT, FB, FC, DB, OB, SCL_SOURCE, TAG_TABLE
-- name: the block name (e.g., "UDT_ZoneIO", "FB_ConveyorZone")
+- filename: the block name with .scl extension (e.g., "typeMotorConfig.scl", "ControlMotor.scl", "InstMotor1.scl", "Main.scl")
+- type: one of UDT, FB, FC, DB, OB
+- name: the block name matching the SCL declaration (e.g., "typeMotorConfig", "ControlMotor", "InstMotor1", "Main")
 - dependencies: comma-separated list of artifact names this block depends on (empty if none)
 
 After all artifact blocks, provide a brief summary of what was generated.
 
-### Naming Conventions
-- UDTs: "UDT_<Purpose>" (e.g., UDT_ZoneIO, UDT_MotorData)
-- FBs: "FB_<DeviceType>" (e.g., FB_ConveyorZone, FB_Motor)
-- FCs: "FC_<Purpose>" (e.g., FC_AlarmHandler, FC_IOMapper)
-- DBs: "DB_<Purpose>" or "iDB_<FBName>_<Instance>" for instance DBs
-- OBs: "OB1" (main), "OB_Cyclic_<N>"
+### Naming (MUST match platform rules)
+- UDTs: \`type\` prefix, lowerCamelCase (e.g., typeMotorConfig, typeZoneIO)
+- FBs: Verb-first UpperCamelCase (e.g., ControlMotor, MonitorConveyor)
+- FCs: Verb-first UpperCamelCase (e.g., ScaleAnalog, CalcChecksum)
+- Instance DBs: \`Inst\` prefix, UpperCamelCase (e.g., InstMotor1, InstConveyor1)
+- Global DBs: UpperCamelCase, no prefix (e.g., Configuration, HmiData)
+- OB1: Always named "Main"
 
-### FB Template Structure
+### MANDATORY Artifact Checklist — Generate ALL of These
+
+Before responding, verify your output includes EVERY required artifact:
+
+1. **UDTs** — One per reusable data structure (config, IO, diagnostics)
+2. **FBs** — One per device type or process (with full state machine, timers, alarms)
+3. **FCs** — For stateless utility functions (scaling, clamping, conversion) if needed
+4. **Global DBs** — For configuration data, HMI interface, recipes if needed
+5. **Instance DBs** — **ONE per FB instance called from OB1** (this is the #1 missed artifact)
+6. **OB1 "Main"** — **ALWAYS generate this.** It calls every FB using its instance DB. Without Main, nothing runs.
+
+**If you generate an FB, you MUST also generate:**
+- An instance DB for it (type=DB, references the FB)
+- A call to it in Main (type=OB)
+
+### FB Body Structure
 Each FB must follow this section structure:
 1. VAR_INPUT / VAR_OUTPUT / VAR_IN_OUT declarations
-2. VAR (static) declarations including state machine enum, timers, alarms
-3. Code body with clearly separated regions:
-   - Region: IO Mapping
-   - Region: State Machine (CASE-based)
-   - Region: Alarm/Fault Handling
-   - Region: Output Mapping`;
+2. VAR (static) declarations including state variables, timers, edge triggers (inst prefix)
+3. VAR_TEMP for intermediate calculations (temp prefix)
+4. Code body with clearly separated REGION blocks:
+   - REGION IO Mapping
+   - REGION State Machine (CASE-based with integer literal labels + ELSE)
+   - REGION Alarm/Fault Handling
+   - REGION Output Mapping`;
 
 interface PromptBuilderInput {
   project: Project;
@@ -48,6 +66,7 @@ interface PromptBuilderInput {
   designProfile?: DesignProfile;
   agentKnowledgeDocs?: Record<string, AgentKnowledgeDoc[]>;
   promptSections?: Record<string, string>;
+  referenceSections?: ReferenceLibrarySection[];
   userMessage: string;
   conversationHistory?: Array<{ role: "user" | "assistant"; content: string }>;
 }
@@ -152,7 +171,7 @@ export function formatPatterns(patterns: PatternCandidate[]): string {
 }
 
 export function buildPrompt(input: PromptBuilderInput): BuiltPrompt {
-  const { project, agents, generationMode, approvedPatterns, fbTemplates, designProfile, agentKnowledgeDocs, promptSections, userMessage, conversationHistory } = input;
+  const { project, agents, generationMode, approvedPatterns, fbTemplates, designProfile, agentKnowledgeDocs, promptSections, referenceSections, userMessage, conversationHistory } = input;
 
   const codeArchitect = getAgentProfile("Code Architect");
   const identity = interpolateAgent(
@@ -161,6 +180,8 @@ export function buildPrompt(input: PromptBuilderInput): BuiltPrompt {
   );
   const instructions = resolveSection(promptSections, "generate", "instructions");
   const platformRules = resolveSection(promptSections, "shared", "platform_rules");
+  const codeExamples = resolveSection(promptSections, "shared", "code_examples");
+  const referenceSection = formatReferenceSections(referenceSections ?? []);
 
   const generationModeDesc =
     generationMode === "FB_PER_DEVICE"
@@ -172,6 +193,10 @@ export function buildPrompt(input: PromptBuilderInput): BuiltPrompt {
 ${instructions}
 
 ${platformRules}
+
+${codeExamples}
+
+${referenceSection}
 
 ## Project Context
 - Client: ${project.client_name}
@@ -226,7 +251,7 @@ export interface GuidedAnswers {
 
 export function buildGuidedPrompt(answers: GuidedAnswers): string {
   const stateList = answers.states.join(", ");
-  return `Generate a complete FB for a ${answers.deviceType} device with the following specifications:
+  return `Generate a complete, runnable PLC program for a ${answers.deviceType} device with the following specifications:
 
 - **Instances**: ${answers.instanceCount} instance(s)
 - **IO Mapping**: ${answers.ioMapping === "array_indexed" ? "Array-indexed via UDT" : "Individual tags per instance"}
@@ -234,6 +259,12 @@ export function buildGuidedPrompt(answers: GuidedAnswers): string {
 - **Alarm Requirements**: ${answers.alarmRequirements || "Standard latching alarms with operator reset"}
 ${answers.specialRequirements ? `- **Special Requirements**: ${answers.specialRequirements}` : ""}
 
-Generate all necessary artifacts: UDT for IO structure, FB with CASE-based state machine, instance DB template.
+You MUST generate ALL of these artifacts:
+1. UDT(s) for IO structure and configuration
+2. FB with CASE-based state machine
+3. Instance DB for each FB instance (${answers.instanceCount} instance(s))
+4. OB1 "Main" that calls each FB instance with its instance DB
+5. Any utility FCs needed (scaling, etc.)
+
 Follow all platform rules and naming conventions.`;
 }

@@ -7,6 +7,7 @@ import {
 import type { PatternLibrarianDiff } from "@/lib/pattern-librarian-prompt";
 import { computeDiff, hasFunctionalChanges, extractFocusedSnippets } from "@/lib/diff-engine";
 import { classifyCorrections } from "@/lib/correction-classifier";
+import type { CompileErrorInfo } from "@/lib/compile-fix-prompt";
 import type { AgentKnowledgeDoc, PatternCandidate, CorrectionType } from "@/types";
 
 export interface PatternAnalysisCorrection {
@@ -16,6 +17,8 @@ export interface PatternAnalysisCorrection {
   confidence: number;
   originalSnippet: string;
   correctedSnippet: string;
+  /** When the Librarian has concerns about a fix (masking, workaround, etc.) */
+  assessmentNote: string | null;
 }
 
 export interface PatternAnalysisResult {
@@ -28,6 +31,12 @@ interface AnalysisInput {
   correctedSources: Record<string, string>;
   knowledgeDocs?: AgentKnowledgeDoc[];
   approvedPatterns?: PatternCandidate[];
+  /** Compile errors that this round was fixing (for per-round verification) */
+  errorsAddressed?: CompileErrorInfo[];
+  /** Round number in multi-round fix session */
+  roundNumber?: number;
+  /** Total rounds in the fix session */
+  totalRounds?: number;
 }
 
 /**
@@ -68,6 +77,9 @@ export function usePatternLibrarianAnalysis() {
           diffs,
           knowledgeDocs,
           approvedPatterns,
+          errorsAddressed: input.errorsAddressed,
+          roundNumber: input.roundNumber,
+          totalRounds: input.totalRounds,
         });
 
         const token = await getAuthToken();
@@ -120,6 +132,7 @@ export function usePatternLibrarianAnalysis() {
               confidence: c.confidence,
               originalSnippet,
               correctedSnippet,
+              assessmentNote: c.assessmentNote,
             };
           });
 
@@ -161,6 +174,7 @@ function regexFallback(
           confidence: c.confidence,
           originalSnippet: focused.originalSnippet,
           correctedSnippet: focused.correctedSnippet,
+          assessmentNote: null,
         });
       }
     } else {
@@ -172,6 +186,7 @@ function regexFallback(
         confidence: 0.3,
         originalSnippet: focused.originalSnippet,
         correctedSnippet: focused.correctedSnippet,
+        assessmentNote: null,
       });
     }
   }

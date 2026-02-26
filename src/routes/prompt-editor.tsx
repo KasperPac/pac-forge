@@ -12,6 +12,7 @@ import {
   Pencil,
   Users,
   Globe,
+  Import,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +48,7 @@ import {
 } from "@/types/prompt-section";
 import { cn } from "@/lib/utils";
 import Editor from "@monaco-editor/react";
+import { ImportTiaExamplesDialog } from "@/components/prompt-editor/import-tia-examples-dialog";
 
 /** Agent ownership: groups roles by the agent that uses them. */
 interface AgentGroup {
@@ -108,6 +110,7 @@ export default function PromptEditorPage() {
   const [editorContent, setEditorContent] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState(false);
   const [previewAgent, setPreviewAgent] = useState<string | null>(null);
+  const [showImportDialog, setShowImportDialog] = useState(false);
 
   // Data hooks
   const { data: activeSections } = useActivePromptSections();
@@ -265,16 +268,27 @@ export default function PromptEditorPage() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div>
-        <div className="text-sm text-muted-foreground">CONFIGURATION</div>
-        <h1 className="mt-1 flex items-center gap-2 text-2xl font-semibold tracking-tight">
-          <FileText className="h-5 w-5" />
-          Prompt Editor
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Edit system prompt sections for each pipeline agent. Changes are
-          version-controlled and can be rolled back.
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="text-sm text-muted-foreground">CONFIGURATION</div>
+          <h1 className="mt-1 flex items-center gap-2 text-2xl font-semibold tracking-tight">
+            <FileText className="h-5 w-5" />
+            Prompt Editor
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Edit system prompt sections for each pipeline agent. Changes are
+            version-controlled and can be rolled back.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-4 gap-1.5"
+          onClick={() => setShowImportDialog(true)}
+        >
+          <Import className="h-4 w-4" />
+          Import from TIA
+        </Button>
       </div>
 
       <div className="flex gap-4" style={{ height: "calc(100vh - 180px)" }}>
@@ -711,6 +725,21 @@ export default function PromptEditorPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Import from TIA dialog */}
+      <ImportTiaExamplesDialog
+        open={showImportDialog}
+        onOpenChange={setShowImportDialog}
+        onSaved={(destination, sectionKey) => {
+          if (destination !== "design_profile" && sectionKey) {
+            setSelectedRole("shared");
+            setSelectedSection(sectionKey);
+            setEditorContent(null);
+            setShowHistory(false);
+            setPreviewMode(false);
+          }
+        }}
+      />
     </div>
   );
 }

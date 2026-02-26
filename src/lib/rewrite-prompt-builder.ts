@@ -5,10 +5,12 @@ import type {
   FbTemplate,
   DesignProfile,
   AgentKnowledgeDoc,
+  ReferenceLibrarySection,
 } from "@/types";
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { getAgentProfile } from "@/lib/agent-profiles";
 import { formatPatterns } from "@/lib/prompt-builder";
+import { formatReferenceSections } from "@/lib/reference-lookup";
 import type { ParsedArtifact } from "@/lib/artifact-parser";
 import type { ReviewReport } from "@/lib/review-response-parser";
 
@@ -27,6 +29,7 @@ export interface RewritePromptInput {
   approvedPatterns?: PatternCandidate[];
   fbTemplates?: FbTemplate[];
   promptSections?: Record<string, string>;
+  referenceSections?: ReferenceLibrarySection[];
 }
 
 function formatDesignProfile(profile: DesignProfile): string {
@@ -82,11 +85,11 @@ const OUTPUT_FORMAT = `## Output Format
 
 You MUST output ALL artifacts (both changed and unchanged) as separate delimited blocks:
 
-\`\`\`scl filename="<relative_path>" type="<ARTIFACT_TYPE>" name="<BlockName>" dependencies="<comma-separated names>"
+\`\`\`scl filename="<BlockName>.scl" type="<ARTIFACT_TYPE>" name="<BlockName>" dependencies="<comma-separated names>"
 <SCL code content>
 \`\`\`
 
-After all artifact blocks, provide a brief summary of what you changed.`;
+Ensure ALL artifacts are present — especially Main (OB1) and instance DBs. After all artifact blocks, provide a brief summary of what you changed.`;
 
 /**
  * Build a prompt for the Code Architect to rewrite artifacts
@@ -103,6 +106,7 @@ export function buildRewritePrompt(input: RewritePromptInput): BuiltPrompt {
     approvedPatterns,
     fbTemplates,
     promptSections,
+    referenceSections,
   } = input;
 
   const profile = getAgentProfile(generator.display_name);
@@ -113,11 +117,13 @@ export function buildRewritePrompt(input: RewritePromptInput): BuiltPrompt {
   );
   const instructions = resolveSection(promptSections, "rewrite", "instructions");
   const platformRules = resolveSection(promptSections, "shared", "platform_rules");
+  const codeExamples = resolveSection(promptSections, "shared", "code_examples");
 
   const findingsSection = formatFindings(reviewReports);
   const knowledgeSection = formatKnowledgeDocs(knowledgeDocs ?? []);
   const profileSection = designProfile ? formatDesignProfile(designProfile) : "";
   const fbSection = formatFbTemplates(fbTemplates ?? []);
+  const referenceSection = formatReferenceSections(referenceSections ?? []);
   const patternsSection = approvedPatterns && approvedPatterns.length > 0
     ? `## MANDATORY: Learned Corrections from Previous Compile Errors
 
@@ -131,6 +137,10 @@ ${formatPatterns(approvedPatterns)}`
 ${instructions}
 
 ${platformRules}
+
+${codeExamples}
+
+${referenceSection}
 
 ## Project Context
 - Client: ${project.client_name}

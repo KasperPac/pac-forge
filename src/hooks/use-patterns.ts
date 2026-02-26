@@ -154,6 +154,27 @@ export function useRejectPattern() {
   });
 }
 
+export function useRevokePattern() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (patternId: string) => {
+      const { error } = await supabase
+        .from("pattern_candidates")
+        .update({
+          status: "PENDING" as PatternStatus,
+          reviewed_by: null,
+          reviewed_at: null,
+        })
+        .eq("id", patternId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: PATTERNS_KEY });
+    },
+  });
+}
+
 export function useDeletePattern() {
   const queryClient = useQueryClient();
 

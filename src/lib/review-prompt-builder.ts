@@ -4,10 +4,12 @@ import type {
   DesignProfile,
   PatternCandidate,
   AgentKnowledgeDoc,
+  ReferenceLibrarySection,
 } from "@/types";
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { getAgentProfile } from "@/lib/agent-profiles";
 import { formatPatterns } from "@/lib/prompt-builder";
+import { formatReferenceSections } from "@/lib/reference-lookup";
 import type { ParsedArtifact } from "@/lib/artifact-parser";
 
 export interface ReviewPromptInput {
@@ -18,6 +20,7 @@ export interface ReviewPromptInput {
   designProfile?: DesignProfile;
   approvedPatterns?: PatternCandidate[];
   promptSections?: Record<string, string>;
+  referenceSections?: ReferenceLibrarySection[];
 }
 
 interface BuiltPrompt {
@@ -53,7 +56,7 @@ function formatArtifactsForReview(artifacts: ParsedArtifact[]): string {
  * return corrected versions or indicate no changes are needed.
  */
 export function buildReviewPrompt(input: ReviewPromptInput): BuiltPrompt {
-  const { agent, artifacts, project, knowledgeDocs, designProfile, approvedPatterns, promptSections } = input;
+  const { agent, artifacts, project, knowledgeDocs, designProfile, approvedPatterns, promptSections, referenceSections } = input;
 
   const profile = getAgentProfile(agent.display_name);
 
@@ -63,12 +66,14 @@ export function buildReviewPrompt(input: ReviewPromptInput): BuiltPrompt {
   );
   const instructions = resolveSection(promptSections, "review", "instructions");
   const platformRules = resolveSection(promptSections, "shared", "platform_rules");
+  const codeExamples = resolveSection(promptSections, "shared", "code_examples");
 
   const knowledgeSection = formatKnowledgeDocs(knowledgeDocs ?? []);
   const profileSection = designProfile ? formatDesignProfile(designProfile) : "";
   const patternsSection = approvedPatterns && approvedPatterns.length > 0
     ? `## MANDATORY: Learned Corrections from Previous Compile Errors\n\n${formatPatterns(approvedPatterns)}`
     : "";
+  const referenceSection = formatReferenceSections(referenceSections ?? []);
 
   const systemPrompt = `${identity}
 
@@ -95,6 +100,10 @@ If issues found, respond with a structured report:
 [brief summary of what you found and the overall quality assessment]
 
 ${platformRules}
+
+${codeExamples}
+
+${referenceSection}
 
 ## Project Context
 - Client: ${project.client_name}

@@ -7,6 +7,7 @@ import type { ParsedArtifact } from "@/lib/artifact-parser";
 import { buildManifest } from "@/lib/manifest-builder";
 import { analyzeArtifacts } from "@/lib/safety-analyzer";
 import { usePacStStore } from "@/stores/pac-st-store";
+import { getRelevantReferenceSections } from "@/lib/reference-lookup";
 import type {
   Project,
   Agent,
@@ -18,6 +19,7 @@ import type {
   FbTemplate,
   DesignProfile,
   AgentKnowledgeDoc,
+  ReferenceLibrarySection,
 } from "@/types";
 
 const ARTIFACTS_KEY = ["artifacts"] as const;
@@ -34,6 +36,7 @@ export interface GenerateInput {
   designProfile?: DesignProfile;
   agentKnowledgeDocs?: Record<string, AgentKnowledgeDoc[]>;
   promptSections?: Record<string, string>;
+  referenceSections?: ReferenceLibrarySection[];
 }
 
 export interface GenerateResult {
@@ -424,14 +427,34 @@ export function useGenerateStream() {
         onError?: (error: Error) => void;
       },
     ) => {
-      const { fetchBody } = buildRequestBody(input, true);
-
       setError(null);
       clearStreaming();
       setIsStreaming(true);
 
       const abort = new AbortController();
       abortRef.current = abort;
+
+      // Reference lookup before building prompt
+      let enrichedInput = input;
+      if (!input.referenceSections) {
+        try {
+          const refSections = await getRelevantReferenceSections(
+            input.userMessage,
+            "generation_request",
+            input.project.plc_brand,
+            abort.signal,
+            20,
+            input.promptSections,
+          );
+          if (refSections.length > 0) {
+            enrichedInput = { ...input, referenceSections: refSections };
+          }
+        } catch {
+          // Non-fatal — continue without reference sections
+        }
+      }
+
+      const { fetchBody } = buildRequestBody(enrichedInput, true);
 
       try {
         const fullContent = await streamFromEdgeFunction(

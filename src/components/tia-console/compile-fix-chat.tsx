@@ -13,11 +13,16 @@ import {
   AlertTriangle,
   XCircle,
   Square,
+  Brain,
+  SkipForward,
+  Save,
+  Check,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -28,29 +33,28 @@ import {
 import { useCompileFix } from "@/hooks/use-compile-fix";
 import { useReimportCompile } from "@/hooks/use-reimport-compile";
 import { useActivePatterns, useCreateApprovedPattern } from "@/hooks/use-patterns";
+import { usePatternLibrarianAnalysis } from "@/hooks/use-pattern-librarian-analysis";
 import { computeDiff, hasFunctionalChanges, extractFocusedSnippets } from "@/lib/diff-engine";
 import { classifyCorrections } from "@/lib/correction-classifier";
 import { TiaManualFixPanel } from "@/components/tia-console/tia-manual-fix-panel";
 import type { CompileErrorInfo } from "@/lib/compile-fix-prompt";
 import type { FixedSource } from "@/lib/compile-fix-parser";
-import type { DesignProfile, AgentKnowledgeDoc, Project, FbTemplate } from "@/types";
+import type { DesignProfile, AgentKnowledgeDoc, Project, FbTemplate, CorrectionType } from "@/types";
 import type { PipelineStepResult } from "@/lib/pipeline";
+import type {
+  CompileFixMessage,
+  CompileFixStuckInfo,
+  CompileFixRoundSnapshot,
+  CompileFixVerificationCorrection,
+  CompileFixVerificationState,
+  CompileFixSessionData,
+} from "@/stores/tia-console-store";
+
+const CORRECTION_TYPE_OPTIONS: CorrectionType[] = [
+  "NAMING", "IO_MAPPING", "STATE_LOGIC", "ALARM", "SAFETY", "TIMING",
+];
 
 const DEFAULT_MAX_ROUNDS = 5;
-
-interface ChatMessage {
-  role: "user" | "assistant" | "system";
-  content: string;
-  fixes?: FixedSource[];
-  appliedFixes?: boolean;
-}
-
-interface StuckInfo {
-  errors: CompileErrorInfo[];
-  sources: Record<string, string>;
-  rounds: number;
-  reason: string;
-}
 
 interface CompileFixChatProps {
   compileErrors: CompileErrorInfo[];
@@ -81,6 +85,10 @@ interface CompileFixChatProps {
   generationPipelineSteps?: PipelineStepResult[];
   /** Callback to emit pipeline steps for the Pipeline Console */
   onStepUpdate?: (updater: (prev: PipelineStepResult[]) => PipelineStepResult[]) => void;
+  /** Saved compile-fix session from Zustand store (survives navigation) */
+  savedSession?: CompileFixSessionData | null;
+  /** Callback to persist session state to the store */
+  onSessionChange?: (session: CompileFixSessionData | null) => void;
 }
 
 /** Build a context summary from the generation pipeline steps so the compile fix agent knows the full history. */
@@ -152,34 +160,54 @@ export function CompileFixChat({
   fbTemplates,
   generationPipelineSteps,
   onStepUpdate,
+  savedSession,
+  onSessionChange,
 }: CompileFixChatProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Hydrate from saved session if available (survives navigation)
+  const ss = savedSession;
+  const [messages, setMessages] = useState<CompileFixMessage[]>(() => ss?.messages ?? []);
   const [input, setInput] = useState("");
   const [maxRounds, setMaxRounds] = useState(DEFAULT_MAX_ROUNDS);
   const maxRoundsRef = useRef(DEFAULT_MAX_ROUNDS);
-  const [currentSources, setCurrentSources] = useState<Record<string, string>>(sources);
-  const [currentErrors, setCurrentErrors] = useState<CompileErrorInfo[]>(compileErrors);
-  const [currentWarnings, setCurrentWarnings] = useState<CompileErrorInfo[]>(compileWarnings);
+  const [currentSources, setCurrentSources] = useState<Record<string, string>>(() => ss?.currentSources ?? sources);
+  const [currentErrors, setCurrentErrors] = useState<CompileErrorInfo[]>(() => ss?.currentErrors ?? compileErrors);
+  const [currentWarnings, setCurrentWarnings] = useState<CompileErrorInfo[]>(() => ss?.currentWarnings ?? compileWarnings);
   const [autoRunning, setAutoRunning] = useState(false);
   const autoRunningRef = useRef(false);
-  const [round, setRound] = useState(0);
-  const [resolved, setResolved] = useState(false);
-  const [stuck, setStuck] = useState<StuckInfo | null>(null);
+  const [round, setRound] = useState(() => ss?.round ?? 0);
+  const [resolved, setResolved] = useState(() => ss?.resolved ?? false);
+  const [stuck, setStuck] = useState<CompileFixStuckInfo | null>(() => ss?.stuck ?? null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevFingerprintRef = useRef<string>("");
-  const messagesRef = useRef<ChatMessage[]>([]);
+  const messagesRef = useRef<CompileFixMessage[]>(ss?.messages ?? []);
+
+  // Per-round snapshot tracking for verification
+  const [roundSnapshots, setRoundSnapshots] = useState<CompileFixRoundSnapshot[]>(() => ss?.roundSnapshots ?? []);
+  const roundSnapshotsRef = useRef<CompileFixRoundSnapshot[]>(ss?.roundSnapshots ?? []);
+
+  // Verification state machine
+  const [verificationState, setVerificationState] = useState<CompileFixVerificationState>(() => ss?.verificationState ?? "idle");
+  const [analyzingRound, setAnalyzingRound] = useState(0);
+  const [verificationCorrections, setVerificationCorrections] = useState<CompileFixVerificationCorrection[]>(() => ss?.verificationCorrections ?? []);
+  const verifyingRef = useRef(false);
+  const [savedCount, setSavedCount] = useState(() => ss?.savedCount ?? 0);
 
   const compileFix = useCompileFix();
   const reimportCompile = useReimportCompile();
+  const librarianAnalysis = usePatternLibrarianAnalysis();
   const { data: approvedPatterns } = useActivePatterns("SIEMENS_TIA");
   const createApprovedPattern = useCreateApprovedPattern();
 
   // Sync props into state on mount / when parent changes
+  // Skip the initial sync if we hydrated from a saved session
+  const hydratedRef = useRef(!!ss);
   useEffect(() => {
+    if (hydratedRef.current) { hydratedRef.current = false; return; }
     setCurrentSources(sources);
   }, [sources]);
 
   useEffect(() => {
+    if (hydratedRef.current) return;
     setCurrentErrors(compileErrors);
     setCurrentWarnings(compileWarnings);
   }, [compileErrors, compileWarnings]);
@@ -191,75 +219,37 @@ export function CompileFixChat({
   useEffect(() => {
     maxRoundsRef.current = maxRounds;
   }, [maxRounds]);
+  useEffect(() => {
+    roundSnapshotsRef.current = roundSnapshots;
+  }, [roundSnapshots]);
 
-  // Auto-learn: save pattern when fix resolves successfully
+  // Persist session state to Zustand store (survives navigation)
+  useEffect(() => {
+    // Only persist when there's meaningful session state
+    if (messages.length === 0 && !resolved && !stuck) {
+      return;
+    }
+    onSessionChange?.({
+      messages,
+      round,
+      resolved,
+      stuck,
+      currentSources,
+      currentErrors,
+      currentWarnings,
+      roundSnapshots,
+      verificationState,
+      verificationCorrections,
+      savedCount,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, round, resolved, stuck, currentSources, currentErrors, currentWarnings, roundSnapshots, verificationState, verificationCorrections, savedCount]);
+
+  // Trigger verification prompt when fix resolves successfully
   useEffect(() => {
     if (!resolved) return;
-
-    // Find last assistant message for explanation
-    const lastAssistant = [...messagesRef.current].reverse().find(
-      (m) => m.role === "assistant" && m.content,
-    );
-    if (!lastAssistant) return;
-
-    // Build before/after snippets from diffs, skipping whitespace-only changes
-    let originalSnippet = "";
-    let correctedSnippet = "";
-    const changedArtifacts: string[] = [];
-    for (const name of Object.keys(currentSources)) {
-      const original = sources[name];
-      const current = currentSources[name];
-      if (original && current && original !== current) {
-        // Skip blocks where only whitespace/indentation changed (TIA reformatting)
-        if (!hasFunctionalChanges(original, current)) continue;
-
-        changedArtifacts.push(name);
-        if (!originalSnippet) {
-          const diff = computeDiff(original, current);
-          // Use focused snippets with context instead of raw changed lines
-          const focused = extractFocusedSnippets(diff);
-          originalSnippet = focused.originalSnippet;
-          correctedSnippet = focused.correctedSnippet;
-        }
-      }
-    }
-
-    if (!originalSnippet && !correctedSnippet) return;
-
-    // Auto-classify correction type from diff instead of hardcoding STATE_LOGIC
-    let correctionType = "STATE_LOGIC";
-    for (const name of changedArtifacts) {
-      const original = sources[name];
-      const current = currentSources[name];
-      if (original && current && original !== current) {
-        const diff = computeDiff(original, current);
-        const classified = classifyCorrections(diff, { artifactName: name });
-        if (classified.length > 0) {
-          correctionType = classified[0].correctionType;
-        }
-        break;
-      }
-    }
-
-    createApprovedPattern.mutate(
-      {
-        plc_brand: "SIEMENS_TIA",
-        device_type: "General",
-        context: `compile-fix: ${changedArtifacts.join(", ")}`,
-        original_snippet: originalSnippet,
-        corrected_snippet: correctedSnippet,
-        correction_type: correctionType,
-        explanation_tag: lastAssistant.content.slice(0, 2000),
-      },
-      {
-        onSuccess: () => {
-          setMessages((prev) => [
-            ...prev,
-            { role: "system", content: "Pattern learned and saved for future generations." },
-          ]);
-        },
-      },
-    );
+    if (verificationState !== "idle") return;
+    setVerificationState("prompting");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolved]);
 
@@ -268,7 +258,7 @@ export function CompileFixChat({
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, resolved, stuck]);
+  }, [messages, resolved, stuck, verificationState]);
 
   // Helper: synchronously set autoRunning flag + ref
   const setAutoRunningSync = useCallback((value: boolean) => {
@@ -287,9 +277,10 @@ export function CompileFixChat({
       userMsg?: string,
     ) => {
       const isFirst = roundNum === 1;
-      const displayMessage = isFirst
-        ? `Fix ${errors.length} compile error(s)${userMsg ? `: ${userMsg}` : ""}`
+      const prefix = isFirst
+        ? `Fix ${errors.length} compile error(s)`
         : `Round ${roundNum}: Fix remaining ${errors.length} error(s)`;
+      const displayMessage = userMsg ? `${prefix}\n${userMsg}` : prefix;
 
       // On the first round, prepend pipeline context so the compile fix agent
       // knows the original request, PM plan, and review findings
@@ -323,7 +314,7 @@ export function CompileFixChat({
           tokenUsage: null,
           durationMs: 0,
           artifactsModified: [],
-          summary: `Round ${roundNum}: fixing ${errors.length} error(s)`,
+          summary: `Round ${roundNum}: fixing ${errors.length} error(s)${userMsg ? ` — ${userMsg}` : ""}`,
         },
       ]);
 
@@ -360,7 +351,7 @@ export function CompileFixChat({
                     tokenUsage: result.tokenUsage,
                     durationMs,
                     artifactsModified: result.fixes.map((f) => f.artifactName),
-                    summary: `Round ${roundNum}: ${result.fixes.length} file(s) corrected`,
+                    summary: `Round ${roundNum}: ${result.fixes.length} file(s) corrected${userMsg ? ` — ${userMsg}` : ""}`,
                   };
                   break;
                 }
@@ -371,7 +362,7 @@ export function CompileFixChat({
             // Check ref — user may have cancelled while waiting
             if (!autoRunningRef.current) return;
 
-            const msg: ChatMessage = {
+            const msg: CompileFixMessage = {
               role: "assistant",
               content: result.explanation || result.rawResponse,
               fixes: result.fixes.length > 0 ? result.fixes : undefined,
@@ -380,7 +371,7 @@ export function CompileFixChat({
 
             // If AI returned fixes and we're auto-running, apply them immediately
             if (result.fixes.length > 0 && autoRunningRef.current) {
-              applyAndRecompile(result.fixes, srcs, errors, roundNum);
+              applyAndRecompile(result.fixes, srcs, errors, roundNum, result.explanation || result.rawResponse);
             }
           },
           onError: (error) => {
@@ -423,6 +414,7 @@ export function CompileFixChat({
       srcs: Record<string, string>,
       prevErrors: CompileErrorInfo[],
       roundNum: number,
+      explanation?: string,
     ) => {
       // Merge fixes
       const updated = { ...srcs };
@@ -474,6 +466,18 @@ export function CompileFixChat({
             setCurrentSources(newSources);
             setCurrentErrors(newErrors);
             setCurrentWarnings(newWarnings);
+
+            // Capture per-round snapshot for verification
+            const snapshot: CompileFixRoundSnapshot = {
+              round: roundNum,
+              sourcesBefore: srcs,
+              sourcesAfter: newSources,
+              errorsAddressed: prevErrors,
+              fixes,
+              explanation: explanation ?? "",
+            };
+            roundSnapshotsRef.current = [...roundSnapshotsRef.current, snapshot];
+            setRoundSnapshots(roundSnapshotsRef.current);
 
             // Notify parent
             onCompileResultUpdate?.({
@@ -572,6 +576,11 @@ export function CompileFixChat({
     setResolved(false);
     setStuck(null);
     setRound(1);
+    setRoundSnapshots([]);
+    roundSnapshotsRef.current = [];
+    setVerificationState("idle");
+    setVerificationCorrections([]);
+    setSavedCount(0);
     askAI(currentErrors, currentWarnings, currentSources, 1, userMsg);
   }
 
@@ -681,8 +690,257 @@ export function CompileFixChat({
     setResolved(false);
     setStuck(null);
     setRound(0);
+    setRoundSnapshots([]);
+    roundSnapshotsRef.current = [];
+    setVerificationState("idle");
+    setVerificationCorrections([]);
+    setAnalyzingRound(0);
+    verifyingRef.current = false;
+    setSavedCount(0);
+    onSessionChange?.(null);
     onFixSessionEnd?.();
     prevFingerprintRef.current = "";
+  }
+
+  // --- Verification handlers ---
+
+  /** Quick Save: original → final diff with regex classification (old auto-learn behavior) */
+  function handleQuickSave() {
+    setVerificationState("saving");
+
+    const lastAssistant = [...messagesRef.current].reverse().find(
+      (m) => m.role === "assistant" && m.content,
+    );
+
+    let saved = 0;
+    const changedArtifacts: string[] = [];
+
+    for (const name of Object.keys(currentSources)) {
+      const original = sources[name];
+      const current = currentSources[name];
+      if (!original || !current || original === current) continue;
+      if (!hasFunctionalChanges(original, current)) continue;
+      changedArtifacts.push(name);
+    }
+
+    if (changedArtifacts.length === 0) {
+      setVerificationState("done");
+      setSavedCount(0);
+      return;
+    }
+
+    // Save one pattern per changed artifact
+    let pending = changedArtifacts.length;
+    for (const name of changedArtifacts) {
+      const original = sources[name]!;
+      const current = currentSources[name]!;
+      const diff = computeDiff(original, current);
+      const focused = extractFocusedSnippets(diff);
+      const classified = classifyCorrections(diff, { artifactName: name });
+      const correctionType = classified.length > 0 ? classified[0].correctionType : "STATE_LOGIC";
+
+      createApprovedPattern.mutate(
+        {
+          plc_brand: "SIEMENS_TIA",
+          device_type: "General",
+          context: `compile-fix: ${name}`,
+          original_snippet: focused.originalSnippet,
+          corrected_snippet: focused.correctedSnippet,
+          correction_type: correctionType,
+          explanation_tag: lastAssistant?.content.slice(0, 2000) ?? `Compile-fix correction in ${name}`,
+        },
+        {
+          onSuccess: () => {
+            saved++;
+            pending--;
+            if (pending <= 0) {
+              setSavedCount(saved);
+              setVerificationState("done");
+            }
+          },
+          onError: () => {
+            pending--;
+            if (pending <= 0) {
+              setSavedCount(saved);
+              setVerificationState("done");
+            }
+          },
+        },
+      );
+    }
+  }
+
+  /** Skip: no patterns saved */
+  function handleSkipPatterns() {
+    setVerificationState("done");
+    setSavedCount(0);
+  }
+
+  /** Verify: run Pattern Librarian on each round sequentially */
+  async function handleVerifyRounds() {
+    setVerificationState("analyzing");
+    verifyingRef.current = true;
+
+    const allCorrections: CompileFixVerificationCorrection[] = [];
+    const snapshots = roundSnapshotsRef.current;
+
+    for (let i = 0; i < snapshots.length; i++) {
+      if (!verifyingRef.current) break;
+      setAnalyzingRound(i + 1);
+
+      const snap = snapshots[i];
+
+      // Emit a running pipeline step
+      const stepStartTime = Date.now();
+      onStepUpdate?.((prev) => [
+        ...prev,
+        {
+          agentId: "pattern-librarian-verify",
+          agentName: "Pattern Librarian",
+          role: "patterns" as PipelineStepResult["role"],
+          status: "running",
+          systemPrompt: "",
+          userMessage: `Verifying round ${snap.round} corrections`,
+          rawResponse: "",
+          tokenUsage: null,
+          durationMs: 0,
+          artifactsModified: snap.fixes.map((f) => f.artifactName),
+          summary: `Verifying round ${snap.round} of ${snapshots.length}`,
+        },
+      ]);
+
+      try {
+        const result = await librarianAnalysis.mutateAsync({
+          originalSources: snap.sourcesBefore,
+          correctedSources: snap.sourcesAfter,
+          knowledgeDocs: patternLibrarianKnowledgeDocs,
+          approvedPatterns,
+          errorsAddressed: snap.errorsAddressed,
+          roundNumber: snap.round,
+          totalRounds: snapshots.length,
+        });
+
+        const durationMs = Date.now() - stepStartTime;
+
+        // Update the pipeline step to completed
+        onStepUpdate?.((prev) => {
+          const updated = [...prev];
+          for (let j = updated.length - 1; j >= 0; j--) {
+            if (updated[j].role === "patterns" && updated[j].status === "running") {
+              updated[j] = {
+                ...updated[j],
+                status: "completed",
+                durationMs,
+                summary: `Round ${snap.round}: ${result.corrections.length} correction(s) found${result.aiAnalyzed ? "" : " (regex)"}`,
+              };
+              break;
+            }
+          }
+          return updated;
+        });
+
+        for (const c of result.corrections) {
+          allCorrections.push({
+            ...c,
+            roundNumber: snap.round,
+            checked: c.confidence >= 0.7 && !c.assessmentNote,
+          });
+        }
+      } catch (err) {
+        const durationMs = Date.now() - stepStartTime;
+        console.warn(`Round ${i + 1} analysis failed:`, err);
+
+        onStepUpdate?.((prev) => {
+          const updated = [...prev];
+          for (let j = updated.length - 1; j >= 0; j--) {
+            if (updated[j].role === "patterns" && updated[j].status === "running") {
+              updated[j] = {
+                ...updated[j],
+                status: "failed",
+                durationMs,
+                error: String(err),
+                summary: `Round ${snap.round}: analysis failed`,
+              };
+              break;
+            }
+          }
+          return updated;
+        });
+      }
+    }
+
+    if (!verifyingRef.current) {
+      setVerificationState("prompting");
+      return;
+    }
+
+    setVerificationCorrections(allCorrections);
+    setVerificationState(allCorrections.length > 0 ? "reviewing" : "done");
+  }
+
+  /** Cancel verification analysis */
+  function handleCancelVerification() {
+    verifyingRef.current = false;
+    setVerificationState("prompting");
+  }
+
+  /** Toggle a correction's checked state */
+  function toggleCorrection(index: number) {
+    setVerificationCorrections((prev) =>
+      prev.map((c, i) => (i === index ? { ...c, checked: !c.checked } : c)),
+    );
+  }
+
+  /** Update a correction's type */
+  function updateCorrectionType(index: number, type: CorrectionType) {
+    setVerificationCorrections((prev) =>
+      prev.map((c, i) => (i === index ? { ...c, correctionType: type } : c)),
+    );
+  }
+
+  /** Save checked verification corrections as approved patterns */
+  function handleSaveVerifiedPatterns() {
+    const toSave = verificationCorrections.filter((c) => c.checked);
+    if (toSave.length === 0) {
+      setSavedCount(0);
+      setVerificationState("done");
+      return;
+    }
+
+    setVerificationState("saving");
+    let saved = 0;
+    let pending = toSave.length;
+
+    for (const c of toSave) {
+      createApprovedPattern.mutate(
+        {
+          plc_brand: "SIEMENS_TIA",
+          device_type: "General",
+          context: `compile-fix round ${c.roundNumber}: ${c.blockName}`,
+          original_snippet: c.originalSnippet,
+          corrected_snippet: c.correctedSnippet,
+          correction_type: c.correctionType,
+          explanation_tag: c.explanation.slice(0, 2000),
+        },
+        {
+          onSuccess: () => {
+            saved++;
+            pending--;
+            if (pending <= 0) {
+              setSavedCount(saved);
+              setVerificationState("done");
+            }
+          },
+          onError: () => {
+            pending--;
+            if (pending <= 0) {
+              setSavedCount(saved);
+              setVerificationState("done");
+            }
+          },
+        },
+      );
+    }
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -814,27 +1072,23 @@ export function CompileFixChat({
             </div>
           )}
 
-          {/* Resolved — auto-learned, offer to end session */}
+          {/* Verification state machine */}
           {resolved && !autoRunning && !isLoading && (
-            <div className="space-y-2 rounded-lg border border-green-500/20 bg-green-500/5 p-3">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-3.5 w-3.5 text-green-400" />
-                <span className="font-mono text-sm font-medium text-green-400">
-                  Fix complete
-                </span>
-              </div>
-              <p className="font-mono text-xs text-muted-foreground">
-                Correction pattern auto-saved for future generations.
-              </p>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-6 px-3 font-mono text-xs"
-                onClick={() => onFixSessionEnd?.()}
-              >
-                Dismiss
-              </Button>
-            </div>
+            <VerificationPanel
+              state={verificationState}
+              roundCount={roundSnapshots.length}
+              analyzingRound={analyzingRound}
+              corrections={verificationCorrections}
+              savedCount={savedCount}
+              onVerify={handleVerifyRounds}
+              onQuickSave={handleQuickSave}
+              onSkip={handleSkipPatterns}
+              onCancelAnalysis={handleCancelVerification}
+              onToggleCorrection={toggleCorrection}
+              onUpdateCorrectionType={updateCorrectionType}
+              onSavePatterns={handleSaveVerifiedPatterns}
+              onDismiss={() => onFixSessionEnd?.()}
+            />
           )}
 
           {/* Manual fix panel — when stuck or errors remain */}
@@ -892,9 +1146,309 @@ export function CompileFixChat({
 }
 
 
+// --- Verification panel: post-fix pattern verification state machine ---
+
+function VerificationPanel({
+  state,
+  roundCount,
+  analyzingRound,
+  corrections,
+  savedCount,
+  onVerify,
+  onQuickSave,
+  onSkip,
+  onCancelAnalysis,
+  onToggleCorrection,
+  onUpdateCorrectionType,
+  onSavePatterns,
+  onDismiss,
+}: {
+  state: CompileFixVerificationState;
+  roundCount: number;
+  analyzingRound: number;
+  corrections: CompileFixVerificationCorrection[];
+  savedCount: number;
+  onVerify: () => void;
+  onQuickSave: () => void;
+  onSkip: () => void;
+  onCancelAnalysis: () => void;
+  onToggleCorrection: (index: number) => void;
+  onUpdateCorrectionType: (index: number, type: CorrectionType) => void;
+  onSavePatterns: () => void;
+  onDismiss: () => void;
+}) {
+  const [expandedBlocks, setExpandedBlocks] = useState<Set<number>>(new Set());
+
+  function toggleBlock(index: number) {
+    setExpandedBlocks((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }
+
+  if (state === "idle") return null;
+
+  // --- Prompting ---
+  if (state === "prompting") {
+    return (
+      <div className="space-y-2 rounded-lg border border-green-500/20 bg-green-500/5 p-3">
+        <div className="flex items-center gap-2">
+          <CheckCircle2 className="h-3.5 w-3.5 text-green-400" />
+          <span className="font-mono text-sm font-medium text-green-400">
+            Fix complete ({roundCount} round{roundCount !== 1 ? "s" : ""})
+          </span>
+        </div>
+        <p className="font-mono text-xs text-muted-foreground">
+          Would you like the AI to verify your fixes before saving patterns?
+        </p>
+        <div className="flex gap-1.5">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 gap-1 px-2 font-mono text-xs border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
+            onClick={onVerify}
+          >
+            <Brain className="h-2.5 w-2.5" />
+            Verify Fixes
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 gap-1 px-2 font-mono text-xs"
+            onClick={onQuickSave}
+          >
+            <Save className="h-2.5 w-2.5" />
+            Quick Save
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 gap-1 px-2 font-mono text-xs"
+            onClick={onSkip}
+          >
+            <SkipForward className="h-2.5 w-2.5" />
+            Skip
+          </Button>
+        </div>
+        <p className="font-mono text-[10px] text-muted-foreground/70">
+          &quot;Verify Fixes&quot; runs the Pattern Librarian on each round&apos;s changes to assess confidence before saving.
+        </p>
+      </div>
+    );
+  }
+
+  // --- Analyzing ---
+  if (state === "analyzing") {
+    return (
+      <div className="space-y-2 rounded-lg border border-blue-500/20 bg-blue-500/5 p-3">
+        <div className="flex items-center gap-2">
+          <Brain className="h-3.5 w-3.5 animate-pulse text-blue-400" />
+          <span className="font-mono text-sm font-medium text-blue-400">
+            Analyzing round {analyzingRound} of {roundCount}...
+          </span>
+        </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 px-2 font-mono text-xs text-muted-foreground"
+          onClick={onCancelAnalysis}
+        >
+          Cancel
+        </Button>
+      </div>
+    );
+  }
+
+  // --- Reviewing ---
+  if (state === "reviewing") {
+    const checkedCount = corrections.filter((c) => c.checked).length;
+    const groupedByRound = new Map<number, Array<{ correction: CompileFixVerificationCorrection; idx: number }>>();
+    corrections.forEach((c, i) => {
+      const group = groupedByRound.get(c.roundNumber) ?? [];
+      group.push({ correction: c, idx: i });
+      groupedByRound.set(c.roundNumber, group);
+    });
+
+    return (
+      <div className="space-y-2 rounded-lg border border-blue-500/20 bg-blue-500/5 p-3">
+        <div className="flex items-center gap-2">
+          <Brain className="h-3.5 w-3.5 text-blue-400" />
+          <span className="font-mono text-sm font-medium text-blue-400">
+            Verification Results
+          </span>
+          <Badge variant="outline" className="font-mono text-xs">
+            {corrections.length} correction{corrections.length !== 1 ? "s" : ""}
+          </Badge>
+        </div>
+
+        <div className="max-h-64 space-y-2 overflow-y-auto">
+          {Array.from(groupedByRound.entries()).map(([roundNum, roundEntries]) => (
+            <div key={roundNum} className="space-y-1">
+              <div className="font-mono text-xs font-medium text-muted-foreground">
+                Round {roundNum}
+              </div>
+              {roundEntries.map(({ correction: c, idx }) => {
+                const isLowConfidence = c.confidence < 0.6;
+                return (
+                  <div
+                    key={idx}
+                    className={`rounded border p-2 ${
+                      c.assessmentNote
+                        ? "border-amber-500/30 bg-amber-500/5"
+                        : isLowConfidence
+                          ? "border-red-500/20 bg-red-500/5"
+                          : "border-border/50 bg-muted/30"
+                    }`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <Checkbox
+                        checked={c.checked}
+                        onCheckedChange={() => onToggleCorrection(idx)}
+                        className="mt-0.5"
+                      />
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono text-xs font-medium">{c.blockName}</span>
+                          <Select
+                            value={c.correctionType}
+                            onValueChange={(v) => onUpdateCorrectionType(idx, v as CorrectionType)}
+                          >
+                            <SelectTrigger className="h-4 w-24 font-mono text-[10px]" aria-label="Correction type">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {CORRECTION_TYPE_OPTIONS.map((t) => (
+                                <SelectItem key={t} value={t} className="font-mono text-xs">{t}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Badge
+                            variant="outline"
+                            className={`font-mono text-[10px] ${
+                              c.confidence >= 0.8
+                                ? "border-green-500/30 text-green-400"
+                                : c.confidence >= 0.6
+                                  ? "border-yellow-500/30 text-yellow-400"
+                                  : "border-red-500/30 text-red-400"
+                            }`}
+                          >
+                            {Math.round(c.confidence * 100)}%
+                          </Badge>
+                          {isLowConfidence && (
+                            <AlertTriangle className="h-2.5 w-2.5 text-amber-400" />
+                          )}
+                        </div>
+                        <p className="font-mono text-xs text-muted-foreground">{c.explanation}</p>
+                        {c.assessmentNote && (
+                          <p className="font-mono text-xs text-amber-400">
+                            <AlertTriangle className="mr-1 inline h-2.5 w-2.5" />
+                            {c.assessmentNote}
+                          </p>
+                        )}
+
+                        {/* Collapsible diff */}
+                        <button
+                          type="button"
+                          className="font-mono text-[10px] text-muted-foreground/70 hover:text-muted-foreground"
+                          onClick={() => toggleBlock(idx)}
+                          aria-expanded={expandedBlocks.has(idx)}
+                        >
+                          {expandedBlocks.has(idx) ? (
+                            <ChevronDown className="mr-0.5 inline h-2.5 w-2.5" />
+                          ) : (
+                            <ChevronRight className="mr-0.5 inline h-2.5 w-2.5" />
+                          )}
+                          View diff
+                        </button>
+                        {expandedBlocks.has(idx) && (
+                          <div className="space-y-1 rounded border border-border/30 bg-black/20 p-1.5">
+                            {c.originalSnippet && c.originalSnippet !== "(no removed lines)" && (
+                              <pre className="whitespace-pre-wrap font-mono text-[10px] leading-relaxed text-red-400/80">
+                                {c.originalSnippet.split("\n").map((line: string, li: number) => (
+                                  <div key={li}>- {line}</div>
+                                ))}
+                              </pre>
+                            )}
+                            {c.correctedSnippet && c.correctedSnippet !== "(no added lines)" && (
+                              <pre className="whitespace-pre-wrap font-mono text-[10px] leading-relaxed text-green-400/80">
+                                {c.correctedSnippet.split("\n").map((line: string, li: number) => (
+                                  <div key={li}>+ {line}</div>
+                                ))}
+                              </pre>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-1.5 pt-1">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 gap-1 px-2 font-mono text-xs border-green-500/30 text-green-400 hover:bg-green-500/10"
+            onClick={onSavePatterns}
+            disabled={checkedCount === 0}
+          >
+            <Check className="h-2.5 w-2.5" />
+            Save {checkedCount} Pattern{checkedCount !== 1 ? "s" : ""}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 font-mono text-xs"
+            onClick={onSkip}
+          >
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Saving ---
+  if (state === "saving") {
+    return (
+      <div className="space-y-2 rounded-lg border border-blue-500/20 bg-blue-500/5 p-3">
+        <div className="flex items-center gap-2">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-400" />
+          <span className="font-mono text-sm text-blue-400">Saving patterns...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Done ---
+  return (
+    <div className="space-y-2 rounded-lg border border-green-500/20 bg-green-500/5 p-3">
+      <div className="flex items-center gap-2">
+        <CheckCircle2 className="h-3.5 w-3.5 text-green-400" />
+        <span className="font-mono text-sm font-medium text-green-400">
+          {savedCount > 0 ? `${savedCount} pattern${savedCount !== 1 ? "s" : ""} saved.` : "Fix complete."}
+        </span>
+      </div>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-6 px-3 font-mono text-xs"
+        onClick={onDismiss}
+      >
+        Dismiss
+      </Button>
+    </div>
+  );
+}
+
 // --- Stuck panel: shows remaining errors with code context ---
 
-function StuckPanel({ stuck }: { stuck: StuckInfo }) {
+function StuckPanel({ stuck }: { stuck: CompileFixStuckInfo }) {
   // Group errors by artifact
   const grouped: Record<string, CompileErrorInfo[]> = {};
   for (const err of stuck.errors) {
@@ -988,7 +1542,7 @@ function MessageBubble({
   autoRunning,
   onApplyFixes,
 }: {
-  message: ChatMessage;
+  message: CompileFixMessage;
   index: number;
   isLoading: boolean;
   isConnected: boolean;

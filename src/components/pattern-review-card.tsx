@@ -1,4 +1,4 @@
-import { Check, X, Trash2 } from "lucide-react";
+import { Check, X, Trash2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +19,7 @@ interface PatternReviewCardProps {
   pattern: PatternCandidate;
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
+  onRevoke?: (id: string) => void;
   onDelete?: (id: string) => void;
 }
 
@@ -37,10 +38,12 @@ const STATUS_STYLES: Record<string, string> = {
   REJECTED: "bg-neutral-500/10 text-neutral-400",
 };
 
-export function PatternReviewCard({ pattern, onApprove, onReject, onDelete }: PatternReviewCardProps) {
+export function PatternReviewCard({ pattern, onApprove, onReject, onRevoke, onDelete }: PatternReviewCardProps) {
   const typeClass = TYPE_COLORS[pattern.correction_type] ?? "";
   const statusClass = STATUS_STYLES[pattern.status] ?? "";
   const isPending = pattern.status === "PENDING";
+  const isApproved = pattern.status === "APPROVED";
+  const isRejected = pattern.status === "REJECTED";
 
   return (
     <Card className="overflow-hidden">
@@ -93,57 +96,82 @@ export function PatternReviewCard({ pattern, onApprove, onReject, onDelete }: Pa
       )}
 
       {/* Actions */}
-      <div className="flex justify-end gap-1 border-t px-4 py-2">
-        {onDelete && (
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
+      <div className="flex items-center justify-between border-t px-4 py-2">
+        <div className="flex items-center gap-2">
+          {isApproved && (
+            <span className="font-mono text-[10px] text-green-400">
+              Active — injected into all generation prompts
+            </span>
+          )}
+          {isRejected && (
+            <span className="font-mono text-[10px] text-muted-foreground">
+              Rejected — not used in generation
+            </span>
+          )}
+        </div>
+        <div className="flex gap-1">
+          {onDelete && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 font-mono text-[10px] text-muted-foreground hover:text-destructive"
+                >
+                  <Trash2 className="mr-1 h-3 w-3" />
+                  Delete
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete pattern permanently?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently remove this correction pattern. This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => onDelete(pattern.id)}>
+                    Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+          {(isApproved || isRejected) && onRevoke && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 font-mono text-[10px] text-amber-400 hover:text-amber-300"
+              onClick={() => onRevoke(pattern.id)}
+            >
+              <RotateCcw className="mr-1 h-3 w-3" />
+              Revoke
+            </Button>
+          )}
+          {isPending && (
+            <>
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 px-2 font-mono text-[10px] text-muted-foreground hover:text-destructive"
+                className="h-7 px-2 font-mono text-[10px] text-red-400 hover:text-red-300"
+                onClick={() => onReject(pattern.id)}
               >
-                <Trash2 className="mr-1 h-3 w-3" />
-                Delete
+                <X className="mr-1 h-3 w-3" />
+                Reject
               </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete pattern permanently?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This will permanently remove this correction pattern. This action cannot be undone.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => onDelete(pattern.id)}>
-                  Delete
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        )}
-        {isPending && (
-          <>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 font-mono text-[10px] text-red-400 hover:text-red-300"
-              onClick={() => onReject(pattern.id)}
-            >
-              <X className="mr-1 h-3 w-3" />
-              Reject
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 font-mono text-[10px] text-green-400 hover:text-green-300"
-              onClick={() => onApprove(pattern.id)}
-            >
-              <Check className="mr-1 h-3 w-3" />
-              Approve
-            </Button>
-          </>
-        )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 font-mono text-[10px] text-green-400 hover:text-green-300"
+                onClick={() => onApprove(pattern.id)}
+              >
+                <Check className="mr-1 h-3 w-3" />
+                Approve
+              </Button>
+            </>
+          )}
+        </div>
       </div>
     </Card>
   );

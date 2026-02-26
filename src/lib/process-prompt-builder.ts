@@ -1,7 +1,8 @@
-import type { Project, Agent, PatternCandidate, FbTemplate, DesignProfile, AgentKnowledgeDoc } from "@/types";
+import type { Project, Agent, PatternCandidate, FbTemplate, DesignProfile, AgentKnowledgeDoc, ReferenceLibrarySection } from "@/types";
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { formatPatterns } from "@/lib/prompt-builder";
 import { getAgentProfile } from "@/lib/agent-profiles";
+import { formatReferenceSections } from "@/lib/reference-lookup";
 
 export interface ProcessPromptInput {
   project: Project;
@@ -12,6 +13,7 @@ export interface ProcessPromptInput {
   agentKnowledgeDocs?: Record<string, AgentKnowledgeDoc[]>;
   functionalDescription: string;
   promptSections?: Record<string, string>;
+  referenceSections?: ReferenceLibrarySection[];
 }
 
 interface BuiltPrompt {
@@ -56,7 +58,7 @@ ${blocks.join("\n\n")}`;
 }
 
 export function buildProcessPrompt(input: ProcessPromptInput): BuiltPrompt {
-  const { project, agents, designProfile, approvedPatterns, fbTemplates, agentKnowledgeDocs, functionalDescription, promptSections } = input;
+  const { project, agents, designProfile, approvedPatterns, fbTemplates, agentKnowledgeDocs, functionalDescription, promptSections, referenceSections } = input;
 
   const codeArchitect = getAgentProfile("Code Architect");
   const identity = interpolateAgent(
@@ -64,7 +66,9 @@ export function buildProcessPrompt(input: ProcessPromptInput): BuiltPrompt {
     { name: "Code Architect", tagline: codeArchitect.tagline, description: codeArchitect.description, personality: codeArchitect.personality },
   );
   const platformRules = resolveSection(promptSections, "shared", "platform_rules");
+  const codeExamples = resolveSection(promptSections, "shared", "code_examples");
   const processInstructions = resolveSection(promptSections, "process", "instructions");
+  const referenceSection = formatReferenceSections(referenceSections ?? []);
 
   const profileSection = designProfile?.rules?.trim()
     ? `## Code Design Profile: ${designProfile.name}
@@ -90,6 +94,10 @@ ${formatPatterns(approvedPatterns)}
 
 ${platformRules}
 
+${codeExamples}
+
+${referenceSection}
+
 ## Project Context
 - Client: ${project.client_name}
 - PLC Brand: ${project.plc_brand}
@@ -107,15 +115,32 @@ ${patternsSection}## Output Format
 
 You MUST output each artifact as a separate delimited block using this format:
 
-\`\`\`scl filename="<relative_path>" type="<ARTIFACT_TYPE>" name="<BlockName>" dependencies="<comma-separated names>"
+\`\`\`scl filename="<BlockName>.scl" type="<ARTIFACT_TYPE>" name="<BlockName>" dependencies="<comma-separated names>"
 <SCL code content>
 \`\`\`
 
 Where:
-- filename: relative path in the bundle (e.g., "udt/UDT_Sequence.scl", "fb/FB_Process.scl")
-- type: one of UDT, FB, FC, DB, OB, SCL_SOURCE, TAG_TABLE
-- name: the block name
+- filename: the block name with .scl extension (e.g., "typeProcessData.scl", "ControlSequence.scl", "InstSequence1.scl", "Main.scl")
+- type: one of UDT, FB, FC, DB, OB
+- name: the block name matching the SCL declaration
 - dependencies: comma-separated list of artifact names this block depends on
+
+### Naming (MUST match platform rules)
+- UDTs: \`type\` prefix, lowerCamelCase (e.g., typeProcessData, typeSequenceConfig)
+- FBs: Verb-first UpperCamelCase (e.g., ControlSequence, ManageBatch)
+- FCs: Verb-first UpperCamelCase (e.g., ScaleAnalog, CalcChecksum)
+- Instance DBs: \`Inst\` prefix, UpperCamelCase (e.g., InstSequence1, InstBatch1)
+- Global DBs: UpperCamelCase, no prefix (e.g., Configuration, HmiData)
+- OB1: Always named "Main"
+
+### MANDATORY Artifact Checklist
+
+You MUST generate ALL of these:
+1. UDTs for process data structures
+2. FBs for each process sequence/controller
+3. Instance DBs — one per FB instance called from Main
+4. OB1 "Main" — calls every FB with its instance DB
+5. Global DBs / FCs as needed
 
 ${processInstructions}
 

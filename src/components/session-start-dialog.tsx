@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { useAgents } from "@/hooks/use-agents";
 import { useCreateSession } from "@/hooks/use-sessions";
-import { PIPELINE_STEP_CONFIG } from "@/lib/pipeline";
+import { PIPELINE_STEP_CONFIG, DEFAULT_ENABLED_STEPS } from "@/lib/pipeline";
 import type { PipelineStepKey } from "@/lib/pipeline";
 import { cn } from "@/lib/utils";
 
@@ -34,13 +34,13 @@ export function SessionStartDialog({
 
   // Track which pipeline steps are enabled (all on by default)
   const [enabledSteps, setEnabledSteps] = useState<Set<PipelineStepKey>>(
-    () => new Set(PIPELINE_STEP_CONFIG.map((s) => s.key)),
+    () => new Set(DEFAULT_ENABLED_STEPS),
   );
 
   // Reset steps when dialog opens
   useEffect(() => {
     if (open) {
-      setEnabledSteps(new Set(PIPELINE_STEP_CONFIG.map((s) => s.key)));
+      setEnabledSteps(new Set(DEFAULT_ENABLED_STEPS));
       setError(null);
     }
   }, [open]);

@@ -1,7 +1,8 @@
-# SCL (Structured Control Language) Complete Reference
+# SCL (Structured Control Language) Reference — S7-1200/S7-1500
 
-> Extracted from "Structured Control Language (SCL) for S7-300/S7-400 Programming" (6ES7811-1CA02-8BA0).
-> The SCL language fundamentals apply to S7-1500 in TIA Portal V18 as well, with some modernization.
+> For TIA Portal V17–V20 with S7-1200 and S7-1500 CPUs.
+> Optimized block access is the default and recommended setting.
+> All examples use symbolic addressing only — absolute addressing (M0.0, I0.0, DB20.DW3) is NOT used.
 
 ---
 
@@ -11,16 +12,16 @@
 
 - **Letters**: A-Z, a-z (case-insensitive for keywords and identifiers)
 - **Digits**: 0-9
-- **Space** (ASCII 32) and all control characters (ASCII 0-31) including end-of-line (ASCII 13)
-- **Special characters with meaning**: `+ - * / = < > [ ] ( ) . , : ; $ # " ' { }`
+- **Space** (ASCII 32) and control characters including end-of-line
+- **Special characters**: `+ - * / = < > [ ] ( ) . , : ; $ # " ' { }`
 
 ### 1.2 Free Format
 
-SCL source is free-format: you can insert spaces, tabs, page breaks, and comments between rule blocks (tokens). However, within a single token (e.g., an identifier or number), no whitespace is allowed.
+SCL source is free-format: spaces, tabs, and line breaks can appear between tokens. Within a single token (identifier, number), no whitespace is allowed.
 
 ### 1.3 Case Insensitivity
 
-All keywords, predefined names, user-defined names, and symbol table names are **not** case-sensitive. `Anna` and `AnNa` are identical.
+All keywords, predefined names, and user-defined identifiers are **not** case-sensitive. `Motor` and `MOTOR` are identical.
 
 ---
 
@@ -28,123 +29,111 @@ All keywords, predefined names, user-defined names, and symbol table names are *
 
 ### 2.1 Rules
 
-An identifier is a name assigned to an SCL language object (constant, variable, function, block).
-
 ```
 IDENTIFIER ::= (Letter | '_') { Letter | Digit | '_' }
 ```
 
 - First character must be a letter or underscore `_`
-- Maximum length: **24 characters**
 - Must not be a reserved keyword
 - Case-insensitive
 
-**Valid**: `x`, `y12`, `Sum`, `Temperature`, `C_CONTROLLER3`, `_A_FIELD`, `_100_3_3_10`
+**Valid**: `x`, `y12`, `Sum`, `Temperature`, `statCounter`, `tempCalc`
 **Invalid**: `4th` (starts with digit), `Array` (keyword), `S Value` (contains space)
 
-### 2.2 Symbols (from STEP 7 symbol table)
+### 2.2 Quoted Identifiers
 
-Symbols defined in the STEP 7 symbol table can use additional characters if enclosed in double quotes:
+Identifiers with special characters must be enclosed in double quotes:
 
-```
+```scl
+"Motor Control"
 "Input 1.1"
 "Controller.B1&U2"
+```
+
+### 2.3 Local Variable Prefix
+
+In TIA Portal, local variables (declared in VAR, VAR_INPUT, VAR_OUTPUT, VAR_IN_OUT, VAR_TEMP) are accessed with the `#` prefix:
+
+```scl
+#statCounter := #statCounter + 1;
+#tempCalc := INT_TO_REAL(#inputValue);
 ```
 
 ---
 
 ## 3. Reserved Words (Keywords)
 
-All keywords are case-insensitive. The complete list:
+All keywords are case-insensitive.
 
 ### Block Structure Keywords
 
 | Keyword | Purpose |
 |---|---|
-| `ORGANIZATION_BLOCK` | Begins an OB |
-| `END_ORGANIZATION_BLOCK` | Ends an OB |
-| `FUNCTION_BLOCK` | Begins an FB |
-| `END_FUNCTION_BLOCK` | Ends an FB |
-| `FUNCTION` | Begins an FC |
-| `END_FUNCTION` | Ends an FC |
-| `DATA_BLOCK` | Begins a DB |
-| `END_DATA_BLOCK` | Ends a DB |
-| `TYPE` | Begins a UDT |
-| `END_TYPE` | Ends a UDT |
+| `ORGANIZATION_BLOCK` / `END_ORGANIZATION_BLOCK` | OB boundaries |
+| `FUNCTION_BLOCK` / `END_FUNCTION_BLOCK` | FB boundaries |
+| `FUNCTION` / `END_FUNCTION` | FC boundaries |
+| `DATA_BLOCK` / `END_DATA_BLOCK` | DB boundaries |
+| `TYPE` / `END_TYPE` | UDT boundaries |
 | `BEGIN` | Starts code/assignment section |
 
 ### Declaration Keywords
 
 | Keyword | Purpose |
 |---|---|
-| `VAR` | Static variables subsection |
-| `VAR_TEMP` | Temporary variables subsection |
-| `VAR_INPUT` | Input parameters subsection |
-| `VAR_OUTPUT` | Output parameters subsection |
-| `VAR_IN_OUT` | In/out parameters subsection |
-| `END_VAR` | Ends any VAR subsection |
-| `CONST` | Constants subsection |
-| `END_CONST` | Ends constants subsection |
-| `LABEL` | Jump labels subsection |
-| `END_LABEL` | Ends jump labels subsection |
-| `STRUCT` | Begins structure definition |
-| `END_STRUCT` | Ends structure definition |
+| `VAR` / `END_VAR` | Static variables (FB) |
+| `VAR_TEMP` / `END_VAR` | Temporary variables |
+| `VAR_INPUT` / `END_VAR` | Input parameters |
+| `VAR_OUTPUT` / `END_VAR` | Output parameters |
+| `VAR_IN_OUT` / `END_VAR` | In/out parameters |
+| `CONST` / `END_CONST` | Constants |
+| `STRUCT` / `END_STRUCT` | Structure definition |
 
 ### Data Type Keywords
 
-| Keyword | Purpose |
-|---|---|
-| `BOOL` | Boolean (1 bit) |
-| `BYTE` | Byte (8 bits) |
-| `WORD` | Word (16 bits) |
-| `DWORD` | Double word (32 bits) |
-| `CHAR` | Single character (8 bits) |
-| `INT` | Integer (16 bits) |
-| `DINT` | Double integer (32 bits) |
-| `REAL` | IEEE floating point (32 bits) |
-| `S5TIME` | S5 time format (16 bits) |
-| `TIME` | IEC time (32 bits) |
-| `DATE` | IEC date (16 bits) |
-| `TIME_OF_DAY` / `TOD` | Time of day (32 bits) |
-| `DATE_AND_TIME` / `DT` | Date and time (64 bits) |
-| `STRING` | Character string (up to 254 chars) |
-| `ARRAY` | Array type |
-| `VOID` | No return value (for functions) |
-| `ANY` | Any data type (parameter type) |
-| `POINTER` | Pointer (parameter type, 6 bytes) |
-| `TIMER` | Timer parameter type |
-| `COUNTER` | Counter parameter type |
-| `BLOCK_FB` | FB parameter type |
-| `BLOCK_FC` | FC parameter type |
-| `BLOCK_DB` | DB parameter type |
-| `BLOCK_SDB` | SDB parameter type |
-| `NIL` | Null/zero pointer |
+| Keyword | Bits | Description |
+|---|---|---|
+| `BOOL` | 1 | Boolean |
+| `BYTE` | 8 | Byte (bit pattern) |
+| `WORD` | 16 | Word (bit pattern) |
+| `DWORD` | 32 | Double word (bit pattern) |
+| `LWORD` | 64 | Long word (bit pattern) |
+| `SINT` | 8 | Short integer (-128 to 127) |
+| `USINT` | 8 | Unsigned short integer (0 to 255) |
+| `INT` | 16 | Integer (-32768 to 32767) |
+| `UINT` | 16 | Unsigned integer (0 to 65535) |
+| `DINT` | 32 | Double integer (-2147483648 to 2147483647) |
+| `UDINT` | 32 | Unsigned double integer (0 to 4294967295) |
+| `LINT` | 64 | Long integer |
+| `ULINT` | 64 | Unsigned long integer |
+| `REAL` | 32 | IEEE 32-bit float |
+| `LREAL` | 64 | IEEE 64-bit float |
+| `CHAR` | 8 | Single ASCII character |
+| `WCHAR` | 16 | Single Unicode character |
+| `STRING` | variable | ASCII string (up to 254 chars) |
+| `WSTRING` | variable | Unicode string |
+| `TIME` | 32 | IEC time duration (ms resolution) |
+| `LTIME` | 64 | Long time duration (ns resolution) |
+| `DATE` | 16 | IEC date |
+| `TIME_OF_DAY` / `TOD` | 32 | Time of day |
+| `LTOD` | 64 | Long time of day |
+| `DATE_AND_TIME` / `DT` | 64 | Date and time |
+| `LDT` | 64 | Long date and time |
+| `DTL` | 96 | Date and time long (12 bytes, preferred for S7-1500) |
+| `ARRAY` | variable | Fixed-size collection |
+| `VOID` | - | No return value (for functions) |
+| `VARIANT` | variable | Runtime type-flexible parameter |
 
 ### Control Flow Keywords
 
 | Keyword | Purpose |
 |---|---|
-| `IF` | Conditional branch |
-| `THEN` | Follows IF/ELSIF condition |
-| `ELSIF` | Alternative condition |
-| `ELSE` | Default branch |
-| `END_IF` | Ends IF statement |
-| `CASE` | Selection by value |
-| `OF` | Follows CASE expression / ARRAY type |
-| `END_CASE` | Ends CASE statement |
-| `FOR` | Counted loop |
-| `TO` | Final value in FOR |
-| `BY` | Increment in FOR |
-| `DO` | Follows FOR/WHILE condition |
-| `END_FOR` | Ends FOR loop |
-| `WHILE` | Condition-first loop |
-| `END_WHILE` | Ends WHILE loop |
-| `REPEAT` | Condition-last loop |
-| `UNTIL` | Break condition for REPEAT |
-| `END_REPEAT` | Ends REPEAT loop |
+| `IF` / `THEN` / `ELSIF` / `ELSE` / `END_IF` | Conditional branch |
+| `CASE` / `OF` / `END_CASE` | Selection by value |
+| `FOR` / `TO` / `BY` / `DO` / `END_FOR` | Counted loop |
+| `WHILE` / `DO` / `END_WHILE` | Condition-first loop |
+| `REPEAT` / `UNTIL` / `END_REPEAT` | Condition-last loop |
 | `CONTINUE` | Skip to next loop iteration |
 | `EXIT` | Exit current loop |
-| `GOTO` | Jump to label |
 | `RETURN` | Exit current block |
 
 ### Operator Keywords
@@ -156,1357 +145,914 @@ All keywords are case-insensitive. The complete list:
 | `XOR` | Logical exclusive OR |
 | `NOT` | Logical negation |
 | `MOD` | Modulus (remainder) |
-| `DIV` | Integer division |
 
 ### Other Reserved Words
 
 | Keyword | Purpose |
 |---|---|
-| `TRUE` | Boolean constant (1) |
-| `FALSE` | Boolean constant (0) |
-| `EN` | Implicit input parameter (enable) |
-| `ENO` | Implicit output parameter (enable out) |
-| `OK` | Error flag |
+| `TRUE` / `FALSE` | Boolean constants |
+| `EN` / `ENO` | Implicit enable input / enable out |
+| `REF_TO` | Reference data type |
 
 ---
 
-## 4. Standard Identifiers (Block Keywords)
+## 4. Number Formats
 
-Used for absolute addressing of blocks:
-
-| Mnemonic | Identifies | Number Range |
-|---|---|---|
-| `DB`x | Data Block | 0-65533 |
-| `FB`x | Function Block | 0-65533 |
-| `FC`x | Function | 0-65533 |
-| `OB`x | Organization Block | 0-65533 |
-| `SDB`x | System Data Block | 0-65533 |
-| `SFC`x | System Function | 0-65533 |
-| `SFB`x | System Function Block | 0-65533 |
-| `T`x | Timer | 0-65533 |
-| `UDT`x | User-Defined Data Type | 0-65533 |
-| `C`x (IEC) / `Z`x (SIMATIC) | Counter | 0-65533 |
-
----
-
-## 5. Address Identifiers (CPU Memory Areas)
-
-### 5.1 Memory Prefixes
-
-| SIMATIC | IEC | Memory Area |
-|---|---|---|
-| `E` | `I` | Input (process image) |
-| `A` | `Q` | Output (process image) |
-| `M` | `M` | Bit memory (Merker) |
-| `PE` | `PI` | Peripheral input (direct I/O) |
-| `PA` | `PQ` | Peripheral output (direct I/O) |
-
-### 5.2 Size Prefixes
-
-| Prefix | Size | Data Type |
-|---|---|---|
-| `X` (or none for bit) | Bit | BOOL |
-| `B` | Byte | BYTE |
-| `W` | Word | WORD |
-| `D` | Double word | DWORD |
-
-### 5.3 Address Format
-
-```
-MemoryPrefix [SizePrefix] ByteAddress [.BitAddress]
-```
-
-**IEC Examples**:
-- `I1.0` - Input bit 1.0
-- `IB10` - Input byte 10
-- `IW20` - Input word 20
-- `ID0` - Input double word 0
-- `Q1.1` - Output bit 1.1
-- `QB4` - Output byte 4
-- `QW4` - Output word 4
-- `MW10` - Memory word 10
-- `MD0` - Memory double word 0
-- `M0.0` - Memory bit 0.0
-- `PIW256` - Peripheral input word 256
-- `PQW5` - Peripheral output word 5
-
-### 5.4 Data Block Addresses
-
-```
-DBidentifier.D [SizePrefix] Address
-```
-
-Examples:
-- `DB20.DW3` - Data block 20, data word at byte 3
-- `DB11.DX13.1` - Data block 11, bit 13.1
-- `DB101.DB10` - Data block 101, data byte at byte 10
-
----
-
-## 6. Number Formats
-
-### 6.1 Integers
-
-- No commas or spaces allowed
-- Underscore `_` for visual separation
-- Optional `+` or `-` sign
-- Data type INT: -32768 to 32767
-- Data type DINT: -2147483648 to 2147483647
+### 4.1 Integers
 
 ```
 0     1     +1     -1     743     -5280     600_00     -32_211
 ```
 
-### 6.2 Binary / Octal / Hexadecimal Integers
+Underscore `_` allowed for visual separation. No commas or spaces.
+
+### 4.2 Binary / Octal / Hexadecimal
 
 ```
-2#1111          // Binary, decimal 15
-8#17            // Octal, decimal 15
-16#F            // Hexadecimal, decimal 15
-2#0101          // Binary, decimal 5
+2#1111          // Binary = 15
+8#17            // Octal = 15
+16#F            // Hexadecimal = 15
 16#1A2B         // Hexadecimal
 ```
 
-### 6.3 Real Numbers
+### 4.3 Real Numbers
 
 Must contain either a decimal point or an exponent (or both). Decimal point must be between two digits.
 
 ```
-0.0     1.0     -0.2     827.602     50000.0     -0.000743     12.3
-3.0E+10     3e+10     0.3E+11     30.0E+9     4e2     40_123E10
+0.0     1.0     -0.2     827.602     50000.0
+3.0E+10     3e+10     0.3E+11     4e2
 ```
 
-**Invalid**: `1.` (must have digit after point), `.3333` (must have digit before point)
+**Invalid**: `1.` (need digit after point), `.3333` (need digit before point)
 
 ---
 
-## 7. Data Types
+## 5. Data Types
 
-### 7.1 Elementary Data Types
+### 5.1 Elementary Data Types
 
 | Type | Keyword | Bits | Value Range |
 |---|---|---|---|
-| Bit | `BOOL` | 1 | `FALSE`, `TRUE` (0, 1) |
-| Byte | `BYTE` | 8 | Bit combination (no numeric range) |
-| Word | `WORD` | 16 | Bit combination (no numeric range) |
-| Double Word | `DWORD` | 32 | Bit combination (no numeric range) |
-| Character | `CHAR` | 8 | Extended ASCII character set |
+| Bit | `BOOL` | 1 | `FALSE`, `TRUE` |
+| Short Int | `SINT` | 8 | -128 to 127 |
+| Unsigned Short | `USINT` | 8 | 0 to 255 |
 | Integer | `INT` | 16 | -32768 to 32767 |
-| Double Integer | `DINT` | 32 | -2147483648 to 2147483647 |
-| Real | `REAL` | 32 | +-1.175495E-38 to +-3.402822E+38, 0.0 |
-| S5 Time | `S5TIME` | 16 | T#0H_0M_0S_10MS to T#2H_46M_30S |
-| IEC Time | `TIME` | 32 | -T#24D_20H_31M_23S_647MS to T#24D_20H_31M_23S_647MS |
-| Date | `DATE` | 16 | D#1990-01-01 to D#2168-12-31 |
-| Time of Day | `TIME_OF_DAY` / `TOD` | 32 | TOD#0:0:0 to TOD#23:59:59.999 |
+| Unsigned Int | `UINT` | 16 | 0 to 65535 |
+| Double Int | `DINT` | 32 | -2147483648 to 2147483647 |
+| Unsigned DInt | `UDINT` | 32 | 0 to 4294967295 |
+| Long Int | `LINT` | 64 | Full 64-bit signed range |
+| Unsigned LInt | `ULINT` | 64 | Full 64-bit unsigned range |
+| Real | `REAL` | 32 | IEEE 754 single-precision float |
+| Long Real | `LREAL` | 64 | IEEE 754 double-precision float |
+| Byte | `BYTE` | 8 | Bit pattern (no numeric range) |
+| Word | `WORD` | 16 | Bit pattern |
+| Double Word | `DWORD` | 32 | Bit pattern |
+| Long Word | `LWORD` | 64 | Bit pattern |
+| Character | `CHAR` | 8 | Single ASCII character |
+| Wide Character | `WCHAR` | 16 | Single Unicode character |
 
-### 7.2 Complex Data Types
+### 5.2 Time Types
+
+| Type | Keyword | Bits | Format Example |
+|---|---|---|---|
+| Time duration | `TIME` | 32 | `T#1h20m10s30ms` |
+| Long time | `LTIME` | 64 | `LT#1h20m10s30ms` |
+| Date | `DATE` | 16 | `D#2024-01-15` |
+| Time of day | `TOD` | 32 | `TOD#12:30:00` |
+| Long TOD | `LTOD` | 64 | `LTOD#12:30:00.000000000` |
+| Date and time | `DT` | 64 | `DT#2024-01-15-12:30:00` |
+| Long DT | `LDT` | 64 | `LDT#2024-01-15-12:30:00` |
+| Date time long | `DTL` | 96 | 12-byte structure (preferred for S7-1500) |
+
+### 5.3 String Types
+
+| Type | Keyword | Max Length | Description |
+|---|---|---|---|
+| ASCII String | `STRING[n]` | 254 chars | Always specify length: `STRING[80]` |
+| Unicode String | `WSTRING[n]` | variable | Unicode characters |
+
+**Important**: Always specify the string length explicitly: `STRING[80]`, not just `STRING`.
+
+### 5.4 Complex Data Types
 
 | Type | Keyword | Description |
 |---|---|---|
-| Date and Time | `DATE_AND_TIME` / `DT` | 64 bits (8 bytes), BCD-coded date + time |
-| String | `STRING` | Up to 254 characters (256 bytes incl. 2-byte header) |
-| Array | `ARRAY` | Fixed-size collection of same-type elements, max 6 dimensions |
-| Structure | `STRUCT` | Group of named components of any type |
+| Array | `ARRAY[lo..hi] OF type` | Fixed-size collection of same-type elements |
+| Structure | `STRUCT ... END_STRUCT` | Group of named components |
+| UDT | `TYPE "name" ... END_TYPE` | User-defined reusable structure |
 
-### 7.3 User-Defined Data Types (UDT)
+### 5.5 Implicit Type Conversion Order
 
-Defined with `TYPE ... END_TYPE`, globally available. Used like any other data type.
+Within `ANY_BIT`: `BOOL` → `BYTE` → `WORD` → `DWORD` → `LWORD`
+Within `ANY_NUM`: `SINT` → `INT` → `DINT` → `REAL` → `LREAL`
 
-### 7.4 Parameter Types
+**Important**: Explicit type conversion functions are ALWAYS required in TIA Portal SCL. There are no implicit conversions across type groups.
 
-| Type | Size | Usage |
-|---|---|---|
-| `TIMER` | 2 bytes | Timer identifier (VAR_INPUT only) |
-| `COUNTER` | 2 bytes | Counter identifier (VAR_INPUT only) |
-| `BLOCK_FB` | 2 bytes | Function block identifier |
-| `BLOCK_FC` | 2 bytes | Function identifier |
-| `BLOCK_DB` | 2 bytes | Data block identifier |
-| `BLOCK_SDB` | 2 bytes | System data block identifier |
-| `ANY` | 10 bytes | Any data type |
-| `POINTER` | 6 bytes | Memory area pointer |
+```scl
+// WRONG — implicit conversion does NOT compile:
+#tempReal := #inputInt;
 
-### 7.5 Implicit Data Type Conversion Order
-
-Within `ANY_BIT`: `BOOL` -> `BYTE` -> `WORD` -> `DWORD`
-Within `ANY_NUM`: `INT` -> `DINT` -> `REAL`
+// CORRECT — explicit conversion:
+#tempReal := INT_TO_REAL(#inputInt);
+```
 
 ---
 
-## 8. Constants and Literals
+## 6. Constants and Literals
 
-### 8.1 Symbolic Constants (CONST block)
+### 6.1 Symbolic Constants (CONST block)
 
-```
+```scl
 CONST
-    FIGURE   := 10;
-    TIME1    := TIME#1D_1H_10M_22S.2MS;
-    NAME     := 'SIEMENS';
-    FIG2     := 2 * 5 + 10 * 4;
-    FIG3     := 3 + NUMBER2;
+    MAX_SPEED := 1500;
+    SCALE_FACTOR := 2.5;
+    DEVICE_NAME := 'Motor 1';
 END_CONST
 ```
 
-Expressions using `+`, `-`, `*`, `/`, `DIV`, `MOD` are allowed.
+Constant expressions with `+`, `-`, `*`, `/`, `DIV`, `MOD` are allowed.
 
-### 8.2 Integer Literals
+### 6.2 Integer Literals
 
 ```
 1000                    // Decimal
 +1_120_200              // Decimal with separator
--666_999_400_311        // Negative decimal
 2#1111                  // Binary (= 15)
 8#17                    // Octal (= 15)
 16#F                    // Hexadecimal (= 15)
-16#1A2B                 // Hexadecimal
 ```
 
-### 8.3 Real Number Literals
+### 6.3 Real Number Literals
 
 ```
 0.0     1.0     -0.2     827.602
-3.0E+10     3e+10     4e2     30.0E+9
+3.0E+10     3e+10     4e2
 ```
 
-### 8.4 Character Literals
+### 6.4 String and Character Literals
 
-Single character in single quotes:
-```
-'B'          // Character B
-'$41'        // Hex representation of 'A'
-'$20'        // Space character
-```
-
-### 8.5 String Literals
-
-Up to 254 characters in single quotes:
-```
-'RED'
-'7500 Karlsruhe'
-'DM19.95'
-'The correct answer is:'
+```scl
+'B'                     // Character
+'RED'                   // String
+'Hello World'           // String
 ```
 
 **Escape sequences** using `$`:
 | Code | Meaning |
 |---|---|
-| `$$` | Dollar sign `$` |
-| `$'` | Single quote `'` |
-| `$P` or `$p` | Page break (form feed) |
-| `$L` or `$l` | Line feed |
-| `$R` or `$r` | Carriage return |
-| `$T` or `$t` | Tab |
-| `$hh` | Hex ASCII code (e.g., `$41` = 'A') |
+| `$$` | Dollar sign |
+| `$'` | Single quote |
+| `$L` / `$l` | Line feed |
+| `$R` / `$r` | Carriage return |
+| `$T` / `$t` | Tab |
 
-**String breaks** for multi-line strings:
-```
-'The FB$>
-$<converts'     // Result: 'The FBconverts'
+### 6.5 Time Literals
+
+```scl
+T#20ms                  // 20 milliseconds
+T#1s                    // 1 second
+T#1h20m10s30ms          // Complex time
+TIME#300ms              // Alternate prefix
 ```
 
-### 8.6 BOOL Literals
+### 6.6 Date and Time Literals
+
+```scl
+DATE#2024-01-15         // Date
+D#2024-01-15            // Short form
+
+TOD#12:30:00            // Time of day
+TOD#23:59:59.999        // With milliseconds
+
+DT#2024-01-15-12:30:00  // Date and time
+```
+
+### 6.7 BOOL Literals
 
 ```
 TRUE     FALSE
 ```
 
-### 8.7 Date Literals
+### 6.8 Typed Hex Constants
 
-```
-DATE#1995-11-11
-D#1995-05-05
-D#1990-01-01
-```
-
-Format: `DATE#YYYY-MM-DD` or `D#YYYY-MM-DD`
-
-### 8.8 Time Period Literals
-
-**Simple format** (single time unit):
-```
-TIME#20.5D              // 20.5 days
-TIME#45.12M             // 45.12 minutes
-T#300MS                 // 300 milliseconds
-```
-
-**Complex format** (multiple time units, order: D, H, M, S, MS):
-```
-TIME#20D_12H
-TIME#20D_10H_25M_10S
-TIME#200S_20MS
-T#1H_20M_10S_30MS
-T#2D_1H_20M_10S_30MS
-```
-
-### 8.9 S5TIME Literals
-
-```
-S5T#1h30m30s
-S5T#1h20m10s
-S5TIME#25S
-T#1s                    // when used in timer function context
-```
-
-Time base is 10ms, 100ms, 1s, or 10s (compiler rounds values accordingly).
-
-### 8.10 Time of Day Literals
-
-```
-TIME_OF_DAY#12:12:12.2
-TOD#11:11:11.7
-TOD#0:0:0
-TOD#23:59:59.999
-```
-
-Format: `TOD#HH:MM:SS.mmm`
-
-### 8.11 Date and Time Literals
-
-```
-DATE_AND_TIME#1995-01-01-12:12:12.2
-DT#1995-02-02-11:11:11
-DT#1995-10-20-12:20:30.10
-```
-
-Format: `DT#YYYY-MM-DD-HH:MM:SS.mmm`
-
-### 8.12 WORD / BYTE Constant Prefixes (used in DBs/UDTs)
-
-```
-W#16#FFAA           // WORD hex constant
-B#16#FF             // BYTE hex constant
+```scl
+W#16#FFAA               // WORD hex constant
+B#16#FF                 // BYTE hex constant
+DW#16#AABBCCDD          // DWORD hex constant
 ```
 
 ---
 
-## 9. SCL Source File Structure
+## 7. SCL Source File Structure
 
-### 9.1 Block Ordering Rules
+### 7.1 Block Ordering Rules
 
 Called blocks must precede calling blocks in the source file:
 
 1. **UDTs** must precede blocks that use them
-2. **DBs with assigned UDT** must follow the UDT
-3. **Global DBs** (accessed by all blocks) must precede blocks that access them
+2. **FBs/FCs** must precede blocks that call them
+3. **Global DBs** must precede blocks that access them
 4. **FBs** must precede their instance DBs
-5. **Instance DBs** for an FB come after the FB
-6. **Called FCs/FBs** must precede calling blocks
-7. **OB1** (which calls other blocks) comes at the very end
+5. **Instance DBs** come after their FB
+6. **OB1** (which calls other blocks) comes at the very end
 
 **Ordering example**:
 ```
-UDT -> DB from UDT -> FB3 -> Instance DB for FB3 -> FC5 -> OB1
+UDT → FC → FB → Global DB → Instance DB → OB1
 ```
 
-### 9.2 General Block Structure
+### 7.2 General Block Structure
 
 Every block consists of:
-1. Block start keyword + block identifier
-2. Block attributes (optional)
-3. Declaration section
-4. Code section (begins with `BEGIN`, ends with block end keyword)
-5. Block end keyword
+1. Block start keyword + block name (in quotes)
+2. Pragmas (e.g., `{ S7_Optimized_Access := 'TRUE' }`)
+3. `VERSION : 0.1`
+4. Declaration section (VAR blocks)
+5. `BEGIN` keyword
+6. Code section
+7. Block end keyword
 
 ---
 
-## 10. Block Syntax
+## 8. Block Syntax
 
-### 10.1 Function Block (FB)
+### 8.1 Function Block (FB)
 
 ```scl
-FUNCTION_BLOCK FB10        // or FUNCTION_BLOCK SymbolicName
-// Block attributes (optional)
-TITLE = 'Block Title'
-VERSION : '1.0'
-AUTHOR : AuthName
-NAME : BlkName
-FAMILY : FamName
+FUNCTION_BLOCK "ControlMotor"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
 
-// Declaration section
 VAR_INPUT
-    InputParam1 : INT := 0;
-    InputParam2 : REAL;
+    start : Bool;
+    stop : Bool;
+    speedSetpoint : Real;
 END_VAR
 
 VAR_OUTPUT
-    OutputParam1 : BOOL;
+    running : Bool;
+    currentSpeed : Real;
+    error : Bool;
 END_VAR
 
 VAR_IN_OUT
-    InOutParam1 : REAL;
+    diagnostics : "typeDiagnostics";
 END_VAR
 
 VAR
-    StaticVar1 : INT;
-    StaticVar2 : ARRAY[1..10] OF REAL;
-    LocalInstance1 : FB20;     // Local instance declaration
+    statState : Int;
+    statLastSpeed : Real;
+    instStartDelay : TON;       // IEC timer as multi-instance
+    instStopDelay : TON;
+    instStartEdge : R_TRIG;    // Edge detection as multi-instance
 END_VAR
 
 VAR_TEMP
-    TempVar1 : INT;
-    TempVar2 : REAL;
+    tempCalc : Real;
+    tempSpeedDiff : Real;
 END_VAR
-
-CONST
-    MY_CONST := 100;
-END_CONST
-
-LABEL
-    LABEL1, LABEL2;
-END_LABEL
 
 BEGIN
     // Code section
-    StaticVar1 := InputParam1 * 2;
-    OutputParam1 := StaticVar1 > MY_CONST;
+    #instStartEdge(CLK := #start);
+
+    CASE #statState OF
+        0:  // Idle
+            #running := FALSE;
+            IF #instStartEdge.Q THEN
+                #statState := 1;
+            END_IF;
+        1:  // Starting
+            #instStartDelay(IN := TRUE, PT := T#2s);
+            IF #instStartDelay.Q THEN
+                #statState := 2;
+                #running := TRUE;
+            END_IF;
+        2:  // Running
+            #currentSpeed := #speedSetpoint;
+            IF #stop THEN
+                #statState := 0;
+                #running := FALSE;
+            END_IF;
+        ELSE
+            #statState := 0;
+            #error := TRUE;
+    END_CASE;
 END_FUNCTION_BLOCK
 ```
 
 **Key points**:
-- Has its own memory (instance DB)
-- Static variables retain values across calls
-- Input/output parameter assignment is optional on call
-- Requires instance DB when called
+- Block name in double quotes
+- `{ S7_Optimized_Access := 'TRUE' }` pragma required
+- Has persistent memory via instance DB
+- Static variables (VAR) retain values across calls
+- Timers, counters, edge triggers MUST be in VAR (static), NEVER in VAR_TEMP
+- All local variables accessed with `#` prefix
 
-### 10.2 Function (FC)
+### 8.2 Function (FC)
 
 ```scl
-FUNCTION FC100 : REAL       // Return type after colon
-// or FUNCTION FC100 : VOID  // No return value
-// Block attributes (optional)
+FUNCTION "ScaleAnalog" : Real
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
 
 VAR_INPUT
-    X1 : REAL;
-    X2 : REAL;
-END_VAR
-
-VAR_OUTPUT
-    Q2 : REAL;
-END_VAR
-
-VAR_IN_OUT
-    InOut1 : INT;
+    rawValue : Int;
+    minScale : Real;
+    maxScale : Real;
 END_VAR
 
 VAR_TEMP
-    TempVar : INT;
+    tempNormalized : Real;
 END_VAR
 
-CONST
-    PI := 3.14159;
-END_CONST
-
 BEGIN
-    // Must assign return value using function name
-    FC100 := SQRT((X2 - X1)**2);
-    Q2 := X1 + X2;
+    #tempNormalized := INT_TO_REAL(#rawValue) / 27648.0;
+    #ScaleAnalog := #tempNormalized * (#maxScale - #minScale) + #minScale;
 END_FUNCTION
 ```
 
 **Key points**:
-- No static memory (no instance DB needed)
-- Returns a function value (except VOID)
-- Return value assigned by `FunctionName := expression;`
-- All parameters must be supplied when called
-- VAR declarations are treated as temporary (shifted to temp area during compilation)
-- Return type can be any data type except STRUCT and ARRAY
+- Return type after colon (or `VOID` for no return)
+- No instance DB, no persistent state
+- Return value assigned by `#FunctionName := expression;`
+- All parameters MUST be supplied when called
+- VAR declarations are temporary (not persistent)
+- Return type can be any elementary type, STRING, or UDT — but NOT STRUCT or ARRAY
 
-### 10.3 Organization Block (OB)
+### 8.3 Organization Block (OB)
 
 ```scl
-ORGANIZATION_BLOCK OB1
-// Block attributes (optional)
+ORGANIZATION_BLOCK "Main"
+TITLE = "Main Program Sweep"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
 
 VAR_TEMP
-    HEADER : ARRAY[1..20] OF BYTE;  // 20 bytes for start info (required)
-    // Additional temp variables
+    tempStatus : Int;
 END_VAR
 
-CONST
-    // Optional constants
-END_CONST
-
 BEGIN
-    // Code section - called by operating system
-    FB10.DB10(InputParam1 := 5);
+    // Call FB instances using their instance DB name ONLY
+    "InstMotor1"(start := "TagStartMotor1",
+                 stop := "TagStopMotor1",
+                 speedSetpoint := 1500.0);
+
+    "InstMotor2"(start := "TagStartMotor2",
+                 stop := "TagStopMotor2",
+                 speedSetpoint := 750.0);
+
+    "InstConveyor1"(start := "TagStartConv1",
+                    stop := "TagStopConv1");
 END_ORGANIZATION_BLOCK
 ```
 
 **Key points**:
-- Called by operating system (cyclic, event-driven, etc.)
-- Requires minimum 20 bytes of local data for start information
-- Only VAR_TEMP, CONST, and LABEL subsections allowed
-- No parameters (VAR_INPUT/OUTPUT/IN_OUT not allowed)
+- Called by CPU operating system (cyclic for OB1)
+- Only `VAR_TEMP` allowed (no VAR_INPUT/OUTPUT/IN_OUT, no VAR static)
+- No parameters
+- FB calls use **instance DB name only** — NOT `"FBName"."InstDBName"(...)`
 
-### 10.4 Data Block (DB)
+### 8.4 Data Block (DB) — Global
 
-**With STRUCT declaration**:
 ```scl
-DATA_BLOCK DB20
-// Block attributes (optional)
+DATA_BLOCK "Configuration"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+NON_RETAIN
 
 STRUCT
-    VALUE : ARRAY[1..100] OF INT := 100(1);
-    MARKER : BOOL := TRUE;
-    S_WORD : WORD := W#16#FFAA;
-    S_BYTE : BYTE := B#16#FF;
-    S_TIME : S5TIME := S5T#1h30m30s;
-    DIGIT : INT := 1;
-    DIGIT1 : STRUCT
-        DIGIT2 : INT := 256;
+    maxSpeed : Real := 1500.0;
+    enabled : Bool := TRUE;
+    deviceName : String[32] := 'Motor 1';
+    limits : STRUCT
+        upper : Real := 100.0;
+        lower : Real := 0.0;
     END_STRUCT;
-END_STRUCT
-
-BEGIN
-    // Assignment section (override initialization values)
-    VALUE[1] := 5;
-    VALUE[5] := -1;
-END_DATA_BLOCK
-```
-
-**With UDT assignment**:
-```scl
-DATA_BLOCK DB20
-UDT1               // Assign UDT as template
-
-BEGIN
-    // Assignment section
-END_DATA_BLOCK
-```
-
-**Instance DB (for FB)**:
-```scl
-// Instance DBs are automatically generated from the FB declaration
-// They follow the FB in the source file ordering
-DATA_BLOCK DB10
-FB10                // Assign to FB10
+END_STRUCT;
 
 BEGIN
 END_DATA_BLOCK
 ```
 
-### 10.5 User-Defined Data Type (UDT)
+### 8.5 Data Block (DB) — Instance DB
+
+Every FB called from OB1 needs a separate instance DB:
 
 ```scl
-TYPE UDT10                   // or TYPE SymbolicName
+DATA_BLOCK "InstMotor1"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+NON_RETAIN
+"ControlMotor"
+
+BEGIN
+END_DATA_BLOCK
+```
+
+**Key points**:
+- The FB name (in quotes) on its own line references the FB type
+- Instance DB inherits the FB's interface (all VAR_INPUT, VAR_OUTPUT, VAR, etc.)
+- One instance DB per physical device (e.g., `InstMotor1`, `InstMotor2`)
+- Instance DB name is what you use to call the FB from OB1
+
+### 8.6 User-Defined Data Type (UDT)
+
+```scl
+TYPE "typeMotorConfig"
+VERSION : 0.1
 STRUCT
-    BIPOL_1 : INT;
-    BIPOL_2 : WORD := W#16#AFAL;
-    BIPOL_3 : BYTE := B#16#FF;
-    BIPOL_5 : INT := 25;
-    S_TIME  : S5TIME := S5T#1h20m10s;
-    READING : STRUCT
-        BIPOLAR_10V      : REAL;
-        UNIPOLAR_4_20MA  : REAL;
-    END_STRUCT;
-END_STRUCT
+    maxSpeed : Real;
+    minSpeed : Real;
+    rampUpTime : Time := T#5s;
+    rampDownTime : Time := T#3s;
+    enabled : Bool := TRUE;
+END_STRUCT;
 END_TYPE
 ```
 
-**Usage in blocks**:
-```scl
-VAR
-    MEAS_RANGE : UDT10;       // or symbolic UDT name
-END_VAR
-```
-
----
-
-## 11. Block Attributes
-
-Placed after block identifier, before declaration section:
-
-```scl
-FUNCTION_BLOCK FB10
-TITLE = 'Average Calculator'
-VERSION : '2.1'
-KNOW_HOW_PROTECT
-AUTHOR : AUT1
-NAME : B12
-FAMILY : ANALOG
-{S7_m_c := 'true'; S7_blockview := 'big'}
-```
-
-| Attribute | Syntax | Description |
-|---|---|---|
-| `TITLE` | `TITLE = 'text'` | Block title (printable chars) |
-| `VERSION` | `VERSION : 'major.minor'` | Version number |
-| `KNOW_HOW_PROTECT` | `KNOW_HOW_PROTECT` | Protects block from viewing |
-| `AUTHOR` | `AUTHOR : name` | Author (max 8 chars) |
-| `NAME` | `NAME : name` | Block name (max 8 chars) |
-| `FAMILY` | `FAMILY : name` | Block family (max 8 chars) |
-
-### System Attributes for Blocks
-
-```scl
-{S7_m_c := 'true'; S7_blockview := 'big'}
-```
-
-| Attribute | Values | Block Types |
-|---|---|---|
-| `S7_m_c` | `true`, `false` | FB |
-| `S7_tasklist` | task names | FB, FC |
-| `S7_blockview` | `big`, `small` | FB, FC |
-
-### System Attributes for Parameters
-
-Placed in VAR_INPUT/OUTPUT/IN_OUT before the declaration:
-
+**Usage**:
 ```scl
 VAR_INPUT
-    in1 {S7_server := 'alarm_archiv'; S7_a_type := 'ar_send'} : DWORD;
+    config : "typeMotorConfig";
 END_VAR
 ```
 
 ---
 
-## 12. Declaration Section
+## 9. Declaration Section
 
-### 12.1 Declaration Subsections by Block Type
+### 9.1 Declaration Subsections by Block Type
 
-| Subsection | Syntax | FB | FC | OB | DB | UDT |
-|---|---|---|---|---|---|---|
-| Constants | `CONST ... END_CONST` | Yes | Yes | Yes | - | - |
-| Jump labels | `LABEL ... END_LABEL` | Yes | Yes | Yes | - | - |
-| Temp variables | `VAR_TEMP ... END_VAR` | Yes | Yes | Yes | - | - |
-| Static variables | `VAR ... END_VAR` | Yes | Yes* | - | - | - |
-| Input params | `VAR_INPUT ... END_VAR` | Yes | Yes | - | - | - |
-| Output params | `VAR_OUTPUT ... END_VAR` | Yes | Yes | - | - | - |
-| In/out params | `VAR_IN_OUT ... END_VAR` | Yes | Yes | - | - | - |
-| Structure | `STRUCT ... END_STRUCT` | - | - | - | Yes | Yes |
+| Subsection | FB | FC | OB | DB | UDT |
+|---|---|---|---|---|---|
+| `CONST ... END_CONST` | Yes | Yes | Yes | - | - |
+| `VAR_TEMP ... END_VAR` | Yes | Yes | Yes | - | - |
+| `VAR ... END_VAR` (static) | Yes | - | - | - | - |
+| `VAR_INPUT ... END_VAR` | Yes | Yes | - | - | - |
+| `VAR_OUTPUT ... END_VAR` | Yes | Yes | - | - | - |
+| `VAR_IN_OUT ... END_VAR` | Yes | Yes | - | - | - |
+| `STRUCT ... END_STRUCT` | - | - | - | Yes | Yes |
 
-*In FCs, `VAR ... END_VAR` declarations are shifted to the temporary area during compilation.
+Each subsection may appear only **once**. No fixed order required.
 
-**No fixed order** for subsections. Each subsection may appear only **once**.
-
-### 12.2 Variable Declaration Syntax
+### 9.2 Variable Declaration Syntax
 
 ```scl
-VariableName : DataType [:= InitialValue] ;
-// or multiple variables of same type:
-Var1, Var2, Var3 : INT;
+variableName : DataType [:= InitialValue] ;
 ```
 
-**Note**: Initialization of a list (`A1, A2, A3 : INT := 5`) is **not** possible. Variables must be initialized individually.
+Multiple variables of the same type:
+```scl
+var1, var2, var3 : Int;
+```
 
-### 12.3 Initialization Rules
+**Note**: Initialization of a list (`a1, a2, a3 : Int := 5`) is **not** possible. Initialize individually.
 
-| Data Category | Initialization |
+### 9.3 Initialization Rules
+
+| Category | Initialization Allowed? |
 |---|---|
-| Static Variables (FB) | Possible |
-| Temporary Variables | Not possible |
-| Input Parameters (FB) | Possible |
-| Output Parameters (FB) | Possible |
-| In/Out Parameters | Not possible |
-| FC Parameters | Not possible |
+| Static Variables (FB VAR) | Yes |
+| Temporary Variables (VAR_TEMP) | No |
+| Input Parameters (FB VAR_INPUT) | Yes |
+| Output Parameters (FB VAR_OUTPUT) | Yes |
+| In/Out Parameters (VAR_IN_OUT) | No |
+| FC Parameters | No |
 
-### 12.4 Array Initialization
+### 9.4 Array Declaration and Initialization
 
 ```scl
 VAR
-    // Simple array init
-    VALUES : ARRAY[1..10] OF INT := 10(0);       // 10 elements, all 0
+    // Simple array
+    values : Array[1..10] of Int;
 
-    // 2D array init
-    CTRL : ARRAY[1..4, 1..4] OF INT :=
-        -54, 736, -83, 77,
-        -1289, 10362, 385, 2,
-        60, -37, -7, 103,
-        4(60);                                     // Last row: four 60s
+    // Initialized array
+    defaults : Array[1..5] of Real := [1.0, 2.0, 3.0, 4.0, 5.0];
 
-    // 2D array with repeat factor
-    MATRIX : ARRAY[1..10, 1..100] OF INT := 10(100(0));
+    // 2D array
+    matrix : Array[1..4, 1..4] of Int;
 END_VAR
 ```
 
-The repeat factor syntax: `count(value)` - repeats `value` `count` times.
-
-### 12.5 Structure Initialization
+### 9.5 Structure Declaration
 
 ```scl
 VAR
-    GENERATOR : STRUCT
-        DATA : REAL := 100.5;
-        A1   : INT := 10;
-        A2   : STRING[6] := 'FACTOR';
-        A3   : ARRAY[1..12] OF REAL := 12(100.0);
+    generator : Struct
+        data : Real := 100.5;
+        name : String[32] := 'Default';
+        values : Array[1..12] of Real;
     END_STRUCT;
 END_VAR
 ```
 
-### 12.6 Instance Declaration (in FB only)
+### 9.6 Multi-Instance Declaration (FB only)
+
+Declare FB/timer/counter/edge instances inside another FB's VAR section:
 
 ```scl
 VAR
-    Supply1            : FB10;
-    Supply2, Supply3   : FB100;
-    Motor1             : Motor;    // Symbolic name from symbol table
+    instMotor1 : "ControlMotor";    // FB as multi-instance
+    instMotor2 : "ControlMotor";
+    instStartDelay : TON;           // IEC timer
+    instStopDelay : TOF;
+    instStartEdge : R_TRIG;        // Edge detection
+    instCounter : CTU;             // Counter
 END_VAR
 ```
 
-Local instance data is stored in the parent FB's instance DB. No local-instance-specific initialization.
+Multi-instance data is stored in the parent FB's instance DB — no separate instance DB needed.
 
 ---
 
-## 13. Comments
+## 10. Comments
 
-### 13.1 Line Comments
+### 10.1 Line Comments
 
 ```scl
-// This is a line comment (max 253 chars including //)
-SWITCH := 3;  // Inline comment
+// This is a line comment
+#statCounter := #statCounter + 1;  // Inline comment
 ```
 
-### 13.2 Block Comments
+### 10.2 Block Comments
 
 ```scl
 (* This is a block comment
    that can span multiple lines *)
-
-(* Nested comments (* like this *) are permitted by default *)
 ```
-
-**Rules**:
-- In data blocks, use `//` notation
-- Comments must not be placed inside a symbolic name or constant
-- Nesting of block comments is permitted (can be disabled)
 
 ---
 
-## 14. Expressions and Operators
+## 11. Expressions and Operators
 
-### 14.1 Operator Precedence (1 = highest)
+### 11.1 Operator Precedence (1 = highest)
 
 | Priority | Operator | Description |
 |---|---|---|
 | 1 | `( )` | Parentheses |
 | 2 | `**` | Exponentiation |
 | 3 | `+` `-` `NOT` | Unary plus, unary minus, negation |
-| 4 | `*` `/` `DIV` `MOD` | Multiplication, division, int division, modulus |
+| 4 | `*` `/` `MOD` | Multiply, divide, modulus |
 | 5 | `+` `-` | Addition, subtraction |
-| 6 | `<` | Less than |
-| 6 | `>` | Greater than |
-| 6 | `<=` | Less than or equal |
-| 6 | `>=` | Greater than or equal |
-| 7 | `=` | Equal |
-| 7 | `<>` | Not equal |
+| 6 | `<` `>` `<=` `>=` | Comparison |
+| 7 | `=` `<>` | Equal, not equal |
 | 8 | `AND` / `&` | Logical AND |
 | 9 | `XOR` | Logical exclusive OR |
 | 10 | `OR` | Logical OR |
 | 11 | `:=` | Assignment |
 
-### 14.2 Mathematical Operators
+### 11.2 Mathematical Operators
 
-| Operation | Operator | Operand 1 | Operand 2 | Result |
-|---|---|---|---|---|
-| Exponent | `**` | ANY_NUM | INT | REAL |
-| Unary plus | `+` | ANY_NUM | - | ANY_NUM |
-| Unary minus | `-` | ANY_NUM | - | ANY_NUM |
-| Multiply | `*` | ANY_NUM | ANY_NUM | ANY_NUM |
-| Divide | `/` | ANY_NUM | ANY_NUM | ANY_NUM |
-| Int division | `DIV` | ANY_INT | ANY_INT | ANY_INT |
-| Modulus | `MOD` | ANY_INT | ANY_INT | ANY_INT |
-| Add | `+` | ANY_NUM | ANY_NUM | ANY_NUM |
-| Subtract | `-` | ANY_NUM | ANY_NUM | ANY_NUM |
+| Operation | Operator | Operand Types | Result |
+|---|---|---|---|
+| Exponent | `**` | ANY_NUM, INT | REAL |
+| Multiply | `*` | ANY_NUM | ANY_NUM |
+| Divide | `/` | ANY_NUM | ANY_NUM |
+| Modulus | `MOD` | ANY_INT | ANY_INT |
+| Add | `+` | ANY_NUM | ANY_NUM |
+| Subtract | `-` | ANY_NUM | ANY_NUM |
 
-Where `ANY_INT` = INT, DINT and `ANY_NUM` = INT, DINT, REAL.
+Where `ANY_INT` = SINT, INT, DINT, LINT, USINT, UINT, UDINT, ULINT
+Where `ANY_NUM` = ANY_INT + REAL, LREAL
 
-**Time arithmetic** is also supported:
+**Time arithmetic**:
 - `TIME + TIME = TIME`
 - `TIME - TIME = TIME`
 - `TOD + TIME = TOD`
 - `TOD - TIME = TOD`
-- `DT + TIME = DT`
-- `DT - TIME = DT`
-- `DATE - DATE = TIME`
-- `TOD - TOD = TIME`
-- `DT - DT = TIME`
 - `TIME * ANY_INT = TIME`
 - `TIME / ANY_INT = TIME`
-- `TIME DIV ANY_INT = TIME`
 
-### 14.3 Comparison Operators
+### 11.3 Comparison Operators
 
 | Operator | Meaning |
 |---|---|
 | `<` | Less than |
 | `>` | Greater than |
-| `<=` | Less than or equal to |
-| `>=` | Greater than or equal to |
+| `<=` | Less than or equal |
+| `>=` | Greater than or equal |
 | `=` | Equal to |
 | `<>` | Not equal to |
 
-**Comparable types**: INT/DINT/REAL, BOOL/BYTE/WORD/DWORD, CHAR, STRING (via IEC functions), DATE, TIME, TOD, DT (same type only). S5TIME variables cannot be compared.
+Comparable types: numeric (same group), BOOL, BYTE/WORD/DWORD, CHAR, STRING (same type only), DATE, TIME, TOD, DT.
 
-### 14.4 Logical Operators
+### 11.4 Logical Operators
 
-| Operation | Operator | Operand 1 | Operand 2 | Result |
-|---|---|---|---|---|
-| Negation | `NOT` | ANY_BIT | - | ANY_BIT |
-| Conjunction | `AND` / `&` | ANY_BIT | ANY_BIT | ANY_BIT |
-| Exclusive OR | `XOR` | ANY_BIT | ANY_BIT | ANY_BIT |
-| Disjunction | `OR` | ANY_BIT | ANY_BIT | ANY_BIT |
+| Operation | Operator | Operand Types |
+|---|---|---|
+| Negation | `NOT` | ANY_BIT |
+| AND | `AND` / `&` | ANY_BIT |
+| Exclusive OR | `XOR` | ANY_BIT |
+| OR | `OR` | ANY_BIT |
 
-Where `ANY_BIT` = BOOL, BYTE, WORD, DWORD.
+Where `ANY_BIT` = BOOL, BYTE, WORD, DWORD, LWORD.
 
-Result is:
-- 1 (TRUE) or 0 (FALSE) for BOOL operands
-- Bit pattern for BYTE/WORD/DWORD operands
+### 11.5 Expression Rules
 
-### 14.5 Expression Rules
-
-- Operators of different priority: address binds to higher-priority operator
-- Same priority: left-to-right evaluation
-- Unary minus = multiply by -1
-- Operators must not follow directly: `a * -b` is invalid; use `a * (-b)`
+- Same-priority operators evaluate left-to-right
+- Unary minus: `a * (-b)` — NOT `a * -b` (operators must not follow directly)
 - Parentheses override priority
-- Mathematical operators cannot be used with CHAR or logical data
 
 ---
 
-## 15. Value Assignments
+## 12. Value Assignments
 
-### 15.1 Basic Syntax
+### 12.1 Basic Syntax
 
 ```scl
-variable := expression;
+#variable := expression;
 ```
 
-### 15.2 Elementary Types
+### 12.2 Elementary Types
 
 ```scl
-SWITCH_1 := -17;
-SETPOINT_1 := 100.1;
-QUERY_1 := TRUE;
-TIME_1 := TIME#1H_20M_10S_30MS;
-DATE_1 := DATE#1996-01-10;
-SETPOINT_1 := SETPOINT_2;           // Variable to variable
-SWITCH_2 := SWITCH_1 * 3;           // Expression to variable
+#statCounter := 17;
+#tempSetpoint := 100.5;
+#running := TRUE;
+#tempDuration := T#1h20m10s;
+#tempDate := D#2024-01-15;
 ```
 
-### 15.3 STRUCT / UDT
+### 12.3 STRUCT / UDT
 
 ```scl
-// Complete structure assignment (types and names must match)
-MEASVALUE := PROCVALUE;
+// Complete structure assignment (types must match)
+#outputData := #inputData;
 
 // Component access
-MEASVALUE.VOLTAGE := PROCVALUE.VOLTAGE;
-AUXVAR := PROCVALUE.RESISTANCE;
-MEASVALUE.RESISTANCE := 4.5;
-MEASVALUE.SIMPLE_ARRAY[1,2] := 4;
+#outputData.voltage := #inputData.voltage;
+#tempValue := #inputData.resistance;
+#outputData.resistance := 4.5;
 ```
 
-### 15.4 ARRAY
+### 12.4 ARRAY
 
 ```scl
 // Complete array assignment (types and limits must match)
-SETPOINTS := PROCVALUES;
-
-// Row assignment
-CTRLLR[2] := CTRLLR_1;
+#setpoints := #processValues;
 
 // Element access
-CTRLLR[1,4] := CTRLLR_1[4];
+#setpoints[3] := 100.0;
+#tempVal := #processValues[#statIndex];
 ```
 
-### 15.5 STRING
+### 12.5 STRING
 
 ```scl
-DISPLAY_1 := 'error in module 1';
-DISPLAY_1 := STRUCTURE1.DISPLAY_3;
-```
-
-### 15.6 DATE_AND_TIME
-
-```scl
-TIME_1 := DATE_AND_TIME#1995-01-01-12:12:12.2;
-TIME_1 := DT#1995-02-02-11:11:11;
-TIME_1 := STRUCTURE1.TIME_2;
-```
-
-### 15.7 Absolute Variables (CPU Memory)
-
-```scl
-STATUSWORD1 := IW4;                   // Simple access
-STATUSWORD2 := Q1.1;
-STATUSWORD3 := IB[ADDRESS];           // Indexed access
-STATUSWORD4 := I[1,ADDRESS];          // Indexed bit access
-QW4 := 16#0003;                       // Write to output word
-```
-
-### 15.8 Data Block Variables
-
-```scl
-// Absolute access
-DB11.DW10 := 20;
-
-// Structured access
-CONTROLLER_1[1] := DB11.DIGIT;
-STATUSWORD3 := DB11.DIGIT1.DIGIT2;
-
-// Indexed access
-STATUSWORD2[ADDRESS] := DB11.DW[ADDRESS];
-
-// Dynamic DB access
-STATUS_1 := WORD_TO_BLOCK_DB(INDEX).DW10;
-STATUS_1 := WORD_TO_BLOCK_DB(INDEX).DW[COUNTER];
+#statMessage := 'Error in module 1';
+#tempName := #config.deviceName;
 ```
 
 ---
 
-## 16. Control Statements
+## 13. Control Statements
 
-### 16.1 IF Statement
+### 13.1 IF Statement
 
 ```scl
-IF condition THEN
+IF #condition THEN
     // statements
-ELSIF condition THEN
-    // statements
-ELSIF condition THEN
+ELSIF #otherCondition THEN
     // statements
 ELSE
     // statements
 END_IF;
 ```
 
-- ELSIF and ELSE branches are optional
+- ELSIF and ELSE are optional
 - Any number of ELSIF branches allowed
-- Once a TRUE condition is found, remaining ELSIF branches are skipped
+- Note: `ELSIF` — NOT `ELSEIF`
 - **Must end with semicolon after `END_IF`**
 
-```scl
-IF I1.1 THEN
-    N := 0;
-    SUM := 0;
-    OK := FALSE;
-ELSIF START = TRUE THEN
-    N := N + 1;
-    SUM := SUM + N;
-ELSE
-    OK := FALSE;
-END_IF;
-```
-
-### 16.2 CASE Statement
+### 13.2 CASE Statement
 
 ```scl
-CASE expression OF
-    value1 : // statements;
-    value2 : // statements;
-    value3, value4 : // statements (multiple values);
-    value5..value6 : // statements (range);
-    value7, value8..value9 : // statements (mixed);
-    ELSE : // statements (default);
+CASE #statState OF
+    0:  // Idle
+        #running := FALSE;
+    1:  // Starting
+        #running := TRUE;
+    2, 3:  // Running or Stopping (multiple values)
+        #tempActive := TRUE;
+    10..19:  // Error range
+        #error := TRUE;
+    ELSE
+        #statState := 0;
+        #error := TRUE;
 END_CASE;
 ```
 
-- Selection expression must return INTEGER
-- Values must be INTEGER constants
+**CRITICAL RULES**:
+- Selection expression must evaluate to INT or DINT
+- **Case labels MUST be integer literals** (0, 1, 2, 99) — variables, constants, and symbolic names are NOT allowed as labels
 - Each value may only appear once
-- ELSE branch is optional
+- CASE MUST always have an ELSE branch
 - **Must end with semicolon after `END_CASE`**
 
-```scl
-CASE TW OF
-    1:      DISPLAY := OVEN_TEMP;
-    2:      DISPLAY := MOTOR_SPEED;
-    3:      DISPLAY := GROSS_TARE;
-            QW4 := 16#0003;
-    4..10:  DISPLAY := INT_TO_DINT(TW);
-            QW4 := 16#0004;
-    11,13,19: DISPLAY := 99;
-            QW4 := 16#0005;
-    ELSE:   DISPLAY := 0;
-            TW_ERROR := 1;
-END_CASE;
-```
-
-### 16.3 FOR Statement
+### 13.3 FOR Statement
 
 ```scl
-FOR control_var := initial_value TO final_value [BY increment] DO
-    // statements
+FOR #tempIndex := 1 TO 50 BY 2 DO
+    IF #dataArray[#tempIndex] = 0 THEN
+        EXIT;
+    END_IF;
 END_FOR;
 ```
 
 - Control variable must be local INT or DINT
-- If BY is omitted, increment defaults to +1
-- Initial value, final value, and increment are evaluated once at loop start
-- Cannot modify final value or increment during loop execution
+- If `BY` is omitted, increment defaults to +1
+- Initial, final, and increment values evaluated once at loop start
+- **Do NOT modify the control variable inside the loop body**
 - **Must end with semicolon after `END_FOR`**
 
-```scl
-FOR INDEX := 1 TO 50 BY 2 DO
-    IF KEYWORD[INDEX] = 'KEY' THEN
-        EXIT;
-    END_IF;
-END_FOR;
-```
-
-### 16.4 WHILE Statement
+### 13.4 WHILE Statement
 
 ```scl
-WHILE condition DO
-    // statements
+#tempIndex := 1;
+WHILE #tempIndex <= 50 AND #dataArray[#tempIndex] <> 0 DO
+    #tempIndex := #tempIndex + 1;
 END_WHILE;
 ```
 
 - Condition checked **before** each iteration
-- Loop may execute zero times if condition is initially FALSE
+- May execute zero times
 - **Must end with semicolon after `END_WHILE`**
 
-```scl
-INDEX := 1;
-WHILE INDEX <= 50 AND KEYWORD[INDEX] <> 'KEY' DO
-    INDEX := INDEX + 2;
-END_WHILE;
-```
-
-### 16.5 REPEAT Statement
+### 13.5 REPEAT Statement
 
 ```scl
+#tempIndex := 0;
 REPEAT
-    // statements
-UNTIL condition
+    #tempIndex := #tempIndex + 1;
+UNTIL #tempIndex > 50 OR #dataArray[#tempIndex] = 0
 END_REPEAT;
 ```
 
 - Condition checked **after** each iteration
-- Loop executes at least once
+- Executes at least once
 - Exits when condition becomes TRUE
 - **Must end with semicolon after `END_REPEAT`**
 
-```scl
-INDEX := 0;
-REPEAT
-    INDEX := INDEX + 2;
-UNTIL INDEX > 50 OR KEYWORD[INDEX] = 'KEY'
-END_REPEAT;
-```
-
-### 16.6 CONTINUE Statement
+### 13.6 CONTINUE and EXIT
 
 ```scl
-CONTINUE;
-```
-
-Terminates current loop iteration and restarts at condition check (WHILE/REPEAT) or increment (FOR).
-
-```scl
-WHILE INDEX <= 100 DO
-    INDEX := INDEX + 1;
-    IF ARRAY_1[INDEX] = INDEX THEN
+// CONTINUE — skip to next iteration
+FOR #tempI := 1 TO 100 DO
+    IF #values[#tempI] < 0 THEN
         CONTINUE;
     END_IF;
-    ARRAY_1[INDEX] := 0;
-END_WHILE;
-```
+    #tempSum := #tempSum + #values[#tempI];
+END_FOR;
 
-### 16.7 EXIT Statement
-
-```scl
-EXIT;
-```
-
-Immediately exits the innermost loop. Execution continues after the loop end keyword.
-
-```scl
-FOR INDEX_1 := 1 TO 51 BY 2 DO
-    IF KEYWORD[INDEX_1] = 'KEY' THEN
-        INDEX_2 := INDEX_1;
+// EXIT — break out of innermost loop
+FOR #tempI := 1 TO 100 DO
+    IF #values[#tempI] = #searchKey THEN
+        #statFoundIndex := #tempI;
         EXIT;
     END_IF;
 END_FOR;
-INDEX_SEARCH := INDEX_2;   // Executed after EXIT or normal loop end
 ```
 
-### 16.8 GOTO Statement
-
-```scl
-GOTO label_name;
-```
-
-Jumps to a declared label. Labels must be declared in `LABEL ... END_LABEL` section.
-
-```scl
-LABEL
-    LABEL1, LABEL2, LABEL3;
-END_LABEL
-
-BEGIN
-    IF A > B THEN GOTO LABEL1;
-    ELSIF A > C THEN GOTO LABEL2;
-    END_IF;
-
-LABEL1: INDEX := 1;
-        GOTO LABEL3;
-LABEL2: INDEX := 2;
-LABEL3: ;    // Empty statement after label
-```
-
-**Rules**:
-- Destination must be in the same block
-- Must be unambiguous
-- Jumping into a loop is not permitted; jumping out is allowed
-- Use sparingly (not recommended for structured programming)
-
-### 16.9 RETURN Statement
+### 13.7 RETURN Statement
 
 ```scl
 RETURN;
 ```
 
-Exits the current block and returns to the calling block (or OS for OBs). Redundant at end of code section.
+Exits the current block and returns to the calling block.
 
 ---
 
-## 17. Calling Functions and Function Blocks
+## 14. Calling Functions and Function Blocks
 
-### 17.1 Calling Function Blocks (FB)
+### 14.1 Calling FBs from OB1 (with separate instance DB)
 
-**Global instance call (absolute)**:
+**Use the instance DB name ONLY — NOT the FB name:**
+
 ```scl
-FB10.DB20(InputParam := 5, InOutParam := MyVar);
+// CORRECT — instance DB name only:
+"InstMotor1"(start := "TagStartMotor1",
+             stop := "TagStopMotor1",
+             speedSetpoint := 1500.0);
+
+// WRONG — "FBName"."InstDBName" does NOT compile:
+"ControlMotor"."InstMotor1"(start := "TagStartMotor1");
+
+// WRONG — FB name without instance DB:
+"ControlMotor"(start := "TagStartMotor1");
 ```
 
-**Global instance call (symbolic)**:
+**Reading output values** — access via instance DB:
 ```scl
-DRIVE.ON(InputParam := 5, InOutParam := MyVar);
+"TagMotor1Running" := "InstMotor1".running;
+"TagMotor1Speed" := "InstMotor1".currentSpeed;
 ```
 
-**Local instance call**:
+### 14.2 Calling FBs as Multi-Instance (inside another FB)
+
+When an FB instance is declared in a parent FB's VAR section:
+
 ```scl
-MOTOR(InputParam := 5, InOutParam := MyVar);
-// Where MOTOR was declared: VAR MOTOR : FB20; END_VAR
+// In parent FB's VAR section:
+VAR
+    instMotor1 : "ControlMotor";
+END_VAR
+
+// In parent FB's code — use # prefix:
+#instMotor1(start := #startSignal,
+            stop := #stopSignal,
+            speedSetpoint := #setpoint);
+
+// Reading outputs:
+#tempRunning := #instMotor1.running;
 ```
 
-**Rules**:
-- Input parameter assignment is **optional** (values from last call are retained)
-- In/out parameter must be assigned on first call, then optional
-- Output parameters are **not** specified in the call
-- Output values read via instance DB: `DB10.CONTROL` or `MOTOR.CONTROL`
-- Assignments can be in any order, separated by commas
-
-### 17.2 Calling Functions (FC)
+### 14.3 Calling Functions (FC)
 
 ```scl
-// In a value assignment (capturing return value):
-LENGTH := DISTANCE(X1 := -3, Y1 := 2, X2 := 8.9, Y2 := 7.4, Q2 := Digitsum);
+// Capture return value:
+#tempScaled := "ScaleAnalog"(rawValue := #inputRaw,
+                              minScale := 0.0,
+                              maxScale := 100.0);
 
 // In an expression:
-RADIUS + DISTANCE(X1 := -3, Y1 := 2, X2 := 8.9, Y2 := 7.4, Q2 := Digitsum)
-
-// As a parameter to another call:
-FB32(DIST := DISTANCE(X1 := -3, Y1 := 2, X2 := 8.9, Y2 := 7.4, Q2 := Digitsum));
+#tempResult := #offset + "ScaleAnalog"(rawValue := #inputRaw,
+                                        minScale := 0.0,
+                                        maxScale := 100.0);
 
 // VOID function (no return value):
-FC31(X := 5, S1 := Sumdigits);
+"LogEvent"(eventCode := 100, severity := 2);
 ```
 
 **Rules**:
-- **All** formal parameters (input, output, in/out) must be assigned actual parameters
-- Assignments can be in any order, separated by commas
+- **All** parameters must be supplied (input, output, in/out)
+- Use `:=` for inputs, `=>` for outputs in the call
 - Data types must match
-- VOID functions cannot be used in expressions
 
-### 17.3 Implicit Parameters EN and ENO
+### 14.4 Named Parameter Syntax
 
-Every FB and FC has:
-- **EN** (input, BOOL): If FALSE, block is not executed. Optional to supply.
-- **ENO** (output, BOOL): After call, equals OK flag value. Check for errors.
+```scl
+// Inputs use :=
+// Outputs use => (for FCs with VAR_OUTPUT)
+#tempResult := "Calculate"(inputA := 10,
+                            inputB := 20,
+                            resultB => #tempSecondResult);
+```
+
+### 14.5 EN and ENO (Enable In / Enable Out)
+
+Every FB and FC has implicit parameters:
+- **EN** (input, BOOL): If FALSE, block is not executed
+- **ENO** (output, BOOL): TRUE if block executed without error
 
 ```scl
 // Conditional execution:
-RESULT := FC85(EN := MY_ENABLE, PAR_1 := 27);
+"InstMotor1"(EN := #enableMotors,
+             start := #startSignal);
 
-// Check for errors after call:
-FB30.DB30(X1 := 10, X2 := 10.5);
-IF ENO THEN
-    // Everything OK
-ELSE
-    // Error occurred
+// Check for errors:
+"InstMotor1"(start := #startSignal);
+IF "InstMotor1".ENO THEN
+    // Block executed successfully
 END_IF;
-
-// Chain EN/ENO:
-FB30.DB30(X1 := 10, X2 := 10.5);
-RESULT := FC85(EN := ENO, PAR_1 := 27);  // Only runs if FB30 succeeded
 ```
 
 ---
 
-## 18. Counter Functions
+## 15. Type Conversion Functions
 
-Built-in functions, no declaration needed.
+### 15.1 Numeric Conversions
 
-### 18.1 Counter Function Types
-
-| Function | Name | Description |
+| Function | Input → Output | Notes |
 |---|---|---|
-| `S_CU` | Counter Up | Count up only |
-| `S_CD` | Counter Down | Count down only |
-| `S_CUD` | Counter Up/Down | Count both directions |
+| `INT_TO_REAL` | INT → REAL | Value preserved |
+| `INT_TO_DINT` | INT → DINT | Sign-extended |
+| `DINT_TO_REAL` | DINT → REAL | Precision may be lost |
+| `DINT_TO_INT` | DINT → INT | Overflow possible |
+| `REAL_TO_INT` | REAL → INT | Rounds, overflow possible |
+| `REAL_TO_DINT` | REAL → DINT | Rounds, overflow possible |
+| `REAL_TO_LREAL` | REAL → LREAL | Value preserved |
+| `LREAL_TO_REAL` | LREAL → REAL | Precision lost |
 
-### 18.2 Counter Parameters
+### 15.2 Bit/Word Conversions
 
-| Parameter | Type | Direction | Description |
-|---|---|---|---|
-| `C_NO` | COUNTER | Input | Counter number (e.g., C12) |
-| `CU` | BOOL | Input | Count up edge |
-| `CD` | BOOL | Input | Count down edge |
-| `S` | BOOL | Input | Set (preset) on rising edge |
-| `PV` | WORD | Input | Preset value (0-999, BCD: `16#0089`) |
-| `R` | BOOL | Input | Reset (sets count to 0) |
-| `Q` | BOOL | Output | Status (TRUE if count > 0) |
-| `CV` | WORD | Output | Current count (binary) |
-
-**Return value**: Current count in BCD format (WORD).
-
-### 18.3 Counter Call Example
-
-```scl
-BCD_VALUE := S_CUD(
-    C_NO := C12,
-    CD   := I0.0,
-    CU   := I0.1,
-    S    := I0.2 & I0.3,
-    PV   := 120,
-    R    := FALSE,
-    CV   := binVal,
-    Q    := actFlag
-);
-```
-
-**Dynamic counter number**:
-```scl
-FUNCTION_BLOCK COUNTER_BLOCK
-VAR_INPUT
-    MyCounter : COUNTER;
-END_VAR
-BEGIN
-    currVal := S_CD(C_NO := MyCounter, ...);
-END_FUNCTION_BLOCK
-```
-
----
-
-## 19. Timer Functions
-
-Built-in functions, no declaration needed.
-
-### 19.1 Timer Function Types
-
-| Function | Name | Description |
-|---|---|---|
-| `S_PULSE` | Pulse Timer | Output ON for programmed time (max), resets if input goes OFF |
-| `S_PEXT` | Extended Pulse | Output ON for full programmed time, retriggerable |
-| `S_ODT` | On-Delay Timer | Output ON after delay if input still ON |
-| `S_ODTS` | Retentive On-Delay | Output ON after delay regardless of input |
-| `S_OFFDT` | Off-Delay Timer | Output stays ON for delay after input goes OFF |
-
-### 19.2 Timer Parameters
-
-| Parameter | Type | Direction | Description |
-|---|---|---|---|
-| `T_NO` | TIMER | Input | Timer number (e.g., T10) |
-| `S` | BOOL | Input | Start input |
-| `TV` | S5TIME | Input | Timer preset value |
-| `R` | BOOL | Input | Reset input |
-| `Q` | BOOL | Output | Timer status |
-| `BI` | WORD | Output | Remaining time (binary) |
-
-**Return value**: Remaining time in S5TIME format.
-
-### 19.3 Timer Call Example
-
-```scl
-DELAY := S_ODT(
-    T_NO := T10,
-    S    := TRUE,
-    TV   := T#1s,
-    R    := FALSE,
-    BI   := biVal,
-    Q    := actFlag
-);
-```
-
-**Dynamic timer number**:
-```scl
-FUNCTION_BLOCK TIMER_BLOCK
-VAR_INPUT
-    MyTimer : TIMER;
-END_VAR
-BEGIN
-    currTime := S_ODT(T_NO := MyTimer, S := TRUE, TV := T#1s, R := FALSE, BI := biVal, Q := actFlag);
-END_FUNCTION_BLOCK
-```
-
-### 19.4 Timer Value Input Formats
-
-```scl
-TV := T#1s              // 1 second
-TV := T#25s             // 25 seconds
-TV := T#1h30m30s        // 1 hour 30 min 30 sec
-TV := S5T#1h20m10s      // S5TIME format
-```
-
-Time base: 10ms, 100ms, 1s, 10s. Values rounded to fit base.
-
----
-
-## 20. Standard Functions
-
-### 20.1 Data Type Conversion Functions
-
-#### Class A (Implicit / Always Defined)
-
-| Function | Rule |
+| Function | Input → Output |
 |---|---|
-| `BOOL_TO_BYTE` | Adds leading zeros |
-| `BOOL_TO_DWORD` | Adds leading zeros |
-| `BOOL_TO_WORD` | Adds leading zeros |
-| `BYTE_TO_DWORD` | Adds leading zeros |
-| `BYTE_TO_WORD` | Adds leading zeros |
-| `CHAR_TO_STRING` | Creates string of length 1 |
-| `DINT_TO_REAL` | IEEE conversion (value may change due to precision) |
-| `INT_TO_DINT` | Sign-extends (0xFFFF for negative, 0x0000 for positive) |
-| `INT_TO_REAL` | IEEE conversion (value preserved) |
-| `WORD_TO_DWORD` | Adds leading zeros |
+| `BOOL_TO_BYTE` | BOOL → BYTE |
+| `BOOL_TO_WORD` | BOOL → WORD |
+| `BYTE_TO_WORD` | BYTE → WORD |
+| `BYTE_TO_DWORD` | BYTE → DWORD |
+| `WORD_TO_DWORD` | WORD → DWORD |
+| `WORD_TO_INT` | WORD → INT (bit reinterpret) |
+| `INT_TO_WORD` | INT → WORD (bit reinterpret) |
+| `DWORD_TO_DINT` | DWORD → DINT (bit reinterpret) |
+| `DINT_TO_DWORD` | DINT → DWORD (bit reinterpret) |
+| `DWORD_TO_REAL` | DWORD → REAL (bit reinterpret) |
+| `REAL_TO_DWORD` | REAL → DWORD (bit reinterpret) |
 
-#### Class B (Must Be Explicit, May Be Undefined)
-
-| Function | Rule | Affects OK? |
-|---|---|---|
-| `BYTE_TO_BOOL` | Copies least significant bit | Y |
-| `BYTE_TO_CHAR` | Copies bit string | N |
-| `CHAR_TO_BYTE` | Copies bit string | N |
-| `CHAR_TO_INT` | Lower byte copied, upper byte zeroed | N |
-| `DATE_TO_DINT` | Copies bit string | N |
-| `DINT_TO_DATE` | Copies bit string | Y |
-| `DINT_TO_DWORD` | Copies bit string | N |
-| `DINT_TO_INT` | Copies with sign; OK=FALSE if out of INT range | Y |
-| `DINT_TO_TIME` | Copies bit string | N |
-| `DINT_TO_TOD` | Copies bit string | Y |
-| `DWORD_TO_BOOL` | Copies least significant bit | Y |
-| `DWORD_TO_BYTE` | Copies 8 least significant bits | Y |
-| `DWORD_TO_DINT` | Copies bit string | N |
-| `DWORD_TO_REAL` | Copies bit string (reinterprets) | N |
-| `DWORD_TO_WORD` | Copies 16 least significant bits | Y |
-| `INT_TO_CHAR` | Copies bit string | Y |
-| `INT_TO_WORD` | Copies bit string | N |
-| `REAL_TO_DINT` | Rounds IEEE REAL to DINT; OK=FALSE if overflow | Y |
-| `REAL_TO_DWORD` | Copies bit string (reinterprets) | N |
-| `REAL_TO_INT` | Rounds IEEE REAL to INT; OK=FALSE if overflow | Y |
-| `STRING_TO_CHAR` | Copies first char; OK=FALSE if length != 1 | Y |
-| `TIME_TO_DINT` | Copies bit string | N |
-| `TOD_TO_DINT` | Copies bit string | N |
-| `WORD_TO_BOOL` | Copies least significant bit | Y |
-| `WORD_TO_BYTE` | Copies least significant 8 bits | Y |
-| `WORD_TO_INT` | Copies bit string | N |
-| `WORD_TO_BLOCK_DB` | Bit pattern interpreted as DB number | N |
-| `BLOCK_DB_TO_WORD` | DB number as WORD bit pattern | N |
-
-#### Rounding and Truncating
+### 15.3 Rounding and Truncating
 
 | Function | Input | Output | Description |
 |---|---|---|---|
@@ -1514,338 +1060,367 @@ Time base: 10ms, 100ms, 1s, 10s. Values rounded to fit base.
 | `TRUNC` | REAL | DINT | Truncates (drops fractional part) |
 
 ```scl
-ROUND(3.14)   // = 3
-ROUND(3.56)   // = 4
-TRUNC(3.14)   // = 3
-TRUNC(3.56)   // = 3
+#tempRounded := ROUND(3.56);   // = 4
+#tempTruncated := TRUNC(3.56); // = 3
 ```
 
-### 20.2 Numeric Standard Functions
+---
 
-#### General Functions
+## 16. Numeric Standard Functions
+
+### 16.1 General Functions
 
 | Function | Input | Output | Description |
 |---|---|---|---|
 | `ABS` | ANY_NUM | ANY_NUM | Absolute value |
 | `SQR` | ANY_NUM | REAL | Square |
 | `SQRT` | ANY_NUM | REAL | Square root |
+| `MIN` | ANY_NUM, ANY_NUM | ANY_NUM | Minimum of two values |
+| `MAX` | ANY_NUM, ANY_NUM | ANY_NUM | Maximum of two values |
+| `LIMIT` | MN, IN, MX | ANY_NUM | Clamp value to range |
 
-#### Logarithmic Functions
-
-| Function | Input | Output | Description |
-|---|---|---|---|
-| `EXP` | ANY_NUM | REAL | e^IN |
-| `EXPD` | ANY_NUM | REAL | 10^IN |
-| `LN` | ANY_NUM | REAL | Natural logarithm |
-| `LOG` | ANY_NUM | REAL | Common (base-10) logarithm |
-
-#### Trigonometric Functions (radians)
-
-| Function | Input | Output | Description |
-|---|---|---|---|
-| `SIN` | ANY_NUM | REAL | Sine |
-| `COS` | ANY_NUM | REAL | Cosine |
-| `TAN` | ANY_NUM | REAL | Tangent |
-| `ASIN` | ANY_NUM | REAL | Arc sine |
-| `ACOS` | ANY_NUM | REAL | Arc cosine |
-| `ATAN` | ANY_NUM | REAL | Arc tangent |
-
-Note: ANY_NUM input parameters are internally converted to REAL.
-
-**Examples**:
 ```scl
-RESULT := ABS(-5);           // = 5
-RESULT := SQRT(81.0);        // = 9
-RESULT := SQR(23);           // = 529
-RESULT := EXP(4.1);          // = 60.340...
-RESULT := EXPD(3);           // = 1000
-RESULT := LN(2.718281);      // = 1
-RESULT := LOG(245);          // = 2.389166...
-RESULT := SIN(PI / 6);       // = 0.5
-RESULT := ACOS(0.5);         // = 1.047197... (= PI/3)
+#tempAbs := ABS(-5);                       // = 5
+#tempRoot := SQRT(81.0);                   // = 9.0
+#tempClamped := LIMIT(MN := 0.0, IN := #inputVal, MX := 100.0);
 ```
 
-### 20.3 Bit String Standard Functions
+### 16.2 Logarithmic Functions
 
-All take two parameters: `IN` (data) and `N` (shift/rotate count, INT).
+| Function | Description |
+|---|---|
+| `EXP(x)` | e^x |
+| `LN(x)` | Natural logarithm |
+| `LOG(x)` | Base-10 logarithm |
+
+### 16.3 Trigonometric Functions (radians)
+
+| Function | Description |
+|---|---|
+| `SIN(x)` | Sine |
+| `COS(x)` | Cosine |
+| `TAN(x)` | Tangent |
+| `ASIN(x)` | Arc sine |
+| `ACOS(x)` | Arc cosine |
+| `ATAN(x)` | Arc tangent |
+
+### 16.4 Bit String Functions
 
 | Function | Description |
 |---|---|
 | `ROL(IN := value, N := count)` | Rotate left by N bits |
 | `ROR(IN := value, N := count)` | Rotate right by N bits |
-| `SHL(IN := value, N := count)` | Shift left by N bits (fill with 0) |
-| `SHR(IN := value, N := count)` | Shift right by N bits (fill with 0) |
+| `SHL(IN := value, N := count)` | Shift left (fill with 0) |
+| `SHR(IN := value, N := count)` | Shift right (fill with 0) |
 
-Valid data types for IN: BOOL, BYTE, WORD, DWORD.
-
-**Examples**:
-```scl
-RESULT := ROL(IN := 2#1101_0011, N := 5);  // = 2#0111_1010 (122)
-RESULT := ROR(IN := 2#1101_0011, N := 2);  // = 2#1111_0100 (244)
-RESULT := SHL(IN := 2#1101_0011, N := 3);  // = 2#1001_1000 (152)
-RESULT := SHR(IN := 2#1101_0011, N := 2);  // = 2#0011_0100 (52)
-```
+Valid types for IN: BYTE, WORD, DWORD, LWORD.
 
 ---
 
-## 21. Global Data Access
+## 17. REGION Blocks
 
-### 21.1 CPU Memory - Absolute Access
-
-```scl
-STATUSBYTE := IB10;        // Input byte 10
-STATUS_3   := I1.1;        // Input bit 1.1
-Measval    := IW20;        // Input word 20
-```
-
-### 21.2 CPU Memory - Symbolic Access
-
-Requires symbols defined in STEP 7 symbol table:
-```scl
-STATUSBYTE := Input_byte1;
-STATUS_3   := "Input 1.1";     // Quoted symbol
-Measval    := Meas_channels;
-```
-
-### 21.3 CPU Memory - Indexed Access
+TIA Portal supports REGION blocks for organizing code into collapsible sections:
 
 ```scl
-MEASWORD_1 := IW[COUNTER];           // WORD indexed by byte address
-OUTMARKER  := I[BYTENUM, BITNUM];    // BOOL indexed by byte + bit
+REGION IO Mapping
+    #tempStartCmd := #start AND NOT #stop;
+    #tempFeedback := #feedbackRun;
+END_REGION
+
+REGION State Machine
+    CASE #statState OF
+        0:  // Idle
+            // ...
+        1:  // Running
+            // ...
+        ELSE
+            #statState := 0;
+    END_CASE;
+END_REGION
+
+REGION Output Mapping
+    #running := (#statState = 2);
+    #currentSpeed := #statLastSpeed;
+END_REGION
 ```
 
-Rules:
-- BYTE/WORD/DWORD: one index (byte address)
-- BOOL: two indices (byte address, bit position)
-- Index must be mathematical expression of type INT
-
-### 21.4 Data Block - Absolute Access
-
-```scl
-STATUS_5   := DB11.DX13.1;    // DB11, bit at byte 13, bit 1
-STATUSBYTE := DB101.DB10;     // DB101, byte at address 10
-Measval    := DB25.DW20;      // DB25, word at byte 20
-```
-
-### 21.5 Data Block - Indexed Access
-
-```scl
-STATUS_1 := DB11.DW[COUNTER];
-STATUS_2 := DB12.DX[WNUM, BITNUM];
-STATUS_1 := WORD_TO_BLOCK_DB(INDEX).DW[COUNTER];
-```
-
-### 21.6 Data Block - Structured Access
-
-```scl
-TIME_1       := DB11.TIME_OF_DAY;
-ERGWORD_A    := DB10.Result.ERG2;        // Nested structure
-ERGWORD_B    := DB20.ERG2;               // UDT-based DB
-```
+**Recommended REGION structure for FBs**:
+1. IO Mapping — read inputs into local variables
+2. State Machine / Main Logic
+3. Alarm/Error Handling
+4. Output Mapping — write results to outputs
 
 ---
 
-## 22. OK Flag
+## 18. IEC Timers, Counters, and Edge Detection
 
-The OK flag is a system variable of type BOOL (no declaration needed).
+These are declared as multi-instances in VAR (static) — **NEVER in VAR_TEMP**.
 
-- Compiler option "OK Flag" must be selected
-- Initially TRUE when block is called
-- Set to FALSE if a runtime error occurs (overflow, etc.)
-- Value is saved in ENO when block exits
-- Can be read and set in code
+### 18.1 IEC Timers
+
+| Type | Description |
+|---|---|
+| `TON` | On-delay timer — output ON after delay |
+| `TOF` | Off-delay timer — output stays ON for delay after input goes OFF |
+| `TP` | Pulse timer — output ON for fixed duration |
 
 ```scl
-OK := TRUE;
-SUM := SUM + IN;
-IF OK THEN
-    // Addition succeeded
-ELSE
-    // Addition failed (overflow, etc.)
+VAR
+    instOnDelay : TON;
+    instOffDelay : TOF;
+    instPulse : TP;
+END_VAR
+
+// TON — on-delay: output Q goes TRUE after PT elapses while IN stays TRUE
+#instOnDelay(IN := #startCondition, PT := T#2s);
+IF #instOnDelay.Q THEN
+    // 2 seconds have elapsed with startCondition TRUE
+END_IF;
+
+// TOF — off-delay: output Q stays TRUE for PT after IN goes FALSE
+#instOffDelay(IN := #runSignal, PT := T#5s);
+
+// TP — pulse: output Q goes TRUE for exactly PT duration on rising edge of IN
+#instPulse(IN := #triggerSignal, PT := T#500ms);
+```
+
+**Timer outputs**:
+- `.Q` (Bool) — timer output status
+- `.ET` (Time) — elapsed time
+
+### 18.2 IEC Counters
+
+| Type | Description |
+|---|---|
+| `CTU` | Count up |
+| `CTD` | Count down |
+| `CTUD` | Count up/down |
+
+```scl
+VAR
+    instCounter : CTU;
+END_VAR
+
+#instCounter(CU := #countPulse, R := #resetCounter, PV := 100);
+IF #instCounter.Q THEN
+    // Counter reached preset value
+END_IF;
+#tempCurrentCount := #instCounter.CV;
+```
+
+### 18.3 Edge Detection
+
+| Type | Description |
+|---|---|
+| `R_TRIG` | Rising edge (FALSE → TRUE) |
+| `F_TRIG` | Falling edge (TRUE → FALSE) |
+
+```scl
+VAR
+    instStartEdge : R_TRIG;
+    instStopEdge : F_TRIG;
+END_VAR
+
+#instStartEdge(CLK := #start);
+IF #instStartEdge.Q THEN
+    // Rising edge detected on #start
+    #statState := 1;
+END_IF;
+
+#instStopEdge(CLK := #runFeedback);
+IF #instStopEdge.Q THEN
+    // Falling edge detected — motor stopped unexpectedly
+    #error := TRUE;
 END_IF;
 ```
 
 ---
 
-## 23. System Functions and Function Blocks (SFC/SFB)
-
-Called identically to user FCs/FBs:
-
-```scl
-// System function call
-Result := SFC31(OB_NR := 10, STATUS := MW100);
-
-// System function block call (needs instance DB)
-SFB4.DB4(IN := someVar);
-
-// Using SFC20 for block move
-ret := SFC20(DSTBLK := out, SCRBLK := in);
-```
-
----
-
-## 24. Complete Source File Example
+## 19. Complete Source File Example
 
 ```scl
 // ============================================
-// UDT Definition (must come first)
+// UDT — Reusable motor configuration type
 // ============================================
-TYPE UDT10
+TYPE "typeMotorConfig"
+VERSION : 0.1
 STRUCT
-    SETPOINT    : REAL := 0.0;
-    ACTUAL      : REAL := 0.0;
-    STATUS      : INT := 0;
-END_STRUCT
+    maxSpeed : Real := 1500.0;
+    rampUpTime : Time := T#3s;
+    rampDownTime : Time := T#2s;
+END_STRUCT;
 END_TYPE
 
 // ============================================
-// Global Data Block (uses UDT, comes after UDT)
+// FC — Stateless utility function
 // ============================================
-DATA_BLOCK DB10
-STRUCT
-    CONFIG : UDT10;
-    PARAMS : ARRAY[1..10] OF REAL := 10(0.0);
-END_STRUCT
+FUNCTION "ScaleAnalog" : Real
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
 
-BEGIN
-    CONFIG.SETPOINT := 100.0;
-    PARAMS[1] := 1.5;
-END_DATA_BLOCK
-
-// ============================================
-// Function (called by FB, must come before it)
-// ============================================
-FUNCTION FC10 : REAL
 VAR_INPUT
-    Value1 : REAL;
-    Value2 : REAL;
+    rawValue : Int;
+    minScale : Real;
+    maxScale : Real;
 END_VAR
 
 VAR_TEMP
-    Diff : REAL;
+    tempNormalized : Real;
 END_VAR
 
 BEGIN
-    Diff := Value1 - Value2;
-    FC10 := ABS(Diff);
+    #tempNormalized := INT_TO_REAL(#rawValue) / 27648.0;
+    #ScaleAnalog := #tempNormalized * (#maxScale - #minScale) + #minScale;
 END_FUNCTION
 
 // ============================================
-// Function Block (called by OB1)
+// FB — Stateful motor control block
 // ============================================
-FUNCTION_BLOCK FB10
-TITLE = 'Process Controller'
-VERSION : '1.0'
-AUTHOR : PAC
-FAMILY : CTRL
+FUNCTION_BLOCK "ControlMotor"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
 
 VAR_INPUT
-    Enable   : BOOL := FALSE;
-    Setpoint : REAL := 0.0;
+    start : Bool;
+    stop : Bool;
+    config : "typeMotorConfig";
 END_VAR
 
 VAR_OUTPUT
-    Output   : REAL;
-    Error    : BOOL;
-END_VAR
-
-VAR_IN_OUT
-    Actual   : REAL;
+    running : Bool;
+    error : Bool;
+    status : Word;
 END_VAR
 
 VAR
-    LastError : REAL;
-    CycleCount : DINT;
+    statState : Int;
+    instStartDelay : TON;
+    instStartEdge : R_TRIG;
 END_VAR
 
 VAR_TEMP
-    TempCalc : REAL;
+    tempStartCmd : Bool;
 END_VAR
 
-CONST
-    MAX_OUTPUT := 100.0;
-    MIN_OUTPUT := 0.0;
-END_CONST
-
 BEGIN
-    IF Enable THEN
-        CycleCount := CycleCount + 1;
-        TempCalc := FC10(Value1 := Setpoint, Value2 := Actual);
-        LastError := TempCalc;
+    REGION IO Mapping
+        #instStartEdge(CLK := #start);
+        #tempStartCmd := #instStartEdge.Q AND NOT #stop;
+    END_REGION
 
-        Output := TempCalc;
+    REGION State Machine
+        CASE #statState OF
+            0:  // Idle
+                #running := FALSE;
+                #status := 16#7000;
+                IF #tempStartCmd THEN
+                    #statState := 1;
+                END_IF;
+            1:  // Start Delay
+                #instStartDelay(IN := TRUE, PT := #config.rampUpTime);
+                IF #instStartDelay.Q THEN
+                    #statState := 2;
+                    #instStartDelay(IN := FALSE, PT := #config.rampUpTime);
+                END_IF;
+            2:  // Running
+                #running := TRUE;
+                #status := 16#0000;
+                IF #stop THEN
+                    #statState := 0;
+                END_IF;
+            ELSE
+                #statState := 0;
+                #error := TRUE;
+                #status := 16#8001;
+        END_CASE;
+    END_REGION
 
-        IF Output > MAX_OUTPUT THEN
-            Output := MAX_OUTPUT;
-        ELSIF Output < MIN_OUTPUT THEN
-            Output := MIN_OUTPUT;
-        END_IF;
-
-        Error := FALSE;
-    ELSE
-        Output := 0.0;
-        Error := FALSE;
-    END_IF;
+    REGION Output Mapping
+        #running := (#statState = 2);
+    END_REGION
 END_FUNCTION_BLOCK
 
 // ============================================
-// Instance DB for FB10 (comes after the FB)
+// Global DB — Configuration data
 // ============================================
-DATA_BLOCK DB20
-FB10
+DATA_BLOCK "Configuration"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+NON_RETAIN
+
+STRUCT
+    motor1Config : "typeMotorConfig";
+    motor2Config : "typeMotorConfig";
+    systemEnabled : Bool := TRUE;
+END_STRUCT;
 
 BEGIN
 END_DATA_BLOCK
 
 // ============================================
-// Organization Block (last in source file)
+// Instance DB — One per motor instance
 // ============================================
-ORGANIZATION_BLOCK OB1
+DATA_BLOCK "InstMotor1"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+NON_RETAIN
+"ControlMotor"
+
+BEGIN
+END_DATA_BLOCK
+
+DATA_BLOCK "InstMotor2"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+NON_RETAIN
+"ControlMotor"
+
+BEGIN
+END_DATA_BLOCK
+
+// ============================================
+// OB1 Main — Last in source file
+// ============================================
+ORGANIZATION_BLOCK "Main"
+TITLE = "Main Program Sweep"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
 VAR_TEMP
-    OB1_EV_CLASS    : BYTE;
-    OB1_SCAN_1      : BYTE;
-    OB1_PRIORITY    : BYTE;
-    OB1_OB_NUMBR    : BYTE;
-    OB1_RESERVED_1  : BYTE;
-    OB1_RESERVED_2  : BYTE;
-    OB1_PREV_CYCLE  : INT;
-    OB1_MIN_CYCLE   : INT;
-    OB1_MAX_CYCLE   : INT;
-    OB1_DATE_TIME   : DATE_AND_TIME;
+    tempStatus : Int;
 END_VAR
 
 BEGIN
-    FB10.DB20(
-        Enable   := I0.0,
-        Setpoint := 50.0,
-        Actual   := MW10
-    );
+    // Call each FB using its instance DB name ONLY
+    "InstMotor1"(start := "TagStartMotor1",
+                 stop := "TagStopMotor1",
+                 config := "Configuration".motor1Config);
 
-    // Read output from instance DB
-    QW0 := REAL_TO_INT(DB20.Output);
+    "InstMotor2"(start := "TagStartMotor2",
+                 stop := "TagStopMotor2",
+                 config := "Configuration".motor2Config);
 END_ORGANIZATION_BLOCK
 ```
 
 ---
 
-## 25. TIA Portal V18 Modernization Notes
+## 20. Key Differences from S7-300/S7-400
 
-While the above reference covers classic SCL (S7-300/400), TIA Portal V18 for S7-1500 introduces:
+This reference is written for S7-1200/S7-1500. If you encounter legacy documentation, be aware:
 
-1. **No more absolute block numbers required**: Blocks can use only symbolic names
-2. **Optimized DB access**: S7-1500 uses optimized data blocks by default (no absolute addressing within DBs)
-3. **Extended data types**: `LREAL` (64-bit float), `LINT` (64-bit int), `LWORD` (64-bit), `LTIME`, `LTOD`, `LDT`, `WSTRING`, `ULINT`, `UDINT`, `UINT`, `USINT`, `SINT`
-4. **Named constants in CASE**: Symbolic constants in CASE value lists
-5. **FOR loop LREAL control variable**: Extended control variable types
-6. **Regions**: `#region Name` / `#endregion` for code folding
-7. **REF_TO**: Reference data type
-8. **VARIANT**: Runtime type-flexible parameter
-9. **IEC timers**: TON, TOF, TP function blocks instead of S_ODT, S_OFFDT, S_PULSE
-10. **IEC counters**: CTU, CTD, CTUD instead of S_CU, S_CD, S_CUD
-11. **No GOTO**: GOTO is deprecated/removed in TIA Portal
-12. **External source import**: `.scl` files imported via `GenerateBlocksFromSource()`
-13. **Pragmas**: `{...}` syntax for attributes, `{InstructionName := '...'}`, etc.
-14. **Array of `[*]`**: Variable-length arrays in function parameters
-15. **Multi-line string assignment**: Different from classic string break syntax
+| Feature | S7-300/400 (Legacy) | S7-1200/1500 (Current) |
+|---|---|---|
+| Block addressing | Absolute numbers (`FB10`, `DB20`) | Symbolic names (`"ControlMotor"`) |
+| Memory access | Absolute (`M0.0`, `I0.0`, `Q1.1`) | Symbolic tags only |
+| DB access | Absolute (`DB20.DW3`) | Symbolic (`"DBName".fieldName`) |
+| FB calls | `FB10.DB20(...)` | `"InstDBName"(...)` — instance DB name only |
+| Timers | `S_ODT`, `S_PULSE`, `S_PEXT` with S5TIME | IEC: `TON`, `TOF`, `TP` with TIME |
+| Counters | `S_CU`, `S_CD`, `S_CUD` with C_NO | IEC: `CTU`, `CTD`, `CTUD` |
+| Data types | INT, DINT, REAL, S5TIME | + SINT, USINT, UINT, UDINT, LINT, ULINT, LREAL, LWORD, LTIME, DTL, WSTRING, VARIANT |
+| Block access | Standard (fixed structure) | Optimized (symbolic, no fixed addresses) |
+| OB start info | 20-byte ARRAY required | Not required |
+| GOTO | Available | Deprecated/removed |
+| Code folding | Not available | REGION/END_REGION blocks |
+| Type flexibility | ANY, POINTER | VARIANT (preferred) |
 
-The fundamental block structure, declaration sections, control flow, operators, and expression rules remain the same.
+**Do NOT use any S7-300/400 patterns** — they will cause compile errors in TIA Portal with S7-1200/1500.

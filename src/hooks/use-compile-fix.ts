@@ -2,6 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { buildCompileFixSystemPrompt, formatCompileErrorContext } from "@/lib/compile-fix-prompt";
 import { parseCompileFixResponse } from "@/lib/compile-fix-parser";
+import { getRelevantReferenceSections } from "@/lib/reference-lookup";
 import type { CompileErrorInfo } from "@/lib/compile-fix-prompt";
 import type { FixedSource } from "@/lib/compile-fix-parser";
 import type { CompileFixPromptInput } from "@/lib/compile-fix-prompt";
@@ -46,7 +47,25 @@ export function useCompileFix() {
     mutationFn: async (input: CompileFixInput): Promise<CompileFixResult> => {
       const { errors, warnings, sources, userMessage, conversationHistory, approvedPatterns, designProfile, agentKnowledgeDocs, promptSections, project, fbTemplates } = input;
 
-      const promptInput: CompileFixPromptInput = { approvedPatterns, designProfile, knowledgeDocs: agentKnowledgeDocs, promptSections, project, fbTemplates };
+      // Reference lookup from compile errors + source code
+      let referenceSections;
+      try {
+        const errorContext = errors.map((e) => `${e.artifact_name}: ${e.error_text}`).join("\n");
+        const sourceContext = Object.values(sources).join("\n\n").slice(0, 6000);
+        const abort = new AbortController();
+        referenceSections = await getRelevantReferenceSections(
+          `${errorContext}\n\n${sourceContext}`,
+          "compile_errors",
+          project?.plc_brand ?? "SIEMENS_TIA",
+          abort.signal,
+          20,
+          promptSections,
+        );
+      } catch {
+        // Non-fatal
+      }
+
+      const promptInput: CompileFixPromptInput = { approvedPatterns, designProfile, knowledgeDocs: agentKnowledgeDocs, promptSections, project, fbTemplates, referenceSections };
       const systemPrompt = buildCompileFixSystemPrompt(promptInput);
 
       // Build the user message — either the auto-generated context or a follow-up

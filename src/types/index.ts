@@ -11,3 +11,4 @@ export * from "./fb-template";
 export * from "./design-profile";
 export * from "./agent-knowledge";
 export * from "./prompt-section";
+export * from "./reference-library";

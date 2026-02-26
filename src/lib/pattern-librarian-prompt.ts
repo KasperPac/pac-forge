@@ -2,6 +2,7 @@ import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { getAgentProfile } from "@/lib/agent-profiles";
 import { formatPatterns } from "@/lib/prompt-builder";
 import type { AgentKnowledgeDoc, PatternCandidate } from "@/types";
+import type { CompileErrorInfo } from "@/lib/compile-fix-prompt";
 
 export interface PatternLibrarianDiff {
   blockName: string;
@@ -14,6 +15,12 @@ export interface PatternLibrarianInput {
   knowledgeDocs?: AgentKnowledgeDoc[];
   approvedPatterns?: PatternCandidate[];
   promptSections?: Record<string, string>;
+  /** Compile errors that this round was fixing (for per-round verification) */
+  errorsAddressed?: CompileErrorInfo[];
+  /** Round number in multi-round fix session */
+  roundNumber?: number;
+  /** Total rounds in the fix session */
+  totalRounds?: number;
 }
 
 /**
@@ -25,7 +32,7 @@ export function buildPatternLibrarianPrompt(input: PatternLibrarianInput): {
   systemPrompt: string;
   messages: Array<{ role: "user" | "assistant"; content: string }>;
 } {
-  const { diffs, knowledgeDocs, approvedPatterns, promptSections } = input;
+  const { diffs, knowledgeDocs, approvedPatterns, promptSections, errorsAddressed, roundNumber, totalRounds } = input;
   const profile = getAgentProfile("Pattern Librarian");
 
   // --- System Prompt ---
@@ -35,6 +42,10 @@ export function buildPatternLibrarianPrompt(input: PatternLibrarianInput): {
     { name: "Pattern Librarian", tagline: profile.tagline, description: profile.description, personality: profile.personality },
   );
   const instructions = resolveSection(promptSections, "patterns", "instructions");
+
+  const verificationInstruction = errorsAddressed
+    ? `\n\n## Verification Mode\n\nYou are verifying compile-fix corrections. For each correction, assess whether it GENUINELY fixes one of the listed compile errors, or whether it might be MASKING the problem (e.g., by removing needed functionality, commenting out code, or working around the error rather than fixing the root cause). Set "assessmentNote" when you have concerns about a fix. Set confidence LOW (< 0.5) for fixes that appear to mask issues.`
+    : "";
 
   const outputFormat = `## Output Format
 
@@ -46,10 +57,14 @@ Respond with ONLY a JSON array. No markdown fencing, no explanation outside the 
     "blockName": "FB_MotorControl",
     "correctionType": "STATE_LOGIC",
     "explanation": "The original code was missing the STOPPING state transition — when i_Stop was asserted during RUN state, the motor immediately jumped to STOPPED without ramping down. The fix adds state 3 (STOPPING) with a speed ramp-down before transitioning to STOPPED.",
-    "confidence": 0.95
+    "confidence": 0.95,
+    "assessmentNote": null
   }
 ]
-\`\`\``;
+\`\`\`
+
+- **confidence**: 0.0 to 1.0 — how confident you are this is a genuine, correct fix
+- **assessmentNote**: null if the fix looks correct, or a string explaining concerns (e.g., "This fix removes the ramp-down logic entirely to eliminate the type error, but the motor now stops abruptly without deceleration.")${verificationInstruction}`;
 
   const knowledgeSection =
     knowledgeDocs && knowledgeDocs.length > 0
@@ -72,7 +87,15 @@ Respond with ONLY a JSON array. No markdown fencing, no explanation outside the 
     )
     .join("\n\n---\n\n");
 
-  const userMessage = `Analyze the following ${diffs.length} code correction${diffs.length !== 1 ? "s" : ""} and classify each one.\n\n${diffBlocks}`;
+  const roundContext = roundNumber != null && totalRounds != null
+    ? ` from round ${roundNumber} of ${totalRounds} in a multi-round compile-fix session`
+    : "";
+
+  const errorsSection = errorsAddressed && errorsAddressed.length > 0
+    ? `\n\n## Compile Errors Being Addressed\n\n${errorsAddressed.map((e) => `- ${e.artifact_name}${e.line != null ? ` (line ${e.line})` : ""}: ${e.error_text}`).join("\n")}\n`
+    : "";
+
+  const userMessage = `Analyze the following ${diffs.length} code correction${diffs.length !== 1 ? "s" : ""}${roundContext} and classify each one.${errorsSection}\n\n${diffBlocks}`;
 
   return {
     systemPrompt,
@@ -91,6 +114,7 @@ export function parsePatternLibrarianResponse(
   correctionType: string;
   explanation: string;
   confidence: number;
+  assessmentNote: string | null;
 }> | null {
   try {
     // Strip markdown fencing if the model wrapped it
@@ -131,6 +155,10 @@ export function parsePatternLibrarianResponse(
           typeof item.confidence === "number"
             ? Math.min(Math.max(item.confidence as number, 0), 1)
             : 0.5,
+        assessmentNote:
+          typeof item.assessmentNote === "string"
+            ? (item.assessmentNote as string)
+            : null,
       }));
   } catch {
     return null;

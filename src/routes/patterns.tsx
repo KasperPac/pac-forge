@@ -9,6 +9,7 @@ import {
   usePatternCandidates,
   useApprovePattern,
   useRejectPattern,
+  useRevokePattern,
   useDeletePattern,
 } from "@/hooks/use-patterns";
 import { toast } from "@/hooks/use-toast";
@@ -33,7 +34,7 @@ const CORRECTION_FILTERS: Array<{ value: CorrectionType | "all"; label: string }
 ];
 
 export default function PatternsPage() {
-  const [statusFilter, setStatusFilter] = useState<PatternStatus | "all">("PENDING");
+  const [statusFilter, setStatusFilter] = useState<PatternStatus | "all">("all");
   const [typeFilter, setTypeFilter] = useState<CorrectionType | "all">("all");
 
   const { data: patterns, isLoading } = usePatternCandidates(
@@ -41,6 +42,7 @@ export default function PatternsPage() {
   );
   const approvePattern = useApprovePattern();
   const rejectPattern = useRejectPattern();
+  const revokePattern = useRevokePattern();
   const deletePattern = useDeletePattern();
   const auditLog = useAuditLog();
 
@@ -117,7 +119,7 @@ export default function PatternsPage() {
               pattern={pattern}
               onApprove={(id) => approvePattern.mutate(id, {
                 onSuccess: () => {
-                  toast({ title: "Pattern approved" });
+                  toast({ title: "Pattern approved", description: "Now active in all generation prompts." });
                   auditLog.mutate({ action: "PATTERN_APPROVE", details: { patternId: id } });
                 },
               })}
@@ -125,6 +127,12 @@ export default function PatternsPage() {
                 onSuccess: () => {
                   toast({ title: "Pattern rejected" });
                   auditLog.mutate({ action: "PATTERN_REJECT", details: { patternId: id } });
+                },
+              })}
+              onRevoke={(id) => revokePattern.mutate(id, {
+                onSuccess: () => {
+                  toast({ title: "Pattern revoked", description: "Moved back to pending review." });
+                  auditLog.mutate({ action: "PATTERN_REVOKE", details: { patternId: id } });
                 },
               })}
               onDelete={(id) => deletePattern.mutate(id, {

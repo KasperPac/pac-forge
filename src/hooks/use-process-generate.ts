@@ -8,6 +8,7 @@ import {
 } from "@/hooks/use-generation";
 import type { GenerateInput, GenerateResult } from "@/hooks/use-generation";
 import type { ProcessPromptInput } from "@/lib/process-prompt-builder";
+import { getRelevantReferenceSections } from "@/lib/reference-lookup";
 
 const ARTIFACTS_KEY = ["artifacts"] as const;
 
@@ -32,6 +33,28 @@ export function useProcessGenerate() {
     ) => {
       const { project, agents, approvedPatterns, fbTemplates, designProfile, agentKnowledgeDocs, promptSections, functionalDescription } = input;
 
+      setError(null);
+      clearStreaming();
+      setIsStreaming(true);
+
+      const abort = new AbortController();
+      abortRef.current = abort;
+
+      // Reference lookup from functional description
+      let referenceSections;
+      try {
+        referenceSections = await getRelevantReferenceSections(
+          functionalDescription,
+          "generation_request",
+          project.plc_brand,
+          abort.signal,
+          20,
+          promptSections,
+        );
+      } catch {
+        // Non-fatal
+      }
+
       const promptInput: ProcessPromptInput = {
         project,
         agents,
@@ -41,6 +64,7 @@ export function useProcessGenerate() {
         agentKnowledgeDocs,
         functionalDescription,
         promptSections,
+        referenceSections,
       };
 
       const { systemPrompt, messages } = buildProcessPrompt(promptInput);
@@ -55,13 +79,6 @@ export function useProcessGenerate() {
         generation_mode: "PROCESS_CODE",
         stream: true,
       };
-
-      setError(null);
-      clearStreaming();
-      setIsStreaming(true);
-
-      const abort = new AbortController();
-      abortRef.current = abort;
 
       try {
         const fullContent = await streamFromEdgeFunction(

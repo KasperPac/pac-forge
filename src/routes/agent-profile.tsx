@@ -31,6 +31,9 @@ import {
   useCreateAgentKnowledgeDoc,
   useDeleteAgentKnowledgeDoc,
 } from "@/hooks/use-agent-knowledge";
+import { useActivePromptSections } from "@/hooks/use-prompt-sections";
+import { useActivePatterns } from "@/hooks/use-patterns";
+import { SECTION_LABELS } from "@/types/prompt-section";
 import { readFileAsText, getFileType, countWords } from "@/lib/document-reader";
 
 const STATUS_STYLES: Record<string, { dot: string; label: string }> = {
@@ -50,6 +53,9 @@ export default function AgentProfilePage() {
   const { data: knowledgeDocs } = useAgentKnowledgeDocs(id);
   const createDoc = useCreateAgentKnowledgeDoc();
   const deleteDoc = useDeleteAgentKnowledgeDoc();
+
+  const { data: sharedSections } = useActivePromptSections();
+  const { data: activePatterns } = useActivePatterns("SIEMENS_TIA");
 
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -473,6 +479,123 @@ export default function AgentProfilePage() {
             })}
           </div>
         )}
+
+        {/* Shared knowledge: prompt sections + correction patterns */}
+        {(() => {
+          const sharedKeys = ["code_examples", "platform_rules"] as const;
+          const activeSections = sharedKeys
+            .filter((key) => sharedSections?.[`shared:${key}`])
+            .map((key) => ({
+              key,
+              label: SECTION_LABELS[key] ?? key,
+              content: sharedSections![`shared:${key}`],
+            }));
+          const patternCount = activePatterns?.length ?? 0;
+
+          if (activeSections.length === 0 && patternCount === 0) return null;
+
+          return (
+            <div className="mt-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <Separator className="flex-1" />
+                <span className="shrink-0 font-mono text-[10px] uppercase text-muted-foreground/60">
+                  Shared across all agents
+                </span>
+                <Separator className="flex-1" />
+              </div>
+
+              {activeSections.map(({ key, label, content }) => {
+                const isExpanded = expandedDocs.has(`shared:${key}`);
+                const wordCount = content.split(/\s+/).length;
+                const snippet =
+                  content.length > 200 ? content.slice(0, 200) + "..." : content;
+
+                return (
+                  <div key={`shared:${key}`} className="rounded-md border">
+                    <div className="flex items-center gap-3 px-3 py-2.5">
+                      <button
+                        type="button"
+                        className="shrink-0 text-muted-foreground hover:text-foreground"
+                        onClick={() =>
+                          setExpandedDocs((prev) => {
+                            const next = new Set(prev);
+                            const id = `shared:${key}`;
+                            if (next.has(id)) next.delete(id);
+                            else next.add(id);
+                            return next;
+                          })
+                        }
+                      >
+                        {isExpanded ? (
+                          <ChevronDown className="h-4 w-4" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4" />
+                        )}
+                      </button>
+                      <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-sm font-medium">
+                            {label}
+                          </span>
+                          <Badge
+                            variant="outline"
+                            className="shrink-0 border-blue-500/30 bg-blue-500/10 px-1.5 py-0 text-[9px] text-blue-400"
+                          >
+                            Shared Prompt Section
+                          </Badge>
+                        </div>
+                        <div className="font-mono text-xs text-muted-foreground">
+                          ~{wordCount.toLocaleString()} words
+                        </div>
+                      </div>
+                    </div>
+                    {!isExpanded && (
+                      <div className="border-t px-3 py-2">
+                        <p className="line-clamp-3 font-mono text-xs leading-relaxed text-muted-foreground">
+                          {snippet}
+                        </p>
+                      </div>
+                    )}
+                    {isExpanded && (
+                      <div className="border-t px-3 py-2">
+                        <div className="max-h-48 overflow-y-auto rounded-md bg-muted/50 p-3">
+                          <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed">
+                            {content}
+                          </pre>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {patternCount > 0 && (
+                <div className="rounded-md border">
+                  <div className="flex items-center gap-3 px-3 py-2.5">
+                    <Zap className="h-4 w-4 shrink-0 text-amber-400 opacity-70" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium">
+                          Learned Corrections
+                        </span>
+                        <Badge
+                          variant="outline"
+                          className="shrink-0 border-amber-500/30 bg-amber-500/10 px-1.5 py-0 text-[9px] text-amber-400"
+                        >
+                          Correction Patterns
+                        </Badge>
+                      </div>
+                      <div className="font-mono text-xs text-muted-foreground">
+                        {patternCount} approved pattern{patternCount !== 1 ? "s" : ""}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Drop zone (when empty or as additional upload area) */}
         {(!knowledgeDocs || knowledgeDocs.length === 0) && !uploading && (

@@ -20,6 +20,7 @@ import {
   Sparkles,
   Download,
   Maximize2,
+  RotateCcw,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -61,6 +62,7 @@ import { CompileFixChat } from "@/components/tia-console/compile-fix-chat";
 import { LearnedCorrectionsLog } from "@/components/tia-console/learned-corrections-log";
 import { DEMO_PROGRAMS, getRandomDemo } from "@/lib/demo-programs";
 import { useDemoPipeline } from "@/hooks/use-demo-pipeline";
+import { DEFAULT_PIPELINE_AGENT_NAMES } from "@/lib/pipeline";
 import { useActivePatterns } from "@/hooks/use-patterns";
 import { useFbTemplates } from "@/hooks/use-fb-templates";
 import { useActivePromptSections } from "@/hooks/use-prompt-sections";
@@ -242,9 +244,11 @@ export default function TiaConsolePage() {
     pipelineSteps, setPipelineSteps,
     localCompileResult, setLocalCompileResult,
     fixSessionActive, setFixSessionActive,
+    compileFixSession, setCompileFixSession,
     demoStep, setDemoStep,
     customStep, setCustomStep,
     lastGeneratedSources, setLastGeneratedSources,
+    reset: resetStore,
   } = useTiaConsoleStore();
 
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -362,6 +366,15 @@ export default function TiaConsolePage() {
   // Track which section last ran (so idle-state ActionResult only shows in the right section)
   const [lastRunSection, setLastRunSection] = useState<"demo" | "custom" | null>(null);
 
+  const hasSessionState = pipelineSteps.length > 0 || fixSessionActive || !!localCompileResult || !!compileFixSession || !!lastGeneratedSources;
+
+  function handleClearSession() {
+    resetStore();
+    setLastRunSection(null);
+    demoPipelineMutation.reset();
+    createProjectMutation.reset();
+  }
+
   // Custom project state
   const [customDescription, setCustomDescription] = useState("");
 
@@ -412,7 +425,11 @@ export default function TiaConsolePage() {
       {
         description: selectedDemo.description,
         project: selectedProject,
-        agents: agents ?? [],
+        agents: (agents ?? []).filter(
+              (a) =>
+                DEFAULT_PIPELINE_AGENT_NAMES.has(a.display_name) ||
+                a.display_name === "Project Manager",
+            ),
         designProfile: selectedDesignProfile,
         fbTemplates,
         agentKnowledgeDocs: allAgentKnowledge,
@@ -455,7 +472,11 @@ export default function TiaConsolePage() {
       {
         description: customDescription.trim(),
         project: selectedProject,
-        agents: agents ?? [],
+        agents: (agents ?? []).filter(
+              (a) =>
+                DEFAULT_PIPELINE_AGENT_NAMES.has(a.display_name) ||
+                a.display_name === "Project Manager",
+            ),
         designProfile: selectedDesignProfile,
         fbTemplates,
         agentKnowledgeDocs: allAgentKnowledge,
@@ -497,6 +518,19 @@ export default function TiaConsolePage() {
           </h1>
         </div>
 
+        <div className="flex items-center gap-3">
+          {hasSessionState && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1.5 font-mono text-xs text-muted-foreground hover:text-foreground"
+              onClick={handleClearSession}
+            >
+              <RotateCcw className="h-3 w-3" />
+              Clear Session
+            </Button>
+          )}
+
         {/* Bridge status */}
         <Card className="px-3 py-2">
           <div className="flex items-center gap-2">
@@ -529,6 +563,7 @@ export default function TiaConsolePage() {
             )}
           </div>
         </Card>
+        </div>
       </div>
 
       <Separator />
@@ -992,11 +1027,12 @@ export default function TiaConsolePage() {
       />
 
       {/* Compile Fix Chat — stays mounted after fix success so "Remember" prompt is visible */}
-      {isConnected && (hasErrors || fixSessionActive) && hasSources && compileResult && (
+      {/* Also mount when there's a saved session (e.g. user navigated away and back) */}
+      {isConnected && ((hasErrors || fixSessionActive) && hasSources && compileResult || !!compileFixSession) && (
         <CompileFixChat
-          compileErrors={compileResult.errors}
-          compileWarnings={compileResult.warnings}
-          sources={compileResult.sources!}
+          compileErrors={compileResult?.errors ?? []}
+          compileWarnings={compileResult?.warnings ?? []}
+          sources={compileResult?.sources ?? {}}
           isConnected={isConnected}
           designProfile={selectedDesignProfile}
           agentKnowledgeDocs={codeArchitectKnowledge}
@@ -1006,6 +1042,8 @@ export default function TiaConsolePage() {
           fbTemplates={fbTemplates}
           generationPipelineSteps={pipelineSteps.filter((s) => s.role !== "compile_fix")}
           onStepUpdate={setPipelineSteps}
+          savedSession={compileFixSession}
+          onSessionChange={setCompileFixSession}
           onCompileResultUpdate={(result) => {
             if (!fixSessionActive) {
               setFixSessionActive(true);
@@ -1098,7 +1136,7 @@ export default function TiaConsolePage() {
 
 // --- Compile result display ---
 
-function CompileResultDisplay({ result, expanded = false }: { result: CompileResult; expanded?: boolean }) {
+function CompileResultDisplay({ result, expanded = false, compact = false }: { result: CompileResult; expanded?: boolean; compact?: boolean }) {
   if (!result) return null;
 
   const errorCount = result.errors?.length ?? 0;
@@ -1118,7 +1156,7 @@ function CompileResultDisplay({ result, expanded = false }: { result: CompileRes
           {errorCount} errors, {warningCount} warnings
         </span>
       </div>
-      {errorCount > 0 && (
+      {!compact && errorCount > 0 && (
         <ScrollArea className={`rounded border border-red-500/20 bg-red-500/5 ${expanded ? "" : "max-h-72"}`}>
           <div className="space-y-0.5 p-2">
             {result.errors.map((err, i) => (
@@ -1136,7 +1174,7 @@ function CompileResultDisplay({ result, expanded = false }: { result: CompileRes
           </div>
         </ScrollArea>
       )}
-      {warningCount > 0 && (
+      {!compact && warningCount > 0 && (
         <ScrollArea className={`rounded border border-amber-500/20 bg-amber-500/5 ${expanded ? "" : "max-h-48"}`}>
           <div className="space-y-0.5 p-2">
             {result.warnings.map((w, i) => (
@@ -1306,7 +1344,7 @@ function ActionResult({
               </div>
             )}
             {data.details.compile_result != null && (
-              <CompileResultDisplay result={data.details.compile_result as CompileResult} />
+              <CompileResultDisplay result={data.details.compile_result as CompileResult} compact />
             )}
             {Array.isArray(data.details.warnings) && (data.details.warnings as string[]).length > 0 && (
               <div className="font-mono text-xs text-amber-400">

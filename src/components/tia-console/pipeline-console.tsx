@@ -3,6 +3,7 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronUp,
+  Download,
   Terminal,
   Trash2,
   Loader2,
@@ -18,6 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { formatPipelineLog } from "@/lib/pipeline";
 import type { PipelineStepResult } from "@/lib/pipeline";
 
 const ROLE_LABELS: Record<string, string> = {
@@ -280,6 +282,20 @@ export function PipelineConsole({ steps, isRunning, onClear }: PipelineConsolePr
     }
   }, [steps.length]);
 
+  function handleDownloadLog() {
+    const markdown = formatPipelineLog(steps);
+    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `pipeline-log_${timestamp}.md`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
   if (steps.length === 0 && !isRunning) return null;
 
   const headerBadge = isRunning ? (
@@ -318,15 +334,28 @@ export function PipelineConsole({ steps, isRunning, onClear }: PipelineConsolePr
           </div>
           <div className="flex items-center gap-1">
             {steps.length > 0 && !isRunning && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 gap-1 px-1.5 text-[10px] text-muted-foreground"
-                onClick={onClear}
-              >
-                <Trash2 className="h-3 w-3" />
-                Clear
-              </Button>
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 gap-1 px-1.5 text-[10px] text-muted-foreground"
+                  onClick={handleDownloadLog}
+                  disabled={!steps.some((s) => s.status === "completed" || s.status === "failed")}
+                  aria-label="Download pipeline log"
+                >
+                  <Download className="h-3 w-3" />
+                  Log
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 gap-1 px-1.5 text-[10px] text-muted-foreground"
+                  onClick={onClear}
+                >
+                  <Trash2 className="h-3 w-3" />
+                  Clear
+                </Button>
+              </>
             )}
             <Button
               variant="ghost"
@@ -367,12 +396,27 @@ export function PipelineConsole({ steps, isRunning, onClear }: PipelineConsolePr
       <Dialog open={fullscreen} onOpenChange={setFullscreen}>
         <DialogContent className="flex max-h-[90vh] max-w-[90vw] flex-col gap-0 overflow-hidden p-0">
           <DialogHeader className="shrink-0 border-b bg-accent/30 px-4 py-3">
-            <div className="flex items-center gap-2 pr-8">
-              <Terminal className="h-4 w-4 text-muted-foreground" />
-              <DialogTitle className="text-sm font-semibold uppercase tracking-wide">
-                Pipeline Console
-              </DialogTitle>
-              {headerBadge}
+            <div className="flex items-center justify-between pr-8">
+              <div className="flex items-center gap-2">
+                <Terminal className="h-4 w-4 text-muted-foreground" />
+                <DialogTitle className="text-sm font-semibold uppercase tracking-wide">
+                  Pipeline Console
+                </DialogTitle>
+                {headerBadge}
+              </div>
+              {steps.length > 0 && !isRunning && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 gap-1 px-1.5 text-[10px] text-muted-foreground"
+                  onClick={handleDownloadLog}
+                  disabled={!steps.some((s) => s.status === "completed" || s.status === "failed")}
+                  aria-label="Download pipeline log"
+                >
+                  <Download className="h-3 w-3" />
+                  Log
+                </Button>
+              )}
             </div>
           </DialogHeader>
           <div className="min-h-0 flex-1 overflow-y-auto">

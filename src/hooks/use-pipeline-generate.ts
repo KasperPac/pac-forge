@@ -28,7 +28,8 @@ import { classifyCorrections } from "@/lib/correction-classifier";
 import { computeDiff, hasFunctionalChanges, extractFocusedSnippets } from "@/lib/diff-engine";
 import { buildPatternLibrarianPrompt, parsePatternLibrarianResponse } from "@/lib/pattern-librarian-prompt";
 import { supabase } from "@/lib/supabase";
-import type { AgentKnowledgeDoc } from "@/types";
+import { getRelevantReferenceSections } from "@/lib/reference-lookup";
+import type { AgentKnowledgeDoc, ReferenceLibrarySection } from "@/types";
 
 const ARTIFACTS_KEY = ["artifacts"] as const;
 
@@ -115,6 +116,24 @@ export function usePipelineGenerate() {
           }
         }
 
+        // --- Reference Lookup: retrieve relevant sections for generation ---
+        let referenceSections: ReferenceLibrarySection[] = [];
+        try {
+          referenceSections = await getRelevantReferenceSections(
+            input.userMessage,
+            "generation_request",
+            project.plc_brand,
+            abort.signal,
+            20,
+            promptSections,
+          );
+          if (referenceSections.length > 0) {
+            console.log(`Reference lookup: ${referenceSections.length} section(s) retrieved for generation`);
+          }
+        } catch (refErr) {
+          console.warn("Reference lookup failed (non-fatal):", refErr);
+        }
+
         // --- Step 1: Generate (Code Architect streams) ---
         if (!generator) {
           throw new Error("No Code Architect agent found in the pipeline. At least one generator agent must be selected.");
@@ -130,6 +149,7 @@ export function usePipelineGenerate() {
           const { systemPrompt, messages } = buildPrompt({
             ...input,
             agents: [generator],
+            referenceSections,
           });
 
           const fetchBody = {
@@ -177,6 +197,31 @@ export function usePipelineGenerate() {
           throw err;
         }
 
+        // --- Reference Lookup for review: retrieve sections relevant to generated code ---
+        let reviewReferenceSections: ReferenceLibrarySection[] = referenceSections;
+        if (currentArtifacts.length > 0 && reviewers.length > 0) {
+          try {
+            const codeContext = currentArtifacts.map((a) => `// ${a.name}\n${a.content}`).join("\n\n");
+            const reviewRefs = await getRelevantReferenceSections(
+              codeContext,
+              "generated_code",
+              project.plc_brand,
+              abort.signal,
+              20,
+              promptSections,
+            );
+            if (reviewRefs.length > 0) {
+              // Merge with generation refs, deduplicating by id
+              const existingIds = new Set(referenceSections.map((s) => s.id));
+              const newSections = reviewRefs.filter((s) => !existingIds.has(s.id));
+              reviewReferenceSections = [...referenceSections, ...newSections];
+              console.log(`Reference lookup: ${newSections.length} additional section(s) retrieved for review (${reviewReferenceSections.length} total)`);
+            }
+          } catch (refErr) {
+            console.warn("Review reference lookup failed (non-fatal):", refErr);
+          }
+        }
+
         // --- Steps 2-N: Review agents (report-only, no rewriting) ---
         const reviewReports: Array<{ reviewerName: string; report: ReviewReport }> = [];
 
@@ -198,6 +243,7 @@ export function usePipelineGenerate() {
               designProfile: input.designProfile,
               approvedPatterns: input.approvedPatterns,
               promptSections,
+              referenceSections: reviewReferenceSections,
             });
 
             const { content, usage } = await callNonStreaming(systemPrompt, messages, abort.signal);
@@ -257,6 +303,7 @@ export function usePipelineGenerate() {
               approvedPatterns: input.approvedPatterns,
               fbTemplates: input.fbTemplates,
               promptSections,
+              referenceSections: reviewReferenceSections,
             });
 
             const { content, usage } = await callNonStreaming(systemPrompt, messages, abort.signal);

@@ -377,23 +377,42 @@ namespace PacForgeBridge
 
         /// <summary>
         /// Recursively collect compiler messages into errors and warnings lists.
+        /// Only LEAF messages (no children) are added — parent nodes are just
+        /// hierarchy path (PLC_1, Program blocks, FB_Name) not real errors.
+        /// Summary messages like "Compiling finished ..." are also filtered out.
         /// </summary>
         private void CollectCompilerMessages(CompilerResultMessageComposition messages, CompileResultDto result, string parentPath = "")
         {
             foreach (CompilerResultMessage msg in messages)
             {
-                string artifactName = ExtractArtifactName(msg.Path ?? parentPath);
+                string effectivePath = msg.Path ?? parentPath;
+                bool hasChildren = msg.Messages != null && msg.Messages.Count > 0;
+
+                if (hasChildren)
+                {
+                    // Parent node — just recurse, don't add as error
+                    CollectCompilerMessages(msg.Messages, result, effectivePath);
+                    continue;
+                }
+
+                // Leaf node — this is an actual error/warning
+                string description = msg.Description ?? "";
+
+                // Skip summary messages like "Compiling finished (errors: 1; warnings: 0)"
+                if (description.StartsWith("Compiling finished", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                string artifactName = ExtractArtifactName(effectivePath);
 
                 var error = new CompileErrorDto
                 {
                     ArtifactName = artifactName,
-                    ErrorText = msg.Description,
+                    ErrorText = description,
                     Severity = msg.State == CompilerResultState.Error ? "ERROR" : "WARNING"
                 };
 
-                // Try to extract line/column from description if available
-                // TIA Portal compile messages sometimes include position info
-                ParseLineColumn(msg.Description, error);
+                // Try to extract line/column from description
+                ParseLineColumn(description, error);
 
                 if (msg.State == CompilerResultState.Error)
                 {
@@ -404,37 +423,56 @@ namespace PacForgeBridge
                     result.Warnings.Add(error);
                     error.Severity = "WARNING";
                 }
-
-                // Recurse into nested messages
-                if (msg.Messages != null && msg.Messages.Count > 0)
-                {
-                    CollectCompilerMessages(msg.Messages, result, msg.Path ?? parentPath);
-                }
             }
         }
 
         /// <summary>
         /// Extract a meaningful artifact name from compiler message path.
-        /// Paths look like: "PLC_1/Program blocks/MyFB"
+        /// Paths look like: "PLC_1/Program blocks/FB_TrafficLight (FB1)"
+        /// Returns the block name without the TIA type suffix, e.g. "FB_TrafficLight".
         /// </summary>
         private string ExtractArtifactName(string path)
         {
             if (string.IsNullOrEmpty(path)) return "Unknown";
 
             string[] parts = path.Split('/');
-            return parts.Length > 0 ? parts[parts.Length - 1] : path;
+            string last = parts.Length > 0 ? parts[parts.Length - 1] : path;
+
+            // Strip TIA type suffix like " (FB1)", " (DB3)", " (FC2)"
+            var suffixMatch = System.Text.RegularExpressions.Regex.Match(last, @"\s*\([A-Z]+\d+\)\s*$");
+            if (suffixMatch.Success)
+            {
+                last = last.Substring(0, suffixMatch.Index).Trim();
+            }
+
+            return last;
         }
 
         /// <summary>
         /// Try to parse line/column numbers from compiler error description text.
-        /// Common patterns: "Line X, Column Y:" or "(X,Y)"
+        /// TIA Portal patterns:
+        ///   "279 — Parameter 'OUT' has to be used."  (line number at start, em-dash)
+        ///   "279 - Parameter 'OUT' has to be used."   (line number at start, hyphen)
+        ///   "Line X, Column Y: ..."
+        ///   "(X,Y) ..."
+        /// When a leading line number is found, the description is cleaned to remove it.
         /// </summary>
         private void ParseLineColumn(string description, CompileErrorDto error)
         {
             if (string.IsNullOrEmpty(description)) return;
 
-            // Pattern: "Line X, Column Y"
+            // Pattern: leading line number "279 — text" or "279 - text"
             var match = System.Text.RegularExpressions.Regex.Match(
+                description, @"^(\d+)\s*[\u2014\-]\s*(.+)$");
+            if (match.Success)
+            {
+                error.Line = int.Parse(match.Groups[1].Value);
+                error.ErrorText = match.Groups[2].Value.Trim();
+                return;
+            }
+
+            // Pattern: "Line X, Column Y"
+            match = System.Text.RegularExpressions.Regex.Match(
                 description, @"Line\s+(\d+),?\s*Column\s+(\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             if (match.Success)
             {

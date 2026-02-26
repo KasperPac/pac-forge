@@ -8,6 +8,8 @@ import type {
   KnowledgeUpload,
   KnowledgeDistributionEntry,
 } from "@/types";
+import { splitIntoSections } from "@/lib/document-sections";
+import type { DocSection } from "@/lib/document-sections";
 
 const KNOWLEDGE_UPLOADS_KEY = ["knowledge-uploads"] as const;
 const KNOWLEDGE_DOCS_KEY = ["agent-knowledge"] as const;
@@ -65,60 +67,6 @@ export function useDeleteKnowledgeUpload() {
       queryClient.invalidateQueries({ queryKey: KNOWLEDGE_DOCS_KEY });
     },
   });
-}
-
-// ---- Section splitting ----
-
-interface DocSection {
-  index: number;
-  heading: string;
-  content: string;
-}
-
-function isHeadingLine(line: string): boolean {
-  const t = line.trim();
-  if (!t) return false;
-  if (/^#{1,4}\s/.test(t)) return true;
-  if (/^\d+(\.\d+)+\s/.test(t)) return true;
-  if (t.length >= 4 && t.length < 120 && t === t.toUpperCase() && /[A-Z]/.test(t)) return true;
-  return false;
-}
-
-function splitIntoSections(content: string): DocSection[] {
-  const lines = content.split("\n");
-  const sections: DocSection[] = [];
-  let heading = "Introduction";
-  let buf: string[] = [];
-  let idx = 0;
-
-  function flush() {
-    const text = buf.join("\n").trim();
-    if (text) {
-      sections.push({ index: idx++, heading, content: text });
-    }
-    buf = [];
-  }
-
-  for (const line of lines) {
-    if (isHeadingLine(line) && buf.length > 0) {
-      flush();
-      heading = line.trim().replace(/^#+\s*/, "");
-    } else {
-      buf.push(line);
-    }
-  }
-  flush();
-
-  if (sections.length <= 1 && content.length > TWO_PASS_THRESHOLD) {
-    const paras = content.split(/\n\s*\n/).filter((p) => p.trim());
-    return paras.map((p, i) => ({
-      index: i,
-      heading: `Section ${i + 1}`,
-      content: p.trim(),
-    }));
-  }
-
-  return sections;
 }
 
 // ---- Chunking ----

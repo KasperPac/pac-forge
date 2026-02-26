@@ -1,7 +1,8 @@
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { formatPatterns, formatIoList, formatFbTemplates } from "@/lib/prompt-builder";
 import { getAgentProfile } from "@/lib/agent-profiles";
-import type { PatternCandidate, DesignProfile, AgentKnowledgeDoc, Project, FbTemplate } from "@/types";
+import { formatReferenceSections } from "@/lib/reference-lookup";
+import type { PatternCandidate, DesignProfile, AgentKnowledgeDoc, Project, FbTemplate, ReferenceLibrarySection } from "@/types";
 
 export interface CompileErrorInfo {
   artifact_name: string;
@@ -20,6 +21,8 @@ export interface CompileFixPromptInput {
   project?: Project;
   /** FB templates — so the fix agent preserves company-standard block structures */
   fbTemplates?: FbTemplate[];
+  /** Reference library sections retrieved via AI topic lookup */
+  referenceSections?: ReferenceLibrarySection[];
 }
 
 /**
@@ -28,7 +31,7 @@ export interface CompileFixPromptInput {
  * without losing awareness of IO mappings, FB templates, and project rules.
  */
 export function buildCompileFixSystemPrompt(input: CompileFixPromptInput): string {
-  const { approvedPatterns, designProfile, knowledgeDocs, promptSections, project, fbTemplates } = input;
+  const { approvedPatterns, designProfile, knowledgeDocs, promptSections, project, fbTemplates, referenceSections } = input;
 
   const codeArchitect = getAgentProfile("Code Architect");
   const identity = interpolateAgent(
@@ -36,6 +39,7 @@ export function buildCompileFixSystemPrompt(input: CompileFixPromptInput): strin
     { name: "Code Architect", tagline: codeArchitect.tagline, description: codeArchitect.description, personality: codeArchitect.personality },
   );
   const platformRules = resolveSection(promptSections, "shared", "platform_rules");
+  const codeExamples = resolveSection(promptSections, "shared", "code_examples");
   const instructions = resolveSection(promptSections, "compile_fix", "instructions");
 
   const projectSection = project
@@ -69,9 +73,14 @@ ${formatIoList(project.io_lists)}` : "";
       ? `\n\n## Reference Documentation\n\n${knowledgeDocs.map((d) => `### ${d.title}\n${d.content}`).join("\n\n")}`
       : "";
 
+  const refSection = formatReferenceSections(referenceSections ?? []);
+  const refBlock = refSection ? `\n\n${refSection}` : "";
+
   return `${identity}
 
-${platformRules}${projectSection}${profileSection}${fbSection}${patternsSection}${knowledgeSection}
+${platformRules}
+
+${codeExamples}${refBlock}${projectSection}${profileSection}${fbSection}${patternsSection}${knowledgeSection}
 
 ${instructions}
 
@@ -114,14 +123,18 @@ export function formatCompileErrorContext(
     parts.push("");
   }
 
-  // Source code section
+  // Source code section — include line numbers so the AI can locate the error lines
   const sourceNames = Object.keys(sources);
   if (sourceNames.length > 0) {
     parts.push("## Original SCL Sources\n");
+    parts.push("Line numbers are shown at the start of each line to match the compiler error locations.\n");
     for (const name of sourceNames) {
       parts.push(`### ${name}\n`);
       parts.push("```scl");
-      parts.push(sources[name]);
+      const lines = sources[name].split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        parts.push(`${String(i + 1).padStart(4)} | ${lines[i]}`);
+      }
       parts.push("```\n");
     }
   }

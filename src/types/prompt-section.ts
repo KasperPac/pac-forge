@@ -26,7 +26,7 @@ export type PromptRole = (typeof PROMPT_ROLES)[keyof typeof PROMPT_ROLES];
 
 /** Human-readable labels for each role */
 export const PROMPT_ROLE_LABELS: Record<PromptRole, string> = {
-  shared: "Platform Rules",
+  shared: "Shared (Platform Rules & Examples)",
   generate: "Generate",
   process: "Process Code",
   review: "Review",
@@ -39,7 +39,7 @@ export const PROMPT_ROLE_LABELS: Record<PromptRole, string> = {
 
 /** Which section keys each role supports */
 export const ROLE_SECTIONS: Record<PromptRole, string[]> = {
-  shared: ["platform_rules"],
+  shared: ["platform_rules", "code_examples", "reference_retrieval"],
   generate: ["identity", "instructions"],
   process: ["identity", "instructions"],
   review: ["identity", "instructions"],
@@ -54,4 +54,6 @@ export const SECTION_LABELS: Record<string, string> = {
   identity: "Identity & Role",
   instructions: "Task Instructions",
   platform_rules: "Platform Rules",
+  code_examples: "SCL Code Examples",
+  reference_retrieval: "Reference Retrieval (Topic Extraction)",
 };
