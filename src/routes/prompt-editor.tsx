@@ -291,7 +291,9 @@ export default function PromptEditorPage() {
         </Button>
       </div>
 
-      <div className="flex gap-4" style={{ height: "calc(100vh - 180px)" }}>
+      <Separator />
+
+      <div className="flex gap-4" style={{ height: "calc(100vh - 200px)" }}>
         {/* Left: Role selector grouped by agent */}
         <Card className="w-56 shrink-0 overflow-hidden">
           <div className="border-b px-3 py-2">
