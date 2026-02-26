@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { Artifact } from "@/types";
-import type { PipelineExecution, PipelineStepResult } from "@/lib/pipeline";
+import type { PipelineExecution, PipelineStepResult, UnresolvedFinding } from "@/lib/pipeline";
 
 type BottomPanelTab = "compile" | "logs" | "warnings";
 
@@ -39,6 +39,7 @@ interface PacStState {
   pipelineExecution: PipelineExecution | null;
   activeAgentName: string | null;
   debugDrawerOpen: boolean;
+  unresolvedFindings: UnresolvedFinding[];
 
   // Actions — artifacts
   setGeneratedArtifacts: (artifacts: Artifact[]) => void;
@@ -71,6 +72,8 @@ interface PacStState {
   completePipeline: (finalArtifactCount: number) => void;
   setActiveAgentName: (name: string | null) => void;
   setDebugDrawerOpen: (open: boolean) => void;
+  setUnresolvedFindings: (findings: UnresolvedFinding[]) => void;
+  dismissUnresolvedFindings: () => void;
 
   // Reset
   reset: () => void;
@@ -90,6 +93,7 @@ export const usePacStStore = create<PacStState>((set) => ({
   pipelineExecution: null,
   activeAgentName: null,
   debugDrawerOpen: false,
+  unresolvedFindings: [],
 
   setGeneratedArtifacts: (artifacts) =>
     set({ generatedArtifacts: artifacts, activeGeneratedIndex: 0 }),
@@ -179,6 +183,7 @@ export const usePacStStore = create<PacStState>((set) => ({
         finalArtifactCount: 0,
       },
       activeAgentName: null,
+      unresolvedFindings: [],
     }),
 
   addPipelineStep: (step) =>
@@ -220,6 +225,8 @@ export const usePacStStore = create<PacStState>((set) => ({
 
   setActiveAgentName: (name) => set({ activeAgentName: name }),
   setDebugDrawerOpen: (open) => set({ debugDrawerOpen: open }),
+  setUnresolvedFindings: (findings) => set({ unresolvedFindings: findings }),
+  dismissUnresolvedFindings: () => set({ unresolvedFindings: [] }),
 
   reset: () =>
     set({
@@ -236,5 +243,6 @@ export const usePacStStore = create<PacStState>((set) => ({
       pipelineExecution: null,
       activeAgentName: null,
       debugDrawerOpen: false,
+      unresolvedFindings: [],
     }),
 }));

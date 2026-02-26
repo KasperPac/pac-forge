@@ -10,10 +10,7 @@ import {
   saveArtifactsAndTurns,
 } from "@/hooks/use-generation";
 import type { GenerateInput, GenerateResult } from "@/hooks/use-generation";
-import { buildReviewPrompt } from "@/lib/review-prompt-builder";
-import { parseReviewReport } from "@/lib/review-response-parser";
-import type { ReviewReport } from "@/lib/review-response-parser";
-import { buildRewritePrompt } from "@/lib/rewrite-prompt-builder";
+import { executeReviewRewriteLoop } from "@/lib/review-rewrite-loop";
 import { buildPlanPrompt, buildSummaryPrompt } from "@/lib/pm-prompt-builder";
 import {
   sortAgentsByPipelineOrder,
@@ -222,116 +219,31 @@ export function usePipelineGenerate() {
           }
         }
 
-        // --- Steps 2-N: Review agents (report-only, no rewriting) ---
-        const reviewReports: Array<{ reviewerName: string; report: ReviewReport }> = [];
+        // --- Steps 2-N: Multi-round review→rewrite loop ---
+        if (reviewers.length > 0 && generator && !abort.signal.aborted) {
+          const loopResult = await executeReviewRewriteLoop({
+            reviewers,
+            generator,
+            currentArtifacts,
+            project,
+            agentKnowledgeDocs,
+            designProfile: input.designProfile,
+            approvedPatterns: input.approvedPatterns,
+            fbTemplates: input.fbTemplates,
+            promptSections,
+            referenceSections: reviewReferenceSections,
+            abortSignal: abort.signal,
+            callbacks: {
+              addStep: (step) => store.getState().addPipelineStep(step),
+              updateStep: (id, updates) => store.getState().updatePipelineStep(id, updates),
+              setActiveAgentName: (name) => store.getState().setActiveAgentName(name),
+            },
+          });
 
-        for (const reviewer of reviewers) {
-          if (abort.signal.aborted) break;
+          currentArtifacts = loopResult.artifacts;
 
-          const reviewStep = createPendingStep(reviewer, "review");
-          store.getState().addPipelineStep(reviewStep);
-          store.getState().setActiveAgentName(reviewer.display_name);
-          store.getState().updatePipelineStep(reviewer.id, { status: "running" });
-
-          const reviewStartTime = Date.now();
-          try {
-            const { systemPrompt, messages } = buildReviewPrompt({
-              agent: reviewer,
-              artifacts: currentArtifacts,
-              project,
-              knowledgeDocs: agentKnowledgeDocs?.[reviewer.id],
-              designProfile: input.designProfile,
-              approvedPatterns: input.approvedPatterns,
-              promptSections,
-              referenceSections: reviewReferenceSections,
-            });
-
-            const { content, usage } = await callNonStreaming(systemPrompt, messages, abort.signal);
-            const report = parseReviewReport(content);
-
-            reviewReports.push({ reviewerName: reviewer.display_name, report });
-
-            const findingCount = report.findings.length;
-            const criticalCount = report.findings.filter((f) => f.severity === "CRITICAL").length;
-
-            store.getState().updatePipelineStep(reviewer.id, {
-              status: "completed",
-              systemPrompt,
-              userMessage: messages[0]?.content ?? "",
-              rawResponse: content,
-              tokenUsage: usage,
-              durationMs: Date.now() - reviewStartTime,
-              artifactsModified: [],
-              summary: report.hasFindings
-                ? `${findingCount} finding(s) (${criticalCount} critical): ${report.summary.slice(0, 200)}`
-                : `No issues: ${report.summary.slice(0, 200)}`,
-            });
-          } catch (err) {
-            if (abort.signal.aborted) throw err;
-            store.getState().updatePipelineStep(reviewer.id, {
-              status: "failed",
-              durationMs: Date.now() - reviewStartTime,
-              error: err instanceof Error ? err.message : String(err),
-              summary: "Review failed",
-            });
-            // Reviewer failure is non-fatal — continue pipeline
-          }
-        }
-
-        // --- Rewrite step: Code Architect addresses review findings ---
-        const hasAnyFindings = reviewReports.some((r) => r.report.hasFindings);
-
-        if (hasAnyFindings && generator && !abort.signal.aborted) {
-          const rewriteStepId = `${generator.id}-rewrite`;
-          const rewriteStep: PipelineStepResult = {
-            ...createPendingStep(generator, "rewrite"),
-            agentId: rewriteStepId,
-          };
-          store.getState().addPipelineStep(rewriteStep);
-          store.getState().setActiveAgentName(`${generator.display_name} (Rewrite)`);
-          store.getState().updatePipelineStep(rewriteStepId, { status: "running" });
-
-          const rewriteStartTime = Date.now();
-          try {
-            const { systemPrompt, messages } = buildRewritePrompt({
-              generator,
-              artifacts: currentArtifacts,
-              reviewReports,
-              project,
-              knowledgeDocs: agentKnowledgeDocs?.[generator.id],
-              designProfile: input.designProfile,
-              approvedPatterns: input.approvedPatterns,
-              fbTemplates: input.fbTemplates,
-              promptSections,
-              referenceSections: reviewReferenceSections,
-            });
-
-            const { content, usage } = await callNonStreaming(systemPrompt, messages, abort.signal);
-            const { artifacts: rewrittenArtifacts, errors } = parseArtifacts(content);
-
-            if (rewrittenArtifacts.length > 0) {
-              currentArtifacts = rewrittenArtifacts;
-            }
-
-            store.getState().updatePipelineStep(rewriteStepId, {
-              status: "completed",
-              systemPrompt,
-              userMessage: messages[0]?.content ?? "",
-              rawResponse: content,
-              tokenUsage: usage,
-              durationMs: Date.now() - rewriteStartTime,
-              artifactsModified: rewrittenArtifacts.map((a) => a.name),
-              summary: `Rewrote ${rewrittenArtifacts.length} artifact(s) addressing ${reviewReports.reduce((n, r) => n + r.report.findings.length, 0)} finding(s)${errors.length > 0 ? ` with ${errors.length} parse error(s)` : ""}`,
-            });
-          } catch (err) {
-            if (abort.signal.aborted) throw err;
-            store.getState().updatePipelineStep(rewriteStepId, {
-              status: "failed",
-              durationMs: Date.now() - rewriteStartTime,
-              error: err instanceof Error ? err.message : String(err),
-              summary: "Rewrite failed",
-            });
-            // Rewrite failure is non-fatal — continue with original artifacts
+          if (loopResult.unresolvedFindings.length > 0) {
+            store.getState().setUnresolvedFindings(loopResult.unresolvedFindings);
           }
         }
 

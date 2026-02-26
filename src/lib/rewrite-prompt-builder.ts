@@ -9,8 +9,7 @@ import type {
 } from "@/types";
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { getAgentProfile } from "@/lib/agent-profiles";
-import { formatPatterns } from "@/lib/prompt-builder";
-import { formatReferenceSections } from "@/lib/reference-lookup";
+import { buildContextMessages } from "@/lib/prompt-builder";
 import type { ParsedArtifact } from "@/lib/artifact-parser";
 import type { ReviewReport } from "@/lib/review-response-parser";
 
@@ -30,6 +29,10 @@ export interface RewritePromptInput {
   fbTemplates?: FbTemplate[];
   promptSections?: Record<string, string>;
   referenceSections?: ReferenceLibrarySection[];
+  /** Current review-rewrite round (1-indexed). Rounds >= 2 add escalation context. */
+  round?: number;
+  /** Maximum rounds allowed. Used in escalation messaging. */
+  maxRounds?: number;
 }
 
 function formatDesignProfile(profile: DesignProfile): string {
@@ -107,6 +110,8 @@ export function buildRewritePrompt(input: RewritePromptInput): BuiltPrompt {
     fbTemplates,
     promptSections,
     referenceSections,
+    round,
+    maxRounds,
   } = input;
 
   const profile = getAgentProfile(generator.display_name);
@@ -123,14 +128,6 @@ export function buildRewritePrompt(input: RewritePromptInput): BuiltPrompt {
   const knowledgeSection = formatKnowledgeDocs(knowledgeDocs ?? []);
   const profileSection = designProfile ? formatDesignProfile(designProfile) : "";
   const fbSection = formatFbTemplates(fbTemplates ?? []);
-  const referenceSection = formatReferenceSections(referenceSections ?? []);
-  const patternsSection = approvedPatterns && approvedPatterns.length > 0
-    ? `## MANDATORY: Learned Corrections from Previous Compile Errors
-
-The following corrections were learned from real TIA Portal compile failures. You MUST apply every one of these rules.
-
-${formatPatterns(approvedPatterns)}`
-    : "";
 
   const systemPrompt = `${identity}
 
@@ -139,8 +136,6 @@ ${instructions}
 ${platformRules}
 
 ${codeExamples}
-
-${referenceSection}
 
 ## Project Context
 - Client: ${project.client_name}
@@ -156,9 +151,11 @@ ${knowledgeSection}
 
 ${fbSection}
 
-${patternsSection}
+${round != null && round >= 2 && maxRounds != null ? `## IMPORTANT: This is rewrite attempt ${round} of ${maxRounds}
 
-## Review Findings — Address ALL Issues Below
+Previous rewrite attempts did NOT fully resolve the review findings below. The reviewers found these issues STILL PRESENT after your last rewrite. Pay extra attention to CRITICAL findings — they MUST be fixed this time.
+
+` : ""}## Review Findings — Address ALL Issues Below
 
 The following issues were identified by specialist reviewers. You MUST address every CRITICAL and WARNING finding. INFO findings are optional improvements.
 
@@ -167,6 +164,8 @@ ${findingsSection}
 ${generator.system_prompt ? `## Additional Instructions\n${generator.system_prompt}` : ""}
 
 ${OUTPUT_FORMAT}`;
+
+  const contextMessages = buildContextMessages(referenceSections ?? [], approvedPatterns ?? []);
 
   const artifactBlocks = artifacts
     .map(
@@ -181,6 +180,6 @@ ${artifactBlocks}`;
 
   return {
     systemPrompt,
-    messages: [{ role: "user" as const, content: userMessage }],
+    messages: [...contextMessages, { role: "user" as const, content: userMessage }],
   };
 }

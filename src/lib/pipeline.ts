@@ -61,6 +61,17 @@ export interface PipelineExecution {
   finalArtifactCount: number;
 }
 
+/** Maximum number of review→rewrite rounds before flagging unresolved findings. */
+export const MAX_REVIEW_ROUNDS = 3;
+
+/** A CRITICAL finding that persisted through all review rounds. */
+export interface UnresolvedFinding {
+  artifactName: string;
+  description: string;
+  reviewerName: string;
+  round: number;
+}
+
 /** Pipeline step configuration for the session start dialog. */
 export const PIPELINE_STEP_CONFIG = [
   {

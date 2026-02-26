@@ -8,8 +8,7 @@ import type {
 } from "@/types";
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { getAgentProfile } from "@/lib/agent-profiles";
-import { formatPatterns } from "@/lib/prompt-builder";
-import { formatReferenceSections } from "@/lib/reference-lookup";
+import { buildContextMessages } from "@/lib/prompt-builder";
 import { buildPriorityHierarchyBlock } from "@/lib/knowledge-priority";
 import type { ParsedArtifact } from "@/lib/artifact-parser";
 
@@ -71,10 +70,6 @@ export function buildReviewPrompt(input: ReviewPromptInput): BuiltPrompt {
 
   const knowledgeSection = formatKnowledgeDocs(knowledgeDocs ?? []);
   const profileSection = designProfile ? formatDesignProfile(designProfile) : "";
-  const patternsSection = approvedPatterns && approvedPatterns.length > 0
-    ? `## MANDATORY: Learned Corrections from Previous Compile Errors\n\n${formatPatterns(approvedPatterns)}`
-    : "";
-  const referenceSection = formatReferenceSections(referenceSections ?? []);
 
   const systemPrompt = `${identity}
 
@@ -106,8 +101,6 @@ ${platformRules}
 
 ${codeExamples}
 
-${referenceSection}
-
 ## Project Context
 - Client: ${project.client_name}
 - PLC Brand: ${project.plc_brand}
@@ -120,14 +113,13 @@ ${profileSection}
 
 ${knowledgeSection}
 
-${patternsSection}
-
 ${agent.system_prompt ? `## Additional Instructions\n${agent.system_prompt}` : ""}`;
 
+  const contextMessages = buildContextMessages(referenceSections ?? [], approvedPatterns ?? []);
   const userMessage = `Please review the following generated PLC code artifacts:\n\n${formatArtifactsForReview(artifacts)}`;
 
   return {
     systemPrompt,
-    messages: [{ role: "user" as const, content: userMessage }],
+    messages: [...contextMessages, { role: "user" as const, content: userMessage }],
   };
 }

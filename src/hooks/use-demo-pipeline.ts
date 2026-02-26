@@ -2,10 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 import { callNonStreaming } from "@/hooks/use-generation";
 import { buildPrompt } from "@/lib/prompt-builder";
 import { buildPlanPrompt, buildSummaryPrompt } from "@/lib/pm-prompt-builder";
-import { buildReviewPrompt } from "@/lib/review-prompt-builder";
-import { parseReviewReport } from "@/lib/review-response-parser";
-import type { ReviewReport } from "@/lib/review-response-parser";
-import { buildRewritePrompt } from "@/lib/rewrite-prompt-builder";
+import { executeReviewRewriteLoop } from "@/lib/review-rewrite-loop";
 import {
   buildPatternLibrarianPrompt,
   parsePatternLibrarianResponse,
@@ -231,109 +228,27 @@ export function useDemoPipeline() {
         throw err;
       }
 
-      // --- Steps 2-N: Review agents (report-only, no rewriting) ---
-      const reviewReports: Array<{ reviewerName: string; report: ReviewReport }> = [];
+      // --- Steps 2-N: Multi-round review→rewrite loop ---
+      if (reviewers.length > 0 && generator) {
+        const loopResult = await executeReviewRewriteLoop({
+          reviewers,
+          generator,
+          currentArtifacts,
+          project,
+          agentKnowledgeDocs,
+          designProfile,
+          approvedPatterns,
+          fbTemplates,
+          promptSections,
+          abortSignal: abort.signal,
+          callbacks: {
+            addStep: pushStep,
+            updateStep,
+            setActiveAgentName: () => {}, // Demo pipeline has no active agent UI
+          },
+        });
 
-      for (const reviewer of reviewers) {
-        const reviewStep = createPendingStep(reviewer, "review");
-        pushStep(reviewStep);
-        updateStep(reviewer.id, { status: "running" });
-
-        const reviewStartTime = Date.now();
-        try {
-          const { systemPrompt, messages } = buildReviewPrompt({
-            agent: reviewer,
-            artifacts: currentArtifacts,
-            project,
-            knowledgeDocs: agentKnowledgeDocs?.[reviewer.id],
-            designProfile,
-            approvedPatterns,
-            promptSections,
-          });
-
-          const { content, usage } = await callNonStreaming(systemPrompt, messages, abort.signal);
-          const report = parseReviewReport(content);
-
-          reviewReports.push({ reviewerName: reviewer.display_name, report });
-
-          const findingCount = report.findings.length;
-          const criticalCount = report.findings.filter((f) => f.severity === "CRITICAL").length;
-
-          updateStep(reviewer.id, {
-            status: "completed",
-            systemPrompt,
-            userMessage: messages[0]?.content ?? "",
-            rawResponse: content,
-            tokenUsage: usage,
-            durationMs: Date.now() - reviewStartTime,
-            artifactsModified: [],
-            summary: report.hasFindings
-              ? `${findingCount} finding(s) (${criticalCount} critical): ${report.summary.slice(0, 200)}`
-              : `No issues: ${report.summary.slice(0, 200)}`,
-          });
-        } catch (err) {
-          updateStep(reviewer.id, {
-            status: "failed",
-            durationMs: Date.now() - reviewStartTime,
-            error: err instanceof Error ? err.message : String(err),
-            summary: "Review failed",
-          });
-          // Review failure is non-fatal
-        }
-      }
-
-      // --- Rewrite step: Code Architect addresses review findings ---
-      const hasAnyFindings = reviewReports.some((r) => r.report.hasFindings);
-
-      if (hasAnyFindings && generator) {
-        const rewriteStepId = `${generator.id}-rewrite`;
-        const rewriteStep: PipelineStepResult = {
-          ...createPendingStep(generator, "rewrite"),
-          agentId: rewriteStepId,
-        };
-        pushStep(rewriteStep);
-        updateStep(rewriteStepId, { status: "running" });
-
-        const rewriteStartTime = Date.now();
-        try {
-          const { systemPrompt, messages } = buildRewritePrompt({
-            generator,
-            artifacts: currentArtifacts,
-            reviewReports,
-            project,
-            knowledgeDocs: agentKnowledgeDocs?.[generator.id],
-            designProfile,
-            approvedPatterns,
-            fbTemplates,
-            promptSections,
-          });
-
-          const { content, usage } = await callNonStreaming(systemPrompt, messages, abort.signal);
-          const { artifacts: rewrittenArtifacts, errors } = parseArtifacts(content);
-
-          if (rewrittenArtifacts.length > 0) {
-            currentArtifacts = rewrittenArtifacts;
-          }
-
-          updateStep(rewriteStepId, {
-            status: "completed",
-            systemPrompt,
-            userMessage: messages[0]?.content ?? "",
-            rawResponse: content,
-            tokenUsage: usage,
-            durationMs: Date.now() - rewriteStartTime,
-            artifactsModified: rewrittenArtifacts.map((a) => a.name),
-            summary: `Rewrote ${rewrittenArtifacts.length} artifact(s) addressing ${reviewReports.reduce((n, r) => n + r.report.findings.length, 0)} finding(s)${errors.length > 0 ? ` with ${errors.length} parse error(s)` : ""}`,
-          });
-        } catch (err) {
-          updateStep(rewriteStepId, {
-            status: "failed",
-            durationMs: Date.now() - rewriteStartTime,
-            error: err instanceof Error ? err.message : String(err),
-            summary: "Rewrite failed",
-          });
-          // Rewrite failure is non-fatal — continue with original artifacts
-        }
+        currentArtifacts = loopResult.artifacts;
       }
 
       // --- Pattern Librarian ---

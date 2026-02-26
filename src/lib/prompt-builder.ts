@@ -171,6 +171,40 @@ export function formatPatterns(patterns: PatternCandidate[]): string {
   return rules;
 }
 
+/**
+ * Build prefixed context messages for reference sections and correction patterns.
+ * These are prepended before conversation messages to keep the system prompt
+ * under the 100K character limit while preserving all reference material.
+ */
+export function buildContextMessages(
+  referenceSections: ReferenceLibrarySection[],
+  approvedPatterns: PatternCandidate[],
+): Array<{ role: "user" | "assistant"; content: string }> {
+  const refBlock = formatReferenceSections(referenceSections);
+  const hasPatterns = approvedPatterns && approvedPatterns.length > 0;
+
+  if (!refBlock && !hasPatterns) return [];
+
+  const parts: string[] = [];
+
+  if (refBlock) {
+    parts.push(refBlock);
+  }
+
+  if (hasPatterns) {
+    parts.push(`## MANDATORY: Learned Corrections from Previous Compile Errors
+
+The following corrections were learned from real TIA Portal compile failures. You MUST apply every one of these rules. Generating code that violates these rules will cause compile errors.
+
+${formatPatterns(approvedPatterns)}`);
+  }
+
+  return [
+    { role: "user" as const, content: parts.join("\n\n") },
+    { role: "assistant" as const, content: "Understood. I have reviewed the reference documentation and correction rules provided. I will use these as authoritative sources and apply all learned corrections to this task." },
+  ];
+}
+
 export function buildPrompt(input: PromptBuilderInput): BuiltPrompt {
   const { project, agents, generationMode, approvedPatterns, fbTemplates, designProfile, agentKnowledgeDocs, promptSections, referenceSections, userMessage, conversationHistory } = input;
 
@@ -182,7 +216,6 @@ export function buildPrompt(input: PromptBuilderInput): BuiltPrompt {
   const instructions = resolveSection(promptSections, "generate", "instructions");
   const platformRules = resolveSection(promptSections, "shared", "platform_rules");
   const codeExamples = resolveSection(promptSections, "shared", "code_examples");
-  const referenceSection = formatReferenceSections(referenceSections ?? []);
 
   const generationModeDesc =
     generationMode === "FB_PER_DEVICE"
@@ -198,8 +231,6 @@ ${buildPriorityHierarchyBlock()}
 ${platformRules}
 
 ${codeExamples}
-
-${referenceSection}
 
 ## Project Context
 - Client: ${project.client_name}
@@ -224,15 +255,14 @@ ${formatAgentRoles(agents, agentKnowledgeDocs)}
 
 ${formatFbTemplates(fbTemplates ?? [])}
 
-## MANDATORY: Learned Corrections from Previous Compile Errors
-
-The following corrections were learned from real TIA Portal compile failures. You MUST apply every one of these rules. Generating code that violates these rules will cause compile errors.
-
-${formatPatterns(approvedPatterns ?? [])}
-
 ${OUTPUT_FORMAT}`;
 
+  // Reference sections + patterns are sent as prefixed context messages
+  // to keep the system prompt under the 100K character limit
+  const contextMessages = buildContextMessages(referenceSections ?? [], approvedPatterns ?? []);
+
   const messages: Array<{ role: "user" | "assistant"; content: string }> = [
+    ...contextMessages,
     ...(conversationHistory ?? []),
     { role: "user" as const, content: userMessage },
   ];

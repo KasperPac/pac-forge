@@ -1,7 +1,6 @@
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
-import { formatPatterns, formatIoList, formatFbTemplates } from "@/lib/prompt-builder";
+import { formatIoList, formatFbTemplates } from "@/lib/prompt-builder";
 import { getAgentProfile } from "@/lib/agent-profiles";
-import { formatReferenceSections } from "@/lib/reference-lookup";
 import { buildPriorityHierarchyBlock } from "@/lib/knowledge-priority";
 import type { PatternCandidate, DesignProfile, AgentKnowledgeDoc, Project, FbTemplate, ReferenceLibrarySection } from "@/types";
 
@@ -32,7 +31,7 @@ export interface CompileFixPromptInput {
  * without losing awareness of IO mappings, FB templates, and project rules.
  */
 export function buildCompileFixSystemPrompt(input: CompileFixPromptInput): string {
-  const { approvedPatterns, designProfile, knowledgeDocs, promptSections, project, fbTemplates, referenceSections } = input;
+  const { designProfile, knowledgeDocs, promptSections, project, fbTemplates } = input;
 
   const codeArchitect = getAgentProfile("Code Architect");
   const identity = interpolateAgent(
@@ -64,18 +63,10 @@ ${formatIoList(project.io_lists)}` : "";
       ? `\n\n## Code Design Profile: ${designProfile.name}\n\n${designProfile.rules}`
       : "";
 
-  const patternsSection =
-    approvedPatterns && approvedPatterns.length > 0
-      ? `\n\n## MANDATORY: Learned Corrections from Previous Compile Errors\n\nThe following corrections were learned from real TIA Portal compile failures. You MUST apply every one of these rules.\n\n${formatPatterns(approvedPatterns)}`
-      : "";
-
   const knowledgeSection =
     knowledgeDocs && knowledgeDocs.length > 0
       ? `\n\n## Reference Documentation\n\n${knowledgeDocs.map((d) => `### ${d.title}\n${d.content}`).join("\n\n")}`
       : "";
-
-  const refSection = formatReferenceSections(referenceSections ?? []);
-  const refBlock = refSection ? `\n\n${refSection}` : "";
 
   return `${identity}
 
@@ -83,7 +74,7 @@ ${buildPriorityHierarchyBlock()}
 
 ${platformRules}
 
-${codeExamples}${refBlock}${projectSection}${profileSection}${fbSection}${patternsSection}${knowledgeSection}
+${codeExamples}${projectSection}${profileSection}${fbSection}${knowledgeSection}
 
 ${instructions}
 

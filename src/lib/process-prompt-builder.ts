@@ -1,8 +1,7 @@
 import type { Project, Agent, PatternCandidate, FbTemplate, DesignProfile, AgentKnowledgeDoc, ReferenceLibrarySection } from "@/types";
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
-import { formatPatterns } from "@/lib/prompt-builder";
+import { buildContextMessages } from "@/lib/prompt-builder";
 import { getAgentProfile } from "@/lib/agent-profiles";
-import { formatReferenceSections } from "@/lib/reference-lookup";
 import { buildPriorityHierarchyBlock } from "@/lib/knowledge-priority";
 
 export interface ProcessPromptInput {
@@ -69,7 +68,6 @@ export function buildProcessPrompt(input: ProcessPromptInput): BuiltPrompt {
   const platformRules = resolveSection(promptSections, "shared", "platform_rules");
   const codeExamples = resolveSection(promptSections, "shared", "code_examples");
   const processInstructions = resolveSection(promptSections, "process", "instructions");
-  const referenceSection = formatReferenceSections(referenceSections ?? []);
 
   const profileSection = designProfile?.rules?.trim()
     ? `## Code Design Profile: ${designProfile.name}
@@ -81,16 +79,6 @@ ${designProfile.rules}
 `
     : "";
 
-  const patternsSection = approvedPatterns && approvedPatterns.length > 0
-    ? `## MANDATORY: Learned Corrections from Previous Compile Errors
-
-The following corrections were learned from real TIA Portal compile failures. You MUST apply every one of these rules.
-
-${formatPatterns(approvedPatterns)}
-
-`
-    : "";
-
   const systemPrompt = `${identity}
 
 ${buildPriorityHierarchyBlock()}
@@ -98,8 +86,6 @@ ${buildPriorityHierarchyBlock()}
 ${platformRules}
 
 ${codeExamples}
-
-${referenceSection}
 
 ## Project Context
 - Client: ${project.client_name}
@@ -114,7 +100,7 @@ ${formatAgentRoles(agents, agentKnowledgeDocs)}
 
 ${formatFbTemplates(fbTemplates ?? [])}
 
-${patternsSection}## Output Format
+## Output Format
 
 You MUST output each artifact as a separate delimited block using this format:
 
@@ -149,6 +135,8 @@ ${processInstructions}
 
 After all artifact blocks, provide a brief summary of what was generated.`;
 
+  const contextMessages = buildContextMessages(referenceSections ?? [], approvedPatterns ?? []);
+
   const userMessage = `Generate process control code from the following functional description:
 
 ${functionalDescription}
@@ -157,6 +145,6 @@ Generate all necessary artifacts: UDTs, FBs for each process sequence, FCs for s
 
   return {
     systemPrompt,
-    messages: [{ role: "user" as const, content: userMessage }],
+    messages: [...contextMessages, { role: "user" as const, content: userMessage }],
   };
 }

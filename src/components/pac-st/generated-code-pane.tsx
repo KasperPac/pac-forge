@@ -4,6 +4,7 @@ import Editor, { type OnMount } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
 import { Button } from "@/components/ui/button";
 import { ArtifactTabs } from "./artifact-tabs";
+import { UnresolvedFindingsBanner } from "./unresolved-findings-banner";
 import { registerSclLanguage, SCL_LANGUAGE_ID } from "@/lib/monaco-scl";
 import { usePacStStore } from "@/stores/pac-st-store";
 
@@ -17,6 +18,8 @@ export function GeneratedCodePane() {
     pendingEditorNavigation,
     clearPendingNavigation,
     streamingContent,
+    unresolvedFindings,
+    dismissUnresolvedFindings,
   } = usePacStStore();
 
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
@@ -80,6 +83,16 @@ export function GeneratedCodePane() {
         activeIndex={activeGeneratedIndex}
         onSelect={setActiveGeneratedIndex}
       />
+
+      {/* Unresolved review findings */}
+      {unresolvedFindings.length > 0 && (
+        <div className="border-b px-3 py-2">
+          <UnresolvedFindingsBanner
+            findings={unresolvedFindings}
+            onDismiss={dismissUnresolvedFindings}
+          />
+        </div>
+      )}
 
       {/* Monaco editor or streaming view */}
       <div className="flex-1">

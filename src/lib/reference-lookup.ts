@@ -106,7 +106,7 @@ export async function getRelevantReferenceSections(
 }
 
 /**
- * Format reference sections for injection into a system prompt.
+ * Format reference sections for injection into a prompt.
  */
 export function formatReferenceSections(
   sections: ReferenceLibrarySection[],
