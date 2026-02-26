@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from "react-router";
 import { FolderOpen, Bot, Code, Terminal, BookOpen, GraduationCap, Layers, SlidersHorizontal, FileText, Library, LogOut } from "lucide-react";
+import { AgentChatFab } from "@/components/agent-chat/agent-chat-fab";
 import pacLogo from "@/../media/logos/PacTechnologiesEdit_White.png";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -106,6 +107,7 @@ export function DashboardLayout() {
           <Outlet />
         </main>
       </div>
+      <AgentChatFab />
     </div>
   );
 }
