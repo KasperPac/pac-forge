@@ -184,9 +184,36 @@ export function getChangedContent(diff: DiffResult): {
 }
 
 /**
+ * Check whether a line is "trivial" — comments, region markers, whitespace,
+ * or separator bars that carry no functional meaning.
+ */
+function isTrivialLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (trimmed === "") return true;
+  // Pure comment lines (including region headers and separator bars)
+  if (/^\/\//.test(trimmed)) return true;
+  // Opening/closing block-comment markers
+  if (trimmed === "/*" || trimmed === "*/") return true;
+  return false;
+}
+
+/**
+ * Check whether a change region is trivial (all changed lines are comments,
+ * whitespace, or region markers). These regions add noise to correction
+ * snippets and should be filtered out when substantive regions exist.
+ */
+function isTrivialRegion(removedLines: string[], addedLines: string[]): boolean {
+  const allChanged = [...removedLines, ...addedLines];
+  if (allChanged.length === 0) return true;
+  return allChanged.every(isTrivialLine);
+}
+
+/**
  * Extract focused before/after snippets from a diff with surrounding context.
  * Finds change regions (consecutive removed+added hunks at the same position)
  * and builds PAIRED snippets so original and corrected show the same code area.
+ * Trivial regions (comments, whitespace, region markers) are filtered out when
+ * substantive code changes exist, keeping snippets focused on the real fix.
  */
 export function extractFocusedSnippets(
   diff: DiffResult,
@@ -249,11 +276,18 @@ export function extractFocusedSnippets(
     return { originalSnippet: "(no changes)", correctedSnippet: "(no changes)" };
   }
 
+  // Filter out trivial regions (comments, whitespace, region markers) when
+  // substantive code regions exist — keeps snippets focused on the real fix.
+  const substantive = regions.filter(
+    (r) => !isTrivialRegion(r.removedLines, r.addedLines)
+  );
+  const effectiveRegions = substantive.length > 0 ? substantive : regions;
+
   // Build paired snippets from regions until we hit maxLines
   const originalParts: string[] = [];
   const correctedParts: string[] = [];
 
-  for (const region of regions) {
+  for (const region of effectiveRegions) {
     // Both snippets get the same context so they visually correspond
     const origRegion = [
       ...region.contextBefore,
