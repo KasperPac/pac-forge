@@ -65,7 +65,7 @@ ${formatIoList(project.io_lists)}` : "";
 
   const knowledgeSection =
     knowledgeDocs && knowledgeDocs.length > 0
-      ? `\n\n## Reference Documentation\n\n${knowledgeDocs.map((d) => `### ${d.title}\n${d.content}`).join("\n\n")}`
+      ? `\n\n## Reference Documentation\n\n${knowledgeDocs.map((d) => `### [${d.short_id}] ${d.title}\n${d.content}`).join("\n\n")}`
       : "";
 
   return `${identity}

@@ -53,6 +53,9 @@ export function PatternReviewCard({ pattern, onApprove, onReject, onRevoke, onDe
       {/* Header */}
       <div className="flex items-center justify-between border-b px-4 py-2.5">
         <div className="flex items-center gap-2">
+          <Badge variant="outline" className="font-mono text-[9px] text-primary">
+            {pattern.short_id}
+          </Badge>
           <Badge variant="outline" className={`font-mono text-[9px] ${typeClass}`}>
             {pattern.correction_type}
           </Badge>

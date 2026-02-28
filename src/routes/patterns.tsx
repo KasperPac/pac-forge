@@ -1,7 +1,8 @@
 import { useState, useMemo } from "react";
-import { BookOpen, AlertTriangle } from "lucide-react";
+import { BookOpen, AlertTriangle, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -43,6 +44,7 @@ const CORRECTION_FILTERS: Array<{ value: CorrectionType | "all"; label: string }
 export default function PatternsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("PENDING");
   const [typeFilter, setTypeFilter] = useState<CorrectionType | "all">("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { data: patterns, isLoading } = usePatternCandidates(
     statusFilter === "all" || statusFilter === "conflicts" ? undefined : statusFilter
@@ -88,6 +90,19 @@ export default function PatternsPage() {
     if (typeFilter !== "all" && p.correction_type !== typeFilter) return false;
     // Conflicts tab: show only patterns involved in conflicts
     if (statusFilter === "conflicts") return conflictPatternIds.has(p.id);
+    // Search filter
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const searchable = [
+        p.short_id,
+        p.explanation_tag,
+        p.device_type,
+        p.context,
+        p.original_snippet,
+        p.corrected_snippet,
+      ].join(" ").toLowerCase();
+      if (!searchable.includes(q)) return false;
+    }
     return true;
   });
 
@@ -149,6 +164,16 @@ export default function PatternsPage() {
                 {f.label}
               </Button>
             ))}
+          </div>
+
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by ID, tag, device..."
+              className="h-8 w-56 pl-8 font-mono text-xs"
+            />
           </div>
         </div>
 

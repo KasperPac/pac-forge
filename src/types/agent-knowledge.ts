@@ -1,5 +1,6 @@
 export interface AgentKnowledgeDoc {
   id: string;
+  short_id: string;
   agent_id: string;
   title: string;
   content: string;
@@ -16,7 +17,7 @@ export interface AgentKnowledgeDoc {
 
 export type AgentKnowledgeDocCreate = Omit<
   AgentKnowledgeDoc,
-  "id" | "created_at" | "created_by" | "source_upload_id" | "distribution_reasoning"
+  "id" | "short_id" | "created_at" | "created_by" | "source_upload_id" | "distribution_reasoning"
 > & {
   source_upload_id?: string | null;
   distribution_reasoning?: string | null;

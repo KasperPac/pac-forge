@@ -120,7 +120,7 @@ function formatAgentRoles(
       // Inject agent's knowledge base documents
       const docs = knowledgeDocs?.[a.id];
       if (docs && docs.length > 0) {
-        const docSections = docs.map((d) => `#### ${d.title}\n${d.content}`);
+        const docSections = docs.map((d) => `#### [${d.short_id}] ${d.title}\n${d.content}`);
         sections.push(`**Reference Documentation:**\n${docSections.join("\n\n")}`);
       }
       return sections.join("\n");
@@ -154,9 +154,9 @@ ${blocks.join("\n\n")}`;
 export function formatPatterns(patterns: PatternCandidate[]): string {
   if (patterns.length === 0) return "No learned corrections.";
   const rules = patterns
-    .map((p, i) => {
+    .map((p) => {
       const parts = [
-        `### Rule ${i + 1}: ${p.explanation_tag}`,
+        `### ${p.short_id}: ${p.explanation_tag}`,
         `**Category:** ${p.correction_type} | **Device:** ${p.device_type}`,
       ];
       if (p.original_snippet) {

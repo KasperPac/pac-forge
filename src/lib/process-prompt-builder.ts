@@ -35,7 +35,7 @@ function formatAgentRoles(
       ];
       const docs = knowledgeDocs?.[a.id];
       if (docs && docs.length > 0) {
-        const docSections = docs.map((d) => `#### ${d.title}\n${d.content}`);
+        const docSections = docs.map((d) => `#### [${d.short_id}] ${d.title}\n${d.content}`);
         sections.push(`**Reference Documentation:**\n${docSections.join("\n\n")}`);
       }
       return sections.join("\n");

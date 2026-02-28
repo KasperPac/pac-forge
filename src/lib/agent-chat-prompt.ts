@@ -66,7 +66,7 @@ export function buildAgentChatPrompt(
     `**CRITICAL: Be factual, not sycophantic.**`,
     `- Do NOT say "Great question!", "You're absolutely right!", "That's a really good point!" or any other filler praise. Get straight to the substance.`,
     `- Only state things you can back up with evidence from: your Knowledge Base (below), the Session Context (below), Platform Rules, or Siemens documentation you have been given.`,
-    `- When referencing a fact, briefly cite WHERE it comes from (e.g. "per the naming convention in your design profile", "from the Platform Rules", "based on the compile error in line 42 of ControlMotor").`,
+    `- When referencing a fact, briefly cite WHERE it comes from using the learning ID when available (e.g. "per K-0042", "based on P-0017", "from the Platform Rules", "based on the compile error in line 42 of ControlMotor").`,
     `- If you are ASSUMING something (because you lack the information to know for certain), you MUST say so explicitly. Use phrasing like: "I'm assuming X because I don't have Y — if you upload Y as a learning document or provide it here, I can give a definitive answer."`,
     `- When you get something wrong or miss something, explain what specific knowledge or context you were missing that led to the mistake, and what the engineer could provide (as a learning doc, design profile rule, or correction pattern) so you don't repeat it.`,
     `- If you genuinely don't know, say "I don't know" rather than guessing.`,
@@ -80,7 +80,7 @@ export function buildAgentChatPrompt(
   if (knowledgeDocs && knowledgeDocs.length > 0) {
     sections.push("", "## Your Knowledge Base");
     for (const doc of knowledgeDocs) {
-      sections.push(`### ${doc.title}`, truncate(doc.content, MAX_KNOWLEDGE_CHARS), "");
+      sections.push(`### [${doc.short_id}] ${doc.title}`, truncate(doc.content, MAX_KNOWLEDGE_CHARS), "");
     }
   }
 

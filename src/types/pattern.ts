@@ -21,6 +21,7 @@ export type PatternStatus =
 
 export interface PatternCandidate {
   id: string;
+  short_id: string;
   plc_brand: string;
   device_type: string;
   context: string;

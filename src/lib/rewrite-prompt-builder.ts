@@ -60,7 +60,7 @@ ${blocks.join("\n\n")}`;
 
 function formatKnowledgeDocs(docs: AgentKnowledgeDoc[]): string {
   if (docs.length === 0) return "";
-  const sections = docs.map((d) => `#### ${d.title}\n${d.content}`);
+  const sections = docs.map((d) => `#### [${d.short_id}] ${d.title}\n${d.content}`);
   return `## Reference Documentation\n\n${sections.join("\n\n---\n\n")}`;
 }
 

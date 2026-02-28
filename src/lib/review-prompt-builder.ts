@@ -31,7 +31,7 @@ interface BuiltPrompt {
 function formatKnowledgeDocs(docs: AgentKnowledgeDoc[]): string {
   if (docs.length === 0) return "";
   const sections = docs.map(
-    (d) => `### ${d.title}\n${d.content}`
+    (d) => `### [${d.short_id}] ${d.title}\n${d.content}`
   );
   return `## Reference Documentation\n\nThe following documents are part of your knowledge base. Use them as reference when performing your review.\n\n${sections.join("\n\n---\n\n")}`;
 }

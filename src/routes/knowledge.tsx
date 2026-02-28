@@ -12,10 +12,12 @@ import {
   AlertCircle,
   Check,
   X,
+  Search,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -90,6 +92,7 @@ export default function KnowledgePage() {
 
   // Expanded uploads in history
   const [expandedUploads, setExpandedUploads] = useState<Set<string>>(new Set());
+  const [uploadSearch, setUploadSearch] = useState("");
 
   // ---- Analyze (step 1) ----
 
@@ -488,9 +491,28 @@ export default function KnowledgePage() {
       )}
 
       {uploads && uploads.length > 0 && (
-        <ScrollArea className="h-[calc(100vh-14rem)]">
+        <>
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={uploadSearch}
+            onChange={(e) => setUploadSearch(e.target.value)}
+            placeholder="Search uploads by filename, agent, or title..."
+            className="h-8 w-80 pl-8 font-mono text-xs"
+          />
+        </div>
+        <ScrollArea className="h-[calc(100vh-16rem)]">
           <div className="space-y-3 pr-3">
-            {uploads.map((upload) => {
+            {uploads.filter((upload) => {
+              if (!uploadSearch.trim()) return true;
+              const q = uploadSearch.toLowerCase();
+              const dist = upload.distribution ?? [];
+              const searchable = [
+                upload.source_filename,
+                ...dist.map((d) => `${d.agent_name} ${d.title}`),
+              ].join(" ").toLowerCase();
+              return searchable.includes(q);
+            }).map((upload) => {
               const expanded = expandedUploads.has(upload.id);
               const dist = upload.distribution ?? [];
 
@@ -604,6 +626,7 @@ export default function KnowledgePage() {
             Drop more files here to add to knowledge base
           </div>
         </ScrollArea>
+        </>
       )}
     </div>
   );
