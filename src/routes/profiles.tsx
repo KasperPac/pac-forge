@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Trash2, Pencil, Clock, User, Loader2, SlidersHorizontal } from "lucide-react";
+import { Plus, Trash2, Pencil, Clock, User, Loader2, SlidersHorizontal, AlertTriangle } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Dialog,
   DialogContent,
@@ -31,6 +32,10 @@ import {
   useUpdateDesignProfile,
   useDeleteDesignProfile,
 } from "@/hooks/use-design-profiles";
+import { useActivePromptSections } from "@/hooks/use-prompt-sections";
+import { resolveSection } from "@/lib/prompt-defaults";
+import { detectConflicts } from "@/lib/conflict-detector";
+import type { KnowledgeConflict } from "@/lib/conflict-detector";
 import type { DesignProfile, DesignProfileCreate } from "@/types";
 
 const EMPTY_FORM: DesignProfileCreate = {
@@ -64,8 +69,11 @@ export default function ProfilesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<DesignProfile | null>(null);
   const [form, setForm] = useState<DesignProfileCreate>(EMPTY_FORM);
+  const [conflicts, setConflicts] = useState<KnowledgeConflict[]>([]);
+  const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
 
   const { data: profiles, isLoading } = useDesignProfiles();
+  const { data: promptSections } = useActivePromptSections();
   const createProfile = useCreateDesignProfile();
   const updateProfile = useUpdateDesignProfile();
   const deleteProfile = useDeleteDesignProfile();
@@ -87,16 +95,52 @@ export default function ProfilesPage() {
     setDialogOpen(true);
   }
 
-  function handleSave() {
+  function doSave() {
     if (editingProfile) {
       updateProfile.mutate(
         { id: editingProfile.id, updates: form },
-        { onSuccess: () => setDialogOpen(false) },
+        { onSuccess: () => { setDialogOpen(false); setConflicts([]); } },
       );
     } else {
       createProfile.mutate(form, {
-        onSuccess: () => setDialogOpen(false),
+        onSuccess: () => { setDialogOpen(false); setConflicts([]); },
       });
+    }
+  }
+
+  function handleSave() {
+    if (!form.rules.trim()) {
+      doSave();
+      return;
+    }
+
+    // Run conflict detection against platform rules
+    const platformRulesText = resolveSection(promptSections, "shared", "platform_rules");
+    const tempProfile = {
+      id: editingProfile?.id ?? "new",
+      name: form.name || "New Profile",
+      client_name: form.client_name ?? null,
+      plc_brand: form.plc_brand,
+      rules: form.rules,
+      created_at: "",
+      updated_at: "",
+      created_by: null,
+    } as DesignProfile;
+
+    const detected = detectConflicts({
+      patterns: [],
+      designProfile: tempProfile,
+      fbTemplates: [],
+      agentKnowledgeDocs: [],
+      overrides: [],
+      platformRulesText,
+    });
+
+    if (detected.length > 0) {
+      setConflicts(detected);
+      setConflictDialogOpen(true);
+    } else {
+      doSave();
     }
   }
 
@@ -224,6 +268,62 @@ export default function ProfilesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Conflict warning dialog */}
+      <AlertDialog open={conflictDialogOpen} onOpenChange={setConflictDialogOpen}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-500" />
+              Profile conflicts with Platform Rules
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  Your design profile has {conflicts.length} rule{conflicts.length !== 1 ? "s" : ""} that
+                  conflict with the default Platform Rules. <strong>Your profile will take priority</strong> for
+                  naming and style — the agents will follow your profile, not the defaults.
+                </p>
+                <ScrollArea className="max-h-[240px]">
+                  <div className="space-y-2 pr-3">
+                    {conflicts.map((c) => (
+                      <div key={c.id} className="rounded border border-amber-500/20 bg-amber-500/5 px-3 py-2">
+                        <div className="flex items-center gap-1.5">
+                          <Badge variant="secondary" className="font-mono text-[9px]">
+                            {c.category}
+                          </Badge>
+                          <span className="font-mono text-[10px] text-muted-foreground">
+                            {Math.round(c.confidence * 100)}% confidence
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs">{c.description}</p>
+                        <div className="mt-1.5 grid grid-cols-2 gap-2 text-[10px]">
+                          <div>
+                            <span className="font-semibold text-muted-foreground">Profile says:</span>
+                            <div className="mt-0.5 text-foreground">{c.sourceA.type === "DESIGN_PROFILE" ? c.sourceA.excerpt : c.sourceB.excerpt}</div>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-muted-foreground">Platform Rules say:</span>
+                            <div className="mt-0.5 text-foreground">{c.sourceA.type === "PLATFORM_RULES" ? c.sourceA.excerpt : c.sourceB.excerpt}</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setConflicts([])}>
+              Go Back
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={() => { setConflictDialogOpen(false); doSave(); }}>
+              Save Anyway — Profile Wins
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -99,10 +99,12 @@ export function resolveConflictWinner(
 export function buildPriorityHierarchyBlock(): string {
   return `## Knowledge Priority (highest to lowest)
 When any guidance below conflicts, follow the higher-priority source.
-1. Platform Rules (foundational SCL/TIA rules)
-2. Design Profile (customer-specific standards)
+1. Platform Rules (foundational SCL/TIA rules — syntax, data types, safety, IEC compliance)
+2. Design Profile (customer-specific standards — naming, style, structural preferences)
 3. Correction Patterns (learned compile fixes)
 4. FB Templates (code structure templates)
 5. Agent Knowledge (reference documents)
-6. Reference Library (sectioned reference docs)`;
+6. Reference Library (sectioned reference docs)
+
+**CRITICAL EXCEPTION — Naming & Style:** When a Design Profile defines naming conventions, prefixes, or structural style that differ from the default Platform Rules naming, the **Design Profile wins**. Platform Rules are authoritative for technical correctness (IEC timers, symbolic addressing, data types, safety patterns) but NOT for customer-chosen naming or coding style preferences.`;
 }

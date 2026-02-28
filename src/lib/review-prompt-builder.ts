@@ -97,6 +97,7 @@ If issues found, respond with a structured report:
 ## Summary
 [brief summary of what you found and the overall quality assessment]
 
+${profileSection ? `${profileSection}\n\n**REVIEW RULE:** Do NOT flag naming conventions, prefixes, or structural patterns that match the Design Profile above — even if they differ from Platform Rules defaults. The customer's Design Profile defines the authoritative naming standard for this project.\n` : ""}
 ${platformRules}
 
 ${codeExamples}
@@ -108,8 +109,6 @@ ${codeExamples}
 - CPU Type: ${project.cpu_type}
 - Safety Level: ${project.safety_level}
 ${project.safety_notes ? `- Safety Notes: ${project.safety_notes}` : ""}
-
-${profileSection}
 
 ${knowledgeSection}
 

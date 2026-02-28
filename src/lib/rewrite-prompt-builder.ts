@@ -133,6 +133,7 @@ export function buildRewritePrompt(input: RewritePromptInput): BuiltPrompt {
 
 ${instructions}
 
+${profileSection ? `${profileSection}\n\n**REWRITE RULE:** The Design Profile above defines the authoritative naming conventions and style for this project. Do NOT change names, prefixes, or structural patterns to match Platform Rules defaults if they already follow the Design Profile.\n` : ""}
 ${platformRules}
 
 ${codeExamples}
@@ -144,8 +145,6 @@ ${codeExamples}
 - CPU Type: ${project.cpu_type}
 - Safety Level: ${project.safety_level}
 ${project.safety_notes ? `- Safety Notes: ${project.safety_notes}` : ""}
-
-${profileSection}
 
 ${knowledgeSection}
 

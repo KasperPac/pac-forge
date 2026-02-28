@@ -60,6 +60,8 @@ export interface ConflictDetectionContext {
   agentKnowledgeDocs: AgentKnowledgeDoc[];
   referenceSections?: ReferenceLibrarySection[];
   overrides: KnowledgePriorityOverride[];
+  /** Platform rules text — when provided, included as a PLATFORM_RULES source for conflict detection. */
+  platformRulesText?: string;
 }
 
 // --- Confidence thresholds ---
@@ -333,6 +335,17 @@ function nextConflictId(): string {
  */
 function normalizeSources(ctx: ConflictDetectionContext): NormalizedSource[] {
   const sources: NormalizedSource[] = [];
+
+  // Platform Rules — when provided, include as a source for profile-vs-rules comparison
+  if (ctx.platformRulesText?.trim()) {
+    sources.push({
+      type: "PLATFORM_RULES",
+      id: "platform-rules",
+      label: "Platform Rules",
+      text: ctx.platformRulesText,
+      displayExcerpt: excerpt(ctx.platformRulesText),
+    });
+  }
 
   // Design Profile — prescriptive rules, scan for stances
   if (ctx.designProfile?.rules?.trim()) {
