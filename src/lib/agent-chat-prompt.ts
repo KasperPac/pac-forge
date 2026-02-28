@@ -3,6 +3,20 @@ import type { AgentKnowledgeDoc, Artifact } from "@/types";
 import type { PipelineStepResult } from "@/lib/pipeline";
 import type { TiaCompileResult, CompileFixMessage } from "@/stores/tia-console-store";
 
+/** Hard cap for total system prompt size (chars). Edge Function has ~100K limit. */
+const MAX_PROMPT_CHARS = 60_000;
+/** Max chars per artifact code block. */
+const MAX_ARTIFACT_CHARS = 4_000;
+/** Max chars per pipeline step response. */
+const MAX_STEP_CHARS = 2_000;
+/** Max chars per knowledge doc. */
+const MAX_KNOWLEDGE_CHARS = 3_000;
+
+function truncate(text: string, max: number): string {
+  if (text.length <= max) return text;
+  return text.slice(0, max) + "\n... (truncated)";
+}
+
 export interface SessionContext {
   /** Generated code artifacts from the current session */
   artifacts: Artifact[];
@@ -66,7 +80,7 @@ export function buildAgentChatPrompt(
   if (knowledgeDocs && knowledgeDocs.length > 0) {
     sections.push("", "## Your Knowledge Base");
     for (const doc of knowledgeDocs) {
-      sections.push(`### ${doc.title}`, doc.content, "");
+      sections.push(`### ${doc.title}`, truncate(doc.content, MAX_KNOWLEDGE_CHARS), "");
     }
   }
 
@@ -81,7 +95,7 @@ export function buildAgentChatPrompt(
           "The engineer may ask about design decisions, structure, or specific details.",
       );
       for (const a of artifacts) {
-        sections.push(`### ${a.name} (${a.type})`, "```scl", a.content, "```", "");
+        sections.push(`### ${a.name} (${a.type})`, "```scl", truncate(a.content, MAX_ARTIFACT_CHARS), "```", "");
       }
     }
 
@@ -95,7 +109,7 @@ export function buildAgentChatPrompt(
         if (!step.rawResponse) continue;
         sections.push(
           `### ${step.agentName} (${step.role})`,
-          step.rawResponse,
+          truncate(step.rawResponse, MAX_STEP_CHARS),
           "",
         );
       }
@@ -147,5 +161,6 @@ export function buildAgentChatPrompt(
     }
   }
 
-  return sections.join("\n");
+  const prompt = sections.join("\n");
+  return truncate(prompt, MAX_PROMPT_CHARS);
 }

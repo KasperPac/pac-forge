@@ -16,12 +16,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -89,7 +83,7 @@ export function AgentChatPanel() {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages.length, streamingContent, learningProposal]);
+  }, [messages.length, streamingContent, learningProposal, error]);
 
   function handleSend() {
     const trimmed = input.trim();
@@ -121,7 +115,7 @@ export function AgentChatPanel() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Classification failed";
       setError(msg);
-      setTimeout(() => setError(null), 4000);
+      setTimeout(() => setError(null), 8000);
     }
   }
 
@@ -136,7 +130,7 @@ export function AgentChatPanel() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Save failed";
       setError(msg);
-      setTimeout(() => setError(null), 4000);
+      setTimeout(() => setError(null), 8000);
     }
   }
 
@@ -202,11 +196,6 @@ export function AgentChatPanel() {
                 )}
               </div>
             )}
-            {error && (
-              <div className="rounded-md bg-destructive/10 px-2 py-1 text-[10px] text-destructive">
-                {error}
-              </div>
-            )}
             {messages.map((msg, i) => (
               <MessageBubble
                 key={msg.id}
@@ -227,6 +216,13 @@ export function AgentChatPanel() {
                   {streamingContent}
                   <span className="inline-block h-3 w-1 animate-pulse bg-foreground/70" />
                 </div>
+              </div>
+            )}
+
+            {/* Error display — bottom of scroll so it's visible */}
+            {error && (
+              <div className="rounded-md bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive">
+                {error}
               </div>
             )}
 
@@ -368,38 +364,33 @@ function MessageBubble({
           {isUser ? "You" : agentName}
         </span>
         {isUser && (
-          <TooltipProvider delayDuration={300}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => onLightbulb(index)}
-                  disabled={isSaved || isClassifying}
-                  className={`${
-                    isSaved
-                      ? "cursor-default text-green-500"
-                      : isClassifying
-                        ? "cursor-wait text-amber-500/50"
-                        : "text-muted-foreground/50 hover:text-amber-500"
-                  }`}
-                >
-                  {isSaved ? (
-                    <Check className="h-3 w-3" />
-                  ) : isClassifying ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <Lightbulb className="h-3 w-3" />
-                  )}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="left" className="text-xs">
-                {isSaved
-                  ? "Saved as learning"
-                  : isClassifying
-                    ? "Classifying..."
-                    : "Save as learning"}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <button
+            type="button"
+            onClick={() => onLightbulb(index)}
+            disabled={isSaved || isClassifying}
+            title={
+              isSaved
+                ? "Saved as learning"
+                : isClassifying
+                  ? "Classifying..."
+                  : "Save as learning"
+            }
+            className={`-mr-1 flex h-5 w-5 items-center justify-center rounded ${
+              isSaved
+                ? "cursor-default text-green-500"
+                : isClassifying
+                  ? "cursor-wait text-amber-500/50"
+                  : "text-muted-foreground/50 hover:bg-accent hover:text-amber-500"
+            }`}
+          >
+            {isSaved ? (
+              <Check className="h-3 w-3" />
+            ) : isClassifying ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Lightbulb className="h-3 w-3" />
+            )}
+          </button>
         )}
       </div>
       <div className="whitespace-pre-wrap break-words text-xs [overflow-wrap:anywhere]">
