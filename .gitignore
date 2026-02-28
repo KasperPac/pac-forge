@@ -37,3 +37,4 @@ supabase/.temp/
 # Siemens PDF manuals (large binaries, keep local)
 Tia Portal Docs/*.pdf
 Tia Portal Docs/**/*.pdf
+tasks/tasks.json

@@ -308,3 +308,6 @@ Style: `new-york` / Base color: `neutral` / Icons: `lucide-react`. Add component
 - No stub safety logic — safety-analyzer.ts has real rule-based checks
 - Prefer deterministic, auditable implementations over cleverness
 - Ask for missing requirements only when truly required
+## Monday Integration
+
+See `CLAUDE.monday.md` for monday.com task sync rules.
