@@ -311,3 +311,11 @@ Style: `new-york` / Base color: `neutral` / Icons: `lucide-react`. Add component
 ## Monday Integration
 
 See `CLAUDE.monday.md` for monday.com task sync rules.
+
+**MANDATORY — follow this exact order for EVERY task (no exceptions, even small fixes):**
+1. **BEFORE writing any code**: Create the Monday task (or find existing) with `--status "Fixing"` and a description of what you're about to do
+2. **Do the work**: Implement the fix/feature
+3. **AFTER the work is done**: Update the Monday task to `--status "Awaiting Testing"` with a summary of what was changed in `--comments`
+4. **Ask the user to test**: Ask if the fix works. If yes → update to `--status "Done"`. If no → update back to `--status "Fixing"` and continue working on it.
+
+This applies to bug fixes, features, improvements — everything. Never skip step 1. The task must exist in Monday BEFORE the first line of code is written.

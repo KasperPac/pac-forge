@@ -4,16 +4,18 @@ import os
 import sys
 from pathlib import Path
 import uuid
-from urllib import request
+from urllib import request, error
 
 MONDAY_API_URL = "https://api.monday.com/v2"
-STATUS_LABELS = ["Done", "Working on it", "Task Created", "Planned"]
+STATUS_LABELS = ["Done", "Awaiting Testing", "Fixing", "Working on it", "Task Created", "Planned"]
 DEFAULT_GROUP = "Improvements"
 DEFAULT_GROUPS = ["Improvements", "Bug Fixes", "New Features", "Complete"]
 STATUS_TRANSITIONS = {
-    "Planned": {"Task Created", "Working on it"},
-    "Task Created": {"Working on it", "Planned"},
-    "Working on it": {"Done"},
+    "Planned": {"Task Created", "Working on it", "Fixing"},
+    "Task Created": {"Working on it", "Planned", "Fixing"},
+    "Working on it": {"Done", "Awaiting Testing"},
+    "Fixing": {"Awaiting Testing", "Done"},
+    "Awaiting Testing": {"Done", "Fixing"},
     "Done": {"Done"},
 }
 API_VERSION = "2025-10"
@@ -45,33 +47,44 @@ def load_env_file(path=".env"):
             os.environ[key] = value
 
 
-def gql(token, query, variables=None):
+def gql(token, query, variables=None, _retries=5, _backoff=10):
     payload = {"query": query}
     if variables is not None:
         payload["variables"] = variables
     body = json.dumps(payload).encode("utf-8")
-    req = request.Request(
-        MONDAY_API_URL,
-        data=body,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": token,
-            "API-Version": API_VERSION,
-        },
-        method="POST",
-    )
-    try:
-        with request.urlopen(req) as resp:
-            raw = resp.read().decode("utf-8")
-    except Exception as e:
-        raise SystemExit(f"monday API request failed: {e}")
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        raise SystemExit(f"monday API returned non-JSON response: {raw}")
-    if "errors" in data:
-        raise SystemExit(f"monday API error: {data['errors']}")
-    return data
+
+    for attempt in range(_retries):
+        req = request.Request(
+            MONDAY_API_URL,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": token,
+                "API-Version": API_VERSION,
+            },
+            method="POST",
+        )
+        try:
+            with request.urlopen(req) as resp:
+                raw = resp.read().decode("utf-8")
+        except error.HTTPError as e:
+            if e.code == 429 and attempt < _retries - 1:
+                wait = _backoff * (2 ** attempt)
+                import time
+                print(f"Rate limited (429), retrying in {wait}s... (attempt {attempt + 1}/{_retries})")
+                time.sleep(wait)
+                continue
+            raise SystemExit(f"monday API request failed: {e}")
+        except Exception as e:
+            raise SystemExit(f"monday API request failed: {e}")
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            raise SystemExit(f"monday API returned non-JSON response: {raw}")
+        if "errors" in data:
+            raise SystemExit(f"monday API error: {data['errors']}")
+        return data
+    raise SystemExit("monday API request failed: max retries exceeded")
 
 
 def require_token():
@@ -131,9 +144,23 @@ def create_column(token, board_id, title, column_type):
     return res["data"]["create_column"]["id"]
 
 
+STATUS_LABEL_DEFS = [
+    {"color": "american_gray", "label": "Planned", "index": 0},
+    {"color": "bright_blue", "label": "Task Created", "index": 1},
+    {"color": "working_orange", "label": "Working on it", "index": 2},
+    {"color": "dark_orange", "label": "Fixing", "index": 3},
+    {"color": "purple", "label": "Awaiting Testing", "index": 4},
+    {"color": "done_green", "label": "Done", "index": 5},
+]
+
+
 def create_status_column(token, board_id, title, labels):
     col_id = f"status_{uuid.uuid4().hex[:8]}"
     safe_title = title.replace('"', '\\"')
+    label_entries = ", ".join(
+        f'{{ color: {d["color"]}, label: "{d["label"]}", index: {d["index"]}}}'
+        for d in STATUS_LABEL_DEFS
+    )
     query = f'''
     mutation {{
       create_status_column(
@@ -141,12 +168,7 @@ def create_status_column(token, board_id, title, labels):
         id: "{col_id}",
         title: "{safe_title}",
         defaults: {{
-          labels: [
-            {{ color: american_gray, label: "Planned", index: 0}},
-            {{ color: bright_blue, label: "Task Created", index: 1}},
-            {{ color: working_orange, label: "Working on it", index: 2}},
-            {{ color: done_green, label: "Done", index: 3}}
-          ]
+          labels: [{label_entries}]
         }}
       ) {{
         id
@@ -156,6 +178,16 @@ def create_status_column(token, board_id, title, labels):
     '''
     res = gql(token, query)
     return res["data"]["create_status_column"]["id"]
+
+
+def update_status_column_labels(token, board_id, column_id):
+    """Cannot update labels on existing Monday status columns via API.
+
+    Monday's API doesn't support adding labels to existing status columns.
+    When labels don't match, we must create a new column. This is a no-op
+    that lets the caller fall through to create_status_column.
+    """
+    pass
 
 
 def get_column_settings(token, board_id, column_id):
@@ -602,7 +634,10 @@ def sync_tasks():
     config = load_json(config_path)
     repo_name = get_repo_name()
     config = ensure_board_and_columns(token, config, repo_name)
-    config = ensure_overview_board_and_columns(token, config, repo_name)
+    try:
+        config = ensure_overview_board_and_columns(token, config, repo_name)
+    except (Exception, SystemExit) as e:
+        print(f"Warning: Overview board setup failed (may lack permissions): {e}", file=sys.stderr)
 
     tasks_data = load_json(tasks_path)
     tasks = tasks_data.get("tasks", [])
@@ -666,18 +701,21 @@ def sync_tasks():
             overview_columns["source_item_id"]: str(item_id),
         }
 
-        overview_item_id = t.get("overview_item_id")
-        if not overview_item_id:
-            overview_item_id = create_item(
-                token,
-                overview_board_id,
-                overview_name,
-                overview_values,
-            )
-            t["overview_item_id"] = overview_item_id
-            updated = True
-        else:
-            update_item(token, overview_board_id, overview_item_id, overview_values)
+        try:
+            overview_item_id = t.get("overview_item_id")
+            if not overview_item_id:
+                overview_item_id = create_item(
+                    token,
+                    overview_board_id,
+                    overview_name,
+                    overview_values,
+                )
+                t["overview_item_id"] = overview_item_id
+                updated = True
+            else:
+                update_item(token, overview_board_id, overview_item_id, overview_values)
+        except (Exception, SystemExit) as e:
+            print(f"Warning: Overview sync failed for '{title}': {e}", file=sys.stderr)
 
     if updated:
         save_json(tasks_path, tasks_data)
