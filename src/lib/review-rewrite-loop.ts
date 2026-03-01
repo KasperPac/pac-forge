@@ -10,7 +10,7 @@ import type {
 import type { ParsedArtifact } from "@/lib/artifact-parser";
 import type { ReviewReport } from "@/lib/review-response-parser";
 import type { PipelineStepResult } from "@/lib/pipeline";
-import { MAX_REVIEW_ROUNDS, createPendingStep } from "@/lib/pipeline";
+import { MAX_REVIEW_ROUNDS, CODE_GEN_MAX_TOKENS, createPendingStep } from "@/lib/pipeline";
 import type { UnresolvedFinding } from "@/lib/pipeline";
 import { buildReviewPrompt } from "@/lib/review-prompt-builder";
 import { parseReviewReport } from "@/lib/review-response-parser";
@@ -208,7 +208,7 @@ export async function executeReviewRewriteLoop(
         maxRounds: MAX_REVIEW_ROUNDS,
       });
 
-      const { content, usage } = await callNonStreaming(systemPrompt, messages, abortSignal);
+      const { content, usage } = await callNonStreaming(systemPrompt, messages, abortSignal, CODE_GEN_MAX_TOKENS);
       const { artifacts: rewrittenArtifacts, errors } = parseArtifacts(content);
 
       if (rewrittenArtifacts.length > 0) {

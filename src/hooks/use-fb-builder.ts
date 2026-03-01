@@ -19,6 +19,7 @@ import {
   isPatternAgent,
   isOrchestratorAgent,
   createPendingStep,
+  CODE_GEN_MAX_TOKENS,
 } from "@/lib/pipeline";
 import type { PipelineStepResult } from "@/lib/pipeline";
 import { classifyCorrections } from "@/lib/correction-classifier";
@@ -232,7 +233,7 @@ export function useFbBuilder() {
             qaConversation,
           });
 
-          const fetchBody = {
+          const fetchBody: Record<string, unknown> = {
             system_prompt: systemPrompt,
             messages: promptMessages,
             project_context: {
@@ -241,6 +242,7 @@ export function useFbBuilder() {
             },
             generation_mode: "FB_BUILDER",
             stream: true,
+            max_tokens: CODE_GEN_MAX_TOKENS,
           };
 
           const fullContent = await streamFromEdgeFunction(

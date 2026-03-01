@@ -64,6 +64,9 @@ export interface PipelineExecution {
 /** Maximum number of review→rewrite rounds before flagging unresolved findings. */
 export const MAX_REVIEW_ROUNDS = 3;
 
+/** Token budget for code generation steps (Code Architect, Rewrite). Default 8192 is too small for full projects. */
+export const CODE_GEN_MAX_TOKENS = 16384;
+
 /** A CRITICAL finding that persisted through all review rounds. */
 export interface UnresolvedFinding {
   artifactName: string;

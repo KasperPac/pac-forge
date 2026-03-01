@@ -8,6 +8,7 @@ import { buildManifest } from "@/lib/manifest-builder";
 import { analyzeArtifacts } from "@/lib/safety-analyzer";
 import { usePacStStore } from "@/stores/pac-st-store";
 import { getRelevantReferenceSections } from "@/lib/reference-lookup";
+import { CODE_GEN_MAX_TOKENS } from "@/lib/pipeline";
 import type {
   Project,
   Agent,
@@ -216,7 +217,9 @@ export async function streamFromEdgeFunction(
   body: Record<string, unknown>,
   signal: AbortSignal,
   onChunk: (text: string) => void,
+  maxTokens?: number,
 ): Promise<string> {
+  if (maxTokens) body.max_tokens = maxTokens;
   const token = await getAuthToken();
 
   const response = await fetch(
@@ -292,8 +295,16 @@ export async function callNonStreaming(
   systemPrompt: string,
   messages: Array<{ role: "user" | "assistant"; content: string }>,
   signal: AbortSignal,
+  maxTokens?: number,
 ): Promise<{ content: string; usage: { input: number; output: number } | null }> {
   const token = await getAuthToken();
+
+  const body: Record<string, unknown> = {
+    system_prompt: systemPrompt,
+    messages,
+    stream: false,
+  };
+  if (maxTokens) body.max_tokens = maxTokens;
 
   const response = await fetch(
     `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate`,
@@ -304,11 +315,7 @@ export async function callNonStreaming(
         Authorization: `Bearer ${token}`,
         apikey: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
       },
-      body: JSON.stringify({
-        system_prompt: systemPrompt,
-        messages,
-        stream: false,
-      }),
+      body: JSON.stringify(body),
       signal,
     },
   );
@@ -336,7 +343,7 @@ export async function callNonStreaming(
   return { content, usage };
 }
 
-function buildRequestBody(input: GenerateInput, stream: boolean) {
+function buildRequestBody(input: GenerateInput, stream: boolean, maxTokens?: number) {
   const { project, sessionId, generationMode, approvedPatterns, fbTemplates, designProfile, agentKnowledgeDocs, promptSections, userMessage, conversationHistory, agents } = input;
   const { systemPrompt, messages } = buildPrompt({
     project,
@@ -350,19 +357,18 @@ function buildRequestBody(input: GenerateInput, stream: boolean) {
     userMessage,
     conversationHistory,
   });
-  return {
-    systemPrompt,
-    fetchBody: {
-      system_prompt: systemPrompt,
-      messages,
-      project_context: {
-        project_id: project.id,
-        session_id: sessionId,
-      },
-      generation_mode: generationMode,
-      stream,
+  const fetchBody: Record<string, unknown> = {
+    system_prompt: systemPrompt,
+    messages,
+    project_context: {
+      project_id: project.id,
+      session_id: sessionId,
     },
+    generation_mode: generationMode,
+    stream,
   };
+  if (maxTokens) fetchBody.max_tokens = maxTokens;
+  return { systemPrompt, fetchBody };
 }
 
 // --- Non-streaming hook (original) ---
@@ -372,7 +378,7 @@ export function useGenerate() {
 
   return useMutation({
     mutationFn: async (input: GenerateInput): Promise<GenerateResult> => {
-      const { fetchBody } = buildRequestBody(input, false);
+      const { fetchBody } = buildRequestBody(input, false, CODE_GEN_MAX_TOKENS);
       const token = await getAuthToken();
 
       const response = await fetch(
@@ -458,7 +464,7 @@ export function useGenerateStream() {
         }
       }
 
-      const { fetchBody } = buildRequestBody(enrichedInput, true);
+      const { fetchBody } = buildRequestBody(enrichedInput, true, CODE_GEN_MAX_TOKENS);
 
       try {
         const fullContent = await streamFromEdgeFunction(

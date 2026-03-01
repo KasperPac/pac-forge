@@ -16,6 +16,7 @@ import {
   isPatternAgent,
   isOrchestratorAgent,
   createPendingStep,
+  CODE_GEN_MAX_TOKENS,
 } from "@/lib/pipeline";
 import type { PipelineStepResult } from "@/lib/pipeline";
 import {
@@ -197,7 +198,7 @@ export function useDemoPipeline() {
           userMessage: description,
         });
 
-        const { content, usage } = await callNonStreaming(systemPrompt, messages, abort.signal);
+        const { content, usage } = await callNonStreaming(systemPrompt, messages, abort.signal, CODE_GEN_MAX_TOKENS);
 
         const { artifacts: parsed, summary, errors } = parseArtifacts(content);
         currentArtifacts = parsed;

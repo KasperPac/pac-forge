@@ -9,6 +9,7 @@ import {
 import type { GenerateInput, GenerateResult } from "@/hooks/use-generation";
 import type { ProcessPromptInput } from "@/lib/process-prompt-builder";
 import { getRelevantReferenceSections } from "@/lib/reference-lookup";
+import { CODE_GEN_MAX_TOKENS } from "@/lib/pipeline";
 
 const ARTIFACTS_KEY = ["artifacts"] as const;
 
@@ -69,7 +70,7 @@ export function useProcessGenerate() {
 
       const { systemPrompt, messages } = buildProcessPrompt(promptInput);
 
-      const fetchBody = {
+      const fetchBody: Record<string, unknown> = {
         system_prompt: systemPrompt,
         messages,
         project_context: {
@@ -78,6 +79,7 @@ export function useProcessGenerate() {
         },
         generation_mode: "PROCESS_CODE",
         stream: true,
+        max_tokens: CODE_GEN_MAX_TOKENS,
       };
 
       try {

@@ -19,6 +19,7 @@ import {
   isPatternAgent,
   isOrchestratorAgent,
   createPendingStep,
+  CODE_GEN_MAX_TOKENS,
 } from "@/lib/pipeline";
 import type { PipelineStepResult } from "@/lib/pipeline";
 import { classifyCorrections } from "@/lib/correction-classifier";
@@ -158,6 +159,7 @@ export function usePipelineGenerate() {
             },
             generation_mode: input.generationMode,
             stream: true,
+            max_tokens: CODE_GEN_MAX_TOKENS,
           };
 
           const fullContent = await streamFromEdgeFunction(
