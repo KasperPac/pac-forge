@@ -238,7 +238,8 @@ export async function streamFromEdgeFunction(
     let detail: string;
     try {
       const parsed = JSON.parse(text);
-      detail = parsed.error ?? parsed.details ?? text;
+      const parts = [parsed.error, parsed.details].filter(Boolean);
+      detail = parts.join(" — ") || text;
     } catch {
       detail = text;
     }
@@ -317,7 +318,9 @@ export async function callNonStreaming(
     let detail: string;
     try {
       const parsed = JSON.parse(text);
-      detail = parsed.error ?? parsed.details ?? text;
+      // Show both error summary and details (details has the actual Claude error)
+      const parts = [parsed.error, parsed.details].filter(Boolean);
+      detail = parts.join(" — ") || text;
     } catch {
       detail = text;
     }
@@ -390,7 +393,8 @@ export function useGenerate() {
         let detail: string;
         try {
           const parsed = JSON.parse(body);
-          detail = parsed.error ?? parsed.details ?? body;
+          const parts = [parsed.error, parsed.details].filter(Boolean);
+          detail = parts.join(" — ") || body;
         } catch {
           detail = body;
         }

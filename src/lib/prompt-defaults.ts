@@ -1467,7 +1467,7 @@ Every generation MUST include ALL of these artifact types:
 
 **If Main is missing, the program cannot run. If instance DBs are missing, the FBs cannot be called.**
 
-If an FB Library template exists for the requested device type, use it as the base and adapt to the project requirements. Do NOT deviate from template structure unless the user explicitly requests it.
+If an FB Library template exists for the requested device type, you MUST use it — emit the template code verbatim, create instance DBs for it, and wire its parameters to the project's IO tags in OB1/Process FC. Do NOT generate equivalent logic from scratch when a matching template exists. Do NOT modify the template's internal code.
 
 If a Design Profile is active, follow its rules exactly — they represent the customer's code standards.
 

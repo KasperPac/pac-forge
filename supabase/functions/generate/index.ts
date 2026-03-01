@@ -4,7 +4,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
-const CLAUDE_MODEL = "claude-sonnet-4-20250514";
+const CLAUDE_MODEL = "claude-sonnet-4-6";
 const DEFAULT_MAX_TOKENS = 8192;
 const MAX_TOKENS_CAP = 32768;
 
@@ -32,7 +32,7 @@ interface GenerateRequest {
     project_id: string;
     session_id: string;
   };
-  generation_mode?: "FB_PER_DEVICE" | "PROJECT_LEVEL" | "PROCESS_CODE";
+  generation_mode?: "FB_PER_DEVICE" | "PROJECT_LEVEL" | "PROCESS_CODE" | "FB_BUILDER";
   stream?: boolean;
   max_tokens?: number;
 }
@@ -106,11 +106,45 @@ Deno.serve(async (req) => {
       MAX_TOKENS_CAP,
     );
 
+    // Build system prompt as cacheable content block.
+    // Claude caches the system prompt server-side for 5 minutes,
+    // so repeated calls (pipeline steps, chat turns, review rounds)
+    // pay only 10% of input cost for the cached portion.
+    const systemBlocks = [
+      {
+        type: "text",
+        text: system_prompt,
+        cache_control: { type: "ephemeral" },
+      },
+    ];
+
+    // Also cache the last context message (reference sections + patterns)
+    // if it exists, since these are identical across pipeline steps.
+    const cachedMessages = messages.map(
+      (msg: { role: string; content: string }, i: number) => {
+        // Cache the assistant acknowledgment message (end of context block)
+        // which is always at index 1 when context messages are present
+        if (i === 1 && msg.role === "assistant" && messages.length > 2) {
+          return {
+            role: msg.role,
+            content: [
+              {
+                type: "text",
+                text: msg.content,
+                cache_control: { type: "ephemeral" },
+              },
+            ],
+          };
+        }
+        return msg;
+      }
+    );
+
     const claudeBody = {
       model: CLAUDE_MODEL,
       max_tokens: maxTokens,
-      system: system_prompt,
-      messages,
+      system: systemBlocks,
+      messages: cachedMessages,
       stream: stream ?? false,
     };
 
@@ -120,6 +154,7 @@ Deno.serve(async (req) => {
         "Content-Type": "application/json",
         "x-api-key": apiKey,
         "anthropic-version": "2023-06-01",
+        "anthropic-beta": "prompt-caching-2024-07-31",
       },
       body: JSON.stringify(claudeBody),
     });
@@ -177,8 +212,16 @@ Deno.serve(async (req) => {
     const result = await claudeResponse.json();
     const content = result.content?.[0]?.text ?? "";
 
+    // Include cache metrics in usage for observability
+    const usage = result.usage ?? {};
+    if (usage.cache_creation_input_tokens || usage.cache_read_input_tokens) {
+      console.log(
+        `[cache] write=${usage.cache_creation_input_tokens ?? 0} read=${usage.cache_read_input_tokens ?? 0} input=${usage.input_tokens ?? 0}`
+      );
+    }
+
     return jsonResponse(
-      { content, model: result.model, usage: result.usage },
+      { content, model: result.model, usage },
       200
     );
   } catch (err) {

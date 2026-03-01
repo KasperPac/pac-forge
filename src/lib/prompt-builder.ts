@@ -170,22 +170,33 @@ export function formatFbTemplates(templates: FbTemplate[]): string {
     );
     return `${header}\n${desc}${blockSections.join("\n\n")}`;
   });
-  return `## FB Library Templates (LOCKED — DO NOT MODIFY)
+  return `## FB Library Templates (USE THESE — Template Code is Locked)
 
-The following are company-standard, pre-approved FB templates. These are LOCKED and must be used VERBATIM when generating code for matching device types.
+The following are company-standard, pre-approved FB templates. When a template matches the device type being generated, you **MUST use it** — do NOT generate equivalent logic from scratch.
 
-**MANDATORY RULES:**
-- **COPY the template code CHARACTER-FOR-CHARACTER** — do not rephrase, reformat, or "improve" anything
-- Do not rename blocks, parameters, variables, UDTs, or comments
-- Do not modify the internal logic, state machine structure, or control flow
-- Do not add, remove, or reorder VAR_INPUT, VAR_OUTPUT, VAR_IN_OUT, or VAR sections
-- Do not change data types, default values, or parameter interfaces
-- Do not add comments, remove comments, or change existing comments
-- Do not change whitespace, indentation, or line ordering
-- You MAY only: create instance DBs for the template FBs, wire template parameters to project IO in the Process FC, and add multiple instances of the same template
-- If a template does not exist for a device type, generate new code from scratch following platform rules
-- If the user's requirements conflict with a template's interface, use the template as-is and note the limitation — do NOT modify the template
-- **When in doubt: copy it exactly. Any deviation from the template is a bug.**
+**HOW TO USE TEMPLATES:**
+1. **EMIT the template FB/UDT code exactly as shown** — copy it character-for-character into your output artifacts. Do not rename blocks, parameters, variables, or modify internal logic.
+2. **CREATE instance DBs** for each template FB you use (e.g., \`"InstConveyor1" : "ControlConveyor"\`).
+3. **WIRE the template's parameters** to the project's IO tags in your calling code (OB1/Process FC):
+   \`\`\`
+   "InstConveyor1"(
+       cmdStart := "Tag_StartButton",
+       cmdStop  := "Tag_StopButton",
+       fdbkRun  => "Tag_MotorRunning"
+   );
+   \`\`\`
+4. **CREATE multiple instances** if the project has multiple devices of the same type.
+5. **Generate additional FBs from scratch** only for device types that have NO matching template.
+
+**TEMPLATE CODE IS LOCKED — what you must NOT change:**
+- Internal logic, state machine structure, or control flow
+- VAR_INPUT, VAR_OUTPUT, VAR_IN_OUT, or VAR sections (names, types, order, defaults)
+- Block names, UDT names, comments, whitespace
+
+**What you MUST do:**
+- Use every template that matches a device in the project — skipping a matching template is an error
+- Create the instance DBs and wiring code needed to integrate the template into this specific project
+- If the user's requirements conflict with a template's interface, use the template as-is and note the limitation
 
 ${sections.join("\n\n")}`;
 }

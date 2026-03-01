@@ -12,6 +12,7 @@ import {
   RotateCcw,
   X,
   FolderInput,
+  Sparkles,
 } from "lucide-react";
 import Editor from "@monaco-editor/react";
 import { Card } from "@/components/ui/card";
@@ -63,6 +64,7 @@ import {
 import { useDesignProfiles } from "@/hooks/use-design-profiles";
 import { useExportFromTia } from "@/hooks/use-export-from-tia";
 import { splitSclBlocks } from "@/lib/scl-block-parser";
+import { callNonStreaming } from "@/hooks/use-generation";
 import { registerSclLanguage, SCL_LANGUAGE_ID } from "@/lib/monaco-scl";
 import { useUiStore } from "@/stores/ui-store";
 import type {
@@ -130,6 +132,7 @@ export default function FbLibraryPage() {
   const [addCategoryOpen, setAddCategoryOpen] = useState(false);
   const [inputMethod, setInputMethod] = useState<"manual" | "upload" | "tia">("manual");
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [generatingDesc, setGeneratingDesc] = useState(false);
   const resolvedTheme = useUiStore((s) => s.resolvedTheme);
 
   const { data: templates, isLoading } = useFbTemplates(activeCategory ?? undefined);
@@ -351,6 +354,29 @@ export default function FbLibraryPage() {
     );
   }
 
+  async function handleGenerateDescription() {
+    const code = form.blocks
+      .filter((b) => b.scl_code.trim())
+      .map((b) => `// ${b.block_type}: ${b.block_name}\n${b.scl_code}`)
+      .join("\n\n");
+    if (!code) return;
+
+    setGeneratingDesc(true);
+    try {
+      const abort = new AbortController();
+      const { content } = await callNonStreaming(
+        "You are a technical documentation assistant for PLC (Siemens TIA Portal) Function Blocks. Write a concise description (2-4 sentences) of the provided SCL code. Focus on: what the block does, key features (states, alarms, timers, safety), and typical use case. Do not include code snippets. Write in plain English.",
+        [{ role: "user", content: `Describe this FB template:\n\n${code}` }],
+        abort.signal,
+      );
+      setForm((f) => ({ ...f, description: content.trim() }));
+    } catch (err) {
+      console.error("Failed to generate description:", err);
+    } finally {
+      setGeneratingDesc(false);
+    }
+  }
+
   const isSaving = createTemplate.isPending || updateTemplate.isPending;
   const hasBlocks = form.blocks.some((b) => b.scl_code.trim() !== "");
 
@@ -542,7 +568,24 @@ export default function FbLibraryPage() {
             {/* Description + Tags */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="font-mono text-xs text-muted-foreground">Description</label>
+                <div className="flex items-center justify-between">
+                  <label className="font-mono text-xs text-muted-foreground">Description</label>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-5 gap-1 px-1.5 font-mono text-[10px] text-muted-foreground"
+                    onClick={handleGenerateDescription}
+                    disabled={generatingDesc || !form.blocks.some((b) => b.scl_code.trim())}
+                    title="Generate description from code using AI"
+                  >
+                    {generatingDesc ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-3 w-3" />
+                    )}
+                    {generatingDesc ? "Generating..." : "Generate"}
+                  </Button>
+                </div>
                 <Textarea
                   value={form.description}
                   onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
