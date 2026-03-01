@@ -1,0 +1,415 @@
+import { useRef, useState } from "react";
+import { useAuth } from "@/hooks/use-auth";
+import { useProfile, useUpdateProfile, useUploadAvatar } from "@/hooks/use-profile";
+import { useUserAuditLog, useUserAgentChats } from "@/hooks/use-user-activity";
+import type { AgentChatEntry } from "@/hooks/use-user-activity";
+import type { AuditLogEntry } from "@/types/tia";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  User,
+  Shield,
+  Calendar,
+  Mail,
+  Camera,
+  Loader2,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  MessageSquare,
+  Bot,
+} from "lucide-react";
+
+function getInitials(displayName: string | undefined, email: string | undefined): string {
+  if (displayName) {
+    return displayName
+      .split(" ")
+      .map((w) => w[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2);
+  }
+  return (email?.[0] ?? "?").toUpperCase();
+}
+
+function formatRelativeTime(dateStr: string): string {
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diffMs = now - then;
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return "just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 30) return `${diffDay}d ago`;
+  return new Date(dateStr).toLocaleDateString();
+}
+
+const ACTION_COLORS: Record<string, string> = {
+  GENERATION: "border-green-500/30 bg-green-500/10 text-green-400",
+  APPROVAL: "border-green-500/30 bg-green-500/10 text-green-400",
+  APPROVE_ALL: "border-green-500/30 bg-green-500/10 text-green-400",
+  EXPORT: "border-blue-500/30 bg-blue-500/10 text-blue-400",
+  TIA_SUBMIT: "border-blue-500/30 bg-blue-500/10 text-blue-400",
+  TIA_IMPORT: "border-blue-500/30 bg-blue-500/10 text-blue-400",
+  TIA_COMPILE: "border-blue-500/30 bg-blue-500/10 text-blue-400",
+  COMPILE_FIX: "border-amber-500/30 bg-amber-500/10 text-amber-400",
+  SESSION_START: "border-zinc-500/30 bg-zinc-500/10 text-zinc-400",
+  SESSION_END: "border-zinc-500/30 bg-zinc-500/10 text-zinc-400",
+  PATTERN_APPROVE: "border-purple-500/30 bg-purple-500/10 text-purple-400",
+  PATTERN_REJECT: "border-purple-500/30 bg-purple-500/10 text-purple-400",
+  PATTERN_REVOKE: "border-purple-500/30 bg-purple-500/10 text-purple-400",
+  SNAPSHOT_CREATE: "border-red-500/30 bg-red-500/10 text-red-400",
+  SNAPSHOT_ROLLBACK: "border-red-500/30 bg-red-500/10 text-red-400",
+  CLEAR_WORKSPACE: "border-red-500/30 bg-red-500/10 text-red-400",
+};
+
+function AuditLogRow({ entry }: { entry: AuditLogEntry }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasDetails = entry.details && Object.keys(entry.details).length > 0;
+  const colorClass = ACTION_COLORS[entry.action] ?? "border-zinc-500/30 bg-zinc-500/10 text-zinc-400";
+
+  return (
+    <div className="rounded-md border">
+      <button
+        type="button"
+        className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-accent/30"
+        onClick={() => hasDetails && setExpanded((e) => !e)}
+        disabled={!hasDetails}
+      >
+        {hasDetails ? (
+          expanded ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+        ) : (
+          <div className="h-4 w-4 shrink-0" />
+        )}
+        <Badge variant="outline" className={`shrink-0 px-1.5 py-0 font-mono text-[10px] ${colorClass}`}>
+          {entry.action.replace(/_/g, " ")}
+        </Badge>
+        <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
+          {entry.project_id ? `Project: ${entry.project_id.slice(0, 8)}...` : ""}
+        </span>
+        <span className="shrink-0 font-mono text-[10px] text-muted-foreground/60">
+          {formatRelativeTime(entry.created_at)}
+        </span>
+      </button>
+      {expanded && hasDetails && (
+        <div className="border-t px-3 py-2">
+          <div className="max-h-48 overflow-y-auto rounded-md bg-muted/50 p-3">
+            <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed">
+              {JSON.stringify(entry.details, null, 2)}
+            </pre>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AgentChatRow({ chat }: { chat: AgentChatEntry }) {
+  const [expanded, setExpanded] = useState(false);
+  const firstUserMsg = chat.messages.find((m) => m.role === "user");
+  const preview = firstUserMsg?.content.slice(0, 80) ?? "No messages";
+
+  return (
+    <div className="rounded-md border">
+      <button
+        type="button"
+        className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-accent/30"
+        onClick={() => setExpanded((e) => !e)}
+      >
+        {expanded ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
+        <Bot className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">{chat.agent_name}</span>
+            <Badge variant="secondary" className="px-1.5 py-0 font-mono text-[10px]">
+              {chat.messages.length} msgs
+            </Badge>
+          </div>
+          <div className="truncate font-mono text-xs text-muted-foreground">
+            {preview}{preview.length >= 80 ? "..." : ""}
+          </div>
+        </div>
+        <span className="shrink-0 font-mono text-[10px] text-muted-foreground/60">
+          {formatRelativeTime(chat.created_at)}
+        </span>
+      </button>
+      {expanded && (
+        <div className="border-t px-3 py-3">
+          <div className="max-h-64 space-y-2 overflow-y-auto">
+            {chat.messages.map((msg, i) => (
+              <div
+                key={i}
+                className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+              >
+                <div
+                  className={`max-w-[80%] rounded-lg px-3 py-2 ${
+                    msg.role === "user"
+                      ? "bg-primary/10 text-foreground"
+                      : "bg-muted text-foreground"
+                  }`}
+                >
+                  <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed">
+                    {msg.content}
+                  </pre>
+                  <div className="mt-1 text-right font-mono text-[10px] text-muted-foreground/60">
+                    {msg.timestamp ? formatRelativeTime(msg.timestamp) : ""}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function ProfilePage() {
+  const { user } = useAuth();
+  const { data: profile, isLoading } = useProfile();
+  const updateProfile = useUpdateProfile();
+  const uploadAvatar = useUploadAvatar();
+  const { data: auditLog, isLoading: auditLoading } = useUserAuditLog();
+  const { data: agentChats, isLoading: chatsLoading } = useUserAgentChats();
+
+  const [editName, setEditName] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const initials = getInitials(profile?.display_name, user?.email ?? undefined);
+
+  function handleStartEdit() {
+    setEditName(profile?.display_name ?? "");
+    setIsEditing(true);
+  }
+
+  async function handleSaveName() {
+    if (!editName.trim()) return;
+    await updateProfile.mutateAsync({ display_name: editName.trim() });
+    setIsEditing(false);
+  }
+
+  async function handleAvatarUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    await uploadAvatar.mutateAsync(file);
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Hero */}
+      <div className="flex flex-col items-center gap-5 sm:flex-row sm:items-start sm:gap-8">
+        <div className="relative">
+          <Avatar className="h-24 w-24">
+            <AvatarImage src={profile?.avatar_url ?? undefined} />
+            <AvatarFallback className="text-2xl">{initials}</AvatarFallback>
+          </Avatar>
+          <button
+            type="button"
+            className="absolute bottom-0 right-0 flex h-8 w-8 items-center justify-center rounded-full border bg-background shadow-sm transition-colors hover:bg-accent"
+            onClick={() => fileInputRef.current?.click()}
+            title="Upload avatar"
+          >
+            {uploadAvatar.isPending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Camera className="h-3.5 w-3.5 text-muted-foreground" />
+            )}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleAvatarUpload}
+          />
+        </div>
+        <div className="min-w-0 flex-1 text-center sm:text-left">
+          <h1 className="text-3xl font-semibold tracking-tight">
+            {profile?.display_name || user?.email || "User"}
+          </h1>
+          <p className="mt-1 text-base text-muted-foreground">{user?.email}</p>
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+            <Badge variant="secondary" className="px-2 py-0.5 text-xs">
+              <Shield className="mr-1 h-3 w-3" />
+              {profile?.role ?? "ENGINEER"}
+            </Badge>
+            {profile?.created_at && (
+              <Badge variant="outline" className="px-2 py-0.5 font-mono text-xs text-muted-foreground">
+                <Calendar className="mr-1 h-3 w-3" />
+                Joined {new Date(profile.created_at).toLocaleDateString()}
+              </Badge>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <Separator />
+
+      {/* Account Details + Edit Profile */}
+      <div className="grid gap-5 lg:grid-cols-2">
+        <Card className="p-5">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Account Details
+          </h2>
+          <div className="mt-4 space-y-4">
+            <div className="flex items-center gap-3">
+              <Mail className="h-5 w-5 text-muted-foreground" />
+              <div>
+                <div className="text-xs text-muted-foreground">Email</div>
+                <div className="font-mono text-sm">{user?.email}</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <Shield className="h-5 w-5 text-muted-foreground" />
+              <div>
+                <div className="text-xs text-muted-foreground">Role</div>
+                <div className="text-sm font-medium">{profile?.role ?? "ENGINEER"}</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <Calendar className="h-5 w-5 text-muted-foreground" />
+              <div>
+                <div className="text-xs text-muted-foreground">Member Since</div>
+                <div className="font-mono text-sm">
+                  {profile?.created_at
+                    ? new Date(profile.created_at).toLocaleDateString("en-AU", {
+                        day: "numeric",
+                        month: "long",
+                        year: "numeric",
+                      })
+                    : "Unknown"}
+                </div>
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Edit Profile
+          </h2>
+          <div className="mt-4 space-y-3">
+            <div className="space-y-1">
+              <Label className="font-mono text-xs">Display Name</Label>
+              {isEditing ? (
+                <div className="flex gap-2">
+                  <Input
+                    className="font-mono text-sm"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleSaveName()}
+                    autoFocus
+                  />
+                  <Button
+                    size="sm"
+                    onClick={handleSaveName}
+                    disabled={updateProfile.isPending || !editName.trim()}
+                  >
+                    {updateProfile.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Check className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-sm">
+                    {profile?.display_name || "Not set"}
+                  </span>
+                  <Button size="sm" variant="ghost" onClick={handleStartEdit}>
+                    Edit
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+          {updateProfile.isError && (
+            <div className="mt-3 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {updateProfile.error?.message ?? "Failed to update profile"}
+            </div>
+          )}
+          {uploadAvatar.isError && (
+            <div className="mt-3 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {uploadAvatar.error?.message ?? "Failed to upload avatar"}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      <Separator />
+
+      {/* Activity & Chats */}
+      <Tabs defaultValue="activity">
+        <TabsList>
+          <TabsTrigger value="activity" className="gap-1.5">
+            <User className="h-3.5 w-3.5" />
+            Activity Log
+          </TabsTrigger>
+          <TabsTrigger value="chats" className="gap-1.5">
+            <MessageSquare className="h-3.5 w-3.5" />
+            Agent Chats
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="activity" className="mt-4">
+          {auditLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : !auditLog || auditLog.length === 0 ? (
+            <div className="rounded-md border border-dashed px-4 py-12 text-center">
+              <div className="font-mono text-sm text-muted-foreground">
+                No activity recorded yet.
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {auditLog.map((entry) => (
+                <AuditLogRow key={entry.id} entry={entry} />
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="chats" className="mt-4">
+          {chatsLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : !agentChats || agentChats.length === 0 ? (
+            <div className="rounded-md border border-dashed px-4 py-12 text-center">
+              <div className="font-mono text-sm text-muted-foreground">
+                No saved agent chats. Chat with an agent using the floating chat button, then save the conversation.
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {agentChats.map((chat) => (
+                <AgentChatRow key={chat.id} chat={chat} />
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}

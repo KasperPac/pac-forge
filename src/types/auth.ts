@@ -9,7 +9,13 @@ export interface Profile {
   user_id: string;
   display_name: string;
   role: UserRole;
+  avatar_url: string | null;
   created_at: string;
+}
+
+export interface ProfileUpdate {
+  display_name?: string;
+  avatar_url?: string | null;
 }
 
 export interface AuthState {
