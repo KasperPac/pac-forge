@@ -19,6 +19,7 @@ import {
 import { useConversationHistory, useClearConversation } from "@/hooks/use-conversation";
 import { usePipelineGenerate } from "@/hooks/use-pipeline-generate";
 import { useProcessGenerate } from "@/hooks/use-process-generate";
+import { useFbBuilder } from "@/hooks/use-fb-builder";
 import { useFilteredMultiAgentKnowledgeDocs, useAllAgentKnowledgeDocs } from "@/hooks/use-agent-knowledge";
 import { useCreatePatternCandidate, useActivePatterns } from "@/hooks/use-patterns";
 import { useAuditLog } from "@/hooks/use-audit-log";
@@ -39,6 +40,7 @@ import { ExportDialog } from "@/components/pac-st/export-dialog";
 import { TiaSubmitDialog } from "@/components/pac-st/tia-submit-dialog";
 import { ChatPane } from "@/components/pac-st/chat-pane";
 import { ProcessUploadPane } from "@/components/pac-st/process-upload-pane";
+import { FbBuilderPane } from "@/components/pac-st/fb-builder-pane";
 import { GeneratedCodePane } from "@/components/pac-st/generated-code-pane";
 import { ApprovedCodePane } from "@/components/pac-st/approved-code-pane";
 import { BottomPanel } from "@/components/pac-st/bottom-panel";
@@ -91,13 +93,14 @@ export default function PacStPage() {
     project?.cpu_type,
   );
 
-  // Generation (pipeline for chat, streaming for process)
+  // Generation (pipeline for chat, streaming for process, fb builder)
   const { executePipeline, isRunning: isPipelineRunning } = usePipelineGenerate();
   const { generateProcess, isStreaming: isProcessStreaming } = useProcessGenerate();
+  const fbBuilder = useFbBuilder();
   const { setGeneratedArtifacts, currentTiaJobId, setCurrentTiaJobId, navigateToArtifact, setDebugDrawerOpen, selectedFbTemplateIds, setSelectedFbTemplateIds } = usePacStStore();
 
-  // Left panel mode: chat vs process code
-  const [leftPanelMode, setLeftPanelMode] = useState<"chat" | "process">("chat");
+  // Left panel mode: chat vs process code vs fb builder
+  const [leftPanelMode, setLeftPanelMode] = useState<"chat" | "process" | "fb-builder">("chat");
 
   // Pattern detection + audit + FB templates
   const { data: approvedPatterns } = useActivePatterns(project?.plc_brand ?? "SIEMENS_TIA");
@@ -396,6 +399,79 @@ export default function PacStPage() {
     },
     [project, sessionId, sessionAgents, renewNow, generateProcess, setGeneratedArtifacts, auditLog, approvedPatterns, filteredFbTemplates, designProfile, agentKnowledgeDocs, promptSections],
   );
+
+  // FB Builder: send message to PM
+  const handleFbBuilderSend = useCallback(
+    (message: string) => {
+      if (!project) return;
+      const pmAgent = sessionAgents.find((a) => a.display_name === "Project Manager") ?? sessionAgents[0];
+      if (!pmAgent) return;
+
+      fbBuilder.sendMessage({
+        userMessage: message,
+        project,
+        pmAgent,
+        knowledgeDocs: agentKnowledgeDocs?.[pmAgent.id],
+        designProfile,
+        promptSections,
+      });
+    },
+    [project, sessionAgents, agentKnowledgeDocs, designProfile, promptSections, fbBuilder],
+  );
+
+  // FB Builder: trigger generation pipeline
+  const handleFbBuilderGenerate = useCallback(() => {
+    if (!project || !sessionId) return;
+
+    renewNow();
+
+    fbBuilder.generate(
+      {
+        project,
+        sessionId,
+        agents: sessionAgents,
+        approvedPatterns: approvedPatterns ?? [],
+        fbTemplates: filteredFbTemplates,
+        designProfile,
+        agentKnowledgeDocs,
+        promptSections,
+      },
+      {
+        onSuccess: (result) => {
+          setGeneratedArtifacts(result.artifacts);
+          setCurrentManifest(result.manifest);
+
+          if (result.warnings.length > 0) {
+            setWarnings((prev) => [...prev, ...result.warnings]);
+          }
+
+          setLogs((prev) => [
+            ...prev,
+            `[INFO] FB Builder: generated ${result.artifacts.length} artifact(s)`,
+          ]);
+
+          if (result.dbWarnings.length > 0) {
+            setLogs((prev) => [...prev, ...result.dbWarnings.map((w) => `[DB] ${w}`)]);
+            toast({ title: "DB Warning", description: result.dbWarnings[0], variant: "destructive" });
+          }
+
+          auditLog.mutate({
+            action: "GENERATION",
+            projectId: project.id,
+            details: {
+              session_id: sessionId,
+              mode: "FB_BUILDER",
+              artifact_count: result.artifacts.length,
+              warning_count: result.warnings.length,
+            },
+          });
+        },
+        onError: (error) => {
+          setLogs((prev) => [...prev, `[ERROR] FB Builder generation failed: ${error.message}`]);
+        },
+      },
+    );
+  }, [project, sessionId, sessionAgents, renewNow, fbBuilder, setGeneratedArtifacts, auditLog, approvedPatterns, filteredFbTemplates, designProfile, agentKnowledgeDocs, promptSections]);
 
   const handleAcknowledgeWarning = useCallback((id: string) => {
     setWarnings((prev) =>
@@ -827,6 +903,16 @@ export default function PacStPage() {
               >
                 Process Code
               </button>
+              <button
+                onClick={() => setLeftPanelMode("fb-builder")}
+                className={`flex-1 px-3 py-1.5 font-mono text-xs transition-colors ${
+                  leftPanelMode === "fb-builder"
+                    ? "border-b-2 border-foreground text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                FB Builder
+              </button>
             </div>
 
             {/* Content */}
@@ -849,10 +935,21 @@ export default function PacStPage() {
                   clearing={clearConversation.isPending}
                   endingSession={endSession.isPending}
                 />
-              ) : (
+              ) : leftPanelMode === "process" ? (
                 <ProcessUploadPane
                   onGenerate={handleProcessGenerate}
                   generating={isProcessStreaming}
+                />
+              ) : (
+                <FbBuilderPane
+                  messages={fbBuilder.messages}
+                  onSend={handleFbBuilderSend}
+                  onGenerate={handleFbBuilderGenerate}
+                  onClear={fbBuilder.clear}
+                  sending={fbBuilder.sending}
+                  generating={fbBuilder.generating}
+                  streamingContent={fbBuilder.streamingContent}
+                  error={fbBuilder.error}
                 />
               )}
             </div>

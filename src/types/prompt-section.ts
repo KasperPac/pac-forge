@@ -20,6 +20,7 @@ export const PROMPT_ROLES = {
   PLAN: "plan",
   SUMMARY: "summary",
   PATTERNS: "patterns",
+  FB_BUILDER: "fb_builder",
 } as const;
 
 export type PromptRole = (typeof PROMPT_ROLES)[keyof typeof PROMPT_ROLES];
@@ -35,6 +36,7 @@ export const PROMPT_ROLE_LABELS: Record<PromptRole, string> = {
   plan: "Plan",
   summary: "Summary",
   patterns: "Pattern Analysis",
+  fb_builder: "FB Builder",
 };
 
 /** Which section keys each role supports */
@@ -48,6 +50,7 @@ export const ROLE_SECTIONS: Record<PromptRole, string[]> = {
   plan: ["identity", "instructions"],
   summary: ["identity", "instructions"],
   patterns: ["identity", "instructions"],
+  fb_builder: ["identity", "instructions"],
 };
 
 export const SECTION_LABELS: Record<string, string> = {

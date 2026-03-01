@@ -51,6 +51,7 @@ export const GENERATION_MODES = {
   FB_PER_DEVICE: "FB_PER_DEVICE",
   PROJECT_LEVEL: "PROJECT_LEVEL",
   PROCESS_CODE: "PROCESS_CODE",
+  FB_BUILDER: "FB_BUILDER",
 } as const;
 
 export type GenerationMode =

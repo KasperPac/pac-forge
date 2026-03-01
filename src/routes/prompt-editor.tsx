@@ -58,7 +58,7 @@ interface AgentGroup {
 }
 
 const AGENT_GROUPS: AgentGroup[] = [
-  { agent: "Project Manager", roles: ["plan", "summary"] },
+  { agent: "Project Manager", roles: ["plan", "summary", "fb_builder"] },
   { agent: "Code Architect", roles: ["generate", "process", "rewrite", "compile_fix"] },
   { agent: "Reviewers", roles: ["review"] },
   { agent: "Pattern Librarian", roles: ["patterns"] },
@@ -76,6 +76,7 @@ const ROLE_PREVIEW_AGENTS: Partial<Record<PromptRole, string[]>> = {
   patterns: ["Pattern Librarian"],
   plan: ["Project Manager"],
   summary: ["Project Manager"],
+  fb_builder: ["Project Manager"],
 };
 
 /** Maps each role to its primary owning agent name. */
@@ -89,6 +90,7 @@ const ROLE_OWNER: Record<PromptRole, string> = {
   plan: "Project Manager",
   summary: "Project Manager",
   patterns: "Pattern Librarian",
+  fb_builder: "Project Manager",
 };
 
 /** Roles whose assembled prompt includes the shared platform_rules section. */

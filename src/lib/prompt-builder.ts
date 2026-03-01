@@ -149,7 +149,7 @@ function formatAgentRoles(
     .join("\n\n");
 }
 
-function formatDesignProfile(profile: DesignProfile): string {
+export function formatDesignProfile(profile: DesignProfile): string {
   if (!profile.rules.trim()) return "";
   return `## Code Design Profile: ${profile.name}
 
@@ -175,13 +175,17 @@ export function formatFbTemplates(templates: FbTemplate[]): string {
 The following are company-standard, pre-approved FB templates. These are LOCKED and must be used VERBATIM when generating code for matching device types.
 
 **MANDATORY RULES:**
-- Use the template code EXACTLY as written — do not rename blocks, parameters, variables, or UDTs
+- **COPY the template code CHARACTER-FOR-CHARACTER** — do not rephrase, reformat, or "improve" anything
+- Do not rename blocks, parameters, variables, UDTs, or comments
 - Do not modify the internal logic, state machine structure, or control flow
 - Do not add, remove, or reorder VAR_INPUT, VAR_OUTPUT, VAR_IN_OUT, or VAR sections
 - Do not change data types, default values, or parameter interfaces
-- You MAY only: create instance DBs for the template FBs, wire template parameters to project IO in the calling OB, and add multiple instances of the same template
+- Do not add comments, remove comments, or change existing comments
+- Do not change whitespace, indentation, or line ordering
+- You MAY only: create instance DBs for the template FBs, wire template parameters to project IO in the Process FC, and add multiple instances of the same template
 - If a template does not exist for a device type, generate new code from scratch following platform rules
 - If the user's requirements conflict with a template's interface, use the template as-is and note the limitation — do NOT modify the template
+- **When in doubt: copy it exactly. Any deviation from the template is a bug.**
 
 ${sections.join("\n\n")}`;
 }
