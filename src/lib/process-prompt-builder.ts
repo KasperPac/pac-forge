@@ -90,7 +90,7 @@ ${formatFbTemplates(fbTemplates ?? [])}
 
 You MUST output each artifact as a separate delimited block using this format:
 
-\`\`\`scl filename="<BlockName>.scl" type="<ARTIFACT_TYPE>" name="<BlockName>" dependencies="<comma-separated names>"
+\`\`\`scl filename="<BlockName>.scl" type="<ARTIFACT_TYPE>" name="<BlockName>" folder="<destination>" dependencies="<comma-separated names>"
 <SCL code content>
 \`\`\`
 
@@ -98,7 +98,17 @@ Where:
 - filename: the block name with .scl extension (e.g., "typeProcessData.scl", "ControlSequence.scl", "InstSequence1.scl", "Main.scl")
 - type: one of UDT, FB, FC, DB, OB
 - name: the block name matching the SCL declaration
+- folder: TIA Portal destination folder (e.g., "Program blocks/Pac-ST/Devices"). Omit to use defaults.
 - dependencies: comma-separated list of artifact names this block depends on
+
+### Default Folder Structure
+| Type | Default Folder |
+|------|---------------|
+| UDT | Types |
+| FB, FC, DB | Program blocks/Pac-ST |
+| OB | Program blocks |
+
+If the Design Profile specifies a folder structure, use those paths in the folder attribute. Otherwise omit folder to use defaults.
 
 ### Naming (MUST match platform rules)
 - UDTs: \`type\` prefix, lowerCamelCase (e.g., typeProcessData, typeSequenceConfig)

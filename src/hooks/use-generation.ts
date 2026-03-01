@@ -81,7 +81,7 @@ export async function saveArtifactsAndTurns(
     filename: pa.filename,
     content: pa.content,
     approved_content: null,
-    destination_folder: "",
+    destination_folder: pa.folder || "",
     dependencies: pa.dependencies,
     compile_after_import: true,
     overwrite_strategy: "CREATE_OR_UPDATE" as const,

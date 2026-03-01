@@ -11,6 +11,7 @@ export interface ParsedArtifact {
   filename: string;
   content: string;
   dependencies: string[];
+  folder?: string;
 }
 
 const VALID_TYPES = new Set(["UDT", "FB", "FC", "DB", "OB", "SCL_SOURCE", "TAG_TABLE"]);
@@ -100,6 +101,7 @@ export function parseArtifacts(responseText: string): ParseResult {
       filename,
       content,
       dependencies,
+      folder: attrs.folder || undefined,
     });
   }
 
