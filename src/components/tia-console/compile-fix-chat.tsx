@@ -1363,7 +1363,7 @@ function VerificationPanel({
                           View diff
                         </button>
                         {expandedBlocks.has(idx) && (
-                          <div className="space-y-1 rounded border border-border/30 bg-black/20 p-1.5">
+                          <div className="space-y-1 rounded border border-border/30 bg-muted/50 p-1.5">
                             {c.originalSnippet && c.originalSnippet !== "(no removed lines)" && (
                               <pre className="whitespace-pre-wrap font-mono text-[10px] leading-relaxed text-red-400/80">
                                 {c.originalSnippet.split("\n").map((line: string, li: number) => (
@@ -1512,7 +1512,7 @@ function CodeContext({ lines, errorLine }: { lines: string[]; errorLine: number 
   const contextLines = lines.slice(start, end);
 
   return (
-    <div className="ml-4 overflow-x-auto rounded border border-red-500/10 bg-black/30">
+    <div className="ml-4 overflow-x-auto rounded border border-red-500/10 bg-muted/50">
       <pre className="whitespace-pre-wrap break-all px-2 py-1 font-mono text-xs leading-relaxed">
         {contextLines.map((line, i) => {
           const lineNum = start + i + 1;

@@ -192,6 +192,35 @@ export const sclDarkTheme: editor.IStandaloneThemeData = {
   },
 };
 
+export const sclLightTheme: editor.IStandaloneThemeData = {
+  base: "vs",
+  inherit: true,
+  rules: [
+    { token: "keyword", foreground: "AF00DB" },
+    { token: "type", foreground: "267F99" },
+    { token: "identifier", foreground: "001080" },
+    { token: "comment", foreground: "008000", fontStyle: "italic" },
+    { token: "string", foreground: "A31515" },
+    { token: "string.escape", foreground: "EE0000" },
+    { token: "number", foreground: "098658" },
+    { token: "number.hex", foreground: "098658" },
+    { token: "number.float", foreground: "098658" },
+    { token: "operator", foreground: "000000" },
+    { token: "delimiter", foreground: "808080" },
+    { token: "delimiter.bracket", foreground: "000000" },
+    { token: "annotation", foreground: "808080", fontStyle: "italic" },
+  ],
+  colors: {
+    "editor.background": "#ffffff",
+    "editor.foreground": "#1e1e1e",
+    "editor.lineHighlightBackground": "#f5f5f5",
+    "editor.selectionBackground": "#add6ff",
+    "editorCursor.foreground": "#000000",
+    "editorLineNumber.foreground": "#999999",
+    "editorLineNumber.activeForeground": "#333333",
+  },
+};
+
 export function registerSclLanguage(monaco: typeof import("monaco-editor")) {
   if (!monaco.languages.getLanguages().some((lang) => lang.id === SCL_LANGUAGE_ID)) {
     monaco.languages.register({ id: SCL_LANGUAGE_ID });
@@ -199,4 +228,5 @@ export function registerSclLanguage(monaco: typeof import("monaco-editor")) {
   monaco.languages.setLanguageConfiguration(SCL_LANGUAGE_ID, sclLanguageConfig);
   monaco.languages.setMonarchTokensProvider(SCL_LANGUAGE_ID, sclTokensProvider);
   monaco.editor.defineTheme("pac-dark", sclDarkTheme);
+  monaco.editor.defineTheme("pac-light", sclLightTheme);
 }

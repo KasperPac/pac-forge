@@ -175,7 +175,7 @@ export function ProcessUploadPane({ onGenerate, generating }: ProcessUploadPaneP
               </button>
 
               {showPreview && (
-                <div className="max-h-64 overflow-auto rounded-md border bg-black/20 px-3 py-2">
+                <div className="max-h-64 overflow-auto rounded-md border bg-muted/50 px-3 py-2">
                   <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-muted-foreground">
                     {extractedText.slice(0, 5000)}
                     {extractedText.length > 5000 && "\n\n... (truncated)"}

@@ -49,6 +49,7 @@ import {
 import { cn } from "@/lib/utils";
 import Editor from "@monaco-editor/react";
 import { ImportTiaExamplesDialog } from "@/components/prompt-editor/import-tia-examples-dialog";
+import { useUiStore } from "@/stores/ui-store";
 
 /** Agent ownership: groups roles by the agent that uses them. */
 interface AgentGroup {
@@ -109,6 +110,7 @@ export default function PromptEditorPage() {
   const [saveNotes, setSaveNotes] = useState("");
   const [editorContent, setEditorContent] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState(false);
+  const resolvedTheme = useUiStore((s) => s.resolvedTheme);
   const [previewAgent, setPreviewAgent] = useState<string | null>(null);
   const [showImportDialog, setShowImportDialog] = useState(false);
 
@@ -535,7 +537,7 @@ export default function PromptEditorPage() {
                   key="preview"
                   height="100%"
                   language="markdown"
-                  theme="vs-dark"
+                  theme={resolvedTheme === "dark" ? "vs-dark" : "vs"}
                   value={previewContent}
                   options={{
                     readOnly: true,
@@ -555,7 +557,7 @@ export default function PromptEditorPage() {
                   key="editor"
                   height="100%"
                   language="markdown"
-                  theme="vs-dark"
+                  theme={resolvedTheme === "dark" ? "vs-dark" : "vs"}
                   value={displayContent}
                   onChange={(value) => setEditorContent(value ?? "")}
                   options={{

@@ -8,6 +8,7 @@ import { DiffView } from "./diff-view";
 import { VersionSelector } from "./version-selector";
 import { registerSclLanguage, SCL_LANGUAGE_ID } from "@/lib/monaco-scl";
 import { usePacStStore } from "@/stores/pac-st-store";
+import { useUiStore } from "@/stores/ui-store";
 
 interface ApprovedCodePaneProps {
   projectId?: string;
@@ -28,6 +29,7 @@ export function ApprovedCodePane({ projectId, onSaveSnapshot, onExport }: Approv
     pendingEditorNavigation,
     clearPendingNavigation,
   } = usePacStStore();
+  const resolvedTheme = useUiStore((s) => s.resolvedTheme);
 
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
@@ -129,7 +131,7 @@ export function ApprovedCodePane({ projectId, onSaveSnapshot, onExport }: Approv
           ) : (
             <Editor
               language={SCL_LANGUAGE_ID}
-              theme="pac-dark"
+              theme={resolvedTheme === "dark" ? "pac-dark" : "pac-light"}
               value={activeApproved.content}
               onChange={(value) => {
                 if (value !== undefined) {

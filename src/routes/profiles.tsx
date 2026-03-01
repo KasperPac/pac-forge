@@ -398,7 +398,7 @@ function ProfileCard({
 
       {/* Rules preview */}
       {profile.rules.trim() && (
-        <div className="mt-2 overflow-hidden rounded border bg-black/20 px-2 py-1.5">
+        <div className="mt-2 overflow-hidden rounded border bg-muted/50 px-2 py-1.5">
           <pre className="font-mono text-xs leading-relaxed text-muted-foreground">
             {previewLines.join("\n")}
             {hasMore && "\n..."}

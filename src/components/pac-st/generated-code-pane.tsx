@@ -7,6 +7,7 @@ import { ArtifactTabs } from "./artifact-tabs";
 import { UnresolvedFindingsBanner } from "./unresolved-findings-banner";
 import { registerSclLanguage, SCL_LANGUAGE_ID } from "@/lib/monaco-scl";
 import { usePacStStore } from "@/stores/pac-st-store";
+import { useUiStore } from "@/stores/ui-store";
 
 export function GeneratedCodePane() {
   const {
@@ -21,6 +22,7 @@ export function GeneratedCodePane() {
     unresolvedFindings,
     dismissUnresolvedFindings,
   } = usePacStStore();
+  const resolvedTheme = useUiStore((s) => s.resolvedTheme);
 
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
@@ -112,7 +114,7 @@ export function GeneratedCodePane() {
         ) : activeArtifact ? (
           <Editor
             language={SCL_LANGUAGE_ID}
-            theme="pac-dark"
+            theme={resolvedTheme === "dark" ? "pac-dark" : "pac-light"}
             value={activeArtifact.content}
             onMount={handleEditorMount}
             options={{

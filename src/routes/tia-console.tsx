@@ -67,7 +67,7 @@ import { DEMO_PROGRAMS, getRandomDemo } from "@/lib/demo-programs";
 import { useDemoPipeline } from "@/hooks/use-demo-pipeline";
 import { DEFAULT_PIPELINE_AGENT_NAMES } from "@/lib/pipeline";
 import { useActivePatterns } from "@/hooks/use-patterns";
-import { useFbTemplates } from "@/hooks/use-fb-templates";
+import { useFbTemplatesForSession } from "@/hooks/use-fb-templates";
 import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 import { PipelineConsole } from "@/components/tia-console/pipeline-console";
 import { toast } from "@/hooks/use-toast";
@@ -294,7 +294,7 @@ export default function TiaConsolePage() {
   const { data: approvedPatterns, isLoading: patternsLoading } = useActivePatterns(
     selectedProject?.plc_brand ?? "SIEMENS_TIA",
   );
-  const { data: fbTemplates, isLoading: fbLoading } = useFbTemplates();
+  const { data: fbTemplates, isLoading: fbLoading } = useFbTemplatesForSession(selectedDesignProfile?.id);
   const { data: promptSections } = useActivePromptSections();
   const pipelineDataReady = !knowledgeLoading && !patternsLoading && !fbLoading;
 

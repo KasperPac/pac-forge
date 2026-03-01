@@ -41,6 +41,7 @@ import {
 } from "@/hooks/use-design-profiles";
 import { callNonStreaming } from "@/hooks/use-generation";
 import { cn } from "@/lib/utils";
+import { useUiStore } from "@/stores/ui-store";
 
 type Destination = "code_examples" | "platform_rules" | "design_profile";
 
@@ -115,6 +116,7 @@ export function ImportTiaExamplesDialog({ open, onOpenChange, onSaved }: Props) 
   const [appendMode, setAppendMode] = useState(true);
   const [aiResult, setAiResult] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const resolvedTheme = useUiStore((s) => s.resolvedTheme);
 
   const { data: bridgeStatus } = useBridgeStatus();
   const exportMutation = useExportFromTia();
@@ -505,7 +507,7 @@ export function ImportTiaExamplesDialog({ open, onOpenChange, onSaved }: Props) 
               <Editor
                 height="400px"
                 language="markdown"
-                theme="vs-dark"
+                theme={resolvedTheme === "dark" ? "vs-dark" : "vs"}
                 value={aiResult}
                 onChange={(value) => setAiResult(value ?? "")}
                 options={{

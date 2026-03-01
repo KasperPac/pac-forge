@@ -1,5 +1,6 @@
 import { DiffEditor, type DiffOnMount } from "@monaco-editor/react";
 import { registerSclLanguage, SCL_LANGUAGE_ID } from "@/lib/monaco-scl";
+import { useUiStore } from "@/stores/ui-store";
 
 interface DiffViewProps {
   original: string;
@@ -7,6 +8,7 @@ interface DiffViewProps {
 }
 
 export function DiffView({ original, modified }: DiffViewProps) {
+  const resolvedTheme = useUiStore((s) => s.resolvedTheme);
   const handleMount: DiffOnMount = (_editor, monaco) => {
     registerSclLanguage(monaco);
   };
@@ -14,7 +16,7 @@ export function DiffView({ original, modified }: DiffViewProps) {
   return (
     <DiffEditor
       language={SCL_LANGUAGE_ID}
-      theme="pac-dark"
+      theme={resolvedTheme === "dark" ? "pac-dark" : "pac-light"}
       original={original}
       modified={modified}
       onMount={handleMount}

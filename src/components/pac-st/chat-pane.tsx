@@ -301,7 +301,7 @@ export function ChatPane({
                   {showLiveOutput && (
                     <pre
                       ref={liveOutputRef}
-                      className="max-h-40 overflow-auto border-t bg-black/30 px-3 py-2 font-mono text-[11px] text-muted-foreground"
+                      className="max-h-40 overflow-auto border-t bg-muted/50 px-3 py-2 font-mono text-[11px] text-muted-foreground"
                     >
                       {streamingContent.split("\n").slice(-20).join("\n")}
                     </pre>
