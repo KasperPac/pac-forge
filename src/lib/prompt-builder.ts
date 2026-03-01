@@ -34,18 +34,29 @@ After all artifact blocks, provide a brief summary of what was generated.
 
 ### MANDATORY Artifact Checklist — Generate ALL of These
 
-Before responding, verify your output includes EVERY required artifact:
+Before responding, verify your output includes EVERY required artifact in this exact order:
 
 1. **UDTs** — One per reusable data structure (config, IO, diagnostics)
-2. **FBs** — One per device type or process (with full state machine, timers, alarms)
-3. **FCs** — For stateless utility functions (scaling, clamping, conversion) if needed
-4. **Global DBs** — For configuration data, HMI interface, recipes if needed
-5. **Instance DBs** — **ONE per FB instance called from OB1** (this is the #1 missed artifact)
-6. **OB1 "Main"** — **ALWAYS generate this.** It calls every FB using its instance DB. Without Main, nothing runs.
+2. **Device FBs** — One per device type (motors, valves, conveyors, sensors). Each handles its own state machine, timers, alarms.
+3. **Instance DBs** — **ONE per Device FB instance** (this is the #1 missed artifact)
+4. **Process FC** — **ALWAYS generate this.** A stateless Function that orchestrates all Device FB calls. It receives IO as inputs/outputs, calls each Device FB via its instance DB, and wires device outputs to process logic. This is the central coordination layer.
+5. **OB1 "Main"** — **ALWAYS generate this.** It calls the Process FC. Main should be minimal — just the FC call.
+6. **Global DBs** — For configuration data, HMI interface, recipes if needed
+7. **Utility FCs** — For stateless helper functions (scaling, clamping, conversion) if needed
 
-**If you generate an FB, you MUST also generate:**
+**Program hierarchy (CRITICAL):**
+- Main (OB1) calls the Process FC
+- The Process FC calls Device FBs via their instance DBs
+- Device FBs do NOT call each other — the Process FC wires data between them
+- Main does NOT call Device FBs directly
+
+**If you generate a Device FB, you MUST also generate:**
 - An instance DB for it (type=DB, references the FB)
-- A call to it in Main (type=OB)
+- A call to it in the Process FC (NOT in Main)
+
+### Multi-Instance FB Wiring
+
+When an FB contains multi-instance FBs (e.g., sensor FBs, edge triggers, timers), wire higher-level logic directly to the multi-instance outputs. Do NOT create redundant intermediate variables that just copy multi-instance outputs. For example, if you have #instStartSensor as a multi-instance FB with an output Q, use #instStartSensor.Q directly in your logic instead of creating a separate #startSensorActive variable to hold the same value.
 
 ### FB Body Structure
 Each FB must follow this section structure:
@@ -139,16 +150,30 @@ ${profile.rules}`;
 
 export function formatFbTemplates(templates: FbTemplate[]): string {
   if (templates.length === 0) return "";
-  const blocks = templates.map((t) => {
+  const sections = templates.map((t) => {
     const header = `### ${t.name} [${t.device_category}]`;
     const desc = t.description ? `${t.description}\n` : "";
-    return `${header}\n${desc}\`\`\`scl\n${t.base_scl}\n\`\`\``;
+    const blocks = t.blocks ?? [];
+    if (blocks.length === 0) return `${header}\n${desc}(no blocks defined)`;
+    const blockSections = blocks.map(
+      (b) => `#### ${b.block_name} (${b.block_type})\n\`\`\`scl\n${b.scl_code}\n\`\`\``
+    );
+    return `${header}\n${desc}${blockSections.join("\n\n")}`;
   });
-  return `## FB Library Templates
+  return `## FB Library Templates (LOCKED — DO NOT MODIFY)
 
-The following are company-standard FB templates. When generating code for matching device types, use these as the starting base and customize as needed for the project requirements. Do NOT deviate from their structure unless the user explicitly requests it.
+The following are company-standard, pre-approved FB templates. These are LOCKED and must be used VERBATIM when generating code for matching device types.
 
-${blocks.join("\n\n")}`;
+**MANDATORY RULES:**
+- Use the template code EXACTLY as written — do not rename blocks, parameters, variables, or UDTs
+- Do not modify the internal logic, state machine structure, or control flow
+- Do not add, remove, or reorder VAR_INPUT, VAR_OUTPUT, VAR_IN_OUT, or VAR sections
+- Do not change data types, default values, or parameter interfaces
+- You MAY only: create instance DBs for the template FBs, wire template parameters to project IO in the calling OB, and add multiple instances of the same template
+- If a template does not exist for a device type, generate new code from scratch following platform rules
+- If the user's requirements conflict with a template's interface, use the template as-is and note the limitation — do NOT modify the template
+
+${sections.join("\n\n")}`;
 }
 
 export function formatPatterns(patterns: PatternCandidate[]): string {

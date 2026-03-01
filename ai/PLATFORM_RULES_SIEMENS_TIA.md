@@ -204,8 +204,9 @@ The instance DB references the FB by name. TIA creates the DB structure automati
 - Motor 2 → `"InstMotor2"` of type `"ControlMotor"`
 - Conveyor → `"InstConveyor1"` of type `"ControlConveyor"`
 
-**Calling an FB from OB1** (call the instance DB name ONLY, NOT "FBName"."InstDBName"):
+**Calling an FB from the Process FC** (call the instance DB name ONLY, NOT "FBName"."InstDBName"):
 ```scl
+// Inside the Process FC — call Device FBs via their instance DBs
 "InstMotor1"(
   start := "startButtonM1",
   stop := "stopButtonM1",
@@ -344,6 +345,26 @@ BEGIN
 END_FUNCTION
 ```
 
+### Process FC (Orchestrates Device FBs)
+
+```scl
+FUNCTION "ProcessLine1" : Void
+TITLE = 'Line 1 Process Orchestration'
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+BEGIN
+  // Call Device FBs via their instance DBs
+  "InstMotor1"(start := "startM1", stop := "stopM1", feedbackRun := "m1Running");
+  "InstMotor2"(start := "startM2", stop := "stopM2", feedbackRun := "m2Running");
+  "InstConveyor1"(enable := "Configuration".systemEnabled);
+
+  // Call utility FCs — no instance DB needed
+  "ScaleAnalog"(rawValue := "aiTemp1", rawMin := 0, rawMax := 27648,
+                scaleMin := 0.0, scaleMax := 100.0,
+                scaledValue => "HmiData".temperature1);
+END_FUNCTION
+```
+
 ### Organization Block (OB1 — Main)
 
 ```scl
@@ -355,15 +376,8 @@ VERSION : 0.1
     tempFirstScan : Bool;
   END_VAR
 BEGIN
-  // Call FBs via their instance DBs (use instance DB name ONLY)
-  "InstMotor1"(start := "startM1", stop := "stopM1", feedbackRun := "m1Running");
-  "InstMotor2"(start := "startM2", stop := "stopM2", feedbackRun := "m2Running");
-  "InstConveyor1"(enable := "Configuration".systemEnabled);
-
-  // Call FCs — no instance DB needed
-  "ScaleAnalog"(rawValue := "aiTemp1", rawMin := 0, rawMax := 27648,
-                scaleMin := 0.0, scaleMax := 100.0,
-                scaledValue => "HmiData".temperature1);
+  // Main calls the Process FC only — minimal OB1
+  "ProcessLine1"();
 END_ORGANIZATION_BLOCK
 ```
 
@@ -474,6 +488,7 @@ END_VAR
 ## 5. STATELESS FUNCTIONS (FC) VS STATEFUL FUNCTION BLOCKS (FB)
 
 **Use FC when:**
+- **Process orchestration** — the Process FC calls all Device FBs, wires data between them, and coordinates process logic. This is the primary use of FCs.
 - Pure calculation with no memory between scans (scaling, clamping, conversion, checksums)
 - Utility logic reused in many places
 - No timers, counters, or edge triggers needed
@@ -484,11 +499,13 @@ END_VAR
 - Device control (motors, valves, conveyors) — always FB
 - Multiple instances of same logic with different data
 
-**FC cannot contain (no persistent state):**
-- Timers (TON, TOF, TP)
+**FC local variables are stateless (no VAR static section, only VAR_TEMP).** However, an FC CAN read and write persistent data via Global DBs, Instance DBs, and global tags. A Process FC commonly reads/writes DB values to coordinate Device FBs — this is not "stateless" in the application sense, only the FC's own local variables are stateless.
+
+**FC cannot declare internally:**
+- Timers (TON, TOF, TP) — these require static storage
 - Counters (CTU, CTD, CTUD)
 - Edge triggers (R_TRIG, F_TRIG)
-- VAR (static) section — FCs only have VAR_TEMP
+- VAR (static) section — FCs only have VAR_INPUT, VAR_OUTPUT, VAR_IN_OUT, VAR_TEMP
 
 ---
 
@@ -776,15 +793,21 @@ The `error` output is the MSB (bit 15) of the status word — TRUE when status >
 
 ## 11. ARTIFACT GENERATION RULES
 
-**Always generate ALL required artifacts.** A typical generation includes:
+**Always generate ALL required artifacts in this order:**
 1. **UDTs** (`type` prefix) — imported first, no dependencies
-2. **FBs** (verb-first name) — depend on UDTs
-3. **FCs** (verb-first name) — depend on UDTs
-4. **Global DBs** (no prefix) — depend on UDTs
-5. **Instance DBs** (`Inst` prefix) — one per FB call from OB, references the FB
-6. **OB1 ("Main")** — calls FBs with instance DBs, calls FCs
+2. **Device FBs** (verb-first name) — one per device type (motors, valves, conveyors, sensors). Depend on UDTs.
+3. **Instance DBs** (`Inst` prefix) — one per Device FB instance, references the FB
+4. **Process FC** (verb-first name) — **ALWAYS generate.** Orchestrates all Device FB calls, wires data between them, coordinates process logic. Called by Main.
+5. **OB1 ("Main")** — **ALWAYS generate.** Calls the Process FC only. Main should be minimal.
+6. **Global DBs** (no prefix) — for configuration, HMI interface if needed
+7. **Utility FCs** — for stateless helpers (scaling, clamping) if needed
 
-**Instance DB checklist:** For every FB you generate, ask: "Where is this called from?" If from an OB or outside a multi-instance, generate a corresponding instance DB.
+**Program hierarchy:**
+- Main (OB1) → Process FC → Device FBs (via instance DBs)
+- Device FBs do NOT call each other — the Process FC wires data between them
+- Main does NOT call Device FBs directly
+
+**Instance DB checklist:** For every Device FB you generate, generate a corresponding instance DB. The Process FC calls each Device FB via its instance DB.
 
 **Every block MUST have:**
 - `{ S7_Optimized_Access := 'TRUE' }` pragma
@@ -798,8 +821,14 @@ The `error` output is the MSB (bit 15) of the status word — TRUE when status >
 
 **Missing instance DB** (most common error):
 ```
-WRONG: Generate ControlMotor FB but no instance DB → OB1 cannot call it
+WRONG: Generate ControlMotor FB but no instance DB → Process FC cannot call it
 CORRECT: Generate ControlMotor AND InstMotor1 (instance DB referencing ControlMotor)
+```
+
+**Missing Process FC** (second most common error):
+```
+WRONG: Main calls Device FBs directly → flat architecture, no process coordination
+CORRECT: Main calls Process FC, Process FC calls Device FBs via instance DBs
 ```
 
 **Calling FB incorrectly from OB:**

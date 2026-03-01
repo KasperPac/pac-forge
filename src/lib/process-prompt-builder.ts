@@ -1,6 +1,6 @@
 import type { Project, Agent, PatternCandidate, FbTemplate, DesignProfile, AgentKnowledgeDoc, ReferenceLibrarySection } from "@/types";
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
-import { buildContextMessages } from "@/lib/prompt-builder";
+import { buildContextMessages, formatFbTemplates } from "@/lib/prompt-builder";
 import { getAgentProfile } from "@/lib/agent-profiles";
 import { buildPriorityHierarchyBlock } from "@/lib/knowledge-priority";
 
@@ -41,20 +41,6 @@ function formatAgentRoles(
       return sections.join("\n");
     })
     .join("\n\n");
-}
-
-function formatFbTemplates(templates: FbTemplate[]): string {
-  if (templates.length === 0) return "";
-  const blocks = templates.map((t) => {
-    const header = `### ${t.name} [${t.device_category}]`;
-    const desc = t.description ? `${t.description}\n` : "";
-    return `${header}\n${desc}\`\`\`scl\n${t.base_scl}\n\`\`\``;
-  });
-  return `## FB Library Templates
-
-When generating process code, reuse these company-standard FBs where applicable:
-
-${blocks.join("\n\n")}`;
 }
 
 export function buildProcessPrompt(input: ProcessPromptInput): BuiltPrompt {
@@ -124,12 +110,19 @@ Where:
 
 ### MANDATORY Artifact Checklist
 
-You MUST generate ALL of these:
+You MUST generate ALL of these in this order:
 1. UDTs for process data structures
-2. FBs for each process sequence/controller
-3. Instance DBs — one per FB instance called from Main
-4. OB1 "Main" — calls every FB with its instance DB
-5. Global DBs / FCs as needed
+2. Device FBs — one per device type (motors, valves, sensors, conveyors)
+3. Instance DBs — one per Device FB instance
+4. Process FC — orchestrates all Device FB calls, wires data between them
+5. OB1 "Main" — calls the Process FC only. Main should be minimal.
+6. Global DBs / Utility FCs as needed
+
+**Program hierarchy:** Main (OB1) -> Process FC -> Device FBs (via instance DBs). Device FBs do NOT call each other. Main does NOT call Device FBs directly.
+
+### Multi-Instance FB Wiring
+
+When an FB contains multi-instance FBs (e.g., sensor FBs, edge triggers, timers), wire higher-level logic directly to the multi-instance outputs. Do NOT create redundant intermediate variables that just copy multi-instance outputs. For example, if you have #instStartSensor as a multi-instance FB with an output Q, use #instStartSensor.Q directly in your logic instead of creating a separate #startSensorActive variable to hold the same value.
 
 ${processInstructions}
 
@@ -141,7 +134,7 @@ After all artifact blocks, provide a brief summary of what was generated.`;
 
 ${functionalDescription}
 
-Generate all necessary artifacts: UDTs, FBs for each process sequence, FCs for shared logic, instance DBs, and a Main OB that ties everything together.`;
+Generate all necessary artifacts: UDTs, Device FBs, instance DBs, a Process FC that orchestrates the Device FBs, and a Main OB that calls the Process FC.`;
 
   return {
     systemPrompt,
