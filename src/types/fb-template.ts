@@ -1,31 +1,68 @@
-export const FB_DEVICE_CATEGORIES = {
-  Motor: "Motor",
-  Sensor: "Sensor",
-  Valve: "Valve",
-  Pushbutton: "Pushbutton",
-  LightTower: "LightTower",
-  VFD: "VFD",
-  ConveyorSection: "ConveyorSection",
-  ZPASection: "ZPASection",
-  Custom: "Custom",
+export const FB_BLOCK_TYPES = {
+  FB: "FB",
+  FC: "FC",
+  UDT: "UDT",
+  DB: "DB",
+  OB: "OB",
 } as const;
 
-export type FbDeviceCategory = (typeof FB_DEVICE_CATEGORIES)[keyof typeof FB_DEVICE_CATEGORIES];
+export type FbBlockType = (typeof FB_BLOCK_TYPES)[keyof typeof FB_BLOCK_TYPES];
+
+export interface FbDeviceCategory {
+  id: string;
+  name: string;
+  display_name: string;
+  sort_order: number;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface FbTemplateBlock {
+  id: string;
+  template_id: string;
+  block_name: string;
+  block_type: FbBlockType;
+  scl_code: string;
+  sort_order: number;
+  created_at: string;
+}
 
 export interface FbTemplate {
   id: string;
   name: string;
-  device_category: FbDeviceCategory;
+  device_category: string;
   plc_brand: string;
   description: string | null;
-  base_scl: string;
-  parameters: Record<string, unknown>;
+  version: number;
   tags: string[];
   created_by: string | null;
   updated_at: string;
   created_at: string;
+  blocks?: FbTemplateBlock[];
+  profile_ids?: string[];
 }
 
-export type FbTemplateCreate = Omit<FbTemplate, "id" | "created_at" | "updated_at" | "created_by">;
+export type FbTemplateCreate = Omit<FbTemplate, "id" | "created_at" | "updated_at" | "created_by" | "blocks" | "profile_ids" | "version"> & {
+  blocks: Array<{ block_name: string; block_type: FbBlockType; scl_code: string; sort_order: number }>;
+  profile_ids?: string[];
+};
 
 export type FbTemplateUpdate = Partial<FbTemplateCreate>;
+
+export interface FbTemplateVersion {
+  id: string;
+  template_id: string;
+  version: number;
+  blocks: Array<{ block_name: string; block_type: string; scl_code: string; sort_order: number }>;
+  description: string | null;
+  tags: string[];
+  notes: string | null;
+  created_at: string;
+}
+
+export interface FbTemplateProfileTag {
+  id: string;
+  template_id: string;
+  profile_id: string;
+  created_at: string;
+}

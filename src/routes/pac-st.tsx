@@ -23,7 +23,7 @@ import { useFilteredMultiAgentKnowledgeDocs, useAllAgentKnowledgeDocs } from "@/
 import { useCreatePatternCandidate, useActivePatterns } from "@/hooks/use-patterns";
 import { useAuditLog } from "@/hooks/use-audit-log";
 import { useSubmitTiaJob, useBridgeStatus, useTiaJob } from "@/hooks/use-tia-jobs";
-import { useFbTemplates } from "@/hooks/use-fb-templates";
+import { useFbTemplatesForSession } from "@/hooks/use-fb-templates";
 import { useDesignProfile } from "@/hooks/use-design-profiles";
 import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 import { useTiaBridgeWs } from "@/hooks/use-tia-bridge-ws";
@@ -45,6 +45,7 @@ import { BottomPanel } from "@/components/pac-st/bottom-panel";
 import { DebugDrawer } from "@/components/pac-st/debug-drawer";
 import { TeachPatternDialog } from "@/components/pac-st/teach-pattern-dialog";
 import { TeachUploadDialog } from "@/components/pac-st/teach-upload-dialog";
+import { FbSelectionDialog } from "@/components/pac-st/fb-selection-dialog";
 import { supabase } from "@/lib/supabase";
 import type { BridgeEvent, CompileErrorEvent } from "@/lib/tia-bridge-contract";
 import type { ConversationTurn, SafetyWarning, CompileError, TiaManifest, TiaJobType } from "@/types";
@@ -93,14 +94,14 @@ export default function PacStPage() {
   // Generation (pipeline for chat, streaming for process)
   const { executePipeline, isRunning: isPipelineRunning } = usePipelineGenerate();
   const { generateProcess, isStreaming: isProcessStreaming } = useProcessGenerate();
-  const { setGeneratedArtifacts, currentTiaJobId, setCurrentTiaJobId, navigateToArtifact, setDebugDrawerOpen } = usePacStStore();
+  const { setGeneratedArtifacts, currentTiaJobId, setCurrentTiaJobId, navigateToArtifact, setDebugDrawerOpen, selectedFbTemplateIds, setSelectedFbTemplateIds } = usePacStStore();
 
   // Left panel mode: chat vs process code
   const [leftPanelMode, setLeftPanelMode] = useState<"chat" | "process">("chat");
 
   // Pattern detection + audit + FB templates
   const { data: approvedPatterns } = useActivePatterns(project?.plc_brand ?? "SIEMENS_TIA");
-  const { data: fbTemplates } = useFbTemplates();
+  const { data: fbTemplates } = useFbTemplatesForSession(project?.design_profile_id ?? undefined);
   const { data: designProfile } = useDesignProfile(project?.design_profile_id ?? undefined);
   const { data: promptSections } = useActivePromptSections();
   const createPattern = useCreatePatternCandidate();
@@ -117,6 +118,8 @@ export default function PacStPage() {
   const [showTeachDialog, setShowTeachDialog] = useState(false);
   const [showTeachUploadDialog, setShowTeachUploadDialog] = useState(false);
   const [showConflictDialog, setShowConflictDialog] = useState(false);
+  const [fbSelectionOpen, setFbSelectionOpen] = useState(false);
+  const [pendingMessage, setPendingMessage] = useState<string | null>(null);
 
   // Knowledge conflict detection — all knowledge docs, not just session-scoped
   const { data: allKnowledgeDocs } = useAllAgentKnowledgeDocs();
@@ -185,6 +188,14 @@ export default function PacStPage() {
   const [showExport, setShowExport] = useState(false);
   const [currentManifest, setCurrentManifest] = useState<TiaManifest | null>(null);
 
+  // Filter FB templates by selection (or all if no selection made yet)
+  const filteredFbTemplates = useMemo(() => {
+    if (!fbTemplates) return [];
+    if (selectedFbTemplateIds.length === 0) return fbTemplates;
+    const selectedSet = new Set(selectedFbTemplateIds);
+    return fbTemplates.filter((t) => selectedSet.has(t.id));
+  }, [fbTemplates, selectedFbTemplateIds]);
+
   // Merge DB messages with optimistic local messages
   const messages = useMemo(() => {
     const db = dbMessages ?? [];
@@ -193,7 +204,7 @@ export default function PacStPage() {
     return [...db, ...pending];
   }, [dbMessages, optimisticMessages]);
 
-  const handleSend = useCallback(
+  const runPipeline = useCallback(
     (message: string) => {
       if (!project || !sessionId) return;
 
@@ -225,7 +236,7 @@ export default function PacStPage() {
               content: m.content,
             })),
           approvedPatterns: approvedPatterns ?? [],
-          fbTemplates: fbTemplates ?? [],
+          fbTemplates: filteredFbTemplates,
           designProfile,
           agentKnowledgeDocs,
           promptSections,
@@ -283,8 +294,51 @@ export default function PacStPage() {
         },
       );
     },
-    [project, sessionId, sessionAgents, messages, renewNow, executePipeline, setGeneratedArtifacts, auditLog, approvedPatterns, fbTemplates, designProfile, agentKnowledgeDocs, promptSections]
+    [project, sessionId, sessionAgents, messages, renewNow, executePipeline, setGeneratedArtifacts, auditLog, approvedPatterns, filteredFbTemplates, designProfile, agentKnowledgeDocs, promptSections]
   );
+
+  // Wrap handleSend to show FB selection dialog on first message when templates exist
+  const handleSend = useCallback(
+    (message: string) => {
+      // If this is the first send, no FB selection has been made, and templates exist — show dialog
+      const hasTemplates = (fbTemplates?.length ?? 0) > 0;
+      const hasSelection = selectedFbTemplateIds.length > 0;
+      const isFirstMessage = messages.length === 0;
+
+      if (isFirstMessage && hasTemplates && !hasSelection) {
+        setPendingMessage(message);
+        setFbSelectionOpen(true);
+        return;
+      }
+
+      runPipeline(message);
+    },
+    [fbTemplates, selectedFbTemplateIds, messages, runPipeline],
+  );
+
+  const handleFbSelectionConfirm = useCallback(
+    (ids: string[]) => {
+      setSelectedFbTemplateIds(ids);
+      setFbSelectionOpen(false);
+      if (pendingMessage) {
+        // Defer to next tick so the filtered templates are updated
+        const msg = pendingMessage;
+        setPendingMessage(null);
+        setTimeout(() => runPipeline(msg), 0);
+      }
+    },
+    [pendingMessage, runPipeline, setSelectedFbTemplateIds],
+  );
+
+  const handleFbSelectionSkip = useCallback(() => {
+    setSelectedFbTemplateIds([]);
+    setFbSelectionOpen(false);
+    if (pendingMessage) {
+      const msg = pendingMessage;
+      setPendingMessage(null);
+      setTimeout(() => runPipeline(msg), 0);
+    }
+  }, [pendingMessage, runPipeline, setSelectedFbTemplateIds]);
 
   const handleProcessGenerate = useCallback(
     (functionalDescription: string) => {
@@ -298,7 +352,7 @@ export default function PacStPage() {
           sessionId,
           agents: sessionAgents,
           approvedPatterns: approvedPatterns ?? [],
-          fbTemplates: fbTemplates ?? [],
+          fbTemplates: filteredFbTemplates,
           designProfile,
           agentKnowledgeDocs,
           promptSections,
@@ -340,7 +394,7 @@ export default function PacStPage() {
         },
       );
     },
-    [project, sessionId, sessionAgents, renewNow, generateProcess, setGeneratedArtifacts, auditLog, approvedPatterns, fbTemplates, designProfile, agentKnowledgeDocs, promptSections],
+    [project, sessionId, sessionAgents, renewNow, generateProcess, setGeneratedArtifacts, auditLog, approvedPatterns, filteredFbTemplates, designProfile, agentKnowledgeDocs, promptSections],
   );
 
   const handleAcknowledgeWarning = useCallback((id: string) => {
@@ -706,6 +760,16 @@ export default function PacStPage() {
         open={showTeachUploadDialog}
         onOpenChange={setShowTeachUploadDialog}
         plcBrand={project?.plc_brand ?? "SIEMENS_TIA"}
+      />
+
+      {/* FB selection dialog */}
+      <FbSelectionDialog
+        open={fbSelectionOpen}
+        userMessage={pendingMessage ?? ""}
+        ioList={project?.io_lists ?? []}
+        availableTemplates={fbTemplates ?? []}
+        onConfirm={handleFbSelectionConfirm}
+        onSkip={handleFbSelectionSkip}
       />
 
       {/* Knowledge conflict dialog */}

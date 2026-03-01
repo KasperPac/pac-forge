@@ -35,6 +35,9 @@ interface PacStState {
   // Diff
   showDiff: boolean;
 
+  // FB selection
+  selectedFbTemplateIds: string[];
+
   // Pipeline
   pipelineExecution: PipelineExecution | null;
   activeAgentName: string | null;
@@ -62,6 +65,9 @@ interface PacStState {
   setBottomPanelOpen: (open: boolean) => void;
   setBottomPanelTab: (tab: BottomPanelTab) => void;
 
+  // Actions — FB selection
+  setSelectedFbTemplateIds: (ids: string[]) => void;
+
   // Actions — diff
   toggleDiff: () => void;
 
@@ -84,6 +90,7 @@ export const usePacStStore = create<PacStState>((set) => ({
   approvedArtifacts: [],
   activeGeneratedIndex: 0,
   activeApprovedIndex: 0,
+  selectedFbTemplateIds: [],
   streamingContent: null,
   currentTiaJobId: null,
   pendingEditorNavigation: null,
@@ -138,6 +145,8 @@ export const usePacStStore = create<PacStState>((set) => ({
   appendStreamChunk: (chunk) =>
     set((s) => ({ streamingContent: (s.streamingContent ?? "") + chunk })),
   clearStreaming: () => set({ streamingContent: null }),
+
+  setSelectedFbTemplateIds: (ids) => set({ selectedFbTemplateIds: ids }),
 
   setCurrentTiaJobId: (id) => set({ currentTiaJobId: id }),
 
@@ -234,6 +243,7 @@ export const usePacStStore = create<PacStState>((set) => ({
       approvedArtifacts: [],
       activeGeneratedIndex: 0,
       activeApprovedIndex: 0,
+      selectedFbTemplateIds: [],
       streamingContent: null,
       currentTiaJobId: null,
       pendingEditorNavigation: null,

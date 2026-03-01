@@ -255,12 +255,28 @@ function extractStances(text: string): Stance[] {
 }
 
 /**
+ * Stop-words excluded from subject similarity — these are too generic to
+ * indicate two subjects are actually about the same thing.
+ * "use" was the #1 false-positive trigger (e.g., "must be used to house
+ * function blocks" matched "never use = for equality" solely on "use").
+ */
+const SUBJECT_STOP_WORDS = new Set([
+  "use", "used", "using", "have", "has", "had", "make", "made", "get",
+  "set", "put", "let", "run", "take", "give", "keep", "call", "called",
+  "can", "will", "may", "the", "for", "with", "from", "into", "that",
+  "this", "each", "all", "any", "not", "are", "was", "been", "being",
+  "also", "only", "such", "when", "where", "which", "should", "must",
+  "shall", "need", "every", "other", "more", "same", "like",
+]);
+
+/**
  * Compute similarity between two subjects as a 0.0–1.0 score.
  * Uses word overlap ratio of the smaller set against the larger.
+ * Excludes common stop-words that cause false matches between unrelated subjects.
  */
 function computeSubjectSimilarity(a: string, b: string): number {
-  const aWords = new Set(a.split(/\s+/).filter((w) => w.length > 2));
-  const bWords = new Set(b.split(/\s+/).filter((w) => w.length > 2));
+  const aWords = new Set(a.split(/\s+/).filter((w) => w.length > 2 && !SUBJECT_STOP_WORDS.has(w)));
+  const bWords = new Set(b.split(/\s+/).filter((w) => w.length > 2 && !SUBJECT_STOP_WORDS.has(w)));
 
   if (aWords.size === 0 || bWords.size === 0) return 0;
 

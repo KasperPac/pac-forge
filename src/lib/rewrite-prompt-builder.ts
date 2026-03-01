@@ -9,7 +9,7 @@ import type {
 } from "@/types";
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { getAgentProfile } from "@/lib/agent-profiles";
-import { buildContextMessages } from "@/lib/prompt-builder";
+import { buildContextMessages, formatFbTemplates } from "@/lib/prompt-builder";
 import type { ParsedArtifact } from "@/lib/artifact-parser";
 import type { ReviewReport } from "@/lib/review-response-parser";
 
@@ -42,20 +42,6 @@ function formatDesignProfile(profile: DesignProfile): string {
 The following rules define the customer's code standards. ALL generated code MUST follow these rules exactly.
 
 ${profile.rules}`;
-}
-
-function formatFbTemplates(templates: FbTemplate[]): string {
-  if (templates.length === 0) return "";
-  const blocks = templates.map((t) => {
-    const header = `### ${t.name} [${t.device_category}]`;
-    const desc = t.description ? `${t.description}\n` : "";
-    return `${header}\n${desc}\`\`\`scl\n${t.base_scl}\n\`\`\``;
-  });
-  return `## FB Library Templates
-
-Use these company-standard FB templates as the base for matching device types.
-
-${blocks.join("\n\n")}`;
 }
 
 function formatKnowledgeDocs(docs: AgentKnowledgeDoc[]): string {
