@@ -68,6 +68,9 @@ export interface Project {
   revision_log: RevisionLogEntry[];
   functional_description: string | null;
   functional_description_filename: string | null;
+  description_short: string | null;
+  description_long: string | null;
+  dropbox_folder_path: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;

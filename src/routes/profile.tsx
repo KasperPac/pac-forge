@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useProfile, useUpdateProfile, useUploadAvatar } from "@/hooks/use-profile";
 import { useUserAuditLog, useUserAgentChats } from "@/hooks/use-user-activity";
+import { useDropboxConnection, useDropboxConnect, useDropboxDisconnect } from "@/hooks/use-dropbox";
 import type { AgentChatEntry } from "@/hooks/use-user-activity";
 import type { AuditLogEntry } from "@/types/tia";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -24,6 +25,8 @@ import {
   ChevronRight,
   MessageSquare,
   Bot,
+  CloudOff,
+  Cloud,
 } from "lucide-react";
 
 function getInitials(displayName: string | undefined, email: string | undefined): string {
@@ -179,6 +182,9 @@ export default function ProfilePage() {
   const uploadAvatar = useUploadAvatar();
   const { data: auditLog, isLoading: auditLoading } = useUserAuditLog();
   const { data: agentChats, isLoading: chatsLoading } = useUserAgentChats();
+  const { data: dropboxConn, isLoading: dropboxLoading } = useDropboxConnection();
+  const dropboxConnect = useDropboxConnect();
+  const dropboxDisconnect = useDropboxDisconnect();
 
   const [editName, setEditName] = useState("");
   const [isEditing, setIsEditing] = useState(false);
@@ -263,7 +269,7 @@ export default function ProfilePage() {
 
       <Separator />
 
-      {/* Account Details + Edit Profile */}
+      {/* Account Details + Edit Profile + Dropbox */}
       <div className="grid gap-5 lg:grid-cols-2">
         <Card className="p-5">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
@@ -350,6 +356,86 @@ export default function ProfilePage() {
           {uploadAvatar.isError && (
             <div className="mt-3 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {uploadAvatar.error?.message ?? "Failed to upload avatar"}
+            </div>
+          )}
+        </Card>
+
+        <Card className="p-5 lg:col-span-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Dropbox Integration
+          </h2>
+          <div className="mt-4">
+            {dropboxLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Checking connection...
+              </div>
+            ) : dropboxConn?.connected ? (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Cloud className="h-5 w-5 text-blue-400" />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">
+                        {dropboxConn.display_name ?? "Dropbox"}
+                      </span>
+                      <Badge
+                        variant="outline"
+                        className="border-green-500/30 bg-green-500/10 px-1.5 py-0 font-mono text-[10px] text-green-400"
+                      >
+                        Connected
+                      </Badge>
+                    </div>
+                    {dropboxConn.email && (
+                      <div className="font-mono text-xs text-muted-foreground">
+                        {dropboxConn.email}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => dropboxDisconnect.mutate()}
+                  disabled={dropboxDisconnect.isPending}
+                >
+                  {dropboxDisconnect.isPending ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <CloudOff className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  Disconnect
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <CloudOff className="h-5 w-5 text-muted-foreground" />
+                  <div>
+                    <span className="text-sm text-muted-foreground">Not connected</span>
+                    <p className="text-xs text-muted-foreground/60">
+                      Connect to auto-create project folders in Dropbox
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => dropboxConnect.mutate()}
+                  disabled={dropboxConnect.isPending}
+                >
+                  {dropboxConnect.isPending ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Cloud className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  Connect Dropbox
+                </Button>
+              </div>
+            )}
+          </div>
+          {dropboxDisconnect.isError && (
+            <div className="mt-3 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {dropboxDisconnect.error?.message ?? "Failed to disconnect"}
             </div>
           )}
         </Card>

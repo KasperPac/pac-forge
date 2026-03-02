@@ -76,6 +76,9 @@ function describeChanges(updates: ProjectUpdate): string {
     functional_description: "functional description",
     functional_description_filename: "functional description file",
     rack_slot_layout: "rack/slot layout",
+    description_short: "short description",
+    description_long: "long description",
+    dropbox_folder_path: "Dropbox folder path",
   };
   const named = fields.map((f) => labels[f] ?? f);
   return `Updated ${named.join(", ")}`;

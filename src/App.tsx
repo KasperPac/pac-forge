@@ -12,6 +12,7 @@ import ProjectsPage from "@/routes/projects";
 // Lazy-loaded routes (heavy pages)
 const ProjectDetailPage = lazy(() => import("@/routes/project-detail"));
 const PacStPage = lazy(() => import("@/routes/pac-st"));
+const ProcessBuilderPage = lazy(() => import("@/routes/process-builder"));
 const AgentsPage = lazy(() => import("@/routes/agents"));
 const AgentProfilePage = lazy(() => import("@/routes/agent-profile"));
 const PatternsPage = lazy(() => import("@/routes/patterns"));
@@ -21,7 +22,9 @@ const ProfilesPage = lazy(() => import("@/routes/profiles"));
 const KnowledgePage = lazy(() => import("@/routes/knowledge"));
 const PromptEditorPage = lazy(() => import("@/routes/prompt-editor"));
 const ReferenceLibraryPage = lazy(() => import("@/routes/reference-library"));
+const FbBuilderPage = lazy(() => import("@/routes/fb-builder"));
 const ProfilePage = lazy(() => import("@/routes/profile"));
+const DropboxCallbackPage = lazy(() => import("@/routes/dropbox-callback"));
 
 function LazyRoute({ children }: { children: React.ReactNode }) {
   return (
@@ -45,7 +48,10 @@ const router = createBrowserRouter([
           { index: true, element: <Navigate to="/projects" replace /> },
           { path: "projects", element: <ProjectsPage /> },
           { path: "projects/:id", element: <LazyRoute><ProjectDetailPage /></LazyRoute> },
-          { path: "pac-st", element: <LazyRoute><PacStPage /></LazyRoute> },
+          { path: "pac-st", element: <Navigate to="/pac-st/chat" replace /> },
+          { path: "pac-st/chat", element: <LazyRoute><PacStPage /></LazyRoute> },
+          { path: "pac-st/fb-builder", element: <LazyRoute><FbBuilderPage /></LazyRoute> },
+          { path: "pac-st/process", element: <LazyRoute><ProcessBuilderPage /></LazyRoute> },
           { path: "agents", element: <LazyRoute><AgentsPage /></LazyRoute> },
           { path: "agents/:id", element: <LazyRoute><AgentProfilePage /></LazyRoute> },
           { path: "patterns", element: <LazyRoute><PatternsPage /></LazyRoute> },
@@ -56,6 +62,7 @@ const router = createBrowserRouter([
           { path: "prompts", element: <LazyRoute><PromptEditorPage /></LazyRoute> },
           { path: "reference-library", element: <LazyRoute><ReferenceLibraryPage /></LazyRoute> },
           { path: "profile", element: <LazyRoute><ProfilePage /></LazyRoute> },
+          { path: "dropbox-callback", element: <LazyRoute><DropboxCallbackPage /></LazyRoute> },
         ],
       },
     ],

@@ -1,11 +1,14 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProjectCreate, ProjectUpdate, CpuType } from "@/types";
 import { PLC_BRANDS, CPU_TYPES } from "@/types";
 import { useDesignProfiles } from "@/hooks/use-design-profiles";
+import { useDropboxConnection, useSuggestProjectNumber } from "@/hooks/use-dropbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Loader2 } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -40,9 +43,40 @@ export function ProjectForm({
     (initialValues?.cpu_type as CpuType) ?? CPU_TYPES["S7-1500"]
   );
   const [safetyLevel, setSafetyLevel] = useState(initialValues?.safety_level ?? "None");
+  const [descriptionShort, setDescriptionShort] = useState(initialValues?.description_short ?? "");
+  const [descriptionLong, setDescriptionLong] = useState(initialValues?.description_long ?? "");
   const [safetyNotes, setSafetyNotes] = useState(initialValues?.safety_notes ?? "");
   const [designProfileId, setDesignProfileId] = useState(initialValues?.design_profile_id ?? "none");
   const { data: profiles } = useDesignProfiles();
+
+  // Dropbox auto-suggest project number
+  const { data: dropboxConn } = useDropboxConnection();
+  const suggestNumber = useSuggestProjectNumber();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const fetchSuggestion = useCallback(
+    (name: string) => {
+      if (!dropboxConn?.connected || !name.trim()) return;
+      if (debounceRef.current !== null) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        suggestNumber.mutate(name.trim());
+      }, 600);
+    },
+    [dropboxConn?.connected, suggestNumber]
+  );
+
+  // Fetch suggestion when client name changes (on blur)
+  const handleClientNameBlur = useCallback(() => {
+    fetchSuggestion(clientName);
+  }, [clientName, fetchSuggestion]);
+
+  // Also fetch on mount if editing and client name exists
+  useEffect(() => {
+    if (mode === "create" && initialValues?.client_name) {
+      fetchSuggestion(initialValues.client_name);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -62,6 +96,9 @@ export function ProjectForm({
       design_profile_id: designProfileId !== "none" ? designProfileId : null,
       functional_description: initialValues?.functional_description ?? null,
       functional_description_filename: initialValues?.functional_description_filename ?? null,
+      description_short: descriptionShort || null,
+      description_long: descriptionLong || null,
+      dropbox_folder_path: initialValues?.dropbox_folder_path ?? null,
     };
 
     if (mode === "edit") {
@@ -74,6 +111,8 @@ export function ProjectForm({
       if (safetyNotes !== initialValues?.safety_notes) updates.safety_notes = safetyNotes;
       const newProfileId = designProfileId !== "none" ? designProfileId : null;
       if (newProfileId !== (initialValues?.design_profile_id ?? null)) updates.design_profile_id = newProfileId;
+      if (descriptionShort !== (initialValues?.description_short ?? "")) updates.description_short = descriptionShort || null;
+      if (descriptionLong !== (initialValues?.description_long ?? "")) updates.description_long = descriptionLong || null;
       onSubmit(updates);
     } else {
       onSubmit(data);
@@ -88,6 +127,7 @@ export function ProjectForm({
           <Input
             value={clientName}
             onChange={(e) => setClientName(e.target.value)}
+            onBlur={handleClientNameBlur}
             required
             placeholder="e.g. ACME Industries"
             className="mt-1"
@@ -99,8 +139,54 @@ export function ProjectForm({
           <Input
             value={projectNumber}
             onChange={(e) => setProjectNumber(e.target.value)}
-            placeholder="e.g. P-2024-0042"
+            placeholder="e.g. CVL-2601"
             className="mt-1 font-mono"
+          />
+          {suggestNumber.isPending && (
+            <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Checking Dropbox...
+            </div>
+          )}
+          {suggestNumber.data?.suggested && !projectNumber && (
+            <button
+              type="button"
+              className="mt-1"
+              onClick={() => setProjectNumber(suggestNumber.data!.suggested!)}
+            >
+              <Badge
+                variant="secondary"
+                className="cursor-pointer font-mono text-xs hover:bg-accent"
+              >
+                Suggested: {suggestNumber.data.suggested}
+              </Badge>
+            </button>
+          )}
+        </div>
+
+        <div>
+          <Label className="font-mono text-xs">Short Description</Label>
+          <Input
+            value={descriptionShort}
+            onChange={(e) => setDescriptionShort(e.target.value)}
+            placeholder="e.g. Conveyor System Upgrade"
+            className="mt-1"
+          />
+          {dropboxConn?.connected && (
+            <p className="mt-0.5 text-[10px] text-muted-foreground">
+              Used in Dropbox folder name
+            </p>
+          )}
+        </div>
+
+        <div>
+          <Label className="font-mono text-xs">Long Description</Label>
+          <Textarea
+            value={descriptionLong}
+            onChange={(e) => setDescriptionLong(e.target.value)}
+            placeholder="Detailed job scope..."
+            className="mt-1"
+            rows={2}
           />
         </div>
 

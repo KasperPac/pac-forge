@@ -9,19 +9,34 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useProjects, useCreateProject, useDeleteProject } from "@/hooks/use-projects";
+import { useDropboxConnection } from "@/hooks/use-dropbox";
 import { ProjectCard } from "@/components/project-card";
 import { ProjectForm } from "@/components/project-form";
-import type { ProjectCreate } from "@/types";
+import { DropboxFolderDialog } from "@/components/dropbox-folder-dialog";
+import type { Project, ProjectCreate } from "@/types";
 
 export default function ProjectsPage() {
   const { data: projects, isLoading, error } = useProjects();
   const createProject = useCreateProject();
   const deleteProject = useDeleteProject();
+  const { data: dropboxConn } = useDropboxConnection();
   const [createOpen, setCreateOpen] = useState(false);
+  const [folderDialogProject, setFolderDialogProject] = useState<Project | null>(null);
 
   function handleCreate(data: ProjectCreate | Record<string, unknown>) {
     createProject.mutate(data as ProjectCreate, {
-      onSuccess: () => setCreateOpen(false),
+      onSuccess: (created) => {
+        setCreateOpen(false);
+        const proj = created as Project;
+        // Offer Dropbox folder setup if connected and fields are present
+        if (
+          dropboxConn?.connected &&
+          proj.project_number &&
+          proj.description_short
+        ) {
+          setFolderDialogProject(proj);
+        }
+      },
     });
   }
 
@@ -104,6 +119,19 @@ export default function ProjectsPage() {
           />
         </DialogContent>
       </Dialog>
+
+      {folderDialogProject && (
+        <DropboxFolderDialog
+          open={!!folderDialogProject}
+          onOpenChange={(open) => {
+            if (!open) setFolderDialogProject(null);
+          }}
+          projectId={folderDialogProject.id}
+          clientName={folderDialogProject.client_name}
+          projectNumber={folderDialogProject.project_number!}
+          descriptionShort={folderDialogProject.description_short!}
+        />
+      )}
     </div>
   );
 }
