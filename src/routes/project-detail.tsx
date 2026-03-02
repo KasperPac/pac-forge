@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router";
-import { ArrowLeft, Play, Save, Plus, Trash2, ChevronDown, ChevronRight, Upload, X, FileText } from "lucide-react";
+import { ArrowLeft, Play, Save, Plus, Trash2, ChevronDown, ChevronRight, Upload, X, FileText, Cpu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -24,8 +24,9 @@ import { useDesignProfile } from "@/hooks/use-design-profiles";
 import { toast } from "@/hooks/use-toast";
 import { ProjectForm } from "@/components/project-form";
 import { IoListEditor } from "@/components/io-list-editor";
+import { HardwareConfigEditor } from "@/components/hardware-config-editor";
 import { supabase } from "@/lib/supabase";
-import type { IoEntry, TagDbDefinition, ProjectUpdate } from "@/types";
+import type { IoEntry, RackSlotLayout, TagDbDefinition, ProjectUpdate } from "@/types";
 
 const ACCEPTED_DOC_TYPES = ".docx,.pdf,.txt,.csv";
 
@@ -392,6 +393,14 @@ export default function ProjectDetailPage() {
     });
   }
 
+  function handleHardwareConfigSave(layout: RackSlotLayout[], ioEntries?: IoEntry[]) {
+    const updates: ProjectUpdate = { rack_slot_layout: layout };
+    if (ioEntries) {
+      updates.io_lists = ioEntries;
+    }
+    updateProject.mutate({ id: project!.id, updates });
+  }
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -447,6 +456,10 @@ export default function ProjectDetailPage() {
         <TabsList>
           <TabsTrigger value="overview" className="font-mono text-xs">
             Overview
+          </TabsTrigger>
+          <TabsTrigger value="hardware-config" className="font-mono text-xs">
+            <Cpu className="mr-1 h-3 w-3" />
+            Hardware Config
           </TabsTrigger>
           <TabsTrigger value="io-lists" className="font-mono text-xs">
             IO Lists
@@ -517,6 +530,17 @@ export default function ProjectDetailPage() {
               </div>
             )}
           </Card>
+        </TabsContent>
+
+        {/* Hardware Config */}
+        <TabsContent value="hardware-config">
+          <HardwareConfigEditor
+            cpuType={project.cpu_type}
+            rackSlotLayout={project.rack_slot_layout ?? []}
+            onSave={handleHardwareConfigSave}
+            existingIoEntries={project.io_lists ?? []}
+            saving={updateProject.isPending}
+          />
         </TabsContent>
 
         {/* IO Lists */}

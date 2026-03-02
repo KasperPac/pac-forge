@@ -8,13 +8,14 @@ interface Props {
 
 interface State {
   hasError: boolean;
+  errorMessage: string;
 }
 
 export class RouteErrorBoundary extends Component<Props, State> {
-  state: State = { hasError: false };
+  state: State = { hasError: false, errorMessage: "" };
 
-  static getDerivedStateFromError(): State {
-    return { hasError: true };
+  static getDerivedStateFromError(error: Error): State {
+    return { hasError: true, errorMessage: `${error.name}: ${error.message}` };
   }
 
   componentDidCatch(error: Error) {
@@ -28,6 +29,11 @@ export class RouteErrorBoundary extends Component<Props, State> {
           <div className="flex flex-col items-center gap-3 text-muted-foreground">
             <AlertTriangle className="h-6 w-6" />
             <span className="font-mono text-sm">Something went wrong</span>
+            {this.state.errorMessage && (
+              <span className="max-w-md break-all font-mono text-xs text-destructive">
+                {this.state.errorMessage}
+              </span>
+            )}
             <Button
               variant="outline"
               size="sm"

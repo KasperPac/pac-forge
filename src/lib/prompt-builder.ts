@@ -1,4 +1,4 @@
-import type { Project, Agent, IoEntry, TagDbDefinition, GenerationMode, PatternCandidate, FbTemplate, DesignProfile, AgentKnowledgeDoc, ReferenceLibrarySection } from "@/types";
+import type { Project, Agent, IoEntry, TagDbDefinition, GenerationMode, PatternCandidate, FbTemplate, DesignProfile, AgentKnowledgeDoc, ReferenceLibrarySection, RackSlotLayout } from "@/types";
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { getAgentProfile } from "@/lib/agent-profiles";
 import { formatReferenceSections } from "@/lib/reference-lookup";
@@ -158,6 +158,21 @@ The following rules define the customer's code standards. ALL generated code MUS
 ${profile.rules}`;
 }
 
+export function formatRackLayout(rackLayout: RackSlotLayout[]): string {
+  if (rackLayout.length === 0) return "";
+  const sections: string[] = [];
+  for (const rack of rackLayout) {
+    const label = rack.rack === 0 ? "Central Rack" : rack.rack === 1 ? "ET 200SP" : `Rack ${rack.rack}`;
+    const header = `| Slot | Module | Order Number | Description |`;
+    const sep = `|------|--------|--------------|-------------|`;
+    const rows = rack.slots.map(
+      (s) => `| ${s.slot} | ${s.module_type} | ${s.order_number ?? "—"} | ${s.description ?? "—"} |`,
+    );
+    sections.push(`### ${label}\n${header}\n${sep}\n${rows.join("\n")}`);
+  }
+  return `## Hardware Configuration\n\n${sections.join("\n\n")}`;
+}
+
 export function formatFbTemplates(templates: FbTemplate[]): string {
   if (templates.length === 0) return "";
   const sections = templates.map((t) => {
@@ -291,6 +306,7 @@ ${codeExamples}
 ${project.safety_notes ? `- Safety Notes: ${project.safety_notes}` : ""}
 
 ${designProfile ? formatDesignProfile(designProfile) : ""}
+${formatRackLayout(project.rack_slot_layout)}
 ## IO List
 ${formatIoList(project.io_lists)}
 

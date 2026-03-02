@@ -1,6 +1,6 @@
 import type { Project, Agent, PatternCandidate, FbTemplate, DesignProfile, AgentKnowledgeDoc, ReferenceLibrarySection } from "@/types";
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
-import { buildContextMessages, formatFbTemplates } from "@/lib/prompt-builder";
+import { buildContextMessages, formatFbTemplates, formatRackLayout } from "@/lib/prompt-builder";
 import { getAgentProfile } from "@/lib/agent-profiles";
 import { buildPriorityHierarchyBlock } from "@/lib/knowledge-priority";
 
@@ -81,6 +81,7 @@ ${codeExamples}
 - Safety Level: ${project.safety_level}
 ${project.safety_notes ? `- Safety Notes: ${project.safety_notes}` : ""}
 
+${formatRackLayout(project.rack_slot_layout)}
 ${profileSection}## Agent Roles
 ${formatAgentRoles(agents, agentKnowledgeDocs)}
 

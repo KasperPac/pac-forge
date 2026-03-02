@@ -1,5 +1,5 @@
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
-import { formatIoList, formatFbTemplates } from "@/lib/prompt-builder";
+import { formatIoList, formatFbTemplates, formatRackLayout } from "@/lib/prompt-builder";
 import { getAgentProfile } from "@/lib/agent-profiles";
 import { buildPriorityHierarchyBlock } from "@/lib/knowledge-priority";
 import type { PatternCandidate, DesignProfile, AgentKnowledgeDoc, Project, FbTemplate, ReferenceLibrarySection } from "@/types";
@@ -42,6 +42,10 @@ export function buildCompileFixSystemPrompt(input: CompileFixPromptInput): strin
   const codeExamples = resolveSection(promptSections, "shared", "code_examples");
   const instructions = resolveSection(promptSections, "compile_fix", "instructions");
 
+  const rackSection = project && project.rack_slot_layout.length > 0
+    ? `\n\n${formatRackLayout(project.rack_slot_layout)}`
+    : "";
+
   const projectSection = project
     ? `\n\n## Project Context
 - Client: ${project.client_name}
@@ -49,7 +53,7 @@ export function buildCompileFixSystemPrompt(input: CompileFixPromptInput): strin
 - TIA Version: ${project.tia_version}
 - CPU Type: ${project.cpu_type}
 - Safety Level: ${project.safety_level}${project.safety_notes ? `\n- Safety Notes: ${project.safety_notes}` : ""}
-
+${rackSection}
 ## IO List
 ${formatIoList(project.io_lists)}` : "";
 
