@@ -15,6 +15,7 @@ interface DropboxConnection {
   email?: string;
   account_id?: string;
   connected_at?: string;
+  connected_by_email?: string;
 }
 
 interface ProjectNumberSuggestion {
@@ -22,13 +23,28 @@ interface ProjectNumberSuggestion {
   lastNumber?: number;
   suggested: string | null;
   clientExists?: boolean;
+  // Debug fields (temporary — for diagnosing path issues)
+  debug_path_checked?: string;
+  debug_api_error?: string;
+  debug_root_accessible?: boolean;
+  debug_root_error?: string;
+  debug_root_folders?: string[];
 }
 
 async function invokeDropbox(action: string, params?: Record<string, unknown>) {
   const { data, error } = await supabase.functions.invoke("dropbox", {
     body: { action, ...params },
   });
-  if (error) throw new Error(error.message ?? `Dropbox ${action} failed`);
+  if (error) {
+    // Extract the actual response body from FunctionsHttpError.context
+    let detail = error.message;
+    if (error.context && typeof error.context.json === "function") {
+      const body = await error.context.json().catch(() => null);
+      if (body?.error) detail = body.error;
+      else if (body?.message) detail = `[${body.code}] ${body.message}`;
+    }
+    throw new Error(detail);
+  }
   if (data?.error) throw new Error(data.error);
   return data;
 }
@@ -133,6 +149,8 @@ export function useSetupProjectFolder() {
       if (!checkResult.exists) {
         onProgress?.("Creating client folder...");
         await invokeDropbox("create-client-folder", { client_name });
+        // Brief pause to avoid Dropbox write rate limits
+        await new Promise((r) => setTimeout(r, 1500));
       }
 
       // Step 3: Copy template

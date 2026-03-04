@@ -1,7 +1,9 @@
 import { useState, useEffect, useMemo } from "react";
-import { ClipboardList, Lock, Check } from "lucide-react";
+import { ClipboardList, Lock, Check, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -11,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { useAgents } from "@/hooks/use-agents";
 import { useCreateSession } from "@/hooks/use-sessions";
+import { useBridgeStatus } from "@/hooks/use-tia-jobs";
 import { PIPELINE_STEP_CONFIG, DEFAULT_ENABLED_STEPS } from "@/lib/pipeline";
 import type { PipelineStepKey } from "@/lib/pipeline";
 import { cn } from "@/lib/utils";
@@ -18,8 +21,10 @@ import { cn } from "@/lib/utils";
 interface SessionStartDialogProps {
   projectId: string;
   open: boolean;
-  onSessionCreated: (sessionId: string) => void;
+  onSessionCreated: (sessionId: string, tiaProjectPath?: string) => void;
   onCancel?: () => void;
+  /** Show the TIA project path field (e.g. for Process Builder) */
+  showTiaProjectPath?: boolean;
 }
 
 export function SessionStartDialog({
@@ -27,10 +32,14 @@ export function SessionStartDialog({
   open,
   onSessionCreated,
   onCancel,
+  showTiaProjectPath,
 }: SessionStartDialogProps) {
   const { data: agents, isLoading } = useAgents();
   const createSession = useCreateSession();
+  const { data: bridgeStatus } = useBridgeStatus();
+  const bridgeConnected = bridgeStatus?.connected ?? false;
   const [error, setError] = useState<string | null>(null);
+  const [tiaProjectPath, setTiaProjectPath] = useState("");
 
   // Track which pipeline steps are enabled (all on by default)
   const [enabledSteps, setEnabledSteps] = useState<Set<PipelineStepKey>>(
@@ -42,6 +51,7 @@ export function SessionStartDialog({
     if (open) {
       setEnabledSteps(new Set(DEFAULT_ENABLED_STEPS));
       setError(null);
+      setTiaProjectPath("");
     }
   }, [open]);
 
@@ -91,7 +101,7 @@ export function SessionStartDialog({
         projectId,
         agentIds: selectedAgentIds,
       });
-      onSessionCreated(session.id);
+      onSessionCreated(session.id, tiaProjectPath.trim() || undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start session");
     }
@@ -202,6 +212,38 @@ export function SessionStartDialog({
                 })}
               </div>
             </div>
+          {/* TIA Project Path (optional) */}
+          {showTiaProjectPath && (
+            <div className="space-y-1.5">
+              <Label htmlFor="tia-project-path" className="flex items-center gap-1.5 font-mono text-xs">
+                <FolderOpen className="h-3.5 w-3.5 text-muted-foreground" />
+                TIA Portal Project Path
+                <span className="text-muted-foreground">(optional)</span>
+                {bridgeConnected ? (
+                  <span className="ml-auto flex items-center gap-1 text-green-500">
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500" />
+                    Bridge connected
+                  </span>
+                ) : (
+                  <span className="ml-auto flex items-center gap-1 text-muted-foreground/60">
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
+                    Bridge offline
+                  </span>
+                )}
+              </Label>
+              <Input
+                id="tia-project-path"
+                value={tiaProjectPath}
+                onChange={(e) => setTiaProjectPath(e.target.value)}
+                placeholder="C:\TIA Projects\MyProject\MyProject.ap18"
+                className="font-mono text-xs"
+              />
+              <p className="font-mono text-[10px] text-muted-foreground">
+                Set this to auto-import artifacts into TIA Portal after each generation stage.
+                {!bridgeConnected && " Start the TIA Bridge before generation to enable auto-import."}
+              </p>
+            </div>
+          )}
           </div>
         )}
 

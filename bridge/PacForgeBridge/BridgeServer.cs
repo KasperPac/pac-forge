@@ -459,7 +459,7 @@ namespace PacForgeBridge
 
                 Console.WriteLine($"[DEMO] Creating project with {request.Sources.Count} source(s): {projectName} in {projectPath}");
 
-                var result = _tiaService.CreateProjectWithSources(projectPath, projectName, request.Sources, importOrder);
+                var result = _tiaService.CreateProjectWithSources(projectPath, projectName, request.Sources, importOrder, request.IoModules, request.IoTags);
 
                 await WriteJson(res, 200, new TiaActionResponse
                 {

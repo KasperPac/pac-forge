@@ -6,6 +6,8 @@ import type {
   AgentKnowledgeDoc,
   ReferenceLibrarySection,
 } from "@/types";
+import type { ProcessStage } from "@/types/process-builder";
+import type { PromptRole } from "@/types/prompt-section";
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { getAgentProfile } from "@/lib/agent-profiles";
 import { buildContextMessages } from "@/lib/prompt-builder";
@@ -21,6 +23,8 @@ export interface ReviewPromptInput {
   approvedPatterns?: PatternCandidate[];
   promptSections?: Record<string, string>;
   referenceSections?: ReferenceLibrarySection[];
+  /** When set, constrains the review to only what this stage produced. */
+  stage?: ProcessStage;
 }
 
 interface BuiltPrompt {
@@ -50,13 +54,38 @@ function formatArtifactsForReview(artifacts: ParsedArtifact[]): string {
     .join("\n\n---\n\n");
 }
 
+/** Maps a ProcessStage to its dedicated review-scope PromptRole. */
+const STAGE_TO_ROLE: Partial<Record<ProcessStage, PromptRole>> = {
+  io: "review_scope_io",
+  fb: "review_scope_fb",
+  db: "review_scope_db",
+  fc_ob: "review_scope_fc",
+};
+
+/**
+ * Returns the Review Scope block for this stage, resolved from DB overrides
+ * → prompt defaults.  Returns empty string for stages with no review scope
+ * (qa, folders).
+ */
+function buildStageReviewScope(
+  stage: ProcessStage,
+  promptSections: Record<string, string> | undefined,
+): string {
+  const role = STAGE_TO_ROLE[stage];
+  if (!role) return "";
+  const content = resolveSection(promptSections, role, "scope");
+  if (!content.trim()) return "";
+  return `## Review Scope\n\n${content}`;
+}
+
 /**
  * Builds a system prompt + messages for a reviewer agent.
  * The reviewer receives all generated artifacts and must either
  * return corrected versions or indicate no changes are needed.
+ * When `stage` is provided, the review is scoped to only what that stage produces.
  */
 export function buildReviewPrompt(input: ReviewPromptInput): BuiltPrompt {
-  const { agent, artifacts, project, knowledgeDocs, designProfile, approvedPatterns, promptSections, referenceSections } = input;
+  const { agent, artifacts, project, knowledgeDocs, designProfile, approvedPatterns, promptSections, referenceSections, stage } = input;
 
   const profile = getAgentProfile(agent.display_name);
 
@@ -70,12 +99,13 @@ export function buildReviewPrompt(input: ReviewPromptInput): BuiltPrompt {
 
   const knowledgeSection = formatKnowledgeDocs(knowledgeDocs ?? []);
   const profileSection = designProfile ? formatDesignProfile(designProfile) : "";
+  const stageScopeSection = stage ? buildStageReviewScope(stage, promptSections) : "";
 
   const systemPrompt = `${identity}
 
 ${instructions}
 
-${buildPriorityHierarchyBlock()}
+${stageScopeSection ? `${stageScopeSection}\n` : ""}${buildPriorityHierarchyBlock()}
 
 ## Output Format
 

@@ -52,17 +52,20 @@ export function ProjectForm({
   // Dropbox auto-suggest project number
   const { data: dropboxConn } = useDropboxConnection();
   const suggestNumber = useSuggestProjectNumber();
+  const suggestNumberRef = useRef(suggestNumber);
+  suggestNumberRef.current = suggestNumber;
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isConnected = !!dropboxConn?.connected;
 
   const fetchSuggestion = useCallback(
     (name: string) => {
-      if (!dropboxConn?.connected || !name.trim()) return;
+      if (!isConnected || !name.trim()) return;
       if (debounceRef.current !== null) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
-        suggestNumber.mutate(name.trim());
+        suggestNumberRef.current.mutate(name.trim());
       }, 600);
     },
-    [dropboxConn?.connected, suggestNumber]
+    [isConnected]
   );
 
   // Fetch suggestion when client name changes (on blur)
@@ -161,6 +164,34 @@ export function ProjectForm({
                 Suggested: {suggestNumber.data.suggested}
               </Badge>
             </button>
+          )}
+          {suggestNumber.isError && (
+            <p className="mt-1 text-xs text-destructive">
+              {suggestNumber.error?.message ?? "Failed to check Dropbox"}
+            </p>
+          )}
+          {suggestNumber.data && !suggestNumber.data.suggested && !suggestNumber.isPending && (
+            <div className="mt-1 space-y-0.5">
+              <p className="text-xs text-muted-foreground">
+                {suggestNumber.data.clientExists === false
+                  ? "Client folder not found in Dropbox"
+                  : "No numbered folders found to suggest from"}
+              </p>
+              {suggestNumber.data.debug_path_checked && (
+                <p className="text-[10px] text-muted-foreground/60 font-mono">
+                  Checked: {suggestNumber.data.debug_path_checked}
+                  {suggestNumber.data.debug_root_accessible === false && (
+                    <> | Root error: {suggestNumber.data.debug_root_error}</>
+                  )}
+                  {(suggestNumber.data.debug_root_folders?.length ?? 0) > 0 && (
+                    <> | Found in root: {suggestNumber.data.debug_root_folders!.join(", ")}</>
+                  )}
+                  {suggestNumber.data.debug_root_accessible && (suggestNumber.data.debug_root_folders?.length ?? 0) === 0 && (
+                    <> | Root is empty or inaccessible</>
+                  )}
+                </p>
+              )}
+            </div>
           )}
         </div>
 

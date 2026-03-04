@@ -1,8 +1,10 @@
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useProfile, useUpdateProfile, useUploadAvatar } from "@/hooks/use-profile";
 import { useUserAuditLog, useUserAgentChats } from "@/hooks/use-user-activity";
-import { useDropboxConnection, useDropboxConnect, useDropboxDisconnect } from "@/hooks/use-dropbox";
+import { useDropboxConnection, useDropboxConnect, useDropboxDisconnect, useDropboxExchangeCode } from "@/hooks/use-dropbox";
+import { getRedirectUri } from "@/lib/dropbox-oauth";
+import { useToast } from "@/hooks/use-toast";
 import type { AgentChatEntry } from "@/hooks/use-user-activity";
 import type { AuditLogEntry } from "@/types/tia";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -185,10 +187,53 @@ export default function ProfilePage() {
   const { data: dropboxConn, isLoading: dropboxLoading } = useDropboxConnection();
   const dropboxConnect = useDropboxConnect();
   const dropboxDisconnect = useDropboxDisconnect();
+  const dropboxExchange = useDropboxExchangeCode();
+  const { toast } = useToast();
 
   const [editName, setEditName] = useState("");
   const [isEditing, setIsEditing] = useState(false);
+  const [dropboxExchangeError, setDropboxExchangeError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const exchangeProcessedRef = useRef(false);
+
+  // Handle pending Dropbox OAuth exchange (saved by callback page)
+  const processPendingExchange = useCallback(async () => {
+    if (exchangeProcessedRef.current) return;
+    const raw = sessionStorage.getItem("dropbox_pending_exchange");
+    if (!raw) return;
+    exchangeProcessedRef.current = true;
+    sessionStorage.removeItem("dropbox_pending_exchange");
+
+    try {
+      const pending = JSON.parse(raw);
+      if (pending.error) {
+        setDropboxExchangeError(pending.error);
+        return;
+      }
+      const { code, code_verifier } = pending;
+      if (!code || !code_verifier) {
+        setDropboxExchangeError("Missing exchange parameters.");
+        return;
+      }
+
+      await dropboxExchange.mutateAsync({
+        code,
+        code_verifier,
+        redirect_uri: getRedirectUri(),
+      });
+
+      toast({
+        title: "Dropbox connected",
+        description: "Your team's Dropbox is now linked.",
+      });
+    } catch (err) {
+      setDropboxExchangeError(err instanceof Error ? err.message : "Exchange failed");
+    }
+  }, [dropboxExchange, toast]);
+
+  useEffect(() => {
+    processPendingExchange();
+  }, [processPendingExchange]);
 
   const initials = getInitials(profile?.display_name, user?.email ?? undefined);
 
@@ -391,6 +436,11 @@ export default function ProfilePage() {
                         {dropboxConn.email}
                       </div>
                     )}
+                    {dropboxConn.connected_by_email && (
+                      <div className="font-mono text-[10px] text-muted-foreground/60">
+                        Connected by {dropboxConn.connected_by_email}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <Button
@@ -433,9 +483,15 @@ export default function ProfilePage() {
               </div>
             )}
           </div>
-          {dropboxDisconnect.isError && (
+          {(dropboxDisconnect.isError || dropboxExchange.isError || dropboxExchangeError) && (
             <div className="mt-3 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {dropboxDisconnect.error?.message ?? "Failed to disconnect"}
+              {dropboxExchangeError || dropboxExchange.error?.message || dropboxDisconnect.error?.message || "Operation failed"}
+            </div>
+          )}
+          {dropboxExchange.isPending && !dropboxConn?.connected && (
+            <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Completing Dropbox connection...
             </div>
           )}
         </Card>

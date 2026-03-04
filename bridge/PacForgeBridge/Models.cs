@@ -109,6 +109,24 @@ namespace PacForgeBridge
         public string ProjectName { get; set; }
         public Dictionary<string, string> Sources { get; set; }  // name → SCL content
         public List<string> ImportOrder { get; set; }             // ordered artifact names
+        public List<IoModuleDto> IoModules { get; set; }          // IO modules to plug into rack
+        public List<IoTagDto> IoTags { get; set; }                // PLC tags to create in tag table
+    }
+
+    public class IoModuleDto
+    {
+        public string Mlfb { get; set; }          // e.g. "6ES7 521-1BH50-0AA0"
+        public int Rack { get; set; }
+        public int Slot { get; set; }
+        public string Description { get; set; }
+    }
+
+    public class IoTagDto
+    {
+        public string Name { get; set; }           // Symbolic tag name, e.g. "Motor_Start"
+        public string DataType { get; set; }       // TIA data type, e.g. "Bool", "Int", "Word"
+        public string LogicalAddress { get; set; } // Siemens address, e.g. "%I0.0", "%Q1.3"
+        public string Comment { get; set; }        // Optional description
     }
 
     public class TiaActionResponse

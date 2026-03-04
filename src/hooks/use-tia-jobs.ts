@@ -175,3 +175,88 @@ export function useBridgeStatus() {
     retry: false,
   });
 }
+
+/**
+ * Check if a TIA project is currently open in the bridge.
+ */
+export async function isTiaProjectOpen(): Promise<boolean> {
+  const { baseUrl, timeout } = DEFAULT_BRIDGE_CONFIG;
+  try {
+    const resp = await fetch(`${baseUrl}/tia/status`, {
+      signal: AbortSignal.timeout(timeout),
+    });
+    if (resp.ok) {
+      const data = (await resp.json()) as BridgeStatusEvent["data"];
+      return data.tia_project_open ?? false;
+    }
+  } catch {
+    // Bridge offline
+  }
+  return false;
+}
+
+/**
+ * Create a TIA project and import sources in one call via /tia/demo/create.
+ * Used when no project exists yet — creates project, adds CPU, plugs IO modules, imports, compiles.
+ */
+export async function createProjectAndImport(
+  tiaProjectPath: string,
+  projectName: string,
+  sources: Record<string, string>,
+  importOrder: string[],
+  ioModules?: { mlfb: string; rack: number; slot: number; description: string }[],
+  ioTags?: { name: string; data_type: string; logical_address: string; comment?: string }[],
+): Promise<{ ok: boolean; error?: string }> {
+  const { baseUrl } = DEFAULT_BRIDGE_CONFIG;
+
+  // Parse path: TIA Projects.Create(dir, name) creates dir/name/name.ap18
+  // If user gives "C:\Automation\TestProject\TestProject.ap18" → dir="C:\Automation", name="TestProject"
+  // If user gives "C:\Automation\TestProject" → dir="C:\Automation", name="TestProject"
+  const normalized = tiaProjectPath.replace(/\\/g, "/").replace(/\/$/, "");
+  // Strip .ap17/.ap18/.ap19/.ap20 extension if present
+  const withoutExt = normalized.replace(/\.ap\d{2}$/i, "");
+  const parts = withoutExt.split("/");
+  const derivedName = parts[parts.length - 1] || projectName || "PacForge_Project";
+  let derivedDir = parts.slice(0, -1).join("/") || withoutExt;
+  // TIA creates dir/name/name.ap18 — if dir already ends with name, go up one level
+  const dirParts = derivedDir.split("/");
+  if (dirParts[dirParts.length - 1]?.toLowerCase() === derivedName.toLowerCase()) {
+    derivedDir = dirParts.slice(0, -1).join("/") || derivedDir;
+  }
+
+  try {
+    const resp = await fetch(`${baseUrl}/tia/demo/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        project_path: derivedDir,
+        project_name: derivedName,
+        sources: sources,
+        import_order: importOrder,
+        io_modules: ioModules ?? [],
+        io_tags: (ioTags ?? []).map((t) => ({
+          name: t.name,
+          data_type: t.data_type,
+          logical_address: t.logical_address,
+          comment: t.comment ?? "",
+        })),
+      }),
+      // Long timeout — TIA project creation can take 30-60s
+      signal: AbortSignal.timeout(120_000),
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      return { ok: false, error: text };
+    }
+
+    const result = await resp.json();
+    // Bridge uses snake_case serialization
+    if (!result.success) {
+      return { ok: false, error: result.message ?? "Project creation failed" };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Failed to create project" };
+  }
+}

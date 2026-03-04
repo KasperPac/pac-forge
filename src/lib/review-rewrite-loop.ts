@@ -7,6 +7,7 @@ import type {
   AgentKnowledgeDoc,
   ReferenceLibrarySection,
 } from "@/types";
+import type { ProcessStage } from "@/types/process-builder";
 import type { ParsedArtifact } from "@/lib/artifact-parser";
 import type { ReviewReport } from "@/lib/review-response-parser";
 import type { PipelineStepResult } from "@/lib/pipeline";
@@ -37,6 +38,8 @@ export interface ReviewRewriteInput {
   referenceSections?: ReferenceLibrarySection[];
   abortSignal: AbortSignal;
   callbacks: ReviewRewriteCallbacks;
+  /** When set, scopes the review to only what this pipeline stage produces. */
+  stage?: ProcessStage;
 }
 
 export interface ReviewRewriteResult {
@@ -70,6 +73,7 @@ export async function executeReviewRewriteLoop(
     referenceSections,
     abortSignal,
     callbacks,
+    stage,
   } = input;
 
   let artifacts = input.currentArtifacts;
@@ -111,6 +115,7 @@ export async function executeReviewRewriteLoop(
           approvedPatterns,
           promptSections,
           referenceSections,
+          stage,
         });
 
         const { content, usage } = await callNonStreaming(systemPrompt, messages, abortSignal);

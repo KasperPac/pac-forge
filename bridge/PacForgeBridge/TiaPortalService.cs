@@ -40,21 +40,62 @@ namespace PacForgeBridge
             }
             catch { }
 
+            // Probe whether the TIA Portal instance is still alive
+            bool connected = false;
+            bool projectOpen = false;
+            if (_tiaPortal != null)
+            {
+                try
+                {
+                    var _ = _tiaPortal.Projects;
+                    connected = true;
+                    projectOpen = _project != null;
+                }
+                catch
+                {
+                    // Instance is stale — clear it so Connect() will create a fresh one
+                    _tiaPortal = null;
+                    _project = null;
+                }
+            }
+
             return new BridgeStatusResponse
             {
-                Connected = IsConnected,
+                Connected = connected,
                 TiaVersion = tiaVersion,
-                TiaProjectOpen = IsProjectOpen,
+                TiaProjectOpen = projectOpen,
                 BridgeVersion = "1.0.0"
             };
         }
 
         /// <summary>
         /// Connect to TIA Portal — attach to running instance or start new one.
+        /// Detects disposed/stale instances and reconnects automatically.
         /// </summary>
         public void Connect(bool preferAttach = true, bool withUi = true)
         {
-            if (IsConnected) return;
+            // Check if the existing instance is still alive
+            if (_tiaPortal != null)
+            {
+                try
+                {
+                    // Probe the instance — accessing Projects will throw if disposed
+                    var _ = _tiaPortal.Projects;
+                    return; // Still alive, nothing to do
+                }
+                catch (ObjectDisposedException)
+                {
+                    Console.WriteLine("[TIA] TIA Portal instance was disposed externally. Reconnecting...");
+                    _tiaPortal = null;
+                    _project = null;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[TIA] TIA Portal instance is stale ({ex.GetType().Name}: {ex.Message}). Reconnecting...");
+                    _tiaPortal = null;
+                    _project = null;
+                }
+            }
 
             if (preferAttach)
             {
@@ -513,7 +554,7 @@ namespace PacForgeBridge
         /// Create a new TIA project and import provided SCL sources.
         /// Generic method — the frontend supplies the sources and import order.
         /// </summary>
-        public DemoResult CreateProjectWithSources(string projectDir, string projectName, Dictionary<string, string> sources, List<string> importOrder)
+        public DemoResult CreateProjectWithSources(string projectDir, string projectName, Dictionary<string, string> sources, List<string> importOrder, List<IoModuleDto> ioModules = null, List<IoTagDto> ioTags = null)
         {
             var result = new DemoResult();
 
@@ -534,7 +575,19 @@ namespace PacForgeBridge
             PlcSoftware plcSoftware = GetPlcSoftware();
             result.DeviceName = device.Name;
 
-            // Step 3b: Delete auto-created OB1
+            // Step 3a: Add IO modules to rack
+            if (ioModules != null && ioModules.Count > 0)
+            {
+                PlugIoModules(device, ioModules, result);
+            }
+
+            // Step 3b: Create PLC tags from IO list
+            if (ioTags != null && ioTags.Count > 0)
+            {
+                CreateIoTags(plcSoftware, ioTags, result);
+            }
+
+            // Step 3d: Delete auto-created OB1
             try
             {
                 PlcBlock existingMain = plcSoftware.BlockGroup.Blocks.Find("Main");
@@ -600,6 +653,204 @@ namespace PacForgeBridge
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Plug IO modules into the device rack at specified slots.
+        /// The rack is the first DeviceItem under the Device.
+        /// </summary>
+        // Common firmware versions to try when plugging IO modules (most likely first)
+        private static readonly string[] VERSION_SUFFIXES = new[]
+        {
+            "/V1.0", "/V1.1", "/V2.0", "/V2.1", "/V2.2", "/V0.1", "/V0.2", "/V0.0", "/V0.3", "/V0.4",
+            "/V3.0", "/V3.1", "/V4.0", "/V4.1", "/V4.2", "/V5.0"
+        };
+
+        private void PlugIoModules(Device device, List<IoModuleDto> ioModules, DemoResult result)
+        {
+            // S7-1500 device hierarchy: Device → DeviceItem[0] (rack/rail) → slots
+            DeviceItem rack = null;
+            foreach (DeviceItem item in device.DeviceItems)
+            {
+                rack = item;
+                break;
+            }
+
+            if (rack == null)
+            {
+                result.Warnings.Add("Could not find rack in device — IO modules not added");
+                return;
+            }
+
+            Console.WriteLine($"[TIA] Found rack: {rack.Name} — plugging {ioModules.Count} IO module(s)");
+
+            // Track next available slot — slots 0 (PSU) and 1 (CPU) are reserved
+            int nextAvailableSlot = 2;
+
+            foreach (var mod in ioModules)
+            {
+                // Guard: never plug into slot 0 (PSU) or slot 1 (CPU), and never reuse an occupied slot
+                int targetSlot = mod.Slot < nextAvailableSlot ? nextAvailableSlot : mod.Slot;
+                if (targetSlot < 2) targetSlot = 2;
+
+                string mlfb = mod.Mlfb.Trim();
+                string moduleName = mod.Description ?? $"IO_Slot{targetSlot}";
+                bool plugged = false;
+                string lastError = "";
+
+                if (targetSlot != mod.Slot)
+                    Console.WriteLine($"[TIA]   Slot {mod.Slot} is reserved (CPU/PSU), using slot {targetSlot} instead");
+
+                // Build MLFB format variants:
+                // - raw input, no-spaces, with-space-at-pos-4
+                var mlfbVariants = new List<string> { mlfb };
+                string noSpaces = mlfb.Replace(" ", "");
+                string withSpaces = noSpaces.Length >= 4
+                    ? noSpaces.Substring(0, 4) + " " + noSpaces.Substring(4)
+                    : noSpaces;
+                if (noSpaces != mlfb) mlfbVariants.Add(noSpaces);
+                if (withSpaces != mlfb && withSpaces != noSpaces) mlfbVariants.Add(withSpaces);
+
+                foreach (string variant in mlfbVariants)
+                {
+                    if (plugged) break;
+
+                    // Try without version
+                    string orderNumber = $"OrderNumber:{variant}";
+                    try
+                    {
+                        Console.WriteLine($"[TIA]   Trying {orderNumber} in slot {targetSlot}...");
+                        DeviceItem pluggedItem = rack.PlugNew(orderNumber, moduleName, targetSlot);
+                        Console.WriteLine($"[TIA]   OK: {pluggedItem.Name} in slot {targetSlot}");
+                        plugged = true;
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        lastError = ex.Message;
+                        Console.WriteLine($"[TIA]   Failed: {ex.Message}");
+                    }
+
+                    // Try with version suffixes
+                    foreach (string version in VERSION_SUFFIXES)
+                    {
+                        string orderWithVer = $"OrderNumber:{variant}{version}";
+                        try
+                        {
+                            Console.WriteLine($"[TIA]   Trying {orderWithVer} in slot {targetSlot}...");
+                            DeviceItem pluggedItem = rack.PlugNew(orderWithVer, moduleName, targetSlot);
+                            Console.WriteLine($"[TIA]   OK: {pluggedItem.Name} in slot {targetSlot}");
+                            plugged = true;
+                            break;
+                        }
+                        catch (Exception ex)
+                        {
+                            lastError = ex.Message;
+                        }
+                    }
+                }
+
+                if (plugged)
+                {
+                    nextAvailableSlot = targetSlot + 1;
+                }
+                else
+                {
+                    string warning = $"IO module {mod.Mlfb} slot {targetSlot}: Could not find matching hardware in TIA catalog. Last error: {lastError}";
+                    Console.WriteLine($"[TIA]   WARNING: {warning}");
+                    result.Warnings.Add(warning);
+                    nextAvailableSlot = targetSlot + 1;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Create PLC tags in a "PacForge IO Tags" tag table from the project IO list.
+        /// Each IoTagDto maps a symbolic name to a physical address (e.g. Motor_Start → %I0.0).
+        /// Invalid tags are skipped with a warning rather than failing the whole import.
+        /// </summary>
+        private void CreateIoTags(PlcSoftware plcSoftware, List<IoTagDto> ioTags, DemoResult result)
+        {
+            if (ioTags == null || ioTags.Count == 0) return;
+
+            Console.WriteLine($"[TIA] Creating {ioTags.Count} PLC tag(s) in tag table...");
+
+            // Find or create the "PacForge IO Tags" table
+            PlcTagTable tagTable = plcSoftware.TagTableGroup.TagTables.Find("PacForge IO Tags");
+            if (tagTable == null)
+            {
+                Console.WriteLine("[TIA] Creating 'PacForge IO Tags' tag table...");
+                tagTable = plcSoftware.TagTableGroup.TagTables.Create("PacForge IO Tags");
+            }
+
+            int created = 0;
+            foreach (var tag in ioTags)
+            {
+                if (string.IsNullOrWhiteSpace(tag.Name) || string.IsNullOrWhiteSpace(tag.LogicalAddress))
+                {
+                    Console.WriteLine($"[TIA]   Skipping tag with empty name or address");
+                    continue;
+                }
+
+                // Normalize data type: TIA Portal uses PascalCase (Bool, Int, Word, DWord, Real)
+                string dataType = NormalizeDataType(tag.DataType);
+                string address = tag.LogicalAddress.Trim();
+
+                try
+                {
+                    PlcTag created_tag = tagTable.Tags.Create(tag.Name.Trim(), dataType, address);
+                    if (!string.IsNullOrWhiteSpace(tag.Comment))
+                    {
+                        created_tag.Comment.Items[0].Text = tag.Comment;
+                    }
+                    Console.WriteLine($"[TIA]   Tag: {tag.Name} {dataType} {address}");
+                    created++;
+                }
+                catch (Exception ex)
+                {
+                    string warning = $"Could not create tag '{tag.Name}' ({dataType} {address}): {ex.Message}";
+                    Console.WriteLine($"[TIA]   WARNING: {warning}");
+                    result.Warnings.Add(warning);
+                }
+            }
+
+            Console.WriteLine($"[TIA] Created {created}/{ioTags.Count} PLC tag(s).");
+        }
+
+        /// <summary>
+        /// Normalize data type string to TIA Portal PascalCase format.
+        /// Accepts "bool", "BOOL", "Bool" → "Bool"; "int" → "Int"; etc.
+        /// </summary>
+        private static string NormalizeDataType(string rawType)
+        {
+            if (string.IsNullOrWhiteSpace(rawType)) return "Bool";
+
+            switch (rawType.Trim().ToUpperInvariant())
+            {
+                case "BOOL":    return "Bool";
+                case "BYTE":    return "Byte";
+                case "WORD":    return "Word";
+                case "DWORD":   return "DWord";
+                case "LWORD":   return "LWord";
+                case "SINT":    return "SInt";
+                case "INT":     return "Int";
+                case "DINT":    return "DInt";
+                case "LINT":    return "LInt";
+                case "USINT":   return "USInt";
+                case "UINT":    return "UInt";
+                case "UDINT":   return "UDInt";
+                case "ULINT":   return "ULInt";
+                case "REAL":    return "Real";
+                case "LREAL":   return "LReal";
+                case "CHAR":    return "Char";
+                case "STRING":  return "String";
+                case "TIME":    return "Time";
+                case "DATE":    return "Date";
+                default:
+                    // Return as-is with first letter uppercased as best effort
+                    string t = rawType.Trim();
+                    return char.ToUpperInvariant(t[0]) + t.Substring(1).ToLowerInvariant();
+            }
         }
 
         /// <summary>

@@ -1,8 +1,5 @@
 import { useState, useCallback, useMemo } from "react";
 import { useSearchParams, useNavigate } from "react-router";
-import { useKnowledgeConflicts } from "@/hooks/use-knowledge-conflicts";
-import { KnowledgeConflictBanner } from "@/components/knowledge-conflict-banner";
-import { KnowledgeConflictDialog } from "@/components/knowledge-conflict-dialog";
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -10,15 +7,13 @@ import {
 } from "@/components/ui/resizable";
 import { useProject, useProjects } from "@/hooks/use-projects";
 import { useAgents } from "@/hooks/use-agents";
-import { useActiveSession, useEndSession } from "@/hooks/use-sessions";
+import { useActiveSession } from "@/hooks/use-sessions";
 import {
   useSessionReservations,
-  useReleaseAgent,
   useAutoRenewLeases,
 } from "@/hooks/use-agent-reservation";
-import { useConversationHistory, useClearConversation } from "@/hooks/use-conversation";
-import { usePipelineGenerate } from "@/hooks/use-pipeline-generate";
-import { useFilteredMultiAgentKnowledgeDocs, useAllAgentKnowledgeDocs } from "@/hooks/use-agent-knowledge";
+import { useFbBuilder } from "@/hooks/use-fb-builder";
+import { useFilteredMultiAgentKnowledgeDocs } from "@/hooks/use-agent-knowledge";
 import { useCreatePatternCandidate, useActivePatterns } from "@/hooks/use-patterns";
 import { useAuditLog } from "@/hooks/use-audit-log";
 import { useSubmitTiaJob, useBridgeStatus, useTiaJob } from "@/hooks/use-tia-jobs";
@@ -36,19 +31,18 @@ import { buildManifest } from "@/lib/manifest-builder";
 import { SessionStartDialog } from "@/components/session-start-dialog";
 import { ExportDialog } from "@/components/pac-st/export-dialog";
 import { TiaSubmitDialog } from "@/components/pac-st/tia-submit-dialog";
-import { ChatPane } from "@/components/pac-st/chat-pane";
+import { FbBuilderPane } from "@/components/pac-st/fb-builder-pane";
 import { GeneratedCodePane } from "@/components/pac-st/generated-code-pane";
 import { ApprovedCodePane } from "@/components/pac-st/approved-code-pane";
 import { BottomPanel } from "@/components/pac-st/bottom-panel";
 import { DebugDrawer } from "@/components/pac-st/debug-drawer";
 import { TeachPatternDialog } from "@/components/pac-st/teach-pattern-dialog";
 import { TeachUploadDialog } from "@/components/pac-st/teach-upload-dialog";
-import { FbSelectionDialog } from "@/components/pac-st/fb-selection-dialog";
 import { supabase } from "@/lib/supabase";
 import type { BridgeEvent, CompileErrorEvent } from "@/lib/tia-bridge-contract";
-import type { ConversationTurn, SafetyWarning, CompileError, TiaManifest, TiaJobType } from "@/types";
+import type { SafetyWarning, CompileError, TiaManifest, TiaJobType } from "@/types";
 
-export default function PacStPage() {
+export default function FbBuilderPage() {
   const [searchParams] = useSearchParams();
   const projectId = searchParams.get("project");
   const { data: project } = useProject(projectId ?? undefined);
@@ -64,10 +58,8 @@ export default function PacStPage() {
   // Agents & reservations
   const { data: allAgents } = useAgents();
   const { data: reservations } = useSessionReservations(sessionId);
-  const { expiringSoon } = useLeaseCheck(reservations);
+  useLeaseCheck(reservations);
   const { renewNow } = useAutoRenewLeases(sessionId);
-  const releaseAgent = useReleaseAgent();
-  const endSession = useEndSession();
 
   // Filter agents to only those in the active session
   const selectedAgentIds = activeSession?.selected_agent_ids;
@@ -77,10 +69,6 @@ export default function PacStPage() {
     return allAgents.filter((a) => selectedSet.has(a.id));
   }, [selectedAgentIds, allAgents]);
 
-  // Conversation history from DB
-  const { data: dbMessages } = useConversationHistory(sessionId);
-  const clearConversation = useClearConversation();
-
   // Knowledge docs for session agents
   const sessionAgentIds = useMemo(() => sessionAgents.map((a) => a.id), [sessionAgents]);
   const { data: agentKnowledgeDocs } = useFilteredMultiAgentKnowledgeDocs(
@@ -89,9 +77,9 @@ export default function PacStPage() {
     project?.cpu_type,
   );
 
-  // Generation (pipeline for chat)
-  const { executePipeline, isRunning: isPipelineRunning } = usePipelineGenerate();
-  const { setGeneratedArtifacts, currentTiaJobId, setCurrentTiaJobId, navigateToArtifact, setDebugDrawerOpen, selectedFbTemplateIds, setSelectedFbTemplateIds } = usePacStStore();
+  // FB Builder hook
+  const fbBuilder = useFbBuilder();
+  const { setGeneratedArtifacts, currentTiaJobId, setCurrentTiaJobId, navigateToArtifact, setDebugDrawerOpen, selectedFbTemplateIds } = usePacStStore();
 
   // Pattern detection + audit + FB templates
   const { data: approvedPatterns } = useActivePatterns(project?.plc_brand ?? "SIEMENS_TIA");
@@ -111,28 +99,20 @@ export default function PacStPage() {
   const [selectedJobType, setSelectedJobType] = useState<TiaJobType>("IMPORT_AND_COMPILE");
   const [showTeachDialog, setShowTeachDialog] = useState(false);
   const [showTeachUploadDialog, setShowTeachUploadDialog] = useState(false);
-  const [showConflictDialog, setShowConflictDialog] = useState(false);
-  const [fbSelectionOpen, setFbSelectionOpen] = useState(false);
-  const [pendingMessage, setPendingMessage] = useState<string | null>(null);
 
-  // Knowledge conflict detection — all knowledge docs, not just session-scoped
-  const { data: allKnowledgeDocs } = useAllAgentKnowledgeDocs();
-  const conflictContext = useMemo(() => ({
-    patterns: [],
-    designProfile: designProfile ?? undefined,
-    fbTemplates: [],
-    agentKnowledgeDocs: allKnowledgeDocs ?? [],
-    overrides: [],
-  }), [designProfile, allKnowledgeDocs]);
+  // Local UI state
+  const [warnings, setWarnings] = useState<SafetyWarning[]>([]);
+  const [logs, setLogs] = useState<string[]>([]);
+  const [showExport, setShowExport] = useState(false);
+  const [currentManifest, setCurrentManifest] = useState<TiaManifest | null>(null);
 
-  const {
-    conflicts,
-    unresolvedCount,
-    resolveConflict,
-    dismissConflict,
-    confirmConflict,
-    getResolution,
-  } = useKnowledgeConflicts(conflictContext);
+  // Filter FB templates by selection (or all if no selection made yet)
+  const filteredFbTemplates = useMemo(() => {
+    if (!fbTemplates) return [];
+    if (selectedFbTemplateIds.length === 0) return fbTemplates;
+    const selectedSet = new Set(selectedFbTemplateIds);
+    return fbTemplates.filter((t) => selectedSet.has(t.id));
+  }, [fbTemplates, selectedFbTemplateIds]);
 
   const handleBridgeEvent = useCallback((event: BridgeEvent) => {
     if (event.type === "compile_error") {
@@ -175,201 +155,78 @@ export default function PacStPage() {
     return dbErrors.length > 0 ? dbErrors : liveCompileErrors;
   }, [currentTiaJob, liveCompileErrors]);
 
-  // Local UI state
-  const [optimisticMessages, setOptimisticMessages] = useState<ConversationTurn[]>([]);
-  const [warnings, setWarnings] = useState<SafetyWarning[]>([]);
-  const [logs, setLogs] = useState<string[]>([]);
-  const [showExport, setShowExport] = useState(false);
-  const [currentManifest, setCurrentManifest] = useState<TiaManifest | null>(null);
-
-  // Filter FB templates by selection (or all if no selection made yet)
-  const filteredFbTemplates = useMemo(() => {
-    if (!fbTemplates) return [];
-    if (selectedFbTemplateIds.length === 0) return fbTemplates;
-    const selectedSet = new Set(selectedFbTemplateIds);
-    return fbTemplates.filter((t) => selectedSet.has(t.id));
-  }, [fbTemplates, selectedFbTemplateIds]);
-
-  // Merge DB messages with optimistic local messages
-  const messages = useMemo(() => {
-    const db = dbMessages ?? [];
-    const dbIds = new Set(db.map((m) => m.id));
-    const pending = optimisticMessages.filter((m) => !dbIds.has(m.id));
-    return [...db, ...pending];
-  }, [dbMessages, optimisticMessages]);
-
-  const runPipeline = useCallback(
+  // FB Builder: send message to PM
+  const handleFbBuilderSend = useCallback(
     (message: string) => {
-      if (!project || !sessionId) return;
+      if (!project) return;
+      const pmAgent = sessionAgents.find((a) => a.display_name === "Project Manager") ?? sessionAgents[0];
+      if (!pmAgent) return;
 
-      renewNow();
-
-      const userTurn: ConversationTurn = {
-        id: crypto.randomUUID(),
-        session_id: sessionId,
-        role: "USER",
-        agent_id: null,
-        content: message,
-        artifacts_generated: [],
-        safety_warnings: [],
-        created_at: new Date().toISOString(),
-      };
-      setOptimisticMessages((prev) => [...prev, userTurn]);
-
-      executePipeline(
-        {
-          project,
-          sessionId,
-          agents: sessionAgents,
-          generationMode: "FB_PER_DEVICE",
-          userMessage: message,
-          conversationHistory: messages
-            .filter((m) => m.role === "USER" || m.role === "AGENT")
-            .map((m) => ({
-              role: m.role === "USER" ? "user" as const : "assistant" as const,
-              content: m.content,
-            })),
-          approvedPatterns: approvedPatterns ?? [],
-          fbTemplates: filteredFbTemplates,
-          designProfile,
-          agentKnowledgeDocs,
-          promptSections,
-        },
-        {
-          onSuccess: (result) => {
-            setGeneratedArtifacts(result.artifacts);
-            setCurrentManifest(result.manifest);
-
-            if (result.warnings.length > 0) {
-              setWarnings((prev) => [...prev, ...result.warnings]);
-            }
-
-            const allErrors = [...result.parseErrors, ...result.manifestErrors];
-            if (allErrors.length > 0) {
-              setLogs((prev) => [...prev, ...allErrors.map((e) => `[WARN] ${e}`)]);
-            }
-
-            if (result.dbWarnings.length > 0) {
-              setLogs((prev) => [...prev, ...result.dbWarnings.map((w) => `[DB] ${w}`)]);
-              toast({ title: "DB Warning", description: result.dbWarnings[0], variant: "destructive" });
-            }
-
-            setLogs((prev) => [
-              ...prev,
-              `[INFO] Generated ${result.artifacts.length} artifact(s)`,
-            ]);
-
-            setOptimisticMessages([]);
-
-            auditLog.mutate({
-              action: "GENERATION",
-              projectId: project.id,
-              details: {
-                session_id: sessionId,
-                artifact_count: result.artifacts.length,
-                warning_count: result.warnings.length,
-              },
-            });
-          },
-          onError: (error) => {
-            const errorTurn: ConversationTurn = {
-              id: crypto.randomUUID(),
-              session_id: sessionId,
-              role: "AGENT",
-              agent_id: null,
-              content: `Generation failed: ${error.message}`,
-              artifacts_generated: [],
-              safety_warnings: [],
-              created_at: new Date().toISOString(),
-            };
-            setOptimisticMessages((prev) => [...prev, errorTurn]);
-            setLogs((prev) => [...prev, `[ERROR] ${error.message}`]);
-          },
-        },
-      );
-    },
-    [project, sessionId, sessionAgents, messages, renewNow, executePipeline, setGeneratedArtifacts, auditLog, approvedPatterns, filteredFbTemplates, designProfile, agentKnowledgeDocs, promptSections]
-  );
-
-  // Wrap handleSend to show FB selection dialog on first message when templates exist
-  const handleSend = useCallback(
-    (message: string) => {
-      // If this is the first send, no FB selection has been made, and templates exist — show dialog
-      const hasTemplates = (fbTemplates?.length ?? 0) > 0;
-      const hasSelection = selectedFbTemplateIds.length > 0;
-      const isFirstMessage = messages.length === 0;
-
-      if (isFirstMessage && hasTemplates && !hasSelection) {
-        setPendingMessage(message);
-        setFbSelectionOpen(true);
-        return;
-      }
-
-      runPipeline(message);
-    },
-    [fbTemplates, selectedFbTemplateIds, messages, runPipeline],
-  );
-
-  const handleFbSelectionConfirm = useCallback(
-    (ids: string[]) => {
-      setSelectedFbTemplateIds(ids);
-      setFbSelectionOpen(false);
-      if (pendingMessage) {
-        // Defer to next tick so the filtered templates are updated
-        const msg = pendingMessage;
-        setPendingMessage(null);
-        setTimeout(() => runPipeline(msg), 0);
-      }
-    },
-    [pendingMessage, runPipeline, setSelectedFbTemplateIds],
-  );
-
-  const handleFbSelectionSkip = useCallback(() => {
-    setSelectedFbTemplateIds([]);
-    setFbSelectionOpen(false);
-    if (pendingMessage) {
-      const msg = pendingMessage;
-      setPendingMessage(null);
-      setTimeout(() => runPipeline(msg), 0);
-    }
-  }, [pendingMessage, runPipeline, setSelectedFbTemplateIds]);
-
-  const handleAcknowledgeWarning = useCallback((id: string) => {
-    setWarnings((prev) =>
-      prev.map((w) => (w.id === id ? { ...w, acknowledged: true } : w))
-    );
-  }, []);
-
-  const handleReleaseAgent = useCallback(
-    (reservationId: string, agentId: string) => {
-      releaseAgent.mutate({
-        reservationId,
-        agentId,
-        reason: "USER_RELEASE",
+      fbBuilder.sendMessage({
+        userMessage: message,
+        project,
+        pmAgent,
+        knowledgeDocs: agentKnowledgeDocs?.[pmAgent.id],
+        designProfile,
+        promptSections,
       });
     },
-    [releaseAgent]
+    [project, sessionAgents, agentKnowledgeDocs, designProfile, promptSections, fbBuilder],
   );
 
-  const handleSessionCreated = useCallback(() => {
-    setShowStartDialog(false);
-  }, []);
+  // FB Builder: trigger generation pipeline
+  const handleFbBuilderGenerate = useCallback(() => {
+    if (!project || !sessionId) return;
 
-  const handleClearChat = useCallback(() => {
-    if (!sessionId) return;
-    clearConversation.mutate(sessionId, {
-      onSuccess: () => {
-        setOptimisticMessages([]);
-        setWarnings([]);
-        setLogs([]);
-        usePacStStore.getState().reset();
-        setCurrentManifest(null);
-        setLogs(["[INFO] Session workspace cleared"]);
-        toast({ title: "Workspace cleared" });
-        auditLog.mutate({ action: "CLEAR_WORKSPACE", projectId: project?.id });
+    renewNow();
+
+    fbBuilder.generate(
+      {
+        project,
+        sessionId,
+        agents: sessionAgents,
+        approvedPatterns: approvedPatterns ?? [],
+        fbTemplates: filteredFbTemplates,
+        designProfile,
+        agentKnowledgeDocs,
+        promptSections,
       },
-    });
-  }, [sessionId, clearConversation]);
+      {
+        onSuccess: (result) => {
+          setGeneratedArtifacts(result.artifacts);
+          setCurrentManifest(result.manifest);
+
+          if (result.warnings.length > 0) {
+            setWarnings((prev) => [...prev, ...result.warnings]);
+          }
+
+          setLogs((prev) => [
+            ...prev,
+            `[INFO] FB Builder: generated ${result.artifacts.length} artifact(s)`,
+          ]);
+
+          if (result.dbWarnings.length > 0) {
+            setLogs((prev) => [...prev, ...result.dbWarnings.map((w) => `[DB] ${w}`)]);
+            toast({ title: "DB Warning", description: result.dbWarnings[0], variant: "destructive" });
+          }
+
+          auditLog.mutate({
+            action: "GENERATION",
+            projectId: project.id,
+            details: {
+              session_id: sessionId,
+              mode: "FB_BUILDER",
+              artifact_count: result.artifacts.length,
+              warning_count: result.warnings.length,
+            },
+          });
+        },
+        onError: (error) => {
+          setLogs((prev) => [...prev, `[ERROR] FB Builder generation failed: ${error.message}`]);
+        },
+      },
+    );
+  }, [project, sessionId, sessionAgents, renewNow, fbBuilder, setGeneratedArtifacts, auditLog, approvedPatterns, filteredFbTemplates, designProfile, agentKnowledgeDocs, promptSections]);
 
   const handleSaveSnapshot = useCallback(async () => {
     const { approvedArtifacts, activeApprovedIndex, generatedArtifacts } = usePacStStore.getState();
@@ -487,11 +344,9 @@ export default function PacStPage() {
   }, [project]);
 
   const handleExport = useCallback(async () => {
-    // Build manifest from current approved artifacts
     const { approvedArtifacts } = usePacStStore.getState();
     if (!project || approvedArtifacts.length === 0) return;
 
-    // Save snapshots for all approved artifacts
     await saveSnapshotsForApproved("EXPORT");
 
     const artifacts = approvedArtifacts.map((a) => ({
@@ -527,7 +382,6 @@ export default function PacStPage() {
 
   // TIA job submission flow
   const handleTiaSubmit = useCallback((jobType: TiaJobType) => {
-    // Build manifest from current approved artifacts if not already built
     const { approvedArtifacts: approved } = usePacStStore.getState();
     if (!project || approved.length === 0) return;
 
@@ -554,7 +408,6 @@ export default function PacStPage() {
   const handleTiaSubmitConfirm = useCallback(async (tiaProjectPath: string) => {
     if (!project || !sessionId || !currentManifest) return;
 
-    // Save snapshots for all approved artifacts before TIA submit
     await saveSnapshotsForApproved("TIA_SUBMIT");
 
     setLiveCompileErrors([]);
@@ -596,36 +449,24 @@ export default function PacStPage() {
     navigateToArtifact(artifactName, line);
   }, [navigateToArtifact]);
 
-  const handleRegenerateAffected = useCallback((errorArtifacts: string[]) => {
-    if (!currentTiaJob) return;
-    const errors = currentTiaJob.compile_results?.errors ?? liveCompileErrors;
-    const relevantErrors = errors.filter((e) => errorArtifacts.includes(e.artifact_name));
-
-    const errorSummary = relevantErrors
-      .map((e) => `- ${e.artifact_name}${e.line ? `:${e.line}` : ""}: ${e.error_text}`)
-      .join("\n");
-
-    const prompt = `The following artifacts had compile errors in TIA Portal. Please fix them:\n\n${errorSummary}\n\nRegenerate the affected artifacts: ${errorArtifacts.join(", ")}`;
-    handleSend(prompt);
-  }, [currentTiaJob, liveCompileErrors, handleSend]);
-
   const navigate = useNavigate();
   const { data: allProjects } = useProjects();
 
+  // Project selection guard
   if (!projectId) {
     return (
       <div className="-m-4 flex flex-1 items-center justify-center">
         <div className="w-full max-w-sm space-y-4 text-center">
-          <div className="font-mono text-xs text-muted-foreground">PAC-ST</div>
+          <div className="font-mono text-xs text-muted-foreground">FB BUILDER</div>
           <h2 className="text-lg font-semibold">Select a Project</h2>
           <p className="font-mono text-sm text-muted-foreground">
-            Choose a project to open a Pac-ST code generation session.
+            Choose a project to open an FB Builder session.
           </p>
           <div className="space-y-2">
             {allProjects?.map((p) => (
               <button
                 key={p.id}
-                onClick={() => navigate(`/pac-st/chat?project=${p.id}`)}
+                onClick={() => navigate(`/pac-st/fb-builder?project=${p.id}`)}
                 className="flex w-full items-center justify-between rounded-md border px-4 py-3 text-left transition-colors hover:bg-accent/50"
               >
                 <div>
@@ -667,8 +508,8 @@ export default function PacStPage() {
         <SessionStartDialog
           projectId={projectId}
           open={true}
-          onSessionCreated={handleSessionCreated}
-          onCancel={() => navigate("/pac-st/chat")}
+          onSessionCreated={() => setShowStartDialog(false)}
+          onCancel={() => navigate("/pac-st/fb-builder")}
         />
       )}
 
@@ -680,7 +521,7 @@ export default function PacStPage() {
           artifacts={exportArtifacts}
           manifest={currentManifest}
           warnings={warnings}
-          projectName={project?.client_name ?? "pac-st"}
+          projectName={project?.client_name ?? "fb-builder"}
         />
       )}
 
@@ -699,27 +540,6 @@ export default function PacStPage() {
         plcBrand={project?.plc_brand ?? "SIEMENS_TIA"}
       />
 
-      {/* FB selection dialog */}
-      <FbSelectionDialog
-        open={fbSelectionOpen}
-        userMessage={pendingMessage ?? ""}
-        ioList={project?.io_lists ?? []}
-        availableTemplates={fbTemplates ?? []}
-        onConfirm={handleFbSelectionConfirm}
-        onSkip={handleFbSelectionSkip}
-      />
-
-      {/* Knowledge conflict dialog */}
-      <KnowledgeConflictDialog
-        open={showConflictDialog}
-        onOpenChange={setShowConflictDialog}
-        conflicts={conflicts}
-        onResolve={resolveConflict}
-        onDismiss={dismissConflict}
-        onConfirm={confirmConflict}
-        getResolution={getResolution}
-      />
-
       {/* TIA submit confirmation dialog */}
       <TiaSubmitDialog
         open={showSubmitDialog}
@@ -732,43 +552,30 @@ export default function PacStPage() {
         submitting={submitTiaJob.isPending}
       />
 
-      {/* Knowledge conflict banner */}
-      <KnowledgeConflictBanner
-        unresolvedCount={unresolvedCount}
-        onReview={() => setShowConflictDialog(true)}
-      />
-
       {/* Main three-pane area */}
       <ResizablePanelGroup orientation="horizontal" className="flex-1">
         <ResizablePanel defaultSize={30} minSize={15}>
-          <ChatPane
-            project={project ?? null}
-            agents={sessionAgents}
-            reservations={reservations ?? undefined}
-            messages={messages}
-            warnings={warnings}
-            onSend={handleSend}
-            onAcknowledgeWarning={handleAcknowledgeWarning}
-            onReleaseAgent={handleReleaseAgent}
-            onClearChat={handleClearChat}
-            onEndSession={activeSession ? () => endSession.mutate(activeSession.id) : undefined}
-            profileName={designProfile?.name}
-            expiringSoon={expiringSoon}
-            sending={isPipelineRunning}
-            clearing={clearConversation.isPending}
-            endingSession={endSession.isPending}
+          <FbBuilderPane
+            messages={fbBuilder.messages}
+            onSend={handleFbBuilderSend}
+            onGenerate={handleFbBuilderGenerate}
+            onClear={fbBuilder.clear}
+            sending={fbBuilder.sending}
+            generating={fbBuilder.generating}
+            streamingContent={fbBuilder.streamingContent}
+            error={fbBuilder.error}
           />
         </ResizablePanel>
 
         <ResizableHandle withHandle />
 
-        <ResizablePanel defaultSize={37.5} minSize={20}>
+        <ResizablePanel defaultSize={35} minSize={20}>
           <GeneratedCodePane />
         </ResizablePanel>
 
         <ResizableHandle withHandle />
 
-        <ResizablePanel defaultSize={37.5} minSize={20}>
+        <ResizablePanel defaultSize={35} minSize={20}>
           <ApprovedCodePane
             projectId={projectId}
             onSaveSnapshot={handleSaveSnapshot}
@@ -788,7 +595,7 @@ export default function PacStPage() {
         submitDisabled={!currentManifest}
         submitting={submitTiaJob.isPending}
         currentJob={currentTiaJob ?? null}
-        onRegenerateAffected={handleRegenerateAffected}
+        onRegenerateAffected={undefined}
         onDebugOpen={() => setDebugDrawerOpen(true)}
         debugAvailable={!!usePacStStore.getState().pipelineExecution}
         onTeachOpen={() => setShowTeachDialog(true)}

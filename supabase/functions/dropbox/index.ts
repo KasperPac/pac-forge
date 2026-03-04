@@ -29,16 +29,18 @@ interface TokenRow {
   access_token: string;
   refresh_token: string | null;
   token_expires_at: string | null;
+  root_namespace_id: string | null;
 }
 
 async function getValidToken(
   supabase: ReturnType<typeof createClient>,
-  userId: string
-): Promise<{ token: string; error?: string }> {
+  _userId: string
+): Promise<{ token: string; rootNamespaceId?: string; error?: string }> {
+  // Shared connection — get the single team connection (no user_id filter)
   const { data, error } = await supabase
     .from("dropbox_connections")
-    .select("id, access_token, refresh_token, token_expires_at")
-    .eq("user_id", userId)
+    .select("id, access_token, refresh_token, token_expires_at, root_namespace_id")
+    .limit(1)
     .single();
 
   if (error || !data) {
@@ -71,11 +73,11 @@ async function getValidToken(
         })
         .eq("id", row.id);
 
-      return { token: refreshed.access_token };
+      return { token: refreshed.access_token, rootNamespaceId: row.root_namespace_id ?? undefined };
     }
   }
 
-  return { token: row.access_token };
+  return { token: row.access_token, rootNamespaceId: row.root_namespace_id ?? undefined };
 }
 
 async function refreshAccessToken(refreshToken: string): Promise<{
@@ -109,25 +111,46 @@ async function refreshAccessToken(refreshToken: string): Promise<{
 async function dropboxApi(
   token: string,
   endpoint: string,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
+  rootNamespaceId?: string
 ): Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string; status?: number }> {
-  const resp = await fetch(`${DROPBOX_API}${endpoint}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!resp.ok) {
-    const text = await resp.text();
-    // Dropbox returns 409 for path/not_found, which is not a server error
-    return { ok: false, error: text, status: resp.status };
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  };
+  // For Business/Team accounts, set the path root to the team namespace
+  if (rootNamespaceId) {
+    headers["Dropbox-API-Path-Root"] = JSON.stringify({
+      ".tag": "root",
+      root: rootNamespaceId,
+    });
   }
 
-  const data = await resp.json();
-  return { ok: true, data };
+  // Retry with backoff for rate-limit errors (too_many_write_operations)
+  const MAX_RETRIES = 3;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const resp = await fetch(`${DROPBOX_API}${endpoint}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      // Retry on too_many_write_operations (Dropbox 409 rate limit)
+      if (text.includes("too_many_write_operations") && attempt < MAX_RETRIES) {
+        const delay = (attempt + 1) * 2000; // 2s, 4s, 6s
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      return { ok: false, error: text, status: resp.status };
+    }
+
+    const data = await resp.json();
+    return { ok: true, data };
+  }
+
+  return { ok: false, error: "Max retries exceeded", status: 429 };
 }
 
 // ---------- Action Handlers ----------
@@ -135,6 +158,7 @@ async function dropboxApi(
 async function handleExchangeCode(
   supabase: ReturnType<typeof createClient>,
   userId: string,
+  userEmail: string,
   body: Record<string, unknown>
 ): Promise<Response> {
   const { code, code_verifier, redirect_uri } = body as {
@@ -183,45 +207,50 @@ async function handleExchangeCode(
   let displayName = null;
   let email = null;
   let accountId = null;
+  let rootNamespaceId = null;
   if (accountResp.ok) {
     const account = await accountResp.json();
     displayName = account.name?.display_name ?? null;
     email = account.email ?? null;
     accountId = account.account_id ?? null;
+    // For Business/Team accounts, capture the root namespace ID
+    rootNamespaceId = account.root_info?.root_namespace_id ?? null;
   }
 
-  // Upsert connection
-  const { error } = await supabase.from("dropbox_connections").upsert(
-    {
-      user_id: userId,
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token ?? null,
-      token_expires_at: tokens.expires_in
-        ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
-        : null,
-      account_id: accountId,
-      display_name: displayName,
-      email,
-      connected_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id" }
-  );
+  // Shared connection: delete any existing connections, then insert new one
+  await supabase.from("dropbox_connections").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+
+  const { error } = await supabase.from("dropbox_connections").insert({
+    user_id: userId,
+    access_token: tokens.access_token,
+    refresh_token: tokens.refresh_token ?? null,
+    token_expires_at: tokens.expires_in
+      ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
+      : null,
+    account_id: accountId,
+    display_name: displayName,
+    email,
+    connected_at: new Date().toISOString(),
+    connected_by_email: userEmail,
+    root_namespace_id: rootNamespaceId,
+  });
 
   if (error) {
     return jsonResponse({ error: error.message }, 500);
   }
 
-  return jsonResponse({ connected: true, display_name: displayName, email }, 200);
+  return jsonResponse({ connected: true, display_name: displayName, email, connected_by_email: userEmail }, 200);
 }
 
 async function handleCheckConnection(
   supabase: ReturnType<typeof createClient>,
-  userId: string
+  _userId: string
 ): Promise<Response> {
+  // Shared connection — check if ANY connection exists (not per-user)
   const { data, error } = await supabase
     .from("dropbox_connections")
-    .select("display_name, email, account_id, connected_at")
-    .eq("user_id", userId)
+    .select("display_name, email, account_id, connected_at, connected_by_email")
+    .limit(1)
     .single();
 
   if (error || !data) {
@@ -234,17 +263,19 @@ async function handleCheckConnection(
     email: data.email,
     account_id: data.account_id,
     connected_at: data.connected_at,
+    connected_by_email: data.connected_by_email,
   }, 200);
 }
 
 async function handleDisconnect(
   supabase: ReturnType<typeof createClient>,
-  userId: string
+  _userId: string
 ): Promise<Response> {
+  // Shared connection — delete all connections (any user can disconnect)
   const { error } = await supabase
     .from("dropbox_connections")
     .delete()
-    .eq("user_id", userId);
+    .neq("id", "00000000-0000-0000-0000-000000000000");
 
   if (error) {
     return jsonResponse({ error: error.message }, 500);
@@ -263,11 +294,11 @@ async function handleCheckClientFolder(
     return jsonResponse({ error: "client_name required" }, 400);
   }
 
-  const { token, error: tokenErr } = await getValidToken(supabase, userId);
+  const { token, rootNamespaceId, error: tokenErr } = await getValidToken(supabase, userId);
   if (tokenErr) return jsonResponse({ error: tokenErr }, 401);
 
   const folderPath = `${JOBS_ROOT}/${clientName}`;
-  const result = await dropboxApi(token, "/files/get_metadata", { path: folderPath });
+  const result = await dropboxApi(token, "/files/get_metadata", { path: folderPath }, rootNamespaceId);
 
   if (result.ok) {
     return jsonResponse({ exists: true, path: folderPath }, 200);
@@ -291,11 +322,11 @@ async function handleCreateClientFolder(
     return jsonResponse({ error: "client_name required" }, 400);
   }
 
-  const { token, error: tokenErr } = await getValidToken(supabase, userId);
+  const { token, rootNamespaceId, error: tokenErr } = await getValidToken(supabase, userId);
   if (tokenErr) return jsonResponse({ error: tokenErr }, 401);
 
   const folderPath = `${JOBS_ROOT}/${clientName}`;
-  const result = await dropboxApi(token, "/files/create_folder_v2", { path: folderPath });
+  const result = await dropboxApi(token, "/files/create_folder_v2", { path: folderPath }, rootNamespaceId);
 
   if (!result.ok) {
     return jsonResponse({ error: result.error ?? "Failed to create folder" }, 500);
@@ -320,7 +351,7 @@ async function handleCopyTemplate(
     );
   }
 
-  const { token, error: tokenErr } = await getValidToken(supabase, userId);
+  const { token, rootNamespaceId, error: tokenErr } = await getValidToken(supabase, userId);
   if (tokenErr) return jsonResponse({ error: tokenErr }, 401);
 
   const destPath = `${JOBS_ROOT}/${clientName}/${projectNumber} - ${descriptionShort}`;
@@ -328,7 +359,7 @@ async function handleCopyTemplate(
   const result = await dropboxApi(token, "/files/copy_v2", {
     from_path: TEMPLATE_PATH,
     to_path: destPath,
-  });
+  }, rootNamespaceId);
 
   if (!result.ok) {
     return jsonResponse({ error: result.error ?? "Failed to copy template" }, 500);
@@ -347,10 +378,10 @@ async function handleListFolder(
     return jsonResponse({ error: "path required" }, 400);
   }
 
-  const { token, error: tokenErr } = await getValidToken(supabase, userId);
+  const { token, rootNamespaceId, error: tokenErr } = await getValidToken(supabase, userId);
   if (tokenErr) return jsonResponse({ error: tokenErr }, 401);
 
-  const result = await dropboxApi(token, "/files/list_folder", { path });
+  const result = await dropboxApi(token, "/files/list_folder", { path }, rootNamespaceId);
 
   if (!result.ok) {
     return jsonResponse({ error: result.error ?? "Failed to list folder" }, 500);
@@ -376,19 +407,35 @@ async function handleSuggestProjectNumber(
     return jsonResponse({ error: "client_name required" }, 400);
   }
 
-  const { token, error: tokenErr } = await getValidToken(supabase, userId);
+  const { token, rootNamespaceId, error: tokenErr } = await getValidToken(supabase, userId);
   if (tokenErr) return jsonResponse({ error: tokenErr }, 401);
 
   const folderPath = `${JOBS_ROOT}/${clientName}`;
 
   // Check if client folder exists
-  const metaResult = await dropboxApi(token, "/files/get_metadata", { path: folderPath });
+  const metaResult = await dropboxApi(token, "/files/get_metadata", { path: folderPath }, rootNamespaceId);
   if (!metaResult.ok) {
-    return jsonResponse({ suggested: null, clientExists: false }, 200);
+    // Diagnostic: list JOBS_ROOT to see what folders the API can actually see
+    const rootList = await dropboxApi(token, "/files/list_folder", { path: JOBS_ROOT }, rootNamespaceId);
+    const rootFolders = rootList.ok
+      ? ((rootList.data?.entries as Array<Record<string, unknown>>) ?? [])
+          .filter((e) => e[".tag"] === "folder")
+          .map((e) => e.name as string)
+          .slice(0, 20)
+      : [];
+    return jsonResponse({
+      suggested: null,
+      clientExists: false,
+      debug_path_checked: folderPath,
+      debug_api_error: metaResult.error?.slice(0, 200),
+      debug_root_accessible: rootList.ok,
+      debug_root_error: rootList.ok ? undefined : rootList.error?.slice(0, 200),
+      debug_root_folders: rootFolders,
+    }, 200);
   }
 
   // List subfolders
-  const listResult = await dropboxApi(token, "/files/list_folder", { path: folderPath });
+  const listResult = await dropboxApi(token, "/files/list_folder", { path: folderPath }, rootNamespaceId);
   if (!listResult.ok) {
     return jsonResponse({ suggested: null, clientExists: true }, 200);
   }
@@ -398,12 +445,17 @@ async function handleSuggestProjectNumber(
     .filter((e) => e[".tag"] === "folder")
     .map((e) => e.name as string);
 
-  // Parse pattern: PREFIX-NUMBER (e.g. CVL-2601)
-  const parsed: Array<{ prefix: string; number: number }> = [];
+  // Parse pattern: PREFIX-YYNN (e.g. CVL-2601 = year 26, seq 01)
+  const parsed: Array<{ prefix: string; year: number; seq: number; full: string }> = [];
   for (const name of folderNames) {
-    const match = name.match(/^([A-Za-z]+)-(\d+)/);
+    const match = name.match(/^([A-Za-z]+)-(\d{2})(\d{2,})/);
     if (match) {
-      parsed.push({ prefix: match[1].toUpperCase(), number: parseInt(match[2], 10) });
+      parsed.push({
+        prefix: match[1].toUpperCase(),
+        year: parseInt(match[2], 10),
+        seq: parseInt(match[3], 10),
+        full: `${match[1].toUpperCase()}-${match[2]}${match[3]}`,
+      });
     }
   }
 
@@ -418,14 +470,31 @@ async function handleSuggestProjectNumber(
   }
   const topPrefix = Object.entries(prefixCounts).sort((a, b) => b[1] - a[1])[0][0];
 
-  // Find highest number for that prefix
-  const numbers = parsed.filter((p) => p.prefix === topPrefix).map((p) => p.number);
-  const maxNumber = Math.max(...numbers);
+  // Current 2-digit year
+  const currentYear = new Date().getFullYear() % 100; // e.g. 26 for 2026
+
+  // Filter to current year entries for this prefix
+  const currentYearEntries = parsed.filter(
+    (p) => p.prefix === topPrefix && p.year === currentYear
+  );
+
+  let suggested: string;
+  if (currentYearEntries.length > 0) {
+    // Next sequential for current year
+    const maxSeq = Math.max(...currentYearEntries.map((p) => p.seq));
+    const nextSeq = String(maxSeq + 1).padStart(2, "0");
+    suggested = `${topPrefix}-${currentYear}${nextSeq}`;
+  } else {
+    // No projects this year yet — start at 01
+    suggested = `${topPrefix}-${currentYear}01`;
+  }
 
   return jsonResponse({
     prefix: topPrefix,
-    lastNumber: maxNumber,
-    suggested: `${topPrefix}-${maxNumber + 1}`,
+    lastNumber: currentYearEntries.length > 0
+      ? Math.max(...currentYearEntries.map((p) => p.seq))
+      : 0,
+    suggested,
     clientExists: true,
   }, 200);
 }
@@ -468,7 +537,7 @@ Deno.serve(async (req) => {
 
     switch (action) {
       case "exchange-code":
-        return await handleExchangeCode(supabase, user.id, body);
+        return await handleExchangeCode(supabase, user.id, user.email ?? "", body);
       case "check-connection":
         return await handleCheckConnection(supabase, user.id);
       case "disconnect":

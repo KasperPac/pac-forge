@@ -202,10 +202,23 @@ export async function processRawResponse(
 
 // --- Auth + streaming helpers (exported for reuse by other hooks) ---
 
+// Cache the token briefly to avoid repeated lock acquisitions on the auth store.
+// The Supabase auth lock (Navigator LockManager) can deadlock when many
+// concurrent calls all try to getSession() at once (e.g. pipeline stages).
+let _cachedToken: string | null = null;
+let _cachedTokenExp = 0;
+
 export async function getAuthToken(): Promise<string> {
+  // Return cached token if it's still valid (with 60s buffer)
+  if (_cachedToken && Date.now() < _cachedTokenExp - 60_000) {
+    return _cachedToken;
+  }
   const { data: { session: authSession } } = await supabase.auth.getSession();
   const token = authSession?.access_token;
   if (!token) throw new Error("Not authenticated");
+  // Cache for the token's lifetime
+  _cachedToken = token;
+  _cachedTokenExp = (authSession.expires_at ?? 0) * 1000; // expires_at is in seconds
   return token;
 }
 

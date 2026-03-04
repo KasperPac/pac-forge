@@ -14,3 +14,4 @@ export * from "./prompt-section";
 export * from "./reference-library";
 export * from "./agent-chat";
 export * from "./conflict-dismissal";
+export * from "./process-builder";

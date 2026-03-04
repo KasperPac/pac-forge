@@ -58,9 +58,9 @@ interface AgentGroup {
 }
 
 const AGENT_GROUPS: AgentGroup[] = [
-  { agent: "Project Manager", roles: ["plan", "summary", "fb_builder"] },
-  { agent: "Code Architect", roles: ["generate", "process", "rewrite", "compile_fix"] },
-  { agent: "Reviewers", roles: ["review"] },
+  { agent: "Project Manager", roles: ["plan", "summary", "fb_builder", "process_qa", "process_matrix_review"] },
+  { agent: "Code Architect", roles: ["generate", "process", "rewrite", "compile_fix", "process_io", "process_folders", "process_fb", "process_db", "process_fc"] },
+  { agent: "Reviewers", roles: ["review", "review_scope_io", "review_scope_fb", "review_scope_db", "review_scope_fc"] },
   { agent: "Pattern Librarian", roles: ["patterns"] },
   // Shared is cross-agent
   { agent: "All Agents", roles: ["shared"] },
@@ -73,10 +73,21 @@ const ROLE_PREVIEW_AGENTS: Partial<Record<PromptRole, string[]>> = {
   rewrite: ["Code Architect"],
   compile_fix: ["Code Architect"],
   review: ["PLC Standards Enforcer", "IO Validator", "Safety Auditor"],
+  review_scope_io: ["PLC Standards Enforcer", "IO Validator", "Safety Auditor"],
+  review_scope_fb: ["PLC Standards Enforcer", "IO Validator", "Safety Auditor"],
+  review_scope_db: ["PLC Standards Enforcer", "IO Validator", "Safety Auditor"],
+  review_scope_fc: ["PLC Standards Enforcer", "IO Validator", "Safety Auditor"],
   patterns: ["Pattern Librarian"],
   plan: ["Project Manager"],
   summary: ["Project Manager"],
   fb_builder: ["Project Manager"],
+  process_qa: ["Project Manager"],
+  process_matrix_review: ["Project Manager"],
+  process_io: ["Code Architect"],
+  process_folders: ["Code Architect"],
+  process_fb: ["Code Architect"],
+  process_db: ["Code Architect"],
+  process_fc: ["Code Architect"],
 };
 
 /** Maps each role to its primary owning agent name. */
@@ -91,6 +102,17 @@ const ROLE_OWNER: Record<PromptRole, string> = {
   summary: "Project Manager",
   patterns: "Pattern Librarian",
   fb_builder: "Project Manager",
+  process_qa: "Project Manager",
+  process_matrix_review: "Project Manager",
+  process_io: "Code Architect",
+  process_folders: "Code Architect",
+  process_fb: "Code Architect",
+  process_db: "Code Architect",
+  process_fc: "Code Architect",
+  review_scope_io: "Reviewers",
+  review_scope_fb: "Reviewers",
+  review_scope_db: "Reviewers",
+  review_scope_fc: "Reviewers",
 };
 
 /** Roles whose assembled prompt includes the shared platform_rules section. */
