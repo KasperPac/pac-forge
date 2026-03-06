@@ -14,6 +14,7 @@ import {
   FolderInput,
   Sparkles,
 } from "lucide-react";
+import { CategoryIcon } from "@/components/fb-category-icons";
 import Editor from "@monaco-editor/react";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -437,8 +438,9 @@ export default function FbLibraryPage() {
             >
               <button
                 onClick={() => setActiveCategory(cat.name)}
-                className="px-2.5 py-1"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1"
               >
+                <CategoryIcon category={cat.name} className="h-3.5 w-3.5 shrink-0" />
                 {cat.display_name}
                 {categoryCounts.has(cat.name) && (
                   <Badge variant="secondary" className="ml-1 h-4 px-1 text-xs">
@@ -883,13 +885,16 @@ function TemplateCard({
   return (
     <Card className="group flex flex-col p-4 transition-colors hover:bg-accent/30">
       <div className="flex items-start justify-between">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 flex items-start gap-2.5">
+          <CategoryIcon category={template.device_category} className="mt-0.5 h-7 w-7 shrink-0 text-muted-foreground" />
+          <div className="min-w-0">
           <h3 className="truncate font-mono text-sm font-semibold">{template.name}</h3>
           {template.description && (
             <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
               {template.description}
             </p>
           )}
+          </div>
         </div>
         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
           <Button
