@@ -1,4 +1,5 @@
 import type { Project, Agent, DesignProfile, AgentKnowledgeDoc, FbTemplate } from "@/types";
+import type { PipelineStepResult } from "@/lib/pipeline";
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { getAgentProfile } from "@/lib/agent-profiles";
 import { formatDesignProfile, formatIoList, formatFbTemplates } from "@/lib/prompt-builder";
@@ -19,6 +20,55 @@ export interface ProcessQaPromptInput {
   promptSections?: Record<string, string>;
   conversationHistory?: Array<{ role: "user" | "assistant"; content: string }>;
   userMessage: string;
+  pipelineSteps?: PipelineStepResult[];
+}
+
+/**
+ * Produce a compact pipeline execution summary for PM follow-up context.
+ * Summarizes what each agent did in each stage so the PM can answer
+ * "why did you change X?" without dumping full raw responses.
+ */
+export function formatPipelineContextForPm(steps: PipelineStepResult[]): string {
+  if (steps.length === 0) return "";
+
+  // Group steps by stage
+  const stageMap = new Map<string, PipelineStepResult[]>();
+  const stageOrder: string[] = [];
+  for (const step of steps) {
+    const key = step.stage ?? "unknown";
+    if (!stageMap.has(key)) {
+      stageMap.set(key, []);
+      stageOrder.push(key);
+    }
+    stageMap.get(key)!.push(step);
+  }
+
+  const lines: string[] = ["## Pipeline Execution History", ""];
+
+  for (const stage of stageOrder) {
+    const stageSteps = stageMap.get(stage)!;
+    lines.push(`### ${stage.toUpperCase()} Stage`);
+
+    for (const step of stageSteps) {
+      if (step.status !== "completed") continue;
+
+      if (step.role === "generate" || step.role === "rewrite") {
+        const artifacts = step.artifactsModified.length > 0
+          ? step.artifactsModified.join(", ")
+          : "code";
+        const label = step.role === "rewrite" ? `${step.agentName} (Rewrite)` : step.agentName;
+        lines.push(`- **${label}** generated: ${artifacts}`);
+      } else if (step.role === "review") {
+        // Extract finding count from summary if available
+        lines.push(`- **${step.agentName}** review: ${step.summary || "completed"}`);
+      } else {
+        lines.push(`- **${step.agentName}**: ${step.summary || step.role}`);
+      }
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
 }
 
 function formatModuleCatalog(modules: ModuleCatalogEntry[]): string {
@@ -37,7 +87,7 @@ ${lines.join("\n")}`;
  * IO modules and FB templates, and collects enough info for staged generation.
  */
 export function buildProcessQaPrompt(input: ProcessQaPromptInput): BuiltPrompt {
-  const { project, pmAgent, knowledgeDocs, designProfile, fbTemplates, promptSections, conversationHistory, userMessage } = input;
+  const { project, pmAgent, knowledgeDocs, designProfile, fbTemplates, promptSections, conversationHistory, userMessage, pipelineSteps } = input;
 
   const pmProfile = getAgentProfile("Project Manager");
   const identity = interpolateAgent(
@@ -77,11 +127,20 @@ ${knowledgeSection}
 
 ${pmAgent.system_prompt ? `## Additional Instructions\n${pmAgent.system_prompt}` : ""}
 
+${pipelineSteps && pipelineSteps.length > 0 ? formatPipelineContextForPm(pipelineSteps) : ""}
+
 ${instructions}`;
+
+  // Detect if the user is asking for matrix generation/regeneration and inject format reminder
+  const matrixKeywords = /\b(matrix|regenerate|produce|redo|update.*matrix|linkage|generate.*matrix|ready|enough info|complete|all the info)\b/i;
+  const isMatrixRequest = matrixKeywords.test(userMessage);
+  const finalUserMessage = isMatrixRequest
+    ? `${userMessage}\n\n[SYSTEM FORMAT REQUIREMENT — MANDATORY]\nOutput the matrix as JSON inside [PROCESS_MATRIX]...[/PROCESS_MATRIX] tags.\nThe ONLY allowed top-level keys are: "version", "deviceLinkage", "globalData", "processSequences", "notes".\nDo NOT use: ioTags, callingFCs, functionBlocks, instanceDBs, processFC, ob1, ioModules, project, udts, directionTruthTable, faultStateSummary, or any other keys.\nEach device goes in "deviceLinkage" with a "wiring" array. Process sequences use "processSequences" with permissives, safetyConditions, and steps (each step has "transition" with combinator+conditions, and "actions" array).\nKeep it compact — no scan-cycle traces, no truth tables, no verbose descriptions. The JSON must fit in one response.`
+    : userMessage;
 
   const messages: Array<{ role: "user" | "assistant"; content: string }> = [
     ...(conversationHistory ?? []),
-    { role: "user" as const, content: userMessage },
+    { role: "user" as const, content: finalUserMessage },
   ];
 
   return { systemPrompt, messages };

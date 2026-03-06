@@ -93,8 +93,10 @@ export function useProcessPipeline() {
 
       try {
         // Collect context from previous stages
+        // FC+OB stage uses compact mode: FB interfaces only (not full implementations)
+        // to avoid exceeding context limits
         const stageArtifacts = store.getState().stageArtifacts;
-        const previousContext = getStageContext(stageArtifacts, stage);
+        const previousContext = getStageContext(stageArtifacts, stage, stage === "fc_ob");
 
         // Reference lookup
         let referenceSections: ReferenceLibrarySection[] = [];
@@ -145,7 +147,7 @@ export function useProcessPipeline() {
 
             const genStep = createPendingStep(generator, "generate");
             const stepId = `${generator.id}-fb-${deviceType}`;
-            store.getState().addPipelineStep({ ...genStep, agentId: stepId });
+            store.getState().addPipelineStep({ ...genStep, agentId: stepId, stage });
             store.getState().updatePipelineStep(stepId, { status: "running" });
 
             const startTime = Date.now();
@@ -193,7 +195,7 @@ export function useProcessPipeline() {
           const { systemPrompt, messages: promptMessages } = promptBuilder(baseInput);
 
           const genStep = createPendingStep(generator, "generate");
-          store.getState().addPipelineStep(genStep);
+          store.getState().addPipelineStep({ ...genStep, stage });
           store.getState().updatePipelineStep(generator.id, { status: "running" });
 
           const startTime = Date.now();
@@ -269,7 +271,7 @@ export function useProcessPipeline() {
             stage,
             abortSignal: abort.signal,
             callbacks: {
-              addStep: (step) => store.getState().addPipelineStep(step),
+              addStep: (step) => store.getState().addPipelineStep({ ...step, stage }),
               updateStep: (id, updates) => store.getState().updatePipelineStep(id, updates),
               setActiveAgentName: (name) => store.getState().setActiveAgentName(name),
             },
@@ -315,12 +317,13 @@ export function useProcessPipeline() {
         });
         store.getState().setActiveAgentName(null);
 
-        // Auto-save session state
+        // Auto-save session state (including pipeline log for transcript persistence)
         updateSession.mutate({
           sessionId,
           updates: {
             current_stage: stage,
             stage_statuses: store.getState().stageStatuses,
+            pipeline_log: (store.getState().pipelineExecution?.steps ?? []) as unknown as Record<string, unknown>[],
           },
         });
 

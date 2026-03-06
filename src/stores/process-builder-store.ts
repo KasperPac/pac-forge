@@ -9,10 +9,14 @@ import type {
   FbRecommendation,
   ProcessLinkageMatrix,
   LinkageDevice,
-  LinkageIoSignal,
+  FbWire,
   LinkageInterlock,
   LinkageGlobalData,
   ProcessStep,
+  ProcessSequence,
+  ProcessPermissive,
+  SafetyCondition,
+  TransitionSubCondition,
   MatrixReviewStatus,
 } from "@/types/process-builder";
 import type { PipelineExecution, PipelineStepResult } from "@/lib/pipeline";
@@ -77,19 +81,35 @@ interface ProcessBuilderState {
   updateLinkageDevice: (deviceId: string, updates: Partial<LinkageDevice>) => void;
   addLinkageDevice: (device: LinkageDevice) => void;
   removeLinkageDevice: (deviceId: string) => void;
-  addDeviceIoSignal: (deviceId: string, signal: LinkageIoSignal) => void;
-  updateDeviceIoSignal: (deviceId: string, signalId: string, updates: Partial<LinkageIoSignal>) => void;
-  removeDeviceIoSignal: (deviceId: string, signalId: string) => void;
+  addDeviceWire: (deviceId: string, wire: FbWire) => void;
+  updateDeviceWire: (deviceId: string, wireId: string, updates: Partial<FbWire>) => void;
+  removeDeviceWire: (deviceId: string, wireId: string) => void;
   addDeviceInterlock: (deviceId: string, interlock: LinkageInterlock) => void;
   updateDeviceInterlock: (deviceId: string, interlockId: string, updates: Partial<LinkageInterlock>) => void;
   removeDeviceInterlock: (deviceId: string, interlockId: string) => void;
   updateGlobalData: (id: string, updates: Partial<LinkageGlobalData>) => void;
   addGlobalData: (data: LinkageGlobalData) => void;
   removeGlobalData: (id: string) => void;
-  updateProcessStep: (stepId: string, updates: Partial<ProcessStep>) => void;
-  addProcessStep: (step: ProcessStep) => void;
-  removeProcessStep: (stepId: string) => void;
-  reorderProcessSteps: (stepIds: string[]) => void;
+
+  // Actions — process sequences
+  addProcessSequence: (sequence: ProcessSequence) => void;
+  updateProcessSequence: (sequenceId: string, updates: Partial<ProcessSequence>) => void;
+  removeProcessSequence: (sequenceId: string) => void;
+  addProcessStep: (sequenceId: string, step: ProcessStep) => void;
+  updateProcessStep: (sequenceId: string, stepId: string, updates: Partial<ProcessStep>) => void;
+  removeProcessStep: (sequenceId: string, stepId: string) => void;
+  reorderProcessSteps: (sequenceId: string, stepIds: string[]) => void;
+  addPermissive: (sequenceId: string, permissive: ProcessPermissive) => void;
+  updatePermissive: (sequenceId: string, permissiveId: string, updates: Partial<ProcessPermissive>) => void;
+  removePermissive: (sequenceId: string, permissiveId: string) => void;
+  addSafetyCondition: (sequenceId: string, condition: SafetyCondition) => void;
+  updateSafetyCondition: (sequenceId: string, conditionId: string, updates: Partial<SafetyCondition>) => void;
+  removeSafetyCondition: (sequenceId: string, conditionId: string) => void;
+  addTransitionSubCondition: (sequenceId: string, stepId: string, subCondition: TransitionSubCondition) => void;
+  updateTransitionSubCondition: (sequenceId: string, stepId: string, subConditionId: string, updates: Partial<TransitionSubCondition>) => void;
+  removeTransitionSubCondition: (sequenceId: string, stepId: string, subConditionId: string) => void;
+  setTransitionCombinator: (sequenceId: string, stepId: string, combinator: "AND" | "OR") => void;
+
   setMatrixReviewStatus: (status: MatrixReviewStatus) => void;
 
   // Actions — artifacts
@@ -165,6 +185,21 @@ function updateMatrixDevice(
     ...matrix,
     deviceLinkage: matrix.deviceLinkage.map((d) =>
       d.id === deviceId ? updater(d) : d
+    ),
+    reviewStatus: "user_edited",
+  };
+}
+
+/** Helper to update a sequence within the matrix. */
+function updateMatrixSequence(
+  matrix: ProcessLinkageMatrix,
+  sequenceId: string,
+  updater: (seq: ProcessSequence) => ProcessSequence,
+): ProcessLinkageMatrix {
+  return {
+    ...matrix,
+    processSequences: matrix.processSequences.map((s) =>
+      s.id === sequenceId ? updater(s) : s
     ),
     reviewStatus: "user_edited",
   };
@@ -263,37 +298,37 @@ export const useProcessBuilderStore = create<ProcessBuilderState>()(
       };
     }),
 
-  addDeviceIoSignal: (deviceId, signal) =>
+  addDeviceWire: (deviceId, wire) =>
     set((s) => {
       if (!s.linkageMatrix) return s;
       return {
         linkageMatrix: updateMatrixDevice(s.linkageMatrix, deviceId, (d) => ({
           ...d,
-          ioSignals: [...d.ioSignals, signal],
+          wiring: [...d.wiring, wire],
         })),
       };
     }),
 
-  updateDeviceIoSignal: (deviceId, signalId, updates) =>
+  updateDeviceWire: (deviceId, wireId, updates) =>
     set((s) => {
       if (!s.linkageMatrix) return s;
       return {
         linkageMatrix: updateMatrixDevice(s.linkageMatrix, deviceId, (d) => ({
           ...d,
-          ioSignals: d.ioSignals.map((sig) =>
-            sig.id === signalId ? { ...sig, ...updates } : sig
+          wiring: d.wiring.map((w) =>
+            w.id === wireId ? { ...w, ...updates } : w
           ),
         })),
       };
     }),
 
-  removeDeviceIoSignal: (deviceId, signalId) =>
+  removeDeviceWire: (deviceId, wireId) =>
     set((s) => {
       if (!s.linkageMatrix) return s;
       return {
         linkageMatrix: updateMatrixDevice(s.linkageMatrix, deviceId, (d) => ({
           ...d,
-          ioSignals: d.ioSignals.filter((sig) => sig.id !== signalId),
+          wiring: d.wiring.filter((w) => w.id !== wireId),
         })),
       };
     }),
@@ -371,59 +406,227 @@ export const useProcessBuilderStore = create<ProcessBuilderState>()(
       };
     }),
 
-  updateProcessStep: (stepId, updates) =>
+  // --- Process Sequence actions ---
+
+  addProcessSequence: (sequence) =>
     set((s) => {
       if (!s.linkageMatrix) return s;
       return {
         linkageMatrix: {
           ...s.linkageMatrix,
-          processSteps: s.linkageMatrix.processSteps.map((ps) =>
-            ps.id === stepId ? { ...ps, ...updates } : ps
+          processSequences: [...s.linkageMatrix.processSequences, sequence],
+          reviewStatus: "user_edited",
+        },
+      };
+    }),
+
+  updateProcessSequence: (sequenceId, updates) =>
+    set((s) => {
+      if (!s.linkageMatrix) return s;
+      return {
+        linkageMatrix: updateMatrixSequence(s.linkageMatrix, sequenceId, (seq) => ({ ...seq, ...updates })),
+      };
+    }),
+
+  removeProcessSequence: (sequenceId) =>
+    set((s) => {
+      if (!s.linkageMatrix) return s;
+      return {
+        linkageMatrix: {
+          ...s.linkageMatrix,
+          processSequences: s.linkageMatrix.processSequences.filter((sq) => sq.id !== sequenceId),
+          reviewStatus: "user_edited",
+        },
+      };
+    }),
+
+  addProcessStep: (sequenceId, step) =>
+    set((s) => {
+      if (!s.linkageMatrix) return s;
+      return {
+        linkageMatrix: updateMatrixSequence(s.linkageMatrix, sequenceId, (seq) => ({
+          ...seq,
+          steps: [...seq.steps, step],
+        })),
+      };
+    }),
+
+  updateProcessStep: (sequenceId, stepId, updates) =>
+    set((s) => {
+      if (!s.linkageMatrix) return s;
+      return {
+        linkageMatrix: updateMatrixSequence(s.linkageMatrix, sequenceId, (seq) => ({
+          ...seq,
+          steps: seq.steps.map((ps) => ps.id === stepId ? { ...ps, ...updates } : ps),
+        })),
+      };
+    }),
+
+  removeProcessStep: (sequenceId, stepId) =>
+    set((s) => {
+      if (!s.linkageMatrix) return s;
+      return {
+        linkageMatrix: updateMatrixSequence(s.linkageMatrix, sequenceId, (seq) => ({
+          ...seq,
+          steps: seq.steps
+            .filter((ps) => ps.id !== stepId)
+            .map((ps, i) => ({ ...ps, stepNumber: i + 1 })),
+        })),
+      };
+    }),
+
+  reorderProcessSteps: (sequenceId, stepIds) =>
+    set((s) => {
+      if (!s.linkageMatrix) return s;
+      return {
+        linkageMatrix: updateMatrixSequence(s.linkageMatrix, sequenceId, (seq) => {
+          const stepMap = new Map(seq.steps.map((ps) => [ps.id, ps]));
+          const reordered = stepIds
+            .map((id) => stepMap.get(id))
+            .filter((ps): ps is ProcessStep => !!ps)
+            .map((ps, i) => ({ ...ps, stepNumber: i + 1 }));
+          return { ...seq, steps: reordered };
+        }),
+      };
+    }),
+
+  addPermissive: (sequenceId, permissive) =>
+    set((s) => {
+      if (!s.linkageMatrix) return s;
+      return {
+        linkageMatrix: updateMatrixSequence(s.linkageMatrix, sequenceId, (seq) => ({
+          ...seq,
+          permissives: [...seq.permissives, permissive],
+        })),
+      };
+    }),
+
+  updatePermissive: (sequenceId, permissiveId, updates) =>
+    set((s) => {
+      if (!s.linkageMatrix) return s;
+      return {
+        linkageMatrix: updateMatrixSequence(s.linkageMatrix, sequenceId, (seq) => ({
+          ...seq,
+          permissives: seq.permissives.map((p) => p.id === permissiveId ? { ...p, ...updates } : p),
+        })),
+      };
+    }),
+
+  removePermissive: (sequenceId, permissiveId) =>
+    set((s) => {
+      if (!s.linkageMatrix) return s;
+      return {
+        linkageMatrix: updateMatrixSequence(s.linkageMatrix, sequenceId, (seq) => ({
+          ...seq,
+          permissives: seq.permissives.filter((p) => p.id !== permissiveId),
+        })),
+      };
+    }),
+
+  addSafetyCondition: (sequenceId, condition) =>
+    set((s) => {
+      if (!s.linkageMatrix) return s;
+      return {
+        linkageMatrix: updateMatrixSequence(s.linkageMatrix, sequenceId, (seq) => ({
+          ...seq,
+          safetyConditions: [...seq.safetyConditions, condition],
+        })),
+      };
+    }),
+
+  updateSafetyCondition: (sequenceId, conditionId, updates) =>
+    set((s) => {
+      if (!s.linkageMatrix) return s;
+      return {
+        linkageMatrix: updateMatrixSequence(s.linkageMatrix, sequenceId, (seq) => ({
+          ...seq,
+          safetyConditions: seq.safetyConditions.map((c) => c.id === conditionId ? { ...c, ...updates } : c),
+        })),
+      };
+    }),
+
+  removeSafetyCondition: (sequenceId, conditionId) =>
+    set((s) => {
+      if (!s.linkageMatrix) return s;
+      return {
+        linkageMatrix: updateMatrixSequence(s.linkageMatrix, sequenceId, (seq) => ({
+          ...seq,
+          safetyConditions: seq.safetyConditions.filter((c) => c.id !== conditionId),
+        })),
+      };
+    }),
+
+  addTransitionSubCondition: (sequenceId, stepId, subCondition) =>
+    set((s) => {
+      if (!s.linkageMatrix) return s;
+      return {
+        linkageMatrix: updateMatrixSequence(s.linkageMatrix, sequenceId, (seq) => ({
+          ...seq,
+          steps: seq.steps.map((ps) =>
+            ps.id === stepId
+              ? { ...ps, transition: { ...ps.transition, conditions: [...ps.transition.conditions, subCondition] } }
+              : ps
           ),
-          reviewStatus: "user_edited",
-        },
+        })),
       };
     }),
 
-  addProcessStep: (step) =>
+  updateTransitionSubCondition: (sequenceId, stepId, subConditionId, updates) =>
     set((s) => {
       if (!s.linkageMatrix) return s;
       return {
-        linkageMatrix: {
-          ...s.linkageMatrix,
-          processSteps: [...s.linkageMatrix.processSteps, step],
-          reviewStatus: "user_edited",
-        },
+        linkageMatrix: updateMatrixSequence(s.linkageMatrix, sequenceId, (seq) => ({
+          ...seq,
+          steps: seq.steps.map((ps) =>
+            ps.id === stepId
+              ? {
+                  ...ps,
+                  transition: {
+                    ...ps.transition,
+                    conditions: ps.transition.conditions.map((c) =>
+                      c.id === subConditionId ? { ...c, ...updates } : c
+                    ),
+                  },
+                }
+              : ps
+          ),
+        })),
       };
     }),
 
-  removeProcessStep: (stepId) =>
+  removeTransitionSubCondition: (sequenceId, stepId, subConditionId) =>
     set((s) => {
       if (!s.linkageMatrix) return s;
-      const filtered = s.linkageMatrix.processSteps.filter((ps) => ps.id !== stepId);
       return {
-        linkageMatrix: {
-          ...s.linkageMatrix,
-          processSteps: filtered.map((ps, i) => ({ ...ps, stepNumber: i + 1 })),
-          reviewStatus: "user_edited",
-        },
+        linkageMatrix: updateMatrixSequence(s.linkageMatrix, sequenceId, (seq) => ({
+          ...seq,
+          steps: seq.steps.map((ps) =>
+            ps.id === stepId
+              ? {
+                  ...ps,
+                  transition: {
+                    ...ps.transition,
+                    conditions: ps.transition.conditions.filter((c) => c.id !== subConditionId),
+                  },
+                }
+              : ps
+          ),
+        })),
       };
     }),
 
-  reorderProcessSteps: (stepIds) =>
+  setTransitionCombinator: (sequenceId, stepId, combinator) =>
     set((s) => {
       if (!s.linkageMatrix) return s;
-      const stepMap = new Map(s.linkageMatrix.processSteps.map((ps) => [ps.id, ps]));
-      const reordered = stepIds
-        .map((id) => stepMap.get(id))
-        .filter((ps): ps is ProcessStep => !!ps)
-        .map((ps, i) => ({ ...ps, stepNumber: i + 1 }));
       return {
-        linkageMatrix: {
-          ...s.linkageMatrix,
-          processSteps: reordered,
-          reviewStatus: "user_edited",
-        },
+        linkageMatrix: updateMatrixSequence(s.linkageMatrix, sequenceId, (seq) => ({
+          ...seq,
+          steps: seq.steps.map((ps) =>
+            ps.id === stepId
+              ? { ...ps, transition: { ...ps.transition, combinator } }
+              : ps
+          ),
+        })),
       };
     }),
 
@@ -568,9 +771,67 @@ export const useProcessBuilderStore = create<ProcessBuilderState>()(
     merge: (persisted, current) => {
       const p = persisted as Partial<ProcessBuilderState> | undefined;
       if (!p) return current;
+
+      // Migrate old ioSignals → wiring on rehydration
+      let linkageMatrix = p.linkageMatrix ?? null;
+      if (linkageMatrix) {
+        linkageMatrix = {
+          ...linkageMatrix,
+          deviceLinkage: linkageMatrix.deviceLinkage.map((d) => {
+            const legacy = d as unknown as Record<string, unknown>;
+            if (d.wiring && d.wiring.length > 0) return d;
+            const oldSignals = (legacy.ioSignals ?? []) as Array<{ id?: string; tagName: string; signalType: string; purpose: string }>;
+            if (oldSignals.length > 0) {
+              return {
+                ...d,
+                wiring: oldSignals.map((sig) => ({
+                  id: sig.id ?? crypto.randomUUID(),
+                  paramName: sig.tagName,
+                  direction: (sig.signalType === "DI" || sig.signalType === "AI" ? "in" : "out") as "in" | "out",
+                  connectedTo: sig.tagName,
+                  wireType: "io" as const,
+                  dataType: sig.signalType === "AI" || sig.signalType === "AQ" ? "Real" : "Bool",
+                })),
+              };
+            }
+            return { ...d, wiring: d.wiring ?? [] };
+          }),
+        };
+      }
+
+      // Migrate old flat processSteps → processSequences
+      if (linkageMatrix && !linkageMatrix.processSequences) {
+        const oldSteps = (linkageMatrix as unknown as { processSteps?: ProcessStep[] }).processSteps ?? [];
+        linkageMatrix = {
+          ...linkageMatrix,
+          processSequences: oldSteps.length > 0
+            ? [{
+                id: crypto.randomUUID(),
+                name: "Main Sequence",
+                description: "",
+                permissives: [],
+                safetyConditions: [],
+                steps: oldSteps.map((ps) => ({
+                  ...ps,
+                  transition: ps.transition ?? {
+                    combinator: "AND" as const,
+                    conditions: ps.completionCriteria
+                      ? [{ id: crypto.randomUUID(), description: ps.completionCriteria, deviceName: null }]
+                      : [],
+                  },
+                  actions: ps.actions ?? (ps.action
+                    ? [{ id: crypto.randomUUID(), description: ps.action, deviceName: null }]
+                    : []),
+                })),
+              }]
+            : [],
+        };
+      }
+
       return {
         ...current,
         ...p,
+        linkageMatrix,
         // Ensure all stage keys exist even if new stages were added after persistence
         stageStatuses: p.stageStatuses?.length
           ? PROCESS_STAGE_ORDER.map((stage) => {
@@ -602,18 +863,7 @@ export const useProcessBuilderStore = create<ProcessBuilderState>()(
         stageArtifacts: state.stageArtifacts,
         stageCompileResults: state.stageCompileResults,
         autoGating: state.autoGating,
-        // Strip raw responses from pipeline steps to save space
-        pipelineExecution: state.pipelineExecution
-          ? {
-              ...state.pipelineExecution,
-              steps: state.pipelineExecution.steps.map((s) => ({
-                ...s,
-                rawResponse: undefined,
-                systemPrompt: undefined,
-                userMessage: undefined,
-              })),
-            }
-          : null,
+        pipelineExecution: state.pipelineExecution,
       };
       return persisted as unknown as ProcessBuilderState;
     },

@@ -37,35 +37,35 @@ export interface StagePromptBase {
 // Stage-specific matrix formatters — each stage gets ONLY what it needs
 // ---------------------------------------------------------------------------
 
-/** IO stage: devices + IO signals only. No interlocks, no FB info, no process steps. */
+/** IO stage: devices + IO-type wires only. These are the signals needing physical IO module assignment. */
 export function formatMatrixForIo(matrix: ProcessLinkageMatrix): string {
   if (matrix.deviceLinkage.length === 0) return "";
 
-  const header = "| Device | Type | Signal | Signal Type | Tag Name | Purpose |";
-  const sep = "|--------|------|--------|-------------|----------|---------|";
+  const header = "| Device | FB Param | Direction | Tag Name | Data Type |";
+  const sep = "|--------|----------|-----------|----------|-----------|";
   const rows: string[] = [];
 
+  let inCount = 0;
+  let outCount = 0;
+
   for (const d of matrix.deviceLinkage) {
-    for (const sig of d.ioSignals) {
-      rows.push(`| ${d.name} | ${d.deviceType} | ${sig.purpose} | ${sig.signalType} | ${sig.tagName} | ${sig.purpose} |`);
+    for (const w of d.wiring) {
+      if (w.wireType !== "io") continue;
+      rows.push(`| ${d.name} | ${w.paramName} | ${w.direction.toUpperCase()} | ${w.connectedTo} | ${w.dataType ?? "Bool"} |`);
+      if (w.direction === "in") inCount++;
+      else outCount++;
     }
   }
 
-  // Signal type totals
-  const totals = { DI: 0, DQ: 0, AI: 0, AQ: 0 };
-  for (const d of matrix.deviceLinkage) {
-    for (const sig of d.ioSignals) {
-      totals[sig.signalType]++;
-    }
-  }
+  if (rows.length === 0) return "";
 
-  return `## Device IO Signals (from Linkage Matrix)
+  return `## Device IO Wiring (from Linkage Matrix)
 
 ${header}
 ${sep}
 ${rows.join("\n")}
 
-**Signal Totals:** ${totals.DI} DI, ${totals.DQ} DQ, ${totals.AI} AI, ${totals.AQ} AQ`;
+**Signal Totals:** ${inCount} inputs, ${outCount} outputs`;
 }
 
 /** Folders stage: device types + global DB names. Just enough for folder structure. */
@@ -80,7 +80,7 @@ export function formatMatrixForFolders(matrix: ProcessLinkageMatrix): string {
 **Total Devices:** ${matrix.deviceLinkage.length}`;
 }
 
-/** FB stage: devices filtered by type + their interlocks. No IO module info, no process steps. */
+/** FB stage: devices filtered by type + wiring + interlocks. Full parameter interface for FB generation. */
 export function formatMatrixForFb(matrix: ProcessLinkageMatrix, deviceType: string): string {
   const devices = matrix.deviceLinkage.filter((d) => d.deviceType === deviceType);
   if (devices.length === 0) return "";
@@ -91,6 +91,14 @@ export function formatMatrixForFb(matrix: ProcessLinkageMatrix, deviceType: stri
     lines.push(`- FB: ${d.fbName}`);
     if (d.fbTemplateName) lines.push(`- Template: ${d.fbTemplateName}${d.fbTemplateId ? " (from library)" : " (new)"}`);
     lines.push(`- Instance DB: ${d.instanceDbName}`);
+
+    if (d.wiring.length > 0) {
+      lines.push(`- Parameters:`);
+      for (const w of d.wiring) {
+        const arrow = w.direction === "in" ? "\u2190" : "\u2192";
+        lines.push(`  - ${w.direction.toUpperCase()} ${w.paramName} ${arrow} ${w.connectedTo} (${w.wireType})`);
+      }
+    }
 
     if (d.interlocks.length > 0) {
       lines.push(`- Interlocks:`);
@@ -105,7 +113,8 @@ export function formatMatrixForFb(matrix: ProcessLinkageMatrix, deviceType: stri
 
 ${lines.join("\n")}
 
-**${devices.length}** ${deviceType} device(s) need this FB. Generate a single FB that handles all instances.`;
+**${devices.length}** ${deviceType} device(s) need this FB. Generate a single FB that handles all instances.
+The wiring above defines the complete VAR_INPUT/VAR_OUTPUT interface for this FB.`;
 }
 
 /** DB stage: device→instanceDB mapping + global data with fields. Just the DB structure. */
@@ -141,27 +150,104 @@ export function formatMatrixForDb(matrix: ProcessLinkageMatrix): string {
 ${lines.join("\n")}`;
 }
 
-/** FC+OB stage: process steps + device→FB→instanceDB mapping. Main consumer. */
+/** Format a transition condition as a readable string. */
+function formatTransitionLabel(transition: { combinator: string; conditions: Array<{ description: string; deviceName?: string | null }> }): string {
+  if (transition.conditions.length === 0) return "";
+  if (transition.conditions.length === 1) return transition.conditions[0].description;
+  const joiner = transition.combinator === "OR" ? " OR " : " AND ";
+  return transition.conditions.map((c) => c.description).join(joiner);
+}
+
+/** FC+OB stage: process sequences + device→FB→instanceDB mapping + inter-FB wiring. Main consumer. */
 export function formatMatrixForFc(matrix: ProcessLinkageMatrix): string {
   const lines: string[] = [];
 
   // Device→FB→DB mapping table
-  lines.push("### Device → FB → Instance DB Mapping");
+  lines.push("### Device \u2192 FB \u2192 Instance DB Mapping");
   lines.push("| Device | Type | FB | Instance DB |");
   lines.push("|--------|------|----|------------|");
   for (const d of matrix.deviceLinkage) {
     lines.push(`| ${d.name} | ${d.deviceType} | ${d.fbName} | ${d.instanceDbName} |`);
   }
 
-  // Process Sequence Table
-  if (matrix.processSteps.length > 0) {
-    lines.push("");
-    lines.push("### Process Sequence");
-    lines.push("| Step | Action | Completion Criteria | Devices |");
-    lines.push("|------|--------|--------------------|---------| ");
-    for (const ps of matrix.processSteps) {
-      lines.push(`| ${ps.stepNumber} | ${ps.action} | ${ps.completionCriteria} | ${ps.devicesInvolved.join(", ")} |`);
+  // Inter-FB Wiring summary — shows how FB instances connect to each other
+  const fbWires: { source: string; sourceParam: string; target: string; targetParam: string }[] = [];
+  for (const d of matrix.deviceLinkage) {
+    for (const w of d.wiring) {
+      if (w.wireType !== "fb") continue;
+      const dotIdx = w.connectedTo.indexOf(".");
+      if (dotIdx > 0) {
+        const targetInst = w.connectedTo.substring(0, dotIdx);
+        const targetParam = w.connectedTo.substring(dotIdx + 1);
+        if (w.direction === "in") {
+          fbWires.push({ source: targetInst, sourceParam: targetParam, target: d.name, targetParam: w.paramName });
+        } else {
+          fbWires.push({ source: d.name, sourceParam: w.paramName, target: targetInst, targetParam });
+        }
+      }
     }
+  }
+  if (fbWires.length > 0) {
+    lines.push("");
+    lines.push("### Inter-FB Wiring");
+    lines.push("| Source Instance.Param | \u2192 | Target Instance.Param |");
+    lines.push("|----------------------|---|----------------------|");
+    const seen = new Set<string>();
+    for (const fw of fbWires) {
+      const key = `${fw.source}.${fw.sourceParam}->${fw.target}.${fw.targetParam}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      lines.push(`| ${fw.source}.${fw.sourceParam} | \u2192 | ${fw.target}.${fw.targetParam} |`);
+    }
+  }
+
+  // Process Sequences (new format)
+  for (const seq of matrix.processSequences) {
+    lines.push("");
+    lines.push(`#### Sequence: "${seq.name}"`);
+    if (seq.description) lines.push(`\n${seq.description}`);
+
+    // Safety conditions
+    if (seq.safetyConditions.length > 0) {
+      lines.push("");
+      lines.push("**Safety Conditions (continuously monitored \u2014 halt to safe state on failure):**");
+      for (const sc of seq.safetyConditions) {
+        const mark = sc.polarity ? "\u2713 ACTIVE" : "\u2717 INACTIVE";
+        lines.push(`- ${mark}: ${sc.description}${sc.deviceName ? ` (${sc.deviceName})` : ""}`);
+      }
+    }
+
+    // Permissives
+    if (seq.permissives.length > 0) {
+      lines.push("");
+      lines.push("**Permissives (must ALL be satisfied to start):**");
+      for (const p of seq.permissives) {
+        const mark = p.polarity ? "\u2713 ACTIVE" : "\u2717 INACTIVE";
+        lines.push(`- ${mark}: ${p.description}${p.deviceName ? ` (${p.deviceName})` : ""}`);
+      }
+    }
+
+    // Steps table
+    if (seq.steps.length > 0) {
+      lines.push("");
+      lines.push("| Step | Transition (AND/OR) | Actions | Devices |");
+      lines.push("|------|---------------------|---------|---------|");
+      for (const ps of seq.steps) {
+        const transLabel = formatTransitionLabel(ps.transition);
+        const actionLabel = ps.actions.map((a) => a.description).join("; ");
+        lines.push(`| ${ps.stepNumber} | ${transLabel} | ${actionLabel} | ${ps.devicesInvolved.join(", ")} |`);
+      }
+    }
+
+    // State machine implementation guidance
+    lines.push(`
+State machine implementation:
+- Check safety conditions FIRST \u2014 if any fail, force statSeq := 0, deactivate all outputs
+- Check permissives before entering step 1
+- CASE statSeq OF: each step = one branch
+- In each branch: execute actions, then check next step's transition (AND=all true, OR=any true)
+- When transition fires \u2192 statSeq := next step number
+- ELSE: statSeq := 0 (undefined state recovery)`);
   }
 
   // Interlocks summary
@@ -184,9 +270,12 @@ ${lines.join("\n")}
 
 Use this information to:
 1. Call each device FB via its Instance DB in the Process FC
-2. Implement the process sequence as a state machine (CASE on step number)
-3. Implement all interlocks as conditions before device activation
-4. OB1 Main calls the Process FC`;
+2. Wire FB outputs to downstream FB inputs as shown in the Inter-FB Wiring table
+3. Implement each process sequence as a state machine (CASE on step number)
+4. Check safety conditions continuously \u2014 halt to safe state on failure
+5. Check permissives before entering step 1 of each sequence
+6. Implement all interlocks as conditions before device activation
+7. OB1 Main calls the Process FC`;
 }
 
 // ---------------------------------------------------------------------------
@@ -284,18 +373,20 @@ ${designProfile ? formatDesignProfile(designProfile) : ""}
 
 ${matrixContext}
 
-${previousArtifactsContext ? `## Previously Generated Artifacts\n\n${previousArtifactsContext}` : ""}
-
 ## Folder Stage Instructions
 
 ${stageInstructions}`;
 
-  return {
-    systemPrompt,
-    messages: [
-      { role: "user" as const, content: "Create the TIA Portal folder structure for this project." },
-    ],
-  };
+  const messages: Array<{ role: "user" | "assistant"; content: string }> = [];
+  if (previousArtifactsContext) {
+    messages.push(
+      { role: "user" as const, content: `Here are the artifacts generated so far:\n\n${previousArtifactsContext}` },
+      { role: "assistant" as const, content: "Understood. I'll reference these existing artifacts when creating the folder structure." },
+    );
+  }
+  messages.push({ role: "user" as const, content: "Create the TIA Portal folder structure for this project." });
+
+  return { systemPrompt, messages };
 }
 
 // ---------------------------------------------------------------------------
@@ -319,8 +410,6 @@ ${formatFbTemplates(fbTemplates ?? [])}
 
 ${matrixContext}
 
-${previousArtifactsContext ? `## Previously Generated Artifacts\n\n${previousArtifactsContext}` : ""}
-
 ${ARTIFACT_OUTPUT_FORMAT}
 
 ## FB Stage Instructions — ${deviceType}
@@ -328,14 +417,16 @@ ${ARTIFACT_OUTPUT_FORMAT}
 ${stageInstructions}`;
 
   const contextMessages = buildContextMessages(referenceSections ?? [], approvedPatterns ?? []);
+  const messages: Array<{ role: "user" | "assistant"; content: string }> = [...contextMessages];
+  if (previousArtifactsContext) {
+    messages.push(
+      { role: "user" as const, content: `Here are the artifacts generated so far:\n\n${previousArtifactsContext}` },
+      { role: "assistant" as const, content: "Understood. I'll reference these existing artifacts for consistency." },
+    );
+  }
+  messages.push({ role: "user" as const, content: `Generate the Function Block artifacts for ${deviceType} devices.` });
 
-  return {
-    systemPrompt,
-    messages: [
-      ...contextMessages,
-      { role: "user" as const, content: `Generate the Function Block artifacts for ${deviceType} devices.` },
-    ],
-  };
+  return { systemPrompt, messages };
 }
 
 // ---------------------------------------------------------------------------
@@ -355,8 +446,6 @@ ${buildSharedPreamble(input)}
 
 ${matrixContext}
 
-${previousArtifactsContext ? `## Previously Generated Artifacts\n\n${previousArtifactsContext}` : ""}
-
 ${ARTIFACT_OUTPUT_FORMAT}
 
 ## DB Stage Instructions
@@ -364,14 +453,16 @@ ${ARTIFACT_OUTPUT_FORMAT}
 ${stageInstructions}`;
 
   const contextMessages = buildContextMessages(referenceSections ?? [], approvedPatterns ?? []);
+  const messages: Array<{ role: "user" | "assistant"; content: string }> = [...contextMessages];
+  if (previousArtifactsContext) {
+    messages.push(
+      { role: "user" as const, content: `Here are the artifacts generated so far (FBs and IO config):\n\n${previousArtifactsContext}` },
+      { role: "assistant" as const, content: "Understood. I'll create matching Instance DBs and Global DBs based on these existing artifacts." },
+    );
+  }
+  messages.push({ role: "user" as const, content: "Generate all Instance DBs and Global DBs for the project." });
 
-  return {
-    systemPrompt,
-    messages: [
-      ...contextMessages,
-      { role: "user" as const, content: "Generate all Instance DBs and Global DBs for the project." },
-    ],
-  };
+  return { systemPrompt, messages };
 }
 
 // ---------------------------------------------------------------------------
@@ -391,8 +482,6 @@ ${buildSharedPreamble(input)}
 
 ${matrixContext}
 
-${previousArtifactsContext ? `## Previously Generated Artifacts\n\n${previousArtifactsContext}` : ""}
-
 ${ARTIFACT_OUTPUT_FORMAT}
 
 ## FC + OB Stage Instructions
@@ -400,12 +489,14 @@ ${ARTIFACT_OUTPUT_FORMAT}
 ${stageInstructions}`;
 
   const contextMessages = buildContextMessages(referenceSections ?? [], approvedPatterns ?? []);
+  const messages: Array<{ role: "user" | "assistant"; content: string }> = [...contextMessages];
+  if (previousArtifactsContext) {
+    messages.push(
+      { role: "user" as const, content: `Here are all previously generated artifacts (FB interfaces and DBs). Use these to wire up the Process FC and OB1 correctly:\n\n${previousArtifactsContext}` },
+      { role: "assistant" as const, content: "Understood. I'll use the FB interfaces, Instance DBs, and Global DBs above to generate the Process FC (with state machine logic per sequence) and OB1 Main." },
+    );
+  }
+  messages.push({ role: "user" as const, content: "Generate the Process FC and OB1 Main to tie all generated blocks together." });
 
-  return {
-    systemPrompt,
-    messages: [
-      ...contextMessages,
-      { role: "user" as const, content: "Generate the Process FC and OB1 Main to tie all generated blocks together." },
-    ],
-  };
+  return { systemPrompt, messages };
 }

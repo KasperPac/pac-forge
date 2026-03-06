@@ -45,6 +45,7 @@ export function useMatrixReview() {
         );
 
         const matrixJson = serializeMatrix(matrix);
+        console.log("[MatrixReview] Sending matrix for validation, JSON length:", matrixJson.length);
 
         const systemPrompt = `You are the **Project Manager** reviewing an engineer's edits to the Process Linkage Matrix.
 
@@ -69,11 +70,13 @@ ${instructions}`;
           },
         );
 
+        console.log("[MatrixReview] Response received, length:", fullContent.length);
+
         // Add PM response
         const pmMsg: ProcessQaMessage = {
           id: crypto.randomUUID(),
           role: "assistant",
-          content: fullContent,
+          content: fullContent || "No response from PM. Check browser console for errors.",
           timestamp: new Date().toISOString(),
         };
         store.getState().addQaMessage(pmMsg);
@@ -125,15 +128,17 @@ function serializeMatrix(matrix: ProcessLinkageMatrix): string {
         name: d.name,
         deviceType: d.deviceType,
         description: d.description,
-        ioSignals: d.ioSignals.map((s) => ({
-          tagName: s.tagName,
-          signalType: s.signalType,
-          purpose: s.purpose,
-        })),
         fbName: d.fbName,
         fbTemplateName: d.fbTemplateName,
         fbTemplateId: d.fbTemplateId,
         instanceDbName: d.instanceDbName,
+        wiring: d.wiring.map((w) => ({
+          param: w.paramName,
+          direction: w.direction,
+          source: w.connectedTo,
+          type: w.wireType,
+          ...(w.dataType ? { dataType: w.dataType } : {}),
+        })),
         interlocks: d.interlocks.map((il) => ({
           targetDeviceName: il.targetDeviceName,
           condition: il.condition,
@@ -149,12 +154,35 @@ function serializeMatrix(matrix: ProcessLinkageMatrix): string {
           description: f.description,
         })),
       })),
-      processSteps: matrix.processSteps.map((ps) => ({
-        stepNumber: ps.stepNumber,
-        action: ps.action,
-        completionCriteria: ps.completionCriteria,
-        devicesInvolved: ps.devicesInvolved,
-        notes: ps.notes,
+      processSequences: matrix.processSequences.map((sq) => ({
+        name: sq.name,
+        description: sq.description,
+        safetyConditions: sq.safetyConditions.map((sc) => ({
+          description: sc.description,
+          deviceName: sc.deviceName,
+          polarity: sc.polarity,
+        })),
+        permissives: sq.permissives.map((p) => ({
+          description: p.description,
+          deviceName: p.deviceName,
+          polarity: p.polarity,
+        })),
+        steps: sq.steps.map((ps) => ({
+          stepNumber: ps.stepNumber,
+          transition: {
+            combinator: ps.transition.combinator,
+            conditions: ps.transition.conditions.map((c) => ({
+              description: c.description,
+              deviceName: c.deviceName,
+            })),
+          },
+          actions: ps.actions.map((a) => ({
+            description: a.description,
+            deviceName: a.deviceName,
+          })),
+          devicesInvolved: ps.devicesInvolved,
+          notes: ps.notes,
+        })),
       })),
       notes: matrix.notes,
     },

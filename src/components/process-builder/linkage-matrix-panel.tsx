@@ -9,6 +9,8 @@ import {
   Shield,
   CheckCircle2,
   Pencil,
+  AlertTriangle,
+  ShieldAlert,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -23,19 +25,32 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useProcessBuilderStore } from "@/stores/process-builder-store";
+import { MermaidDiagram } from "@/components/ui/mermaid-diagram";
+import { buildMultiSequenceDiagram } from "@/lib/process-sequence-diagram";
+import { formatTransitionLabel } from "@/lib/process-sequence-diagram";
 import type {
   LinkageDevice,
-  LinkageIoSignal,
+  FbWire,
   LinkageInterlock,
   LinkageGlobalData,
   LinkageGlobalField,
   ProcessStep,
+  ProcessSequence,
+  ProcessAction,
   MatrixReviewStatus,
 } from "@/types/process-builder";
 
 // ---------------------------------------------------------------------------
 // Device row with expandable IO signals + interlocks
 // ---------------------------------------------------------------------------
+
+// Wire type color coding
+const WIRE_TYPE_STYLES: Record<string, string> = {
+  fb: "bg-blue-500/20 text-blue-400",
+  io: "bg-amber-500/20 text-amber-400",
+  global: "bg-purple-500/20 text-purple-400",
+  constant: "bg-muted text-muted-foreground",
+};
 
 function DeviceRow({ device }: { device: LinkageDevice }) {
   const [expanded, setExpanded] = useState(false);
@@ -48,14 +63,15 @@ function DeviceRow({ device }: { device: LinkageDevice }) {
     [device.id, store],
   );
 
-  const addSignal = useCallback(() => {
-    const signal: LinkageIoSignal = {
+  const addWire = useCallback(() => {
+    const wire: FbWire = {
       id: crypto.randomUUID(),
-      tagName: "",
-      signalType: "DI",
-      purpose: "",
+      paramName: "",
+      direction: "in",
+      connectedTo: "",
+      wireType: "io",
     };
-    store.getState().addDeviceIoSignal(device.id, signal);
+    store.getState().addDeviceWire(device.id, wire);
   }, [device.id, store]);
 
   const addInterlock = useCallback(() => {
@@ -67,6 +83,9 @@ function DeviceRow({ device }: { device: LinkageDevice }) {
     };
     store.getState().addDeviceInterlock(device.id, interlock);
   }, [device.id, store]);
+
+  const fbCount = device.wiring.filter((w) => w.wireType === "fb").length;
+  const ioCount = device.wiring.filter((w) => w.wireType === "io").length;
 
   return (
     <div className="border-b last:border-b-0">
@@ -110,7 +129,7 @@ function DeviceRow({ device }: { device: LinkageDevice }) {
           placeholder="Instance DB"
         />
         <Badge variant="outline" className="shrink-0 font-mono text-[10px]">
-          {device.ioSignals.length} IO
+          {fbCount > 0 ? `${fbCount} FB` : ""}{fbCount > 0 && ioCount > 0 ? " / " : ""}{ioCount > 0 ? `${ioCount} IO` : ""}{fbCount === 0 && ioCount === 0 ? `${device.wiring.length} wires` : ""}
         </Badge>
         <Button
           variant="ghost"
@@ -122,50 +141,62 @@ function DeviceRow({ device }: { device: LinkageDevice }) {
         </Button>
       </div>
 
-      {/* Expanded: IO signals + interlocks */}
+      {/* Expanded: Wiring + interlocks */}
       {expanded && (
         <div className="ml-6 space-y-2 border-l border-border/50 pb-2 pl-3">
-          {/* IO Signals */}
+          {/* Wiring */}
           <div className="pt-1">
             <div className="mb-1 flex items-center gap-1">
-              <span className="font-mono text-[10px] font-medium text-muted-foreground">IO SIGNALS</span>
-              <Button variant="ghost" size="sm" className="h-4 w-4 p-0" onClick={addSignal}>
+              <span className="font-mono text-[10px] font-medium text-muted-foreground">WIRING</span>
+              <Button variant="ghost" size="sm" className="h-4 w-4 p-0" onClick={addWire}>
                 <Plus className="h-3 w-3" />
               </Button>
             </div>
-            {device.ioSignals.map((sig) => (
-              <div key={sig.id} className="flex items-center gap-1 py-0.5">
+            {device.wiring.map((wire) => (
+              <div key={wire.id} className="flex items-center gap-1 py-0.5">
                 <Input
-                  value={sig.tagName}
-                  onChange={(e) => store.getState().updateDeviceIoSignal(device.id, sig.id, { tagName: e.target.value })}
-                  className="h-5 w-36 border-0 bg-muted/30 px-1 font-mono text-[11px] shadow-none focus-visible:ring-1"
-                  placeholder="Tag name"
+                  value={wire.paramName}
+                  onChange={(e) => store.getState().updateDeviceWire(device.id, wire.id, { paramName: e.target.value })}
+                  className="h-5 w-28 border-0 bg-muted/30 px-1 font-mono text-[11px] shadow-none focus-visible:ring-1"
+                  placeholder="Param"
                 />
                 <Select
-                  value={sig.signalType}
-                  onValueChange={(v) => store.getState().updateDeviceIoSignal(device.id, sig.id, { signalType: v as "DI" | "DQ" | "AI" | "AQ" })}
+                  value={wire.direction}
+                  onValueChange={(v) => store.getState().updateDeviceWire(device.id, wire.id, { direction: v as "in" | "out" })}
                 >
-                  <SelectTrigger className="h-5 w-16 border-0 bg-muted/30 px-1 font-mono text-[11px] shadow-none">
+                  <SelectTrigger className="h-5 w-14 border-0 bg-muted/30 px-1 font-mono text-[11px] shadow-none">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="DI">DI</SelectItem>
-                    <SelectItem value="DQ">DQ</SelectItem>
-                    <SelectItem value="AI">AI</SelectItem>
-                    <SelectItem value="AQ">AQ</SelectItem>
+                    <SelectItem value="in">IN</SelectItem>
+                    <SelectItem value="out">OUT</SelectItem>
                   </SelectContent>
                 </Select>
                 <Input
-                  value={sig.purpose}
-                  onChange={(e) => store.getState().updateDeviceIoSignal(device.id, sig.id, { purpose: e.target.value })}
+                  value={wire.connectedTo}
+                  onChange={(e) => store.getState().updateDeviceWire(device.id, wire.id, { connectedTo: e.target.value })}
                   className="h-5 min-w-0 flex-1 border-0 bg-muted/30 px-1 font-mono text-[11px] shadow-none focus-visible:ring-1"
-                  placeholder="Purpose"
+                  placeholder="Connected to"
                 />
+                <Select
+                  value={wire.wireType}
+                  onValueChange={(v) => store.getState().updateDeviceWire(device.id, wire.id, { wireType: v as "fb" | "io" | "global" | "constant" })}
+                >
+                  <SelectTrigger className={`h-5 w-20 border-0 px-1 font-mono text-[11px] shadow-none ${WIRE_TYPE_STYLES[wire.wireType] ?? ""}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fb">fb</SelectItem>
+                    <SelectItem value="io">io</SelectItem>
+                    <SelectItem value="global">global</SelectItem>
+                    <SelectItem value="constant">constant</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-4 w-4 p-0 text-muted-foreground hover:text-destructive"
-                  onClick={() => store.getState().removeDeviceIoSignal(device.id, sig.id)}
+                  onClick={() => store.getState().removeDeviceWire(device.id, wire.id)}
                 >
                   <Trash2 className="h-2.5 w-2.5" />
                 </Button>
@@ -352,110 +383,464 @@ function GlobalDataSection() {
 // ---------------------------------------------------------------------------
 
 function ProcessSequenceTab() {
-  const steps = useProcessBuilderStore((s) => s.linkageMatrix?.processSteps ?? []);
+  const sequences = useProcessBuilderStore((s) => s.linkageMatrix?.processSequences ?? []);
   const deviceLinkage = useProcessBuilderStore((s) => s.linkageMatrix?.deviceLinkage ?? []);
-  const deviceNames = useMemo(() => deviceLinkage.map((d) => d.name), [deviceLinkage]);
+  const deviceNames = useMemo(() => deviceLinkage.map((d) => d.name).filter((n) => n !== ""), [deviceLinkage]);
   const store = useProcessBuilderStore;
+  const [selectedSeqId, setSelectedSeqId] = useState<string | null>(null);
+  const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
+  const [diagramOpen, setDiagramOpen] = useState(true);
+
+  const activeSeq = sequences.find((s) => s.id === selectedSeqId) ?? sequences[0] ?? null;
+  const activeSeqId = activeSeq?.id ?? null;
+
+  const addSequence = useCallback(() => {
+    const seq: ProcessSequence = {
+      id: crypto.randomUUID(),
+      name: "New Sequence",
+      description: "",
+      permissives: [],
+      safetyConditions: [],
+      steps: [],
+    };
+    store.getState().addProcessSequence(seq);
+    setSelectedSeqId(seq.id);
+  }, [store]);
 
   const addStep = useCallback(() => {
+    if (!activeSeqId) return;
     const step: ProcessStep = {
       id: crypto.randomUUID(),
-      stepNumber: steps.length + 1,
-      action: "",
-      completionCriteria: "",
+      stepNumber: (activeSeq?.steps.length ?? 0) + 1,
+      transition: { combinator: "AND", conditions: [] },
+      actions: [],
       devicesInvolved: [],
       notes: "",
     };
-    store.getState().addProcessStep(step);
-  }, [steps.length, store]);
+    store.getState().addProcessStep(activeSeqId, step);
+  }, [activeSeqId, activeSeq, store]);
 
   const moveStep = useCallback(
     (stepId: string, direction: "up" | "down") => {
-      const ids = steps.map((s) => s.id);
+      if (!activeSeqId || !activeSeq) return;
+      const ids = activeSeq.steps.map((s) => s.id);
       const idx = ids.indexOf(stepId);
       if (direction === "up" && idx > 0) {
         [ids[idx - 1], ids[idx]] = [ids[idx], ids[idx - 1]];
       } else if (direction === "down" && idx < ids.length - 1) {
         [ids[idx], ids[idx + 1]] = [ids[idx + 1], ids[idx]];
       }
-      store.getState().reorderProcessSteps(ids);
+      store.getState().reorderProcessSteps(activeSeqId, ids);
     },
-    [steps, store],
+    [activeSeq, activeSeqId, store],
   );
 
   const toggleDevice = useCallback(
     (stepId: string, deviceName: string) => {
-      const step = steps.find((s) => s.id === stepId);
+      if (!activeSeqId || !activeSeq) return;
+      const step = activeSeq.steps.find((s) => s.id === stepId);
       if (!step) return;
       const involved = step.devicesInvolved.includes(deviceName)
         ? step.devicesInvolved.filter((d) => d !== deviceName)
         : [...step.devicesInvolved, deviceName];
-      store.getState().updateProcessStep(stepId, { devicesInvolved: involved });
+      store.getState().updateProcessStep(activeSeqId, stepId, { devicesInvolved: involved });
     },
-    [steps, store],
+    [activeSeq, activeSeqId, store],
   );
 
+  const diagramChart = useMemo(() => {
+    if (sequences.length === 0) return "";
+    return buildMultiSequenceDiagram(sequences, activeSeqId ?? undefined);
+  }, [sequences, activeSeqId]);
+
   return (
-    <div className="space-y-1 p-2">
-      {/* Header */}
-      <div className="flex items-center gap-1 px-1 font-mono text-[10px] font-medium text-muted-foreground">
-        <span className="w-8">#</span>
-        <span className="flex-[2]">Action</span>
-        <span className="flex-[2]">Completion Criteria</span>
-        <span className="flex-1">Devices</span>
-        <span className="w-16" />
+    <div className="space-y-2 p-2">
+      {/* Sequence selector */}
+      <div className="flex items-center gap-1">
+        {sequences.length > 1 ? (
+          <Select value={activeSeqId ?? ""} onValueChange={(v) => setSelectedSeqId(v)}>
+            <SelectTrigger className="h-7 flex-1 font-mono text-xs">
+              <SelectValue placeholder="Select sequence" />
+            </SelectTrigger>
+            <SelectContent>
+              {sequences.map((sq) => (
+                <SelectItem key={sq.id} value={sq.id}>{sq.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : activeSeq ? (
+          <Input
+            value={activeSeq.name}
+            onChange={(e) => store.getState().updateProcessSequence(activeSeq.id, { name: e.target.value })}
+            className="h-7 flex-1 border-0 bg-transparent px-1 font-mono text-sm font-medium shadow-none focus-visible:ring-1"
+            placeholder="Sequence name"
+          />
+        ) : null}
+        <Button variant="outline" size="sm" className="h-7 gap-1 font-mono text-xs" onClick={addSequence}>
+          <Plus className="h-3 w-3" />
+          {sequences.length === 0 ? "Add Sequence" : "Add"}
+        </Button>
+        {activeSeq && sequences.length > 1 && (
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive" onClick={() => {
+            store.getState().removeProcessSequence(activeSeq.id);
+            setSelectedSeqId(null);
+          }}>
+            <Trash2 className="h-3 w-3" />
+          </Button>
+        )}
       </div>
 
-      {steps.map((step) => (
-        <div key={step.id} className="flex items-start gap-1 rounded-md border bg-muted/20 px-1 py-1">
-          <span className="flex h-6 w-8 shrink-0 items-center justify-center font-mono text-xs text-muted-foreground">
-            {step.stepNumber}
-          </span>
-          <Input
-            value={step.action}
-            onChange={(e) => store.getState().updateProcessStep(step.id, { action: e.target.value })}
-            className="h-6 flex-[2] border-0 bg-transparent px-1 font-mono text-xs shadow-none focus-visible:ring-1"
-            placeholder="What happens in this step"
-          />
-          <Input
-            value={step.completionCriteria}
-            onChange={(e) => store.getState().updateProcessStep(step.id, { completionCriteria: e.target.value })}
-            className="h-6 flex-[2] border-0 bg-transparent px-1 font-mono text-xs shadow-none focus-visible:ring-1"
-            placeholder="When is this step done"
-          />
-          <div className="flex flex-1 flex-wrap gap-0.5">
-            {deviceNames.map((dn) => (
-              <button
-                key={dn}
-                onClick={() => toggleDevice(step.id, dn)}
-                className={`rounded px-1 py-0.5 font-mono text-[9px] transition-colors ${
-                  step.devicesInvolved.includes(dn)
-                    ? "bg-blue-500/20 text-blue-400"
-                    : "bg-muted/40 text-muted-foreground/50 hover:bg-muted/60"
-                }`}
-              >
-                {dn}
-              </button>
-            ))}
+      {activeSeq && (
+        <>
+          {/* Sequence name (only when multi-seq and using dropdown) */}
+          {sequences.length > 1 && (
+            <Input
+              value={activeSeq.name}
+              onChange={(e) => store.getState().updateProcessSequence(activeSeq.id, { name: e.target.value })}
+              className="h-6 border-0 bg-transparent px-1 font-mono text-xs shadow-none focus-visible:ring-1"
+              placeholder="Sequence name"
+            />
+          )}
+
+          {/* Safety Conditions */}
+          <div className="rounded-md border border-red-500/20 bg-red-500/5">
+            <button
+              onClick={() => {/* always visible */}}
+              className="flex w-full items-center gap-1.5 px-2 py-1.5"
+            >
+              <ShieldAlert className="h-3 w-3 text-red-400" />
+              <span className="font-mono text-[10px] font-medium text-red-400">SAFETY CONDITIONS</span>
+              <Badge variant="outline" className="ml-auto font-mono text-[10px] text-red-400">
+                {activeSeq.safetyConditions.length}
+              </Badge>
+              <Button variant="ghost" size="sm" className="h-4 w-4 p-0" onClick={(e) => {
+                e.stopPropagation();
+                store.getState().addSafetyCondition(activeSeq.id, {
+                  id: crypto.randomUUID(), description: "", deviceName: null, polarity: true,
+                });
+              }}>
+                <Plus className="h-3 w-3" />
+              </Button>
+            </button>
+            {activeSeq.safetyConditions.length > 0 && (
+              <div className="border-t border-red-500/10 px-2 py-1 space-y-0.5">
+                {activeSeq.safetyConditions.map((sc) => (
+                  <div key={sc.id} className="flex items-center gap-1">
+                    <Input
+                      value={sc.description}
+                      onChange={(e) => store.getState().updateSafetyCondition(activeSeq.id, sc.id, { description: e.target.value })}
+                      className="h-5 min-w-0 flex-1 border-0 bg-muted/30 px-1 font-mono text-[11px] shadow-none focus-visible:ring-1"
+                      placeholder="E-Stop circuit OK"
+                    />
+                    <Select
+                      value={sc.deviceName ?? "__null__"}
+                      onValueChange={(v) => store.getState().updateSafetyCondition(activeSeq.id, sc.id, { deviceName: v === "__null__" ? null : v })}
+                    >
+                      <SelectTrigger className="h-5 w-24 border-0 bg-muted/30 px-1 font-mono text-[11px] shadow-none">
+                        <SelectValue placeholder="Device" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__null__">None</SelectItem>
+                        {deviceNames.map((dn) => <SelectItem key={dn} value={dn}>{dn}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <button
+                      onClick={() => store.getState().updateSafetyCondition(activeSeq.id, sc.id, { polarity: !sc.polarity })}
+                      className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] ${sc.polarity ? "bg-green-500/20 text-green-400" : "bg-amber-500/20 text-amber-400"}`}
+                    >
+                      {sc.polarity ? "Active" : "Inactive"}
+                    </button>
+                    <Button variant="ghost" size="sm" className="h-4 w-4 p-0 text-muted-foreground hover:text-destructive"
+                      onClick={() => store.getState().removeSafetyCondition(activeSeq.id, sc.id)}>
+                      <Trash2 className="h-2.5 w-2.5" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-          <div className="flex shrink-0 items-center gap-0.5">
-            <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => moveStep(step.id, "up")}>
-              <ArrowUp className="h-3 w-3" />
-            </Button>
-            <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => moveStep(step.id, "down")}>
-              <ArrowDown className="h-3 w-3" />
-            </Button>
-            <Button variant="ghost" size="sm" className="h-5 w-5 p-0 text-muted-foreground hover:text-destructive" onClick={() => store.getState().removeProcessStep(step.id)}>
-              <Trash2 className="h-2.5 w-2.5" />
-            </Button>
+
+          {/* Permissives */}
+          <div className="rounded-md border border-amber-500/20 bg-amber-500/5">
+            <button
+              onClick={() => {/* always visible */}}
+              className="flex w-full items-center gap-1.5 px-2 py-1.5"
+            >
+              <AlertTriangle className="h-3 w-3 text-amber-400" />
+              <span className="font-mono text-[10px] font-medium text-amber-400">PERMISSIVES</span>
+              <Badge variant="outline" className="ml-auto font-mono text-[10px] text-amber-400">
+                {activeSeq.permissives.length}
+              </Badge>
+              <Button variant="ghost" size="sm" className="h-4 w-4 p-0" onClick={(e) => {
+                e.stopPropagation();
+                store.getState().addPermissive(activeSeq.id, {
+                  id: crypto.randomUUID(), description: "", deviceName: null, polarity: true,
+                });
+              }}>
+                <Plus className="h-3 w-3" />
+              </Button>
+            </button>
+            {activeSeq.permissives.length > 0 && (
+              <div className="border-t border-amber-500/10 px-2 py-1 space-y-0.5">
+                {activeSeq.permissives.map((p) => (
+                  <div key={p.id} className="flex items-center gap-1">
+                    <Input
+                      value={p.description}
+                      onChange={(e) => store.getState().updatePermissive(activeSeq.id, p.id, { description: e.target.value })}
+                      className="h-5 min-w-0 flex-1 border-0 bg-muted/30 px-1 font-mono text-[11px] shadow-none focus-visible:ring-1"
+                      placeholder="Sensor A active"
+                    />
+                    <Select
+                      value={p.deviceName ?? "__null__"}
+                      onValueChange={(v) => store.getState().updatePermissive(activeSeq.id, p.id, { deviceName: v === "__null__" ? null : v })}
+                    >
+                      <SelectTrigger className="h-5 w-24 border-0 bg-muted/30 px-1 font-mono text-[11px] shadow-none">
+                        <SelectValue placeholder="Device" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__null__">None</SelectItem>
+                        {deviceNames.map((dn) => <SelectItem key={dn} value={dn}>{dn}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <button
+                      onClick={() => store.getState().updatePermissive(activeSeq.id, p.id, { polarity: !p.polarity })}
+                      className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] ${p.polarity ? "bg-green-500/20 text-green-400" : "bg-amber-500/20 text-amber-400"}`}
+                    >
+                      {p.polarity ? "Active" : "Inactive"}
+                    </button>
+                    <Button variant="ghost" size="sm" className="h-4 w-4 p-0 text-muted-foreground hover:text-destructive"
+                      onClick={() => store.getState().removePermissive(activeSeq.id, p.id)}>
+                      <Trash2 className="h-2.5 w-2.5" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Steps header */}
+          <div className="flex items-center gap-1 px-1 font-mono text-[10px] font-medium text-muted-foreground">
+            <span className="w-6">#</span>
+            <span className="flex-[2]">Transition</span>
+            <span className="flex-[2]">Actions</span>
+            <span className="flex-1">Devices</span>
+            <span className="w-16" />
+          </div>
+
+          {/* Step rows */}
+          {activeSeq.steps.map((step) => {
+            const isExpanded = expandedStepId === step.id;
+            const transLabel = formatTransitionLabel(step.transition);
+            const firstAction = step.actions[0]?.description ?? "";
+            return (
+              <div key={step.id} className="rounded-md border bg-muted/20">
+                {/* Collapsed row */}
+                <div className="flex items-center gap-1 px-1 py-1">
+                  <button onClick={() => setExpandedStepId(isExpanded ? null : step.id)} className="shrink-0 p-0.5">
+                    {isExpanded ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
+                  </button>
+                  <span className="flex h-6 w-5 shrink-0 items-center justify-center font-mono text-xs text-muted-foreground">
+                    {step.stepNumber}
+                  </span>
+                  <span className="flex-[2] truncate font-mono text-xs text-foreground/80">
+                    {transLabel || <span className="text-muted-foreground/50">No transition</span>}
+                  </span>
+                  <span className="flex-[2] truncate font-mono text-xs text-foreground/80">
+                    {firstAction || <span className="text-muted-foreground/50">No actions</span>}
+                    {step.actions.length > 1 && <span className="text-muted-foreground/50"> +{step.actions.length - 1}</span>}
+                  </span>
+                  <div className="flex flex-1 flex-wrap gap-0.5">
+                    {step.devicesInvolved.map((dn) => (
+                      <Badge key={dn} variant="outline" className="font-mono text-[9px]">{dn}</Badge>
+                    ))}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-0.5">
+                    <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => moveStep(step.id, "up")}>
+                      <ArrowUp className="h-3 w-3" />
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => moveStep(step.id, "down")}>
+                      <ArrowDown className="h-3 w-3" />
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-5 w-5 p-0 text-muted-foreground hover:text-destructive"
+                      onClick={() => store.getState().removeProcessStep(activeSeq.id, step.id)}>
+                      <Trash2 className="h-2.5 w-2.5" />
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Expanded detail */}
+                {isExpanded && (
+                  <div className="ml-6 space-y-2 border-t border-border/50 pb-2 pl-3 pt-2">
+                    {/* Transition section */}
+                    <div>
+                      <div className="mb-1 flex items-center gap-1">
+                        <span className="font-mono text-[10px] font-medium text-muted-foreground">TRANSITION</span>
+                        <div className="flex rounded border text-[10px]">
+                          <button
+                            onClick={() => store.getState().setTransitionCombinator(activeSeq.id, step.id, "AND")}
+                            className={`px-1.5 py-0.5 font-mono ${step.transition.combinator === "AND" ? "bg-blue-500/20 text-blue-400" : "text-muted-foreground/50"}`}
+                          >AND</button>
+                          <button
+                            onClick={() => store.getState().setTransitionCombinator(activeSeq.id, step.id, "OR")}
+                            className={`px-1.5 py-0.5 font-mono ${step.transition.combinator === "OR" ? "bg-blue-500/20 text-blue-400" : "text-muted-foreground/50"}`}
+                          >OR</button>
+                        </div>
+                        <Button variant="ghost" size="sm" className="h-4 w-4 p-0" onClick={() => {
+                          store.getState().addTransitionSubCondition(activeSeq.id, step.id, {
+                            id: crypto.randomUUID(), description: "", deviceName: null,
+                          });
+                        }}>
+                          <Plus className="h-3 w-3" />
+                        </Button>
+                      </div>
+                      {step.transition.conditions.map((cond) => (
+                        <div key={cond.id} className="flex items-center gap-1 py-0.5">
+                          <Input
+                            value={cond.description}
+                            onChange={(e) => store.getState().updateTransitionSubCondition(activeSeq.id, step.id, cond.id, { description: e.target.value })}
+                            className="h-5 min-w-0 flex-1 border-0 bg-muted/30 px-1 font-mono text-[11px] shadow-none focus-visible:ring-1"
+                            placeholder="Condition description"
+                          />
+                          <Select
+                            value={cond.deviceName ?? "__null__"}
+                            onValueChange={(v) => store.getState().updateTransitionSubCondition(activeSeq.id, step.id, cond.id, { deviceName: v === "__null__" ? null : v })}
+                          >
+                            <SelectTrigger className="h-5 w-24 border-0 bg-muted/30 px-1 font-mono text-[11px] shadow-none">
+                              <SelectValue placeholder="Device" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__null__">None</SelectItem>
+                              {deviceNames.map((dn) => <SelectItem key={dn} value={dn}>{dn}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                          <Button variant="ghost" size="sm" className="h-4 w-4 p-0 text-muted-foreground hover:text-destructive"
+                            onClick={() => store.getState().removeTransitionSubCondition(activeSeq.id, step.id, cond.id)}>
+                            <Trash2 className="h-2.5 w-2.5" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Actions section */}
+                    <div>
+                      <div className="mb-1 flex items-center gap-1">
+                        <span className="font-mono text-[10px] font-medium text-muted-foreground">ACTIONS</span>
+                        <Button variant="ghost" size="sm" className="h-4 w-4 p-0" onClick={() => {
+                          const newAction: ProcessAction = { id: crypto.randomUUID(), description: "", deviceName: null };
+                          store.getState().updateProcessStep(activeSeq.id, step.id, {
+                            actions: [...step.actions, newAction],
+                          });
+                        }}>
+                          <Plus className="h-3 w-3" />
+                        </Button>
+                      </div>
+                      {step.actions.map((action) => (
+                        <div key={action.id} className="flex items-center gap-1 py-0.5">
+                          <Input
+                            value={action.description}
+                            onChange={(e) => {
+                              store.getState().updateProcessStep(activeSeq.id, step.id, {
+                                actions: step.actions.map((a) => a.id === action.id ? { ...a, description: e.target.value } : a),
+                              });
+                            }}
+                            className="h-5 min-w-0 flex-1 border-0 bg-muted/30 px-1 font-mono text-[11px] shadow-none focus-visible:ring-1"
+                            placeholder="Action description"
+                          />
+                          <Select
+                            value={action.deviceName ?? "__null__"}
+                            onValueChange={(v) => {
+                              store.getState().updateProcessStep(activeSeq.id, step.id, {
+                                actions: step.actions.map((a) => a.id === action.id ? { ...a, deviceName: v === "__null__" ? null : v } : a),
+                              });
+                            }}
+                          >
+                            <SelectTrigger className="h-5 w-24 border-0 bg-muted/30 px-1 font-mono text-[11px] shadow-none">
+                              <SelectValue placeholder="Device" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__null__">None</SelectItem>
+                              {deviceNames.map((dn) => <SelectItem key={dn} value={dn}>{dn}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                          <Button variant="ghost" size="sm" className="h-4 w-4 p-0 text-muted-foreground hover:text-destructive"
+                            onClick={() => {
+                              store.getState().updateProcessStep(activeSeq.id, step.id, {
+                                actions: step.actions.filter((a) => a.id !== action.id),
+                              });
+                            }}>
+                            <Trash2 className="h-2.5 w-2.5" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Devices */}
+                    <div>
+                      <span className="font-mono text-[10px] font-medium text-muted-foreground">DEVICES</span>
+                      <div className="mt-0.5 flex flex-wrap gap-0.5">
+                        {deviceNames.map((dn) => (
+                          <button
+                            key={dn}
+                            onClick={() => toggleDevice(step.id, dn)}
+                            className={`rounded px-1.5 py-0.5 font-mono text-[9px] transition-colors ${
+                              step.devicesInvolved.includes(dn)
+                                ? "bg-blue-500/20 text-blue-400"
+                                : "bg-muted/40 text-muted-foreground/50 hover:bg-muted/60"
+                            }`}
+                          >
+                            {dn}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Notes */}
+                    <div>
+                      <span className="font-mono text-[10px] font-medium text-muted-foreground">NOTES</span>
+                      <Input
+                        value={step.notes}
+                        onChange={(e) => store.getState().updateProcessStep(activeSeq.id, step.id, { notes: e.target.value })}
+                        className="mt-0.5 h-5 border-0 bg-muted/30 px-1 font-mono text-[11px] shadow-none focus-visible:ring-1"
+                        placeholder="Optional notes"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          <Button variant="outline" size="sm" className="h-7 gap-1 font-mono text-xs" onClick={addStep}>
+            <Plus className="h-3 w-3" />
+            Add Step
+          </Button>
+
+          {/* Diagram section */}
+          <div className="mt-2 rounded-md border">
+            <button
+              onClick={() => setDiagramOpen((v) => !v)}
+              className="flex w-full items-center gap-1.5 px-2 py-1.5"
+            >
+              {diagramOpen ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
+              <span className="font-mono text-[10px] font-medium text-muted-foreground">STATE DIAGRAM</span>
+            </button>
+            {diagramOpen && (
+              <div className="border-t px-2 py-2">
+                <MermaidDiagram chart={diagramChart} className="min-h-[120px]" />
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {sequences.length === 0 && (
+        <div className="flex flex-col items-center justify-center gap-2 py-6 text-center">
+          <ArrowDown className="h-6 w-6 text-muted-foreground/30" />
+          <div className="font-mono text-xs text-muted-foreground/60">
+            No sequences defined. Add a sequence to define the process flow.
           </div>
         </div>
-      ))}
-
-      <Button variant="outline" size="sm" className="h-7 gap-1 font-mono text-xs" onClick={addStep}>
-        <Plus className="h-3 w-3" />
-        Add Step
-      </Button>
+      )}
     </div>
   );
 }
@@ -490,7 +875,7 @@ export function LinkageMatrixPanel({ onValidate, onProceed, validating }: Linkag
       name: "",
       deviceType: "",
       description: "",
-      ioSignals: [],
+      wiring: [],
       fbName: "",
       fbTemplateName: null,
       fbTemplateId: null,
@@ -531,7 +916,7 @@ export function LinkageMatrixPanel({ onValidate, onProceed, validating }: Linkag
         <div>
           <div className="text-sm font-medium">Linkage Matrix</div>
           <div className="font-mono text-[10px] text-muted-foreground">
-            {matrix.deviceLinkage.length} devices &middot; {matrix.processSteps.length} steps &middot; {matrix.globalData.length} global DBs
+            {matrix.deviceLinkage.length} devices &middot; {matrix.processSequences.length} sequence(s) &middot; {matrix.globalData.length} global DBs
           </div>
         </div>
         <Badge className={`font-mono text-[10px] ${statusConfig.className}`}>
@@ -562,7 +947,7 @@ export function LinkageMatrixPanel({ onValidate, onProceed, validating }: Linkag
                 <span className="min-w-0 flex-1">Description</span>
                 <span className="w-28">FB</span>
                 <span className="w-32">Instance DB</span>
-                <span className="w-12">IO</span>
+                <span className="w-12">Wires</span>
                 <span className="w-5" />
               </div>
 

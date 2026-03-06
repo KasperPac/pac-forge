@@ -244,7 +244,7 @@ export function QaSummaryPanel() {
                         {device.description}
                       </div>
                       <div className="mt-0.5 flex items-center gap-1 font-mono text-[10px] text-blue-400/80">
-                        <span>{device.ioSignals.length} IO</span>
+                        <span>{device.wiring.length} wires</span>
                         <span>&middot;</span>
                         <span>{device.fbName}</span>
                         <ArrowRight className="h-2.5 w-2.5" />
@@ -257,30 +257,35 @@ export function QaSummaryPanel() {
             </CollapsibleSection>
 
             <CollapsibleSection
-              title="Process Steps"
+              title="Process Sequences"
               icon={Blocks}
-              count={matrix.processSteps.length}
-              defaultOpen={matrix.processSteps.length > 0}
+              count={matrix.processSequences.length}
+              defaultOpen={matrix.processSequences.length > 0}
             >
-              {matrix.processSteps.length === 0 ? (
+              {matrix.processSequences.length === 0 ? (
                 <div className="font-mono text-xs text-muted-foreground/60">
-                  No process steps defined yet
+                  No process sequences defined yet
                 </div>
               ) : (
                 <div className="space-y-1">
-                  {matrix.processSteps.map((step) => (
+                  {matrix.processSequences.map((seq) => (
                     <div
-                      key={step.id}
-                      className="flex items-start gap-1.5 rounded-md border bg-muted/30 px-2 py-1"
+                      key={seq.id}
+                      className="rounded-md border bg-muted/30 px-2 py-1"
                     >
-                      <span className="shrink-0 font-mono text-[10px] font-medium text-muted-foreground">
-                        {step.stepNumber}.
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="font-mono text-xs">{step.action}</div>
-                        <div className="truncate font-mono text-[10px] text-muted-foreground">
-                          {step.completionCriteria}
-                        </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono text-xs font-medium">{seq.name}</span>
+                      </div>
+                      <div className="mt-0.5 flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
+                        <span>{seq.steps.length} steps</span>
+                        <span>&middot;</span>
+                        <span>{seq.permissives.length} permissives</span>
+                        {seq.safetyConditions.length > 0 && (
+                          <>
+                            <span>&middot;</span>
+                            <span>{seq.safetyConditions.length} safety</span>
+                          </>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -304,7 +309,7 @@ export function QaSummaryPanel() {
               {hasMatrix && (
                 <>
                   {" "}&middot; {matrix.deviceLinkage.length} devices
-                  {" "}&middot; {matrix.processSteps.length} steps
+                  {" "}&middot; {matrix.processSequences.length} sequence(s)
                 </>
               )}
             </div>

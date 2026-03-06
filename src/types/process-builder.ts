@@ -118,11 +118,23 @@ export interface ProcessLinkageMatrix {
   version: number;
   deviceLinkage: LinkageDevice[];
   globalData: LinkageGlobalData[];
-  processSteps: ProcessStep[];
+  processSequences: ProcessSequence[];
+  /** @deprecated Use processSequences instead — kept for backward compat */
+  processSteps?: ProcessStep[];
   notes: string;
   generatedAt: string;
   lastReviewedAt: string | null;
   reviewStatus: MatrixReviewStatus;
+}
+
+/** FB-to-FB wiring entry: captures what each FB parameter connects to. */
+export interface FbWire {
+  id: string;
+  paramName: string;
+  direction: "in" | "out";
+  connectedTo: string;
+  wireType: "fb" | "io" | "global" | "constant";
+  dataType?: string;
 }
 
 export interface LinkageDevice {
@@ -130,7 +142,7 @@ export interface LinkageDevice {
   name: string;
   deviceType: string;
   description: string;
-  ioSignals: LinkageIoSignal[];
+  wiring: FbWire[];
   fbName: string;
   fbTemplateName: string | null;
   fbTemplateId: string | null;
@@ -138,6 +150,7 @@ export interface LinkageDevice {
   interlocks: LinkageInterlock[];
 }
 
+/** @deprecated Kept for backward compat with existing sessions in DB. */
 export interface LinkageIoSignal {
   id: string;
   tagName: string;
@@ -167,16 +180,63 @@ export interface LinkageGlobalField {
 }
 
 // ---------------------------------------------------------------------------
-// Process Sequence Table
+// Process Sequence (enhanced state-machine model)
 // ---------------------------------------------------------------------------
+
+/** A sub-condition within a compound transition */
+export interface TransitionSubCondition {
+  id: string;
+  description: string;
+  deviceName: string | null;
+}
+
+/** Compound transition condition with AND/OR logic */
+export interface TransitionCondition {
+  combinator: "AND" | "OR";
+  conditions: TransitionSubCondition[];
+}
+
+export interface ProcessAction {
+  id: string;
+  description: string;
+  deviceName: string | null;
+}
+
+export interface ProcessPermissive {
+  id: string;
+  description: string;
+  deviceName: string | null;
+  polarity: boolean;
+}
+
+/** Safety condition — continuously monitored, halts sequence to safe state on failure */
+export interface SafetyCondition {
+  id: string;
+  description: string;
+  deviceName: string | null;
+  polarity: boolean;
+}
+
+export interface ProcessSequence {
+  id: string;
+  name: string;
+  description: string;
+  permissives: ProcessPermissive[];
+  safetyConditions: SafetyCondition[];
+  steps: ProcessStep[];
+}
 
 export interface ProcessStep {
   id: string;
   stepNumber: number;
-  action: string;
-  completionCriteria: string;
+  transition: TransitionCondition;
+  actions: ProcessAction[];
   devicesInvolved: string[];
   notes: string;
+  /** @deprecated Use transition instead */
+  action?: string;
+  /** @deprecated Use transition instead */
+  completionCriteria?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -198,6 +258,8 @@ export interface ProcessBuilderSession {
   folder_structure: Record<string, unknown>;
   auto_gating: boolean;
   tia_project_path?: string;
+  /** Full pipeline agent conversation log (system prompts, user messages, responses). */
+  pipeline_log: Record<string, unknown>[];
   created_at: string;
   updated_at: string;
 }

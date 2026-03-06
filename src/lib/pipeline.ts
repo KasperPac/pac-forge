@@ -51,6 +51,8 @@ export interface PipelineStepResult {
   artifactsModified: string[];
   summary: string;
   error?: string;
+  /** Process Builder stage this step belongs to (e.g. "io", "fb"). */
+  stage?: string;
 }
 
 export interface PipelineExecution {

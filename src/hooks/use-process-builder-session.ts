@@ -69,6 +69,7 @@ export function useUpdateProcessBuilderSession() {
         | "folder_structure"
         | "auto_gating"
         | "tia_project_path"
+        | "pipeline_log"
       >>;
     }): Promise<ProcessBuilderSession> => {
       const { data, error } = await supabase

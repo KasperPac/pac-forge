@@ -36,10 +36,14 @@ export const PROCESS_STAGE_CONFIG: Record<
 
 /**
  * Collect all artifacts from completed stages to build context for the next stage.
+ * When `compact` is true, FB artifacts are reduced to just their interface declarations
+ * (VAR_INPUT/VAR_OUTPUT/VAR_IN_OUT) — the FC+OB stage only needs to know how to call FBs,
+ * not their full implementation.
  */
 export function getStageContext(
   stageArtifacts: Record<ProcessStage, Artifact[]>,
   upToStage: ProcessStage,
+  compact = false,
 ): string {
   const sections: string[] = [];
   const targetIdx = PROCESS_STAGE_ORDER.indexOf(upToStage);
@@ -51,15 +55,36 @@ export function getStageContext(
 
     sections.push(`## Artifacts from ${stage.toUpperCase()} stage:`);
     for (const a of artifacts) {
+      const content = compact && a.type === "FB"
+        ? extractFbInterface(a.content)
+        : a.content;
       sections.push(`### ${a.name} (${a.type})`);
       sections.push("```scl");
-      sections.push(a.content);
+      sections.push(content);
       sections.push("```");
     }
     sections.push("");
   }
 
   return sections.join("\n");
+}
+
+/**
+ * Extract just the interface declarations from an FB's SCL source.
+ * Keeps the header + all VAR sections, strips the BEGIN...END implementation.
+ */
+function extractFbInterface(scl: string): string {
+  // Find BEGIN keyword — everything before it is the interface
+  const beginIdx = scl.search(/^BEGIN\b/m);
+  if (beginIdx < 0) return scl; // No BEGIN found, return as-is
+
+  const interfacePart = scl.substring(0, beginIdx).trimEnd();
+
+  // Find the block name from the first line for the closing tag
+  const blockEnd = scl.match(/^END_(FUNCTION_BLOCK|FUNCTION|DATA_BLOCK)/m);
+  const endTag = blockEnd ? blockEnd[0] : "END_FUNCTION_BLOCK";
+
+  return `${interfacePart}\nBEGIN\n  // (implementation omitted — interface only)\n${endTag}`;
 }
 
 /**

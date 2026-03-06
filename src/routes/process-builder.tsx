@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { useProjects, useProject, useUpdateProject } from "@/hooks/use-projects";
 import { useAgents } from "@/hooks/use-agents";
 import { useActiveSession } from "@/hooks/use-sessions";
@@ -23,6 +24,7 @@ import { useProcessPipeline } from "@/hooks/use-process-pipeline";
 import { useSubmitTiaJob, useBridgeStatus, useTiaJob, isTiaProjectOpen, createProjectAndImport } from "@/hooks/use-tia-jobs";
 import { useTiaBridgeWs } from "@/hooks/use-tia-bridge-ws";
 import { useProcessBuilderStore } from "@/stores/process-builder-store";
+import type { PipelineStepResult } from "@/lib/pipeline";
 import { buildManifest } from "@/lib/manifest-builder";
 import { SessionStartDialog } from "@/components/session-start-dialog";
 import { QaChatPane } from "@/components/process-builder/qa-chat-pane";
@@ -31,12 +33,13 @@ import { GenerationStagePanel } from "@/components/process-builder/generation-st
 import { StageGateDialog } from "@/components/process-builder/stage-gate-dialog";
 import { ArtifactAccumulator } from "@/components/process-builder/artifact-accumulator";
 import { ResumeSessionDialog } from "@/components/process-builder/resume-session-dialog";
+import { LinkageMatrixPanel } from "@/components/process-builder/linkage-matrix-panel";
 import { IoStageContext } from "@/components/process-builder/io-stage-panel";
 import { FolderStageContext } from "@/components/process-builder/folder-stage-panel";
 import { FbStageContext } from "@/components/process-builder/fb-stage-panel";
 import { DbStageContext } from "@/components/process-builder/db-stage-panel";
 import { FcObStageContext } from "@/components/process-builder/fc-ob-stage-panel";
-import { LinkageMatrixPanel } from "@/components/process-builder/linkage-matrix-panel";
+import { PipelineLogPanel } from "@/components/process-builder/pipeline-log-panel";
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -50,7 +53,8 @@ import { toast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Check, Circle, FolderOpen, RotateCcw } from "lucide-react";
+import { Check, Circle, FolderOpen, Layers, RotateCcw, MessageSquare, Terminal } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
 /** Detect affirmative messages that should auto-confirm pending recommendations. */
@@ -58,6 +62,9 @@ const AFFIRMATIVE_RE = /^(ok|okay|yes|yep|yeah|sure|confirm|confirmed|approve|ap
 
 /** Detect generation-intent messages that should trigger Proceed instead of PM chat. */
 const GENERATE_RE = /^(generate|start generat|proceed|go ahead and generate|let'?s? generate|begin generat|run the pipeline|start the pipeline|kick off)/i;
+
+/** Stable empty array to avoid infinite re-renders from Zustand selector creating new [] each render. */
+const EMPTY_STEPS: PipelineStepResult[] = [];
 
 function StageProgressBar({
   currentStage,
@@ -168,6 +175,7 @@ function StageProgressBar({
 export default function ProcessBuilderPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const projectId = searchParams.get("project");
   const { data: project } = useProject(projectId ?? undefined);
   const { data: allProjects } = useProjects();
@@ -269,6 +277,14 @@ export default function ProcessBuilderPage() {
         if (pbSession.auto_gating) {
           if (!store.autoGating) store.toggleAutoGating();
         }
+        // Restore pipeline log from DB
+        if (pbSession.pipeline_log?.length > 0 && !store.pipelineExecution) {
+          store.startPipeline("restored");
+          for (const step of pbSession.pipeline_log) {
+            store.addPipelineStep(step as unknown as PipelineStepResult);
+          }
+          store.completePipeline(0);
+        }
         setShowResumeDialog(true);
       }
     }
@@ -283,6 +299,7 @@ export default function ProcessBuilderPage() {
     setShowResumeDialog(false);
     // Clear DB session data so crash recovery doesn't re-trigger
     if (sessionId) {
+      queryClient.removeQueries({ queryKey: ["process-builder-session", sessionId] });
       updatePbSession.mutate({
         sessionId,
         updates: {
@@ -293,10 +310,11 @@ export default function ProcessBuilderPage() {
           fb_recommendations: [],
           linkage_matrix: null,
           folder_structure: {},
+          pipeline_log: [],
         },
       });
     }
-  }, [sessionId, updatePbSession]);
+  }, [sessionId, queryClient, updatePbSession]);
 
   // TIA Bridge WebSocket — track compile results
   const handleBridgeEvent = useCallback((event: { type: string; data: Record<string, unknown> }) => {
@@ -350,9 +368,12 @@ export default function ProcessBuilderPage() {
   // Store state
   const currentStage = useProcessBuilderStore((s) => s.currentStage);
   const stageCompileResults = useProcessBuilderStore((s) => s.stageCompileResults);
+  const pipelineExecution = useProcessBuilderStore((s) => s.pipelineExecution);
+  const pipelineSteps = pipelineExecution?.steps ?? EMPTY_STEPS;
   const [sending, setSending] = useState(false);
   const [stageRunning, setStageRunning] = useState(false);
   const [gateStage, setGateStage] = useState<ProcessStage | null>(null);
+  const [leftPaneTab, setLeftPaneTab] = useState<"context" | "chat" | "log">("chat");
 
   // Can proceed from Q&A: at least one PM response and not sending
   const qaMessages = useProcessBuilderStore((s) => s.qaMessages);
@@ -376,12 +397,17 @@ export default function ProcessBuilderPage() {
 
     if (!matrix) return;
 
-    // Derive IO module recommendations from matrix signal counts
-    // (auto-populate ioRecommendations from signal totals for TIA import)
+    // Derive IO module recommendations from matrix wiring counts
+    // (auto-populate ioRecommendations from IO wire totals for TIA import)
     const totals = { DI: 0, DQ: 0, AI: 0, AQ: 0 };
     for (const d of matrix.deviceLinkage) {
-      for (const sig of d.ioSignals) {
-        totals[sig.signalType]++;
+      for (const w of d.wiring) {
+        if (w.wireType !== "io") continue;
+        if (w.direction === "in") {
+          totals[w.dataType === "Real" ? "AI" : "DI"]++;
+        } else {
+          totals[w.dataType === "Real" ? "AQ" : "DQ"]++;
+        }
       }
     }
 
@@ -438,6 +464,7 @@ export default function ProcessBuilderPage() {
         designProfile,
         fbTemplates,
         promptSections,
+        pipelineSteps: useProcessBuilderStore.getState().pipelineExecution?.steps,
       });
 
       setSending(false);
@@ -449,6 +476,8 @@ export default function ProcessBuilderPage() {
     useProcessBuilderStore.getState().reset();
     // Clear DB session so crash recovery doesn't re-trigger
     if (sessionId) {
+      // Immediately evict cached pb session so remount doesn't trigger crash recovery
+      queryClient.removeQueries({ queryKey: ["process-builder-session", sessionId] });
       updatePbSession.mutate({
         sessionId,
         updates: {
@@ -459,6 +488,7 @@ export default function ProcessBuilderPage() {
           fb_recommendations: [],
           linkage_matrix: null,
           folder_structure: {},
+          pipeline_log: [],
         },
       });
     }
@@ -467,7 +497,7 @@ export default function ProcessBuilderPage() {
       updateProject.mutate({ id: project.id, updates: { io_lists: [] } });
     }
     navigate("/pac-st/process");
-  }, [sessionId, updatePbSession, project, updateProject, navigate]);
+  }, [sessionId, queryClient, updatePbSession, project, updateProject, navigate]);
 
   // Run a generation stage
   const handleRunStage = useCallback(
@@ -759,13 +789,49 @@ export default function ProcessBuilderPage() {
       {isQaPhase && (
         <ResizablePanelGroup orientation="horizontal" className="flex-1">
           <ResizablePanel defaultSize={60} minSize={30}>
-            <QaChatPane
-              onSend={handleSend}
-              sending={sending}
-              onClear={handleClear}
-              onProceed={handleProceed}
-              canProceed={canProceed}
-            />
+            <div className="flex h-full flex-col">
+              {/* Tab bar — only show when pipeline steps exist */}
+              {pipelineSteps.length > 0 && (
+                <div className="flex border-b">
+                  <button
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 font-mono text-[10px] transition-colors",
+                      leftPaneTab === "chat" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground",
+                    )}
+                    onClick={() => setLeftPaneTab("chat")}
+                  >
+                    <MessageSquare className="h-3 w-3" />
+                    Chat
+                  </button>
+                  <button
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 font-mono text-[10px] transition-colors",
+                      leftPaneTab === "log" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground",
+                    )}
+                    onClick={() => setLeftPaneTab("log")}
+                  >
+                    <Terminal className="h-3 w-3" />
+                    Pipeline Log
+                    <Badge variant="outline" className="px-1 py-0 text-[9px]">
+                      {pipelineSteps.length}
+                    </Badge>
+                  </button>
+                </div>
+              )}
+              <div className="min-h-0 flex-1">
+                {leftPaneTab === "chat" ? (
+                  <QaChatPane
+                    onSend={handleSend}
+                    sending={sending}
+                    onClear={handleClear}
+                    onProceed={handleProceed}
+                    canProceed={canProceed}
+                  />
+                ) : (
+                  <PipelineLogPanel steps={pipelineSteps} isRunning={stageRunning} />
+                )}
+              </div>
+            </div>
           </ResizablePanel>
 
           <ResizableHandle withHandle />
@@ -780,13 +846,48 @@ export default function ProcessBuilderPage() {
       {isMatrixPhase && (
         <ResizablePanelGroup orientation="horizontal" className="flex-1">
           <ResizablePanel defaultSize={30} minSize={20}>
-            <QaChatPane
-              onSend={handleSend}
-              sending={sending}
-              onClear={handleClear}
-              onProceed={handleProceed}
-              canProceed={false}
-            />
+            <div className="flex h-full flex-col">
+              {pipelineSteps.length > 0 && (
+                <div className="flex border-b">
+                  <button
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 font-mono text-[10px] transition-colors",
+                      leftPaneTab === "chat" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground",
+                    )}
+                    onClick={() => setLeftPaneTab("chat")}
+                  >
+                    <MessageSquare className="h-3 w-3" />
+                    Chat
+                  </button>
+                  <button
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 font-mono text-[10px] transition-colors",
+                      leftPaneTab === "log" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground",
+                    )}
+                    onClick={() => setLeftPaneTab("log")}
+                  >
+                    <Terminal className="h-3 w-3" />
+                    Pipeline Log
+                    <Badge variant="outline" className="px-1 py-0 text-[9px]">
+                      {pipelineSteps.length}
+                    </Badge>
+                  </button>
+                </div>
+              )}
+              <div className="min-h-0 flex-1">
+                {leftPaneTab === "chat" ? (
+                  <QaChatPane
+                    onSend={handleSend}
+                    sending={sending || matrixValidating}
+                    onClear={handleClear}
+                    onProceed={handleProceed}
+                    canProceed={false}
+                  />
+                ) : (
+                  <PipelineLogPanel steps={pipelineSteps} isRunning={stageRunning} />
+                )}
+              </div>
+            </div>
           </ResizablePanel>
 
           <ResizableHandle withHandle />
@@ -804,18 +905,68 @@ export default function ProcessBuilderPage() {
       {/* Generation Phase */}
       {isGenerationPhase && (
         <ResizablePanelGroup orientation="horizontal" className="flex-1">
-          {/* Left: stage context */}
+          {/* Left: context / chat / pipeline log */}
           <ResizablePanel defaultSize={20} minSize={15}>
             <div className="flex h-full flex-col border-r">
-              <div className="border-b px-3 py-2 font-mono text-[10px] font-medium text-muted-foreground">
-                STAGE CONTEXT
+              <div className="flex border-b">
+                <button
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 font-mono text-[10px] transition-colors",
+                    leftPaneTab === "context" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground",
+                  )}
+                  onClick={() => setLeftPaneTab("context")}
+                >
+                  <Layers className="h-3 w-3" />
+                  Context
+                </button>
+                <button
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 font-mono text-[10px] transition-colors",
+                    leftPaneTab === "chat" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground",
+                  )}
+                  onClick={() => setLeftPaneTab("chat")}
+                >
+                  <MessageSquare className="h-3 w-3" />
+                  Chat
+                </button>
+                <button
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 font-mono text-[10px] transition-colors",
+                    leftPaneTab === "log" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground",
+                  )}
+                  onClick={() => setLeftPaneTab("log")}
+                >
+                  <Terminal className="h-3 w-3" />
+                  Log
+                  {pipelineSteps.length > 0 && (
+                    <Badge variant="outline" className="px-1 py-0 text-[9px]">
+                      {pipelineSteps.length}
+                    </Badge>
+                  )}
+                </button>
               </div>
               <div className="min-h-0 flex-1 overflow-auto">
-                {currentStage === "io" && <IoStageContext />}
-                {currentStage === "folders" && <FolderStageContext />}
-                {currentStage === "fb" && <FbStageContext />}
-                {currentStage === "db" && <DbStageContext />}
-                {currentStage === "fc_ob" && <FcObStageContext />}
+                {leftPaneTab === "context" && (
+                  <>
+                    {currentStage === "io" && <IoStageContext />}
+                    {currentStage === "folders" && <FolderStageContext />}
+                    {currentStage === "fb" && <FbStageContext />}
+                    {currentStage === "db" && <DbStageContext />}
+                    {currentStage === "fc_ob" && <FcObStageContext />}
+                  </>
+                )}
+                {leftPaneTab === "chat" && (
+                  <QaChatPane
+                    onSend={handleSend}
+                    sending={sending}
+                    onClear={handleClear}
+                    onProceed={handleProceed}
+                    canProceed={false}
+                  />
+                )}
+                {leftPaneTab === "log" && (
+                  <PipelineLogPanel steps={pipelineSteps} isRunning={stageRunning} />
+                )}
               </div>
             </div>
           </ResizablePanel>
