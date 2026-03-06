@@ -136,6 +136,10 @@ namespace PacForgeBridge
                 if (doImport && job.Manifest?.Artifacts != null)
                 {
                     ImportArtifacts(job, plcSoftware);
+
+                    // Re-acquire PlcSoftware — Transaction in ImportArtifacts may have
+                    // invalidated internal COM handles (CompileProvider, etc.)
+                    plcSoftware = _tiaService.GetPlcSoftware();
                 }
 
                 // Step 5: Compile
