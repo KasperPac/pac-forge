@@ -40,6 +40,7 @@ import { FbStageContext } from "@/components/process-builder/fb-stage-panel";
 import { DbStageContext } from "@/components/process-builder/db-stage-panel";
 import { FcObStageContext } from "@/components/process-builder/fc-ob-stage-panel";
 import { PipelineLogPanel } from "@/components/process-builder/pipeline-log-panel";
+import { generateIoArtifacts } from "@/lib/io-scl-generator";
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -434,9 +435,9 @@ export default function ProcessBuilderPage() {
   // Validate matrix with PM
   const handleValidateMatrix = useCallback(async () => {
     setMatrixValidating(true);
-    await validateMatrix({ promptSections });
+    await validateMatrix({ promptSections, designProfile });
     setMatrixValidating(false);
-  }, [validateMatrix, promptSections]);
+  }, [validateMatrix, promptSections, designProfile]);
 
   const handleSend = useCallback(
     async (message: string) => {
@@ -659,7 +660,9 @@ export default function ProcessBuilderPage() {
       }
 
       // Show gate dialog if gating is on and stage completed (not auto-gating)
-      if (stageStatus?.status === "completed" && !storeState.autoGating) {
+      // For IO stage, delay gate until user has reviewed the suggested IO list
+      const hasPendingIoReview = stage === "io" && storeState.suggestedIoList !== null;
+      if (stageStatus?.status === "completed" && !storeState.autoGating && !hasPendingIoReview) {
         setGateStage(stage);
       }
     },
@@ -982,6 +985,112 @@ export default function ProcessBuilderPage() {
               isRunning={stageRunning}
               compileResult={stageCompileResults[currentStage]}
               tiaImporting={tiaImporting}
+              existingIoList={project?.io_lists}
+              onIoListApply={async (mergedIoList) => {
+                if (!project) return;
+                // Save approved IO list to project
+                updateProject.mutate({
+                  id: project.id,
+                  updates: { io_lists: mergedIoList },
+                });
+                // Generate SCL artifacts from approved IO list (deterministic, no AI)
+                const ioArtifacts = generateIoArtifacts(mergedIoList);
+                const store = useProcessBuilderStore.getState();
+                if (ioArtifacts.length > 0) {
+                  // Clear any previous IO artifacts and add new ones
+                  store.clearStageArtifacts("io");
+                  const artifacts = ioArtifacts.map((a) => ({
+                    id: `io-${a.name}-${Date.now()}`,
+                    name: a.name,
+                    type: a.type,
+                    content: a.content,
+                    filename: a.filename,
+                    dependencies: a.dependencies,
+                    destination_folder: a.folder ?? "",
+                    approved_content: null,
+                    compile_after_import: false,
+                    overwrite_strategy: "CREATE_OR_UPDATE" as const,
+                    safety_warnings: [],
+                    notes: "Generated from approved IO list",
+                    project_id: project.id,
+                    session_id: sessionId ?? "",
+                    version: 1,
+                    created_at: new Date().toISOString(),
+                  }));
+                  store.addStageArtifacts("io", artifacts);
+
+                  // Auto-import to TIA if bridge is online
+                  if (tiaProjectPath) {
+                    try {
+                      const r = await fetch("http://localhost:5102/tia/status", { signal: AbortSignal.timeout(3000) });
+                      if (r.ok) {
+                        setTiaImporting(true);
+                        // Re-read store state after addStageArtifacts (store snapshot is stale)
+                        const allArtifacts = Object.values(useProcessBuilderStore.getState().stageArtifacts).flat();
+                        const projectOpen = await isTiaProjectOpen();
+
+                        if (projectOpen) {
+                          const { manifest } = buildManifest(allArtifacts, {
+                            projectId: project.id,
+                            tiaVersion: project.tia_version,
+                            cpuType: project.cpu_type,
+                            userId: "",
+                            sessionId: sessionId ?? "",
+                          });
+                          submitTiaJob.mutate({
+                            projectId: project.id,
+                            sessionId: sessionId ?? "",
+                            jobType: "IMPORT_AND_COMPILE",
+                            manifest,
+                            tiaProjectPath,
+                            artifacts: allArtifacts,
+                          }, {
+                            onSuccess: (job) => {
+                              setCurrentTiaJobId(job.id);
+                              toast({ title: "TIA import started", description: `Importing ${allArtifacts.length} IO artifact(s)` });
+                            },
+                            onError: (err) => {
+                              setTiaImporting(false);
+                              toast({ title: "TIA import failed", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
+                            },
+                          });
+                        } else {
+                          // Create project + import
+                          // Source keys must NOT include .scl — bridge appends it
+                          const sources: Record<string, string> = {};
+                          for (const a of allArtifacts) sources[a.name] = a.content;
+                          const { manifest } = buildManifest(allArtifacts, {
+                            projectId: project.id,
+                            tiaVersion: project.tia_version,
+                            cpuType: project.cpu_type,
+                            userId: "",
+                            sessionId: sessionId ?? "",
+                          });
+                          const ioTags = mergedIoList
+                            .filter((e) => e.address && e.tag_name)
+                            .map((e) => ({ name: e.tag_name, data_type: e.data_type || "Bool", logical_address: e.address, comment: e.description ?? "" }));
+                          // Build IO modules from project rack/slot layout
+                          const ioModules = (project.rack_slot_layout ?? []).flatMap((rack) =>
+                            rack.slots
+                              .filter((s) => s.order_number && s.module_type !== "CPU")
+                              .map((s) => ({ mlfb: s.order_number!, rack: rack.rack, slot: s.slot, description: s.description ?? s.module_type })),
+                          );
+                          const result = await createProjectAndImport(tiaProjectPath, project.client_name ?? "PacForge_Project", sources, manifest.artifacts.map((a) => a.name), ioModules, ioTags);
+                          setTiaImporting(false);
+                          toast(result.ok
+                            ? { title: "TIA project created", description: `Imported ${allArtifacts.length} IO artifact(s)` }
+                            : { title: "TIA project creation failed", description: result.error ?? "Unknown error", variant: "destructive" });
+                        }
+                      }
+                    } catch { /* bridge offline — skip import */ }
+                  }
+                }
+                // Show stage gate after IO review is complete
+                const ioStatus = store.stageStatuses.find((s) => s.stage === "io");
+                if (ioStatus?.status === "completed" && !store.autoGating) {
+                  setGateStage("io");
+                }
+              }}
             />
           </ResizablePanel>
 

@@ -3,9 +3,10 @@ import { Bot } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import { AgentAvatar } from "@/components/agent-avatar";
 import { getAgentProfile } from "@/lib/agent-profiles";
-import { useAgents } from "@/hooks/use-agents";
+import { useAgents, useToggleAgent } from "@/hooks/use-agents";
 import { cn } from "@/lib/utils";
 import type { Agent } from "@/types";
 
@@ -26,9 +27,9 @@ const FLOW_TIERS = [
   },
   {
     label: "2. Generate",
-    description: "Translates the plan into SCL source code",
-    agents: ["Code Architect"],
-    layout: "single" as const,
+    description: "PLC code and HMI screens are built in parallel",
+    agents: ["Code Architect", "HMI Designer"],
+    layout: "parallel" as const,
   },
   {
     label: "3. Review",
@@ -37,13 +38,19 @@ const FLOW_TIERS = [
     layout: "parallel" as const,
   },
   {
-    label: "4. Learn",
+    label: "4. Link",
+    description: "Wires HMI tags to PLC variables from generated code",
+    agents: ["HMI Tag Linker"],
+    layout: "single" as const,
+  },
+  {
+    label: "5. Learn",
     description: "Compares original vs corrected code and saves patterns",
     agents: ["Pattern Librarian"],
     layout: "single" as const,
   },
   {
-    label: "5. Summarize",
+    label: "6. Summarize",
     description: "Synthesizes all results and presents final output to user",
     agents: ["Project Manager"],
     layout: "single" as const,
@@ -85,54 +92,54 @@ export default function AgentsPage() {
 
       {agents && agents.length > 0 && (
         <div className="mx-auto flex max-w-3xl flex-col items-center gap-0 py-4">
-          {FLOW_TIERS.map((tier, tierIdx) => {
-            const tierAgents = tier.agents
-              .map((name) => agents.find((a) => a.display_name === name))
-              .filter(Boolean) as Agent[];
+            {FLOW_TIERS.map((tier, tierIdx) => {
+              const tierAgents = tier.agents
+                .map((name) => agents.find((a) => a.display_name === name))
+                .filter(Boolean) as Agent[];
 
-            return (
-              <div key={tierIdx} className="flex w-full flex-col items-center">
-                {/* Connector line from previous tier */}
-                {tierIdx > 0 && (
-                  <Connector
-                    fromParallel={FLOW_TIERS[tierIdx - 1].layout === "parallel"}
-                    toParallel={tier.layout === "parallel"}
-                  />
-                )}
-
-                {/* Tier header */}
-                <div className="mb-3 flex items-center gap-3">
-                  <Badge
-                    variant="outline"
-                    className="border-primary/30 px-2.5 py-0.5 font-mono text-xs font-semibold uppercase tracking-wider text-primary"
-                  >
-                    {tier.label}
-                  </Badge>
-                  <span className="text-sm text-muted-foreground">
-                    {tier.description}
-                  </span>
-                </div>
-
-                {/* Agent node(s) */}
-                <div
-                  className={cn(
-                    "flex items-stretch justify-center",
-                    tier.layout === "parallel" ? "w-full gap-4" : "gap-0",
-                  )}
-                >
-                  {tierAgents.map((agent) => (
-                    <AgentNode
-                      key={agent.id}
-                      agent={agent}
-                      wide={tier.layout === "parallel"}
-                      onClick={() => navigate(`/agents/${agent.id}`)}
+              return (
+                <div key={tierIdx} className="flex w-full flex-col items-center">
+                  {/* Connector line from previous tier */}
+                  {tierIdx > 0 && (
+                    <Connector
+                      fromParallel={FLOW_TIERS[tierIdx - 1].layout === "parallel"}
+                      toParallel={tier.layout === "parallel"}
                     />
-                  ))}
+                  )}
+
+                  {/* Tier header */}
+                  <div className="mb-3 flex items-center gap-3">
+                    <Badge
+                      variant="outline"
+                      className="border-primary/30 px-2.5 py-0.5 font-mono text-xs font-semibold uppercase tracking-wider text-primary"
+                    >
+                      {tier.label}
+                    </Badge>
+                    <span className="text-sm text-muted-foreground">
+                      {tier.description}
+                    </span>
+                  </div>
+
+                  {/* Agent node(s) */}
+                  <div
+                    className={cn(
+                      "flex items-stretch justify-center",
+                      tier.layout === "parallel" ? "w-full gap-4" : "gap-0",
+                    )}
+                  >
+                    {tierAgents.map((agent) => (
+                      <AgentNode
+                        key={agent.id}
+                        agent={agent}
+                        wide={tier.layout === "parallel"}
+                        onClick={() => navigate(`/agents/${agent.id}`)}
+                      />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
       )}
     </div>
   );
@@ -151,29 +158,40 @@ function AgentNode({
 }) {
   const status = STATUS_STYLES[agent.status] ?? STATUS_STYLES.OFFLINE;
   const profile = getAgentProfile(agent.display_name);
+  const toggleAgent = useToggleAgent();
+  const disabled = !agent.is_enabled;
 
   return (
-    <button
+    <div
       className={cn(
-        "flex items-center gap-3 rounded-lg border bg-card px-4 py-3 text-left transition-colors hover:border-primary/50 hover:bg-accent/30",
+        "flex items-center gap-3 rounded-lg border bg-card px-4 py-3 text-left transition-colors",
+        disabled ? "opacity-50" : "hover:border-primary/50 hover:bg-accent/30",
         wide && "flex-1",
       )}
-      onClick={onClick}
     >
-      <AgentAvatar displayName={agent.display_name} size="md" status={agent.status} />
-      <div className="min-w-0 flex-1">
-        <div className="text-sm font-semibold">{agent.display_name}</div>
-        <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-          {profile.tagline}
-        </p>
-        <div className="mt-1.5 flex items-center gap-1.5">
-          <div className={`h-2 w-2 rounded-full ${status.dot}`} />
-          <span className="font-mono text-[10px] text-muted-foreground">
-            {status.label}
-          </span>
+      <button className="flex min-w-0 flex-1 items-center gap-3" onClick={onClick}>
+        <AgentAvatar displayName={agent.display_name} size="md" status={agent.status} />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold">{agent.display_name}</div>
+          <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+            {profile.tagline}
+          </p>
+          <div className="mt-1.5 flex items-center gap-1.5">
+            <div className={`h-2 w-2 rounded-full ${status.dot}`} />
+            <span className="font-mono text-[10px] text-muted-foreground">
+              {status.label}
+            </span>
+          </div>
         </div>
-      </div>
-    </button>
+      </button>
+      <Switch
+        checked={agent.is_enabled}
+        onCheckedChange={(checked) =>
+          toggleAgent.mutate({ id: agent.id, enabled: checked })
+        }
+        className="shrink-0"
+      />
+    </div>
   );
 }
 

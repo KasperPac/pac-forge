@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
+using System.Linq;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -127,6 +130,41 @@ namespace PacForgeBridge
                     return;
                 }
 
+                // Route: POST /tia/export-hmi
+                if (method == "POST" && path == "/tia/export-hmi")
+                {
+                    await HandleExportHmi(res);
+                    return;
+                }
+
+                // Route: POST /tia/import-hmi
+                if (method == "POST" && path == "/tia/import-hmi")
+                {
+                    await HandleImportHmi(req, res);
+                    return;
+                }
+
+                // Route: POST /tia/export-hmi-graphics
+                if (method == "POST" && path == "/tia/export-hmi-graphics")
+                {
+                    await HandleExportHmiGraphics(req, res);
+                    return;
+                }
+
+                // Route: GET /tia/wincc-graphics-index
+                if (method == "GET" && path == "/tia/wincc-graphics-index")
+                {
+                    await HandleWinccGraphicsIndex(res);
+                    return;
+                }
+
+                // Route: GET /tia/wincc-graphic?path=...
+                if (method == "GET" && path == "/tia/wincc-graphic")
+                {
+                    await HandleWinccGraphic(req, res);
+                    return;
+                }
+
                 // Route: POST /tia/connect
                 if (method == "POST" && path == "/tia/connect")
                 {
@@ -193,6 +231,20 @@ namespace PacForgeBridge
                 {
                     string jobId = jobCancelMatch.Groups[1].Value;
                     await HandleCancelJob(jobId, res);
+                    return;
+                }
+
+                // Route: POST /tia/library/open — Open and enumerate a TIA global library
+                if (method == "POST" && path == "/tia/library/open")
+                {
+                    await HandleLibraryOpen(req, res);
+                    return;
+                }
+
+                // Route: POST /tia/library/export — Export items from a TIA global library
+                if (method == "POST" && path == "/tia/library/export")
+                {
+                    await HandleLibraryExport(req, res);
                     return;
                 }
 
@@ -329,6 +381,114 @@ namespace PacForgeBridge
                     Success = false,
                     Message = ex.Message
                 });
+            }
+        }
+
+        private string FindWinccGraphicsZip()
+        {
+            string basePath = @"C:\Program Files\Siemens\Automation";
+            string[] versions = { "Portal V20", "Portal V19", "Portal V18", "Portal V17" };
+            foreach (var v in versions)
+            {
+                string zipPath = Path.Combine(basePath, v, "lib", "Graphics", "Graphics_All.zip");
+                if (File.Exists(zipPath)) return zipPath;
+            }
+            return null;
+        }
+
+        private async Task HandleWinccGraphicsIndex(HttpListenerResponse res)
+        {
+            try
+            {
+                string zipPath = FindWinccGraphicsZip();
+                if (zipPath == null)
+                {
+                    await WriteJson(res, 404, new { success = false, message = "Graphics_All.zip not found in any TIA Portal installation." });
+                    return;
+                }
+
+                Console.WriteLine($"[TIA] Loading WinCC graphics index from: {zipPath}");
+                var imageExts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    { ".png", ".svg", ".jpg", ".jpeg", ".gif", ".bmp" };
+
+                var entries = new List<object>();
+                using (var zip = System.IO.Compression.ZipFile.OpenRead(zipPath))
+                {
+                    foreach (var entry in zip.Entries)
+                    {
+                        string ext = Path.GetExtension(entry.FullName);
+                        if (!imageExts.Contains(ext) || entry.Length == 0) continue;
+
+                        string name = Path.GetFileNameWithoutExtension(entry.Name);
+                        string category = Path.GetDirectoryName(entry.FullName)?.Replace("\\", "/") ?? "";
+                        // Clean category: remove [EMF], [SVG], [PNG], [WMF] tags
+                        category = System.Text.RegularExpressions.Regex.Replace(category, @"\s*\[(EMF|SVG|PNG|WMF)\]", "");
+
+                        entries.Add(new { name, path = entry.FullName.Replace("\\", "/"), category, size = entry.Length });
+                    }
+                }
+
+                Console.WriteLine($"[TIA] WinCC graphics index: {entries.Count} entries");
+                await WriteJson(res, 200, new { success = true, zip_path = zipPath, entries });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TIA] WinCC graphics index error: {ex.Message}");
+                await WriteJson(res, 500, new { success = false, message = ex.Message });
+            }
+        }
+
+        private async Task HandleWinccGraphic(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            try
+            {
+                string graphicPath = req.QueryString["path"];
+                if (string.IsNullOrEmpty(graphicPath))
+                {
+                    await WriteJson(res, 400, new { success = false, message = "Missing 'path' query parameter." });
+                    return;
+                }
+
+                string zipPath = FindWinccGraphicsZip();
+                if (zipPath == null)
+                {
+                    await WriteJson(res, 404, new { success = false, message = "Graphics_All.zip not found." });
+                    return;
+                }
+
+                using (var zip = System.IO.Compression.ZipFile.OpenRead(zipPath))
+                {
+                    var entry = zip.GetEntry(graphicPath);
+                    if (entry == null)
+                    {
+                        await WriteJson(res, 404, new { success = false, message = $"Entry not found: {graphicPath}" });
+                        return;
+                    }
+
+                    using (var stream = entry.Open())
+                    using (var ms = new MemoryStream())
+                    {
+                        stream.CopyTo(ms);
+                        byte[] bytes = ms.ToArray();
+                        string ext = Path.GetExtension(graphicPath).ToLowerInvariant();
+                        string mime = ext == ".svg" ? "image/svg+xml" :
+                                      ext == ".jpg" || ext == ".jpeg" ? "image/jpeg" :
+                                      ext == ".gif" ? "image/gif" :
+                                      ext == ".bmp" ? "image/bmp" :
+                                      "image/png";
+
+                        // Return as raw image (not JSON) for direct use as img src
+                        res.ContentType = mime;
+                        res.StatusCode = 200;
+                        res.ContentLength64 = bytes.Length;
+                        await res.OutputStream.WriteAsync(bytes, 0, bytes.Length);
+                        res.Close();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                await WriteJson(res, 500, new { success = false, message = ex.Message });
             }
         }
 
@@ -508,6 +668,91 @@ namespace PacForgeBridge
             }
         }
 
+        private async Task HandleImportHmi(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            try
+            {
+                string body = await ReadBody(req);
+                var request = Newtonsoft.Json.JsonConvert.DeserializeObject<ImportHmiRequest>(body);
+                if (request == null)
+                {
+                    await WriteJson(res, 400, new ImportHmiResponse
+                    {
+                        Success = false,
+                        Message = "Invalid request body"
+                    });
+                    return;
+                }
+
+                Console.WriteLine("[TIA] Importing HMI artifacts into TIA Portal...");
+                var result = _tiaService.ImportHmiArtifacts(request);
+                await WriteJson(res, 200, result);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TIA] HMI import failed: {ex.Message}");
+                await WriteJson(res, 500, new ImportHmiResponse
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+        }
+
+        private async Task HandleExportHmi(HttpListenerResponse res)
+        {
+            try
+            {
+                Console.WriteLine("[TIA] Exporting HMI screens from TIA Portal...");
+                var result = _tiaService.ExportHmiScreens();
+                await WriteJson(res, 200, result);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TIA] HMI export failed: {ex.Message}");
+                await WriteJson(res, 500, new ExportHmiResponse
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+        }
+
+        private async Task HandleExportHmiGraphics(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            try
+            {
+                string body = await ReadBody(req);
+                List<string> graphicNames = null;
+                if (!string.IsNullOrWhiteSpace(body))
+                {
+                    try
+                    {
+                        var parsed = Newtonsoft.Json.Linq.JObject.Parse(body);
+                        var namesToken = parsed["graphic_names"];
+                        if (namesToken != null && namesToken.Type == Newtonsoft.Json.Linq.JTokenType.Array)
+                        {
+                            graphicNames = namesToken.ToObject<List<string>>();
+                        }
+                    }
+                    catch { }
+                }
+
+                Console.WriteLine($"[TIA] Exporting HMI graphics (filter: {(graphicNames != null ? graphicNames.Count + " names" : "none")})...");
+                var result = _tiaService.ExportHmiGraphics(graphicNames);
+                await WriteJson(res, 200, result);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TIA] HMI graphics export failed: {ex.Message}");
+                await WriteJson(res, 500, new ExportHmiGraphicsResponse
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+        }
+
         private async Task HandleReimportCompile(HttpListenerRequest req, HttpListenerResponse res)
         {
             try
@@ -534,6 +779,70 @@ namespace PacForgeBridge
             {
                 Console.WriteLine($"[TIA] Reimport-compile failed: {ex.Message}");
                 await WriteJson(res, 500, new TiaActionResponse
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+        }
+
+        private async Task HandleLibraryOpen(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            try
+            {
+                string body = await ReadBody(req);
+                var request = Json.Deserialize<OpenLibraryRequest>(body);
+
+                if (request == null || string.IsNullOrEmpty(request.LibraryPath))
+                {
+                    await WriteJson(res, 400, new LibraryContentsResponse
+                    {
+                        Success = false,
+                        Message = "Missing library_path"
+                    });
+                    return;
+                }
+
+                Console.WriteLine($"[TIA] Opening library: {request.LibraryPath}");
+                var result = _tiaService.OpenAndReadLibrary(request.LibraryPath);
+                await WriteJson(res, 200, result);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TIA] Library open failed: {ex.Message}");
+                await WriteJson(res, 500, new LibraryContentsResponse
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+        }
+
+        private async Task HandleLibraryExport(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            try
+            {
+                string body = await ReadBody(req);
+                var request = Json.Deserialize<ExportLibraryRequest>(body);
+
+                if (request == null || string.IsNullOrEmpty(request.LibraryPath))
+                {
+                    await WriteJson(res, 400, new LibraryExportResponse
+                    {
+                        Success = false,
+                        Message = "Missing library_path"
+                    });
+                    return;
+                }
+
+                Console.WriteLine($"[TIA] Exporting from library: {request.LibraryPath} ({(request.ItemPaths?.Count ?? 0)} items)");
+                var result = _tiaService.ExportLibraryItems(request.LibraryPath, request.ItemPaths);
+                await WriteJson(res, 200, result);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TIA] Library export failed: {ex.Message}");
+                await WriteJson(res, 500, new LibraryExportResponse
                 {
                     Success = false,
                     Message = ex.Message

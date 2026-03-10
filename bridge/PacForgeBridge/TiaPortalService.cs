@@ -7,11 +7,17 @@ using Siemens.Engineering;
 using Siemens.Engineering.Compiler;
 using Siemens.Engineering.HW;
 using Siemens.Engineering.HW.Features;
+using Siemens.Engineering.Hmi;
+using Siemens.Engineering.Hmi.Screen;
+using Siemens.Engineering.Hmi.Tag;
 using Siemens.Engineering.SW;
 using Siemens.Engineering.SW.Blocks;
 using Siemens.Engineering.SW.ExternalSources;
 using Siemens.Engineering.SW.Tags;
 using Siemens.Engineering.SW.Types;
+using Siemens.Engineering.Library;
+using Siemens.Engineering.Library.Types;
+using Siemens.Engineering.Library.MasterCopies;
 
 namespace PacForgeBridge
 {
@@ -250,9 +256,14 @@ namespace PacForgeBridge
         {
             var generatedNames = new List<string>();
 
-            // Determine target group for block generation
+            // UDTs/Types are auto-placed by TIA into the type group — skip block group routing
+            bool isTypeDestination = !string.IsNullOrEmpty(destinationFolder)
+                && (destinationFolder.Equals("Types", StringComparison.OrdinalIgnoreCase)
+                    || destinationFolder.StartsWith("PLC data types", StringComparison.OrdinalIgnoreCase));
+
+            // Determine target group for block generation (not used for UDTs)
             PlcBlockUserGroup targetGroup = null;
-            if (!string.IsNullOrEmpty(destinationFolder) && destinationFolder != "Program blocks")
+            if (!string.IsNullOrEmpty(destinationFolder) && destinationFolder != "Program blocks" && !isTypeDestination)
             {
                 targetGroup = GetOrCreateBlockGroup(plcSoftware.BlockGroup, destinationFolder);
             }
@@ -1268,6 +1279,617 @@ END_ORGANIZATION_BLOCK
             }
         }
 
+        // ────────────────────────────────────────────────────────
+        //  HMI Export
+        // ────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Find the HmiTarget (WinCC RT Advanced / Comfort) by searching all devices.
+        /// </summary>
+        public HmiTarget GetHmiTarget()
+        {
+            if (_project == null)
+                throw new InvalidOperationException("No project open.");
+
+            foreach (Device device in _project.Devices)
+            {
+                HmiTarget hmi = SearchHmiDeviceItems(device.DeviceItems);
+                if (hmi != null)
+                {
+                    Console.WriteLine($"[TIA] Found HMI: {device.Name}");
+                    return hmi;
+                }
+            }
+
+            throw new InvalidOperationException("No HMI device found in project.");
+        }
+
+        private HmiTarget SearchHmiDeviceItems(DeviceItemComposition items)
+        {
+            foreach (DeviceItem item in items)
+            {
+                SoftwareContainer container =
+                    ((IEngineeringServiceProvider)item).GetService<SoftwareContainer>();
+                if (container?.Software is HmiTarget hmi)
+                    return hmi;
+
+                HmiTarget nested = SearchHmiDeviceItems(item.DeviceItems);
+                if (nested != null)
+                    return nested;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Import HMI screens, tag tables, text lists, and graphic lists from XML into TIA project.
+        /// Uses Openness Import() API which accepts SimaticML XML files.
+        /// </summary>
+        public ImportHmiResponse ImportHmiArtifacts(ImportHmiRequest request)
+        {
+            if (!IsConnected || !IsProjectOpen)
+                throw new InvalidOperationException("TIA Portal not connected or no project open.");
+
+            HmiTarget hmiTarget = GetHmiTarget();
+            var result = new ImportHmiResponse { Success = true };
+
+            string tempDir = Path.Combine(Path.GetTempPath(), "PacForge",
+                "hmi_import_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                // Import screens
+                if (request.Screens != null)
+                {
+                    foreach (var kvp in request.Screens)
+                    {
+                        try
+                        {
+                            string filePath = Path.Combine(tempDir, kvp.Key + ".xml");
+                            File.WriteAllText(filePath, kvp.Value);
+                            hmiTarget.ScreenFolder.Screens.Import(new FileInfo(filePath), ImportOptions.Override);
+                            result.ImportedScreens.Add(kvp.Key);
+                            Console.WriteLine($"[TIA] Imported HMI screen: {kvp.Key}");
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[TIA] Screen import failed for {kvp.Key}: {ex.Message}");
+                            result.Warnings.Add($"Screen {kvp.Key}: {ex.Message}");
+                        }
+                    }
+                }
+
+                // Import tag tables
+                if (request.TagTables != null)
+                {
+                    foreach (var kvp in request.TagTables)
+                    {
+                        try
+                        {
+                            string filePath = Path.Combine(tempDir, "tags_" + kvp.Key + ".xml");
+                            File.WriteAllText(filePath, kvp.Value);
+                            hmiTarget.TagFolder.TagTables.Import(new FileInfo(filePath), ImportOptions.Override);
+                            result.ImportedTagTables.Add(kvp.Key);
+                            Console.WriteLine($"[TIA] Imported HMI tag table: {kvp.Key}");
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[TIA] Tag table import failed for {kvp.Key}: {ex.Message}");
+                            result.Warnings.Add($"TagTable {kvp.Key}: {ex.Message}");
+                        }
+                    }
+                }
+
+                // Import text lists (via ScreenFolder — Openness routes by XML element type)
+                if (request.TextLists != null)
+                {
+                    foreach (var kvp in request.TextLists)
+                    {
+                        try
+                        {
+                            string filePath = Path.Combine(tempDir, "tl_" + kvp.Key + ".xml");
+                            File.WriteAllText(filePath, kvp.Value);
+                            hmiTarget.ScreenFolder.Screens.Import(new FileInfo(filePath), ImportOptions.Override);
+                            result.ImportedTextLists.Add(kvp.Key);
+                            Console.WriteLine($"[TIA] Imported text list: {kvp.Key}");
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[TIA] Text list import failed for {kvp.Key}: {ex.Message}");
+                            result.Warnings.Add($"TextList {kvp.Key}: {ex.Message}");
+                        }
+                    }
+                }
+
+                // Import graphic lists (via ScreenFolder — Openness routes by XML element type)
+                if (request.GraphicLists != null)
+                {
+                    foreach (var kvp in request.GraphicLists)
+                    {
+                        try
+                        {
+                            string filePath = Path.Combine(tempDir, "gl_" + kvp.Key + ".xml");
+                            File.WriteAllText(filePath, kvp.Value);
+                            hmiTarget.ScreenFolder.Screens.Import(new FileInfo(filePath), ImportOptions.Override);
+                            result.ImportedGraphicLists.Add(kvp.Key);
+                            Console.WriteLine($"[TIA] Imported graphic list: {kvp.Key}");
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[TIA] Graphic list import failed for {kvp.Key}: {ex.Message}");
+                            result.Warnings.Add($"GraphicList {kvp.Key}: {ex.Message}");
+                        }
+                    }
+                }
+
+                int total = result.ImportedScreens.Count + result.ImportedTagTables.Count +
+                            result.ImportedTextLists.Count + result.ImportedGraphicLists.Count;
+                result.Message = $"Imported {total} artifact(s): {result.ImportedScreens.Count} screen(s), " +
+                                 $"{result.ImportedTagTables.Count} tag table(s), {result.ImportedTextLists.Count} text list(s), " +
+                                 $"{result.ImportedGraphicLists.Count} graphic list(s)";
+                Console.WriteLine($"[TIA] HMI import complete: {result.Message}");
+            }
+            finally
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Export all HMI screens as XML files.
+        /// Returns screen name → XML content mapping.
+        /// </summary>
+        public ExportHmiResponse ExportHmiScreens()
+        {
+            if (!IsConnected || !IsProjectOpen)
+                throw new InvalidOperationException("TIA Portal not connected or no project open.");
+
+            HmiTarget hmiTarget = GetHmiTarget();
+            var result = new ExportHmiResponse { Success = true };
+
+            string tempDir = Path.Combine(Path.GetTempPath(), "PacForge",
+                "hmi_export_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                // Export screens
+                var allScreens = new List<Siemens.Engineering.Hmi.Screen.Screen>();
+                CollectScreens(hmiTarget.ScreenFolder, allScreens);
+                Console.WriteLine($"[TIA] Exporting {allScreens.Count} HMI screen(s)...");
+
+                foreach (var screen in allScreens)
+                {
+                    try
+                    {
+                        string outputFile = Path.Combine(tempDir, screen.Name + ".xml");
+                        screen.Export(new FileInfo(outputFile), ExportOptions.WithDefaults);
+
+                        if (File.Exists(outputFile))
+                        {
+                            result.Screens[screen.Name] = File.ReadAllText(outputFile);
+                            Console.WriteLine($"[TIA] Exported screen: {screen.Name}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[TIA] Export skipped for screen {screen.Name}: {ex.Message}");
+                        result.Warnings.Add($"{screen.Name}: {ex.Message}");
+                    }
+                }
+
+                // Export HMI tag tables
+                try
+                {
+                    foreach (var tagTable in hmiTarget.TagFolder.TagTables)
+                    {
+                        try
+                        {
+                            string tagFile = Path.Combine(tempDir, "tags_" + tagTable.Name + ".xml");
+                            tagTable.Export(new FileInfo(tagFile), ExportOptions.WithDefaults);
+
+                            if (File.Exists(tagFile))
+                            {
+                                result.TagTables[tagTable.Name] = File.ReadAllText(tagFile);
+                                Console.WriteLine($"[TIA] Exported HMI tag table: {tagTable.Name}");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[TIA] Export skipped for tag table {tagTable.Name}: {ex.Message}");
+                            result.Warnings.Add($"TagTable {tagTable.Name}: {ex.Message}");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[TIA] Could not export HMI tag tables: {ex.Message}");
+                    result.Warnings.Add($"HMI tag tables: {ex.Message}");
+                }
+
+                result.Message = $"Exported {result.Screens.Count} screen(s), {result.TagTables.Count} tag table(s)";
+                Console.WriteLine($"[TIA] HMI export complete: {result.Screens.Count} screen(s), {result.TagTables.Count} tag table(s), {result.Warnings.Count} warning(s)");
+            }
+            finally
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Export all HMI graphics from the project.
+        /// Enumerates all properties on HmiTarget via reflection to discover the graphics API path,
+        /// then exports any found graphics as base64 data URIs.
+        /// Logs full discovery details to the console for debugging.
+        /// </summary>
+        public ExportHmiGraphicsResponse ExportHmiGraphics(List<string> requestedNames = null)
+        {
+            if (!IsConnected || !IsProjectOpen)
+                throw new InvalidOperationException("TIA Portal not connected or no project open.");
+
+            var result = new ExportHmiGraphicsResponse { Success = true };
+
+            var wantedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (requestedNames != null)
+                foreach (var n in requestedNames)
+                    if (!string.IsNullOrWhiteSpace(n)) wantedNames.Add(n.Trim());
+
+            bool hasFilter = wantedNames.Count > 0;
+            Console.WriteLine($"[TIA] Graphic export requested: {(hasFilter ? string.Join(", ", wantedNames) : "all")}");
+
+            HmiTarget hmiTarget = GetHmiTarget();
+            string tempDir = Path.Combine(Path.GetTempPath(), "PacForge",
+                "hmi_graphics_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                int exported = 0;
+
+                // === Step 1: Probe GraphicLists and their entries ===
+                Console.WriteLine("[TIA] === Probing GraphicLists ===");
+                var graphicLists = hmiTarget.GraphicLists;
+                foreach (var gl in graphicLists)
+                {
+                    Console.WriteLine($"[TIA]   GraphicList: \"{gl.Name}\" (Type: {gl.GetType().FullName})");
+
+                    // Dump all properties on this GraphicList
+                    foreach (var prop in gl.GetType().GetProperties())
+                    {
+                        try
+                        {
+                            var val = prop.GetValue(gl);
+                            bool isEnum = val is System.Collections.IEnumerable && !(val is string);
+                            int count = -1;
+                            if (isEnum) { count = 0; foreach (var _ in (System.Collections.IEnumerable)val) count++; }
+                            string valStr = val == null ? "null" : val.GetType().Name;
+                            Console.WriteLine($"[TIA]     {prop.Name} : {prop.PropertyType.Name} = {valStr}{(count >= 0 ? " [" + count + "]" : "")}");
+
+                            // Walk into enumerable sub-items
+                            if (isEnum && count > 0)
+                            {
+                                int idx = 0;
+                                foreach (var entry in (System.Collections.IEnumerable)val)
+                                {
+                                    if (entry == null) continue;
+                                    var entryType = entry.GetType();
+                                    if (idx < 2) // Log first 2 entries in detail
+                                    {
+                                        Console.WriteLine($"[TIA]       Entry[{idx}]: {entryType.FullName}");
+                                        foreach (var ep in entryType.GetProperties())
+                                        {
+                                            try
+                                            {
+                                                var ev = ep.GetValue(entry);
+                                                string evStr;
+                                                if (ev == null) evStr = "null";
+                                                else if (ev is byte[] ba) evStr = $"byte[{ba.Length}]";
+                                                else if (ev is string s) evStr = $"\"{(s.Length > 60 ? s.Substring(0, 60) + "..." : s)}\"";
+                                                else evStr = ev.GetType().Name + ": " + ev.ToString();
+                                                Console.WriteLine($"[TIA]         {ep.Name} : {ep.PropertyType.Name} = {evStr}");
+                                            }
+                                            catch { }
+                                        }
+
+                                        // Try GetAttribute on entry for graphic data
+                                        var entryGetAttr = entryType.GetMethod("GetAttribute", new[] { typeof(string) });
+                                        if (entryGetAttr != null)
+                                        {
+                                            foreach (var attrName in new[] { "Graphic", "Picture", "Image", "Bitmap", "GraphicName" })
+                                            {
+                                                try
+                                                {
+                                                    var av = entryGetAttr.Invoke(entry, new object[] { attrName });
+                                                    if (av is byte[] bav)
+                                                        Console.WriteLine($"[TIA]         GetAttribute(\"{attrName}\"): byte[{bav.Length}]");
+                                                    else
+                                                        Console.WriteLine($"[TIA]         GetAttribute(\"{attrName}\"): {(av == null ? "null" : av.GetType().Name + "=" + av)}");
+                                                }
+                                                catch (Exception ex)
+                                                {
+                                                    Console.WriteLine($"[TIA]         GetAttribute(\"{attrName}\"): {ex.InnerException?.Message ?? ex.Message}");
+                                                }
+                                            }
+                                        }
+                                    }
+                                    idx++;
+
+                                    // Try to export each entry
+                                    var entryName = entryType.GetProperty("Name")?.GetValue(entry)?.ToString();
+                                    if (!string.IsNullOrEmpty(entryName))
+                                        exported += TryExportItem(entry, entryName, tempDir, result, wantedNames, hasFilter);
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+
+                    // Try exporting the GraphicList itself
+                    exported += TryExportItem(gl, gl.Name, tempDir, result, wantedNames, hasFilter);
+                }
+
+                // === Step 2: Probe ScreenGlobalElements (not enumerable, check its properties) ===
+                Console.WriteLine("[TIA] === Probing ScreenGlobalElements ===");
+                var sge = hmiTarget.ScreenGlobalElements;
+                if (sge != null)
+                {
+                    foreach (var prop in sge.GetType().GetProperties())
+                    {
+                        try
+                        {
+                            var val = prop.GetValue(sge);
+                            bool isEnum = val is System.Collections.IEnumerable && !(val is string);
+                            int count = -1;
+                            if (isEnum) { count = 0; foreach (var _ in (System.Collections.IEnumerable)val) count++; }
+                            Console.WriteLine($"[TIA]   {prop.Name} : {prop.PropertyType.Name} = {(val == null ? "null" : val.GetType().Name)}{(count >= 0 ? " [" + count + "]" : "")}");
+
+                            if (isEnum && count > 0)
+                            {
+                                int idx = 0;
+                                foreach (var item in (System.Collections.IEnumerable)val)
+                                {
+                                    if (item == null) continue;
+                                    var itemName = item.GetType().GetProperty("Name")?.GetValue(item)?.ToString() ?? $"item_{idx}";
+                                    Console.WriteLine($"[TIA]     -> {item.GetType().Name}: \"{itemName}\"");
+                                    exported += TryExportItem(item, itemName, tempDir, result, wantedNames, hasFilter);
+                                    idx++;
+                                    if (idx >= 5) { Console.WriteLine($"[TIA]     ... and more"); break; }
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+                }
+
+                // === Step 3: Probe Screens for embedded graphic objects ===
+                Console.WriteLine("[TIA] === Probing Screen items for graphic elements ===");
+                var screenFolder = hmiTarget.ScreenFolder;
+                var screens = new List<Siemens.Engineering.Hmi.Screen.Screen>();
+                CollectScreens(screenFolder, screens);
+                foreach (var screen in screens)
+                {
+                    try
+                    {
+                        // Check if screen has ScreenItems with graphic references
+                        var screenType = screen.GetType();
+                        var screenItemsProp = screenType.GetProperty("ScreenItems");
+                        if (screenItemsProp != null)
+                        {
+                            var screenItems = screenItemsProp.GetValue(screen) as System.Collections.IEnumerable;
+                            if (screenItems != null)
+                            {
+                                foreach (var si in screenItems)
+                                {
+                                    if (si == null) continue;
+                                    var siType = si.GetType();
+                                    // Look for GraphicView items specifically
+                                    if (siType.Name.Contains("Graphic") || siType.Name.Contains("Picture"))
+                                    {
+                                        var siName = siType.GetProperty("Name")?.GetValue(si)?.ToString() ?? "?";
+                                        Console.WriteLine($"[TIA]   Screen \"{screen.Name}\" -> {siType.Name}: \"{siName}\"");
+
+                                        // Dump all properties
+                                        foreach (var p in siType.GetProperties())
+                                        {
+                                            try
+                                            {
+                                                var pv = p.GetValue(si);
+                                                if (pv is byte[] ba)
+                                                    Console.WriteLine($"[TIA]     {p.Name}: byte[{ba.Length}]");
+                                                else if (pv != null)
+                                                    Console.WriteLine($"[TIA]     {p.Name}: {pv.GetType().Name} = {pv}");
+                                            }
+                                            catch { }
+                                        }
+
+                                        // Try GetAttribute for the graphic name/data
+                                        var getAttr = siType.GetMethod("GetAttribute", new[] { typeof(string) });
+                                        if (getAttr != null)
+                                        {
+                                            foreach (var attr in new[] { "Graphic", "GraphicName", "Picture", "PictureName", "GraphicStrip", "GraphicReference" })
+                                            {
+                                                try
+                                                {
+                                                    var av = getAttr.Invoke(si, new object[] { attr });
+                                                    if (av != null)
+                                                        Console.WriteLine($"[TIA]     GetAttribute(\"{attr}\"): {(av is byte[] bx ? "byte[" + bx.Length + "]" : av.GetType().Name + "=" + av)}");
+                                                }
+                                                catch { }
+                                            }
+                                        }
+
+                                        exported += TryExportItem(si, siName, tempDir, result, wantedNames, hasFilter);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                // Log missing graphics
+                if (hasFilter)
+                {
+                    foreach (var wanted in wantedNames)
+                    {
+                        if (!result.Graphics.ContainsKey(wanted))
+                        {
+                            Console.WriteLine($"[TIA]   NOT FOUND: {wanted}");
+                            result.Warnings.Add($"Not found: {wanted}");
+                        }
+                    }
+                }
+
+                result.Message = exported > 0
+                    ? $"Exported {result.Graphics.Count} graphic(s)"
+                    : "No graphics found via Openness. Check bridge console for API discovery log.";
+                Console.WriteLine($"[TIA] Graphics export complete: {result.Graphics.Count} exported, {result.Warnings.Count} warnings");
+            }
+            finally
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Try to export a single item as a graphic image file.
+        /// Checks for Export method, GetAttribute("Graphic"), or byte[] properties.
+        /// </summary>
+        private int TryExportItem(object item, string name, string tempDir,
+            ExportHmiGraphicsResponse result, HashSet<string> wantedNames, bool hasFilter)
+        {
+            if (item == null || string.IsNullOrEmpty(name)) return 0;
+            if (result.Graphics.ContainsKey(name)) return 0; // Already exported
+
+            // If filtering, skip items that don't match
+            if (hasFilter && !wantedNames.Contains(name))
+            {
+                // Also try normalized match
+                string normalized = name.Replace(" ", "_");
+                bool match = false;
+                foreach (var w in wantedNames)
+                {
+                    if (string.Equals(w.Replace(" ", "_"), normalized, StringComparison.OrdinalIgnoreCase))
+                    { match = true; break; }
+                }
+                if (!match) return 0;
+            }
+
+            var itemType = item.GetType();
+
+            // Method 1: Export(FileInfo, ExportOptions)
+            try
+            {
+                var exportMethod = itemType.GetMethod("Export",
+                    new[] { typeof(FileInfo), typeof(ExportOptions) });
+                if (exportMethod != null)
+                {
+                    // Try multiple extensions — TIA may require matching format
+                    foreach (var ext in new[] { ".png", ".bmp", ".jpg" })
+                    {
+                        string safeName = string.Join("_", name.Split(Path.GetInvalidFileNameChars()));
+                        string outputFile = Path.Combine(tempDir, safeName + ext);
+                        try
+                        {
+                            exportMethod.Invoke(item, new object[] { new FileInfo(outputFile), ExportOptions.WithDefaults });
+                            if (File.Exists(outputFile) && new FileInfo(outputFile).Length > 0)
+                            {
+                                byte[] fileBytes = File.ReadAllBytes(outputFile);
+                                string mime = DetectMimeType(fileBytes);
+                                string base64 = Convert.ToBase64String(fileBytes);
+                                result.Graphics[name] = $"data:{mime};base64,{base64}";
+                                Console.WriteLine($"[TIA]   EXPORTED: {name} ({fileBytes.Length} bytes via Export{ext})");
+                                return 1;
+                            }
+                        }
+                        catch { }
+                    }
+                    Console.WriteLine($"[TIA]   Export method exists for {name} but produced no output");
+                }
+            }
+            catch { }
+
+            // Method 2: Look for byte[] or Stream properties that might contain image data
+            try
+            {
+                foreach (var prop in itemType.GetProperties())
+                {
+                    if (prop.PropertyType == typeof(byte[]))
+                    {
+                        var data = prop.GetValue(item) as byte[];
+                        if (data != null && data.Length > 100)
+                        {
+                            string mime = DetectMimeType(data);
+                            string base64 = Convert.ToBase64String(data);
+                            result.Graphics[name] = $"data:{mime};base64,{base64}";
+                            Console.WriteLine($"[TIA]   EXPORTED: {name} ({data.Length} bytes via {prop.Name} byte[])");
+                            return 1;
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // Method 3: GetAttribute("Graphic") or GetAttribute("Picture")
+            try
+            {
+                var getAttr = itemType.GetMethod("GetAttribute", new[] { typeof(string) });
+                if (getAttr != null)
+                {
+                    foreach (var attrName in new[] { "Graphic", "Picture", "Image", "Data", "BitmapData" })
+                    {
+                        try
+                        {
+                            var attrVal = getAttr.Invoke(item, new object[] { attrName });
+                            if (attrVal is byte[] bytes && bytes.Length > 100)
+                            {
+                                string mime = DetectMimeType(bytes);
+                                string base64 = Convert.ToBase64String(bytes);
+                                result.Graphics[name] = $"data:{mime};base64,{base64}";
+                                Console.WriteLine($"[TIA]   EXPORTED: {name} ({bytes.Length} bytes via GetAttribute(\"{attrName}\"))");
+                                return 1;
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch { }
+
+            return 0;
+        }
+
+        private static string DetectMimeType(byte[] bytes)
+        {
+            if (bytes.Length > 3 && bytes[0] == 0x89 && bytes[1] == 0x50)
+                return "image/png";
+            if (bytes.Length > 3 && bytes[0] == 0xFF && bytes[1] == 0xD8)
+                return "image/jpeg";
+            if (bytes.Length > 2 && bytes[0] == 0x42 && bytes[1] == 0x4D)
+                return "image/bmp";
+            if (bytes.Length > 4 && bytes[0] == 0x47 && bytes[1] == 0x49)
+                return "image/gif";
+            return "image/png";
+        }
+
+        private void CollectScreens(ScreenFolder folder, List<Siemens.Engineering.Hmi.Screen.Screen> screens)
+        {
+            foreach (var screen in folder.Screens)
+            {
+                screens.Add(screen);
+            }
+            foreach (var subFolder in folder.Folders)
+            {
+                CollectScreens(subFolder, screens);
+            }
+        }
+
         public void Dispose()
         {
             if (_disposed) return;
@@ -1296,6 +1918,297 @@ END_ORGANIZATION_BLOCK
             catch (Exception ex)
             {
                 Console.WriteLine($"[TIA] Error disposing TIA Portal: {ex.Message}");
+            }
+        }
+
+        // =============================================
+        // LIBRARY SUPPORT
+        // =============================================
+
+        /// <summary>
+        /// Open a global library file (.al18 etc.) and enumerate its contents.
+        /// Returns library metadata including type folders, master copies, and type info.
+        /// </summary>
+        public LibraryContentsResponse OpenAndReadLibrary(string libraryPath)
+        {
+            if (!IsConnected)
+                throw new InvalidOperationException("TIA Portal not connected.");
+
+            if (!File.Exists(libraryPath))
+                throw new FileNotFoundException($"Library file not found: {libraryPath}");
+
+            Console.WriteLine($"[TIA] Opening global library: {libraryPath}");
+            var result = new LibraryContentsResponse { Success = true };
+
+            bool weOpened = false;
+            GlobalLibrary library = null;
+            try
+            {
+                // Check if this library is already open in TIA Portal
+                var fileInfo = new FileInfo(libraryPath);
+                foreach (var openLib in _tiaPortal.GlobalLibraries)
+                {
+                    try
+                    {
+                        if (openLib.Path != null &&
+                            string.Equals(openLib.Path.FullName, fileInfo.FullName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            library = openLib;
+                            Console.WriteLine($"[TIA] Library already open: {openLib.Name}");
+                            break;
+                        }
+                    }
+                    catch { }
+                }
+
+                // If not already open, open it ourselves
+                if (library == null)
+                {
+                    library = _tiaPortal.GlobalLibraries.Open(fileInfo, OpenMode.ReadOnly);
+                    weOpened = true;
+                    Console.WriteLine($"[TIA] Library opened: {library.Name}");
+                }
+
+                result.LibraryName = library.Name;
+                result.LibraryPath = libraryPath;
+
+                // Enumerate type folder (library types = reusable screen templates, faceplates, FBs)
+                EnumerateTypeFolder(library.TypeFolder, "", result.Types);
+
+                // Enumerate master copies folder
+                EnumerateMasterCopyFolder(library.MasterCopyFolder, "", result.MasterCopies);
+
+                result.Message = $"Library '{library.Name}': {result.Types.Count} type(s), {result.MasterCopies.Count} master copy/copies";
+                Console.WriteLine($"[TIA] {result.Message}");
+            }
+            finally
+            {
+                // Only close if we opened it (don't close user's already-open library)
+                if (weOpened && library != null)
+                {
+                    try { ((UserGlobalLibrary)library).Close(); } catch { }
+                    Console.WriteLine("[TIA] Library closed.");
+                }
+            }
+
+            return result;
+        }
+
+        private void EnumerateTypeFolder(LibraryTypeFolder folder, string path, List<LibraryItemInfo> items)
+        {
+            foreach (var typeItem in folder.Types)
+            {
+                string fullPath = string.IsNullOrEmpty(path) ? typeItem.Name : path + "/" + typeItem.Name;
+                string typeKind = "Unknown";
+                try
+                {
+                    typeKind = typeItem.GetType().Name;
+                }
+                catch { }
+
+                items.Add(new LibraryItemInfo
+                {
+                    Name = typeItem.Name,
+                    Path = fullPath,
+                    Kind = typeKind,
+                    Guid = typeItem.Guid.ToString()
+                });
+                Console.WriteLine($"[TIA]   Type: {fullPath} ({typeKind})");
+            }
+
+            foreach (var subFolder in folder.Folders)
+            {
+                string subPath = string.IsNullOrEmpty(path) ? subFolder.Name : path + "/" + subFolder.Name;
+                Console.WriteLine($"[TIA]   Folder: {subPath}");
+                EnumerateTypeFolder(subFolder, subPath, items);
+            }
+        }
+
+        private void EnumerateMasterCopyFolder(MasterCopyFolder folder, string path, List<LibraryItemInfo> items)
+        {
+            foreach (var masterCopy in folder.MasterCopies)
+            {
+                string fullPath = string.IsNullOrEmpty(path) ? masterCopy.Name : path + "/" + masterCopy.Name;
+
+                // Describe contents of the master copy
+                string contentInfo = "";
+                try
+                {
+                    var descriptions = masterCopy.ContentDescriptions;
+                    if (descriptions.Count > 0)
+                    {
+                        var parts = new List<string>();
+                        foreach (var desc in descriptions)
+                        {
+                            parts.Add(desc.ContentName + " (" + desc.ContentType.Name + ")");
+                        }
+                        contentInfo = string.Join(", ", parts);
+                    }
+                }
+                catch { }
+
+                items.Add(new LibraryItemInfo
+                {
+                    Name = masterCopy.Name,
+                    Path = fullPath,
+                    Kind = "MasterCopy",
+                    Description = contentInfo
+                });
+                Console.WriteLine($"[TIA]   MasterCopy: {fullPath}");
+            }
+
+            foreach (var subFolder in folder.Folders)
+            {
+                string subPath = string.IsNullOrEmpty(path) ? subFolder.Name : path + "/" + subFolder.Name;
+                Console.WriteLine($"[TIA]   MasterCopy Folder: {subPath}");
+                EnumerateMasterCopyFolder(subFolder, subPath, items);
+            }
+        }
+
+        /// <summary>
+        /// Export library types/master copies as XML to a temp directory.
+        /// Tries to export each item and returns the XML content.
+        /// </summary>
+        public LibraryExportResponse ExportLibraryItems(string libraryPath, List<string> itemPaths)
+        {
+            if (!IsConnected)
+                throw new InvalidOperationException("TIA Portal not connected.");
+
+            if (!File.Exists(libraryPath))
+                throw new FileNotFoundException($"Library file not found: {libraryPath}");
+
+            var result = new LibraryExportResponse { Success = true };
+            string tempDir = Path.Combine(Path.GetTempPath(), "PacForge",
+                "lib_export_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Directory.CreateDirectory(tempDir);
+
+            bool weOpened = false;
+            GlobalLibrary library = null;
+            try
+            {
+                // Check if already open
+                var fileInfo = new FileInfo(libraryPath);
+                foreach (var openLib in _tiaPortal.GlobalLibraries)
+                {
+                    try
+                    {
+                        if (openLib.Path != null &&
+                            string.Equals(openLib.Path.FullName, fileInfo.FullName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            library = openLib;
+                            break;
+                        }
+                    }
+                    catch { }
+                }
+
+                if (library == null)
+                {
+                    library = _tiaPortal.GlobalLibraries.Open(fileInfo, OpenMode.ReadOnly);
+                    weOpened = true;
+                }
+
+                var wantedPaths = new HashSet<string>(itemPaths ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+                bool exportAll = wantedPaths.Count == 0;
+
+                // Try to export library types
+                ExportTypesFromFolder(library.TypeFolder, "", tempDir, wantedPaths, exportAll, result);
+
+                // Try to export master copies
+                ExportMasterCopiesFromFolder(library.MasterCopyFolder, "", tempDir, wantedPaths, exportAll, result);
+
+                result.Message = $"Exported {result.Items.Count} item(s) from library '{library.Name}'";
+                Console.WriteLine($"[TIA] {result.Message}");
+            }
+            finally
+            {
+                if (weOpened && library != null)
+                {
+                    try { ((UserGlobalLibrary)library).Close(); } catch { }
+                }
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+
+            return result;
+        }
+
+        private void ExportTypesFromFolder(LibraryTypeFolder folder, string path,
+            string tempDir, HashSet<string> wantedPaths, bool exportAll, LibraryExportResponse result)
+        {
+            foreach (var typeItem in folder.Types)
+            {
+                string fullPath = string.IsNullOrEmpty(path) ? typeItem.Name : path + "/" + typeItem.Name;
+                if (!exportAll && !wantedPaths.Contains(fullPath))
+                    continue;
+
+                try
+                {
+                    // Export the latest version of the type
+                    var versions = typeItem.Versions;
+                    if (versions.Count > 0)
+                    {
+                        var latestVersion = versions[versions.Count - 1];
+                        string outputFile = Path.Combine(tempDir, typeItem.Name.Replace("/", "_") + ".xml");
+                        latestVersion.Export(new FileInfo(outputFile), ExportOptions.WithDefaults);
+
+                        if (File.Exists(outputFile))
+                        {
+                            result.Items[fullPath] = File.ReadAllText(outputFile);
+                            Console.WriteLine($"[TIA]   Exported type: {fullPath}");
+                        }
+                    }
+                    else
+                    {
+                        result.Warnings.Add($"Type '{fullPath}' has no versions to export.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[TIA]   Export failed for type '{fullPath}': {ex.Message}");
+                    result.Warnings.Add($"{fullPath}: {ex.Message}");
+                }
+            }
+
+            foreach (var subFolder in folder.Folders)
+            {
+                string subPath = string.IsNullOrEmpty(path) ? subFolder.Name : path + "/" + subFolder.Name;
+                ExportTypesFromFolder(subFolder, subPath, tempDir, wantedPaths, exportAll, result);
+            }
+        }
+
+        private void ExportMasterCopiesFromFolder(MasterCopyFolder folder, string path,
+            string tempDir, HashSet<string> wantedPaths, bool exportAll, LibraryExportResponse result)
+        {
+            foreach (var masterCopy in folder.MasterCopies)
+            {
+                string fullPath = string.IsNullOrEmpty(path) ? masterCopy.Name : path + "/" + masterCopy.Name;
+                if (!exportAll && !wantedPaths.Contains(fullPath))
+                    continue;
+
+                // MasterCopy objects cannot be exported as standalone XML.
+                // Record their content descriptions so the frontend knows what they contain.
+                try
+                {
+                    var parts = new List<string>();
+                    foreach (var desc in masterCopy.ContentDescriptions)
+                    {
+                        parts.Add(desc.ContentName + " (" + desc.ContentType.Name + ")");
+                    }
+                    string info = parts.Count > 0 ? string.Join(", ", parts) : masterCopy.Name;
+                    result.Items[fullPath] = "[MasterCopy] Contents: " + info;
+                    Console.WriteLine($"[TIA]   Listed master copy: {fullPath} ({info})");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[TIA]   Failed to read master copy '{fullPath}': {ex.Message}");
+                    result.Warnings.Add($"{fullPath}: {ex.Message}");
+                }
+            }
+
+            foreach (var subFolder in folder.Folders)
+            {
+                string subPath = string.IsNullOrEmpty(path) ? subFolder.Name : path + "/" + subFolder.Name;
+                ExportMasterCopiesFromFolder(subFolder, subPath, tempDir, wantedPaths, exportAll, result);
             }
         }
     }

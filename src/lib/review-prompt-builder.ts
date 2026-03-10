@@ -10,6 +10,7 @@ import type { ProcessStage } from "@/types/process-builder";
 import type { PromptRole } from "@/types/prompt-section";
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { getAgentProfile } from "@/lib/agent-profiles";
+import { formatDesignProfile } from "@/lib/prompt-builder";
 import { buildContextMessages } from "@/lib/prompt-builder";
 import { buildPriorityHierarchyBlock } from "@/lib/knowledge-priority";
 import type { ParsedArtifact } from "@/lib/artifact-parser";
@@ -40,10 +41,6 @@ function formatKnowledgeDocs(docs: AgentKnowledgeDoc[]): string {
   return `## Reference Documentation\n\nThe following documents are part of your knowledge base. Use them as reference when performing your review.\n\n${sections.join("\n\n---\n\n")}`;
 }
 
-function formatDesignProfile(profile: DesignProfile): string {
-  if (!profile.rules.trim()) return "";
-  return `## Code Design Profile: ${profile.name}\n\nThe following rules define the customer's code standards. ALL generated code MUST follow these rules exactly.\n\n${profile.rules}`;
-}
 
 function formatArtifactsForReview(artifacts: ParsedArtifact[]): string {
   return artifacts

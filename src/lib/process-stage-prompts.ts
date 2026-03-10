@@ -159,7 +159,7 @@ function formatTransitionLabel(transition: { combinator: string; conditions: Arr
 }
 
 /** FC+OB stage: process sequences + device→FB→instanceDB mapping + inter-FB wiring. Main consumer. */
-export function formatMatrixForFc(matrix: ProcessLinkageMatrix): string {
+export function formatMatrixForFc(matrix: ProcessLinkageMatrix, hasProcessRules = false): string {
   const lines: string[] = [];
 
   // Device→FB→DB mapping table
@@ -239,15 +239,22 @@ export function formatMatrixForFc(matrix: ProcessLinkageMatrix): string {
       }
     }
 
-    // State machine implementation guidance
-    lines.push(`
-State machine implementation:
+    // State machine implementation guidance — only show default CASE pattern if no process rules override it
+    if (!hasProcessRules) {
+      lines.push(`
+State machine implementation (default pattern):
 - Check safety conditions FIRST \u2014 if any fail, force statSeq := 0, deactivate all outputs
 - Check permissives before entering step 1
 - CASE statSeq OF: each step = one branch
 - In each branch: execute actions, then check next step's transition (AND=all true, OR=any true)
 - When transition fires \u2192 statSeq := next step number
 - ELSE: statSeq := 0 (undefined state recovery)`);
+    } else {
+      lines.push(`
+**NOTE:** The customer's Design Profile defines a MANDATORY process code structure pattern.
+You MUST use that pattern (see "MANDATORY: Process Code Structure" section above) instead of the default CASE state machine.
+Implement all sequences, steps, transitions, and actions following the customer's defined pattern exactly.`);
+    }
   }
 
   // Interlocks summary
@@ -271,7 +278,7 @@ ${lines.join("\n")}
 Use this information to:
 1. Call each device FB via its Instance DB in the Process FC
 2. Wire FB outputs to downstream FB inputs as shown in the Inter-FB Wiring table
-3. Implement each process sequence as a state machine (CASE on step number)
+3. ${hasProcessRules ? "Implement each process sequence using the MANDATORY structure defined in the Design Profile (see above)" : "Implement each process sequence as a state machine (CASE on step number)"}
 4. Check safety conditions continuously \u2014 halt to safe state on failure
 5. Check permissives before entering step 1 of each sequence
 6. Implement all interlocks as conditions before device activation
@@ -301,7 +308,7 @@ ${codeExamples}
 - Safety Level: ${project.safety_level}
 ${project.safety_notes ? `- Safety Notes: ${project.safety_notes}` : ""}
 
-${designProfile ? formatDesignProfile(designProfile) : ""}
+${designProfile ? formatDesignProfile(designProfile, "process") : ""}
 
 ## Current IO List
 ${formatIoList(project.io_lists)}`;
@@ -323,19 +330,65 @@ After all artifact blocks, provide a brief summary.`;
 // ---------------------------------------------------------------------------
 
 export function buildIoStagePrompt(input: StagePromptBase): BuiltPrompt {
-  const { approvedPatterns, referenceSections, linkageMatrix, promptSections } = input;
+  const { project, approvedPatterns, referenceSections, linkageMatrix, promptSections } = input;
 
   const stageInstructions = resolveSection(promptSections, "process_io", "instructions");
 
   const matrixContext = linkageMatrix ? formatMatrixForIo(linkageMatrix) : "";
+  const hasExistingIoList = project.io_lists && project.io_lists.length > 0;
 
-  const systemPrompt = `You are the **Code Architect** generating IO configuration artifacts for a Siemens PLC project.
+  const ioModeInstructions = hasExistingIoList
+    ? `## IO List Mode: COMPARISON
+
+An IO list already exists for this project (shown in "Current IO List" above).
+Your job is to generate what you believe the COMPLETE IO list should be based on the linkage matrix and process requirements.
+
+Output your suggested IO list as a JSON array inside [SUGGESTED_IO_LIST]...[/SUGGESTED_IO_LIST] tags:
+\`\`\`
+[SUGGESTED_IO_LIST]
+[
+  { "address": "%I0.0", "tag_name": "motorStartBtn", "data_type": "BOOL", "description": "Motor 1 start pushbutton", "module": "DI 16", "slot": 1 },
+  ...
+]
+[/SUGGESTED_IO_LIST]
+\`\`\`
+
+Rules:
+- Include ALL IO points the process needs (not just new ones)
+- Reuse existing tag names and addresses where they match the same physical signal
+- Use the address space from the configured hardware modules
+- Follow the Design Profile naming conventions for any new tags
+- After the JSON block, provide a brief summary of differences: new tags added, tags renamed, addresses changed, etc.
+
+Do NOT generate SCL artifacts in this mode — only the suggested IO list JSON and summary.`
+    : `## IO List Mode: GENERATION
+
+No IO list exists yet for this project. Generate the complete IO list as a JSON array inside [SUGGESTED_IO_LIST]...[/SUGGESTED_IO_LIST] tags:
+\`\`\`
+[SUGGESTED_IO_LIST]
+[
+  { "address": "%I0.0", "tag_name": "motorStartBtn", "data_type": "BOOL", "description": "Motor 1 start pushbutton", "module": "DI 16", "slot": 1 },
+  ...
+]
+[/SUGGESTED_IO_LIST]
+\`\`\`
+
+Rules:
+- Assign addresses based on the configured hardware modules (use the address space shown in the IO list/hardware sections above)
+- If no hardware modules are configured, assign addresses sequentially starting from %I0.0 for inputs and %Q0.0 for outputs
+- Follow the Design Profile naming conventions for tag names (lowerCamelCase by default)
+- Include meaningful descriptions for every IO point
+- Group related signals together (by device, then by area)
+
+After the JSON block, also generate the IO-related SCL artifacts (IO UDTs, IO Mapping Global DB) as code blocks.`;
+
+  const systemPrompt = `You are the **Code Architect** generating IO configuration for a Siemens PLC project.
 
 ${buildSharedPreamble(input)}
 
 ${matrixContext}
 
-${ARTIFACT_OUTPUT_FORMAT}
+${ioModeInstructions}
 
 ## IO Stage Instructions
 
@@ -343,11 +396,15 @@ ${stageInstructions}`;
 
   const contextMessages = buildContextMessages(referenceSections ?? [], approvedPatterns ?? []);
 
+  const userContent = hasExistingIoList
+    ? "Analyze the process requirements from the linkage matrix and generate the suggested IO list. Compare against the existing IO list shown in the system prompt."
+    : "Generate the complete IO list and IO configuration artifacts based on the device linkage matrix and requirements.";
+
   return {
     systemPrompt,
     messages: [
       ...contextMessages,
-      { role: "user" as const, content: "Generate the IO configuration artifacts based on the device linkage matrix and requirements." },
+      { role: "user" as const, content: userContent },
     ],
   };
 }
@@ -369,7 +426,7 @@ export function buildFolderStagePrompt(input: StagePromptBase): BuiltPrompt {
 - Client: ${input.project.client_name}
 - CPU: ${input.project.cpu_type} / TIA ${input.project.tia_version}
 
-${designProfile ? formatDesignProfile(designProfile) : ""}
+${designProfile ? formatDesignProfile(designProfile, "process") : ""}
 
 ${matrixContext}
 
@@ -474,7 +531,8 @@ export function buildFcObStagePrompt(input: StagePromptBase): BuiltPrompt {
 
   const stageInstructions = resolveSection(promptSections, "process_fc", "instructions");
 
-  const matrixContext = linkageMatrix ? formatMatrixForFc(linkageMatrix) : "";
+  const hasProcessRules = (input.designProfile?.process_rules?.length ?? 0) > 0;
+  const matrixContext = linkageMatrix ? formatMatrixForFc(linkageMatrix, hasProcessRules) : "";
 
   const systemPrompt = `You are the **Code Architect** generating the Process FC and OB1 Main for a Siemens PLC project.
 
@@ -493,7 +551,9 @@ ${stageInstructions}`;
   if (previousArtifactsContext) {
     messages.push(
       { role: "user" as const, content: `Here are all previously generated artifacts (FB interfaces and DBs). Use these to wire up the Process FC and OB1 correctly:\n\n${previousArtifactsContext}` },
-      { role: "assistant" as const, content: "Understood. I'll use the FB interfaces, Instance DBs, and Global DBs above to generate the Process FC (with state machine logic per sequence) and OB1 Main." },
+      { role: "assistant" as const, content: hasProcessRules
+        ? "Understood. I'll use the FB interfaces, Instance DBs, and Global DBs above to generate the Process FC (following the customer's mandatory process code structure pattern) and OB1 Main."
+        : "Understood. I'll use the FB interfaces, Instance DBs, and Global DBs above to generate the Process FC (with state machine logic per sequence) and OB1 Main." },
     );
   }
   messages.push({ role: "user" as const, content: "Generate the Process FC and OB1 Main to tie all generated blocks together." });

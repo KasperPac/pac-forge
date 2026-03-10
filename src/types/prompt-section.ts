@@ -32,6 +32,8 @@ export const PROMPT_ROLES = {
   REVIEW_SCOPE_FB: "review_scope_fb",
   REVIEW_SCOPE_DB: "review_scope_db",
   REVIEW_SCOPE_FC: "review_scope_fc",
+  HMI_DESIGNER: "hmi_designer",
+  HMI_SVG_GENERATOR: "hmi_svg_generator",
 } as const;
 
 export type PromptRole = (typeof PROMPT_ROLES)[keyof typeof PROMPT_ROLES];
@@ -59,6 +61,8 @@ export const PROMPT_ROLE_LABELS: Record<PromptRole, string> = {
   review_scope_fb: "Review: FB Stage Scope",
   review_scope_db: "Review: DB Stage Scope",
   review_scope_fc: "Review: FC+OB Stage Scope",
+  hmi_designer: "HMI Screen Designer",
+  hmi_svg_generator: "HMI SVG Generator",
 };
 
 /** Which section keys each role supports */
@@ -84,6 +88,8 @@ export const ROLE_SECTIONS: Record<PromptRole, string[]> = {
   review_scope_fb: ["scope"],
   review_scope_db: ["scope"],
   review_scope_fc: ["scope"],
+  hmi_designer: ["identity", "instructions"],
+  hmi_svg_generator: ["identity", "instructions"],
 };
 
 export const SECTION_LABELS: Record<string, string> = {

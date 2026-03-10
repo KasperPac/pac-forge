@@ -54,7 +54,7 @@ ${project.safety_notes ? `- Safety Notes: ${project.safety_notes}` : ""}
 ## IO List
 ${formatIoList(project.io_lists)}
 
-${designProfile ? formatDesignProfile(designProfile) : ""}
+${designProfile ? formatDesignProfile(designProfile, "all") : ""}
 
 ${knowledgeSection}
 
@@ -198,7 +198,7 @@ ${codeExamples}
 - Safety Level: ${project.safety_level}
 ${project.safety_notes ? `- Safety Notes: ${project.safety_notes}` : ""}
 
-${designProfile ? formatDesignProfile(designProfile) : ""}
+${designProfile ? formatDesignProfile(designProfile, "all") : ""}
 
 ## IO List
 ${formatIoList(project.io_lists)}

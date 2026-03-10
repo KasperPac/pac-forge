@@ -145,6 +145,78 @@ export interface ExportSourcesResponse {
   warnings: string[];
 }
 
+// --- Library Endpoints ---
+
+/**
+ * POST /tia/library/open
+ * Open a TIA Portal global library (.al18) and enumerate its contents.
+ */
+export interface OpenLibraryRequest {
+  library_path: string;
+}
+
+export interface LibraryItemInfo {
+  name: string;
+  path: string;
+  kind: string;
+  guid?: string;
+  description?: string;
+}
+
+export interface LibraryContentsResponse {
+  success: boolean;
+  message: string;
+  library_name: string;
+  library_path: string;
+  types: LibraryItemInfo[];
+  master_copies: LibraryItemInfo[];
+}
+
+/**
+ * POST /tia/library/export
+ * Export selected types/master copies from a library as XML.
+ */
+export interface ExportLibraryRequest {
+  library_path: string;
+  item_paths?: string[];
+}
+
+export interface LibraryExportResponse {
+  success: boolean;
+  message: string;
+  items: Record<string, string>; // path → XML content
+  warnings: string[];
+}
+
+// --- HMI Import Endpoints ---
+
+/**
+ * POST /tia/import-hmi
+ * Import HMI screens, tag tables, text lists, and graphic lists into TIA project.
+ */
+export interface ImportHmiRequest {
+  /** TIA Portal project path on the local machine */
+  tia_project_path: string;
+  /** Screen XML documents to import (name → XML content) */
+  screens?: Record<string, string>;
+  /** Tag table XML documents to import (name → XML content) */
+  tag_tables?: Record<string, string>;
+  /** Text list XML documents to import (name → XML content) */
+  text_lists?: Record<string, string>;
+  /** Graphic list XML documents to import (name → XML content) */
+  graphic_lists?: Record<string, string>;
+}
+
+export interface ImportHmiResponse {
+  success: boolean;
+  message: string;
+  imported_screens: string[];
+  imported_tag_tables: string[];
+  imported_text_lists: string[];
+  imported_graphic_lists: string[];
+  warnings: string[];
+}
+
 // --- Bridge Configuration ---
 
 export interface BridgeConfig {

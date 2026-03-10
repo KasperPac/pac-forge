@@ -1,7 +1,7 @@
 import { useProcessBuilderStore } from "@/stores/process-builder-store";
 import { PROCESS_STAGE_LABELS, PROCESS_STAGE_DESCRIPTIONS, PROCESS_STAGE_ORDER } from "@/types/process-builder";
 import type { ProcessStage } from "@/types/process-builder";
-import type { CompileError } from "@/types";
+import type { CompileError, IoEntry } from "@/types";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import type { PipelineStepResult } from "@/lib/pipeline";
+import { IoComparisonPanel } from "./io-comparison-panel";
 
 interface GenerationStagePanelProps {
   stage: ProcessStage;
@@ -26,6 +27,8 @@ interface GenerationStagePanelProps {
   isRunning: boolean;
   compileResult?: { success: boolean; errors: CompileError[] } | null;
   tiaImporting?: boolean;
+  existingIoList?: IoEntry[];
+  onIoListApply?: (mergedIoList: IoEntry[]) => void;
 }
 
 function PipelineStepRow({ step }: { step: PipelineStepResult }) {
@@ -98,12 +101,16 @@ export function GenerationStagePanel({
   isRunning,
   compileResult,
   tiaImporting,
+  existingIoList,
+  onIoListApply,
 }: GenerationStagePanelProps) {
   const stageStatuses = useProcessBuilderStore((s) => s.stageStatuses);
   const pipelineExecution = useProcessBuilderStore((s) => s.pipelineExecution);
   const activeAgentName = useProcessBuilderStore((s) => s.activeAgentName);
   const streamingContent = useProcessBuilderStore((s) => s.streamingContent);
   const stageArtifacts = useProcessBuilderStore((s) => s.stageArtifacts);
+  const suggestedIoList = useProcessBuilderStore((s) => s.suggestedIoList);
+  const ioComparisonSummary = useProcessBuilderStore((s) => s.ioComparisonSummary);
 
   const stageStatus = stageStatuses.find((s) => s.stage === stage);
   const statusValue = stageStatus?.status ?? "pending";
@@ -229,8 +236,27 @@ export function GenerationStagePanel({
         </div>
       )}
 
-      {/* Content area */}
-      <div className="flex min-h-0 flex-1">
+      {/* IO Review/Comparison Panel — shown when IO stage produces a suggested IO list */}
+      {stage === "io" && suggestedIoList && onIoListApply && (
+        <IoComparisonPanel
+          existingIoList={existingIoList ?? []}
+          suggestedIoList={suggestedIoList}
+          summaryText={ioComparisonSummary}
+          onApply={(merged) => {
+            onIoListApply(merged);
+            useProcessBuilderStore.getState().clearSuggestedIoList();
+          }}
+          onDismiss={() => {
+            useProcessBuilderStore.getState().clearSuggestedIoList();
+          }}
+        />
+      )}
+
+      {/* Content area — hidden when IO comparison is active */}
+      <div className={cn(
+        "flex min-h-0 flex-1",
+        stage === "io" && suggestedIoList && "hidden",
+      )}>
         {/* Left: streaming + pipeline steps */}
         <div className="flex min-h-0 flex-1 flex-col border-r">
           {/* Streaming output */}

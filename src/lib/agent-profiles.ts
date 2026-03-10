@@ -6,6 +6,8 @@ import {
   Library,
   ClipboardList,
   Bot,
+  Monitor,
+  Link2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -248,6 +250,91 @@ const PROFILES: Record<string, AgentProfile> = {
       "Safety regulation text",
     ],
   },
+  "HMI Designer": {
+    icon: Monitor,
+    color: "rose",
+    tagline: "Designs modern, high-performance HMI screens for WinCC Comfort panels",
+    catchphrase: "If the operator has to think, the screen failed.",
+    personality:
+      "Equal parts industrial designer and control engineer. Obsesses over visual hierarchy, color meaning, and alarm visibility. Knows ISA-101 by heart and applies it ruthlessly — no decoration without purpose, no element without a clear operator action. Treats every pixel of a 1920×1080 Comfort panel as sacred real estate.",
+    description:
+      "The HMI Designer creates structured screen layouts for WinCC RT Advanced (Comfort-based) panels. It designs navigation flows, object placement, color schemes, and animation strategies following ISA-101 high-performance HMI principles. It outputs structured JSON screen specifications that are converted deterministically to TIA-importable XML — it never writes raw XML directly.",
+    skills: [
+      "ISA-101 high-performance screen design",
+      "WinCC Comfort panel element library (buttons, IO fields, graphic views, gauges)",
+      "Screen navigation architecture and template patterns",
+      "Faceplate design for reusable equipment displays",
+      "Color and animation strategy for alarm states",
+      "Layout composition for 1920×1080 IPC displays",
+      "Overview screen design from process flow descriptions",
+    ],
+    whenToUse: [
+      "Designing HMI screens for a new automation project",
+      "Creating overview screens from process builder output",
+      "Laying out equipment detail screens with faceplates",
+      "Building navigation structures across multi-screen HMI projects",
+      "Designing alarm and fault display screens",
+    ],
+    whyUseful:
+      "Replaces hours of manual screen building in TIA Portal with AI-generated layouts that follow ISA-101 best practices. The HMI Designer produces consistent, operator-friendly screens that can be imported directly into WinCC Comfort projects.",
+    knowledgeScope: [
+      "ISA-101 HMI design guidelines",
+      "WinCC Comfort screen element types and properties",
+      "HMI XML schema for Comfort panels",
+      "Screen navigation and template patterns",
+      "Color standards and alarm visualization",
+      "Faceplate and symbol library conventions",
+      "Process flow and P&ID layout principles",
+    ],
+    knowledgeExclusions: [
+      "SCL programming and code generation",
+      "PLC tag addressing and data types",
+      "Safety regulation text",
+      "Project management methodology",
+    ],
+  },
+  "HMI Tag Linker": {
+    icon: Link2,
+    color: "teal",
+    tagline: "Wires HMI tags to PLC variables with precision",
+    catchphrase: "Every tag needs a home — and I know exactly where it lives.",
+    personality:
+      "The meticulous connector who lives in the space between HMI and PLC. Memorizes every DB structure, knows which variables are HMI-exposed, and maps acquisition cycles like a network engineer maps subnets. Gets genuinely annoyed by orphaned tags and broken links. Won't rest until every IO field points to the right PLC address.",
+    description:
+      "The HMI Tag Linker specializes in creating HMI tag tables and wiring them to PLC data blocks. It reads FB interfaces and instance DB structures to identify HMI-relevant variables, creates properly typed HMI tags with correct acquisition cycles, and generates the tag binding XML that connects screen elements to live PLC data. It understands the PLC↔HMI connection layer that most engineers find tedious.",
+    skills: [
+      "PLC DB variable to HMI tag mapping",
+      "HMI tag table generation and organization",
+      "Acquisition cycle and trigger mode configuration",
+      "Data type mapping between PLC and HMI (Bool, Int, Real, String, etc.)",
+      "Tag binding XML generation (LinkList patterns)",
+      "Multi-instance DB tag path resolution",
+      "HMI-exposed variable identification from FB interfaces",
+    ],
+    whenToUse: [
+      "After PLC code generation, to create matching HMI tag tables",
+      "When linking screen elements to PLC variables",
+      "Setting up tag acquisition cycles and update rates",
+      "Mapping complex nested DB structures to flat HMI tag paths",
+      "Validating existing HMI tag connections against PLC code changes",
+    ],
+    whyUseful:
+      "Tag wiring is one of the most error-prone and tedious parts of HMI development. The HMI Tag Linker automates the mapping from PLC data blocks to HMI tags, ensuring correct data types, proper acquisition settings, and valid tag paths — eliminating hours of manual tag table work and reducing runtime connection errors.",
+    knowledgeScope: [
+      "HMI tag table XML schema and structure",
+      "PLC data block interfaces and variable exposure",
+      "Data type mapping between S7-1500 and WinCC Comfort",
+      "Tag acquisition modes and cycle times",
+      "Instance DB addressing and multi-instance paths",
+      "WinCC Comfort tag connection patterns",
+    ],
+    knowledgeExclusions: [
+      "Screen layout and visual design",
+      "ISA-101 display guidelines",
+      "Safety regulation text",
+      "Project management methodology",
+    ],
+  },
 };
 
 const FALLBACK_PROFILE: AgentProfile = {
@@ -277,6 +364,8 @@ export const COLOR_CLASSES = {
   red: { bg: "bg-red-500/15", text: "text-red-500", ring: "ring-red-500/30" },
   violet: { bg: "bg-violet-500/15", text: "text-violet-500", ring: "ring-violet-500/30" },
   cyan: { bg: "bg-cyan-500/15", text: "text-cyan-500", ring: "ring-cyan-500/30" },
+  rose: { bg: "bg-rose-500/15", text: "text-rose-500", ring: "ring-rose-500/30" },
+  teal: { bg: "bg-teal-500/15", text: "text-teal-500", ring: "ring-teal-500/30" },
   neutral: { bg: "bg-neutral-500/15", text: "text-neutral-500", ring: "ring-neutral-500/30" },
 } as const;
 

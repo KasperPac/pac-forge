@@ -9,12 +9,14 @@ import {
   FileText,
   Tag,
   AlertCircle,
+  Eye,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Progress } from "@/components/ui/progress";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,6 +34,7 @@ import {
   useUploadReferenceDoc,
   useDeleteReferenceDoc,
 } from "@/hooks/use-reference-library";
+import { useVisionPdfUpload } from "@/hooks/use-vision-pdf-upload";
 import { readFileAsText, getFileType } from "@/lib/document-reader";
 import { cn } from "@/lib/utils";
 
@@ -120,12 +123,19 @@ function SectionsList({ docId }: { docId: string }) {
 export default function ReferenceLibraryPage() {
   const { data: docs, isLoading } = useReferenceLibraryDocs();
   const uploadDoc = useUploadReferenceDoc();
+  const visionUpload = useVisionPdfUpload();
   const deleteDoc = useDeleteReferenceDoc();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const visionFileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
+  const [visionProgress, setVisionProgress] = useState<{
+    current: number;
+    total: number;
+    status: string;
+  } | null>(null);
 
   const handleFileUpload = useCallback(
     async (file: File) => {
@@ -159,6 +169,36 @@ export default function ReferenceLibraryPage() {
       }
     },
     [uploadDoc],
+  );
+
+  const handleVisionUpload = useCallback(
+    async (file: File) => {
+      if (!file.name.toLowerCase().endsWith(".pdf")) {
+        setUploadError("Vision upload only supports PDF files.");
+        return;
+      }
+      setUploadError(null);
+      setVisionProgress({ current: 0, total: 1, status: "Starting..." });
+
+      try {
+        const title = file.name.replace(/\.[^.]+$/, "");
+        await visionUpload.mutateAsync({
+          file,
+          title,
+          onProgress: (current, total, status) => {
+            setVisionProgress({ current, total, status });
+          },
+        });
+      } catch (err) {
+        setUploadError(
+          err instanceof Error ? err.message : "Vision upload failed",
+        );
+      } finally {
+        setVisionProgress(null);
+        if (visionFileInputRef.current) visionFileInputRef.current.value = "";
+      }
+    },
+    [visionUpload],
   );
 
   const handleDrop = useCallback(
@@ -200,20 +240,37 @@ export default function ReferenceLibraryPage() {
             during code generation and review.
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="mt-4 gap-1.5"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
-        >
-          {uploading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Upload className="h-4 w-4" />
-          )}
-          Upload Document
-        </Button>
+        <div className="mt-4 flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading || !!visionProgress}
+          >
+            {uploading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Upload className="h-4 w-4" />
+            )}
+            Upload (Text)
+          </Button>
+          <Button
+            variant="default"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => visionFileInputRef.current?.click()}
+            disabled={uploading || !!visionProgress}
+            title="Uses AI vision to extract text, tables, and describe images/diagrams from PDF pages"
+          >
+            {visionProgress ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Eye className="h-4 w-4" />
+            )}
+            Upload PDF (Vision)
+          </Button>
+        </div>
         <input
           ref={fileInputRef}
           type="file"
@@ -222,6 +279,16 @@ export default function ReferenceLibraryPage() {
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) handleFileUpload(f);
+          }}
+        />
+        <input
+          ref={visionFileInputRef}
+          type="file"
+          accept=".pdf"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) handleVisionUpload(f);
           }}
         />
       </div>
@@ -262,6 +329,26 @@ export default function ReferenceLibraryPage() {
             Uploading and generating topic tags... This may take a moment for
             large documents.
           </span>
+        </Card>
+      )}
+
+      {/* Vision upload progress */}
+      {visionProgress && (
+        <Card className="space-y-2 px-4 py-3">
+          <div className="flex items-center gap-3">
+            <Eye className="h-4 w-4 shrink-0 text-primary animate-pulse" />
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium">AI Vision Processing</div>
+              <div className="text-xs text-muted-foreground">{visionProgress.status}</div>
+            </div>
+            <span className="text-xs font-mono text-muted-foreground">
+              {visionProgress.current}/{visionProgress.total}
+            </span>
+          </div>
+          <Progress
+            value={visionProgress.total > 0 ? (visionProgress.current / visionProgress.total) * 100 : 0}
+            className="h-1.5"
+          />
         </Card>
       )}
 

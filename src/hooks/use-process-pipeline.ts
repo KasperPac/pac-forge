@@ -73,6 +73,9 @@ export function useProcessPipeline() {
       const abort = new AbortController();
       abortRef.current = abort;
 
+      // Initialize pipeline execution tracking
+      store.getState().startPipeline(`${stage}-${Date.now()}`);
+
       // Mark stage as in progress
       store.getState().updateStageStatus(stage, {
         status: "in_progress",
@@ -130,14 +133,63 @@ export function useProcessPipeline() {
 
         if (stage === "fb") {
           // FB stage: one pass per device type (from linkage matrix)
+          // Templates are copied directly — only device types without templates call the AI
           const matrix = store.getState().linkageMatrix;
           const deviceTypes = matrix
             ? [...new Set(matrix.deviceLinkage.map((d) => d.deviceType))]
             : [];
 
+          // Build a map of device type → template (if matched in linkage matrix)
+          const templateByDeviceType = new Map<string, FbTemplate>();
+          if (matrix && fbTemplates) {
+            for (const device of matrix.deviceLinkage) {
+              if (device.fbTemplateId && !templateByDeviceType.has(device.deviceType)) {
+                const tpl = fbTemplates.find((t) => t.id === device.fbTemplateId);
+                if (tpl?.blocks && tpl.blocks.length > 0) {
+                  templateByDeviceType.set(device.deviceType, tpl);
+                }
+              }
+            }
+          }
+
           for (const deviceType of deviceTypes) {
             if (abort.signal.aborted) break;
 
+            const matchedTemplate = templateByDeviceType.get(deviceType);
+
+            if (matchedTemplate?.blocks && matchedTemplate.blocks.length > 0) {
+              // Template exists — copy blocks directly as artifacts (no AI call)
+              store.getState().setActiveAgentName(`Template Copy (${deviceType})`);
+              const stepId = `template-copy-${deviceType}`;
+              const copyStep = createPendingStep(generator, "generate");
+              store.getState().addPipelineStep({ ...copyStep, agentId: stepId, stage });
+              store.getState().updatePipelineStep(stepId, { status: "running" });
+
+              const startTime = Date.now();
+              const templateArtifacts: ParsedArtifact[] = matchedTemplate.blocks.map((block) => ({
+                name: block.block_name,
+                type: block.block_type as ParsedArtifact["type"],
+                filename: `${block.block_name}.scl`,
+                content: block.scl_code,
+                dependencies: [],
+                folder: undefined,
+              }));
+
+              allParsedArtifacts.push(...templateArtifacts);
+
+              store.getState().updatePipelineStep(stepId, {
+                status: "completed",
+                systemPrompt: "",
+                userMessage: "",
+                rawResponse: `Copied ${templateArtifacts.length} block(s) from template "${matchedTemplate.name}":\n${templateArtifacts.map((a) => `- ${a.name} (${a.type})`).join("\n")}`,
+                durationMs: Date.now() - startTime,
+                artifactsModified: templateArtifacts.map((a) => a.name),
+                summary: `Copied ${templateArtifacts.length} block(s) from template "${matchedTemplate.name}"`,
+              });
+              continue;
+            }
+
+            // No template — generate via AI
             store.getState().setActiveAgentName(`${generator.display_name} (${deviceType})`);
 
             const { systemPrompt, messages: promptMessages } = buildFbStagePrompt({
@@ -214,7 +266,37 @@ export function useProcessPipeline() {
           );
           store.getState().clearStreaming();
 
-          if (stage === "folders") {
+          if (stage === "io") {
+            // IO stage: parse [SUGGESTED_IO_LIST] JSON
+            const ioMatch = fullContent.match(/\[SUGGESTED_IO_LIST\]\s*([\s\S]*?)\[\/SUGGESTED_IO_LIST\]/);
+            if (ioMatch) {
+              try {
+                const suggestedIo = JSON.parse(ioMatch[1].trim());
+                // Extract summary text after the JSON block
+                const afterTag = fullContent.indexOf("[/SUGGESTED_IO_LIST]");
+                const summaryText = afterTag >= 0 ? fullContent.slice(afterTag + "[/SUGGESTED_IO_LIST]".length).trim() : null;
+                store.getState().setSuggestedIoList(suggestedIo, summaryText || null);
+              } catch {
+                // JSON parse failed — fall through to artifact parsing
+              }
+            }
+
+            // Also parse any SCL artifacts (generated when no IO list exists)
+            const { artifacts: parsed } = parseArtifacts(fullContent);
+            allParsedArtifacts = parsed;
+
+            store.getState().updatePipelineStep(generator.id, {
+              status: "completed",
+              systemPrompt,
+              userMessage: promptMessages[promptMessages.length - 1]?.content ?? "",
+              rawResponse: fullContent,
+              durationMs: Date.now() - startTime,
+              artifactsModified: parsed.map((a) => a.name),
+              summary: store.getState().suggestedIoList
+                ? `Suggested ${store.getState().suggestedIoList!.length} IO entries for review`
+                : `Generated ${parsed.length} artifact(s)`,
+            });
+          } else if (stage === "folders") {
             // Folder stage doesn't produce SCL artifacts — parse JSON instead
             try {
               const jsonMatch = fullContent.match(/```json\s*([\s\S]*?)```/);

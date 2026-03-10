@@ -304,9 +304,15 @@ export async function streamFromEdgeFunction(
  * Makes a non-streaming call to the Edge Function and returns the content + token usage.
  * Used by pipeline steps (PM plan, reviews, pattern analysis, summary).
  */
+/** Content can be a plain string or multimodal array (for vision) */
+export type MessageContent = string | Array<
+  | { type: "text"; text: string }
+  | { type: "image"; source: { type: "base64"; media_type: string; data: string } }
+>;
+
 export async function callNonStreaming(
   systemPrompt: string,
-  messages: Array<{ role: "user" | "assistant"; content: string }>,
+  messages: Array<{ role: "user" | "assistant"; content: MessageContent }>,
   signal: AbortSignal,
   maxTokens?: number,
 ): Promise<{ content: string; usage: { input: number; output: number } | null }> {

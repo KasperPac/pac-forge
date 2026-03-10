@@ -179,6 +179,43 @@ namespace PacForgeBridge
         public List<string> Warnings { get; set; } = new List<string>();
     }
 
+    public class ExportHmiResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+        public Dictionary<string, string> Screens { get; set; } = new Dictionary<string, string>();
+        public Dictionary<string, string> TagTables { get; set; } = new Dictionary<string, string>();
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    public class ExportHmiGraphicsResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+        public Dictionary<string, string> Graphics { get; set; } = new Dictionary<string, string>(); // name → data:mime;base64,... URI
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    public class ImportHmiRequest
+    {
+        public string TiaProjectPath { get; set; }
+        public Dictionary<string, string> Screens { get; set; }
+        public Dictionary<string, string> TagTables { get; set; }
+        public Dictionary<string, string> TextLists { get; set; }
+        public Dictionary<string, string> GraphicLists { get; set; }
+    }
+
+    public class ImportHmiResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+        public List<string> ImportedScreens { get; set; } = new List<string>();
+        public List<string> ImportedTagTables { get; set; } = new List<string>();
+        public List<string> ImportedTextLists { get; set; } = new List<string>();
+        public List<string> ImportedGraphicLists { get; set; } = new List<string>();
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
     public class CompileErrorDto
     {
         public string ArtifactName { get; set; }
@@ -324,6 +361,46 @@ namespace PacForgeBridge
                 }
             };
         }
+    }
+
+    // --- Library DTOs ---
+
+    public class OpenLibraryRequest
+    {
+        public string LibraryPath { get; set; }
+    }
+
+    public class LibraryContentsResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+        public string LibraryName { get; set; }
+        public string LibraryPath { get; set; }
+        public List<LibraryItemInfo> Types { get; set; } = new List<LibraryItemInfo>();
+        public List<LibraryItemInfo> MasterCopies { get; set; } = new List<LibraryItemInfo>();
+    }
+
+    public class LibraryItemInfo
+    {
+        public string Name { get; set; }
+        public string Path { get; set; }
+        public string Kind { get; set; }
+        public string Guid { get; set; }
+        public string Description { get; set; }
+    }
+
+    public class ExportLibraryRequest
+    {
+        public string LibraryPath { get; set; }
+        public List<string> ItemPaths { get; set; }
+    }
+
+    public class LibraryExportResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+        public Dictionary<string, string> Items { get; set; } = new Dictionary<string, string>();
+        public List<string> Warnings { get; set; } = new List<string>();
     }
 
     // --- Internal Job State ---

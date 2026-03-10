@@ -7,12 +7,14 @@ import {
   Check,
   Loader2,
   ChevronRight,
+  ChevronDown,
   Clock,
   Eye,
   Pencil,
   Users,
   Globe,
   Import,
+  Monitor,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -62,6 +64,7 @@ const AGENT_GROUPS: AgentGroup[] = [
   { agent: "Code Architect", roles: ["generate", "process", "rewrite", "compile_fix", "process_io", "process_folders", "process_fb", "process_db", "process_fc"] },
   { agent: "Reviewers", roles: ["review", "review_scope_io", "review_scope_fb", "review_scope_db", "review_scope_fc"] },
   { agent: "Pattern Librarian", roles: ["patterns"] },
+  { agent: "HMI Agent", roles: ["hmi_designer", "hmi_svg_generator"] },
   // Shared is cross-agent
   { agent: "All Agents", roles: ["shared"] },
 ];
@@ -88,6 +91,8 @@ const ROLE_PREVIEW_AGENTS: Partial<Record<PromptRole, string[]>> = {
   process_fb: ["Code Architect"],
   process_db: ["Code Architect"],
   process_fc: ["Code Architect"],
+  hmi_designer: ["HMI Agent"],
+  hmi_svg_generator: ["HMI Agent"],
 };
 
 /** Maps each role to its primary owning agent name. */
@@ -113,6 +118,8 @@ const ROLE_OWNER: Record<PromptRole, string> = {
   review_scope_fb: "Reviewers",
   review_scope_db: "Reviewers",
   review_scope_fc: "Reviewers",
+  hmi_designer: "HMI Agent",
+  hmi_svg_generator: "HMI Agent",
 };
 
 /** Roles whose assembled prompt includes the shared platform_rules section. */
@@ -137,6 +144,16 @@ export default function PromptEditorPage() {
   const resolvedTheme = useUiStore((s) => s.resolvedTheme);
   const [previewAgent, setPreviewAgent] = useState<string | null>(null);
   const [showImportDialog, setShowImportDialog] = useState(false);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  const toggleGroup = useCallback((agent: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(agent)) next.delete(agent);
+      else next.add(agent);
+      return next;
+    });
+  }, []);
 
   // Data hooks
   const { data: activeSections } = useActivePromptSections();
@@ -333,68 +350,99 @@ export default function PromptEditorPage() {
                 // Special groups that aren't real agent profiles
                 const isReviewers = group.agent === "Reviewers";
                 const isAllAgents = group.agent === "All Agents";
-                const profile = !isReviewers && !isAllAgents
+                const isHmi = group.agent === "HMI Agent";
+                const profile = !isReviewers && !isAllAgents && !isHmi
                   ? getAgentProfile(group.agent)
                   : null;
                 const color = profile
                   ? COLOR_CLASSES[profile.color as ProfileColor] ?? COLOR_CLASSES.neutral
                   : isReviewers
                     ? COLOR_CLASSES.amber
-                    : COLOR_CLASSES.neutral;
-                const GroupIcon = profile?.icon ?? (isReviewers ? Users : Globe);
+                    : isHmi
+                      ? COLOR_CLASSES.cyan
+                      : COLOR_CLASSES.neutral;
+                const GroupIcon = profile?.icon ?? (isReviewers ? Users : isHmi ? Monitor : Globe);
+                const isCollapsed = collapsedGroups.has(group.agent);
+                const hasSelectedRole = group.roles.includes(selectedRole);
+                const customCount = activeSections
+                  ? group.roles.filter((role) =>
+                      ROLE_SECTIONS[role].some((key) => activeSections[`${role}:${key}`] !== undefined),
+                    ).length
+                  : 0;
 
                 return (
-                  <div key={group.agent} className="mb-1">
-                    {/* Agent header */}
-                    <div className="flex items-center gap-2 px-2 pb-0.5 pt-2">
-                      <GroupIcon className={cn("h-3.5 w-3.5", color.text)} />
+                  <div key={group.agent} className="mb-0.5">
+                    {/* Agent header — clickable to collapse */}
+                    <button
+                      className={cn(
+                        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent/30",
+                        hasSelectedRole && isCollapsed && "bg-accent/20",
+                      )}
+                      onClick={() => toggleGroup(group.agent)}
+                    >
+                      {isCollapsed ? (
+                        <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      ) : (
+                        <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      )}
+                      <GroupIcon className={cn("h-3.5 w-3.5 shrink-0", color.text)} />
                       <span className={cn("text-xs font-semibold", color.text)}>
                         {group.agent}
                       </span>
                       {isReviewers && (
                         <span className="text-[10px] text-muted-foreground">
-                          (3 agents)
+                          (3)
                         </span>
                       )}
-                    </div>
-
-                    {/* Roles under this agent */}
-                    <div className="space-y-0.5">
-                      {group.roles.map((role) => (
-                        <button
-                          key={role}
-                          onClick={() => handleSelectRole(role)}
-                          className={cn(
-                            "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm transition-colors",
-                            selectedRole === role
-                              ? "bg-accent text-accent-foreground"
-                              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                          )}
+                      {customCount > 0 && (
+                        <Badge
+                          variant="outline"
+                          className="ml-auto h-4 px-1 text-[10px]"
                         >
-                          <ChevronRight
+                          {customCount}
+                        </Badge>
+                      )}
+                    </button>
+
+                    {/* Roles under this agent — collapsible */}
+                    {!isCollapsed && (
+                      <div className="space-y-0.5 pl-3">
+                        {group.roles.map((role) => (
+                          <button
+                            key={role}
+                            onClick={() => handleSelectRole(role)}
                             className={cn(
-                              "h-3 w-3 transition-transform",
-                              selectedRole === role && "rotate-90",
+                              "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm transition-colors",
+                              selectedRole === role
+                                ? "bg-accent text-accent-foreground"
+                                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                             )}
-                          />
-                          <span className="font-medium">
-                            {PROMPT_ROLE_LABELS[role]}
-                          </span>
-                          {activeSections &&
-                            ROLE_SECTIONS[role].some(
-                              (key) =>
-                                activeSections[`${role}:${key}`] !== undefined,
-                            ) && (
-                              <Badge
-                                variant="outline"
-                                className="ml-auto h-4 px-1 text-[10px]"
-                              >
-                                custom
-                              </Badge>
-                            )}
-                        </button>
-                      ))}
-                    </div>
+                          >
+                            <ChevronRight
+                              className={cn(
+                                "h-3 w-3 transition-transform",
+                                selectedRole === role && "rotate-90",
+                              )}
+                            />
+                            <span className="font-medium">
+                              {PROMPT_ROLE_LABELS[role]}
+                            </span>
+                            {activeSections &&
+                              ROLE_SECTIONS[role].some(
+                                (key) =>
+                                  activeSections[`${role}:${key}`] !== undefined,
+                              ) && (
+                                <Badge
+                                  variant="outline"
+                                  className="ml-auto h-4 px-1 text-[10px]"
+                                >
+                                  custom
+                                </Badge>
+                              )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}

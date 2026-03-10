@@ -25,9 +25,16 @@ function jsonResponse(
   });
 }
 
+// Content can be a plain string or multimodal array (for vision)
+type MessageContent = string | Array<{
+  type: "text" | "image";
+  text?: string;
+  source?: { type: "base64"; media_type: string; data: string };
+}>;
+
 interface GenerateRequest {
   system_prompt: string;
-  messages: Array<{ role: "user" | "assistant"; content: string }>;
+  messages: Array<{ role: "user" | "assistant"; content: MessageContent }>;
   project_context?: {
     project_id: string;
     session_id: string;
@@ -93,8 +100,12 @@ Deno.serve(async (req) => {
     }
     for (let i = 0; i < messages.length; i++) {
       const msg = messages[i];
-      if (!msg || typeof msg.content !== "string" || !msg.content.trim()) {
-        return jsonResponse({ error: `messages[${i}].content must be a non-empty string` }, 400);
+      // Accept string content or multimodal array content (for vision)
+      const validContent =
+        (typeof msg?.content === "string" && msg.content.trim()) ||
+        (Array.isArray(msg?.content) && msg.content.length > 0);
+      if (!validContent) {
+        return jsonResponse({ error: `messages[${i}].content must be a non-empty string or content array` }, 400);
       }
       if (msg.role !== "user" && msg.role !== "assistant") {
         return jsonResponse({ error: `messages[${i}].role must be "user" or "assistant"` }, 400);

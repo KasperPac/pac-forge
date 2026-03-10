@@ -1,4 +1,4 @@
-import type { Project, Agent, IoEntry, TagDbDefinition, GenerationMode, PatternCandidate, FbTemplate, DesignProfile, AgentKnowledgeDoc, ReferenceLibrarySection, RackSlotLayout } from "@/types";
+import type { Project, Agent, IoEntry, TagDbDefinition, GenerationMode, PatternCandidate, FbTemplate, DesignProfile, ProcessRuleExample, AgentKnowledgeDoc, ReferenceLibrarySection, RackSlotLayout } from "@/types";
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { getAgentProfile } from "@/lib/agent-profiles";
 import { formatReferenceSections } from "@/lib/reference-lookup";
@@ -149,13 +149,68 @@ function formatAgentRoles(
     .join("\n\n");
 }
 
-export function formatDesignProfile(profile: DesignProfile): string {
-  if (!profile.rules.trim()) return "";
-  return `## Code Design Profile: ${profile.name}
+/**
+ * Format design profile rules for prompt injection.
+ * @param context - Which generation context to include rules for.
+ *   "general" = general + folder rules only (default, used by most paths)
+ *   "process" = general + folder + process rules (used by process code generation)
+ *   "fb" = general + folder + fb rules (used by FB generation, future)
+ *   "all" = everything (used by PM planning)
+ */
+export function formatDesignProfile(
+  profile: DesignProfile,
+  context: "general" | "process" | "fb" | "all" = "general",
+): string {
+  const sections: string[] = [];
 
-The following rules define the customer's code standards. ALL generated code MUST follow these rules exactly.
+  // General rules (always included) — use new field, fall back to legacy
+  const generalRules = profile.general_rules?.trim() || profile.rules?.trim() || "";
+  if (generalRules) {
+    sections.push(`### General Code Rules\n\n${generalRules}`);
+  }
 
-${profile.rules}`;
+  // Folder rules (always included when present)
+  if (profile.folder_rules?.trim()) {
+    sections.push(`### Program Folder Structure\n\n${profile.folder_rules}`);
+  }
+
+  // Process rules (only for process/all contexts)
+  if ((context === "process" || context === "all") && profile.process_rules?.length > 0) {
+    sections.push(formatRuleExamples("Process Code Structure", profile.process_rules));
+  }
+
+  // FB rules (only for fb/all contexts)
+  if ((context === "fb" || context === "all") && profile.fb_rules?.length > 0) {
+    sections.push(formatRuleExamples("Function Block Structure", profile.fb_rules));
+  }
+
+  if (sections.length === 0) return "";
+
+  return `## MANDATORY: Code Design Profile — ${profile.name}
+
+**IMPORTANT:** The following rules define the customer's mandatory code standards. These rules take PRIORITY over any default patterns or conventions. ALL generated code MUST follow these rules exactly. If a rule contradicts a default pattern, the customer's rule wins.
+
+${sections.join("\n\n")}`;
+}
+
+function formatRuleExamples(heading: string, examples: ProcessRuleExample[]): string {
+  const parts = [`### MANDATORY: ${heading}`];
+  parts.push(
+    `**CRITICAL REQUIREMENT:** The customer has defined a specific code structure pattern for ${heading.toLowerCase()}. ` +
+    `You MUST replicate this exact structural pattern in ALL generated code. ` +
+    `Do NOT substitute your own preferred patterns (e.g., do NOT use a CASE integer state machine if the customer pattern uses boolean step arrays). ` +
+    `The structure, naming conventions, array usage, and organization shown below are NON-NEGOTIABLE — follow them precisely.`,
+  );
+  for (const ex of examples) {
+    parts.push(`#### ${ex.label}`);
+    if (ex.analysis?.trim()) {
+      parts.push(`**Mandatory structural pattern (you MUST follow this):**\n${ex.analysis}`);
+    }
+    if (ex.example?.trim()) {
+      parts.push(`**Reference implementation (replicate this structure):**\n\`\`\`scl\n${ex.example}\n\`\`\``);
+    }
+  }
+  return parts.join("\n\n");
 }
 
 export function formatRackLayout(rackLayout: RackSlotLayout[]): string {
@@ -176,7 +231,7 @@ export function formatRackLayout(rackLayout: RackSlotLayout[]): string {
 export function formatFbTemplates(templates: FbTemplate[]): string {
   if (templates.length === 0) return "";
   const sections = templates.map((t) => {
-    const header = `### ${t.name} [${t.device_category}]`;
+    const header = `### ${t.name} [${t.device_category}] (ID: ${t.id})`;
     const desc = t.description ? `${t.description}\n` : "";
     const blocks = t.blocks ?? [];
     if (blocks.length === 0) return `${header}\n${desc}(no blocks defined)`;

@@ -19,10 +19,12 @@ const PatternsPage = lazy(() => import("@/routes/patterns"));
 const TiaConsolePage = lazy(() => import("@/routes/tia-console"));
 const FbLibraryPage = lazy(() => import("@/routes/fb-library"));
 const ProfilesPage = lazy(() => import("@/routes/profiles"));
+const ProfileDetailPage = lazy(() => import("@/routes/profile-detail"));
 const KnowledgePage = lazy(() => import("@/routes/knowledge"));
 const PromptEditorPage = lazy(() => import("@/routes/prompt-editor"));
 const ReferenceLibraryPage = lazy(() => import("@/routes/reference-library"));
 const FbBuilderPage = lazy(() => import("@/routes/fb-builder"));
+const HmiEditorPage = lazy(() => import("@/routes/hmi-editor"));
 const ProfilePage = lazy(() => import("@/routes/profile"));
 const DropboxCallbackPage = lazy(() => import("@/routes/dropbox-callback"));
 
@@ -58,9 +60,11 @@ const router = createBrowserRouter([
           { path: "tia-console", element: <LazyRoute><TiaConsolePage /></LazyRoute> },
           { path: "fb-library", element: <LazyRoute><FbLibraryPage /></LazyRoute> },
           { path: "profiles", element: <LazyRoute><ProfilesPage /></LazyRoute> },
+          { path: "profiles/:id", element: <LazyRoute><ProfileDetailPage /></LazyRoute> },
           { path: "knowledge", element: <LazyRoute><KnowledgePage /></LazyRoute> },
           { path: "prompts", element: <LazyRoute><PromptEditorPage /></LazyRoute> },
           { path: "reference-library", element: <LazyRoute><ReferenceLibraryPage /></LazyRoute> },
+          { path: "hmi-editor", element: <LazyRoute><HmiEditorPage /></LazyRoute> },
           { path: "profile", element: <LazyRoute><ProfilePage /></LazyRoute> },
           { path: "dropbox-callback", element: <LazyRoute><DropboxCallbackPage /></LazyRoute> },
         ],

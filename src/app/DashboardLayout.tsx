@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router";
-import { FolderOpen, Bot, Code, Terminal, BookOpen, GraduationCap, Layers, SlidersHorizontal, FileText, Library, LogOut, User, Sun, Moon, Monitor, ChevronRight, MessageSquare, Blocks, Workflow } from "lucide-react";
+import { FolderOpen, Bot, Code, Terminal, BookOpen, GraduationCap, Layers, SlidersHorizontal, FileText, Library, LogOut, User, Sun, Moon, Monitor, ChevronRight, MessageSquare, Blocks, Workflow, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { AgentChatFab } from "@/components/agent-chat/agent-chat-fab";
 import pacLogo from "@/../media/logos/PacTechnologiesEdit_White.png";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -60,6 +60,7 @@ const NAV_ITEMS: NavItem[] = [
       { to: "/prompts", label: "Prompts", icon: FileText },
     ],
   },
+  { to: "/hmi-editor", label: "HMI Editor", icon: Monitor },
   { to: "/profiles", label: "Profiles", icon: SlidersHorizontal },
   { to: "/fb-library", label: "FB Library", icon: Layers },
   { to: "/tia-console", label: "TIA Console", icon: Terminal },
@@ -132,22 +133,55 @@ function NavGroupItem({ item, pendingPatternCount }: { item: NavItem; pendingPat
 
 function Sidebar() {
   const { data: pendingCount } = usePendingPatternCount();
+  const { sidebarCollapsed, toggleSidebar } = useUiStore();
 
   return (
-    <aside className="flex w-64 flex-col border-r bg-background">
-      <div className="flex flex-col items-center p-4">
-        <img
-          src={pacLogo}
-          alt="Pac Technologies"
-          className="h-10 w-auto invert dark:invert-0"
-        />
+    <aside
+      className={cn(
+        "flex flex-col border-r bg-background transition-[width] duration-200",
+        sidebarCollapsed ? "w-12" : "w-64",
+      )}
+    >
+      <div className={cn("flex items-center", sidebarCollapsed ? "justify-center p-2" : "p-4")}>
+        {sidebarCollapsed ? (
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={toggleSidebar}>
+            <PanelLeftOpen className="h-4 w-4" />
+          </Button>
+        ) : (
+          <>
+            <img
+              src={pacLogo}
+              alt="Pac Technologies"
+              className="h-10 w-auto object-contain invert dark:invert-0"
+            />
+            <Button variant="ghost" size="icon" className="ml-1 h-7 w-7 shrink-0" onClick={toggleSidebar}>
+              <PanelLeftClose className="h-3.5 w-3.5" />
+            </Button>
+          </>
+        )}
       </div>
 
       <Separator />
 
-      <nav className="flex-1 p-2 space-y-1">
+      <nav className={cn("flex-1 space-y-1", sidebarCollapsed ? "p-1" : "p-2")}>
         {NAV_ITEMS.map((item) =>
-          item.children ? (
+          sidebarCollapsed ? (
+            <NavLink
+              key={item.to}
+              to={item.children?.[0]?.to ?? item.to}
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center justify-center rounded-md p-2 transition-colors",
+                  isActive
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                )
+              }
+              title={item.label}
+            >
+              <item.icon className="h-4 w-4" />
+            </NavLink>
+          ) : item.children ? (
             <NavGroupItem key={item.to} item={item} pendingPatternCount={pendingCount ?? undefined} />
           ) : (
             <NavLink

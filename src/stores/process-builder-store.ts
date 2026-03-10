@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { Artifact, CompileError } from "@/types";
+import type { Artifact, CompileError, IoEntry } from "@/types";
 import type {
   ProcessStage,
   ProcessStageStatus,
@@ -52,6 +52,10 @@ interface ProcessBuilderState {
 
   // Compile results per stage (from TIA import)
   stageCompileResults: Record<ProcessStage, { success: boolean; errors: CompileError[] } | null>;
+
+  // IO comparison (suggested IO list from AI for side-by-side review)
+  suggestedIoList: IoEntry[] | null;
+  ioComparisonSummary: string | null;
 
   // Gating
   autoGating: boolean;
@@ -111,6 +115,10 @@ interface ProcessBuilderState {
   setTransitionCombinator: (sequenceId: string, stepId: string, combinator: "AND" | "OR") => void;
 
   setMatrixReviewStatus: (status: MatrixReviewStatus) => void;
+
+  // Actions — IO comparison
+  setSuggestedIoList: (entries: IoEntry[], summary: string | null) => void;
+  clearSuggestedIoList: () => void;
 
   // Actions — artifacts
   addStageArtifacts: (stage: ProcessStage, artifacts: Artifact[]) => void;
@@ -216,6 +224,8 @@ const INITIAL_STATE = {
   linkageMatrix: null as ProcessLinkageMatrix | null,
   stageArtifacts: createEmptyStageArtifacts(),
   stageCompileResults: createEmptyStageCompileResults(),
+  suggestedIoList: null as IoEntry[] | null,
+  ioComparisonSummary: null as string | null,
   autoGating: false,
   pipelineExecution: null as PipelineExecution | null,
   activeAgentName: null as string | null,
@@ -641,6 +651,11 @@ export const useProcessBuilderStore = create<ProcessBuilderState>()(
         },
       };
     }),
+
+  setSuggestedIoList: (entries, summary) =>
+    set({ suggestedIoList: entries, ioComparisonSummary: summary }),
+  clearSuggestedIoList: () =>
+    set({ suggestedIoList: null, ioComparisonSummary: null }),
 
   addStageArtifacts: (stage, artifacts) =>
     set((s) => ({

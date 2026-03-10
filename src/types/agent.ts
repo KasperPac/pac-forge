@@ -14,6 +14,8 @@ export const AGENT_SPECIALTIES = {
   REVIEW: "REVIEW",
   PATTERNS: "PATTERNS",
   ORCHESTRATE: "ORCHESTRATE",
+  HMI_DESIGN: "HMI_DESIGN",
+  HMI_TAGS: "HMI_TAGS",
 } as const;
 
 export type AgentSpecialty = (typeof AGENT_SPECIALTIES)[keyof typeof AGENT_SPECIALTIES];

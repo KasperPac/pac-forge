@@ -3,11 +3,13 @@ import { useProcessBuilderStore } from "@/stores/process-builder-store";
 import type { ProcessQaMessage } from "@/stores/process-builder-store";
 import { streamFromEdgeFunction } from "@/hooks/use-generation";
 import { resolveSection } from "@/lib/prompt-defaults";
+import { formatDesignProfile } from "@/lib/prompt-builder";
 import { parseProcessMatrix } from "@/hooks/use-process-qa";
-import type { ProcessLinkageMatrix } from "@/types";
+import type { ProcessLinkageMatrix, DesignProfile } from "@/types";
 
 export interface MatrixReviewInput {
   promptSections?: Record<string, string>;
+  designProfile?: DesignProfile | null;
 }
 
 /**
@@ -47,9 +49,13 @@ export function useMatrixReview() {
         const matrixJson = serializeMatrix(matrix);
         console.log("[MatrixReview] Sending matrix for validation, JSON length:", matrixJson.length);
 
+        const profileSection = input.designProfile ? formatDesignProfile(input.designProfile, "process") : "";
+
         const systemPrompt = `You are the **Project Manager** reviewing an engineer's edits to the Process Linkage Matrix.
 
-${instructions}`;
+${instructions}
+
+${profileSection}`;
 
         const fullContent = await streamFromEdgeFunction(
           {

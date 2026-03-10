@@ -9,7 +9,7 @@ import type {
 } from "@/types";
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { getAgentProfile } from "@/lib/agent-profiles";
-import { buildContextMessages, formatFbTemplates } from "@/lib/prompt-builder";
+import { buildContextMessages, formatFbTemplates, formatDesignProfile } from "@/lib/prompt-builder";
 import type { ParsedArtifact } from "@/lib/artifact-parser";
 import type { ReviewReport } from "@/lib/review-response-parser";
 
@@ -35,14 +35,6 @@ export interface RewritePromptInput {
   maxRounds?: number;
 }
 
-function formatDesignProfile(profile: DesignProfile): string {
-  if (!profile.rules.trim()) return "";
-  return `## Code Design Profile: ${profile.name}
-
-The following rules define the customer's code standards. ALL generated code MUST follow these rules exactly.
-
-${profile.rules}`;
-}
 
 function formatKnowledgeDocs(docs: AgentKnowledgeDoc[]): string {
   if (docs.length === 0) return "";
