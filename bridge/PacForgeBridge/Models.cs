@@ -403,6 +403,52 @@ namespace PacForgeBridge
         public List<string> Warnings { get; set; } = new List<string>();
     }
 
+    // --- LAD Import ---
+
+    public class ImportLadRequest
+    {
+        /// <summary>Path to the TIA Portal project (.ap18 etc.) — must already be open or will be opened.</summary>
+        public string TiaProjectPath { get; set; }
+        /// <summary>SimaticML XML content of the LAD block to import.</summary>
+        public string XmlContent { get; set; }
+        /// <summary>Name of the block (used for logging and compile lookup).</summary>
+        public string BlockName { get; set; }
+        /// <summary>Block type: FB, FC, OB.</summary>
+        public string BlockType { get; set; }
+        /// <summary>If true, compile the block after import.</summary>
+        public bool Compile { get; set; }
+        /// <summary>Optional sub-folder inside Program blocks (e.g. "Pac-LAD").</summary>
+        public string DestinationFolder { get; set; }
+    }
+
+    public class ImportLadResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+        public List<string> ImportedBlocks { get; set; } = new List<string>();
+        public List<string> Warnings { get; set; } = new List<string>();
+        public CompileResultDto CompileResult { get; set; }
+    }
+
+    // --- Block XML Export ---
+
+    public class ExportBlockXmlRequest
+    {
+        /// <summary>Name of the block to export (must exist in the open project).</summary>
+        public string BlockName { get; set; }
+        /// <summary>Optional sub-folder to look in (e.g. "Pac-LAD"). Blank = root Program blocks.</summary>
+        public string Folder { get; set; }
+    }
+
+    public class ExportBlockXmlResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+        public string BlockName { get; set; }
+        /// <summary>SimaticML XML content of the exported block.</summary>
+        public string XmlContent { get; set; }
+    }
+
     // --- Internal Job State ---
 
     public class JobState

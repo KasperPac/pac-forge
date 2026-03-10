@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router";
-import { FolderOpen, Bot, Code, Terminal, BookOpen, GraduationCap, Layers, SlidersHorizontal, FileText, Library, LogOut, User, Sun, Moon, Monitor, ChevronRight, MessageSquare, Blocks, Workflow, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { FolderOpen, Bot, Code, Terminal, BookOpen, GraduationCap, Layers, SlidersHorizontal, FileText, Library, LogOut, User, Sun, Moon, Monitor, ChevronRight, MessageSquare, Blocks, Workflow, PanelLeftClose, PanelLeftOpen, GitBranchPlus } from "lucide-react";
 import { AgentChatFab } from "@/components/agent-chat/agent-chat-fab";
 import pacLogo from "@/../media/logos/PacTechnologiesEdit_White.png";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -61,6 +61,7 @@ const NAV_ITEMS: NavItem[] = [
     ],
   },
   { to: "/hmi-editor", label: "HMI Editor", icon: Monitor },
+  { to: "/pac-lad", label: "Pac-LAD", icon: GitBranchPlus },
   { to: "/profiles", label: "Profiles", icon: SlidersHorizontal },
   { to: "/fb-library", label: "FB Library", icon: Layers },
   { to: "/tia-console", label: "TIA Console", icon: Terminal },

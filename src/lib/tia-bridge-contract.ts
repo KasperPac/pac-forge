@@ -217,6 +217,35 @@ export interface ImportHmiResponse {
   warnings: string[];
 }
 
+// --- LAD Import ---
+
+/**
+ * POST /tia/import-lad
+ * Import a SimaticML LAD block into the open TIA Portal project and optionally compile.
+ */
+export interface ImportLadRequest {
+  /** Path to the TIA Portal project (.ap18 etc.) — opens it if not already open. */
+  tia_project_path?: string;
+  /** SimaticML XML content of the LAD block. */
+  xml_content: string;
+  /** Block name (used for logging). */
+  block_name: string;
+  /** Block type: "FB", "FC", or "OB". */
+  block_type: "FB" | "FC" | "OB";
+  /** If true, compiles the PLC after import. */
+  compile: boolean;
+  /** Optional sub-folder inside Program blocks (e.g. "Pac-LAD"). */
+  destination_folder?: string;
+}
+
+export interface ImportLadResponse {
+  success: boolean;
+  message: string;
+  imported_blocks: string[];
+  warnings: string[];
+  compile_result: import("@/types").CompileResult | null;
+}
+
 // --- Bridge Configuration ---
 
 export interface BridgeConfig {

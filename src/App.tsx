@@ -25,6 +25,7 @@ const PromptEditorPage = lazy(() => import("@/routes/prompt-editor"));
 const ReferenceLibraryPage = lazy(() => import("@/routes/reference-library"));
 const FbBuilderPage = lazy(() => import("@/routes/fb-builder"));
 const HmiEditorPage = lazy(() => import("@/routes/hmi-editor"));
+const PacLadPage = lazy(() => import("@/routes/pac-lad"));
 const ProfilePage = lazy(() => import("@/routes/profile"));
 const DropboxCallbackPage = lazy(() => import("@/routes/dropbox-callback"));
 
@@ -65,6 +66,7 @@ const router = createBrowserRouter([
           { path: "prompts", element: <LazyRoute><PromptEditorPage /></LazyRoute> },
           { path: "reference-library", element: <LazyRoute><ReferenceLibraryPage /></LazyRoute> },
           { path: "hmi-editor", element: <LazyRoute><HmiEditorPage /></LazyRoute> },
+          { path: "pac-lad", element: <LazyRoute><PacLadPage /></LazyRoute> },
           { path: "profile", element: <LazyRoute><ProfilePage /></LazyRoute> },
           { path: "dropbox-callback", element: <LazyRoute><DropboxCallbackPage /></LazyRoute> },
         ],

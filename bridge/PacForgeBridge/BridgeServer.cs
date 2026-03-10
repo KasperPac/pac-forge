@@ -137,6 +137,20 @@ namespace PacForgeBridge
                     return;
                 }
 
+                // Route: POST /tia/export-block-xml
+                if (method == "POST" && path == "/tia/export-block-xml")
+                {
+                    await HandleExportBlockXml(req, res);
+                    return;
+                }
+
+                // Route: POST /tia/import-lad
+                if (method == "POST" && path == "/tia/import-lad")
+                {
+                    await HandleImportLad(req, res);
+                    return;
+                }
+
                 // Route: POST /tia/import-hmi
                 if (method == "POST" && path == "/tia/import-hmi")
                 {
@@ -661,6 +675,99 @@ namespace PacForgeBridge
             {
                 Console.WriteLine($"[TIA] Export sources failed: {ex.Message}");
                 await WriteJson(res, 500, new ExportSourcesResponse
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+        }
+
+        private async Task HandleExportBlockXml(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            try
+            {
+                string body = await ReadBody(req);
+                var request = Json.Deserialize<ExportBlockXmlRequest>(body);
+
+                if (request == null || string.IsNullOrEmpty(request.BlockName))
+                {
+                    await WriteJson(res, 400, new ExportBlockXmlResponse { Success = false, Message = "Missing block_name" });
+                    return;
+                }
+
+                if (!_tiaService.IsProjectOpen)
+                    _tiaService.Connect(preferAttach: true);
+
+                if (!_tiaService.IsProjectOpen)
+                {
+                    await WriteJson(res, 400, new ExportBlockXmlResponse { Success = false, Message = "No TIA project open." });
+                    return;
+                }
+
+                var result = _tiaService.ExportBlockAsXml(request.BlockName, request.Folder);
+                await WriteJson(res, 200, result);
+            }
+            catch (Exception ex)
+            {
+                await WriteJson(res, 500, new ExportBlockXmlResponse { Success = false, Message = ex.Message });
+            }
+        }
+
+        private async Task HandleImportLad(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            try
+            {
+                string body = await ReadBody(req);
+                var request = Json.Deserialize<ImportLadRequest>(body);
+
+                if (request == null || string.IsNullOrEmpty(request.XmlContent))
+                {
+                    await WriteJson(res, 400, new ImportLadResponse
+                    {
+                        Success = false,
+                        Message = "Missing xml_content"
+                    });
+                    return;
+                }
+
+                // Open project if a path was provided and nothing is open
+                if (!string.IsNullOrEmpty(request.TiaProjectPath) && !_tiaService.IsProjectOpen)
+                {
+                    _tiaService.Connect(preferAttach: true);
+                    _tiaService.OpenProject(request.TiaProjectPath);
+                }
+                else if (!_tiaService.IsProjectOpen)
+                {
+                    // Try attaching to a running TIA Portal with an open project
+                    _tiaService.Connect(preferAttach: true);
+                    if (!_tiaService.IsProjectOpen)
+                    {
+                        await WriteJson(res, 400, new ImportLadResponse
+                        {
+                            Success = false,
+                            Message = "No TIA project open. Provide tia_project_path or open a project in TIA Portal first."
+                        });
+                        return;
+                    }
+                }
+
+                string blockName = request.BlockName ?? "LadBlock";
+                string blockType = request.BlockType ?? "FB";
+                Console.WriteLine($"[LAD] POST /tia/import-lad: block={blockName} ({blockType}), compile={request.Compile}");
+
+                var result = _tiaService.ImportLadBlock(
+                    request.XmlContent,
+                    blockName,
+                    blockType,
+                    request.Compile,
+                    request.DestinationFolder);
+
+                await WriteJson(res, 200, result);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[LAD] Import LAD failed: {ex.Message}");
+                await WriteJson(res, 500, new ImportLadResponse
                 {
                     Success = false,
                     Message = ex.Message

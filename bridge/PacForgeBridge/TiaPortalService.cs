@@ -86,8 +86,12 @@ namespace PacForgeBridge
                 try
                 {
                     // Probe the instance — accessing Projects will throw if disposed
-                    var _ = _tiaPortal.Projects;
-                    return; // Still alive, nothing to do
+                    // Also refresh _project in case the user switched projects in TIA Portal
+                    var projects = _tiaPortal.Projects;
+                    _project = projects.Count > 0 ? projects[0] : null;
+                    if (_project != null)
+                        Console.WriteLine($"[TIA] Refreshed project reference: {_project.Name}");
+                    return; // Still alive
                 }
                 catch (ObjectDisposedException)
                 {
@@ -361,6 +365,133 @@ namespace PacForgeBridge
 
             CollectCompilerMessages(result.Messages, compileResult);
             return compileResult;
+        }
+
+        /// <summary>
+        /// Export a block as SimaticML XML using block.Export() — use this to get the reference
+        /// format that TIA Portal expects for import.
+        /// </summary>
+        public ExportBlockXmlResponse ExportBlockAsXml(string blockName, string folder = null)
+        {
+            if (_project == null)
+                throw new InvalidOperationException("No TIA project open.");
+
+            var result = new ExportBlockXmlResponse { BlockName = blockName };
+            string tempFile = Path.Combine(Path.GetTempPath(), $"PacLadExport_{blockName}_{DateTime.UtcNow:yyyyMMddHHmmssfff}.xml");
+
+            try
+            {
+                PlcSoftware plcSoftware = GetPlcSoftware();
+                PlcBlock block = null;
+
+                if (!string.IsNullOrEmpty(folder))
+                {
+                    PlcBlockUserGroup group = GetOrCreateBlockGroup(plcSoftware.BlockGroup, folder);
+                    block = group?.Blocks.Find(blockName);
+                }
+
+                if (block == null)
+                    block = plcSoftware.BlockGroup.Blocks.Find(blockName);
+
+                if (block == null)
+                {
+                    result.Success = false;
+                    result.Message = $"Block '{blockName}' not found in project.";
+                    return result;
+                }
+
+                Console.WriteLine($"[LAD] Exporting block '{blockName}' ({block.ProgrammingLanguage}) to XML...");
+                block.Export(new FileInfo(tempFile), ExportOptions.WithDefaults);
+
+                result.XmlContent = File.ReadAllText(tempFile);
+                result.Success = true;
+                result.Message = $"Exported '{blockName}' ({block.ProgrammingLanguage})";
+                Console.WriteLine($"[LAD] Exported {result.XmlContent.Length} chars");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[LAD] Export failed: {ex.Message}");
+                result.Success = false;
+                result.Message = ex.Message;
+            }
+            finally
+            {
+                if (File.Exists(tempFile)) try { File.Delete(tempFile); } catch { }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Import a LAD block from SimaticML XML into the open project and optionally compile it.
+        /// Uses PlcBlockGroup.Blocks.Import() — different from the SCL external source path.
+        /// </summary>
+        public ImportLadResponse ImportLadBlock(string xmlContent, string blockName, string blockType, bool compile, string destinationFolder = null)
+        {
+            if (_project == null)
+                throw new InvalidOperationException("No TIA project open. Open a project first.");
+
+            var result = new ImportLadResponse();
+            string tempFile = null;
+
+            try
+            {
+                // Write XML to a temp file — TIA Openness needs a FileInfo on disk
+                tempFile = Path.Combine(Path.GetTempPath(), $"PacLad_{blockName}_{DateTime.UtcNow:yyyyMMddHHmmssfff}.xml");
+                File.WriteAllText(tempFile, xmlContent, System.Text.Encoding.UTF8);
+                Console.WriteLine($"[LAD] Importing {blockType} '{blockName}' from {tempFile}");
+
+                PlcSoftware plcSoftware = GetPlcSoftware();
+
+                // Determine target block group
+                PlcBlockSystemGroup rootGroup = plcSoftware.BlockGroup;
+
+                IList<PlcBlock> imported;
+                if (!string.IsNullOrEmpty(destinationFolder))
+                {
+                    PlcBlockUserGroup targetGroup = GetOrCreateBlockGroup(rootGroup, destinationFolder);
+                    imported = targetGroup.Blocks.Import(new FileInfo(tempFile), ImportOptions.Override);
+                }
+                else
+                {
+                    imported = rootGroup.Blocks.Import(new FileInfo(tempFile), ImportOptions.Override);
+                }
+
+                foreach (PlcBlock block in imported)
+                {
+                    result.ImportedBlocks.Add(block.Name);
+                }
+
+                Console.WriteLine($"[LAD] Imported {result.ImportedBlocks.Count} block(s): {string.Join(", ", result.ImportedBlocks)}");
+
+                if (compile && result.ImportedBlocks.Count > 0)
+                {
+                    Console.WriteLine($"[LAD] Compiling block(s)...");
+                    // Compile the whole PLC software to pick up the new LAD block
+                    result.CompileResult = CompileAll(plcSoftware);
+                    Console.WriteLine($"[LAD] Compile {(result.CompileResult.Success ? "succeeded" : "failed")}");
+                }
+
+                result.Success = true;
+                result.Message = compile
+                    ? $"Imported and compiled '{blockName}' ({result.ImportedBlocks.Count} block(s))"
+                    : $"Imported '{blockName}' ({result.ImportedBlocks.Count} block(s))";
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[LAD] Import failed: {ex.Message}");
+                result.Success = false;
+                result.Message = ex.Message;
+            }
+            finally
+            {
+                if (tempFile != null && File.Exists(tempFile))
+                {
+                    try { File.Delete(tempFile); } catch { }
+                }
+            }
+
+            return result;
         }
 
         /// <summary>
