@@ -65,13 +65,18 @@ export async function extractTextFromPdf(file: File): Promise<string> {
 
     const pageText = lines.join("\n");
 
+    // Release pdfjs page resources (fonts, images, canvas data) to avoid OOM on large docs
+    page.cleanup();
+
     // Skip table of contents pages
     if (isTocPage(pageText)) continue;
 
     pages.push(pageText);
   }
 
-  return pages.join("\n\n");
+  const text = pages.join("\n\n");
+  await pdf.destroy();
+  return text;
 }
 
 /** Detect if a page is likely a table of contents */

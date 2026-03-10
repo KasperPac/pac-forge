@@ -35,7 +35,7 @@ import {
   useDeleteReferenceDoc,
 } from "@/hooks/use-reference-library";
 import { useVisionPdfUpload } from "@/hooks/use-vision-pdf-upload";
-import { readFileAsText, getFileType } from "@/lib/document-reader";
+import { readFileAsText, extractPdfServerSide, getFileType } from "@/lib/document-reader";
 import { cn } from "@/lib/utils";
 
 const ACCEPTED_EXTENSIONS = ".md,.txt,.docx,.scl,.pdf";
@@ -143,7 +143,10 @@ export default function ReferenceLibraryPage() {
       setUploading(true);
 
       try {
-        const content = await readFileAsText(file);
+        const isPdf = file.name.toLowerCase().endsWith(".pdf");
+        const content = isPdf
+          ? await extractPdfServerSide(file)
+          : await readFileAsText(file);
         if (!content.trim()) {
           setUploadError("The document appears to be empty.");
           setUploading(false);
@@ -326,8 +329,7 @@ export default function ReferenceLibraryPage() {
         <Card className="flex items-center gap-3 px-4 py-3">
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
           <span className="text-sm text-muted-foreground">
-            Uploading and generating topic tags... This may take a moment for
-            large documents.
+            Extracting and indexing document... Large PDFs may take a minute or two.
           </span>
         </Card>
       )}

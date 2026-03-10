@@ -1,11 +1,19 @@
 /**
  * Hook for AI ladder logic generation (text and image input).
+ * Uses the Code Architect agent identity with reference library lookup.
  */
 
 import { useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { buildLadSystemPrompt } from "@/lib/lad-prompt-builder";
+import { getRelevantReferenceSections } from "@/lib/reference-lookup";
 import type { LadProgram } from "@/types/lad";
+import type { AgentKnowledgeDoc } from "@/types";
+
+interface UseLadGenerateOptions {
+  agentKnowledgeDocs?: AgentKnowledgeDoc[];
+  promptSections?: Record<string, string>;
+}
 
 interface UseLadGenerateReturn {
   generate: (prompt: string) => Promise<LadProgram | null>;
@@ -31,18 +39,38 @@ function parseLadResponse(content: string): LadProgram {
   return parsed;
 }
 
-export function useLadGenerate(): UseLadGenerateReturn {
+export function useLadGenerate(options?: UseLadGenerateOptions): UseLadGenerateReturn {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const { agentKnowledgeDocs, promptSections } = options ?? {};
 
   const generate = useCallback(async (prompt: string): Promise<LadProgram | null> => {
     setLoading(true);
     setError(null);
 
     try {
+      // Look up relevant reference sections for this generation request
+      let referenceSections;
+      try {
+        referenceSections = await getRelevantReferenceSections(
+          prompt,
+          "generation_request",
+          "SIEMENS_TIA",
+          new AbortController().signal,
+          15,
+          promptSections,
+        );
+        if (referenceSections.length > 0) {
+          console.log(`LAD reference lookup: ${referenceSections.length} section(s) retrieved`);
+        }
+      } catch {
+        // Non-fatal — proceed without reference sections
+      }
+
       const { data, error: fnError } = await supabase.functions.invoke("generate", {
         body: {
-          system_prompt: buildLadSystemPrompt(),
+          system_prompt: buildLadSystemPrompt(agentKnowledgeDocs, referenceSections),
           messages: [{ role: "user", content: prompt }],
           max_tokens: 8192,
         },
@@ -58,7 +86,7 @@ export function useLadGenerate(): UseLadGenerateReturn {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [agentKnowledgeDocs, promptSections]);
 
   const generateFromImage = useCallback(
     async (imageBase64: string, prompt?: string): Promise<LadProgram | null> => {
@@ -66,9 +94,29 @@ export function useLadGenerate(): UseLadGenerateReturn {
       setError(null);
 
       try {
+        // Look up reference sections based on the optional text prompt
+        let referenceSections;
+        if (prompt) {
+          try {
+            referenceSections = await getRelevantReferenceSections(
+              prompt,
+              "generation_request",
+              "SIEMENS_TIA",
+              new AbortController().signal,
+              15,
+              promptSections,
+            );
+            if (referenceSections.length > 0) {
+              console.log(`LAD image reference lookup: ${referenceSections.length} section(s) retrieved`);
+            }
+          } catch {
+            // Non-fatal
+          }
+        }
+
         const { data, error: fnError } = await supabase.functions.invoke("generate", {
           body: {
-            system_prompt: buildLadSystemPrompt(),
+            system_prompt: buildLadSystemPrompt(agentKnowledgeDocs, referenceSections),
             messages: [
               {
                 role: "user",
@@ -103,7 +151,7 @@ export function useLadGenerate(): UseLadGenerateReturn {
         setLoading(false);
       }
     },
-    [],
+    [agentKnowledgeDocs, promptSections],
   );
 
   return { generate, generateFromImage, loading, error };

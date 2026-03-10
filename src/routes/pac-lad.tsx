@@ -46,6 +46,9 @@ import { LadPropertiesPanel } from "@/components/lad-editor/lad-properties-panel
 import { useLadGenerate } from "@/hooks/use-lad-generate";
 import { useLadImport } from "@/hooks/use-lad-import";
 import { useBridgeStatus } from "@/hooks/use-tia-jobs";
+import { useAgents } from "@/hooks/use-agents";
+import { useFilteredAgentKnowledgeDocs } from "@/hooks/use-agent-knowledge";
+import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 import { DEFAULT_BRIDGE_CONFIG } from "@/lib/tia-bridge-contract";
 import { buildLadXml } from "@/lib/lad-xml-builder";
 import type {
@@ -177,7 +180,15 @@ export default function PacLadPage() {
   const [compileAfterImport, setCompileAfterImport] = useState(true);
   const [tiaPanelOpen, setTiaPanelOpen] = useState(false);
 
-  const { generate, generateFromImage, loading, error } = useLadGenerate();
+  const { data: agents } = useAgents();
+  const codeArchitect = agents?.find((a) => a.display_name === "Code Architect");
+  const { data: knowledgeDocs } = useFilteredAgentKnowledgeDocs(codeArchitect?.id, "SIEMENS_TIA");
+  const { data: promptSections } = useActivePromptSections();
+
+  const { generate, generateFromImage, loading, error } = useLadGenerate({
+    agentKnowledgeDocs: knowledgeDocs,
+    promptSections,
+  });
   const { importToTia, loading: importing, error: importError, result: importResult, reset: resetImport } = useLadImport();
   const { data: bridgeStatus, refetch: refetchBridgeStatus } = useBridgeStatus();
   const queryClient = useQueryClient();

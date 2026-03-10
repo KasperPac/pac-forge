@@ -248,8 +248,10 @@ The bridge (`bridge/PacForgeBridge/`) is a .NET Framework 4.8 console app that w
 - **WebSocket**: `ws://localhost:5102/tia/ws` — real-time job status + compile output
 - **Key services**: `BridgeServer` (HTTP/WS), `TiaPortalService` (Openness wrapper), `JobExecutor` (async job queue), `WebSocketHandler` (real-time updates)
 - **Frontend contract**: `src/lib/tia-bridge-contract.ts` defines all request/response types
-- **Key endpoints**: `/tia/status`, `/tia/import-compile`, `/tia/export-sources`, `/tia/create-project`
+- **Key endpoints**: `/tia/status`, `/tia/import-compile`, `/tia/export-sources`, `/tia/create-project`, `/tia/import-lad`, `/tia/export-block-xml`
 - **TIA Openness `GenerateSource`** requires 3 params: `(IEnumerable<IGenerateSource>, FileInfo, GenerateOptions)`. File extension must match block type (`.scl` for SCL, `.awl` for STL, `.db` for DBs)
+- **LAD import**: Uses `PlcBlockGroup.Blocks.Import(FileInfo, ImportOptions.Override)` — different from SCL path. Returns `IList<PlcBlock>` (not `IEngineeringObject`)
+- **Stale project fix**: `Connect()` always refreshes `_project` from `_tiaPortal.Projects[0]` — handles user switching projects in TIA Portal without restarting bridge
 
 ### Path Aliases
 
@@ -272,7 +274,24 @@ Style: `new-york` / Base color: `neutral` / Icons: `lucide-react`. Add component
 - `jszip` — TIA export bundle generation
 - `zustand` — lightweight UI state stores
 - `mammoth` — .docx text extraction for process code / knowledge uploads
-- `pdfjs-dist` — PDF text extraction for knowledge uploads
+- `pdfjs-dist` — PDF text extraction for knowledge uploads (runs client-side; uploads abort if browser suspends)
+
+### Pac-LAD Module
+
+LAD (Ladder Logic) editor at `/pac-lad` → `src/routes/pac-lad.tsx`. Key files:
+
+- `src/types/lad.ts` — data model: `LadProgram`, `LadRung`, `LadNode` (element | parallel), `LadSeriesChain`, `LadElement`
+- `src/lib/lad-xml-builder.ts` — generates SimaticML FlgNet v4 XML for TIA V18 import. **Critical rules**:
+  - All `<Access>` nodes must appear BEFORE `<Part>` nodes within `<Parts>`
+  - Parallel (OR) branches use `<Part Name="O">` with `in1/in2/...` and `out` — NOT separate wires
+  - Powerrail wire must fan to ALL parallel branch starts in a single `<Wire>` element
+  - Timer instances: `Scope="LocalVariable"`, capital pin names (`IN`, `PT`, `Q`, `ET`), `TypedConstant` scope for `T#...` values
+  - Compare boxes: `pre` is the rung-flow input pin (not `in`), `out` is output
+  - `<Interface>` must be inline with `<Sections>` (no newline between); `<NetworkSource>` inline with `<FlgNet>`
+- `src/lib/lad-layout.ts` — SVG coordinate engine for the visual canvas
+- `src/lib/lad-prompt-builder.ts` — AI generation prompt with TIA LAD validation rules
+- `src/hooks/use-lad-import.ts` — POSTs to `/tia/import-lad` with 60s timeout
+- `src/components/lad-editor/` — canvas (zoom/pan SVG), element renderer, properties panel
 
 ## MUST READ Before Domain Work
 
@@ -313,9 +332,11 @@ Style: `new-york` / Base color: `neutral` / Icons: `lucide-react`. Add component
 See `CLAUDE.monday.md` for monday.com task sync rules.
 
 **MANDATORY — follow this exact order for EVERY task (no exceptions, even small fixes):**
-1. **BEFORE writing any code**: Create the Monday task (or find existing) with `--status "Fixing"` and a description of what you're about to do
+1. **BEFORE writing any code**: Create the Monday task (or find existing) with `--status "Working on it"` and a description of what you're about to do
 2. **Do the work**: Implement the fix/feature
 3. **AFTER the work is done**: Update the Monday task to `--status "Awaiting Testing"` with a summary of what was changed in `--comments`
 4. **Ask the user to test**: Ask if the fix works. If yes → update to `--status "Done"`. If no → update back to `--status "Fixing"` and continue working on it.
 
 This applies to bug fixes, features, improvements — everything. Never skip step 1. The task must exist in Monday BEFORE the first line of code is written.
+
+**Monday tooling**: Monday MCP is configured at `https://mcp.monday.com/mcp` — use MCP tools directly when available. Fallback: `python scripts/task_create.py --title "..." --status "Working on it" --group "..."` and `python scripts/task_update.py --task-id <id> --status "..."`. Board ID: `5092432355`. Status column: `status_cdbba809`.

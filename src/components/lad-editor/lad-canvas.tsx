@@ -27,8 +27,9 @@ export function LadCanvas({ program, selectedId, onSelectElement }: LadCanvasPro
   const totalW = layout.totalWidth;
   const totalH = layout.totalHeight + 40;
 
-  // Wheel zoom
+  // Ctrl+wheel zooms; plain wheel scrolls normally
   const handleWheel = useCallback((e: React.WheelEvent) => {
+    if (!e.ctrlKey) return;
     e.preventDefault();
     const delta = e.deltaY > 0 ? -0.1 : 0.1;
     setZoom((z) => Math.max(0.3, Math.min(3, z + delta)));
@@ -70,7 +71,7 @@ export function LadCanvas({ program, selectedId, onSelectElement }: LadCanvasPro
   return (
     <div
       ref={containerRef}
-      className="relative h-full w-full overflow-hidden bg-neutral-950"
+      className="relative h-full w-full overflow-auto bg-neutral-950"
       onWheel={handleWheel}
       onMouseDown={handleMouseDown}
       style={{ cursor: dragging ? "grabbing" : "default" }}
@@ -125,27 +126,43 @@ export function LadCanvas({ program, selectedId, onSelectElement }: LadCanvasPro
                   strokeWidth={3}
                 />
 
-                {/* Right power rail */}
-                <line
-                  x1={rightEdge}
-                  y1={rung.y + TITLE_H}
-                  x2={rightEdge}
-                  y2={rungBottom}
-                  stroke="#4ade80"
-                  strokeWidth={3}
-                />
+                {/* Right power rail — spans from main line Y to rung bottom */}
+                {(() => {
+                  const first = rung.nodes[0];
+                  const mainY = first && first.branches && first.branches.length > 0
+                    ? first.branches[0].y + first.branches[0].height / 2
+                    : rung.y + TITLE_H + (rung.height - TITLE_H) / 2;
+                  return (
+                    <line
+                      x1={rightEdge}
+                      y1={mainY}
+                      x2={rightEdge}
+                      y2={rungBottom}
+                      stroke="#4ade80"
+                      strokeWidth={3}
+                    />
+                  );
+                })()}
 
                 {/* Horizontal bus line from left rail to first element */}
-                {rung.nodes.length > 0 && (
-                  <line
-                    x1={RAIL_LEFT}
-                    y1={rung.y + TITLE_H + (rung.height - TITLE_H) / 2}
-                    x2={rung.nodes[0].x}
-                    y2={rung.y + TITLE_H + (rung.height - TITLE_H) / 2}
-                    stroke="#6b7280"
-                    strokeWidth={1.5}
-                  />
-                )}
+                {rung.nodes.length > 0 && (() => {
+                  const first = rung.nodes[0];
+                  // Main line Y = midpoint of first node's main row.
+                  // For a parallel node, use the first branch's mid; otherwise the element mid.
+                  const mainY = first.branches && first.branches.length > 0
+                    ? first.branches[0].y + first.branches[0].height / 2
+                    : first.y + first.height / 2;
+                  return (
+                    <line
+                      x1={RAIL_LEFT}
+                      y1={mainY}
+                      x2={first.x}
+                      y2={mainY}
+                      stroke="#6b7280"
+                      strokeWidth={1.5}
+                    />
+                  );
+                })()}
 
                 {/* Elements */}
                 {renderNodes(rung.nodes, selectedId, onSelectElement)}
@@ -154,13 +171,16 @@ export function LadCanvas({ program, selectedId, onSelectElement }: LadCanvasPro
                 {rung.nodes.length > 0 && (() => {
                   const last = rung.nodes[rung.nodes.length - 1];
                   const lastRight = last.x + last.width;
-                  const midY = rung.y + TITLE_H + (rung.height - TITLE_H) / 2;
+                  // Last element is always a coil or function box on the main line
+                  const lastY = last.branches && last.branches.length > 0
+                    ? last.branches[0].y + last.branches[0].height / 2
+                    : last.y + last.height / 2;
                   return (
                     <line
                       x1={lastRight}
-                      y1={midY}
+                      y1={lastY}
                       x2={rightEdge}
-                      y2={midY}
+                      y2={lastY}
                       stroke="#6b7280"
                       strokeWidth={1.5}
                     />
