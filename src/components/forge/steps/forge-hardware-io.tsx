@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
-import { ChevronRight } from "lucide-react";
+import { useState, useEffect, useCallback, useId } from "react";
+import { ChevronRight, Plus, Trash2, ChevronDown, ChevronRight as ChevronRightIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -14,6 +15,8 @@ import { Badge } from "@/components/ui/badge";
 import { HardwareConfigEditor } from "@/components/hardware-config-editor";
 import { IoListEditor } from "@/components/io-list-editor";
 import { matchDevicesToTemplates, applyMatchesToDevices } from "@/lib/forge-device-matcher";
+import { DEVICE_TYPE_IO_DEFAULTS, DEVICE_TYPES } from "@/lib/device-type-io-defaults";
+import { getCompatibleModules } from "@/lib/module-catalog";
 import type { IoEntry, RackSlotLayout, CpuType } from "@/types";
 import type {
   SpecAnalysis,
@@ -130,6 +133,18 @@ function ioFromAnalysis(analysis: SpecAnalysis): ForgeIoEntry[] {
   return entries;
 }
 
+// ── IO summary ────────────────────────────────────────────────────────────────
+
+function countIoSignals(devices: ForgeDeviceEntry[]) {
+  const counts = { DI: 0, DQ: 0, AI: 0, AQ: 0 };
+  for (const d of devices) {
+    for (const sig of d.io_signals) {
+      counts[sig.signal_type] = (counts[sig.signal_type] ?? 0) + 1;
+    }
+  }
+  return counts;
+}
+
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 export interface ForgeHardwareIoProps {
@@ -143,6 +158,26 @@ export interface ForgeHardwareIoProps {
   ) => void;
 }
 
+// ── Add Device Form State ─────────────────────────────────────────────────────
+
+interface AddDeviceForm {
+  device_type: string;
+  name: string;
+  tag: string;
+  subsystem: string;
+  description: string;
+  quantity: number;
+}
+
+const EMPTY_FORM: AddDeviceForm = {
+  device_type: "",
+  name: "",
+  tag: "",
+  subsystem: "",
+  description: "",
+  quantity: 1,
+};
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function ForgeHardwareIo({
@@ -151,6 +186,8 @@ export function ForgeHardwareIo({
   deviceFbLanguage = "SCL",
   onComplete,
 }: ForgeHardwareIoProps) {
+  const formId = useId();
+
   const [hardware, setHardware] = useState<ForgeHardwareConfig>({
     cpu_type: specAnalysis?.plc_type ?? "S7-1500",
     tia_version: "V18",
@@ -170,6 +207,13 @@ export function ForgeHardwareIo({
     return applyMatchesToDevices(raw, matches);
   });
 
+  // Expanded device rows (shows IO signals)
+  const [expandedDeviceIds, setExpandedDeviceIds] = useState<Set<string>>(new Set());
+
+  // Add device form visibility
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [addForm, setAddForm] = useState<AddDeviceForm>(EMPTY_FORM);
+
   // Re-run matcher when templates arrive
   useEffect(() => {
     if (fbTemplates.length > 0) {
@@ -187,11 +231,10 @@ export function ForgeHardwareIo({
       setHardware((prev) => rackLayoutToForgeHardware(layout, prev));
 
       if (generatedIo) {
-        // Build lookup by tag_name to preserve signal_type / device_id from existing entries
         const existingMap = new Map(ioList.map((e) => [e.tag_name, e]));
         const forgeIo = generatedIo.map((e) => ioEntryToForgeIo(e, existingMap));
         setIoList(forgeIo);
-        setIoListKey((k) => k + 1); // remount IoListEditor with new initial value
+        setIoListKey((k) => k + 1);
       }
     },
     [ioList],
@@ -230,6 +273,168 @@ export function ForgeHardwareIo({
     );
   }
 
+  function removeDevice(deviceId: string) {
+    setDevices((prev) => prev.filter((d) => d.id !== deviceId));
+    setIoList((prev) => prev.filter((io) => io.device_id !== deviceId));
+    setExpandedDeviceIds((prev) => {
+      const next = new Set(prev);
+      next.delete(deviceId);
+      return next;
+    });
+  }
+
+  function toggleExpand(deviceId: string) {
+    setExpandedDeviceIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(deviceId)) next.delete(deviceId);
+      else next.add(deviceId);
+      return next;
+    });
+  }
+
+  // ── Add device ────────────────────────────────────────────────────────────
+
+  function handleAddDevice() {
+    if (!addForm.device_type || !addForm.name || !addForm.tag) return;
+
+    const defaults = DEVICE_TYPE_IO_DEFAULTS[addForm.device_type] ?? [];
+    const qty = Math.max(1, addForm.quantity);
+
+    const newDevices: ForgeDeviceEntry[] = [];
+    const newIo: ForgeIoEntry[] = [];
+
+    for (let i = 0; i < qty; i++) {
+      const suffix = qty > 1 ? `_${String(i + 1).padStart(2, "0")}` : "";
+      const id = `DEV_${Date.now()}_${i}`;
+      const tag = qty > 1 ? `${addForm.tag}${suffix}` : addForm.tag;
+      const name = qty > 1 ? `${addForm.name}${suffix}` : addForm.name;
+
+      const signals = defaults.map((def) => ({
+        tag_name: `${tag}${def.suffix}`,
+        signal_type: def.signal_type,
+        description: def.description,
+      }));
+
+      newDevices.push({
+        id,
+        name,
+        tag,
+        device_type: addForm.device_type,
+        description: addForm.description,
+        subsystem: addForm.subsystem,
+        io_signals: signals,
+        fb_template_id: null,
+        fb_match_confidence: "none" as const,
+        language_override: null,
+        approved: false,
+      });
+
+      for (const sig of signals) {
+        newIo.push({
+          address: "",
+          tag_name: sig.tag_name,
+          signal_type: sig.signal_type,
+          data_type: sig.signal_type.startsWith("A") ? "Real" : "Bool",
+          description: sig.description,
+          module: "",
+          slot: 0,
+          device_id: id,
+        });
+      }
+    }
+
+    setDevices((prev) => {
+      const updated = [...prev, ...newDevices];
+      const matches = matchDevicesToTemplates(updated, fbTemplates);
+      return applyMatchesToDevices(updated, matches);
+    });
+    setIoList((prev) => [...prev, ...newIo]);
+    setAddForm(EMPTY_FORM);
+    setShowAddForm(false);
+  }
+
+  // ── Recommend modules ─────────────────────────────────────────────────────
+
+  function recommendModules() {
+    const counts = countIoSignals(devices);
+    const compatible = getCompatibleModules(hardware.cpu_type);
+
+    // Find best DI module (prefer 16-ch)
+    function bestModule(type: "DI" | "DQ" | "AI" | "AQ", needed: number) {
+      if (needed === 0) return [];
+      const mods = compatible.filter((m) => {
+        if (type === "DI") return m.signalType === "DI" && m.diChannels >= 8;
+        if (type === "DQ") return m.signalType === "DQ" && m.dqChannels >= 8;
+        if (type === "AI") return m.signalType === "AI" && m.aiChannels >= 4;
+        if (type === "AQ") return m.signalType === "AQ" && m.aqChannels >= 2;
+        return false;
+      });
+      if (mods.length === 0) return [];
+
+      // Sort by channel count descending, pick largest
+      mods.sort((a, b) => {
+        const aChans = type === "DI" ? a.diChannels : type === "DQ" ? a.dqChannels : type === "AI" ? a.aiChannels : a.aqChannels;
+        const bChans = type === "DI" ? b.diChannels : type === "DQ" ? b.dqChannels : type === "AI" ? b.aiChannels : b.aqChannels;
+        return bChans - aChans;
+      });
+
+      const best = mods[0];
+      const bestChans = type === "DI" ? best.diChannels : type === "DQ" ? best.dqChannels : type === "AI" ? best.aiChannels : best.aqChannels;
+      const qty = Math.ceil(needed / bestChans);
+      return Array.from({ length: qty }, () => best);
+    }
+
+    const recommended = [
+      ...bestModule("DI", counts.DI),
+      ...bestModule("DQ", counts.DQ),
+      ...bestModule("AI", counts.AI),
+      ...bestModule("AQ", counts.AQ),
+    ];
+
+    if (recommended.length === 0) return;
+
+    // Fill slots starting from slot 2 (slot 1 = CPU)
+    let slot = 2;
+    const newModules = recommended.map((mod) => ({
+      slot: slot++,
+      rack: 0,
+      module_type: mod.name,
+      order_number: mod.mlfb,
+      description: mod.shortLabel,
+    }));
+
+    setHardware((prev) => ({
+      ...prev,
+      racks: prev.racks.map((r, i) =>
+        i === 0 ? { ...r, modules: newModules } : r,
+      ),
+    }));
+  }
+
+  // ── Generate IO list from devices ─────────────────────────────────────────
+
+  function generateIoListFromDevices() {
+    const newIo: ForgeIoEntry[] = [];
+    for (const device of devices) {
+      for (const sig of device.io_signals) {
+        newIo.push({
+          address: "",
+          tag_name: sig.tag_name,
+          signal_type: sig.signal_type,
+          data_type: sig.signal_type.startsWith("A") ? "Real" : "Bool",
+          description: sig.description,
+          module: "",
+          slot: 0,
+          device_id: device.id,
+        });
+      }
+    }
+    setIoList(newIo);
+    setIoListKey((k) => k + 1);
+  }
+
+  // ── Confidence badge ──────────────────────────────────────────────────────
+
   function confidenceBadge(conf: ForgeDeviceEntry["fb_match_confidence"]) {
     if (conf === "exact")
       return (
@@ -254,116 +459,362 @@ export function ForgeHardwareIo({
 
   const rackLayout = forgeHardwareToRackLayout(hardware);
   const ioEntries = ioList.map(forgeIoToIoEntry);
+  const ioCounts = countIoSignals(devices);
+  const totalIo = ioCounts.DI + ioCounts.DQ + ioCounts.AI + ioCounts.AQ;
 
   return (
     <div className="flex h-full flex-col gap-3">
-      <Tabs defaultValue="hardware" className="flex flex-1 flex-col">
+      {/* IO Summary Banner */}
+      <div className="flex items-center gap-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2">
+        <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">IO Total</span>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="font-mono text-[10px]">{ioCounts.DI} DI</Badge>
+          <Badge variant="outline" className="font-mono text-[10px]">{ioCounts.DQ} DQ</Badge>
+          <Badge variant="outline" className="font-mono text-[10px]">{ioCounts.AI} AI</Badge>
+          <Badge variant="outline" className="font-mono text-[10px]">{ioCounts.AQ} AQ</Badge>
+        </div>
+        <span className="ml-auto font-mono text-[10px] text-muted-foreground">{totalIo} points · {devices.length} devices</span>
+      </div>
+
+      <Tabs defaultValue="devices" className="flex flex-1 flex-col">
         <TabsList className="w-fit">
+          <TabsTrigger value="devices" className="font-mono text-xs uppercase tracking-wider">
+            Devices
+          </TabsTrigger>
           <TabsTrigger value="hardware" className="font-mono text-xs uppercase tracking-wider">
             Hardware
           </TabsTrigger>
           <TabsTrigger value="io" className="font-mono text-xs uppercase tracking-wider">
             IO List
           </TabsTrigger>
-          <TabsTrigger value="devices" className="font-mono text-xs uppercase tracking-wider">
-            Devices
-          </TabsTrigger>
         </TabsList>
+
+        {/* Devices Tab */}
+        <TabsContent value="devices" className="mt-3 flex-1">
+          <div className="flex flex-col gap-2">
+            {/* Add Device Button */}
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                {devices.length} device{devices.length !== 1 ? "s" : ""}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1.5 font-mono text-xs"
+                onClick={() => setShowAddForm((v) => !v)}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add Device
+              </Button>
+            </div>
+
+            {/* Inline Add Form */}
+            {showAddForm && (
+              <div className="rounded-md border border-border/70 bg-muted/10 p-3">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  <div className="col-span-2 sm:col-span-1">
+                    <label htmlFor={`${formId}-type`} className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                      Device Type *
+                    </label>
+                    <Select
+                      value={addForm.device_type}
+                      onValueChange={(v) => setAddForm((f) => ({ ...f, device_type: v }))}
+                    >
+                      <SelectTrigger id={`${formId}-type`} className="h-7 text-xs">
+                        <SelectValue placeholder="Select type…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {DEVICE_TYPES.map((t) => (
+                          <SelectItem key={t} value={t} className="text-xs">{t}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <label htmlFor={`${formId}-name`} className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                      Name *
+                    </label>
+                    <Input
+                      id={`${formId}-name`}
+                      className="h-7 font-mono text-xs"
+                      placeholder="Conv1_Motor"
+                      value={addForm.name}
+                      onChange={(e) => setAddForm((f) => ({ ...f, name: e.target.value }))}
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor={`${formId}-tag`} className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                      Tag *
+                    </label>
+                    <Input
+                      id={`${formId}-tag`}
+                      className="h-7 font-mono text-xs"
+                      placeholder="M101"
+                      value={addForm.tag}
+                      onChange={(e) => setAddForm((f) => ({ ...f, tag: e.target.value }))}
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor={`${formId}-subsystem`} className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                      Subsystem
+                    </label>
+                    <Input
+                      id={`${formId}-subsystem`}
+                      className="h-7 font-mono text-xs"
+                      placeholder="Conveyor"
+                      value={addForm.subsystem}
+                      onChange={(e) => setAddForm((f) => ({ ...f, subsystem: e.target.value }))}
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor={`${formId}-desc`} className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                      Description
+                    </label>
+                    <Input
+                      id={`${formId}-desc`}
+                      className="h-7 text-xs"
+                      placeholder="Main conveyor drive"
+                      value={addForm.description}
+                      onChange={(e) => setAddForm((f) => ({ ...f, description: e.target.value }))}
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor={`${formId}-qty`} className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                      Quantity
+                    </label>
+                    <Input
+                      id={`${formId}-qty`}
+                      type="number"
+                      min={1}
+                      max={99}
+                      className="h-7 font-mono text-xs"
+                      value={addForm.quantity}
+                      onChange={(e) => setAddForm((f) => ({ ...f, quantity: parseInt(e.target.value) || 1 }))}
+                    />
+                  </div>
+                </div>
+
+                {/* IO preview */}
+                {addForm.device_type && (
+                  <div className="mt-2 rounded border border-border/40 bg-background/40 px-2 py-1.5">
+                    <span className="font-mono text-[10px] text-muted-foreground">
+                      Auto-generates {DEVICE_TYPE_IO_DEFAULTS[addForm.device_type]?.length ?? 0} IO signals:
+                    </span>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {(DEVICE_TYPE_IO_DEFAULTS[addForm.device_type] ?? []).map((def) => (
+                        <Badge key={def.suffix} variant="outline" className="font-mono text-[9px]">
+                          {addForm.tag || "TAG"}{def.suffix} ({def.signal_type})
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-2 flex gap-2">
+                  <Button
+                    size="sm"
+                    className="h-7 font-mono text-xs"
+                    onClick={handleAddDevice}
+                    disabled={!addForm.device_type || !addForm.name || !addForm.tag}
+                  >
+                    Add
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 font-mono text-xs"
+                    onClick={() => { setShowAddForm(false); setAddForm(EMPTY_FORM); }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Device List */}
+            <ScrollArea className="h-[380px]">
+              {devices.length === 0 ? (
+                <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+                  No devices yet — add one above or upload a spec in Step 1.
+                </div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-background/90">
+                    <tr className="border-b border-border/60">
+                      {["", "Name", "Tag", "Type", "Subsystem", "FB Template", "Language", "IO", "Match", ""].map(
+                        (h, i) => (
+                          <th
+                            key={i}
+                            className="px-2 py-2 text-left font-mono text-[10px] uppercase tracking-wider text-muted-foreground"
+                          >
+                            {h}
+                          </th>
+                        ),
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {devices.map((d) => (
+                      <>
+                        <tr key={d.id} className="border-b border-border/40 hover:bg-muted/20">
+                          {/* Expand toggle */}
+                          <td className="px-1 py-1.5">
+                            <button
+                              type="button"
+                              className="flex items-center text-muted-foreground hover:text-foreground"
+                              onClick={() => toggleExpand(d.id)}
+                            >
+                              {expandedDeviceIds.has(d.id)
+                                ? <ChevronDown className="h-3.5 w-3.5" />
+                                : <ChevronRightIcon className="h-3.5 w-3.5" />
+                              }
+                            </button>
+                          </td>
+                          <td className="px-2 py-1.5 font-mono text-xs">{d.name}</td>
+                          <td className="px-2 py-1.5 font-mono text-xs text-muted-foreground">{d.tag}</td>
+                          <td className="px-2 py-1.5 text-xs">{d.device_type}</td>
+                          <td className="px-2 py-1.5 text-xs text-muted-foreground">{d.subsystem}</td>
+                          <td className="px-2 py-1.5">
+                            <Select
+                              value={d.fb_template_id ?? "__ai__"}
+                              onValueChange={(v) => updateDeviceTemplate(d.id, v)}
+                            >
+                              <SelectTrigger className="h-7 w-44 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__ai__">AI Generate</SelectItem>
+                                {fbTemplates.map((t) => (
+                                  <SelectItem key={t.id} value={t.id}>
+                                    {t.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <Select
+                              value={d.language_override ?? "__default__"}
+                              onValueChange={(v) => updateDeviceLanguage(d.id, v)}
+                            >
+                              <SelectTrigger className="h-7 w-24 font-mono text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__default__">
+                                  <span>
+                                    Default{" "}
+                                    <span className="text-muted-foreground">({deviceFbLanguage})</span>
+                                  </span>
+                                </SelectItem>
+                                <SelectItem value="SCL">SCL</SelectItem>
+                                <SelectItem value="LAD">LAD</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </td>
+                          <td className="px-2 py-1.5 font-mono text-xs">{d.io_signals.length}</td>
+                          <td className="px-2 py-1.5">{confidenceBadge(d.fb_match_confidence)}</td>
+                          {/* Delete */}
+                          <td className="px-1 py-1.5">
+                            <button
+                              type="button"
+                              className="text-muted-foreground hover:text-destructive"
+                              onClick={() => removeDevice(d.id)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+
+                        {/* Expanded IO signals */}
+                        {expandedDeviceIds.has(d.id) && (
+                          <tr key={`${d.id}_io`} className="border-b border-border/30 bg-muted/10">
+                            <td />
+                            <td colSpan={9} className="px-3 pb-2 pt-1">
+                              <div className="flex flex-wrap gap-1.5">
+                                {d.io_signals.map((sig) => (
+                                  <div key={sig.tag_name} className="flex items-center gap-1 rounded border border-border/40 bg-background/60 px-2 py-0.5">
+                                    <span className="font-mono text-[10px] text-muted-foreground">{sig.signal_type}</span>
+                                    <span className="font-mono text-[10px]">{sig.tag_name}</span>
+                                    <span className="text-[10px] text-muted-foreground">— {sig.description}</span>
+                                  </div>
+                                ))}
+                                {d.io_signals.length === 0 && (
+                                  <span className="text-[11px] text-muted-foreground">No IO signals defined</span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </ScrollArea>
+          </div>
+        </TabsContent>
 
         {/* Hardware Tab */}
         <TabsContent value="hardware" className="mt-3 flex-1">
-          <ScrollArea className="h-[480px] pr-1">
-            <HardwareConfigEditor
-              cpuType={hardware.cpu_type as CpuType}
-              rackSlotLayout={rackLayout}
-              onSave={handleHardwareSave}
-              existingIoEntries={ioEntries}
-              saving={false}
-            />
-          </ScrollArea>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                Configure rack & modules
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1.5 font-mono text-xs"
+                onClick={recommendModules}
+                disabled={totalIo === 0}
+                title={totalIo === 0 ? "Add devices first to get recommendations" : ""}
+              >
+                Recommend Modules
+              </Button>
+            </div>
+            <ScrollArea className="h-[420px] pr-1">
+              <HardwareConfigEditor
+                cpuType={hardware.cpu_type as CpuType}
+                rackSlotLayout={rackLayout}
+                onSave={handleHardwareSave}
+                existingIoEntries={ioEntries}
+                saving={false}
+              />
+            </ScrollArea>
+          </div>
         </TabsContent>
 
         {/* IO List Tab */}
         <TabsContent value="io" className="mt-3 flex-1">
-          <ScrollArea className="h-[480px] pr-1">
-            <IoListEditor
-              key={ioListKey}
-              value={ioEntries}
-              onChange={handleIoChange}
-            />
-          </ScrollArea>
-        </TabsContent>
-
-        {/* Devices Tab */}
-        <TabsContent value="devices" className="mt-3 flex-1">
-          <ScrollArea className="h-[480px]">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-background/90">
-                <tr className="border-b border-border/60">
-                  {["Name", "Tag", "Type", "Subsystem", "FB Template", "Language", "IO", "Match"].map(
-                    (h) => (
-                      <th
-                        key={h}
-                        className="px-3 py-2 text-left font-mono text-[10px] uppercase tracking-wider text-muted-foreground"
-                      >
-                        {h}
-                      </th>
-                    ),
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {devices.map((d) => (
-                  <tr key={d.id} className="border-b border-border/40 hover:bg-muted/20">
-                    <td className="px-3 py-1.5 font-mono text-xs">{d.name}</td>
-                    <td className="px-3 py-1.5 font-mono text-xs text-muted-foreground">{d.tag}</td>
-                    <td className="px-3 py-1.5 text-xs">{d.device_type}</td>
-                    <td className="px-3 py-1.5 text-xs text-muted-foreground">{d.subsystem}</td>
-                    <td className="px-3 py-1.5">
-                      <Select
-                        value={d.fb_template_id ?? "__ai__"}
-                        onValueChange={(v) => updateDeviceTemplate(d.id, v)}
-                      >
-                        <SelectTrigger className="h-7 w-48 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__ai__">AI Generate</SelectItem>
-                          {fbTemplates.map((t) => (
-                            <SelectItem key={t.id} value={t.id}>
-                              {t.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </td>
-                    <td className="px-3 py-1.5">
-                      <Select
-                        value={d.language_override ?? "__default__"}
-                        onValueChange={(v) => updateDeviceLanguage(d.id, v)}
-                      >
-                        <SelectTrigger className="h-7 w-28 font-mono text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__default__">
-                            <span>
-                              Default{" "}
-                              <span className="text-muted-foreground">({deviceFbLanguage})</span>
-                            </span>
-                          </SelectItem>
-                          <SelectItem value="SCL">SCL</SelectItem>
-                          <SelectItem value="LAD">LAD</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </td>
-                    <td className="px-3 py-1.5 font-mono text-xs">{d.io_signals.length}</td>
-                    <td className="px-3 py-1.5">{confidenceBadge(d.fb_match_confidence)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </ScrollArea>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                {ioList.length} IO points
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1.5 font-mono text-xs"
+                onClick={generateIoListFromDevices}
+                disabled={devices.length === 0}
+              >
+                Generate IO List from Devices
+              </Button>
+            </div>
+            <ScrollArea className="h-[420px] pr-1">
+              <IoListEditor
+                key={ioListKey}
+                value={ioEntries}
+                onChange={handleIoChange}
+              />
+            </ScrollArea>
+          </div>
         </TabsContent>
       </Tabs>
 
