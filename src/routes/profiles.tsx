@@ -56,6 +56,11 @@ export default function ProfilesPage() {
         folder_rules: "",
         process_rules: [],
         fb_rules: [],
+        code_language: "SCL" as const,
+        process_code_language: "SCL" as const,
+        hmi_theme: "default",
+        naming_prefix: "",
+        db_naming_prefix: "",
       },
       {
         onSuccess: (profile) => {

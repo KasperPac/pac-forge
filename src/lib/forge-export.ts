@@ -46,7 +46,7 @@ const BLOCK_TYPE_ORDER: Record<string, number> = {
  */
 export function buildForgeManifest(
   artifacts: ForgeArtifact[],
-  tiaProjectPath: string,
+  _tiaProjectPath: string,
   tiaVersion: string = "V18",
 ): TiaManifest {
   // Sort by block type order, then by dependencies (simple sort — no circular deps expected)
@@ -57,13 +57,15 @@ export function buildForgeManifest(
   });
 
   return {
+    manifest_version: "1.0",
     project_id: "",
-    session_id: "",
-    user_id: "",
+    platform: "SIEMENS_TIA" as const,
     tia_version: tiaVersion,
     cpu_type: "S7-1500",
-    tia_project_path: tiaProjectPath,
-    blocks: sorted
+    created_at: new Date().toISOString(),
+    created_by_user_id: "",
+    generation_session_id: "",
+    artifacts: sorted
       .filter((a) => a.language === "SCL")
       .map((a) => ({
         name: a.name,
@@ -74,7 +76,6 @@ export function buildForgeManifest(
         compile_after_import: a.compile_after_import,
         overwrite_strategy: "CREATE_OR_UPDATE" as const,
       })),
-    created_at: new Date().toISOString(),
   };
 }
 

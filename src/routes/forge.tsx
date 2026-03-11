@@ -21,7 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useForgeStore } from "@/stores/forge-store";
 import { FORGE_STEP_LABELS, FORGE_STEP_ORDER } from "@/types/forge";
-import type { ForgeStep, ForgeArtifact, SpecAnalysis, TiaForgeExportResult } from "@/types/forge";
+import type { ForgeStep, ForgeArtifact, ForgeHardwareConfig, ForgeIoEntry, ForgeDeviceEntry, SpecAnalysis, TiaForgeExportResult } from "@/types/forge";
 import {
   useActiveForgeSession,
   useCreateForgeSession,
@@ -111,9 +111,9 @@ export default function ForgePage() {
   }
 
   async function handleHardwareIoComplete(
-    hardware: Parameters<typeof ForgeHardwareIo>[0]["onComplete"] extends (h: infer H, ...a: unknown[]) => void ? H : never,
-    ioList: Parameters<typeof ForgeHardwareIo>[0]["onComplete"] extends (h: unknown, i: infer I, ...a: unknown[]) => void ? I : never,
-    devices: Parameters<typeof ForgeHardwareIo>[0]["onComplete"] extends (h: unknown, i: unknown, d: infer D) => void ? D : never,
+    hardware: ForgeHardwareConfig,
+    ioList: ForgeIoEntry[],
+    devices: ForgeDeviceEntry[],
   ) {
     await saveSession({ hardware_config: hardware, io_list: ioList, device_list: devices, current_step: "device_code" });
     completeStep("hardware_io");
