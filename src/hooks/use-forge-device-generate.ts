@@ -21,6 +21,67 @@ const DEVICE_GEN_MAX_TOKENS = 8192;
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Copy template blocks directly as artifacts (exact match — no AI call).
+ * Returns FB/UDT/FC blocks from the template + a deterministically-generated instance DB.
+ */
+function copyTemplateAsArtifacts(
+  device: ForgeDeviceEntry,
+  template: FbTemplate,
+): ForgeArtifact[] {
+  const artifacts: ForgeArtifact[] = [];
+
+  for (const block of (template.blocks ?? []).sort((a, b) => a.sort_order - b.sort_order)) {
+    artifacts.push({
+      id: crypto.randomUUID(),
+      name: block.block_name,
+      type: block.block_type as ForgeArtifact["type"],
+      language: "SCL",
+      content: block.scl_code,
+      approved: false,
+      fb_template_id: template.id,
+      stage: "device",
+      destination_folder:
+        block.block_type === "UDT" ? "Types"
+        : block.block_type === "DB" ? "Data blocks"
+        : "Program blocks/Forge",
+      dependencies: [],
+      compile_after_import: true,
+    });
+  }
+
+  // Generate instance DB deterministically — no AI needed
+  const mainFb = template.blocks?.find((b) => b.block_type === "FB");
+  if (mainFb) {
+    const instDbName = `Inst${device.name.replace(/[^A-Za-z0-9]/g, "")}`;
+    const instDbCode = [
+      `DATA_BLOCK "${instDbName}"`,
+      `{ S7_Optimized_Access := 'TRUE' }`,
+      `VERSION : 0.1`,
+      `NON_RETAIN`,
+      `"${mainFb.block_name}"`,
+      `BEGIN`,
+      `END_DATA_BLOCK`,
+    ].join("\n");
+
+    artifacts.push({
+      id: crypto.randomUUID(),
+      name: instDbName,
+      type: "DB",
+      language: "SCL",
+      content: instDbCode,
+      approved: false,
+      fb_template_id: template.id,
+      stage: "device",
+      destination_folder: "Data blocks",
+      dependencies: [mainFb.block_name],
+      compile_after_import: true,
+    });
+  }
+
+  return artifacts;
+}
+
 /** Parse SCL fenced blocks from Claude response and build ForgeArtifacts. */
 function parseSclArtifacts(
   rawContent: string,
@@ -121,6 +182,11 @@ export function useForgeDeviceGenerate() {
           ? fbTemplates.find((t) => t.id === device.fb_template_id) ?? null
           : null;
 
+      // Exact match — skip AI entirely, copy template blocks as-is
+      if (device.fb_match_confidence === "exact" && matchedTemplate?.blocks?.length) {
+        return copyTemplateAsArtifacts(device, matchedTemplate);
+      }
+
       const context: DeviceGenContext = {
         profile,
         platformRules: PLATFORM_RULES,
@@ -201,26 +267,50 @@ export function useForgeDeviceGenerate() {
 
       const devices = session.device_list as ForgeDeviceEntry[];
       const allArtifacts: ForgeArtifact[] = [];
+      // Track template block names already copied — FB/UDT blocks are shared across devices
+      const copiedTemplateBlockNames = new Set<string>();
 
       setProgress({ current: 0, total: devices.length + 1, currentDevice: "" });
 
       try {
         for (let i = 0; i < devices.length; i++) {
           const device = devices[i];
+          const matchedTemplate =
+            device.fb_template_id
+              ? fbTemplates.find((t) => t.id === device.fb_template_id) ?? null
+              : null;
+          const isExactMatch = device.fb_match_confidence === "exact" && !!matchedTemplate?.blocks?.length;
+
           setProgress({
             current: i + 1,
             total: devices.length + 1,
-            currentDevice: device.name,
+            currentDevice: isExactMatch ? `${device.name} (from library)` : device.name,
           });
 
-          const artifacts = await generateSingle(
-            device,
-            session,
-            profile,
-            fbTemplates,
-            patterns,
-          );
-          allArtifacts.push(...artifacts);
+          if (isExactMatch && matchedTemplate) {
+            // Exact match — copy template, deduplicate shared FB/UDT blocks
+            const artifacts = copyTemplateAsArtifacts(device, matchedTemplate);
+            for (const artifact of artifacts) {
+              if (artifact.type === "DB") {
+                // Instance DBs are unique per device — always add
+                allArtifacts.push(artifact);
+              } else if (!copiedTemplateBlockNames.has(artifact.name)) {
+                // FB/UDT/FC blocks — only add once per template
+                allArtifacts.push(artifact);
+                copiedTemplateBlockNames.add(artifact.name);
+              }
+            }
+          } else {
+            // No exact match — use AI generation
+            const artifacts = await generateSingle(
+              device,
+              session,
+              profile,
+              fbTemplates,
+              patterns,
+            );
+            allArtifacts.push(...artifacts);
+          }
         }
 
         // IO linking FC

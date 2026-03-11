@@ -250,6 +250,11 @@ export function ForgeDeviceCode({
                       </button>
                       <span className="min-w-0 flex-1 truncate font-mono">{a.name}</span>
                       <div className="flex shrink-0 gap-1">
+                        {a.fb_template_id && (
+                          <Badge variant="outline" className="font-mono text-[9px] border-green-600/40 text-green-500">
+                            library
+                          </Badge>
+                        )}
                         {typeBadge(a.type)}
                         {langBadge(a.language)}
                       </div>

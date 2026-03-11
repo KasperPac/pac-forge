@@ -213,8 +213,14 @@ export function buildDeviceSclPrompt(
 ): string {
   const { profile, platformRules, patterns, fbTemplate } = context;
 
-  const templateSection = fbTemplate
-    ? `## FB Library Template\nUse this existing FB as the base — adapt it to the device's specific IO signals and configuration:\n\`\`\`scl\n${fbTemplate.blocks?.[0]?.scl_code ?? ""}\n\`\`\``
+  const templateSection = fbTemplate?.blocks?.length
+    ? `## FB Library Template (${fbTemplate.name})\nUse this existing template as the base. Adapt only what's necessary for this device's IO signals.\nDo NOT rename blocks or restructure the code — preserve the template structure.\n\n${
+        fbTemplate.blocks
+          .slice()
+          .sort((a, b) => a.sort_order - b.sort_order)
+          .map((b) => `### ${b.block_type}: ${b.block_name}\n\`\`\`scl\n${b.scl_code}\n\`\`\``)
+          .join("\n\n")
+      }`
     : `## FB Library Template\nNo matching template found. Generate a complete FB from scratch following the platform rules below.`;
 
   const patternSection = formatPatterns(patterns ?? []);
