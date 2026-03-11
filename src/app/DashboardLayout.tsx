@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router";
-import { FolderOpen, Bot, Code, Terminal, BookOpen, GraduationCap, Layers, SlidersHorizontal, FileText, Library, LogOut, User, Sun, Moon, Monitor, ChevronRight, MessageSquare, Blocks, Workflow, PanelLeftClose, PanelLeftOpen, GitBranchPlus } from "lucide-react";
+import { FolderOpen, Bot, Code, Terminal, BookOpen, GraduationCap, Layers, SlidersHorizontal, FileText, Library, LogOut, User, Sun, Moon, Monitor, ChevronRight, MessageSquare, Blocks, Workflow, PanelLeftClose, PanelLeftOpen, GitBranchPlus, Wand2 } from "lucide-react";
 import { AgentChatFab } from "@/components/agent-chat/agent-chat-fab";
 import pacLogo from "@/../media/logos/PacTechnologiesEdit_White.png";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -38,6 +38,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { to: "/projects", label: "Projects", icon: FolderOpen },
+  { to: "/forge", label: "Project Wizard", icon: Wand2 },
   { to: "/agents", label: "Agents", icon: Bot },
   {
     to: "/pac-st",

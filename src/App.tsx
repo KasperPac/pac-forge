@@ -28,6 +28,7 @@ const HmiEditorPage = lazy(() => import("@/routes/hmi-editor"));
 const PacLadPage = lazy(() => import("@/routes/pac-lad"));
 const ProfilePage = lazy(() => import("@/routes/profile"));
 const DropboxCallbackPage = lazy(() => import("@/routes/dropbox-callback"));
+const ForgePage = lazy(() => import("@/routes/forge"));
 
 function LazyRoute({ children }: { children: React.ReactNode }) {
   return (
@@ -50,6 +51,7 @@ const router = createBrowserRouter([
         children: [
           { index: true, element: <Navigate to="/projects" replace /> },
           { path: "projects", element: <ProjectsPage /> },
+          { path: "forge", element: <LazyRoute><ForgePage /></LazyRoute> },
           { path: "projects/:id", element: <LazyRoute><ProjectDetailPage /></LazyRoute> },
           { path: "pac-st", element: <Navigate to="/pac-st/chat" replace /> },
           { path: "pac-st/chat", element: <LazyRoute><PacStPage /></LazyRoute> },
