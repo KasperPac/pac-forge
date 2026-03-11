@@ -30,6 +30,7 @@ import {
 import { useDesignProfile } from "@/hooks/use-design-profiles";
 import { useFbTemplates } from "@/hooks/use-fb-templates";
 import { useActivePatterns } from "@/hooks/use-patterns";
+import { useProject } from "@/hooks/use-projects";
 import type { ForgeProjectSetup as ForgeProjectSetupData } from "@/components/forge/steps/forge-project-setup";
 
 export default function ForgePage() {
@@ -59,6 +60,9 @@ export default function ForgePage() {
   const { data: session, isLoading: sessionLoading, isError: sessionError } = useActiveForgeSession(projectId);
   const { mutateAsync: createSession } = useCreateForgeSession();
   const { mutateAsync: updateSession } = useUpdateForgeSession();
+
+  // Project data (for pre-filling step 2)
+  const { data: project } = useProject(projectId);
 
   // Dependencies
   const { data: profile } = useDesignProfile(session?.design_profile_id ?? undefined);
@@ -173,6 +177,7 @@ export default function ForgePage() {
         return (
           <ForgeProjectSetup
             specAnalysis={session.spec_analysis}
+            project={project ?? null}
             onComplete={handleProjectSetupComplete}
           />
         );
