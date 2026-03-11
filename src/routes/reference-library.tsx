@@ -10,10 +10,13 @@ import {
   Tag,
   AlertCircle,
   Eye,
+  BookOpen,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
@@ -36,6 +39,7 @@ import {
 } from "@/hooks/use-reference-library";
 import { useVisionPdfUpload } from "@/hooks/use-vision-pdf-upload";
 import { readFileAsText, extractPdfServerSide, getFileType } from "@/lib/document-reader";
+import { getPdfPageCount } from "@/lib/document-extractor";
 import { cn } from "@/lib/utils";
 
 const ACCEPTED_EXTENSIONS = ".md,.txt,.docx,.scl,.pdf";
@@ -136,6 +140,12 @@ export default function ReferenceLibraryPage() {
     total: number;
     status: string;
   } | null>(null);
+  const [visionConfig, setVisionConfig] = useState<{
+    file: File;
+    pageCount: number;
+    startPage: number;
+    endPage: number;
+  } | null>(null);
 
   const handleFileUpload = useCallback(
     async (file: File) => {
@@ -174,35 +184,56 @@ export default function ReferenceLibraryPage() {
     [uploadDoc],
   );
 
-  const handleVisionUpload = useCallback(
-    async (file: File) => {
-      if (!file.name.toLowerCase().endsWith(".pdf")) {
-        setUploadError("Vision upload only supports PDF files.");
-        return;
-      }
-      setUploadError(null);
-      setVisionProgress({ current: 0, total: 1, status: "Starting..." });
+  const handleVisionFileSelect = useCallback(async (file: File) => {
+    if (!file.name.toLowerCase().endsWith(".pdf")) {
+      setUploadError("Vision upload only supports PDF files.");
+      return;
+    }
+    setUploadError(null);
+    setVisionProgress({ current: 0, total: 1, status: "Reading page count..." });
+    try {
+      const pageCount = await getPdfPageCount(file);
+      const suggestedEnd = Math.min(100, pageCount);
+      setVisionConfig({ file, pageCount, startPage: 1, endPage: suggestedEnd });
+    } catch {
+      setUploadError("Could not read PDF page count.");
+    } finally {
+      setVisionProgress(null);
+      if (visionFileInputRef.current) visionFileInputRef.current.value = "";
+    }
+  }, []);
 
-      try {
-        const title = file.name.replace(/\.[^.]+$/, "");
-        await visionUpload.mutateAsync({
-          file,
-          title,
-          onProgress: (current, total, status) => {
-            setVisionProgress({ current, total, status });
-          },
-        });
-      } catch (err) {
-        setUploadError(
-          err instanceof Error ? err.message : "Vision upload failed",
-        );
-      } finally {
-        setVisionProgress(null);
-        if (visionFileInputRef.current) visionFileInputRef.current.value = "";
-      }
-    },
-    [visionUpload],
-  );
+  const handleVisionUpload = useCallback(async () => {
+    if (!visionConfig) return;
+    const { file, pageCount, startPage, endPage } = visionConfig;
+    const clampedStart = Math.max(1, Math.min(startPage, pageCount));
+    const clampedEnd = Math.max(clampedStart, Math.min(endPage, pageCount));
+
+    setUploadError(null);
+    setVisionProgress({ current: 0, total: clampedEnd - clampedStart + 1, status: "Starting..." });
+
+    try {
+      const baseName = file.name.replace(/\.[^.]+$/, "");
+      const title = pageCount <= clampedEnd && clampedStart === 1
+        ? baseName
+        : `${baseName} (pp. ${clampedStart}–${clampedEnd})`;
+
+      await visionUpload.mutateAsync({
+        file,
+        title,
+        startPage: clampedStart,
+        endPage: clampedEnd,
+        onProgress: (current, total, status) => {
+          setVisionProgress({ current, total, status });
+        },
+      });
+      setVisionConfig(null);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Vision upload failed");
+    } finally {
+      setVisionProgress(null);
+    }
+  }, [visionConfig, visionUpload]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -291,7 +322,7 @@ export default function ReferenceLibraryPage() {
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) handleVisionUpload(f);
+            if (f) handleVisionFileSelect(f);
           }}
         />
       </div>
@@ -322,6 +353,58 @@ export default function ReferenceLibraryPage() {
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{uploadError}</span>
         </div>
+      )}
+
+      {/* Vision page range configurator */}
+      {visionConfig && !visionProgress && (
+        <Card className="space-y-3 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <BookOpen className="h-4 w-4 shrink-0 text-primary" />
+            <span className="text-sm font-medium">Configure Vision Upload</span>
+            <span className="font-mono text-xs text-muted-foreground">
+              {visionConfig.file.name} &middot; {visionConfig.pageCount} pages total
+            </span>
+          </div>
+          <p className="font-mono text-xs text-muted-foreground">
+            Process up to 100 pages at a time to avoid memory issues. Upload the same file multiple times with different page ranges to cover the full document.
+          </p>
+          <div className="flex items-end gap-3">
+            <div className="space-y-1">
+              <Label className="font-mono text-xs">Start page</Label>
+              <Input
+                type="number"
+                min={1}
+                max={visionConfig.pageCount}
+                value={visionConfig.startPage}
+                onChange={(e) => setVisionConfig((c) => c && ({ ...c, startPage: parseInt(e.target.value) || 1 }))}
+                className="h-8 w-24 font-mono text-xs"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="font-mono text-xs">End page</Label>
+              <Input
+                type="number"
+                min={1}
+                max={visionConfig.pageCount}
+                value={visionConfig.endPage}
+                onChange={(e) => setVisionConfig((c) => c && ({ ...c, endPage: parseInt(e.target.value) || 1 }))}
+                className="h-8 w-24 font-mono text-xs"
+              />
+            </div>
+            <Button size="sm" onClick={handleVisionUpload} className="gap-1.5">
+              <Eye className="h-3.5 w-3.5" />
+              Start Upload
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setVisionConfig(null)}
+              className="text-muted-foreground"
+            >
+              Cancel
+            </Button>
+          </div>
+        </Card>
       )}
 
       {/* Uploading indicator */}

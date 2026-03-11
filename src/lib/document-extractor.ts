@@ -130,5 +130,44 @@ export async function renderPdfPageToImage(
 export async function getPdfPageCount(file: File): Promise<number> {
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-  return pdf.numPages;
+  const count = pdf.numPages;
+  await pdf.destroy();
+  return count;
+}
+
+/**
+ * Render a page range from a PDF, loading the document only once.
+ * Yields { pageNum, dataUri } for each page. Cleans up per-page resources
+ * after each render to avoid memory accumulation.
+ */
+export async function* renderPdfPageRange(
+  file: File,
+  startPage: number,
+  endPage: number,
+  scale = 1.5,
+): AsyncGenerator<{ pageNum: number; dataUri: string }> {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+  for (let p = startPage; p <= endPage; p++) {
+    const page = await pdf.getPage(p);
+    const viewport = page.getViewport({ scale });
+
+    const canvas = document.createElement("canvas");
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext("2d")!;
+
+    await page.render({ canvasContext: ctx, viewport, canvas } as Parameters<typeof page.render>[0]).promise;
+    const dataUri = canvas.toDataURL("image/png");
+
+    // Free page + canvas memory before moving to next page
+    page.cleanup();
+    canvas.width = 0;
+    canvas.height = 0;
+
+    yield { pageNum: p, dataUri };
+  }
+
+  await pdf.destroy();
 }

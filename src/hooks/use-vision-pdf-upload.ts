@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import { getPdfPageCount, renderPdfPageToImage } from "@/lib/document-extractor";
+import { renderPdfPageRange } from "@/lib/document-extractor";
 import type { ReferenceLibraryDoc } from "@/types";
 
 const REF_DOCS_KEY = ["reference-library-docs"] as const;
@@ -23,6 +23,8 @@ If the page is a table of contents, respond with just: [TOC]`;
 interface VisionUploadInput {
   file: File;
   title: string;
+  startPage: number;
+  endPage: number;
   plcBrand?: string;
   compatibleCpus?: string[];
   onProgress?: (current: number, total: number, status: string) => void;
@@ -42,82 +44,65 @@ export function useVisionPdfUpload() {
     mutationFn: async ({
       file,
       title,
+      startPage,
+      endPage,
       plcBrand = "SIEMENS_TIA",
       compatibleCpus = ["ALL"],
       onProgress,
     }: VisionUploadInput): Promise<VisionUploadResult> => {
       const { data: { user } } = await supabase.auth.getUser();
 
-      const pageCount = await getPdfPageCount(file);
-      onProgress?.(0, pageCount, `Processing ${pageCount} pages...`);
+      const rangeTotal = endPage - startPage + 1;
+      onProgress?.(0, rangeTotal, `Processing pages ${startPage}–${endPage}...`);
 
-      // Process pages in batches of 3 for parallelism without overwhelming the API
-      const BATCH_SIZE = 3;
+      // Process pages one at a time using the range generator (loads PDF once, cleans up per page)
       const pageContents: { pageNum: number; content: string }[] = [];
+      let processed = 0;
 
-      for (let batchStart = 1; batchStart <= pageCount; batchStart += BATCH_SIZE) {
-        const batchEnd = Math.min(batchStart + BATCH_SIZE - 1, pageCount);
-        const batchPromises: Promise<void>[] = [];
+      for await (const { pageNum, dataUri } of renderPdfPageRange(file, startPage, endPage)) {
+        onProgress?.(processed, rangeTotal, `Analyzing page ${pageNum} with AI...`);
 
-        for (let p = batchStart; p <= batchEnd; p++) {
-          const pageNum = p;
-          batchPromises.push(
-            (async () => {
-              onProgress?.(pageNum - 1, pageCount, `Rendering page ${pageNum}...`);
+        const base64Data = dataUri.replace(/^data:image\/png;base64,/, "");
 
-              // Render page to image
-              const imageUri = await renderPdfPageToImage(file, pageNum, 1.5);
-              const base64Data = imageUri.replace(/^data:image\/png;base64,/, "");
-
-              onProgress?.(pageNum - 1, pageCount, `Analyzing page ${pageNum} with AI...`);
-
-              // Send to Claude vision via Edge Function
-              const { data: result, error: fnError } = await supabase.functions.invoke("generate", {
-                body: {
-                  system_prompt: VISION_SYSTEM_PROMPT,
-                  messages: [
-                    {
-                      role: "user",
-                      content: [
-                        {
-                          type: "image",
-                          source: {
-                            type: "base64",
-                            media_type: "image/png",
-                            data: base64Data,
-                          },
-                        },
-                        {
-                          type: "text",
-                          text: `Extract all content from this page (page ${pageNum} of ${pageCount}). Include text, tables, and describe any images/diagrams/screenshots.`,
-                        },
-                      ],
+        const { data: result, error: fnError } = await supabase.functions.invoke("generate", {
+          body: {
+            system_prompt: VISION_SYSTEM_PROMPT,
+            messages: [
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "image",
+                    source: {
+                      type: "base64",
+                      media_type: "image/png",
+                      data: base64Data,
                     },
-                  ],
-                  max_tokens: 4096,
-                },
-              });
+                  },
+                  {
+                    type: "text",
+                    text: `Extract all content from this page (page ${pageNum}, chunk covers pages ${startPage}–${endPage}). Include text, tables, and describe any images/diagrams/screenshots.`,
+                  },
+                ],
+              },
+            ],
+            max_tokens: 4096,
+          },
+        });
 
-              if (fnError) {
-                console.error(`[Vision PDF] Error on page ${pageNum}:`, fnError);
-                pageContents.push({ pageNum, content: `[Error processing page ${pageNum}]` });
-                return;
-              }
+        processed++;
+        onProgress?.(processed, rangeTotal, `Processed page ${pageNum}`);
 
-              const text = result?.content ?? "";
-
-              // Skip blank/title/TOC pages
-              if (text.trim() === "[SKIP]" || text.trim() === "[TOC]") {
-                return;
-              }
-
-              pageContents.push({ pageNum, content: text });
-            })(),
-          );
+        if (fnError) {
+          console.error(`[Vision PDF] Error on page ${pageNum}:`, fnError);
+          pageContents.push({ pageNum, content: `[Error processing page ${pageNum}]` });
+          continue;
         }
 
-        await Promise.all(batchPromises);
-        onProgress?.(batchEnd, pageCount, `Processed ${batchEnd} of ${pageCount} pages`);
+        const text = result?.content ?? "";
+        if (text.trim() !== "[SKIP]" && text.trim() !== "[TOC]") {
+          pageContents.push({ pageNum, content: text });
+        }
       }
 
       // Sort by page number and combine
