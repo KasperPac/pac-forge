@@ -379,13 +379,33 @@ export function ForgeHardwareIo({
     setShowAddForm(false);
   }
 
+  // ── CPU onboard IO lookup ─────────────────────────────────────────────────
+  // Subtract onboard channels before recommending expansion modules.
+  // Uses substring matching so "S7-1511C-1 PN" and "1511C" both match.
+
+  function getCpuOnboardIo(cpuType: string): { di: number; dq: number; ai: number; aq: number } {
+    const t = cpuType.toUpperCase();
+    if (t.includes("1512C")) return { di: 32, dq: 32, ai: 5, aq: 2 };
+    if (t.includes("1511C")) return { di: 16, dq: 16, ai: 5, aq: 2 };
+    return { di: 0, dq: 0, ai: 0, aq: 0 };
+  }
+
   // ── Recommend modules ─────────────────────────────────────────────────────
 
   function recommendModules() {
     const counts = countIoSignals(devices);
+    const cpuIo = getCpuOnboardIo(hardware.cpu_type);
+
+    // Only recommend modules for IO that exceeds what the CPU provides onboard
+    const overflow = {
+      DI: Math.max(0, counts.DI - cpuIo.di),
+      DQ: Math.max(0, counts.DQ - cpuIo.dq),
+      AI: Math.max(0, counts.AI - cpuIo.ai),
+      AQ: Math.max(0, counts.AQ - cpuIo.aq),
+    };
+
     const compatible = getCompatibleModules(hardware.cpu_type);
 
-    // Find best DI module (prefer 16-ch)
     function bestModule(type: "DI" | "DQ" | "AI" | "AQ", needed: number) {
       if (needed === 0) return [];
       const mods = compatible.filter((m) => {
@@ -397,7 +417,6 @@ export function ForgeHardwareIo({
       });
       if (mods.length === 0) return [];
 
-      // Sort by channel count descending, pick largest
       mods.sort((a, b) => {
         const aChans = type === "DI" ? a.diChannels : type === "DQ" ? a.dqChannels : type === "AI" ? a.aiChannels : a.aqChannels;
         const bChans = type === "DI" ? b.diChannels : type === "DQ" ? b.dqChannels : type === "AI" ? b.aiChannels : b.aqChannels;
@@ -411,10 +430,10 @@ export function ForgeHardwareIo({
     }
 
     const recommended = [
-      ...bestModule("DI", counts.DI),
-      ...bestModule("DQ", counts.DQ),
-      ...bestModule("AI", counts.AI),
-      ...bestModule("AQ", counts.AQ),
+      ...bestModule("DI", overflow.DI),
+      ...bestModule("DQ", overflow.DQ),
+      ...bestModule("AI", overflow.AI),
+      ...bestModule("AQ", overflow.AQ),
     ];
 
     if (recommended.length === 0) return;
@@ -440,22 +459,67 @@ export function ForgeHardwareIo({
   // ── Generate IO list from devices ─────────────────────────────────────────
 
   function generateIoListFromDevices() {
-    const newIo: ForgeIoEntry[] = [];
+    // Separate signals by type for sequential address assignment
+    const diSignals: ForgeIoEntry[] = [];
+    const dqSignals: ForgeIoEntry[] = [];
+    const aiSignals: ForgeIoEntry[] = [];
+    const aqSignals: ForgeIoEntry[] = [];
+
     for (const device of devices) {
-      for (const sig of device.io_signals) {
-        newIo.push({
+      for (const sig of device.io_signals ?? []) {
+        const entry: ForgeIoEntry = {
           address: "",
           tag_name: sig.tag_name,
           signal_type: sig.signal_type,
-          data_type: sig.signal_type.startsWith("A") ? "Real" : "Bool",
+          data_type: sig.signal_type.startsWith("A") ? "Int" : "Bool",
           description: sig.description,
           module: "",
           slot: 0,
           device_id: device.id,
-        });
+        };
+        switch (sig.signal_type) {
+          case "DI": diSignals.push(entry); break;
+          case "DQ": dqSignals.push(entry); break;
+          case "AI": aiSignals.push(entry); break;
+          case "AQ": aqSignals.push(entry); break;
+        }
       }
     }
-    setIoList(newIo);
+
+    // Sequential address assignment
+    // S7-1200: DI/DQ from %I/%Q 0.0; AI/AQ from %IW/%QW 64
+    // S7-1500: All sequential from byte 0
+    const is1200 = hardware.cpu_type.startsWith("S7-12");
+
+    let diByte = 0, diBit = 0;
+    for (const e of diSignals) {
+      e.address = `%I${diByte}.${diBit}`;
+      diBit++;
+      if (diBit > 7) { diBit = 0; diByte++; }
+    }
+
+    let dqByte = 0, dqBit = 0;
+    for (const e of dqSignals) {
+      e.address = `%Q${dqByte}.${dqBit}`;
+      dqBit++;
+      if (dqBit > 7) { dqBit = 0; dqByte++; }
+    }
+
+    const aiStart = is1200 ? 64 : Math.ceil(diSignals.length / 8) * 2;
+    let aiWord = aiStart;
+    for (const e of aiSignals) {
+      e.address = `%IW${aiWord}`;
+      aiWord += 2;
+    }
+
+    const aqStart = is1200 ? 64 : Math.ceil(dqSignals.length / 8) * 2;
+    let aqWord = aqStart;
+    for (const e of aqSignals) {
+      e.address = `%QW${aqWord}`;
+      aqWord += 2;
+    }
+
+    setIoList([...diSignals, ...dqSignals, ...aiSignals, ...aqSignals]);
     setIoListKey((k) => k + 1);
   }
 
@@ -487,6 +551,15 @@ export function ForgeHardwareIo({
   const ioEntries = ioList.map(forgeIoToIoEntry);
   const ioCounts = countIoSignals(devices);
   const totalIo = ioCounts.DI + ioCounts.DQ + ioCounts.AI + ioCounts.AQ;
+  const cpuOnboard = getCpuOnboardIo(hardware.cpu_type);
+  const hasOnboardIo = cpuOnboard.di > 0 || cpuOnboard.dq > 0 || cpuOnboard.ai > 0 || cpuOnboard.aq > 0;
+  const overflow = {
+    DI: Math.max(0, ioCounts.DI - cpuOnboard.di),
+    DQ: Math.max(0, ioCounts.DQ - cpuOnboard.dq),
+    AI: Math.max(0, ioCounts.AI - cpuOnboard.ai),
+    AQ: Math.max(0, ioCounts.AQ - cpuOnboard.aq),
+  };
+  const needsExpansion = overflow.DI > 0 || overflow.DQ > 0 || overflow.AI > 0 || overflow.AQ > 0;
 
   const missingDeviceSuggestions = suggestMissingDevices(devices).filter(
     (s) => !dismissedSuggestions.has(s.suggestedTag),
@@ -521,15 +594,32 @@ export function ForgeHardwareIo({
   return (
     <div className="flex h-full flex-col gap-3">
       {/* IO Summary Banner */}
-      <div className="flex items-center gap-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2">
-        <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">IO Total</span>
-        <div className="flex items-center gap-2">
-          <Badge variant="outline" className="font-mono text-[10px]">{ioCounts.DI} DI</Badge>
-          <Badge variant="outline" className="font-mono text-[10px]">{ioCounts.DQ} DQ</Badge>
-          <Badge variant="outline" className="font-mono text-[10px]">{ioCounts.AI} AI</Badge>
-          <Badge variant="outline" className="font-mono text-[10px]">{ioCounts.AQ} AQ</Badge>
+      <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2">
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">IO Required</span>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="font-mono text-[10px]">{ioCounts.DI} DI</Badge>
+            <Badge variant="outline" className="font-mono text-[10px]">{ioCounts.DQ} DQ</Badge>
+            <Badge variant="outline" className="font-mono text-[10px]">{ioCounts.AI} AI</Badge>
+            <Badge variant="outline" className="font-mono text-[10px]">{ioCounts.AQ} AQ</Badge>
+          </div>
+          <span className="ml-auto font-mono text-[10px] text-muted-foreground">{totalIo} points · {devices.length} devices</span>
         </div>
-        <span className="ml-auto font-mono text-[10px] text-muted-foreground">{totalIo} points · {devices.length} devices</span>
+        {hasOnboardIo && (
+          <div className="mt-1.5 flex items-center gap-3">
+            <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">CPU Onboard</span>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[10px] text-muted-foreground">{cpuOnboard.di} DI · {cpuOnboard.dq} DQ · {cpuOnboard.ai} AI · {cpuOnboard.aq} AQ</span>
+            </div>
+            {needsExpansion ? (
+              <span className="ml-auto font-mono text-[10px] text-amber-500">
+                Overflow: {overflow.DI > 0 ? `${overflow.DI} DI ` : ""}{overflow.DQ > 0 ? `${overflow.DQ} DQ ` : ""}{overflow.AI > 0 ? `${overflow.AI} AI ` : ""}{overflow.AQ > 0 ? `${overflow.AQ} AQ` : ""} → expansion modules needed
+              </span>
+            ) : (
+              <span className="ml-auto font-mono text-[10px] text-green-500">CPU onboard IO sufficient</span>
+            )}
+          </div>
+        )}
       </div>
 
       <Tabs defaultValue="devices" className="flex flex-1 flex-col">
@@ -904,7 +994,7 @@ export function ForgeHardwareIo({
                 onClick={generateIoListFromDevices}
                 disabled={devices.length === 0}
               >
-                Generate IO List from Devices
+                Generate IO List (sequential addresses)
               </Button>
             </div>
             <ScrollArea className="h-[420px] pr-1">
