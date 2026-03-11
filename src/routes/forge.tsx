@@ -106,8 +106,8 @@ export default function ForgePage() {
     completeStep("spec_upload");
   }
 
-  async function handleQaComplete(updatedAnalysis: SpecAnalysis, messages: QaMessage[]) {
-    await saveSession({ spec_analysis: updatedAnalysis, qa_messages: messages, current_step: "project_setup" });
+  async function handleQaComplete(updatedAnalysis: SpecAnalysis, _messages: QaMessage[]) {
+    await saveSession({ spec_analysis: updatedAnalysis, current_step: "project_setup" });
     completeStep("qa_review");
   }
 
