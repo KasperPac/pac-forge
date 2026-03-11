@@ -102,6 +102,8 @@ export function ProjectForm({
       description_short: descriptionShort || null,
       description_long: descriptionLong || null,
       dropbox_folder_path: initialValues?.dropbox_folder_path ?? null,
+      github_repo_url: initialValues?.github_repo_url ?? null,
+      github_repo_name: initialValues?.github_repo_name ?? null,
     };
 
     if (mode === "edit") {

@@ -75,6 +75,8 @@ const DEFAULT_PROJECT: Project = {
   description_short: null,
   description_long: null,
   dropbox_folder_path: null,
+  github_repo_url: null,
+  github_repo_name: null,
   created_by: "",
   created_at: "",
   updated_at: "",

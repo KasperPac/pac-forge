@@ -25,6 +25,7 @@ import { toast } from "@/hooks/use-toast";
 import { ProjectForm } from "@/components/project-form";
 import { IoListEditor } from "@/components/io-list-editor";
 import { HardwareConfigEditor } from "@/components/hardware-config-editor";
+import { GitHubRepoCard } from "@/components/github-repo-card";
 import { supabase } from "@/lib/supabase";
 import type { IoEntry, RackSlotLayout, TagDbDefinition, ProjectUpdate } from "@/types";
 
@@ -524,6 +525,7 @@ export default function ProjectDetailPage() {
                     <div className="mt-1 whitespace-pre-wrap text-xs">{project.safety_notes}</div>
                   </div>
                 )}
+                <GitHubRepoCard project={project} />
                 <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
                   Edit Project
                 </Button>

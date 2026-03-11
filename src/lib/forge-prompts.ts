@@ -78,7 +78,7 @@ function formatPatterns(patterns: PatternCandidate[]): string {
   if (patterns.length === 0) return "";
   const lines = patterns.map(
     (p) =>
-      `### Correction: ${p.correction_type}\nWRONG:\n\`\`\`scl\n${p.wrong_code}\n\`\`\`\nCORRECT:\n\`\`\`scl\n${p.correct_code}\n\`\`\``,
+      `### Correction: ${p.correction_type}\nWRONG:\n\`\`\`scl\n${p.original_snippet}\n\`\`\`\nCORRECT:\n\`\`\`scl\n${p.corrected_snippet}\n\`\`\``,
   );
   return `## MANDATORY: Learned Corrections from Previous Compile Errors\n\n${lines.join("\n\n---\n\n")}`;
 }
@@ -143,7 +143,7 @@ export function buildDeviceSclPrompt(
   const { profile, platformRules, patterns, fbTemplate } = context;
 
   const templateSection = fbTemplate
-    ? `## FB Library Template\nUse this existing FB as the base — adapt it to the device's specific IO signals and configuration:\n\`\`\`scl\n${fbTemplate.base_scl ?? ""}\n\`\`\``
+    ? `## FB Library Template\nUse this existing FB as the base — adapt it to the device's specific IO signals and configuration:\n\`\`\`scl\n${fbTemplate.blocks?.[0]?.scl_code ?? ""}\n\`\`\``
     : `## FB Library Template\nNo matching template found. Generate a complete FB from scratch following the platform rules below.`;
 
   const patternSection = formatPatterns(patterns ?? []);
@@ -210,7 +210,7 @@ Generate complete, compile-ready SCL code.`;
  * The JSON is converted to SimaticML XML by lad-xml-builder.ts.
  */
 export function buildDeviceLadPrompt(
-  device: ForgeDeviceEntry,
+  _device: ForgeDeviceEntry,
   context: DeviceGenContext,
 ): string {
   const { profile, platformRules } = context;
@@ -438,7 +438,7 @@ Return raw LadProgram JSON only (same schema as device LAD generation). No markd
  * System prompt for HMI overview + faceplate screen generation.
  * AI must output HmiScreenSpec JSON (src/types/hmi-screen.ts).
  */
-export function buildHmiPrompt(devices: ForgeDeviceEntry[], theme: string): string {
+export function buildHmiPrompt(_devices: ForgeDeviceEntry[], theme: string): string {
   return `You are generating WinCC Unified HMI screen specifications for a Siemens TIA Portal project.
 
 ## Theme: ${theme}

@@ -106,7 +106,7 @@ export function useForgeDeviceGenerate() {
   const generateSingle = useCallback(
     async (
       device: ForgeDeviceEntry,
-      session: ForgeSession,
+      _session: ForgeSession,
       profile: DesignProfile,
       fbTemplates: FbTemplate[],
       patterns: PatternCandidate[],

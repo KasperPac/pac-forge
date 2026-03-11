@@ -96,9 +96,8 @@ async function importHmiArtifact(
   try {
     const xmlContent = await buildHmiXmlForArtifact(artifact);
     const body: ImportHmiRequest = {
-      xml_content: xmlContent,
-      screen_name: artifact.name,
       tia_project_path: tiaProjectPath,
+      screens: { [artifact.name]: xmlContent },
     };
     const resp = await fetch(`${BRIDGE_BASE}/tia/import-hmi`, {
       method: "POST",

@@ -104,7 +104,7 @@ export function ForgeDeviceCode({
 
   return (
     <div className="flex h-full flex-col gap-3">
-      <ResizablePanelGroup direction="horizontal" className="min-h-0 flex-1 rounded-md border border-border/70">
+      <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1 rounded-md border border-border/70">
         {/* Left panel — artifact list */}
         <ResizablePanel defaultSize={35} minSize={25}>
           <div className="flex h-full flex-col">

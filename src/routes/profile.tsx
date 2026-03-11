@@ -3,8 +3,10 @@ import { useAuth } from "@/hooks/use-auth";
 import { useProfile, useUpdateProfile, useUploadAvatar } from "@/hooks/use-profile";
 import { useUserAuditLog, useUserAgentChats } from "@/hooks/use-user-activity";
 import { useDropboxConnection, useDropboxConnect, useDropboxDisconnect, useDropboxExchangeCode } from "@/hooks/use-dropbox";
+import { useGitHubConnection } from "@/hooks/use-github";
 import { getRedirectUri } from "@/lib/dropbox-oauth";
 import { useToast } from "@/hooks/use-toast";
+import { GitHubConnectDialog } from "@/components/github-connect-dialog";
 import type { AgentChatEntry } from "@/hooks/use-user-activity";
 import type { AuditLogEntry } from "@/types/tia";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -29,6 +31,7 @@ import {
   Bot,
   CloudOff,
   Cloud,
+  Github,
 } from "lucide-react";
 
 function getInitials(displayName: string | undefined, email: string | undefined): string {
@@ -185,6 +188,7 @@ export default function ProfilePage() {
   const { data: auditLog, isLoading: auditLoading } = useUserAuditLog();
   const { data: agentChats, isLoading: chatsLoading } = useUserAgentChats();
   const { data: dropboxConn, isLoading: dropboxLoading } = useDropboxConnection();
+  const { connection: githubConnection, isLoading: githubLoading } = useGitHubConnection();
   const dropboxConnect = useDropboxConnect();
   const dropboxDisconnect = useDropboxDisconnect();
   const dropboxExchange = useDropboxExchangeCode();
@@ -232,7 +236,9 @@ export default function ProfilePage() {
   }, [dropboxExchange, toast]);
 
   useEffect(() => {
-    processPendingExchange();
+    queueMicrotask(() => {
+      void processPendingExchange();
+    });
   }, [processPendingExchange]);
 
   const initials = getInitials(profile?.display_name, user?.email ?? undefined);
@@ -403,6 +409,48 @@ export default function ProfilePage() {
               {uploadAvatar.error?.message ?? "Failed to upload avatar"}
             </div>
           )}
+        </Card>
+
+        <Card className="p-5 lg:col-span-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            GitHub Integration
+          </h2>
+          <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <Github className="h-5 w-5 text-primary" />
+              <div>
+                {githubLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Checking GitHub connection...
+                  </div>
+                ) : githubConnection.connected ? (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">@{githubConnection.username}</span>
+                      <Badge
+                        variant="outline"
+                        className="border-green-500/30 bg-green-500/10 px-1.5 py-0 font-mono text-[10px] text-green-400"
+                      >
+                        Connected
+                      </Badge>
+                    </div>
+                    <div className="font-mono text-xs text-muted-foreground">
+                      Private repositories can now be created from project detail pages.
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-sm text-muted-foreground">Not connected</div>
+                    <div className="font-mono text-xs text-muted-foreground">
+                      Connect once to create private repos and view commit history in Pac-Forge.
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+            <GitHubConnectDialog />
+          </div>
         </Card>
 
         <Card className="p-5 lg:col-span-2">

@@ -79,6 +79,8 @@ function describeChanges(updates: ProjectUpdate): string {
     description_short: "short description",
     description_long: "long description",
     dropbox_folder_path: "Dropbox folder path",
+    github_repo_url: "GitHub repo URL",
+    github_repo_name: "GitHub repo name",
   };
   const named = fields.map((f) => labels[f] ?? f);
   return `Updated ${named.join(", ")}`;

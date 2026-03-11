@@ -71,6 +71,8 @@ export interface Project {
   description_short: string | null;
   description_long: string | null;
   dropbox_folder_path: string | null;
+  github_repo_url: string | null;
+  github_repo_name: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;
