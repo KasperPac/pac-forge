@@ -106,7 +106,7 @@ function devicesFromAnalysis(analysis: SpecAnalysis): ForgeDeviceEntry[] {
     device_type: d.device_type,
     description: d.description,
     subsystem: d.subsystem,
-    io_signals: d.io_signals,
+    io_signals: d.io_signals ?? [],
     fb_template_id: null,
     fb_match_confidence: "none" as const,
     language_override: null,
@@ -138,7 +138,7 @@ function ioFromAnalysis(analysis: SpecAnalysis): ForgeIoEntry[] {
 function countIoSignals(devices: ForgeDeviceEntry[]) {
   const counts = { DI: 0, DQ: 0, AI: 0, AQ: 0 };
   for (const d of devices) {
-    for (const sig of d.io_signals) {
+    for (const sig of d.io_signals ?? []) {
       counts[sig.signal_type] = (counts[sig.signal_type] ?? 0) + 1;
     }
   }
@@ -739,7 +739,7 @@ export function ForgeHardwareIo({
                               </SelectContent>
                             </Select>
                           </td>
-                          <td className="px-2 py-1.5 font-mono text-xs">{d.io_signals.length}</td>
+                          <td className="px-2 py-1.5 font-mono text-xs">{d.io_signals?.length ?? 0}</td>
                           <td className="px-2 py-1.5">{confidenceBadge(d.fb_match_confidence)}</td>
                           {/* Delete */}
                           <td className="px-1 py-1.5">
@@ -759,14 +759,14 @@ export function ForgeHardwareIo({
                             <td />
                             <td colSpan={9} className="px-3 pb-2 pt-1">
                               <div className="flex flex-wrap gap-1.5">
-                                {d.io_signals.map((sig) => (
+                                {(d.io_signals ?? []).map((sig) => (
                                   <div key={sig.tag_name} className="flex items-center gap-1 rounded border border-border/40 bg-background/60 px-2 py-0.5">
                                     <span className="font-mono text-[10px] text-muted-foreground">{sig.signal_type}</span>
                                     <span className="font-mono text-[10px]">{sig.tag_name}</span>
                                     <span className="text-[10px] text-muted-foreground">— {sig.description}</span>
                                   </div>
                                 ))}
-                                {d.io_signals.length === 0 && (
+                                {(d.io_signals?.length ?? 0) === 0 && (
                                   <span className="text-[11px] text-muted-foreground">No IO signals defined</span>
                                 )}
                               </div>
