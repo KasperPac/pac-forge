@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { Link2, ChevronLeft, ChevronRight, FolderKanban, Sparkles } from "lucide-react";
 import { useParams, useSearchParams } from "react-router";
+import { ForgeStepBar } from "@/components/forge/forge-step-bar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -94,6 +95,7 @@ export default function ForgePage() {
   const canProceedToNext = useForgeStore((state) => state.canProceedToNext);
   const goToNextStep = useForgeStore((state) => state.goToNextStep);
   const goToPreviousStep = useForgeStore((state) => state.goToPreviousStep);
+  const setCurrentStep = useForgeStore((state) => state.setCurrentStep);
   const setStepStatus = useForgeStore((state) => state.setStepStatus);
 
   const projectId = params.projectId ?? searchParams.get("projectId");
@@ -177,6 +179,17 @@ export default function ForgePage() {
           </div>
         </CardHeader>
       </Card>
+
+      <ForgeStepBar
+        steps={FORGE_STEP_ORDER}
+        currentStep={currentStep}
+        stepStatuses={stepStatuses}
+        onStepClick={(step) => {
+          if (step === currentStep || stepStatuses[step] === "completed") {
+            setCurrentStep(step);
+          }
+        }}
+      />
 
       <div className="min-h-0 flex-1">
         <ForgeStepPlaceholder step={currentStep} />
