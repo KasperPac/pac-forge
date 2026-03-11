@@ -124,6 +124,7 @@ export function usePipelineGenerate() {
             abort.signal,
             20,
             promptSections,
+            "SCL",
           );
           if (referenceSections.length > 0) {
             console.log(`Reference lookup: ${referenceSections.length} section(s) retrieved for generation`);
@@ -208,6 +209,7 @@ export function usePipelineGenerate() {
               abort.signal,
               20,
               promptSections,
+              "SCL",
             );
             if (reviewRefs.length > 0) {
               // Merge with generation refs, deduplicating by id

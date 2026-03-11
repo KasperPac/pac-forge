@@ -204,6 +204,7 @@ export function useFbBuilder() {
             abort.signal,
             20,
             promptSections,
+            "SCL",
           );
         } catch {
           // Non-fatal
@@ -291,6 +292,7 @@ export function useFbBuilder() {
               abort.signal,
               20,
               promptSections,
+              "SCL",
             );
             if (reviewRefs.length > 0) {
               const existingIds = new Set(referenceSections.map((s) => s.id));

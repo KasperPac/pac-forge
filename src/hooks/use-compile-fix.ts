@@ -61,6 +61,7 @@ export function useCompileFix() {
           abort.signal,
           20,
           promptSections,
+          "SCL",
         );
       } catch {
         // Non-fatal

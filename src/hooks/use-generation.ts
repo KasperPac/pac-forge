@@ -474,6 +474,7 @@ export function useGenerateStream() {
             abort.signal,
             20,
             input.promptSections,
+            "SCL",
           );
           if (refSections.length > 0) {
             enrichedInput = { ...input, referenceSections: refSections };

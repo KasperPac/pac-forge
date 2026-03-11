@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import { renderPdfPageRange } from "@/lib/document-extractor";
+import { getPdfPageCount, renderPdfPageRange } from "@/lib/document-extractor";
 import type { ReferenceLibraryDoc } from "@/types";
 
 const REF_DOCS_KEY = ["reference-library-docs"] as const;
@@ -23,10 +23,11 @@ If the page is a table of contents, respond with just: [TOC]`;
 interface VisionUploadInput {
   file: File;
   title: string;
-  startPage: number;
-  endPage: number;
+  chunkSize?: number;          // pages per chunk, default 100
   plcBrand?: string;
   compatibleCpus?: string[];
+  programmingLanguage?: string;
+  signal?: AbortSignal;
   onProgress?: (current: number, total: number, status: string) => void;
 }
 
@@ -36,7 +37,11 @@ interface VisionUploadResult {
   sectionsCreated: number;
 }
 
-/** Process a PDF using Claude vision — renders each page as an image and extracts structured content */
+/**
+ * Process a PDF using Claude vision — automatically splits into chunks of chunkSize
+ * pages, processing each chunk sequentially. All sections are stored under a single
+ * doc entry. Loads the PDF once per chunk and cleans up page resources after each page.
+ */
 export function useVisionPdfUpload() {
   const queryClient = useQueryClient();
 
@@ -44,127 +49,173 @@ export function useVisionPdfUpload() {
     mutationFn: async ({
       file,
       title,
-      startPage,
-      endPage,
+      chunkSize = 100,
       plcBrand = "SIEMENS_TIA",
       compatibleCpus = ["ALL"],
+      programmingLanguage = "GENERAL",
+      signal,
       onProgress,
     }: VisionUploadInput): Promise<VisionUploadResult> => {
       const { data: { user } } = await supabase.auth.getUser();
 
-      const rangeTotal = endPage - startPage + 1;
-      onProgress?.(0, rangeTotal, `Processing pages ${startPage}–${endPage}...`);
+      const pageCount = await getPdfPageCount(file);
+      const totalChunks = Math.ceil(pageCount / chunkSize);
 
-      // Process pages one at a time using the range generator (loads PDF once, cleans up per page)
-      const pageContents: { pageNum: number; content: string }[] = [];
-      let processed = 0;
+      onProgress?.(0, pageCount, `Starting — ${pageCount} pages in ${totalChunks} chunk${totalChunks > 1 ? "s" : ""}...`);
 
-      for await (const { pageNum, dataUri } of renderPdfPageRange(file, startPage, endPage)) {
-        onProgress?.(processed, rangeTotal, `Analyzing page ${pageNum} with AI...`);
+      let docId: string | null = null;
+      let totalSections = 0;
+      let totalChars = 0;
+      let totalPagesProcessed = 0;
+      let globalSectionIndex = 0;
 
-        const base64Data = dataUri.replace(/^data:image\/png;base64,/, "");
+      for (let chunk = 0; chunk < totalChunks; chunk++) {
+        if (signal?.aborted) break;
+        const chunkStart = chunk * chunkSize + 1;
+        const chunkEnd = Math.min(chunkStart + chunkSize - 1, pageCount);
+        const chunkLabel = totalChunks > 1 ? ` (chunk ${chunk + 1}/${totalChunks})` : "";
 
-        const { data: result, error: fnError } = await supabase.functions.invoke("generate", {
-          body: {
-            system_prompt: VISION_SYSTEM_PROMPT,
-            messages: [
-              {
-                role: "user",
-                content: [
-                  {
-                    type: "image",
-                    source: {
-                      type: "base64",
-                      media_type: "image/png",
-                      data: base64Data,
+        onProgress?.(
+          totalPagesProcessed,
+          pageCount,
+          `Processing pages ${chunkStart}–${chunkEnd}${chunkLabel}...`,
+        );
+
+        // Render and analyze pages in this chunk — up to CONCURRENT_PAGES API calls in flight
+        const CONCURRENT_PAGES = 5;
+        const pageContents: { pageNum: number; content: string }[] = [];
+
+        const callVisionPage = async (pageNum: number, dataUri: string): Promise<void> => {
+          const base64Data = dataUri.replace(/^data:image\/png;base64,/, "");
+          const { data: result, error: fnError } = await supabase.functions.invoke("generate", {
+            body: {
+              system_prompt: VISION_SYSTEM_PROMPT,
+              messages: [
+                {
+                  role: "user",
+                  content: [
+                    {
+                      type: "image",
+                      source: { type: "base64", media_type: "image/png", data: base64Data },
                     },
-                  },
-                  {
-                    type: "text",
-                    text: `Extract all content from this page (page ${pageNum}, chunk covers pages ${startPage}–${endPage}). Include text, tables, and describe any images/diagrams/screenshots.`,
-                  },
-                ],
-              },
-            ],
-            max_tokens: 4096,
-          },
-        });
+                    {
+                      type: "text",
+                      text: `Extract all content from this page (page ${pageNum} of ${pageCount}). Include text, tables, and describe any images/diagrams/screenshots.`,
+                    },
+                  ],
+                },
+              ],
+              max_tokens: 4096,
+            },
+          });
 
-        processed++;
-        onProgress?.(processed, rangeTotal, `Processed page ${pageNum}`);
+          totalPagesProcessed++;
+          onProgress?.(totalPagesProcessed, pageCount, `Processed page ${pageNum}`);
 
-        if (fnError) {
-          console.error(`[Vision PDF] Error on page ${pageNum}:`, fnError);
-          pageContents.push({ pageNum, content: `[Error processing page ${pageNum}]` });
-          continue;
+          if (fnError) {
+            console.error(`[Vision PDF] Error on page ${pageNum}:`, fnError);
+            return;
+          }
+          const text = result?.content ?? "";
+          if (text.trim() !== "[SKIP]" && text.trim() !== "[TOC]") {
+            pageContents.push({ pageNum, content: text });
+          }
+        };
+
+        // Sliding window: render pages sequentially (memory-safe), fire API calls concurrently
+        const active = new Set<Promise<void>>();
+        for await (const { pageNum, dataUri } of renderPdfPageRange(file, chunkStart, chunkEnd)) {
+          if (signal?.aborted) break;
+          const p: Promise<void> = callVisionPage(pageNum, dataUri).finally(() => active.delete(p));
+          active.add(p);
+          if (active.size >= CONCURRENT_PAGES) {
+            await Promise.race(active);
+          }
+        }
+        // Drain remaining in-flight calls
+        await Promise.all(active);
+
+        if (pageContents.length === 0) continue;
+
+        pageContents.sort((a, b) => a.pageNum - b.pageNum);
+
+        onProgress?.(totalPagesProcessed, pageCount, `Indexing chunk ${chunk + 1}/${totalChunks}...`);
+
+        // One section per page — avoids false heading splits on danger notices, table headers, etc.
+        const pageSections = pageContents.map((p, localIdx) => ({
+          index: localIdx,
+          heading: `Page ${p.pageNum}`,
+          content: p.content,
+        }));
+        const sectionTags = await generateTopicTags(pageSections);
+
+        // Create doc on first chunk, reuse doc ID for subsequent chunks
+        if (docId === null) {
+          const { data: doc, error: docErr } = await supabase
+            .from("reference_library_docs")
+            .insert({
+              title,
+              source_filename: file.name,
+              file_type: "pdf/vision",
+              total_chars: 0,      // updated at end
+              section_count: 0,    // updated at end
+              plc_brand: plcBrand,
+              compatible_cpus: compatibleCpus,
+              programming_language: programmingLanguage,
+              created_by: user?.id ?? null,
+            })
+            .select()
+            .single();
+          if (docErr) throw docErr;
+          docId = doc.id;
         }
 
-        const text = result?.content ?? "";
-        if (text.trim() !== "[SKIP]" && text.trim() !== "[TOC]") {
-          pageContents.push({ pageNum, content: text });
+        // Insert sections for this chunk (continuing globalSectionIndex)
+        const sectionRows = pageSections.map((s) => ({
+          doc_id: docId!,
+          section_index: globalSectionIndex + s.index,
+          heading: s.heading,
+          content: s.content,
+          char_count: s.content.length,
+          topic_tags: sectionTags[s.index] ?? [],
+        }));
+
+        const INSERT_BATCH = 50;
+        for (let i = 0; i < sectionRows.length; i += INSERT_BATCH) {
+          const batch = sectionRows.slice(i, i + INSERT_BATCH);
+          const { error: secErr } = await supabase
+            .from("reference_library_sections")
+            .insert(batch);
+          if (secErr) throw secErr;
         }
+
+        console.log(`[Vision PDF] Chunk ${chunk + 1}/${totalChunks} saved: ${pageSections.length} sections`);
+
+        globalSectionIndex += pageSections.length;
+        totalSections += pageSections.length;
+        totalChars += pageSections.reduce((sum, s) => sum + s.content.length, 0);
       }
 
-      // Sort by page number and combine
-      pageContents.sort((a, b) => a.pageNum - b.pageNum);
-      const fullContent = pageContents.map((p) => p.content).join("\n\n");
+      if (!docId) throw new Error("No content could be extracted from the PDF");
 
-      if (!fullContent.trim()) {
-        throw new Error("No content could be extracted from the PDF");
-      }
-
-      onProgress?.(pageCount, pageCount, "Splitting into sections...");
-
-      // Split the vision-extracted content into sections (it already has markdown headings)
-      const { splitIntoSections } = await import("@/lib/document-sections");
-      const sections = splitIntoSections(fullContent);
-
-      // Generate topic tags using AI (batch of 10)
-      onProgress?.(pageCount, pageCount, "Generating topic tags...");
-      const sectionTags = await generateTopicTags(sections);
-
-      // Insert parent doc
-      const { data: doc, error: docErr } = await supabase
+      // Update final counts on the doc
+      await supabase
         .from("reference_library_docs")
-        .insert({
-          title,
-          source_filename: file.name,
-          file_type: "pdf/vision",
-          total_chars: fullContent.length,
-          section_count: sections.length,
-          plc_brand: plcBrand,
-          compatible_cpus: compatibleCpus,
-          created_by: user?.id ?? null,
-        })
-        .select()
-        .single();
-      if (docErr) throw docErr;
-
-      // Insert sections
-      const sectionRows = sections.map((s) => ({
-        doc_id: doc.id,
-        section_index: s.index,
-        heading: s.heading,
-        content: s.content,
-        char_count: s.content.length,
-        topic_tags: sectionTags[s.index] ?? [],
-      }));
-
-      const INSERT_BATCH = 50;
-      for (let i = 0; i < sectionRows.length; i += INSERT_BATCH) {
-        const batch = sectionRows.slice(i, i + INSERT_BATCH);
-        const { error: secErr } = await supabase
-          .from("reference_library_sections")
-          .insert(batch);
-        if (secErr) throw secErr;
-      }
+        .update({ section_count: totalSections, total_chars: totalChars })
+        .eq("id", docId);
 
       onProgress?.(pageCount, pageCount, "Done!");
 
+      const { data: finalDoc } = await supabase
+        .from("reference_library_docs")
+        .select()
+        .eq("id", docId)
+        .single();
+
       return {
-        doc: doc as ReferenceLibraryDoc,
-        pagesProcessed: pageContents.length,
-        sectionsCreated: sections.length,
+        doc: finalDoc as ReferenceLibraryDoc,
+        pagesProcessed: totalPagesProcessed,
+        sectionsCreated: totalSections,
       };
     },
     onSuccess: () => {
@@ -173,12 +224,13 @@ export function useVisionPdfUpload() {
   });
 }
 
-// Topic tag generation (same logic as use-reference-library.ts)
+// Topic tag generation
 const TOPIC_TAG_PROMPT = `You are a topic tag generator for industrial automation documentation sections. Given a batch of document sections, generate 3-8 topic tags per section.
 
 Tags should be specific, searchable terms like:
 - HMI concepts: "screen navigation", "faceplate", "tag binding", "graphic view", "alarm indicator"
 - SCL instructions: "TON timer", "CASE statement", "FOR loop"
+- LAD instructions: "contact", "coil", "timer network", "parallel branch"
 - Visual concepts: "button style", "color scheme", "layout grid", "status indicator"
 - Equipment: "motor control", "valve symbol", "conveyor graphic", "tank level"
 

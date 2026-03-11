@@ -76,6 +76,7 @@ interface UploadInput {
   fileType: string;
   plcBrand?: string;
   compatibleCpus?: string[];
+  programmingLanguage?: string;
 }
 
 export function useUploadReferenceDoc() {
@@ -89,6 +90,7 @@ export function useUploadReferenceDoc() {
       fileType,
       plcBrand = "SIEMENS_TIA",
       compatibleCpus = ["ALL"],
+      programmingLanguage = "GENERAL",
     }: UploadInput) => {
       const { data: { user } } = await supabase.auth.getUser();
 
@@ -150,6 +152,7 @@ export function useUploadReferenceDoc() {
           section_count: sections.length,
           plc_brand: plcBrand,
           compatible_cpus: compatibleCpus,
+          programming_language: programmingLanguage,
           created_by: user?.id ?? null,
         })
         .select()

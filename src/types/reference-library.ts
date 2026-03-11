@@ -7,6 +7,7 @@ export interface ReferenceLibraryDoc {
   section_count: number;
   plc_brand: string;
   compatible_cpus: string[];
+  programming_language: string;
   created_by: string | null;
   created_at: string;
 }

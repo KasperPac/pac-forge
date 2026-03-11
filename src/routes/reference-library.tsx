@@ -132,9 +132,11 @@ export default function ReferenceLibraryPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const visionFileInputRef = useRef<HTMLInputElement>(null);
+  const visionAbortRef = useRef<AbortController | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
+  const [uploadLanguage, setUploadLanguage] = useState<"LAD" | "SCL" | "GENERAL">("GENERAL");
   const [visionProgress, setVisionProgress] = useState<{
     current: number;
     total: number;
@@ -143,8 +145,7 @@ export default function ReferenceLibraryPage() {
   const [visionConfig, setVisionConfig] = useState<{
     file: File;
     pageCount: number;
-    startPage: number;
-    endPage: number;
+    chunkSize: number;
   } | null>(null);
 
   const handleFileUpload = useCallback(
@@ -171,6 +172,7 @@ export default function ReferenceLibraryPage() {
           content,
           sourceFilename: file.name,
           fileType,
+          programmingLanguage: uploadLanguage,
         });
       } catch (err) {
         setUploadError(
@@ -181,7 +183,7 @@ export default function ReferenceLibraryPage() {
         if (fileInputRef.current) fileInputRef.current.value = "";
       }
     },
-    [uploadDoc],
+    [uploadDoc, uploadLanguage],
   );
 
   const handleVisionFileSelect = useCallback(async (file: File) => {
@@ -193,8 +195,7 @@ export default function ReferenceLibraryPage() {
     setVisionProgress({ current: 0, total: 1, status: "Reading page count..." });
     try {
       const pageCount = await getPdfPageCount(file);
-      const suggestedEnd = Math.min(100, pageCount);
-      setVisionConfig({ file, pageCount, startPage: 1, endPage: suggestedEnd });
+      setVisionConfig({ file, pageCount, chunkSize: 100 });
     } catch {
       setUploadError("Could not read PDF page count.");
     } finally {
@@ -205,35 +206,36 @@ export default function ReferenceLibraryPage() {
 
   const handleVisionUpload = useCallback(async () => {
     if (!visionConfig) return;
-    const { file, pageCount, startPage, endPage } = visionConfig;
-    const clampedStart = Math.max(1, Math.min(startPage, pageCount));
-    const clampedEnd = Math.max(clampedStart, Math.min(endPage, pageCount));
+    const { file, pageCount, chunkSize } = visionConfig;
+    const safeChunkSize = Math.max(1, Math.min(chunkSize, pageCount));
 
     setUploadError(null);
-    setVisionProgress({ current: 0, total: clampedEnd - clampedStart + 1, status: "Starting..." });
+    setVisionConfig(null);
+    const abort = new AbortController();
+    visionAbortRef.current = abort;
+    setVisionProgress({ current: 0, total: pageCount, status: "Starting..." });
 
     try {
-      const baseName = file.name.replace(/\.[^.]+$/, "");
-      const title = pageCount <= clampedEnd && clampedStart === 1
-        ? baseName
-        : `${baseName} (pp. ${clampedStart}–${clampedEnd})`;
-
+      const title = file.name.replace(/\.[^.]+$/, "");
       await visionUpload.mutateAsync({
         file,
         title,
-        startPage: clampedStart,
-        endPage: clampedEnd,
+        chunkSize: safeChunkSize,
+        programmingLanguage: uploadLanguage,
+        signal: abort.signal,
         onProgress: (current, total, status) => {
           setVisionProgress({ current, total, status });
         },
       });
-      setVisionConfig(null);
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : "Vision upload failed");
+      if (!abort.signal.aborted) {
+        setUploadError(err instanceof Error ? err.message : "Vision upload failed");
+      }
     } finally {
+      visionAbortRef.current = null;
       setVisionProgress(null);
     }
-  }, [visionConfig, visionUpload]);
+  }, [visionConfig, visionUpload, uploadLanguage]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -274,36 +276,59 @@ export default function ReferenceLibraryPage() {
             during code generation and review.
           </p>
         </div>
-        <div className="mt-4 flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading || !!visionProgress}
-          >
-            {uploading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Upload className="h-4 w-4" />
-            )}
-            Upload (Text)
-          </Button>
-          <Button
-            variant="default"
-            size="sm"
-            className="gap-1.5"
-            onClick={() => visionFileInputRef.current?.click()}
-            disabled={uploading || !!visionProgress}
-            title="Uses AI vision to extract text, tables, and describe images/diagrams from PDF pages"
-          >
-            {visionProgress ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Eye className="h-4 w-4" />
-            )}
-            Upload PDF (Vision)
-          </Button>
+        <div className="mt-4 flex flex-col items-end gap-2">
+          {/* Language selector */}
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono text-[10px] text-muted-foreground uppercase tracking-wide">Language</span>
+            {(["LAD", "SCL", "GENERAL"] as const).map((lang) => (
+              <button
+                key={lang}
+                type="button"
+                onClick={() => setUploadLanguage(lang)}
+                className={cn(
+                  "rounded px-2 py-0.5 font-mono text-[10px] transition-colors",
+                  uploadLanguage === lang
+                    ? "bg-primary text-primary-foreground"
+                    : "border border-border text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                )}
+                disabled={uploading || !!visionProgress}
+              >
+                {lang}
+              </button>
+            ))}
+          </div>
+          {/* Upload buttons */}
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading || !!visionProgress}
+            >
+              {uploading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Upload className="h-4 w-4" />
+              )}
+              Upload (Text)
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => visionFileInputRef.current?.click()}
+              disabled={uploading || !!visionProgress}
+              title="Uses AI vision to extract text, tables, and describe images/diagrams from PDF pages"
+            >
+              {visionProgress ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Eye className="h-4 w-4" />
+              )}
+              Upload PDF (Vision)
+            </Button>
+          </div>
         </div>
         <input
           ref={fileInputRef}
@@ -362,44 +387,39 @@ export default function ReferenceLibraryPage() {
             <BookOpen className="h-4 w-4 shrink-0 text-primary" />
             <span className="text-sm font-medium">Configure Vision Upload</span>
             <span className="font-mono text-xs text-muted-foreground">
-              {visionConfig.file.name} &middot; {visionConfig.pageCount} pages total
+              {visionConfig.file.name} &middot; {visionConfig.pageCount} pages
             </span>
+            <Badge variant="outline" className="shrink-0 px-1.5 py-0 font-mono text-[9px]">
+              {uploadLanguage}
+            </Badge>
           </div>
           <p className="font-mono text-xs text-muted-foreground">
-            Process up to 100 pages at a time to avoid memory issues. Upload the same file multiple times with different page ranges to cover the full document.
+            All {visionConfig.pageCount} pages will be processed automatically in chunks. Reduce chunk size if you hit memory issues.
           </p>
           <div className="flex items-end gap-3">
             <div className="space-y-1">
-              <Label className="font-mono text-xs">Start page</Label>
+              <Label className="font-mono text-xs">Pages per chunk</Label>
               <Input
                 type="number"
-                min={1}
+                min={10}
                 max={visionConfig.pageCount}
-                value={visionConfig.startPage}
-                onChange={(e) => setVisionConfig((c) => c && ({ ...c, startPage: parseInt(e.target.value) || 1 }))}
-                className="h-8 w-24 font-mono text-xs"
+                value={visionConfig.chunkSize}
+                onChange={(e) => setVisionConfig((c) => c && ({ ...c, chunkSize: parseInt(e.target.value) || 100 }))}
+                className="h-8 w-28 font-mono text-xs"
               />
             </div>
-            <div className="space-y-1">
-              <Label className="font-mono text-xs">End page</Label>
-              <Input
-                type="number"
-                min={1}
-                max={visionConfig.pageCount}
-                value={visionConfig.endPage}
-                onChange={(e) => setVisionConfig((c) => c && ({ ...c, endPage: parseInt(e.target.value) || 1 }))}
-                className="h-8 w-24 font-mono text-xs"
-              />
+            <div className="self-end font-mono text-xs text-muted-foreground">
+              = {Math.ceil(visionConfig.pageCount / (visionConfig.chunkSize || 100))} chunk{Math.ceil(visionConfig.pageCount / (visionConfig.chunkSize || 100)) !== 1 ? "s" : ""}
             </div>
-            <Button size="sm" onClick={handleVisionUpload} className="gap-1.5">
+            <Button size="sm" onClick={handleVisionUpload} className="gap-1.5 self-end">
               <Eye className="h-3.5 w-3.5" />
-              Start Upload
+              Upload All Pages
             </Button>
             <Button
               size="sm"
               variant="ghost"
               onClick={() => setVisionConfig(null)}
-              className="text-muted-foreground"
+              className="self-end text-muted-foreground"
             >
               Cancel
             </Button>
@@ -429,6 +449,14 @@ export default function ReferenceLibraryPage() {
             <span className="text-xs font-mono text-muted-foreground">
               {visionProgress.current}/{visionProgress.total}
             </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
+              onClick={() => visionAbortRef.current?.abort()}
+            >
+              Cancel
+            </Button>
           </div>
           <Progress
             value={visionProgress.total > 0 ? (visionProgress.current / visionProgress.total) * 100 : 0}
@@ -497,6 +525,14 @@ export default function ReferenceLibraryPage() {
                         >
                           {doc.file_type.toUpperCase()}
                         </Badge>
+                        {doc.programming_language && doc.programming_language !== "GENERAL" && (
+                          <Badge
+                            variant="outline"
+                            className="shrink-0 px-1.5 py-0 font-mono text-[9px] border-primary/40 text-primary"
+                          >
+                            {doc.programming_language}
+                          </Badge>
+                        )}
                       </div>
                       <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
                         <span>{doc.section_count} sections</span>

@@ -60,6 +60,7 @@ export function useLadGenerate(options?: UseLadGenerateOptions): UseLadGenerateR
           new AbortController().signal,
           15,
           promptSections,
+          "LAD",
         );
         if (referenceSections.length > 0) {
           console.log(`LAD reference lookup: ${referenceSections.length} section(s) retrieved`);
@@ -105,6 +106,7 @@ export function useLadGenerate(options?: UseLadGenerateOptions): UseLadGenerateR
               new AbortController().signal,
               15,
               promptSections,
+              "LAD",
             );
             if (referenceSections.length > 0) {
               console.log(`LAD image reference lookup: ${referenceSections.length} section(s) retrieved`);

@@ -112,6 +112,7 @@ export function useProcessPipeline() {
             abort.signal,
             20,
             promptSections,
+            "SCL",
           );
         } catch {
           // Non-fatal
