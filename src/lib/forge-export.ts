@@ -41,7 +41,75 @@ const BLOCK_TYPE_ORDER: Record<string, number> = {
 };
 
 /**
- * Build a TiaManifest from forge artifacts using simple topological ordering.
+ * Topological sort using Kahn's algorithm.
+ * Sorts within each type group by dependency order.
+ * Falls back to type-order if a cycle is detected.
+ */
+function topoSort(artifacts: ForgeArtifact[]): ForgeArtifact[] {
+  // First sort by type order
+  const byType = [...artifacts].sort((a, b) => {
+    const orderA = BLOCK_TYPE_ORDER[a.type] ?? 9;
+    const orderB = BLOCK_TYPE_ORDER[b.type] ?? 9;
+    return orderA - orderB;
+  });
+
+  const nameToArtifact = new Map(byType.map((a) => [a.name, a]));
+  const inDegree = new Map<string, number>();
+  const adjacency = new Map<string, string[]>();
+
+  for (const a of byType) {
+    inDegree.set(a.name, 0);
+    adjacency.set(a.name, []);
+  }
+
+  // Build edges: dep → artifact (dep must come before artifact)
+  for (const a of byType) {
+    for (const dep of a.dependencies) {
+      if (nameToArtifact.has(dep)) {
+        adjacency.get(dep)!.push(a.name);
+        inDegree.set(a.name, (inDegree.get(a.name) ?? 0) + 1);
+      }
+    }
+  }
+
+  const queue: string[] = [];
+  for (const [name, degree] of inDegree) {
+    if (degree === 0) queue.push(name);
+  }
+
+  // Maintain type order within the zero-degree queue
+  queue.sort((a, b) => {
+    const ta = BLOCK_TYPE_ORDER[nameToArtifact.get(a)?.type ?? ""] ?? 9;
+    const tb = BLOCK_TYPE_ORDER[nameToArtifact.get(b)?.type ?? ""] ?? 9;
+    return ta - tb;
+  });
+
+  const sorted: ForgeArtifact[] = [];
+  while (queue.length > 0) {
+    const name = queue.shift()!;
+    const artifact = nameToArtifact.get(name);
+    if (artifact) sorted.push(artifact);
+
+    const neighbors = adjacency.get(name) ?? [];
+    for (const neighbor of neighbors) {
+      const newDegree = (inDegree.get(neighbor) ?? 0) - 1;
+      inDegree.set(neighbor, newDegree);
+      if (newDegree === 0) {
+        queue.push(neighbor);
+      }
+    }
+  }
+
+  // If cycle detected (sorted.length < byType.length), fall back to type-order
+  if (sorted.length < byType.length) {
+    return byType;
+  }
+
+  return sorted;
+}
+
+/**
+ * Build a TiaManifest from forge artifacts using dependency-aware topological ordering.
  * Forge artifacts already have explicit dependency lists.
  */
 export function buildForgeManifest(
@@ -49,12 +117,7 @@ export function buildForgeManifest(
   _tiaProjectPath: string,
   tiaVersion: string = "V18",
 ): TiaManifest {
-  // Sort by block type order, then by dependencies (simple sort — no circular deps expected)
-  const sorted = [...artifacts].sort((a, b) => {
-    const orderA = BLOCK_TYPE_ORDER[a.type] ?? 9;
-    const orderB = BLOCK_TYPE_ORDER[b.type] ?? 9;
-    return orderA - orderB;
-  });
+  const sorted = topoSort(artifacts);
 
   return {
     manifest_version: "1.0",

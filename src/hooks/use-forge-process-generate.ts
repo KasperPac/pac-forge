@@ -5,6 +5,10 @@ import {
   buildProcessSclPrompt,
   buildProcessSclUserMessage,
   buildProcessLadPrompt,
+  buildProcessFcPrompt,
+  buildProcessFcUserMessage,
+  buildOb1Prompt,
+  buildOb1UserMessage,
   type ProcessGenContext,
 } from "@/lib/forge-prompts";
 import { PLATFORM_RULES } from "@/lib/platform-rules";
@@ -12,6 +16,7 @@ import type {
   ForgeSession,
   ForgeArtifact,
   ForgeDeviceEntry,
+  ForgeIoEntry,
   SpecAnalysis,
   SpecAnalysisProcessSequence,
 } from "@/types/forge";
@@ -182,23 +187,90 @@ export function useForgeProcessGenerate() {
 
       const specAnalysis = session.spec_analysis as SpecAnalysis | null;
       const sequences = specAnalysis?.process_sequences ?? [];
+      const devices = session.device_list as ForgeDeviceEntry[];
+      const ioList = session.io_list as ForgeIoEntry[];
 
-      setProgress({ current: 0, total: sequences.length, currentSequence: "" });
+      // Total = sequences + RunProcess FC + OB1 Main
+      const totalSteps = sequences.length + 2;
+      setProgress({ current: 0, total: totalSteps, currentSequence: "" });
 
       const allArtifacts: ForgeArtifact[] = [];
 
       try {
+        // Step 1: Generate all sequence FBs/FCs
         for (let i = 0; i < sequences.length; i++) {
           const seq = sequences[i];
           setProgress({
             current: i + 1,
-            total: sequences.length,
+            total: totalSteps,
             currentSequence: seq.name,
           });
 
           const artifacts = await generateSequence(seq, session, profile, patterns);
           allArtifacts.push(...artifacts);
         }
+
+        // Step 2: Generate master RunProcess FC
+        setProgress({
+          current: sequences.length + 1,
+          total: totalSteps,
+          currentSequence: "RunProcess FC",
+        });
+
+        const fbInterfaces = extractFbInterfaces(session.device_artifacts);
+        const instanceDbNames = (session.device_artifacts as ForgeArtifact[])
+          .filter((a) => a.type === "DB")
+          .map((a) => a.name);
+        const sequenceArtifactNames = allArtifacts
+          .filter((a) => a.type === "FC" || a.type === "FB")
+          .map((a) => a.name);
+
+        const processFcContext: ProcessGenContext = {
+          profile,
+          platformRules: PLATFORM_RULES,
+          patterns,
+          deviceFbInterfaces: fbInterfaces,
+          specAnalysis: specAnalysis ?? undefined,
+          instanceDbNames,
+          sequenceArtifactNames,
+          ioEntries: ioList,
+          deviceEntries: devices,
+        };
+
+        const abort2 = new AbortController();
+        const { content: processFcContent } = await validateAndCall(
+          callNonStreaming,
+          buildProcessFcPrompt(processFcContext),
+          [{ role: "user", content: buildProcessFcUserMessage() }],
+          abort2.signal,
+          8192,
+          "code_architect_scl",
+          !!profile,
+        );
+
+        const processFcArtifacts = parseSclArtifacts(processFcContent);
+        allArtifacts.push(...processFcArtifacts);
+
+        // Step 3: Generate OB1 Main
+        setProgress({
+          current: sequences.length + 2,
+          total: totalSteps,
+          currentSequence: "OB1 Main",
+        });
+
+        const abort3 = new AbortController();
+        const { content: ob1Content } = await validateAndCall(
+          callNonStreaming,
+          buildOb1Prompt(),
+          [{ role: "user", content: buildOb1UserMessage() }],
+          abort3.signal,
+          2048,
+          "code_architect_scl",
+          !!profile,
+        );
+
+        const ob1Artifacts = parseSclArtifacts(ob1Content);
+        allArtifacts.push(...ob1Artifacts);
 
         return allArtifacts;
       } catch (err) {

@@ -115,7 +115,10 @@ export function useForgeRewrite() {
 
         const rewritten = parseRewrittenArtifacts(content, artifacts);
 
-        // Kick off pattern analysis for each changed artifact (fire-and-forget)
+        // Kick off pattern analysis for each changed artifact (fire-and-forget).
+        // TODO (FIX 7): Once the review/rewrite pipeline is fully implemented end-to-end,
+        // extend this to also compute diffs between original generation and final rewritten
+        // artifacts (not just per-rewrite-round diffs) for higher-signal pattern candidates.
         const patternSystemPrompt = buildForgePatternAnalysisPrompt();
         for (const orig of artifacts) {
           const updated = rewritten.find((r) => r.id === orig.id);

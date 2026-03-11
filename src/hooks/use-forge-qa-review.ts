@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { callNonStreaming } from "@/hooks/use-generation";
+import { validateAndCall } from "@/lib/forge-pipeline-validator";
 import {
   buildQaReviewPrompt,
   buildQaFollowUpPrompt,
@@ -65,11 +66,14 @@ export function useForgeQaReview() {
 
       const userContent = `Here is the extracted spec analysis. Please review it and ask me any clarifying questions about gaps or ambiguities:\n\n\`\`\`json\n${JSON.stringify(analysis, null, 2)}\n\`\`\``;
 
-      const { content } = await callNonStreaming(
-        buildQaReviewPrompt(),
+      const systemPrompt = buildQaReviewPrompt();
+      const { content } = await validateAndCall(
+        callNonStreaming,
+        systemPrompt,
         [{ role: "user", content: userContent }],
         controller.signal,
         4096,
+        "pm_qa",
       );
 
       const assistantMsg = makeMessage("assistant", content);
@@ -112,11 +116,13 @@ export function useForgeQaReview() {
       const isFirstFollowUp = updatedMessages.filter((m) => m.role === "user").length === 1;
       const systemPrompt = isFirstFollowUp ? buildQaReviewPrompt() : buildQaFollowUpPrompt();
 
-      const { content } = await callNonStreaming(
+      const { content } = await validateAndCall(
+        callNonStreaming,
         systemPrompt,
         apiMessages,
         controller.signal,
         4096,
+        "pm_qa",
       );
 
       const assistantMsg = makeMessage("assistant", content);
@@ -178,11 +184,13 @@ export function useForgeQaReview() {
         "Please produce the updated SpecAnalysis JSON now.",
       ].join("\n");
 
-      const { content } = await callNonStreaming(
+      const { content } = await validateAndCall(
+        callNonStreaming,
         buildQaUpdateAnalysisPrompt(),
         [{ role: "user", content: userContent }],
         controller.signal,
         8192,
+        "pm_qa",
       );
 
       // Try to parse the response directly, or extract from a json block

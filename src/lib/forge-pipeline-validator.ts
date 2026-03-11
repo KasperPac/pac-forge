@@ -72,6 +72,16 @@ const AGENT_IDENTITY_MARKERS: Record<string, string[]> = {
     "analyzing a functional specification",
     "extract structured",
   ],
+
+  // Q&A review (PM reviewing spec gaps with engineer)
+  pm_qa: [
+    "Project Manager",
+    "reviewing",
+    "spec analysis",
+    "clarifying questions",
+    "gaps",
+    "senior automation engineer",
+  ],
   
   // HMI agents
   hmi_generator: [

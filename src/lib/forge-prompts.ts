@@ -156,7 +156,7 @@ Rules:
 - Update fields where the engineer provided corrections or additional detail
 - Fill in previously empty fields using information from the Q&A answers
 - Do NOT invent data that wasn't provided
-- Return ONLY the updated JSON — no explanation, no markdown fences`;
+- Return the updated JSON inside \`\`\`json fences — no explanation`;
 }
 
 // ---------------------------------------------------------------------------
@@ -182,7 +182,7 @@ Rules:
 - If a field cannot be determined from the spec, use an empty string or empty array.
 - Do NOT invent data that isn't in the spec.
 
-Return ONLY valid JSON matching this schema exactly (no markdown fences, no explanation):
+Return the JSON inside \`\`\`json fences, matching this schema exactly (no explanation):
 ${SPEC_ANALYSIS_SCHEMA}`;
 }
 
@@ -230,6 +230,24 @@ ${platformRules}
 ${templateSection}
 
 ${patternSection}
+
+## FB Architecture Requirements
+- Organize FB body into REGION blocks: IO Mapping, State Machine, Alarm Handling, Output Mapping
+- Include PLCopen-style outputs: busy (Bool), error (Bool), status (Word := 16#7000)
+- Use status word ranges: 16#0000 done, 16#7000 idle, 16#7001 first call, 16#7002 executing, 16#8xxx errors
+- Use CASE-based state machines with integer literal labels for all sequential logic
+- Include interlock checks, alarm handling with latching/operator reset
+- All timers/counters/edges declared in VAR (static) with inst prefix, NEVER in VAR_TEMP
+- Include a resetAlarms : Bool input for operator alarm acknowledgment
+
+## Instance DB Rules
+- Generate a separate instance DB for each FB
+- Instance DB just references the FB name — do NOT redeclare variables inside the DB
+- Format: DATA_BLOCK "InstDeviceName" { S7_Optimized_Access := 'TRUE' } NON_RETAIN "FBName" BEGIN END_DATA_BLOCK
+
+## Calling Convention
+- Device FBs are called from the Process FC using instance DB name ONLY: "InstMotor1"(start := signal)
+- NEVER use "FBName"."InstDBName" syntax — it does not compile
 
 ## Output Format
 Return the complete SCL code for:
@@ -393,6 +411,14 @@ export interface ProcessGenContext {
   patterns?: PatternCandidate[];
   deviceFbInterfaces: string; // SCL INTERFACE sections of generated device FBs
   specAnalysis?: SpecAnalysis;
+  /** For RunProcess FC generation: instance DB names of all device FBs */
+  instanceDbNames?: string[];
+  /** For RunProcess FC generation: names of all generated sequence FBs/FCs */
+  sequenceArtifactNames?: string[];
+  /** For RunProcess FC generation: IO entries for tag wiring */
+  ioEntries?: ForgeIoEntry[];
+  /** Device entries (for IO wiring context) */
+  deviceEntries?: ForgeDeviceEntry[];
 }
 
 /**
@@ -424,20 +450,35 @@ ${deviceFbInterfaces || "(no device FBs generated yet)"}
 
 ${patternSection}
 
+## Process Code Requirements
+1. Implement each process sequence as an FB (not FC) with a CASE-based state machine if it needs timers or edge detection. Use FC only if purely stateless.
+2. Steps should be numbered (0, 10, 20, 30...) with clear transitions.
+3. Include interlock checks at the start of each sequence step using a dedicated #tempInterlockOK Bool.
+4. Every process FB must expose VAR_OUTPUT for HMI: currentStep (Int), running (Bool), faulted (Bool), complete (Bool).
+5. Use latching alarm patterns — set on fault condition, require operator reset via resetAlarms (Bool) input.
+6. All timed operations use TON with configurable PT as VAR_INPUT.
+7. Include safety condition checks (E-stop, safety relay) that halt the sequence to safe state on failure.
+8. Include permissive checks that gate sequence start.
+
 ## Code Structure Requirements
 - Use CASE-based state machines for sequences (step variable, CASE step OF ... END_CASE)
 - Each step has a clear entry action, hold condition, and exit transition
 - Include ELSE branch for undefined states
 - Use REGION blocks to organise sections
-- Declare step variable as INT in static variables
+- Declare step variable as INT in static variables (VAR, not VAR_TEMP)
 - Use PLCopen-style enable/execute + busy/done/error outputs
+- All timers/counters/edges declared in VAR (static) with inst prefix, NEVER in VAR_TEMP
+
+## IMPORTANT: Scope of This Call
+Do NOT generate OB1 or the master Process FC here — only the sequence-specific FB/FC.
+The master Process FC (RunProcess) and OB1 Main are generated separately after all sequences.
 
 ## Output Format
-\`\`\`scl [FC:ProcessName]
+\`\`\`scl [FB:ProcessName]
 // code
 \`\`\`
 
-Generate one FC per process sequence.`;
+Generate one FB per process sequence (or FC if purely stateless).`;
 }
 
 /**
@@ -476,6 +517,107 @@ ${steps}
 ${deviceList || "  (use all available devices)"}
 
 Generate a complete, compile-ready CASE state machine FC.`;
+}
+
+/**
+ * System prompt for generating the master RunProcess FC.
+ * Called after all sequence FBs are generated.
+ * Receives device FB interfaces, IO entries, instance DB names, and sequence artifact names.
+ */
+export function buildProcessFcPrompt(context: ProcessGenContext): string {
+  const { profile, platformRules, patterns, deviceFbInterfaces, instanceDbNames = [], sequenceArtifactNames = [], ioEntries = [], deviceEntries = [] } = context;
+  const profileSection = formatProfile(profile);
+  const patternSection = formatPatterns(patterns ?? []);
+
+  const instanceDbList = instanceDbNames.length > 0
+    ? instanceDbNames.map((n) => `  - "${n}"`).join("\n")
+    : "  (no instance DBs available)";
+
+  const sequenceList = sequenceArtifactNames.length > 0
+    ? sequenceArtifactNames.map((n) => `  - "${n}"()`).join("\n")
+    : "  (no sequence FBs/FCs generated)";
+
+  const ioList = ioEntries.length > 0
+    ? ioEntries.map((io) => `  - ${io.tag_name} (${io.signal_type}): ${io.description}`).join("\n")
+    : "  (no IO entries)";
+
+  const deviceIoMap = deviceEntries.length > 0
+    ? deviceEntries.map((d) => {
+        const sigs = d.io_signals.map((s) => `    - ${s.tag_name} (${s.signal_type})`).join("\n");
+        const instName = `Inst${d.name.replace(/[^A-Za-z0-9]/g, "")}`;
+        return `  "${instName}" (${d.device_type}):\n${sigs || "    (no signals)"}`;
+      }).join("\n")
+    : "  (no device entries)";
+
+  return `You are a senior Siemens TIA Portal SCL programmer generating the master RunProcess FC.
+
+${profileSection}
+
+## Platform Rules
+${platformRules}
+
+${patternSection}
+
+## Your Task
+Generate a single FC called "RunProcess" that:
+1. Calls every device FB via its instance DB (using "InstDeviceName"(inputs...) syntax)
+2. Wires physical IO tags to FB inputs/outputs using the IO list below
+3. Calls all process sequence FBs/FCs
+
+## Device FB Interfaces
+${deviceFbInterfaces}
+
+## Device Instance DBs and Their IO Signals
+${deviceIoMap}
+
+## All Instance DBs to Call
+${instanceDbList}
+
+## All Process Sequence FBs/FCs to Call
+${sequenceList}
+
+## Full IO List (for wiring)
+${ioList}
+
+## Calling Convention
+- Call device FBs: "InstMotor1"(start := %I0.0, feedback := %I0.1)
+- NEVER use "FBName"."InstDBName" syntax
+- Call sequence FBs: "SeqConveyor"(enable := statRunning)
+- Wire IO tags symbolically (no absolute addresses)
+
+## Output Format
+\`\`\`scl [FC:RunProcess]
+// RunProcess FC code
+\`\`\``;
+}
+
+/**
+ * System prompt for generating OB1 Main.
+ * Minimal — just calls RunProcess.
+ */
+export function buildOb1Prompt(): string {
+  return `You are a senior Siemens TIA Portal SCL programmer generating OB1 Main.
+
+Generate a minimal OB1 "Main" that calls the RunProcess FC. Keep it simple — just the FC call, no logic.
+
+## Output Format
+\`\`\`scl [OB:Main]
+// OB1 Main code
+\`\`\``;
+}
+
+/**
+ * User message for RunProcess FC generation.
+ */
+export function buildProcessFcUserMessage(): string {
+  return "Generate the RunProcess FC that calls all device FBs and sequence FBs/FCs as described above.";
+}
+
+/**
+ * User message for OB1 Main generation.
+ */
+export function buildOb1UserMessage(): string {
+  return 'Generate OB1 "Main" that calls RunProcess(). Keep it minimal — just the FC call.';
 }
 
 /**
@@ -552,7 +694,7 @@ Return an array of HmiScreenSpec objects. Each object:
 - Screen size: 1920x1080
 
 ## Output Format
-Return ONLY a JSON array of HmiScreenSpec objects. No markdown fences, no explanation.`;
+Return the JSON array of HmiScreenSpec objects inside \`\`\`json fences. No explanation.`;
 }
 
 /**
