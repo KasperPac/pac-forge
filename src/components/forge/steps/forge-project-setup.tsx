@@ -64,8 +64,8 @@ export function ForgeProjectSetup({ specAnalysis, onComplete }: ForgeProjectSetu
     if (specAnalysis) {
       setForm(prev => ({
         ...prev,
-        project_name: prev.project_name || specAnalysis.project_name,
-        cpu_type: prev.cpu_type || specAnalysis.plc_type,
+        project_name: prev.project_name || specAnalysis.project_name || "",
+        cpu_type: prev.cpu_type || specAnalysis.plc_type || "S7-1500",
       }));
     }
   }, [specAnalysis]);
@@ -84,7 +84,7 @@ export function ForgeProjectSetup({ specAnalysis, onComplete }: ForgeProjectSetu
     }));
   }
 
-  const canSubmit = form.project_name.trim().length > 0;
+  const canSubmit = (form.project_name ?? "").trim().length > 0;
 
   return (
     <div className="flex h-full flex-col gap-5">
