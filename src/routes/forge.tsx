@@ -235,6 +235,7 @@ export default function ForgePage() {
         return (
           <ForgeMatrixReview
             session={session}
+            fbTemplates={fbTemplates}
             onComplete={handleMatrixComplete}
           />
         );

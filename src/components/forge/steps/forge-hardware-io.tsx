@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useId } from "react";
-import { ChevronRight, Plus, Trash2, ChevronDown, ChevronRight as ChevronRightIcon } from "lucide-react";
+import { ChevronRight, Plus, Trash2, ChevronDown, ChevronRight as ChevronRightIcon, Lightbulb, X as XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -14,7 +14,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { HardwareConfigEditor } from "@/components/hardware-config-editor";
 import { IoListEditor } from "@/components/io-list-editor";
-import { matchDevicesToTemplates, applyMatchesToDevices } from "@/lib/forge-device-matcher";
+import { matchDevicesToTemplates, applyMatchesToDevices, suggestMissingDevices } from "@/lib/forge-device-matcher";
+import type { MissingDeviceSuggestion } from "@/lib/forge-device-matcher";
 import { DEVICE_TYPE_IO_DEFAULTS, DEVICE_TYPES } from "@/lib/device-type-io-defaults";
 import { getCompatibleModules } from "@/lib/module-catalog";
 import type { IoEntry, RackSlotLayout, CpuType } from "@/types";
@@ -209,6 +210,9 @@ export function ForgeHardwareIo({
 
   // Expanded device rows (shows IO signals)
   const [expandedDeviceIds, setExpandedDeviceIds] = useState<Set<string>>(new Set());
+
+  // Missing device suggestions (dismissed by user)
+  const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(new Set());
 
   // Add device form visibility
   const [showAddForm, setShowAddForm] = useState(false);
@@ -484,6 +488,36 @@ export function ForgeHardwareIo({
   const ioCounts = countIoSignals(devices);
   const totalIo = ioCounts.DI + ioCounts.DQ + ioCounts.AI + ioCounts.AQ;
 
+  const missingDeviceSuggestions = suggestMissingDevices(devices).filter(
+    (s) => !dismissedSuggestions.has(s.suggestedTag),
+  );
+
+  function addSuggestedDevices(suggestions: MissingDeviceSuggestion[]) {
+    const newDevices: ForgeDeviceEntry[] = suggestions.map((s) => ({
+      id: `suggested_${s.suggestedTag}_${Date.now()}`,
+      name: s.suggestedName,
+      tag: s.suggestedTag,
+      device_type: s.suggestedType,
+      description: s.reason.split(".")[0] ?? s.suggestedType,
+      subsystem: "",
+      io_signals: [],
+      fb_template_id: null,
+      fb_match_confidence: "none" as const,
+      language_override: null,
+      approved: false,
+    }));
+    setDevices((prev) => {
+      const combined = [...prev, ...newDevices];
+      const matches = matchDevicesToTemplates(combined, fbTemplates);
+      return applyMatchesToDevices(combined, matches);
+    });
+    setDismissedSuggestions((prev) => {
+      const next = new Set(prev);
+      suggestions.forEach((s) => next.add(s.suggestedTag));
+      return next;
+    });
+  }
+
   return (
     <div className="flex h-full flex-col gap-3">
       {/* IO Summary Banner */}
@@ -529,6 +563,50 @@ export function ForgeHardwareIo({
                 Add Device
               </Button>
             </div>
+
+            {/* Missing device suggestions */}
+            {missingDeviceSuggestions.length > 0 && (
+              <div className="rounded-md border border-blue-500/30 bg-blue-500/5 px-3 py-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Lightbulb className="h-3.5 w-3.5 text-blue-400" />
+                    <span className="font-mono text-[10px] uppercase tracking-wider text-blue-400">
+                      Suggested Missing Devices
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 gap-1 border-blue-500/40 font-mono text-[10px] text-blue-400 hover:bg-blue-500/10"
+                      onClick={() => addSuggestedDevices(missingDeviceSuggestions)}
+                    >
+                      <Plus className="h-3 w-3" />
+                      Add Suggested
+                    </Button>
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-foreground"
+                      onClick={() => setDismissedSuggestions((prev) => {
+                        const next = new Set(prev);
+                        missingDeviceSuggestions.forEach((s) => next.add(s.suggestedTag));
+                        return next;
+                      })}
+                    >
+                      <XIcon className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-1.5 space-y-1">
+                  {missingDeviceSuggestions.map((s) => (
+                    <div key={s.suggestedTag} className="text-xs text-muted-foreground">
+                      <span className="font-mono text-foreground/80">{s.suggestedTag}</span>
+                      {" "}({s.suggestedType}) — {s.reason}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Inline Add Form */}
             {showAddForm && (

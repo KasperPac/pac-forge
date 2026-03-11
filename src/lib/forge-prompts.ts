@@ -171,9 +171,34 @@ export function buildSpecAnalysisPrompt(): string {
   return `You are a senior automation engineer with deep experience in Siemens TIA Portal projects.
 Your task is to read a functional specification document and extract structured project data as JSON.
 
-Rules:
-- Extract ALL devices, including those listed in instrumentation tables or IO schedules.
-- Assign a unique device_type that represents the physical device category (e.g. "Motor DOL", "Motor VFD", "Solenoid 2-pos", "Pneumatic Cylinder", "Photoelectric Sensor", "Proximity Sensor", "Temperature Sensor", "Pressure Sensor", "Flow Meter", "Valve Motorised", "Valve Pneumatic").
+## Device extraction rules
+
+Extract devices at ALL levels of the system — not just physical actuators:
+
+- **ACTUATORS**: Motors (DOL, VFD), Solenoids, Valves, Cylinders — have physical DQ outputs
+- **SENSORS**: Photoelectric, Proximity, Temperature, Pressure, Level, Flow — have physical DI/AI inputs
+- **SYSTEM DEVICES**: Conveyors, Pumps, Mixers — logical control entities that coordinate actuators and sensors
+- **OPERATOR DEVICES**: Push buttons, Stack lights, Selector switches — have physical DI/DQ
+- **SAFETY DEVICES**: E-stop circuits, Safety light curtains, Guard switches — have DI inputs
+
+**IMPORTANT:** If the spec describes "Conveyor CV01 driven by motor M01 with sensors PE01 and PE02", extract THREE separate devices:
+1. CV01 as device_type "Conveyor" — the system device for direction, sequencing, and sensor logic
+2. M01 as device_type "Motor DOL" — the actuator that physically drives the belt
+3. PE01, PE02 as device_type "Photoelectric Sensor" — the sensors that detect product
+
+Each device type has its OWN Function Block in the PLC code. They are connected in the Process FC, not nested inside each other. The Conveyor FB does NOT contain a Motor FB — they are separate FBs wired together.
+
+For IO signals per device:
+- Motor: CMD (DQ), RUN feedback (DI), Overload/Fault (DI)
+- Conveyor: NO direct physical IO — receives sensor data and motor feedback as FB parameters
+- Sensor: Detection signal (DI) or analog value (AI)
+- Push Button Station: One DI per button (START, STOP, RESET)
+- Stack Light: One DQ per lamp colour (GREEN, AMBER, RED)
+- E-Stop: Circuit OK signal (DI)
+
+## General rules
+
+- Extract ALL devices, including those in instrumentation tables or IO schedules.
 - Extract ALL IO signals for each device. DI = digital input, DQ = digital output (coil), AI = analog input, AQ = analog output.
 - Extract ALL process sequences with numbered steps, actions, and completion criteria.
 - Extract alarms and interlocks where described.
@@ -868,20 +893,27 @@ ${PROCESS_LINKAGE_MATRIX_SCHEMA}`;
 }
 
 /**
- * User message for matrix generation — formats device list, IO list, and spec sequences.
+ * User message for matrix generation — formats device list, IO list, spec sequences, and FB interfaces.
  */
 export function buildMatrixGenerationUserMessage(
   devices: ForgeDeviceEntry[],
   ioList: ForgeIoEntry[],
   specAnalysis: SpecAnalysis | null,
+  fbTemplates?: FbTemplate[],
 ): string {
+  // Build a map of template id → template for quick lookup
+  const templateMap = new Map(
+    (fbTemplates ?? []).map((t) => [t.id, t]),
+  );
+
   const deviceTable = devices
     .map((d) => {
-      const signals = d.io_signals
+      const signals = (d.io_signals ?? [])
         .map((s) => `    - ${s.tag_name} (${s.signal_type}): ${s.description}`)
         .join("\n");
-      const fbInfo = d.fb_template_id
-        ? `FB Template: ${d.fb_template_id} (${d.fb_match_confidence} match)`
+      const tpl = d.fb_template_id ? templateMap.get(d.fb_template_id) : null;
+      const fbInfo = tpl
+        ? `FB Template: ${tpl.name} (${d.fb_match_confidence} match)`
         : `FB Template: none (generate from scratch)`;
       return `**${d.name}** [${d.tag}]\n  Type: ${d.device_type}\n  Subsystem: ${d.subsystem}\n  ${fbInfo}\n  IO Signals:\n${signals || "    (none)"}`;
     })
@@ -912,6 +944,41 @@ export function buildMatrixGenerationUserMessage(
         .join("\n")
     : "  (none)";
 
+  // Collect unique templates referenced by devices (for correct param names in wiring)
+  const referencedTemplateIds = new Set(
+    devices.map((d) => d.fb_template_id).filter(Boolean),
+  );
+  const fbInterfacesText =
+    referencedTemplateIds.size > 0
+      ? [...referencedTemplateIds]
+          .map((id) => {
+            const tpl = templateMap.get(id!);
+            if (!tpl?.blocks?.length) return null;
+            const mainBlock = tpl.blocks.find(
+              (b) => b.block_type === "FB",
+            ) ?? tpl.blocks[0];
+            if (!mainBlock) return null;
+            // Extract VAR_INPUT and VAR_OUTPUT param names from SCL code using regex
+            const inputParams = [
+              ...mainBlock.scl_code.matchAll(/VAR_INPUT\b[\s\S]*?END_VAR/g),
+            ]
+              .flatMap((m) =>
+                [...m[0].matchAll(/^\s+(\w+)\s*:/gm)].map((p) => p[1]),
+              )
+              .join(", ");
+            const outputParams = [
+              ...mainBlock.scl_code.matchAll(/VAR_OUTPUT\b[\s\S]*?END_VAR/g),
+            ]
+              .flatMap((m) =>
+                [...m[0].matchAll(/^\s+(\w+)\s*:/gm)].map((p) => p[1]),
+              )
+              .join(", ");
+            return `  **${tpl.name}** (${mainBlock.block_name})\n  VAR_INPUT: ${inputParams || "(none)"}\n  VAR_OUTPUT: ${outputParams || "(none)"}`;
+          })
+          .filter(Boolean)
+          .join("\n\n")
+      : "  (none — use standard parameter naming conventions)";
+
   return `Generate the Process Linkage Matrix for this project.
 
 ## Confirmed Device List (${devices.length} devices)
@@ -925,6 +992,9 @@ ${sequenceSummary}
 
 ## Interlocks from Spec
 ${interlocksText}
+
+## FB Template Interfaces (use EXACT parameter names for wiring)
+${fbInterfacesText}
 
 Generate the complete ProcessLinkageMatrix JSON now, wrapped in [PROCESS_MATRIX]...[/PROCESS_MATRIX] tags.`;
 }

@@ -6,6 +6,7 @@ import {
   buildMatrixGenerationUserMessage,
 } from "@/lib/forge-prompts";
 import type { ForgeDeviceEntry, ForgeIoEntry, SpecAnalysis } from "@/types/forge";
+import type { FbTemplate } from "@/types/fb-template";
 import type { ProcessLinkageMatrix } from "@/types/process-builder";
 
 const MATRIX_MAX_TOKENS = 16384;
@@ -48,6 +49,7 @@ export function useForgeMatrixGenerate() {
       devices: ForgeDeviceEntry[],
       ioList: ForgeIoEntry[],
       specAnalysis: SpecAnalysis | null,
+      fbTemplates?: FbTemplate[],
     ): Promise<ProcessLinkageMatrix> => {
       setLoading(true);
       setError(null);
@@ -60,6 +62,7 @@ export function useForgeMatrixGenerate() {
           devices,
           ioList,
           specAnalysis,
+          fbTemplates,
         );
 
         const { content } = await validateAndCall(

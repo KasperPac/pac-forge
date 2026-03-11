@@ -81,6 +81,23 @@ export const DEVICE_TYPE_IO_DEFAULTS: Record<string, DeviceIoDefault[]> = {
     { signal_type: "DI", suffix: "_OPEN", description: "Open feedback" },
     { signal_type: "DI", suffix: "_CLOSED", description: "Closed feedback" },
   ],
+  // Conveyor has NO direct physical IO — receives everything through FB inputs
+  // (sensor detections, motor feedback, process commands) wired via the Matrix
+  "Conveyor": [],
+  "Stack Light": [
+    { signal_type: "DQ", suffix: "_GREEN", description: "Green lamp - running" },
+    { signal_type: "DQ", suffix: "_AMBER", description: "Amber lamp - warning" },
+    { signal_type: "DQ", suffix: "_RED", description: "Red lamp - fault" },
+  ],
+  "Push Button Station": [
+    { signal_type: "DI", suffix: "_START", description: "Start button (NO, momentary)" },
+    { signal_type: "DI", suffix: "_STOP", description: "Stop button (NC, maintained)" },
+    { signal_type: "DI", suffix: "_RESET", description: "Reset button (NO, momentary)" },
+  ],
+  "Selector Switch": [
+    { signal_type: "DI", suffix: "_POS1", description: "Position 1" },
+    { signal_type: "DI", suffix: "_POS2", description: "Position 2" },
+  ],
 };
 
 export const DEVICE_TYPES = Object.keys(DEVICE_TYPE_IO_DEFAULTS);

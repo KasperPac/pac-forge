@@ -19,6 +19,7 @@ import { buildMultiSequenceDiagram } from "@/lib/process-sequence-diagram";
 import { useForgeMatrixGenerate } from "@/hooks/use-forge-matrix-generate";
 import { cn } from "@/lib/utils";
 import type { ForgeSession } from "@/types/forge";
+import type { FbTemplate } from "@/types/fb-template";
 import type {
   ProcessLinkageMatrix,
   LinkageDevice,
@@ -29,6 +30,7 @@ import type {
 
 export interface ForgeMatrixReviewProps {
   session: ForgeSession;
+  fbTemplates?: FbTemplate[];
   onComplete: (matrix: ProcessLinkageMatrix) => void | Promise<void>;
 }
 
@@ -294,7 +296,7 @@ function SequenceCard({ seq }: { seq: ProcessSequence }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ForgeMatrixReview({ session, onComplete }: ForgeMatrixReviewProps) {
+export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMatrixReviewProps) {
   const [matrix, setMatrix] = useState<ProcessLinkageMatrix | null>(
     session.linkage_matrix,
   );
@@ -318,6 +320,7 @@ export function ForgeMatrixReview({ session, onComplete }: ForgeMatrixReviewProp
         session.device_list,
         session.io_list,
         session.spec_analysis,
+        fbTemplates,
       );
       setMatrix(result);
     } catch {
