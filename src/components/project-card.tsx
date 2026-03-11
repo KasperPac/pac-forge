@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router";
-import { Cpu, Clock, Trash2 } from "lucide-react";
+import { Cpu, Clock, Trash2, Wand2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -56,11 +56,25 @@ export function ProjectCard({ project, onDelete }: ProjectCardProps) {
         </Badge>
       )}
 
-      <div className="mt-3 flex items-center gap-1 text-[10px] text-muted-foreground">
-        <Clock className="h-3 w-3" />
-        <span className="font-mono">
-          {new Date(project.updated_at).toLocaleDateString()}
-        </span>
+      <div className="mt-3 flex items-center justify-between">
+        <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+          <Clock className="h-3 w-3" />
+          <span className="font-mono">
+            {new Date(project.updated_at).toLocaleDateString()}
+          </span>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-6 gap-1 px-2 font-mono text-[10px] opacity-0 group-hover:opacity-100"
+          onClick={(e) => {
+            e.stopPropagation();
+            navigate(`/forge?projectId=${project.id}`);
+          }}
+        >
+          <Wand2 className="h-3 w-3" />
+          Wizard
+        </Button>
       </div>
     </Card>
   );

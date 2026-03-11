@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router";
-import { ArrowLeft, Play, Save, Plus, Trash2, ChevronDown, ChevronRight, Upload, X, FileText, Cpu } from "lucide-react";
+import { ArrowLeft, Play, Save, Plus, Trash2, ChevronDown, ChevronRight, Upload, X, FileText, Cpu, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -441,13 +441,24 @@ export default function ProjectDetailPage() {
             )}
           </div>
         </div>
-        <Button
-          size="sm"
-          onClick={() => navigate(`/pac-st?project=${project.id}`)}
-        >
-          <Play className="mr-1 h-4 w-4" />
-          Open Pac-ST Session
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            onClick={() => navigate(`/forge?projectId=${project.id}`)}
+            className="gap-1.5"
+          >
+            <Wand2 className="h-4 w-4" />
+            Launch Wizard
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => navigate(`/pac-st?project=${project.id}`)}
+          >
+            <Play className="mr-1 h-4 w-4" />
+            Open Pac-ST Session
+          </Button>
+        </div>
       </div>
 
       <Separator />
