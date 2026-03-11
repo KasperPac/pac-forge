@@ -124,9 +124,10 @@ export function ForgeSpecUpload({ onComplete, onSkip }: ForgeSpecUploadProps) {
   }
 
   // Mode B — analysis complete
-  const immediateShutdowns = analysis.alarms.filter(a => a.severity === "IMMEDIATE_SHUTDOWN").length;
-  const controlled = analysis.alarms.filter(a => a.severity === "CONTROLLED_SHUTDOWN").length;
-  const warnings = analysis.alarms.filter(a => a.severity === "WARNING").length;
+  const alarms = analysis.alarms ?? [];
+  const immediateShutdowns = alarms.filter(a => a.severity === "IMMEDIATE_SHUTDOWN").length;
+  const controlled = alarms.filter(a => a.severity === "CONTROLLED_SHUTDOWN").length;
+  const warnings = alarms.filter(a => a.severity === "WARNING").length;
 
   return (
     <div className="flex h-full gap-4">
@@ -205,7 +206,7 @@ export function ForgeSpecUpload({ onComplete, onSkip }: ForgeSpecUploadProps) {
             )}
             <div className="flex items-center justify-between pt-1 border-t border-border/60">
               <span className="text-muted-foreground">Interlocks</span>
-              <Badge variant="outline" className="font-mono text-[10px]">{analysis.interlocks.length}</Badge>
+              <Badge variant="outline" className="font-mono text-[10px]">{(analysis.interlocks ?? []).length}</Badge>
             </div>
           </CardContent>
         </Card>
@@ -219,7 +220,7 @@ export function ForgeSpecUpload({ onComplete, onSkip }: ForgeSpecUploadProps) {
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm">
                 Devices
-                <Badge variant="outline" className="ml-2 font-mono text-[10px]">{analysis.devices.length}</Badge>
+                <Badge variant="outline" className="ml-2 font-mono text-[10px]">{(analysis.devices ?? []).length}</Badge>
               </CardTitle>
             </div>
           </CardHeader>
@@ -240,7 +241,7 @@ export function ForgeSpecUpload({ onComplete, onSkip }: ForgeSpecUploadProps) {
                     <td className="px-3 py-1.5 font-mono text-xs text-muted-foreground">{d.tag}</td>
                     <td className="px-3 py-1.5 text-xs">{d.device_type}</td>
                     <td className="px-3 py-1.5 text-xs text-muted-foreground">{d.subsystem}</td>
-                    <td className="px-3 py-1.5 font-mono text-xs">{d.io_signals.length}</td>
+                    <td className="px-3 py-1.5 font-mono text-xs">{(d.io_signals ?? []).length}</td>
                     <td className="px-2">
                       <button
                         className="text-muted-foreground hover:text-destructive"
@@ -261,14 +262,14 @@ export function ForgeSpecUpload({ onComplete, onSkip }: ForgeSpecUploadProps) {
           <CardHeader className="pb-2 pt-4">
             <CardTitle className="text-sm">
               Process Sequences
-              <Badge variant="outline" className="ml-2 font-mono text-[10px]">{analysis.process_sequences.length}</Badge>
+              <Badge variant="outline" className="ml-2 font-mono text-[10px]">{(analysis.process_sequences ?? []).length}</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-1.5 pb-4">
-            {analysis.process_sequences.length === 0 ? (
+            {(analysis.process_sequences ?? []).length === 0 ? (
               <p className="text-xs text-muted-foreground">None extracted</p>
             ) : (
-              analysis.process_sequences.map((seq, i) => (
+              (analysis.process_sequences ?? []).map((seq, i) => (
                 <div key={i} className="flex items-center justify-between rounded-md border border-border/50 bg-background/40 px-3 py-2">
                   <span className="text-sm">{seq.name}</span>
                   <Badge variant="outline" className="font-mono text-[10px]">{seq.steps.length} steps</Badge>

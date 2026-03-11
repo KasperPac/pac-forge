@@ -26,9 +26,9 @@ function SpecSummaryCard({ analysis }: { analysis: SpecAnalysis }) {
   const missingFields: string[] = [];
   if (fieldMissing(analysis.plc_type)) missingFields.push("PLC type");
   if (fieldMissing(analysis.hmi_type)) missingFields.push("HMI type");
-  if (analysis.devices.length === 0) missingFields.push("Devices");
-  if (analysis.process_sequences.length === 0) missingFields.push("Process sequences");
-  const devicesWithoutIo = analysis.devices.filter((d) => !d.io_signals?.length);
+  if ((analysis.devices ?? []).length === 0) missingFields.push("Devices");
+  if ((analysis.process_sequences ?? []).length === 0) missingFields.push("Process sequences");
+  const devicesWithoutIo = (analysis.devices ?? []).filter((d) => !d.io_signals?.length);
 
   return (
     <div className="flex flex-col gap-3">
@@ -57,10 +57,10 @@ function SpecSummaryCard({ analysis }: { analysis: SpecAnalysis }) {
 
       <div className="grid grid-cols-2 gap-2">
         {[
-          { label: "Devices", count: analysis.devices.length },
-          { label: "Sequences", count: analysis.process_sequences.length },
-          { label: "Alarms", count: analysis.alarms.length },
-          { label: "Interlocks", count: analysis.interlocks.length },
+          { label: "Devices", count: (analysis.devices ?? []).length },
+          { label: "Sequences", count: (analysis.process_sequences ?? []).length },
+          { label: "Alarms", count: (analysis.alarms ?? []).length },
+          { label: "Interlocks", count: (analysis.interlocks ?? []).length },
         ].map(({ label, count }) => (
           <div key={label} className="rounded border border-border/50 bg-background/50 px-2.5 py-2">
             <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
@@ -71,11 +71,11 @@ function SpecSummaryCard({ analysis }: { analysis: SpecAnalysis }) {
         ))}
       </div>
 
-      {analysis.subsystems.length > 0 && (
+      {(analysis.subsystems ?? []).length > 0 && (
         <div>
           <div className="mb-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Subsystems</div>
           <div className="flex flex-wrap gap-1">
-            {analysis.subsystems.map((s) => (
+            {(analysis.subsystems ?? []).map((s) => (
               <Badge key={s.name} variant="outline" className="font-mono text-[10px]">{s.name}</Badge>
             ))}
           </div>
