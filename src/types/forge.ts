@@ -138,6 +138,8 @@ export interface ForgeDeviceEntry {
   fb_template_id: string | null;
   /** Match confidence from forge-device-matcher */
   fb_match_confidence: "exact" | "probable" | "none";
+  /** Per-device language override — null means use profile's device_fb_language */
+  language_override: "SCL" | "LAD" | null;
   approved: boolean;
 }
 

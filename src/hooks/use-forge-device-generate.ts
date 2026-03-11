@@ -112,9 +112,8 @@ export function useForgeDeviceGenerate() {
       patterns: PatternCandidate[],
     ): Promise<ForgeArtifact[]> => {
       const abort = new AbortController();
-      const isLad =
-        profile.code_language === "LAD" ||
-        (profile.code_language === "MIXED" && device.device_type.toLowerCase().includes("lad"));
+      const effectiveLang = device.language_override ?? profile.device_fb_language;
+      const isLad = effectiveLang === "LAD";
 
       const matchedTemplate =
         device.fb_template_id
@@ -163,6 +162,7 @@ export function useForgeDeviceGenerate() {
       patterns: PatternCandidate[],
     ): Promise<ForgeArtifact[]> => {
       const abort = new AbortController();
+      const ioLang = profile.io_linking_language ?? "SCL";
       const context: DeviceGenContext = {
         profile,
         platformRules: PLATFORM_RULES,
@@ -171,7 +171,7 @@ export function useForgeDeviceGenerate() {
 
       const { content } = await callNonStreaming(
         buildIoLinkingPrompt(session.device_list, session.io_list as ForgeIoEntry[], context),
-        [{ role: "user", content: "Generate the IO linking FC for all devices." }],
+        [{ role: "user", content: `Generate the IO linking FC for all devices. Use ${ioLang}.` }],
         abort.signal,
         DEVICE_GEN_MAX_TOKENS,
       );

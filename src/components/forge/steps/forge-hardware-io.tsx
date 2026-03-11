@@ -25,6 +25,7 @@ import type { FbTemplate } from "@/types/fb-template";
 export interface ForgeHardwareIoProps {
   specAnalysis: SpecAnalysis | null;
   fbTemplates: FbTemplate[];
+  deviceFbLanguage?: "SCL" | "LAD";
   onComplete: (
     hardware: ForgeHardwareConfig,
     ioList: ForgeIoEntry[],
@@ -45,6 +46,7 @@ function devicesFromAnalysis(analysis: SpecAnalysis): ForgeDeviceEntry[] {
     io_signals: d.io_signals,
     fb_template_id: null,
     fb_match_confidence: "none" as const,
+    language_override: null,
     approved: false,
   }));
 }
@@ -68,7 +70,7 @@ function ioFromAnalysis(analysis: SpecAnalysis): ForgeIoEntry[] {
   return entries;
 }
 
-export function ForgeHardwareIo({ specAnalysis, fbTemplates, onComplete }: ForgeHardwareIoProps) {
+export function ForgeHardwareIo({ specAnalysis, fbTemplates, deviceFbLanguage = "SCL", onComplete }: ForgeHardwareIoProps) {
   const [hardware, setHardware] = useState<ForgeHardwareConfig>({
     cpu_type: specAnalysis?.plc_type ?? "S7-1500",
     tia_version: "V18",
@@ -142,6 +144,11 @@ export function ForgeHardwareIo({ specAnalysis, fbTemplates, onComplete }: Forge
   // --- Device list helpers ---
   function updateDeviceTemplate(deviceId: string, templateId: string) {
     setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, fb_template_id: templateId === "__ai__" ? null : templateId, fb_match_confidence: templateId === "__ai__" ? "none" : "exact" } : d));
+  }
+
+  function updateDeviceLanguage(deviceId: string, value: string) {
+    const override = value === "__default__" ? null : (value as "SCL" | "LAD");
+    setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, language_override: override } : d));
   }
 
   function confidenceBadge(conf: ForgeDeviceEntry["fb_match_confidence"]) {
@@ -270,7 +277,7 @@ export function ForgeHardwareIo({ specAnalysis, fbTemplates, onComplete }: Forge
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-background/90">
                 <tr className="border-b border-border/60">
-                  {["Name", "Tag", "Type", "Subsystem", "FB Template", "IO", "Match"].map(h => (
+                  {["Name", "Tag", "Type", "Subsystem", "FB Template", "Language", "IO", "Match"].map(h => (
                     <th key={h} className="px-3 py-2 text-left font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{h}</th>
                   ))}
                 </tr>
@@ -295,6 +302,23 @@ export function ForgeHardwareIo({ specAnalysis, fbTemplates, onComplete }: Forge
                           {fbTemplates.map(t => (
                             <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
                           ))}
+                        </SelectContent>
+                      </Select>
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <Select
+                        value={d.language_override ?? "__default__"}
+                        onValueChange={v => updateDeviceLanguage(d.id, v)}
+                      >
+                        <SelectTrigger className="h-7 w-28 font-mono text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__default__">
+                            <span>Default <span className="text-muted-foreground">({deviceFbLanguage})</span></span>
+                          </SelectItem>
+                          <SelectItem value="SCL">SCL</SelectItem>
+                          <SelectItem value="LAD">LAD</SelectItem>
                         </SelectContent>
                       </Select>
                     </td>

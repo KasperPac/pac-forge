@@ -52,39 +52,39 @@ export function ForgeStepBar({
 }: ForgeStepBarProps) {
   return (
     <div className="rounded-lg border border-border/70 bg-card/80 p-3">
-      <div className="grid gap-2 xl:grid-cols-[repeat(7,minmax(0,1fr))]">
+      <div className="flex items-center gap-0">
         {steps.map((step, index) => {
           const status = stepStatuses[step];
           const isCurrent = step === currentStep;
           const isClickable = step === currentStep || status === "completed";
 
           return (
-            <div key={step} className="flex items-center gap-2">
+            <div key={step} className="flex min-w-0 flex-1 items-center">
               <button
                 type="button"
                 onClick={() => isClickable && onStepClick(step)}
                 disabled={!isClickable}
                 className={cn(
-                  "flex min-w-0 flex-1 items-center gap-3 rounded-md border px-3 py-2 text-left transition-colors",
+                  "flex w-full min-w-0 items-center gap-2 rounded-md border px-2.5 py-2 text-left transition-colors",
                   getStatusClasses(status, isCurrent),
                   isClickable
                     ? "cursor-pointer hover:bg-accent/60 hover:text-foreground"
                     : "cursor-not-allowed opacity-80"
                 )}
               >
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-current/30 bg-background/40 font-mono text-[11px]">
+                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-current/30 bg-background/40 font-mono text-[11px]">
                   {status === "completed" ? <StepStatusIcon status={status} /> : index + 1}
                 </div>
-                <div className="min-w-0">
-                  <div className="truncate font-mono text-[11px] uppercase tracking-[0.16em]">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-mono text-[10px] uppercase tracking-[0.14em] opacity-70">
                     Step {index + 1}
                   </div>
-                  <div className="truncate text-sm font-medium">
+                  <div className="truncate text-xs font-medium leading-tight">
                     {FORGE_STEP_LABELS[step]}
                   </div>
                 </div>
                 {status !== "completed" && (
-                  <div className="shrink-0">
+                  <div className="shrink-0 opacity-60">
                     <StepStatusIcon status={status} />
                   </div>
                 )}
@@ -93,7 +93,7 @@ export function ForgeStepBar({
                 <div
                   aria-hidden="true"
                   className={cn(
-                    "hidden h-px flex-1 xl:block",
+                    "mx-1 h-px w-4 shrink-0",
                     stepStatuses[step] === "completed" ? "bg-green-500/40" : "bg-border/70"
                   )}
                 />

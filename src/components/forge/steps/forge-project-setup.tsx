@@ -22,8 +22,9 @@ export interface ForgeProjectSetup {
   project_number: string;
   client_name: string;
   design_profile_id: string | null;
-  code_language: "SCL" | "LAD" | "MIXED";
-  process_code_language: "SCL" | "LAD" | "MIXED";
+  device_fb_language: "SCL" | "LAD";
+  io_linking_language: "SCL" | "LAD";
+  process_code_language: "SCL" | "LAD";
   tia_version: string;
   cpu_type: string;
   safety_level: string;
@@ -37,12 +38,10 @@ export interface ForgeProjectSetupProps {
 }
 
 const TIA_VERSIONS = ["V17", "V18", "V19", "V20"] as const;
-const CODE_LANGS = ["SCL", "LAD", "MIXED"] as const;
+const CODE_LANGS = ["SCL", "LAD"] as const;
 
-function profileLang(profile: DesignProfile | undefined, field: "code_language" | "process_code_language"): "SCL" | "LAD" | "MIXED" {
-  const val = profile?.[field];
-  if (val === "LAD" || val === "MIXED") return val;
-  return "SCL";
+function profileLang(profile: DesignProfile | undefined, field: "device_fb_language" | "io_linking_language" | "process_code_language"): "SCL" | "LAD" {
+  return profile?.[field] === "LAD" ? "LAD" : "SCL";
 }
 
 export function ForgeProjectSetup({ specAnalysis, project, onComplete }: ForgeProjectSetupProps) {
@@ -53,7 +52,8 @@ export function ForgeProjectSetup({ specAnalysis, project, onComplete }: ForgePr
     project_number: project?.project_number ?? "",
     client_name: project?.client_name ?? "",
     design_profile_id: project?.design_profile_id ?? null,
-    code_language: "SCL",
+    device_fb_language: "SCL",
+    io_linking_language: "SCL",
     process_code_language: "SCL",
     tia_version: project?.tia_version ?? "V18",
     cpu_type: project?.cpu_type ?? specAnalysis?.plc_type ?? "S7-1500",
@@ -81,7 +81,8 @@ export function ForgeProjectSetup({ specAnalysis, project, onComplete }: ForgePr
     setForm(prev => ({
       ...prev,
       design_profile_id: profileId,
-      code_language: profileLang(profile, "code_language"),
+      device_fb_language: profileLang(profile, "device_fb_language"),
+      io_linking_language: profileLang(profile, "io_linking_language"),
       process_code_language: profileLang(profile, "process_code_language"),
     }));
   }
@@ -188,14 +189,31 @@ export function ForgeProjectSetup({ specAnalysis, project, onComplete }: ForgePr
 
         {/* Right column */}
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1.5">
               <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
-                Code Language
+                Device FB Lang
               </Label>
               <Select
-                value={form.code_language}
-                onValueChange={v => set("code_language", v as "SCL" | "LAD" | "MIXED")}
+                value={form.device_fb_language}
+                onValueChange={v => set("device_fb_language", v as "SCL" | "LAD")}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CODE_LANGS.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+                IO Linking Lang
+              </Label>
+              <Select
+                value={form.io_linking_language}
+                onValueChange={v => set("io_linking_language", v as "SCL" | "LAD")}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -212,7 +230,7 @@ export function ForgeProjectSetup({ specAnalysis, project, onComplete }: ForgePr
               </Label>
               <Select
                 value={form.process_code_language}
-                onValueChange={v => set("process_code_language", v as "SCL" | "LAD" | "MIXED")}
+                onValueChange={v => set("process_code_language", v as "SCL" | "LAD")}
               >
                 <SelectTrigger>
                   <SelectValue />

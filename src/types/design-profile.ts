@@ -17,10 +17,12 @@ export interface DesignProfile {
   folder_rules: string;
   process_rules: ProcessRuleExample[];
   fb_rules: ProcessRuleExample[];
-  /** Primary code language for device FBs (migration 025) */
-  code_language: "SCL" | "LAD" | "MIXED";
-  /** Language override for process/sequence code (migration 025) */
-  process_code_language: "SCL" | "LAD" | "MIXED";
+  /** Language used for device Function Blocks (migration 027) */
+  device_fb_language: "SCL" | "LAD";
+  /** Language used for the IO linking FC (migration 027) */
+  io_linking_language: "SCL" | "LAD";
+  /** Language used for process/sequence code (migration 025) */
+  process_code_language: "SCL" | "LAD";
   /** HMI screen theme identifier (migration 025) */
   hmi_theme: string;
   /** FB/FC naming prefix for customer, e.g. "FB_CK_" (migration 025) */

@@ -151,7 +151,8 @@ export default function ForgePage() {
     folder_rules: "",
     process_rules: [],
     fb_rules: [],
-    code_language: "SCL" as const,
+    device_fb_language: "SCL" as const,
+    io_linking_language: "SCL" as const,
     process_code_language: "SCL" as const,
     hmi_theme: "default",
     naming_prefix: "",
@@ -187,6 +188,7 @@ export default function ForgePage() {
           <ForgeHardwareIo
             specAnalysis={session.spec_analysis}
             fbTemplates={fbTemplates}
+            deviceFbLanguage={profileOrDefault.device_fb_language}
             onComplete={handleHardwareIoComplete}
           />
         );
