@@ -17,6 +17,16 @@ export interface DesignProfile {
   folder_rules: string;
   process_rules: ProcessRuleExample[];
   fb_rules: ProcessRuleExample[];
+  /** Primary code language for device FBs (migration 025) */
+  code_language: "SCL" | "LAD" | "MIXED";
+  /** Language override for process/sequence code (migration 025) */
+  process_code_language: "SCL" | "LAD" | "MIXED";
+  /** HMI screen theme identifier (migration 025) */
+  hmi_theme: string;
+  /** FB/FC naming prefix for customer, e.g. "FB_CK_" (migration 025) */
+  naming_prefix: string;
+  /** DB naming prefix for customer, e.g. "DB_CK_" (migration 025) */
+  db_naming_prefix: string;
   created_by: string | null;
   updated_at: string;
   created_at: string;
