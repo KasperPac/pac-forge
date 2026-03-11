@@ -214,6 +214,28 @@ export function ForgeHardwareIo({
   const [showAddForm, setShowAddForm] = useState(false);
   const [addForm, setAddForm] = useState<AddDeviceForm>(EMPTY_FORM);
 
+  // Populate from spec analysis when it arrives late (React Query async)
+  useEffect(() => {
+    if (!specAnalysis) return;
+
+    setDevices((prev) => {
+      if (prev.length > 0) return prev;
+      const raw = devicesFromAnalysis(specAnalysis);
+      const matches = matchDevicesToTemplates(raw, fbTemplates);
+      return applyMatchesToDevices(raw, matches);
+    });
+
+    setIoList((prev) => {
+      if (prev.length > 0) return prev;
+      return ioFromAnalysis(specAnalysis);
+    });
+
+    setHardware((prev) => {
+      if (prev.cpu_type !== "S7-1500" || prev.racks[0]?.modules?.length > 0) return prev;
+      return { ...prev, cpu_type: specAnalysis.plc_type || prev.cpu_type };
+    });
+  }, [specAnalysis, fbTemplates]);
+
   // Re-run matcher when templates arrive
   useEffect(() => {
     if (fbTemplates.length > 0) {
