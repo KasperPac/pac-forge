@@ -36,7 +36,7 @@ export interface ForgeHardwareIoProps {
 const SIGNAL_TYPES = ["DI", "DQ", "AI", "AQ"] as const;
 
 function devicesFromAnalysis(analysis: SpecAnalysis): ForgeDeviceEntry[] {
-  return analysis.devices.map(d => ({
+  return (analysis.devices ?? []).map(d => ({
     id: d.id,
     name: d.name,
     tag: d.tag,
@@ -53,7 +53,7 @@ function devicesFromAnalysis(analysis: SpecAnalysis): ForgeDeviceEntry[] {
 
 function ioFromAnalysis(analysis: SpecAnalysis): ForgeIoEntry[] {
   const entries: ForgeIoEntry[] = [];
-  for (const device of analysis.devices) {
+  for (const device of (analysis.devices ?? [])) {
     for (const sig of device.io_signals) {
       entries.push({
         address: "",

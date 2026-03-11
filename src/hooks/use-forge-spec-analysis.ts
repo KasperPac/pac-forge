@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { callNonStreaming } from "@/hooks/use-generation";
+import { validateAndCall } from "@/lib/forge-pipeline-validator";
 import {
   buildSpecAnalysisPrompt,
   buildSpecAnalysisUserMessage,
@@ -58,11 +59,13 @@ export function useForgeSpecAnalysis() {
         const systemPrompt = buildSpecAnalysisPrompt();
         const userMessage = buildSpecAnalysisUserMessage(specText);
 
-        const { content } = await callNonStreaming(
+        const { content } = await validateAndCall(
+          callNonStreaming,
           systemPrompt,
           [{ role: "user", content: userMessage }],
           abort.signal,
           SPEC_ANALYSIS_MAX_TOKENS,
+          "spec_analysis",
         );
 
         // Strip any accidental markdown fences the model may add

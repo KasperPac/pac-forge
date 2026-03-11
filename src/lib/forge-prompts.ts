@@ -213,8 +213,9 @@ export function buildDeviceLadPrompt(
   _device: ForgeDeviceEntry,
   context: DeviceGenContext,
 ): string {
-  const { profile, platformRules } = context;
+  const { profile, platformRules, patterns } = context;
   const profileSection = formatProfile(profile);
+  const patternSection = formatPatterns(patterns ?? []);
 
   return `You are a Siemens TIA Portal LAD (Ladder Logic) programmer generating ladder rungs for a single device.
 
@@ -222,6 +223,8 @@ ${profileSection}
 
 ## Platform Rules
 ${platformRules}
+
+${patternSection}
 
 ## Output Format
 Return a JSON object matching the LadProgram type (defined below). Do NOT include any SCL. Do NOT wrap in markdown fences — return raw JSON only.
@@ -408,8 +411,9 @@ Generate a complete, compile-ready CASE state machine FC.`;
  * System prompt for generating process/sequence code in LAD (sequential ladder).
  */
 export function buildProcessLadPrompt(context: ProcessGenContext): string {
-  const { profile, platformRules } = context;
+  const { profile, platformRules, patterns } = context;
   const profileSection = formatProfile(profile);
+  const patternSection = formatPatterns(patterns ?? []);
 
   return `You are generating sequential ladder logic for a process sequence using Siemens TIA Portal LAD format.
 
@@ -420,6 +424,8 @@ ${platformRules}
 
 ## Device FB Interfaces
 ${context.deviceFbInterfaces || "(no device FBs)"}
+
+${patternSection}
 
 ## Approach
 Use step bits (BOOL static variables, e.g. statStep01, statStep02) and transition rungs.

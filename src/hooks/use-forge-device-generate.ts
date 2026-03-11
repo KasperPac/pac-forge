@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { callNonStreaming } from "@/hooks/use-generation";
+import { validateAndCall } from "@/lib/forge-pipeline-validator";
 import {
   buildDeviceSclPrompt,
   buildDeviceSclUserMessage,
@@ -138,11 +139,14 @@ export function useForgeDeviceGenerate() {
         userMessage = buildDeviceSclUserMessage(device);
       }
 
-      const { content } = await callNonStreaming(
+      const { content } = await validateAndCall(
+        callNonStreaming,
         systemPrompt,
         [{ role: "user", content: userMessage }],
         abort.signal,
         DEVICE_GEN_MAX_TOKENS,
+        isLad ? "code_architect_lad" : "code_architect_scl",
+        !!profile,
       );
 
       if (isLad) {
@@ -169,11 +173,15 @@ export function useForgeDeviceGenerate() {
         patterns,
       };
 
-      const { content } = await callNonStreaming(
-        buildIoLinkingPrompt(session.device_list, session.io_list as ForgeIoEntry[], context),
+      const ioSystemPrompt = buildIoLinkingPrompt(session.device_list, session.io_list as ForgeIoEntry[], context);
+      const { content } = await validateAndCall(
+        callNonStreaming,
+        ioSystemPrompt,
         [{ role: "user", content: `Generate the IO linking FC for all devices. Use ${ioLang}.` }],
         abort.signal,
         DEVICE_GEN_MAX_TOKENS,
+        "io_linking",
+        !!profile,
       );
 
       return parseSclArtifacts(content, "device");

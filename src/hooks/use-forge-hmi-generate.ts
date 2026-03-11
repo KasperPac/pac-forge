@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { callNonStreaming } from "@/hooks/use-generation";
+import { validateAndCall } from "@/lib/forge-pipeline-validator";
 import { buildHmiPrompt, buildHmiUserMessage } from "@/lib/forge-prompts";
 import type { ForgeSession, ForgeArtifact, ForgeDeviceEntry } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
@@ -57,11 +58,14 @@ export function useForgeHmiGenerate() {
         const systemPrompt = buildHmiPrompt(devices, theme);
         const userMessage = buildHmiUserMessage(devices);
 
-        const { content } = await callNonStreaming(
+        const { content } = await validateAndCall(
+          callNonStreaming,
           systemPrompt,
           [{ role: "user", content: userMessage }],
           abort.signal,
           HMI_GEN_MAX_TOKENS,
+          "hmi_generator",
+          !!profile,
         );
 
         return parseHmiArtifacts(content);

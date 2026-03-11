@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { callNonStreaming } from "@/hooks/use-generation";
+import { validateAndCall } from "@/lib/forge-pipeline-validator";
 import {
   buildProcessSclPrompt,
   buildProcessSclUserMessage,
@@ -150,11 +151,14 @@ export function useForgeProcessGenerate() {
         userMessage = buildProcessSclUserMessage(sequence, devices);
       }
 
-      const { content } = await callNonStreaming(
+      const { content } = await validateAndCall(
+        callNonStreaming,
         systemPrompt,
         [{ role: "user", content: userMessage }],
         abort.signal,
         PROCESS_GEN_MAX_TOKENS,
+        isLad ? "process_lad" : "process_scl",
+        !!profile,
       );
 
       if (isLad) {
