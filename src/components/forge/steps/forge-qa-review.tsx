@@ -12,7 +12,7 @@ import type { SpecAnalysis, QaMessage } from "@/types/forge";
 
 export interface ForgeQaReviewProps {
   specAnalysis: SpecAnalysis;
-  onComplete: (updatedAnalysis: SpecAnalysis, messages: QaMessage[]) => void;
+  onComplete: (updatedAnalysis: SpecAnalysis, messages: QaMessage[]) => void | Promise<void>;
   onSkip: () => void;
 }
 
@@ -140,6 +140,7 @@ export function ForgeQaReview({ specAnalysis, onComplete, onSkip }: ForgeQaRevie
 
   const [input, setInput] = useState("");
   const [finalizing, setFinalizing] = useState(false);
+  const [completeError, setCompleteError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [started, setStarted] = useState(false);
@@ -176,11 +177,18 @@ export function ForgeQaReview({ specAnalysis, onComplete, onSkip }: ForgeQaRevie
 
   async function handleConfirmAndContinue() {
     setFinalizing(true);
+    setCompleteError(null);
     try {
-      const updated = await finalizeAnalysis(specAnalysis);
-      onComplete(updated, messages);
-    } catch {
-      // error shown in UI
+      let updated: SpecAnalysis;
+      try {
+        updated = await finalizeAnalysis(specAnalysis);
+      } catch {
+        // Finalization failed — proceed with original analysis so the step always advances
+        updated = specAnalysis;
+      }
+      await Promise.resolve(onComplete(updated, messages));
+    } catch (err) {
+      setCompleteError(err instanceof Error ? err.message : "Failed to advance step");
     } finally {
       setFinalizing(false);
     }
@@ -238,10 +246,10 @@ export function ForgeQaReview({ specAnalysis, onComplete, onSkip }: ForgeQaRevie
         </ScrollArea>
 
         {/* Error */}
-        {error && (
+        {(error ?? completeError) && (
           <div className="flex items-center gap-2 rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
             <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-            {error}
+            {error ?? completeError}
           </div>
         )}
 
