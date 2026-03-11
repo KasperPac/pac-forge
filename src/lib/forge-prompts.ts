@@ -724,3 +724,207 @@ Create:
 
 Return the HmiScreenSpec JSON array now.`;
 }
+
+// ---------------------------------------------------------------------------
+// Matrix generation prompts
+// ---------------------------------------------------------------------------
+
+const PROCESS_LINKAGE_MATRIX_SCHEMA = `{
+  "version": 1,
+  "deviceLinkage": [
+    {
+      "id": "string (unique, e.g. DEV001)",
+      "name": "string (device name matching confirmed device list)",
+      "deviceType": "string",
+      "description": "string",
+      "fbName": "string (FB block name, e.g. ControlMotorDol)",
+      "fbTemplateName": "string | null",
+      "fbTemplateId": "string | null",
+      "instanceDbName": "string (e.g. InstMotor1)",
+      "wiring": [
+        {
+          "id": "string (unique)",
+          "paramName": "string (FB parameter name)",
+          "direction": "in | out",
+          "connectedTo": "string (IO tag name, global DB field, or other FB output)",
+          "wireType": "fb | io | global | constant",
+          "dataType": "string (optional, e.g. Bool, Int)"
+        }
+      ],
+      "interlocks": [
+        {
+          "id": "string (unique)",
+          "targetDeviceName": "string (device this interlock involves)",
+          "condition": "string (condition description)",
+          "direction": "requires | blocks | follows"
+        }
+      ]
+    }
+  ],
+  "globalData": [
+    {
+      "id": "string (unique)",
+      "dbName": "string (global DB name)",
+      "purpose": "string",
+      "fields": [
+        {
+          "id": "string (unique)",
+          "fieldName": "string",
+          "dataType": "string",
+          "description": "string"
+        }
+      ]
+    }
+  ],
+  "processSequences": [
+    {
+      "id": "string (unique)",
+      "name": "string (sequence name)",
+      "description": "string",
+      "permissives": [
+        {
+          "id": "string (unique)",
+          "description": "string",
+          "deviceName": "string | null",
+          "polarity": true
+        }
+      ],
+      "safetyConditions": [
+        {
+          "id": "string (unique)",
+          "description": "string",
+          "deviceName": "string | null",
+          "polarity": true
+        }
+      ],
+      "steps": [
+        {
+          "id": "string (unique)",
+          "stepNumber": 0,
+          "transition": {
+            "combinator": "AND | OR",
+            "conditions": [
+              {
+                "id": "string (unique)",
+                "description": "string (transition condition)",
+                "deviceName": "string | null"
+              }
+            ]
+          },
+          "actions": [
+            {
+              "id": "string (unique)",
+              "description": "string (what happens in this step)",
+              "deviceName": "string | null"
+            }
+          ],
+          "devicesInvolved": ["string (device names)"],
+          "notes": "string"
+        }
+      ]
+    }
+  ],
+  "notes": "string (overall notes)",
+  "generatedAt": "string (ISO timestamp)",
+  "lastReviewedAt": null,
+  "reviewStatus": "draft"
+}`;
+
+/**
+ * System prompt for the PM agent to generate a ProcessLinkageMatrix from project data.
+ */
+export function buildMatrixGenerationPrompt(): string {
+  return `You are a senior Siemens TIA Portal automation project manager generating a Process Linkage Matrix from an existing project specification and confirmed device list.
+
+The matrix captures:
+1. **Device linkage** — which FB each device uses, instance DB names, wiring between FB parameters and IO tags or global data, and interlocks between devices
+2. **Global data** — shared data blocks needed across devices (HMI interface, process data, alarms)
+3. **Process sequences** — the full state-machine logic with permissives, safety conditions, and step transitions
+
+## Rules
+- Device names must EXACTLY match the confirmed device list provided
+- FB names must follow UpperCamelCase naming (e.g. ControlMotorDol, ControlValvePneumatic)
+- Instance DB names must use the \`Inst\` prefix (e.g. InstMotor1, InstConveyor1)
+- Wiring must use the correct wireType:
+  - \`io\` — connected to a PLC IO tag (e.g. "TagName")
+  - \`fb\` — connected to another FB output (e.g. "InstPump1.busy")
+  - \`global\` — connected to a global DB field (e.g. "HmiData.motor1Start")
+  - \`constant\` — a fixed value (e.g. "TRUE", "500")
+- Interlocks must reference devices that exist in the device list
+- Process sequences must include numbered steps starting at step 0 (idle)
+- Step transitions use AND/OR combinator with explicit conditions and device references
+- Safety conditions are continuously monitored — device stops on failure
+- All IDs must be unique strings (use numeric suffix, e.g. "w1", "w2", "i1", "s1")
+- generatedAt must be the current ISO timestamp
+
+## Output Format
+Wrap the JSON in [PROCESS_MATRIX]...[/PROCESS_MATRIX] tags:
+[PROCESS_MATRIX]
+{ ... }
+[/PROCESS_MATRIX]
+
+Match this schema exactly:
+${PROCESS_LINKAGE_MATRIX_SCHEMA}`;
+}
+
+/**
+ * User message for matrix generation — formats device list, IO list, and spec sequences.
+ */
+export function buildMatrixGenerationUserMessage(
+  devices: ForgeDeviceEntry[],
+  ioList: ForgeIoEntry[],
+  specAnalysis: SpecAnalysis | null,
+): string {
+  const deviceTable = devices
+    .map((d) => {
+      const signals = d.io_signals
+        .map((s) => `    - ${s.tag_name} (${s.signal_type}): ${s.description}`)
+        .join("\n");
+      const fbInfo = d.fb_template_id
+        ? `FB Template: ${d.fb_template_id} (${d.fb_match_confidence} match)`
+        : `FB Template: none (generate from scratch)`;
+      return `**${d.name}** [${d.tag}]\n  Type: ${d.device_type}\n  Subsystem: ${d.subsystem}\n  ${fbInfo}\n  IO Signals:\n${signals || "    (none)"}`;
+    })
+    .join("\n\n");
+
+  const ioSummary = ioList.length > 0
+    ? ioList
+        .slice(0, 50)
+        .map((io) => `  ${io.address}: ${io.tag_name} (${io.signal_type}) — ${io.description}`)
+        .join("\n")
+    : "  (none)";
+
+  const sequenceSummary = specAnalysis?.process_sequences?.length
+    ? specAnalysis.process_sequences
+        .map((seq) => {
+          const steps = seq.steps
+            .map((st) => `      Step ${st.step_number}: ${st.action} → ${st.completion_criteria}`)
+            .join("\n");
+          const perms = seq.permissives.length > 0 ? `\n    Permissives: ${seq.permissives.join(", ")}` : "";
+          return `  **${seq.name}** (${seq.subsystem})${perms}\n${steps}`;
+        })
+        .join("\n\n")
+    : "  (none)";
+
+  const interlocksText = specAnalysis?.interlocks?.length
+    ? specAnalysis.interlocks
+        .map((il) => `  - ${il.name}: ${il.condition} → affects: ${il.affected_devices.join(", ")}`)
+        .join("\n")
+    : "  (none)";
+
+  return `Generate the Process Linkage Matrix for this project.
+
+## Confirmed Device List (${devices.length} devices)
+${deviceTable}
+
+## IO List Summary (${ioList.length} signals)
+${ioSummary}${ioList.length > 50 ? `\n  ... and ${ioList.length - 50} more` : ""}
+
+## Process Sequences from Spec
+${sequenceSummary}
+
+## Interlocks from Spec
+${interlocksText}
+
+Generate the complete ProcessLinkageMatrix JSON now, wrapped in [PROCESS_MATRIX]...[/PROCESS_MATRIX] tags.`;
+}

@@ -15,6 +15,7 @@ import { ForgeSpecUpload } from "@/components/forge/steps/forge-spec-upload";
 import { ForgeProjectSetup } from "@/components/forge/steps/forge-project-setup";
 import { ForgeQaReview } from "@/components/forge/steps/forge-qa-review";
 import { ForgeHardwareIo } from "@/components/forge/steps/forge-hardware-io";
+import { ForgeMatrixReview } from "@/components/forge/steps/forge-matrix-review";
 import { ForgeDeviceCode } from "@/components/forge/steps/forge-device-code";
 import { ForgeProcessCode } from "@/components/forge/steps/forge-process-code";
 import { ForgeHmi } from "@/components/forge/steps/forge-hmi";
@@ -25,6 +26,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { useForgeStore } from "@/stores/forge-store";
 import { FORGE_STEP_LABELS, FORGE_STEP_ORDER } from "@/types/forge";
 import type { ForgeStep, ForgeArtifact, ForgeHardwareConfig, ForgeIoEntry, ForgeDeviceEntry, SpecAnalysis, TiaForgeExportResult, QaMessage } from "@/types/forge";
+import type { ProcessLinkageMatrix } from "@/types/process-builder";
 import {
   useActiveForgeSession,
   useCreateForgeSession,
@@ -129,8 +131,13 @@ export default function ForgePage() {
     ioList: ForgeIoEntry[],
     devices: ForgeDeviceEntry[],
   ) {
-    await saveSession({ hardware_config: hardware, io_list: ioList, device_list: devices, current_step: "device_code" });
+    await saveSession({ hardware_config: hardware, io_list: ioList, device_list: devices, current_step: "matrix_review" });
     completeStep("hardware_io");
+  }
+
+  async function handleMatrixComplete(matrix: ProcessLinkageMatrix) {
+    await saveSession({ linkage_matrix: matrix, current_step: "device_code" });
+    completeStep("matrix_review");
   }
 
   async function handleDeviceArtifactsUpdate(artifacts: ForgeArtifact[]) {
@@ -221,6 +228,14 @@ export default function ForgePage() {
             fbTemplates={fbTemplates}
             deviceFbLanguage={profileOrDefault.device_fb_language}
             onComplete={handleHardwareIoComplete}
+          />
+        );
+
+      case "matrix_review":
+        return (
+          <ForgeMatrixReview
+            session={session}
+            onComplete={handleMatrixComplete}
           />
         );
 

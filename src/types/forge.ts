@@ -1,8 +1,11 @@
+import type { ProcessLinkageMatrix } from "@/types/process-builder";
+
 export const FORGE_STEPS = {
   SPEC_UPLOAD: "spec_upload",
   QA_REVIEW: "qa_review",
   PROJECT_SETUP: "project_setup",
   HARDWARE_IO: "hardware_io",
+  MATRIX_REVIEW: "matrix_review",
   DEVICE_CODE: "device_code",
   PROCESS_CODE: "process_code",
   HMI: "hmi",
@@ -16,6 +19,7 @@ export const FORGE_STEP_LABELS: Record<ForgeStep, string> = {
   qa_review: "Q&A Review",
   project_setup: "Project Setup",
   hardware_io: "Hardware & IO",
+  matrix_review: "Matrix Review",
   device_code: "Device Code",
   process_code: "Process Code",
   hmi: "HMI Screens",
@@ -27,6 +31,7 @@ export const FORGE_STEP_ORDER: ForgeStep[] = [
   "qa_review",
   "project_setup",
   "hardware_io",
+  "matrix_review",
   "device_code",
   "process_code",
   "hmi",
@@ -67,7 +72,7 @@ export interface ForgeSession {
   device_list: ForgeDeviceEntry[];
   network_topology: Record<string, unknown>;
 
-  linkage_matrix: unknown | null;
+  linkage_matrix: ProcessLinkageMatrix | null;
 
   device_artifacts: ForgeArtifact[];
   process_artifacts: ForgeArtifact[];

@@ -31,6 +31,7 @@ const createInitialStepStatuses = (): Record<ForgeStep, ForgeStepStatus> => ({
   qa_review: "pending",
   project_setup: "pending",
   hardware_io: "pending",
+  matrix_review: "pending",
   device_code: "pending",
   process_code: "pending",
   hmi: "pending",
