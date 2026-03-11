@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Plus, FolderOpen } from "lucide-react";
+import { useNavigate } from "react-router";
+import { Plus, FolderOpen, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -16,6 +17,7 @@ import { DropboxFolderDialog } from "@/components/dropbox-folder-dialog";
 import type { Project, ProjectCreate } from "@/types";
 
 export default function ProjectsPage() {
+  const navigate = useNavigate();
   const { data: projects, isLoading, error } = useProjects();
   const createProject = useCreateProject();
   const deleteProject = useDeleteProject();
@@ -60,10 +62,16 @@ export default function ProjectsPage() {
             IO list, and generation sessions.
           </p>
         </div>
-        <Button size="sm" onClick={() => setCreateOpen(true)} className="mt-4 gap-1.5">
-          <Plus className="h-4 w-4" />
-          New Project
-        </Button>
+        <div className="mt-4 flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={() => navigate("/forge")} className="gap-1.5">
+            <Wand2 className="h-4 w-4" />
+            Open Wizard
+          </Button>
+          <Button size="sm" onClick={() => setCreateOpen(true)} className="gap-1.5">
+            <Plus className="h-4 w-4" />
+            New Project
+          </Button>
+        </div>
       </div>
 
       <Separator />

@@ -124,6 +124,7 @@ function NavGroupSection({
       {/* Group header */}
       {group.label && (
         <div className="pb-0.5 pt-3">
+          <div className="mb-1 border-t border-border/50" />
           {group.collapsible ? (
             <button
               onClick={() => setExpanded((prev) => !prev)}

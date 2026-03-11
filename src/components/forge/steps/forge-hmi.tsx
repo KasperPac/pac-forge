@@ -1,20 +1,21 @@
-import { useState } from "react";
-import { CheckCircle2, Circle, Loader2, AlertCircle, Monitor } from "lucide-react";
+import { useMemo, useState } from "react";
+import { AlertCircle, CheckCircle2, Circle, Eye, Loader2, Monitor } from "lucide-react";
 import Editor from "@monaco-editor/react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-  ResizablePanelGroup,
-  ResizablePanel,
   ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { ForgeSubPipeline } from "@/components/forge/forge-sub-pipeline";
-import type { SubPipelineStage } from "@/components/forge/forge-sub-pipeline";
-import { useForgeHmiGenerate } from "@/hooks/use-forge-hmi-generate";
 import { useForgeCompileCheck } from "@/hooks/use-forge-compile-check";
-import type { ForgeSession, ForgeArtifact } from "@/types/forge";
+import { useForgeHmiGenerate } from "@/hooks/use-forge-hmi-generate";
+import type { SubPipelineStage } from "@/components/forge/forge-sub-pipeline";
 import type { DesignProfile } from "@/types/design-profile";
+import type { HmiScreenSpec } from "@/types/hmi-screen";
+import type { ForgeArtifact, ForgeSession } from "@/types/forge";
 
 export interface ForgeHmiProps {
   session: ForgeSession;
@@ -28,6 +29,18 @@ const INITIAL_STAGES: SubPipelineStage[] = [
   { label: "Approve", status: "pending" },
   { label: "Upload to TIA", status: "pending" },
 ];
+
+function parseScreenSpec(content: string | undefined): HmiScreenSpec | null {
+  if (!content) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(content) as HmiScreenSpec;
+  } catch {
+    return null;
+  }
+}
 
 export function ForgeHmi({
   session,
@@ -44,27 +57,37 @@ export function ForgeHmi({
   const { uploadHmi, loading: uploadLoading } = useForgeCompileCheck();
 
   const loading = genLoading || uploadLoading;
-  const selected = artifacts.find(a => a.id === selectedId) ?? null;
+  const selected = artifacts.find((artifact) => artifact.id === selectedId) ?? null;
+  const selectedScreen = useMemo(() => parseScreenSpec(selected?.content), [selected?.content]);
+  const approvedCount = artifacts.filter((artifact) => artifact.approved).length;
 
-  function setStageStatus(label: string, status: SubPipelineStage["status"], detail?: string) {
-    setStages(prev => prev.map(s => s.label === label ? { ...s, status, detail } : s));
+  function setStageStatus(
+    label: string,
+    status: SubPipelineStage["status"],
+    detail?: string,
+  ) {
+    setStages((previous) =>
+      previous.map((stage) => (stage.label === label ? { ...stage, status, detail } : stage)),
+    );
   }
 
   function toggleApprove(id: string) {
-    const updated = artifacts.map(a => a.id === id ? { ...a, approved: !a.approved } : a);
+    const updated = artifacts.map((artifact) =>
+      artifact.id === id ? { ...artifact, approved: !artifact.approved } : artifact,
+    );
     setArtifacts(updated);
     onArtifactsUpdate(updated);
   }
 
   function approveAll() {
-    const updated = artifacts.map(a => ({ ...a, approved: true }));
+    const updated = artifacts.map((artifact) => ({ ...artifact, approved: true }));
     setArtifacts(updated);
     onArtifactsUpdate(updated);
     setStageStatus("Approve", "completed", `${updated.length} screens`);
   }
 
   async function handleGenerate() {
-    setStages(INITIAL_STAGES.map(s => ({ ...s, status: "pending" })));
+    setStages(INITIAL_STAGES.map((stage) => ({ ...stage, status: "pending" })));
     setUploadErrors([]);
 
     try {
@@ -72,7 +95,9 @@ export function ForgeHmi({
       const generated = await generateAll(session, profile);
       setArtifacts(generated);
       onArtifactsUpdate(generated);
-      if (generated.length > 0) setSelectedId(generated[0].id);
+      if (generated.length > 0) {
+        setSelectedId(generated[0].id);
+      }
       setStageStatus("Generate", "completed", `${generated.length} screens`);
       setStageStatus("Approve", "pending");
     } catch {
@@ -81,11 +106,12 @@ export function ForgeHmi({
   }
 
   async function handleUpload() {
-    const approved = artifacts.filter(a => a.approved);
-    if (approved.length === 0) return;
+    const approved = artifacts.filter((artifact) => artifact.approved);
+    if (approved.length === 0) {
+      return;
+    }
 
-    const tiaProjectPath = session.tia_project_path;
-    if (!tiaProjectPath) {
+    if (!session.tia_project_path) {
       setUploadErrors(["No TIA project path set."]);
       return;
     }
@@ -93,27 +119,24 @@ export function ForgeHmi({
     setStageStatus("Approve", "completed", `${approved.length} approved`);
     setStageStatus("Upload to TIA", "running");
 
-    const errors = await uploadHmi(approved, tiaProjectPath);
+    const errors = await uploadHmi(approved, session.tia_project_path);
     if (errors.length === 0) {
       setStageStatus("Upload to TIA", "completed", `${approved.length} screens`);
       setUploadErrors([]);
-    } else {
-      setStageStatus("Upload to TIA", "failed", `${errors.length} errors`);
-      setUploadErrors(errors);
+      return;
     }
-  }
 
-  const approvedCount = artifacts.filter(a => a.approved).length;
+    setStageStatus("Upload to TIA", "failed", `${errors.length} errors`);
+    setUploadErrors(errors);
+  }
 
   return (
     <div className="flex h-full flex-col gap-3">
-      {/* Sub-pipeline progress */}
       <div className="rounded-md border border-border/50 bg-muted/10 px-3 py-2">
         <ForgeSubPipeline stages={stages} />
       </div>
 
       <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1 rounded-md border border-border/70">
-        {/* Left — screen list */}
         <ResizablePanel defaultSize={30} minSize={20}>
           <div className="flex h-full flex-col">
             <div className="border-b border-border/60 px-3 py-2">
@@ -131,28 +154,40 @@ export function ForgeHmi({
                 <div className="flex flex-col items-center gap-3 px-3 py-8 text-center">
                   <Monitor className="h-8 w-8 text-muted-foreground/40" />
                   <p className="text-xs text-muted-foreground">
-                    Click "Generate HMI Screens" to create overview and faceplate screens
+                    Click "Generate HMI Screens" to create overview and faceplate screens.
                   </p>
                 </div>
               ) : (
                 <div className="space-y-0.5 p-2">
-                  {artifacts.map(a => (
-                    <button
-                      key={a.id}
-                      onClick={() => setSelectedId(a.id)}
-                      className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs transition-colors ${selectedId === a.id ? "bg-primary/15 text-foreground" : "hover:bg-muted/40 text-muted-foreground"}`}
+                  {artifacts.map((artifact) => (
+                    <div
+                      key={artifact.id}
+                      className={`flex items-center gap-2 rounded-md px-2 py-2 text-xs transition-colors ${
+                        selectedId === artifact.id
+                          ? "bg-primary/15 text-foreground"
+                          : "text-muted-foreground hover:bg-muted/40"
+                      }`}
                     >
                       <button
-                        onClick={e => { e.stopPropagation(); toggleApprove(a.id); }}
+                        type="button"
+                        onClick={() => toggleApprove(artifact.id)}
                         className="shrink-0"
                       >
-                        {a.approved
-                          ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                          : <Circle className="h-3.5 w-3.5 text-muted-foreground/50" />}
+                        {artifact.approved ? (
+                          <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                        ) : (
+                          <Circle className="h-3.5 w-3.5 text-muted-foreground/50" />
+                        )}
                       </button>
-                      <Monitor className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-                      <span className="min-w-0 flex-1 truncate font-mono">{a.name}</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedId(artifact.id)}
+                        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                      >
+                        <Monitor className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+                        <span className="truncate font-mono">{artifact.name}</span>
+                      </button>
+                    </div>
                   ))}
                 </div>
               )}
@@ -162,36 +197,89 @@ export function ForgeHmi({
 
         <ResizableHandle withHandle />
 
-        {/* Right — JSON viewer */}
         <ResizablePanel defaultSize={70}>
           <div className="flex h-full flex-col">
-            <div className="border-b border-border/60 px-3 py-2">
+            <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
               <span className="font-mono text-[11px] text-muted-foreground">
-                {selected ? `${selected.name} — HmiScreenSpec JSON` : "Select a screen"}
+                {selected ? `${selected.name} - HmiScreenSpec JSON` : "Select a screen"}
               </span>
+              {selectedScreen && (
+                <Badge variant="outline" className="gap-1 font-mono text-[10px]">
+                  <Eye className="h-3 w-3" />
+                  {selectedScreen.elements.length} elements
+                </Badge>
+              )}
             </div>
-            <div className="min-h-0 flex-1">
-              <Editor
-                height="100%"
-                language="json"
-                value={selected?.content ?? "// Select a screen to view its HmiScreenSpec JSON"}
-                options={{
-                  readOnly: true,
-                  minimap: { enabled: false },
-                  fontSize: 12,
-                  fontFamily: "JetBrains Mono, Consolas, monospace",
-                  lineNumbers: "on",
-                  scrollBeyondLastLine: false,
-                  automaticLayout: true,
-                  theme: "vs-dark",
-                }}
-              />
+            <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(300px,0.85fr)_minmax(0,1.15fr)]">
+              <div className="flex min-h-[260px] flex-col border-b border-border/60 bg-background/40 lg:min-h-0 lg:border-b-0 lg:border-r">
+                <div className="border-b border-border/60 px-3 py-2">
+                  <span className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+                    Visual Preview
+                  </span>
+                </div>
+                <div className="flex min-h-0 flex-1 items-center justify-center p-4">
+                  {selectedScreen ? (
+                    <div
+                      className="relative w-full max-w-[420px] overflow-hidden rounded-md border border-border/70 bg-slate-950 shadow-inner"
+                      style={{
+                        aspectRatio: `${selectedScreen.width || 1920} / ${selectedScreen.height || 1080}`,
+                        backgroundColor: selectedScreen.backgroundColor || "#0f172a",
+                      }}
+                    >
+                      {selectedScreen.elements.slice(0, 24).map((element) => (
+                        <div
+                          key={element.id}
+                          className="absolute overflow-hidden rounded-[2px] border text-[8px]"
+                          style={{
+                            left: `${(element.x / Math.max(selectedScreen.width, 1)) * 100}%`,
+                            top: `${(element.y / Math.max(selectedScreen.height, 1)) * 100}%`,
+                            width: `${(element.width / Math.max(selectedScreen.width, 1)) * 100}%`,
+                            height: `${(element.height / Math.max(selectedScreen.height, 1)) * 100}%`,
+                            backgroundColor: element.style.backgroundColor ?? "rgba(30,41,59,0.85)",
+                            borderColor: element.style.borderColor ?? "rgba(148,163,184,0.6)",
+                            borderWidth: Math.max(element.style.borderWidth ?? 1, 1),
+                            color: element.style.textColor ?? "#e2e8f0",
+                            borderRadius: element.style.borderRadius ?? 2,
+                            opacity: element.style.opacity ?? 1,
+                            zIndex: element.zIndex,
+                          }}
+                          title={`${element.name} (${element.type})`}
+                        >
+                          <div className="truncate px-1 py-0.5 font-mono leading-tight">
+                            {element.text || element.name}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="max-w-xs text-center text-xs text-muted-foreground">
+                      Generate or select an HMI screen to preview its layout.
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="min-h-0">
+                <Editor
+                  height="100%"
+                  language="json"
+                  value={selected?.content ?? "// Select a screen to view its HmiScreenSpec JSON"}
+                  options={{
+                    readOnly: true,
+                    minimap: { enabled: false },
+                    fontSize: 12,
+                    fontFamily: "JetBrains Mono, Consolas, monospace",
+                    lineNumbers: "on",
+                    scrollBeyondLastLine: false,
+                    automaticLayout: true,
+                    theme: "vs-dark",
+                  }}
+                />
+              </div>
             </div>
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>
 
-      {/* Toolbar */}
       <div className="flex flex-col gap-2">
         {(genError ?? uploadErrors.length > 0) && (
           <div className="flex flex-col gap-1 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2">
@@ -201,10 +289,10 @@ export function ForgeHmi({
                 {genError}
               </div>
             )}
-            {uploadErrors.map((e, i) => (
-              <div key={i} className="flex items-center gap-2 text-xs text-destructive">
+            {uploadErrors.map((error, index) => (
+              <div key={index} className="flex items-center gap-2 text-xs text-destructive">
                 <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                {e}
+                {error}
               </div>
             ))}
           </div>
@@ -215,9 +303,11 @@ export function ForgeHmi({
             {genLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             Generate HMI Screens
           </Button>
-          {artifacts.length > 0 && (
+          {artifacts.length > 0 ? (
             <>
-              <Button variant="outline" onClick={approveAll} disabled={loading}>Approve All</Button>
+              <Button variant="outline" onClick={approveAll} disabled={loading}>
+                Approve All
+              </Button>
               <Button
                 variant="outline"
                 onClick={handleUpload}
@@ -233,12 +323,15 @@ export function ForgeHmi({
                 {approvedCount > 0 ? `Continue (${approvedCount} approved)` : "Skip HMI"}
               </Button>
             </>
-          )}
-          {artifacts.length === 0 && !loading && (
-            <>
-              <div className="flex-1" />
-              <Button variant="outline" onClick={onComplete}>Skip HMI</Button>
-            </>
+          ) : (
+            !loading && (
+              <>
+                <div className="flex-1" />
+                <Button variant="outline" onClick={onComplete}>
+                  Skip HMI
+                </Button>
+              </>
+            )
           )}
         </div>
       </div>
