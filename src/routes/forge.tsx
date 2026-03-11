@@ -56,7 +56,7 @@ export default function ForgePage() {
   );
 
   // Session
-  const { data: session, isLoading: sessionLoading } = useActiveForgeSession(projectId);
+  const { data: session, isLoading: sessionLoading, isError: sessionError } = useActiveForgeSession(projectId);
   const { mutateAsync: createSession } = useCreateForgeSession();
   const { mutateAsync: updateSession } = useUpdateForgeSession();
 
@@ -307,6 +307,10 @@ export default function ForgePage() {
           <div className="flex h-full items-center justify-center gap-2 text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin" />
             <span className="text-sm">Loading session…</span>
+          </div>
+        ) : sessionError ? (
+          <div className="flex h-full items-center justify-center">
+            <p className="font-mono text-sm text-destructive">Failed to load session — check database connection and migrations.</p>
           </div>
         ) : (
           renderStep()
