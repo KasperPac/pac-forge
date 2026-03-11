@@ -9,7 +9,10 @@ import {
   ResizablePanel,
   ResizableHandle,
 } from "@/components/ui/resizable";
+import { ForgeSubPipeline } from "@/components/forge/forge-sub-pipeline";
+import type { SubPipelineStage } from "@/components/forge/forge-sub-pipeline";
 import { useForgeHmiGenerate } from "@/hooks/use-forge-hmi-generate";
+import { useForgeCompileCheck } from "@/hooks/use-forge-compile-check";
 import type { ForgeSession, ForgeArtifact } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
 
@@ -20,6 +23,12 @@ export interface ForgeHmiProps {
   onComplete: () => void;
 }
 
+const INITIAL_STAGES: SubPipelineStage[] = [
+  { label: "Generate", status: "pending" },
+  { label: "Approve", status: "pending" },
+  { label: "Upload to TIA", status: "pending" },
+];
+
 export function ForgeHmi({
   session,
   profile,
@@ -28,9 +37,18 @@ export function ForgeHmi({
 }: ForgeHmiProps) {
   const [artifacts, setArtifacts] = useState<ForgeArtifact[]>(session.hmi_artifacts ?? []);
   const [selectedId, setSelectedId] = useState<string | null>(artifacts[0]?.id ?? null);
-  const { generateAll, loading, error } = useForgeHmiGenerate();
+  const [stages, setStages] = useState<SubPipelineStage[]>(INITIAL_STAGES);
+  const [uploadErrors, setUploadErrors] = useState<string[]>([]);
 
+  const { generateAll, loading: genLoading, error: genError } = useForgeHmiGenerate();
+  const { uploadHmi, loading: uploadLoading } = useForgeCompileCheck();
+
+  const loading = genLoading || uploadLoading;
   const selected = artifacts.find(a => a.id === selectedId) ?? null;
+
+  function setStageStatus(label: string, status: SubPipelineStage["status"], detail?: string) {
+    setStages(prev => prev.map(s => s.label === label ? { ...s, status, detail } : s));
+  }
 
   function toggleApprove(id: string) {
     const updated = artifacts.map(a => a.id === id ? { ...a, approved: !a.approved } : a);
@@ -42,16 +60,46 @@ export function ForgeHmi({
     const updated = artifacts.map(a => ({ ...a, approved: true }));
     setArtifacts(updated);
     onArtifactsUpdate(updated);
+    setStageStatus("Approve", "completed", `${updated.length} screens`);
   }
 
   async function handleGenerate() {
+    setStages(INITIAL_STAGES.map(s => ({ ...s, status: "pending" })));
+    setUploadErrors([]);
+
     try {
+      setStageStatus("Generate", "running");
       const generated = await generateAll(session, profile);
       setArtifacts(generated);
       onArtifactsUpdate(generated);
       if (generated.length > 0) setSelectedId(generated[0].id);
+      setStageStatus("Generate", "completed", `${generated.length} screens`);
+      setStageStatus("Approve", "pending");
     } catch {
-      // error handled by hook
+      setStageStatus("Generate", "failed");
+    }
+  }
+
+  async function handleUpload() {
+    const approved = artifacts.filter(a => a.approved);
+    if (approved.length === 0) return;
+
+    const tiaProjectPath = session.tia_project_path;
+    if (!tiaProjectPath) {
+      setUploadErrors(["No TIA project path set."]);
+      return;
+    }
+
+    setStageStatus("Approve", "completed", `${approved.length} approved`);
+    setStageStatus("Upload to TIA", "running");
+
+    const errors = await uploadHmi(approved, tiaProjectPath);
+    if (errors.length === 0) {
+      setStageStatus("Upload to TIA", "completed", `${approved.length} screens`);
+      setUploadErrors([]);
+    } else {
+      setStageStatus("Upload to TIA", "failed", `${errors.length} errors`);
+      setUploadErrors(errors);
     }
   }
 
@@ -59,6 +107,11 @@ export function ForgeHmi({
 
   return (
     <div className="flex h-full flex-col gap-3">
+      {/* Sub-pipeline progress */}
+      <div className="rounded-md border border-border/50 bg-muted/10 px-3 py-2">
+        <ForgeSubPipeline stages={stages} />
+      </div>
+
       <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1 rounded-md border border-border/70">
         {/* Left — screen list */}
         <ResizablePanel defaultSize={30} minSize={20}>
@@ -140,21 +193,41 @@ export function ForgeHmi({
 
       {/* Toolbar */}
       <div className="flex flex-col gap-2">
-        {error && (
-          <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-            {error}
+        {(genError ?? uploadErrors.length > 0) && (
+          <div className="flex flex-col gap-1 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2">
+            {genError && (
+              <div className="flex items-center gap-2 text-xs text-destructive">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                {genError}
+              </div>
+            )}
+            {uploadErrors.map((e, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs text-destructive">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                {e}
+              </div>
+            ))}
           </div>
         )}
 
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={handleGenerate} disabled={loading} className="gap-2">
-            {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {genLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             Generate HMI Screens
           </Button>
           {artifacts.length > 0 && (
             <>
-              <Button variant="outline" onClick={approveAll}>Approve All</Button>
+              <Button variant="outline" onClick={approveAll} disabled={loading}>Approve All</Button>
+              <Button
+                variant="outline"
+                onClick={handleUpload}
+                disabled={loading || approvedCount === 0 || !session.tia_project_path}
+                title={!session.tia_project_path ? "No TIA project path set" : ""}
+                className="gap-2"
+              >
+                {uploadLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Upload to TIA
+              </Button>
               <div className="flex-1" />
               <Button onClick={onComplete}>
                 {approvedCount > 0 ? `Continue (${approvedCount} approved)` : "Skip HMI"}

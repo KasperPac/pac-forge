@@ -10,7 +10,12 @@ import {
   ResizablePanel,
   ResizableHandle,
 } from "@/components/ui/resizable";
+import { ForgeSubPipeline } from "@/components/forge/forge-sub-pipeline";
+import type { SubPipelineStage } from "@/components/forge/forge-sub-pipeline";
 import { useForgeDeviceGenerate } from "@/hooks/use-forge-device-generate";
+import { useForgeReview } from "@/hooks/use-forge-review";
+import { useForgeRewrite } from "@/hooks/use-forge-rewrite";
+import { useForgeCompileCheck } from "@/hooks/use-forge-compile-check";
 import type { ForgeSession, ForgeArtifact } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
 import type { FbTemplate } from "@/types/fb-template";
@@ -52,6 +57,15 @@ function langBadge(lang: ForgeArtifact["language"]) {
   );
 }
 
+const INITIAL_STAGES: SubPipelineStage[] = [
+  { label: "Generate FBs", status: "pending" },
+  { label: "Review", status: "pending" },
+  { label: "Fix", status: "pending" },
+  { label: "Approve", status: "pending" },
+  { label: "Upload", status: "pending" },
+  { label: "Compile", status: "pending" },
+];
+
 export function ForgeDeviceCode({
   session,
   profile,
@@ -63,10 +77,21 @@ export function ForgeDeviceCode({
   const [artifacts, setArtifacts] = useState<ForgeArtifact[]>(session.device_artifacts ?? []);
   const [selectedId, setSelectedId] = useState<string | null>(artifacts[0]?.id ?? null);
   const [editable, setEditable] = useState(false);
+  const [stages, setStages] = useState<SubPipelineStage[]>(INITIAL_STAGES);
+  const [reviewSummary, setReviewSummary] = useState<string | null>(null);
+  const [compileErrors, setCompileErrors] = useState<string[]>([]);
 
-  const { generateAll, loading, progress, error } = useForgeDeviceGenerate();
+  const { generateAll, loading: genLoading, progress, error: genError } = useForgeDeviceGenerate();
+  const { review, loading: reviewLoading } = useForgeReview();
+  const { rewrite, loading: rewriteLoading } = useForgeRewrite();
+  const { compileCheck, loading: compileLoading, progress: compileProgress } = useForgeCompileCheck();
 
+  const loading = genLoading || reviewLoading || rewriteLoading || compileLoading;
   const selected = artifacts.find(a => a.id === selectedId) ?? null;
+
+  function setStageStatus(label: string, status: SubPipelineStage["status"], detail?: string) {
+    setStages(prev => prev.map(s => s.label === label ? { ...s, status, detail } : s));
+  }
 
   function toggleApprove(id: string) {
     const updated = artifacts.map(a => a.id === id ? { ...a, approved: !a.approved } : a);
@@ -78,6 +103,7 @@ export function ForgeDeviceCode({
     const updated = artifacts.map(a => ({ ...a, approved: true }));
     setArtifacts(updated);
     onArtifactsUpdate(updated);
+    setStageStatus("Approve", "completed", `${updated.length} artifacts`);
   }
 
   function updateContent(id: string, content: string) {
@@ -87,23 +113,106 @@ export function ForgeDeviceCode({
   }
 
   async function handleGenerateAll() {
+    setStages(INITIAL_STAGES.map(s => ({ ...s, status: "pending" })));
+    setReviewSummary(null);
+    setCompileErrors([]);
+
     try {
+      // 1. Generate
+      setStageStatus("Generate FBs", "running");
       const generated = await generateAll(session, profile, fbTemplates, patterns);
       setArtifacts(generated);
       onArtifactsUpdate(generated);
       if (generated.length > 0) setSelectedId(generated[0].id);
-    } catch {
-      // error state handled by hook
+      setStageStatus("Generate FBs", "completed", `${generated.length} artifacts`);
+
+      // 2. Review (FB scope)
+      setStageStatus("Review", "running");
+      const reviewResult = await review(generated, "fb", profile);
+
+      if (reviewResult.hasCritical || reviewResult.hasWarning) {
+        const count = reviewResult.findings.filter(f => f.severity === "CRITICAL" || f.severity === "WARNING").length;
+        setStageStatus("Review", "completed", `${count} issues`);
+
+        // 3. Rewrite
+        setStageStatus("Fix", "running");
+        const rewritten = await rewrite(generated, reviewResult.findings, profile);
+        setArtifacts(rewritten);
+        onArtifactsUpdate(rewritten);
+        setStageStatus("Fix", "completed", `${count} fixed`);
+        setReviewSummary(`Review found ${count} issue${count !== 1 ? "s" : ""} — code rewritten automatically.`);
+      } else {
+        setStageStatus("Review", "completed", "clean");
+        setStageStatus("Fix", "skipped");
+        setReviewSummary("Review passed — no issues found.");
+      }
+
+      setStageStatus("Approve", "pending");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const runningStage = stages.find(s => s.status === "running");
+      if (runningStage) setStageStatus(runningStage.label, "failed", msg);
+    }
+  }
+
+  async function handleUploadAndCompile() {
+    const approved = artifacts.filter(a => a.approved);
+    if (approved.length === 0) return;
+
+    const tiaProjectPath = session.tia_project_path;
+    if (!tiaProjectPath) {
+      setCompileErrors(["No TIA project path set — configure it in the TIA Export step first."]);
+      return;
+    }
+
+    setStageStatus("Approve", "completed", `${approved.length} approved`);
+    setStageStatus("Upload", "running");
+
+    try {
+      const result = await compileCheck(approved, tiaProjectPath);
+
+      if (result.success) {
+        setStageStatus("Upload", "completed");
+        setStageStatus("Compile", "completed", "clean");
+        setCompileErrors([]);
+
+        // Update artifacts with any auto-fixed versions
+        const updatedArtifacts = artifacts.map(orig => {
+          const fixed = result.artifacts.find(a => a.id === orig.id);
+          return fixed ?? orig;
+        });
+        setArtifacts(updatedArtifacts);
+        onArtifactsUpdate(updatedArtifacts);
+      } else {
+        setStageStatus("Upload", "completed");
+        setStageStatus("Compile", "failed", `${result.compileErrors.length} errors`);
+        setCompileErrors(result.compileErrors);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setStageStatus("Compile", "failed", msg);
+      setCompileErrors([msg]);
     }
   }
 
   const approvedCount = artifacts.filter(a => a.approved).length;
-  const progressPct = loading
+  const progressPct = genLoading
     ? Math.round((progress.current / Math.max(progress.total, 1)) * 100)
     : 0;
 
+  const compilePhaseLabel = compileProgress.phase === "fixing"
+    ? `Fixing (attempt ${compileProgress.attempt}/${3})`
+    : compileProgress.phase === "recompiling"
+    ? `Recompiling (attempt ${compileProgress.attempt})`
+    : null;
+
   return (
     <div className="flex h-full flex-col gap-3">
+      {/* Sub-pipeline progress */}
+      <div className="rounded-md border border-border/50 bg-muted/10 px-3 py-2">
+        <ForgeSubPipeline stages={stages} />
+      </div>
+
       <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1 rounded-md border border-border/70">
         {/* Left panel — artifact list */}
         <ResizablePanel defaultSize={35} minSize={25}>
@@ -196,11 +305,11 @@ export function ForgeDeviceCode({
 
       {/* Bottom toolbar */}
       <div className="flex flex-col gap-2">
-        {loading && (
+        {genLoading && (
           <div className="space-y-1">
             <div className="flex items-center justify-between">
               <span className="font-mono text-xs text-muted-foreground">
-                Generating: {progress.currentDevice}
+                {progress.currentDevice}
               </span>
               <span className="font-mono text-xs text-muted-foreground">
                 {progress.current}/{progress.total}
@@ -210,10 +319,33 @@ export function ForgeDeviceCode({
           </div>
         )}
 
-        {error && (
-          <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-            {error}
+        {compilePhaseLabel && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            {compilePhaseLabel}
+          </div>
+        )}
+
+        {reviewSummary && (
+          <div className={`flex items-center gap-2 rounded border px-3 py-2 text-xs ${reviewSummary.includes("passed") ? "border-green-600/30 bg-green-500/5 text-green-400" : "border-amber-600/30 bg-amber-500/5 text-amber-400"}`}>
+            {reviewSummary}
+          </div>
+        )}
+
+        {(genError ?? compileErrors.length > 0) && (
+          <div className="flex flex-col gap-1 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2">
+            {genError && (
+              <div className="flex items-center gap-2 text-xs text-destructive">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                {genError}
+              </div>
+            )}
+            {compileErrors.map((e, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs text-destructive">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                {e}
+              </div>
+            ))}
           </div>
         )}
 
@@ -224,14 +356,24 @@ export function ForgeDeviceCode({
             disabled={loading}
             className="gap-2"
           >
-            {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {(genLoading || reviewLoading || rewriteLoading) && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             Generate All
           </Button>
 
           {artifacts.length > 0 && (
             <>
-              <Button variant="outline" onClick={approveAll}>
+              <Button variant="outline" onClick={approveAll} disabled={loading}>
                 Approve All
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleUploadAndCompile}
+                disabled={loading || approvedCount === 0 || !session.tia_project_path}
+                title={!session.tia_project_path ? "No TIA project path set" : ""}
+                className="gap-2"
+              >
+                {compileLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Upload & Compile
               </Button>
               <div className="flex-1" />
               <Button
