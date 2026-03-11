@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router";
-import { FolderOpen, Bot, Code, Terminal, BookOpen, GraduationCap, Layers, SlidersHorizontal, FileText, Library, LogOut, User, Sun, Moon, Monitor, ChevronRight, MessageSquare, Blocks, Workflow, PanelLeftClose, PanelLeftOpen, GitBranchPlus, Wand2 } from "lucide-react";
+import { FolderOpen, Bot, Terminal, BookOpen, GraduationCap, Layers, SlidersHorizontal, FileText, Library, LogOut, User, Sun, Moon, Monitor, ChevronRight, MessageSquare, Blocks, PanelLeftClose, PanelLeftOpen, GitBranchPlus, Wand2 } from "lucide-react";
 import { AgentChatFab } from "@/components/agent-chat/agent-chat-fab";
 import pacLogo from "@/../media/logos/PacTechnologiesEdit_White.png";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -23,113 +23,180 @@ import { useBridgeStatus } from "@/hooks/use-tia-jobs";
 import { useUiStore } from "@/stores/ui-store";
 import { cn } from "@/lib/utils";
 
-interface NavChild {
-  to: string;
-  label: string;
-  icon: typeof Code;
-}
-
 interface NavItem {
   to: string;
   label: string;
-  icon: typeof Code;
-  children?: NavChild[];
+  icon: typeof FolderOpen;
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { to: "/projects", label: "Projects", icon: FolderOpen },
-  { to: "/forge", label: "Project Wizard", icon: Wand2 },
-  { to: "/agents", label: "Agents", icon: Bot },
+interface NavGroup {
+  label?: string;
+  collapsible?: boolean;
+  items: NavItem[];
+}
+
+const NAV_GROUPS: NavGroup[] = [
   {
-    to: "/pac-st",
-    label: "Pac-ST",
-    icon: Code,
-    children: [
-      { to: "/pac-st/chat", label: "Chat", icon: MessageSquare },
-      { to: "/pac-st/fb-builder", label: "FB Builder", icon: Blocks },
-      { to: "/pac-st/process", label: "Process Builder", icon: Workflow },
+    items: [
+      { to: "/projects", label: "Projects", icon: FolderOpen },
+      { to: "/forge", label: "Project Wizard", icon: Wand2 },
     ],
   },
   {
-    to: "/training",
+    label: "Code Tools",
+    items: [
+      { to: "/hmi-editor", label: "HMI Editor", icon: Monitor },
+      { to: "/pac-lad", label: "Pac-LAD", icon: GitBranchPlus },
+      { to: "/pac-st/fb-builder", label: "FB Builder", icon: Blocks },
+      { to: "/pac-st/chat", label: "Pac-ST Chat", icon: MessageSquare },
+    ],
+  },
+  {
+    label: "Configuration",
+    items: [
+      { to: "/profiles", label: "Profiles", icon: SlidersHorizontal },
+      { to: "/fb-library", label: "FB Library", icon: Layers },
+      { to: "/agents", label: "Agents", icon: Bot },
+    ],
+  },
+  {
     label: "Training",
-    icon: GraduationCap,
-    children: [
+    collapsible: true,
+    items: [
       { to: "/knowledge", label: "Knowledge", icon: GraduationCap },
       { to: "/reference-library", label: "Reference Library", icon: Library },
       { to: "/patterns", label: "Patterns", icon: BookOpen },
       { to: "/prompts", label: "Prompts", icon: FileText },
     ],
   },
-  { to: "/hmi-editor", label: "HMI Editor", icon: Monitor },
-  { to: "/pac-lad", label: "Pac-LAD", icon: GitBranchPlus },
-  { to: "/profiles", label: "Profiles", icon: SlidersHorizontal },
-  { to: "/fb-library", label: "FB Library", icon: Layers },
-  { to: "/tia-console", label: "TIA Console", icon: Terminal },
+  {
+    label: "System",
+    items: [
+      { to: "/tia-console", label: "TIA Console", icon: Terminal },
+    ],
+  },
 ];
 
-function NavGroupItem({ item, pendingPatternCount }: { item: NavItem; pendingPatternCount?: number }) {
+function NavGroupSection({
+  group,
+  collapsed,
+  pendingPatternCount,
+}: {
+  group: NavGroup;
+  collapsed: boolean;
+  pendingPatternCount?: number;
+}) {
   const location = useLocation();
-  const isChildActive = item.children?.some((c) => location.pathname.startsWith(c.to)) ?? false;
-  const [expanded, setExpanded] = useState(isChildActive);
+  const isAnyActive = group.items.some((item) => location.pathname.startsWith(item.to));
+  const [expanded, setExpanded] = useState(!group.collapsible || isAnyActive);
 
-  // Auto-expand when a child route becomes active
-  if (isChildActive && !expanded) setExpanded(true);
+  if (group.collapsible && isAnyActive && !expanded) setExpanded(true);
+
+  const itemsVisible = !group.collapsible || expanded;
+
+  if (collapsed) {
+    // Collapsed sidebar: just icons, no headers
+    return (
+      <>
+        {group.items.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            title={item.label}
+            className={({ isActive }) =>
+              cn(
+                "flex items-center justify-center rounded-md p-2 transition-colors",
+                isActive
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+              )
+            }
+          >
+            <item.icon className="h-4 w-4" />
+          </NavLink>
+        ))}
+      </>
+    );
+  }
 
   return (
-    <div>
-      <button
-        onClick={() => setExpanded((prev) => !prev)}
-        className={cn(
-          "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-          isChildActive
-            ? "bg-accent text-accent-foreground"
-            : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-        )}
-      >
-        <item.icon className="h-4 w-4" />
-        {item.label}
-        <ChevronRight
-          className={cn(
-            "ml-auto h-3.5 w-3.5 transition-transform duration-200",
-            expanded && "rotate-90"
-          )}
-        />
-      </button>
-      <div
-        className={cn(
-          "grid transition-[grid-template-rows] duration-200",
-          expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
-        )}
-      >
-        <div className="overflow-hidden">
-          <div className="space-y-0.5 pb-1 pl-6 pt-0.5">
-            {item.children?.map((child) => (
-              <NavLink
-                key={child.to}
-                to={child.to}
-                className={({ isActive }) =>
-                  cn(
-                    "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                    isActive
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                  )
-                }
-              >
-                <child.icon className="h-3.5 w-3.5" />
-                {child.label}
-                {child.to === "/patterns" && pendingPatternCount != null && pendingPatternCount > 0 && (
-                  <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500/20 px-1 font-mono text-[10px] text-amber-400">
-                    {pendingPatternCount}
-                  </span>
+    <div className="space-y-0.5">
+      {/* Group header */}
+      {group.label && (
+        <div className="pb-0.5 pt-3">
+          {group.collapsible ? (
+            <button
+              onClick={() => setExpanded((prev) => !prev)}
+              className="flex w-full items-center gap-1.5 px-3 py-0.5 text-left transition-colors hover:text-foreground"
+            >
+              <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                {group.label}
+              </span>
+              <ChevronRight
+                className={cn(
+                  "h-3 w-3 text-muted-foreground/60 transition-transform duration-200",
+                  expanded && "rotate-90"
                 )}
-              </NavLink>
-            ))}
+              />
+            </button>
+          ) : (
+            <div className="px-3 py-0.5">
+              <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                {group.label}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Items */}
+      {group.collapsible ? (
+        <div
+          className={cn(
+            "grid transition-[grid-template-rows] duration-200",
+            itemsVisible ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+          )}
+        >
+          <div className="overflow-hidden">
+            <div className="space-y-0.5">
+              {group.items.map((item) => (
+                <NavItem key={item.to} item={item} pendingPatternCount={pendingPatternCount} />
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="space-y-0.5">
+          {group.items.map((item) => (
+            <NavItem key={item.to} item={item} pendingPatternCount={pendingPatternCount} />
+          ))}
+        </div>
+      )}
     </div>
+  );
+}
+
+function NavItem({ item, pendingPatternCount }: { item: NavItem; pendingPatternCount?: number }) {
+  return (
+    <NavLink
+      to={item.to}
+      className={({ isActive }) =>
+        cn(
+          "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+          isActive
+            ? "bg-accent text-accent-foreground"
+            : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+        )
+      }
+    >
+      <item.icon className="h-4 w-4 shrink-0" />
+      {item.label}
+      {item.to === "/patterns" && pendingPatternCount != null && pendingPatternCount > 0 && (
+        <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500/20 px-1 font-mono text-[10px] text-amber-400">
+          {pendingPatternCount}
+        </span>
+      )}
+    </NavLink>
   );
 }
 
@@ -141,7 +208,7 @@ function Sidebar() {
     <aside
       className={cn(
         "flex flex-col border-r bg-background transition-[width] duration-200",
-        sidebarCollapsed ? "w-12" : "w-64",
+        sidebarCollapsed ? "w-12" : "w-56",
       )}
     >
       <div className={cn("flex items-center", sidebarCollapsed ? "justify-center p-2" : "p-4")}>
@@ -165,42 +232,22 @@ function Sidebar() {
 
       <Separator />
 
-      <nav className={cn("flex-1 space-y-1", sidebarCollapsed ? "p-1" : "p-2")}>
-        {NAV_ITEMS.map((item) =>
+      <nav className={cn("flex-1 overflow-y-auto", sidebarCollapsed ? "space-y-1 p-1" : "p-2")}>
+        {NAV_GROUPS.map((group, i) =>
           sidebarCollapsed ? (
-            <NavLink
-              key={item.to}
-              to={item.children?.[0]?.to ?? item.to}
-              className={({ isActive }) =>
-                cn(
-                  "flex items-center justify-center rounded-md p-2 transition-colors",
-                  isActive
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                )
-              }
-              title={item.label}
-            >
-              <item.icon className="h-4 w-4" />
-            </NavLink>
-          ) : item.children ? (
-            <NavGroupItem key={item.to} item={item} pendingPatternCount={pendingCount ?? undefined} />
+            <NavGroupSection
+              key={i}
+              group={group}
+              collapsed={true}
+              pendingPatternCount={pendingCount ?? undefined}
+            />
           ) : (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                cn(
-                  "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                )
-              }
-            >
-              <item.icon className="h-4 w-4" />
-              {item.label}
-            </NavLink>
+            <NavGroupSection
+              key={i}
+              group={group}
+              collapsed={false}
+              pendingPatternCount={pendingCount ?? undefined}
+            />
           )
         )}
       </nav>
