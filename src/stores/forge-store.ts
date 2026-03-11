@@ -28,6 +28,7 @@ interface ForgeStoreState {
 
 const createInitialStepStatuses = (): Record<ForgeStep, ForgeStepStatus> => ({
   spec_upload: "active",
+  qa_review: "pending",
   project_setup: "pending",
   hardware_io: "pending",
   device_code: "pending",

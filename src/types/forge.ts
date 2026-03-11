@@ -1,5 +1,6 @@
 export const FORGE_STEPS = {
   SPEC_UPLOAD: "spec_upload",
+  QA_REVIEW: "qa_review",
   PROJECT_SETUP: "project_setup",
   HARDWARE_IO: "hardware_io",
   DEVICE_CODE: "device_code",
@@ -12,6 +13,7 @@ export type ForgeStep = (typeof FORGE_STEPS)[keyof typeof FORGE_STEPS];
 
 export const FORGE_STEP_LABELS: Record<ForgeStep, string> = {
   spec_upload: "Functional Spec",
+  qa_review: "Q&A Review",
   project_setup: "Project Setup",
   hardware_io: "Hardware & IO",
   device_code: "Device Code",
@@ -22,6 +24,7 @@ export const FORGE_STEP_LABELS: Record<ForgeStep, string> = {
 
 export const FORGE_STEP_ORDER: ForgeStep[] = [
   "spec_upload",
+  "qa_review",
   "project_setup",
   "hardware_io",
   "device_code",
@@ -29,6 +32,17 @@ export const FORGE_STEP_ORDER: ForgeStep[] = [
   "hmi",
   "tia_export",
 ];
+
+// ---------------------------------------------------------------------------
+// Q&A review message
+// ---------------------------------------------------------------------------
+
+export interface QaMessage {
+  id: string;
+  role: "assistant" | "user";
+  content: string;
+  timestamp: string;
+}
 
 export type ForgeStepStatus = "pending" | "active" | "completed" | "failed";
 
@@ -46,6 +60,7 @@ export interface ForgeSession {
   spec_text: string | null;
   spec_filename: string | null;
   spec_analysis: SpecAnalysis | null;
+  qa_messages: QaMessage[];
 
   hardware_config: ForgeHardwareConfig;
   io_list: ForgeIoEntry[];

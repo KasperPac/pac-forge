@@ -1,16 +1,19 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Link2,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   FolderKanban,
   Sparkles,
   Loader2,
 } from "lucide-react";
 import { useParams, useSearchParams } from "react-router";
+import { cn } from "@/lib/utils";
 import { ForgeStepBar } from "@/components/forge/forge-step-bar";
 import { ForgeSpecUpload } from "@/components/forge/steps/forge-spec-upload";
 import { ForgeProjectSetup } from "@/components/forge/steps/forge-project-setup";
+import { ForgeQaReview } from "@/components/forge/steps/forge-qa-review";
 import { ForgeHardwareIo } from "@/components/forge/steps/forge-hardware-io";
 import { ForgeDeviceCode } from "@/components/forge/steps/forge-device-code";
 import { ForgeProcessCode } from "@/components/forge/steps/forge-process-code";
@@ -21,7 +24,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useForgeStore } from "@/stores/forge-store";
 import { FORGE_STEP_LABELS, FORGE_STEP_ORDER } from "@/types/forge";
-import type { ForgeStep, ForgeArtifact, ForgeHardwareConfig, ForgeIoEntry, ForgeDeviceEntry, SpecAnalysis, TiaForgeExportResult } from "@/types/forge";
+import type { ForgeStep, ForgeArtifact, ForgeHardwareConfig, ForgeIoEntry, ForgeDeviceEntry, SpecAnalysis, TiaForgeExportResult, QaMessage } from "@/types/forge";
 import {
   useActiveForgeSession,
   useCreateForgeSession,
@@ -55,6 +58,8 @@ export default function ForgePage() {
     () => FORGE_STEP_ORDER.filter(step => stepStatuses[step] === "completed").length,
     [stepStatuses],
   );
+
+  const [headerCollapsed, setHeaderCollapsed] = useState(false);
 
   // Session
   const { data: session, isLoading: sessionLoading, isError: sessionError } = useActiveForgeSession(projectId);
@@ -97,8 +102,13 @@ export default function ForgePage() {
 
   // Per-step handlers
   async function handleSpecComplete(specText: string, specFilename: string, analysis: SpecAnalysis) {
-    await saveSession({ spec_text: specText, spec_filename: specFilename, spec_analysis: analysis, current_step: "project_setup" });
+    await saveSession({ spec_text: specText, spec_filename: specFilename, spec_analysis: analysis, current_step: "qa_review" });
     completeStep("spec_upload");
+  }
+
+  async function handleQaComplete(updatedAnalysis: SpecAnalysis, messages: QaMessage[]) {
+    await saveSession({ spec_analysis: updatedAnalysis, qa_messages: messages, current_step: "project_setup" });
+    completeStep("qa_review");
   }
 
   async function handleProjectSetupComplete(setup: ForgeProjectSetupData) {
@@ -170,7 +180,28 @@ export default function ForgePage() {
         return (
           <ForgeSpecUpload
             onComplete={handleSpecComplete}
-            onSkip={() => completeStep("spec_upload")}
+            onSkip={() => {
+              // Skip both spec upload and Q&A
+              setStepStatus("qa_review", "completed");
+              completeStep("spec_upload");
+            }}
+          />
+        );
+
+      case "qa_review":
+        if (!session.spec_analysis) {
+          // No spec — skip straight to project setup
+          completeStep("qa_review");
+          return null;
+        }
+        return (
+          <ForgeQaReview
+            specAnalysis={session.spec_analysis}
+            onComplete={handleQaComplete}
+            onSkip={() => {
+              void saveSession({ current_step: "project_setup" });
+              completeStep("qa_review");
+            }}
           />
         );
 
@@ -238,75 +269,86 @@ export default function ForgePage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
-      {/* Header */}
+      {/* Header — collapsible */}
       <Card className="border-border/70 bg-card/80">
-        <CardHeader className="gap-4 pb-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Sparkles className="h-4 w-4 text-primary" />
-                <span className="font-mono text-xs uppercase tracking-[0.24em]">Project Wizard</span>
-              </div>
-              <div>
-                <CardTitle className="text-xl">Forge pipeline workspace</CardTitle>
-                <CardDescription className="mt-1 max-w-3xl text-sm">
-                  Guided flow from functional specification through TIA Portal export.
-                </CardDescription>
-              </div>
-            </div>
-
-            <div className="grid gap-2 sm:grid-cols-3">
-              <div className="rounded-lg border border-border/70 bg-background/50 px-3 py-2">
-                <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Project</div>
-                <div className="mt-1 flex items-center gap-2 text-sm">
-                  <FolderKanban className="h-4 w-4 text-primary" />
-                  <span className="truncate">{projectId ?? "No project"}</span>
-                </div>
-              </div>
-              <div className="rounded-lg border border-border/70 bg-background/50 px-3 py-2">
-                <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Progress</div>
-                <div className="mt-1 text-sm">{completedCount} / {FORGE_STEP_ORDER.length} complete</div>
-              </div>
-              <div className="rounded-lg border border-border/70 bg-background/50 px-3 py-2">
-                <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Session</div>
-                <div className="mt-1 flex items-center gap-2 text-sm font-mono">
-                  {sessionLoading
-                    ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                    : session
-                    ? <><Link2 className="h-3.5 w-3.5 text-green-500" />{session.id.slice(0, 8)}…</>
-                    : <span className="text-muted-foreground">No session</span>}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className="font-mono text-[11px] uppercase tracking-[0.18em]">
+        {/* Always-visible slim bar */}
+        <button
+          type="button"
+          onClick={() => setHeaderCollapsed(c => !c)}
+          className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-accent/30 transition-colors rounded-t-lg"
+        >
+          <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" />
+          <span className="font-mono text-xs uppercase tracking-[0.24em] text-muted-foreground">Project Wizard</span>
+          <div className="flex items-center gap-2 ml-2">
+            <Badge variant="outline" className="font-mono text-[10px] uppercase tracking-[0.14em]">
               Step {currentStepIndex + 1}
             </Badge>
-            <Badge variant="secondary" className="font-mono text-[11px] uppercase tracking-[0.18em]">
+            <Badge variant="secondary" className="font-mono text-[10px] uppercase tracking-[0.14em]">
               {FORGE_STEP_LABELS[currentStep]}
             </Badge>
             {!projectId && (
-              <Badge variant="destructive" className="font-mono text-[11px] uppercase tracking-[0.18em]">
+              <Badge variant="destructive" className="font-mono text-[10px] uppercase tracking-[0.14em]">
                 Missing projectId
               </Badge>
             )}
           </div>
-        </CardHeader>
+          <ChevronDown className={cn("ml-auto h-3.5 w-3.5 text-muted-foreground transition-transform duration-200", headerCollapsed && "-rotate-90")} />
+        </button>
+
+        {/* Collapsible body */}
+        <div className={cn("grid transition-[grid-template-rows] duration-200", headerCollapsed ? "grid-rows-[0fr]" : "grid-rows-[1fr]")}>
+          <div className="overflow-hidden">
+            <CardHeader className="gap-4 pb-4 pt-0">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div className="space-y-1">
+                  <CardTitle className="text-xl">Forge pipeline workspace</CardTitle>
+                  <CardDescription className="max-w-3xl text-sm">
+                    Guided flow from functional specification through TIA Portal export.
+                  </CardDescription>
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <div className="rounded-lg border border-border/70 bg-background/50 px-3 py-2">
+                    <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Project</div>
+                    <div className="mt-1 flex items-center gap-2 text-sm">
+                      <FolderKanban className="h-4 w-4 text-primary" />
+                      <span className="truncate">{projectId ?? "No project"}</span>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-border/70 bg-background/50 px-3 py-2">
+                    <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Progress</div>
+                    <div className="mt-1 text-sm">{completedCount} / {FORGE_STEP_ORDER.length} complete</div>
+                  </div>
+                  <div className="rounded-lg border border-border/70 bg-background/50 px-3 py-2">
+                    <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Session</div>
+                    <div className="mt-1 flex items-center gap-2 text-sm font-mono">
+                      {sessionLoading
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                        : session
+                        ? <><Link2 className="h-3.5 w-3.5 text-green-500" />{session.id.slice(0, 8)}…</>
+                        : <span className="text-muted-foreground">No session</span>}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardHeader>
+          </div>
+        </div>
       </Card>
 
-      {/* Step bar */}
-      <ForgeStepBar
-        steps={FORGE_STEP_ORDER}
-        currentStep={currentStep}
-        stepStatuses={stepStatuses}
-        onStepClick={step => {
-          if (step === currentStep || stepStatuses[step] === "completed") {
-            setCurrentStep(step);
-          }
-        }}
-      />
+      {/* Step bar — hidden when header is collapsed */}
+      {!headerCollapsed && (
+        <ForgeStepBar
+          steps={FORGE_STEP_ORDER}
+          currentStep={currentStep}
+          stepStatuses={stepStatuses}
+          onStepClick={step => {
+            if (step === currentStep || stepStatuses[step] === "completed") {
+              setCurrentStep(step);
+            }
+          }}
+        />
+      )}
 
       {/* Step content */}
       <div className="min-h-0 flex-1 rounded-md border border-border/70 bg-card/70 p-5">
