@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { CheckCircle2, Circle, Loader2, AlertCircle, Edit, Eye } from "lucide-react";
-import Editor from "@monaco-editor/react";
+import { CheckCircle2, Circle, Loader2, AlertCircle } from "lucide-react";
+import { ForgeCodeViewer } from "@/components/forge/forge-code-viewer";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -275,32 +275,16 @@ export function ForgeDeviceCode({
               <span className="font-mono text-[11px] text-muted-foreground">
                 {selected ? selected.name : "Select an artifact"}
               </span>
-              {selected && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 gap-1 px-2 font-mono text-[10px]"
-                  onClick={() => setEditable(e => !e)}
-                >
-                  {editable ? <><Eye className="h-3 w-3" /> Read-only</> : <><Edit className="h-3 w-3" /> Edit</>}
-                </Button>
-              )}
             </div>
             <div className="min-h-0 flex-1">
-              <Editor
-                height="100%"
-                language={selected?.language === "LAD" ? "json" : "plaintext"}
-                value={selected?.content ?? "// Select an artifact from the left panel"}
-                onChange={v => selected && editable && updateContent(selected.id, v ?? "")}
-                options={{
-                  readOnly: !editable,
-                  minimap: { enabled: false },
-                  fontSize: 12,
-                  fontFamily: "JetBrains Mono, Consolas, monospace",
-                  lineNumbers: "on",
-                  scrollBeyondLastLine: false,
-                  automaticLayout: true,
-                  theme: "vs-dark",
+              <ForgeCodeViewer
+                artifact={selected}
+                editable={editable}
+                onToggleEditable={() => setEditable((value) => !value)}
+                onContentChange={(content) => {
+                  if (selected) {
+                    updateContent(selected.id, content);
+                  }
                 }}
               />
             </div>

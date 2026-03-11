@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { CheckCircle2, Circle, Loader2, AlertCircle, Edit, Eye } from "lucide-react";
-import Editor from "@monaco-editor/react";
+import { CheckCircle2, Circle, Loader2, AlertCircle } from "lucide-react";
+import { ForgeCodeViewer } from "@/components/forge/forge-code-viewer";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -278,31 +278,15 @@ export function ForgeProcessCode({
                 <span className="font-mono text-[11px] text-muted-foreground">
                   {selected ? selected.name : "Select a sequence artifact"}
                 </span>
-                {selected && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 gap-1 px-2 font-mono text-[10px]"
-                    onClick={() => setEditable(e => !e)}
-                  >
-                    {editable ? <><Eye className="h-3 w-3" /> Read-only</> : <><Edit className="h-3 w-3" /> Edit</>}
-                  </Button>
-                )}
               </div>
-              <Editor
-                height="100%"
-                language="plaintext"
-                value={selected?.content ?? "// Select a sequence artifact to view generated code"}
-                onChange={v => selected && editable && updateContent(selected.id, v ?? "")}
-                options={{
-                  readOnly: !editable,
-                  minimap: { enabled: false },
-                  fontSize: 12,
-                  fontFamily: "JetBrains Mono, Consolas, monospace",
-                  lineNumbers: "on",
-                  scrollBeyondLastLine: false,
-                  automaticLayout: true,
-                  theme: "vs-dark",
+              <ForgeCodeViewer
+                artifact={selected}
+                editable={editable}
+                onToggleEditable={() => setEditable((value) => !value)}
+                onContentChange={(content) => {
+                  if (selected) {
+                    updateContent(selected.id, content);
+                  }
                 }}
               />
             </div>
