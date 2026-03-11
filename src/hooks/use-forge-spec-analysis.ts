@@ -24,9 +24,18 @@ function validateSpecAnalysis(parsed: unknown): SpecAnalysis {
     subsystems: Array.isArray(obj.subsystems)
       ? (obj.subsystems as SpecAnalysis["subsystems"])
       : [],
-    devices: Array.isArray(obj.devices) ? (obj.devices as SpecAnalysis["devices"]) : [],
+    devices: Array.isArray(obj.devices)
+      ? (obj.devices as Array<Record<string, unknown>>).map((d) => ({
+          ...d,
+          io_signals: Array.isArray(d.io_signals) ? d.io_signals : [],
+        })) as SpecAnalysis["devices"]
+      : [],
     process_sequences: Array.isArray(obj.process_sequences)
-      ? (obj.process_sequences as SpecAnalysis["process_sequences"])
+      ? (obj.process_sequences as Array<Record<string, unknown>>).map((s) => ({
+          ...s,
+          steps: Array.isArray(s.steps) ? s.steps : [],
+          permissives: Array.isArray(s.permissives) ? s.permissives : [],
+        })) as SpecAnalysis["process_sequences"]
       : [],
     alarms: Array.isArray(obj.alarms) ? (obj.alarms as SpecAnalysis["alarms"]) : [],
     interlocks: Array.isArray(obj.interlocks)

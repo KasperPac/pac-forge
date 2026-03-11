@@ -28,7 +28,7 @@ function SpecSummaryCard({ analysis }: { analysis: SpecAnalysis }) {
   if (fieldMissing(analysis.hmi_type)) missingFields.push("HMI type");
   if (analysis.devices.length === 0) missingFields.push("Devices");
   if (analysis.process_sequences.length === 0) missingFields.push("Process sequences");
-  const devicesWithoutIo = analysis.devices.filter((d) => d.io_signals.length === 0);
+  const devicesWithoutIo = analysis.devices.filter((d) => !d.io_signals?.length);
 
   return (
     <div className="flex flex-col gap-3">
