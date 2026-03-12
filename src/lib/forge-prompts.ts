@@ -443,7 +443,7 @@ export function buildIoLinkingPrompt(
       return match ? `### ${a.name}\n\`\`\`\nINTERFACE\n${match[1].trim()}\nEND_INTERFACE\n\`\`\`` : null;
     }).filter(Boolean);
     if (!interfaces.length) return "";
-    return `## Device FB Interfaces (use ONLY these variable names for instance DB access)\nThe following are the declared interfaces of the generated device FBs. When mapping IO signals to instance DB variables, use ONLY the variable names listed here — do not invent names.\n\n${interfaces.join("\n\n")}`;
+    return `## Device FB Interfaces — MANDATORY VARIABLE REFERENCE\n⛔ HARD RULE: You MUST NOT invent, guess, or create any variable names. Every instance DB access (e.g. "InstM01".someVar) MUST use a variable name that appears verbatim in the INTERFACE section below for that FB. If an IO signal cannot be mapped to any declared variable, leave it unmapped and add a comment — do NOT fabricate a plausible-sounding name.\n\n${interfaces.join("\n\n")}`;
   })();
 
   const deviceNames = devices.map((d) => `  - ${d.name} (tag: ${d.tag})`).join("\n");
