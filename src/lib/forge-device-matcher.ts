@@ -294,18 +294,18 @@ export interface MissingDeviceSuggestion {
 
 export function suggestMissingDevices(devices: ForgeDeviceEntry[]): MissingDeviceSuggestion[] {
   const suggestions: MissingDeviceSuggestion[] = [];
-  const typesLower = new Set(devices.map(d => d.device_type.toLowerCase()));
+  const typesLower = new Set(devices.map(d => (d.device_type ?? "").toLowerCase()));
 
   const hasConveyor = [...typesLower].some(t => t.includes("conveyor") || t.includes("belt"));
 
   if (!hasConveyor) {
     const conveyorMotors = devices.filter(
       d =>
-        d.device_type.toLowerCase().includes("motor") &&
-        (d.description.toLowerCase().includes("conveyor") ||
-          d.description.toLowerCase().includes("belt") ||
-          d.name.toLowerCase().startsWith("cv") ||
-          d.tag.toLowerCase().startsWith("cv")),
+        (d.device_type ?? "").toLowerCase().includes("motor") &&
+        ((d.description ?? "").toLowerCase().includes("conveyor") ||
+          (d.description ?? "").toLowerCase().includes("belt") ||
+          (d.name ?? "").toLowerCase().startsWith("cv") ||
+          (d.tag ?? "").toLowerCase().startsWith("cv")),
     );
 
     for (const motor of conveyorMotors) {
