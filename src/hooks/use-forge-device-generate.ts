@@ -287,6 +287,7 @@ export function useForgeDeviceGenerate() {
       session: ForgeSession,
       profile: DesignProfile,
       patterns: PatternCandidate[],
+      deviceArtifacts: ForgeArtifact[],
     ): Promise<ForgeArtifact[]> => {
       const abort = new AbortController();
       const ioLang = profile.io_linking_language ?? "SCL";
@@ -294,6 +295,7 @@ export function useForgeDeviceGenerate() {
         profile,
         platformRules: PLATFORM_RULES,
         patterns,
+        deviceArtifacts,
       };
 
       const ioSystemPrompt = buildIoLinkingPrompt(session.device_list, session.io_list as ForgeIoEntry[], context, ioLang);
@@ -386,7 +388,7 @@ export function useForgeDeviceGenerate() {
         const deviceList = session.device_list as ForgeDeviceEntry[];
         console.log(`[forge] IO linking: ${ioList?.length ?? 0} IO entries, ${deviceList?.length ?? 0} devices`);
         if (ioList?.length > 0) {
-          const ioArtifacts = await generateIoLinking(session, profile, patterns);
+          const ioArtifacts = await generateIoLinking(session, profile, patterns, allArtifacts);
           console.log(`[forge] IO linking produced ${ioArtifacts.length} artifact(s)`);
           allArtifacts.push(...ioArtifacts);
         }

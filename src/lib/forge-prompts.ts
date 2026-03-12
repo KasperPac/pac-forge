@@ -8,6 +8,7 @@ import type { DesignProfile } from "@/types/design-profile";
 import type {
   ForgeDeviceEntry,
   ForgeIoEntry,
+  ForgeArtifact,
   SpecAnalysis,
   SpecAnalysisProcessSequence,
 } from "@/types/forge";
@@ -247,6 +248,8 @@ export interface DeviceGenContext {
   platformRules: string;
   patterns?: PatternCandidate[];
   fbTemplate?: FbTemplate | null;
+  /** Generated device FB artifacts — used by IO linking to know actual variable names */
+  deviceArtifacts?: ForgeArtifact[];
 }
 
 /**
@@ -422,13 +425,26 @@ export function buildIoLinkingPrompt(
   context: DeviceGenContext,
   language: "SCL" | "LAD" = "SCL",
 ): string {
-  const { profile, platformRules, patterns } = context;
+  const { profile, platformRules, patterns, deviceArtifacts } = context;
   const profileSection = formatProfile(profile);
   const patternSection = formatPatterns(patterns ?? []);
   const ioLinkingRulesSection =
     profile?.io_linking_rules?.trim()
       ? `## IO Linking Rules (from Design Profile)\n${profile.io_linking_rules}`
       : "";
+
+  // Extract INTERFACE sections from generated FB artifacts so AI knows the exact variable names
+  const fbInterfaceSection = (() => {
+    if (!deviceArtifacts?.length) return "";
+    const fbArtifacts = deviceArtifacts.filter((a) => a.type === "FB" && a.language === "SCL");
+    if (!fbArtifacts.length) return "";
+    const interfaces = fbArtifacts.map((a) => {
+      const match = a.content.match(/INTERFACE\s*([\s\S]*?)END_INTERFACE/i);
+      return match ? `### ${a.name}\n\`\`\`\nINTERFACE\n${match[1].trim()}\nEND_INTERFACE\n\`\`\`` : null;
+    }).filter(Boolean);
+    if (!interfaces.length) return "";
+    return `## Device FB Interfaces (use ONLY these variable names for instance DB access)\nThe following are the declared interfaces of the generated device FBs. When mapping IO signals to instance DB variables, use ONLY the variable names listed here — do not invent names.\n\n${interfaces.join("\n\n")}`;
+  })();
 
   const deviceNames = devices.map((d) => `  - ${d.name} (tag: ${d.tag})`).join("\n");
   const ioEntries = ioList
@@ -476,7 +492,7 @@ Use the format:
 // code
 \`\`\``;
 
-  return `You are generating an IO linking Function (FC) that maps physical IO tag values to FB instance inputs/outputs.
+  return `You are an IO Validator / IO Linking Engineer for Siemens TIA Portal. Your task is to generate an IO linking Function (FC) that maps physical IO tag values to FB instance inputs/outputs.
 
 ${profileSection}
 
@@ -492,6 +508,8 @@ ${deviceNames}
 
 ## IO List
 ${ioEntries}
+
+${fbInterfaceSection}
 
 ${outputFormat}`;
 }
