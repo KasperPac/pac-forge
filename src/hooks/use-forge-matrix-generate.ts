@@ -1,6 +1,5 @@
 import { useState, useCallback } from "react";
-import { callNonStreaming } from "@/hooks/use-generation";
-import { validateAndCall } from "@/lib/forge-pipeline-validator";
+import { streamFromEdgeFunction } from "@/hooks/use-generation";
 import {
   buildMatrixGenerationPrompt,
   buildMatrixGenerationUserMessage,
@@ -9,7 +8,7 @@ import type { ForgeDeviceEntry, ForgeIoEntry, SpecAnalysis } from "@/types/forge
 import type { FbTemplate } from "@/types/fb-template";
 import type { ProcessLinkageMatrix } from "@/types/process-builder";
 
-const MATRIX_MAX_TOKENS = 8192;
+const MATRIX_MAX_TOKENS = 12288;
 
 function parseMatrix(content: string): ProcessLinkageMatrix {
   const matrixMatch = content.match(
@@ -65,13 +64,16 @@ export function useForgeMatrixGenerate() {
           fbTemplates,
         );
 
-        const { content } = await validateAndCall(
-          callNonStreaming,
-          systemPrompt,
-          [{ role: "user", content: userMessage }],
+        // Use streaming to avoid edge function memory limits on large responses
+        const content = await streamFromEdgeFunction(
+          {
+            system_prompt: systemPrompt,
+            messages: [{ role: "user", content: userMessage }],
+            stream: true,
+          },
           abort.signal,
+          () => {}, // no incremental UI needed — we parse the full response
           MATRIX_MAX_TOKENS,
-          "pm_plan",
         );
 
         return parseMatrix(content);
