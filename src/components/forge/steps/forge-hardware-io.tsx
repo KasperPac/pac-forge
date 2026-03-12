@@ -259,6 +259,10 @@ export function ForgeHardwareIo({
   // Incremented when hardware generates a new IO list — forces IoListEditor remount
   const [ioListKey, setIoListKey] = useState(0);
 
+  // Incremented when Recommend Modules runs — forces HardwareConfigEditor remount
+  // so its internal slot state re-initialises from the updated rackLayout prop
+  const [hardwareKey, setHardwareKey] = useState(0);
+
   const [devices, setDevices] = useState<ForgeDeviceEntry[]>(() => {
     const raw = specAnalysis ? devicesFromAnalysis(specAnalysis) : [];
     const matches = matchDevicesToTemplates(raw, fbTemplates);
@@ -511,6 +515,7 @@ export function ForgeHardwareIo({
         i === 0 ? { ...r, modules: newModules } : r,
       ),
     }));
+    setHardwareKey((k) => k + 1);
   }
 
   // ── Generate IO list from devices ─────────────────────────────────────────
@@ -1065,6 +1070,7 @@ export function ForgeHardwareIo({
             </div>
             <ScrollArea className="h-[420px] pr-1">
               <HardwareConfigEditor
+                key={hardwareKey}
                 cpuType={hardware.cpu_type as CpuType}
                 rackSlotLayout={rackLayout}
                 onSave={handleHardwareSave}
