@@ -26,6 +26,12 @@ export interface PhysicalPoint {
   signalType: "DI" | "DQ" | "AI" | "AQ";
 }
 
+export interface AvailableTag {
+  tag_name: string;
+  description: string;
+  signal_type: "DI" | "DQ" | "AI" | "AQ";
+}
+
 function inferSignalType(address: string): "DI" | "DQ" | "AI" | "AQ" | null {
   const a = address.toUpperCase();
   if (a.startsWith("%IW") || a.startsWith("%ID") || a.startsWith("%IR")) return "AI";
@@ -48,7 +54,8 @@ interface IoListEditorProps {
   value: IoEntry[];
   onChange: (entries: IoEntry[]) => void;
   readOnly?: boolean;
-  physicalAddresses?: PhysicalPoint[];
+  /** When provided, address cells become read-only labels and tag_name shows a dropdown */
+  availableTags?: AvailableTag[];
 }
 
 function validateDuplicateAddresses(entries: IoEntry[]): Set<number> {
@@ -65,7 +72,7 @@ function validateDuplicateAddresses(entries: IoEntry[]): Set<number> {
   return duplicates;
 }
 
-export function IoListEditor({ value, onChange, readOnly, physicalAddresses }: IoListEditorProps) {
+export function IoListEditor({ value, onChange, readOnly, availableTags }: IoListEditorProps) {
   const [entries, setEntries] = useState<IoEntry[]>(value);
   const duplicates = validateDuplicateAddresses(entries);
   const invalidAddresses = new Map<number, string>();
@@ -105,10 +112,10 @@ export function IoListEditor({ value, onChange, readOnly, physicalAddresses }: I
     commit(updated);
   }
 
-  // Set of addresses already assigned to other rows — used to hide them from dropdowns
-  const assignedAddresses = useMemo(() => {
+  // Set of tag names already assigned to other rows — used to hide them from dropdowns
+  const assignedTags = useMemo(() => {
     const set = new Set<string>();
-    entries.forEach((e) => { if (e.address) set.add(e.address); });
+    entries.forEach((e) => { if (e.tag_name) set.add(e.tag_name); });
     return set;
   }, [entries]);
 
@@ -166,69 +173,67 @@ export function IoListEditor({ value, onChange, readOnly, physicalAddresses }: I
                 className={`border-b border-border/50 ${duplicates.has(idx) ? "bg-destructive/5" : ""}`}
               >
                 <td className="px-1 py-0.5">
-                  {physicalAddresses && !readOnly ? (() => {
+                  {availableTags ? (
+                    <span className={cn(
+                      "flex h-7 items-center px-2 font-mono text-xs text-muted-foreground",
+                      invalidAddresses.has(idx) && "text-red-400"
+                    )}>
+                      {entry.address || "—"}
+                    </span>
+                  ) : (
+                    <Input
+                      value={entry.address}
+                      onChange={(e) => updateField(idx, "address", e.target.value)}
+                      placeholder="%I0.0"
+                      className={cn(
+                        "h-7 font-mono text-xs",
+                        invalidAddresses.has(idx) && "border-red-500 focus-visible:ring-red-500"
+                      )}
+                      title={invalidAddresses.get(idx)}
+                      disabled={readOnly}
+                    />
+                  )}
+                </td>
+                <td className="px-1 py-0.5">
+                  {availableTags && !readOnly ? (() => {
                     const sigType = inferSignalType(entry.address);
-                    // Available = matching type + not assigned to another row (but keep self)
-                    const available = physicalAddresses.filter(p =>
-                      (sigType === null || p.signalType === sigType) &&
-                      (!assignedAddresses.has(p.address) || p.address === entry.address)
+                    const available = availableTags.filter(t =>
+                      (sigType === null || t.signal_type === sigType) &&
+                      (!assignedTags.has(t.tag_name) || t.tag_name === entry.tag_name)
                     );
                     return (
                       <select
-                        value={entry.address}
+                        value={entry.tag_name}
                         onChange={(e) => {
-                          const addr = e.target.value;
-                          if (!addr) {
-                            updateEntry(idx, { address: "", slot: 0, module: "" });
+                          const tag = e.target.value;
+                          if (!tag) {
+                            updateEntry(idx, { tag_name: "", description: "" });
                           } else {
-                            const pt = physicalAddresses.find(p => p.address === addr);
-                            updateEntry(idx, {
-                              address: addr,
-                              slot: pt?.slot ?? entry.slot,
-                              module: pt?.module ?? entry.module,
-                            });
+                            const t = availableTags.find(t => t.tag_name === tag);
+                            updateEntry(idx, { tag_name: tag, description: t?.description ?? entry.description });
                           }
                         }}
-                        className={cn(
-                          "h-7 w-full rounded-md border border-input bg-background px-2 font-mono text-xs",
-                          invalidAddresses.has(idx) && "border-red-500"
-                        )}
-                        title={invalidAddresses.get(idx)}
+                        className="h-7 w-full rounded-md border border-input bg-background px-2 font-mono text-xs"
                       >
-                        <option value="">— pick address —</option>
-                        {available.map(p => (
-                          <option key={p.address} value={p.address}>
-                            {p.address} (Slot {p.slot} · {p.module})
-                          </option>
+                        <option value="">— unassigned —</option>
+                        {available.map(t => (
+                          <option key={t.tag_name} value={t.tag_name}>{t.tag_name}</option>
                         ))}
-                        {/* Keep current address visible even if not in pool */}
-                        {entry.address && !physicalAddresses.some(p => p.address === entry.address) && (
-                          <option value={entry.address}>{entry.address} (custom)</option>
+                        {/* Keep current tag visible even if not in pool */}
+                        {entry.tag_name && !availableTags.some(t => t.tag_name === entry.tag_name) && (
+                          <option value={entry.tag_name}>{entry.tag_name}</option>
                         )}
                       </select>
                     );
                   })() : (
-                  <Input
-                    value={entry.address}
-                    onChange={(e) => updateField(idx, "address", e.target.value)}
-                    placeholder="%I0.0"
-                    className={cn(
-                      "h-7 font-mono text-xs",
-                      invalidAddresses.has(idx) && "border-red-500 focus-visible:ring-red-500"
-                    )}
-                    title={invalidAddresses.get(idx)}
-                    disabled={readOnly}
-                  />
+                    <Input
+                      value={entry.tag_name}
+                      onChange={(e) => updateField(idx, "tag_name", e.target.value)}
+                      placeholder="DI_SensorName"
+                      className="h-7 font-mono text-xs"
+                      disabled={readOnly}
+                    />
                   )}
-                </td>
-                <td className="px-1 py-0.5">
-                  <Input
-                    value={entry.tag_name}
-                    onChange={(e) => updateField(idx, "tag_name", e.target.value)}
-                    placeholder="DI_SensorName"
-                    className="h-7 font-mono text-xs"
-                    disabled={readOnly}
-                  />
                 </td>
                 <td className="px-1 py-0.5">
                   <select

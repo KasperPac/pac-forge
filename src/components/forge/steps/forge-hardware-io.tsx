@@ -521,7 +521,46 @@ export function ForgeHardwareIo({
   // ── Generate IO list from devices ─────────────────────────────────────────
 
   function generateIoListFromDevices() {
-    // Separate signals by type for sequential address assignment
+    const pool = buildAddressPool(hardware);
+
+    if (pool.length > 0) {
+      // ── Module-driven mode ────────────────────────────────────────────────
+      // One row per physical address. Auto-assign device signals in order.
+
+      // Collect all device signals bucketed by type
+      const byType: Record<"DI" | "DQ" | "AI" | "AQ", Array<{ tag_name: string; description: string; device_id: string }>> = {
+        DI: [], DQ: [], AI: [], AQ: [],
+      };
+      for (const device of devices) {
+        for (const sig of device.io_signals ?? []) {
+          const t = sig.signal_type.toUpperCase() as "DI" | "DQ" | "AI" | "AQ";
+          if (t in byType) byType[t].push({ tag_name: sig.tag_name, description: sig.description, device_id: device.id });
+        }
+      }
+
+      const counters: Record<"DI" | "DQ" | "AI" | "AQ", number> = { DI: 0, DQ: 0, AI: 0, AQ: 0 };
+      const entries: ForgeIoEntry[] = pool.map((pt) => {
+        const sig = byType[pt.signalType][counters[pt.signalType]];
+        counters[pt.signalType]++;
+        return {
+          address: pt.address,
+          tag_name: sig?.tag_name ?? "",
+          signal_type: pt.signalType,
+          data_type: pt.signalType.startsWith("A") ? "Int" : "Bool",
+          description: sig?.description ?? "",
+          module: pt.module,
+          slot: pt.slot,
+          device_id: sig?.device_id,
+        };
+      });
+
+      setIoList(entries);
+      setIoListKey((k) => k + 1);
+      return;
+    }
+
+    // ── Device-driven fallback (no modules yet) ───────────────────────────
+    // One row per device signal, sequential addresses assigned.
     const diSignals: ForgeIoEntry[] = [];
     const dqSignals: ForgeIoEntry[] = [];
     const aiSignals: ForgeIoEntry[] = [];
@@ -549,74 +588,23 @@ export function ForgeHardwareIo({
       }
     }
 
-    // Build address pool from rack modules (if any have been recommended)
-    const pool = buildAddressPool(hardware);
-    const diPool = pool.filter(p => p.signalType === "DI");
-    const dqPool = pool.filter(p => p.signalType === "DQ");
-    const aiPool = pool.filter(p => p.signalType === "AI");
-    const aqPool = pool.filter(p => p.signalType === "AQ");
-    const hasPool = pool.length > 0;
-
-    // Sequential address assignment
-    // S7-1200: DI/DQ from %I/%Q 0.0; AI/AQ from %IW/%QW 64
-    // S7-1500: All sequential from byte 0
     const is1200 = hardware.cpu_type.startsWith("S7-12");
-
     let diByte = 0, diBit = 0;
     for (let i = 0; i < diSignals.length; i++) {
-      if (hasPool && i < diPool.length) {
-        diSignals[i].address = diPool[i].address;
-        diSignals[i].slot = diPool[i].slot;
-        diSignals[i].module = diPool[i].module;
-      } else {
-        diSignals[i].address = `%I${diByte}.${diBit}`;
-        diSignals[i].slot = 0;
-      }
-      diBit++;
-      if (diBit > 7) { diBit = 0; diByte++; }
+      diSignals[i].address = `%I${diByte}.${diBit}`;
+      diBit++; if (diBit > 7) { diBit = 0; diByte++; }
     }
-
     let dqByte = 0, dqBit = 0;
     for (let i = 0; i < dqSignals.length; i++) {
-      if (hasPool && i < dqPool.length) {
-        dqSignals[i].address = dqPool[i].address;
-        dqSignals[i].slot = dqPool[i].slot;
-        dqSignals[i].module = dqPool[i].module;
-      } else {
-        dqSignals[i].address = `%Q${dqByte}.${dqBit}`;
-        dqSignals[i].slot = 0;
-      }
-      dqBit++;
-      if (dqBit > 7) { dqBit = 0; dqByte++; }
+      dqSignals[i].address = `%Q${dqByte}.${dqBit}`;
+      dqBit++; if (dqBit > 7) { dqBit = 0; dqByte++; }
     }
-
     const aiStart = is1200 ? 64 : Math.ceil(diSignals.length / 8) * 2;
     let aiWord = aiStart;
-    for (let i = 0; i < aiSignals.length; i++) {
-      if (hasPool && i < aiPool.length) {
-        aiSignals[i].address = aiPool[i].address;
-        aiSignals[i].slot = aiPool[i].slot;
-        aiSignals[i].module = aiPool[i].module;
-      } else {
-        aiSignals[i].address = `%IW${aiWord}`;
-        aiSignals[i].slot = 0;
-      }
-      aiWord += 2;
-    }
-
+    for (let i = 0; i < aiSignals.length; i++) { aiSignals[i].address = `%IW${aiWord}`; aiWord += 2; }
     const aqStart = is1200 ? 64 : Math.ceil(dqSignals.length / 8) * 2;
     let aqWord = aqStart;
-    for (let i = 0; i < aqSignals.length; i++) {
-      if (hasPool && i < aqPool.length) {
-        aqSignals[i].address = aqPool[i].address;
-        aqSignals[i].slot = aqPool[i].slot;
-        aqSignals[i].module = aqPool[i].module;
-      } else {
-        aqSignals[i].address = `%QW${aqWord}`;
-        aqSignals[i].slot = 0;
-      }
-      aqWord += 2;
-    }
+    for (let i = 0; i < aqSignals.length; i++) { aqSignals[i].address = `%QW${aqWord}`; aqWord += 2; }
 
     setIoList([...diSignals, ...dqSignals, ...aiSignals, ...aqSignals]);
     setIoListKey((k) => k + 1);
@@ -649,6 +637,18 @@ export function ForgeHardwareIo({
   const rackLayout = forgeHardwareToRackLayout(hardware);
   const ioEntries = ioList.map(forgeIoToIoEntry);
   const addressPool = useMemo(() => buildAddressPool(hardware), [hardware]);
+
+  // All device signals available as tag assignments in the IO list
+  const availableTags = useMemo(() =>
+    devices.flatMap(d =>
+      (d.io_signals ?? []).map(sig => ({
+        tag_name: sig.tag_name,
+        description: sig.description,
+        signal_type: sig.signal_type.toUpperCase() as "DI" | "DQ" | "AI" | "AQ",
+      }))
+    ),
+    [devices]
+  );
   const ioCounts = countIoSignals(devices);
   const totalIo = ioCounts.DI + ioCounts.DQ + ioCounts.AI + ioCounts.AQ;
   const cpuOnboard = getCpuOnboardIo(hardware.cpu_type);
@@ -1103,7 +1103,7 @@ export function ForgeHardwareIo({
                 key={ioListKey}
                 value={ioEntries}
                 onChange={handleIoChange}
-                physicalAddresses={addressPool.length > 0 ? addressPool : undefined}
+                availableTags={addressPool.length > 0 ? availableTags : undefined}
               />
             </ScrollArea>
           </div>
