@@ -53,13 +53,19 @@ function copyTemplateAsArtifacts(
   // Generate instance DB deterministically — no AI needed
   const mainFb = template.blocks?.find((b) => b.block_type === "FB");
   if (mainFb) {
+    // Use the FB name as declared inside the SCL (FUNCTION_BLOCK "ActualName"),
+    // NOT block_name from the DB which may differ (e.g. file named "ControlMotor_DOL"
+    // but declares FUNCTION_BLOCK "ControlMotor"). TIA Portal imports under the declared name.
+    const declaredNameMatch = mainFb.scl_code.match(/FUNCTION_BLOCK\s+"([^"]+)"/i);
+    const actualFbName = declaredNameMatch?.[1] ?? mainFb.block_name;
+
     const instDbName = `Inst${device.name.replace(/[^A-Za-z0-9]/g, "")}`;
     const instDbCode = [
       `DATA_BLOCK "${instDbName}"`,
       `{ S7_Optimized_Access := 'TRUE' }`,
       `VERSION : 0.1`,
       `NON_RETAIN`,
-      `"${mainFb.block_name}"`,
+      `"${actualFbName}"`,
       `BEGIN`,
       `END_DATA_BLOCK`,
     ].join("\n");
@@ -74,7 +80,7 @@ function copyTemplateAsArtifacts(
       fb_template_id: template.id,
       stage: "device",
       destination_folder: "Data blocks",
-      dependencies: [mainFb.block_name],
+      dependencies: [actualFbName],
       compile_after_import: true,
     });
   }
