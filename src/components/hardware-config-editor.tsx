@@ -217,7 +217,7 @@ function SlotTable({
       if (target < (isCentralRack ? 1 : 0) || target >= next.length) return;
       [next[idx], next[target]] = [next[target], next[idx]];
       // Re-number slots
-      onChange(next.map((s, i) => ({ ...s, slot: isCentralRack ? i : i + 1 })));
+      onChange(next.map((s, i) => ({ ...s, slot: isCentralRack ? i + 1 : i + 1 })));
     },
     [slots, isCentralRack, onChange],
   );
@@ -225,7 +225,7 @@ function SlotTable({
   const removeSlot = useCallback(
     (idx: number) => {
       const next = slots.filter((_, i) => i !== idx);
-      onChange(next.map((s, i) => ({ ...s, slot: isCentralRack ? i : i + 1 })));
+      onChange(next.map((s, i) => ({ ...s, slot: isCentralRack ? i + 1 : i + 1 })));
     },
     [slots, isCentralRack, onChange],
   );
@@ -289,8 +289,8 @@ function SlotTable({
 
       {/* Module rows */}
       {slots.map((slot, idx) => {
-        // Skip slot 0 for central rack (CPU row)
-        if (isCentralRack && slot.slot === 0) return null;
+        // Skip slot 1 for central rack (CPU row — TIA Portal slot 1 = CPU)
+        if (isCentralRack && slot.slot === 1) return null;
         const mod = slot.mlfb ? getModuleByMlfb(slot.mlfb) : undefined;
         const addrInfo = addressBySlot.get(slot.slot);
 
@@ -371,9 +371,9 @@ export function HardwareConfigEditor({
   // State: central rack and ET 200SP slots
   const [centralSlots, setCentralSlots] = useState<ConfiguredSlot[]>(() => {
     const loaded = rackLayoutToSlots(safeLayout, 0);
-    // Ensure slot 0 (CPU) always exists
-    if (loaded.length === 0) return [{ slot: 0, mlfb: null, description: "CPU" }];
-    if (!loaded.some((s) => s.slot === 0)) return [{ slot: 0, mlfb: null, description: "CPU" }, ...loaded];
+    // Ensure slot 1 (CPU) always exists — TIA Portal S7-1500 CPU is always slot 1
+    if (loaded.length === 0) return [{ slot: 1, mlfb: null, description: "CPU" }];
+    if (!loaded.some((s) => s.slot === 1)) return [{ slot: 1, mlfb: null, description: "CPU" }, ...loaded];
     return loaded;
   });
 
@@ -395,7 +395,7 @@ export function HardwareConfigEditor({
 
   // Address calculations
   const centralResult = useMemo(
-    () => calculateRackAddresses(centralSlots.filter((s) => s.slot !== 0), cpuType),
+    () => calculateRackAddresses(centralSlots.filter((s) => s.slot !== 1), cpuType),
     [centralSlots, cpuType],
   );
   const et200spResult = useMemo(

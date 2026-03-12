@@ -85,7 +85,7 @@ export function MermaidDiagram({ chart, className }: MermaidDiagramProps) {
   return (
     <div
       ref={containerRef}
-      className={cn("overflow-auto [&_svg]:max-w-full", className)}
+      className={cn("overflow-visible [&_svg]:h-auto", className)}
     />
   );
 }

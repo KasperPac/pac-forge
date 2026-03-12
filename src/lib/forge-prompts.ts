@@ -440,7 +440,7 @@ export function buildIoLinkingPrompt(
       ? `## Output Format
 Generate a single FC in LAD (Ladder Logic). Output a LadProgram JSON object.
 The FC reads physical IO tags and writes them to the instance DBs of each device FB.
-Each rung uses a MOVE box to assign one IO tag to one instance DB variable.
+Follow the IO Linking Rules from the Design Profile for rung style.
 Respond with only the raw JSON object (no markdown wrapper), using this exact schema:
 {
   "name": "IoLinking",

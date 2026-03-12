@@ -281,10 +281,12 @@ export function ForgeHardwareIo({
   const [hardwareKey, setHardwareKey] = useState(0);
 
   const [devices, setDevices] = useState<ForgeDeviceEntry[]>(() => {
-    // Prefer previously saved devices; fall back to spec analysis extraction
-    const raw = (savedDevices && savedDevices.length > 0)
-      ? savedDevices
-      : (specAnalysis ? devicesFromAnalysis(specAnalysis) : []);
+    if (savedDevices && savedDevices.length > 0) {
+      // Saved devices already have user-confirmed confidence (AI matcher / manual overrides) — do NOT re-run matcher
+      return savedDevices;
+    }
+    // Fresh extraction from spec — run matcher to get initial confidence
+    const raw = specAnalysis ? devicesFromAnalysis(specAnalysis) : [];
     const matches = matchDevicesToTemplates(raw, fbTemplates);
     return applyMatchesToDevices(raw, matches);
   });

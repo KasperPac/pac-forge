@@ -315,11 +315,11 @@ export function useForgeDeviceGenerate() {
             // Exact match — copy template, deduplicate shared FB/UDT blocks
             const artifacts = copyTemplateAsArtifacts(device, matchedTemplate);
             for (const artifact of artifacts) {
-              if (artifact.type === "DB") {
+              if (artifact.type === "DB" && artifact.name.startsWith("Inst")) {
                 // Instance DBs are unique per device — always add
                 allArtifacts.push(artifact);
               } else if (!copiedTemplateBlockNames.has(artifact.name)) {
-                // FB/UDT/FC blocks — only add once per template
+                // FB/UDT/FC/global DB blocks — only add once per unique name
                 allArtifacts.push(artifact);
                 copiedTemplateBlockNames.add(artifact.name);
               }
