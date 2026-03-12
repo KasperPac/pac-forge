@@ -10,30 +10,43 @@ import type { ProcessLinkageMatrix } from "@/types/process-builder";
 
 const MATRIX_MAX_TOKENS = 12288;
 
+function tryParseJson(text: string): ProcessLinkageMatrix | null {
+  try {
+    const parsed = JSON.parse(text.trim());
+    if (typeof parsed === "object" && parsed !== null) return parsed as ProcessLinkageMatrix;
+  } catch { /* fall through */ }
+  return null;
+}
+
 function parseMatrix(content: string): ProcessLinkageMatrix {
-  const matrixMatch = content.match(
+  // 1. Try explicit [PROCESS_MATRIX] tags
+  const tagMatch = content.match(
     /\[PROCESS_MATRIX\]\s*([\s\S]*?)\s*\[\/PROCESS_MATRIX\]/,
   );
-  if (!matrixMatch) {
-    throw new Error(
-      "Response did not contain [PROCESS_MATRIX]...[/PROCESS_MATRIX] tags",
-    );
+  if (tagMatch) {
+    const result = tryParseJson(tagMatch[1]);
+    if (result) return result;
+    throw new Error(`Matrix JSON is invalid: ${tagMatch[1].slice(0, 200)}…`);
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(matrixMatch[1]);
-  } catch {
-    throw new Error(
-      `Matrix JSON is invalid: ${matrixMatch[1].slice(0, 200)}…`,
-    );
+  // 2. Try fenced code block (```json ... ```)
+  const fenceMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenceMatch) {
+    const result = tryParseJson(fenceMatch[1]);
+    if (result) return result;
   }
 
-  if (typeof parsed !== "object" || parsed === null) {
-    throw new Error("Matrix response is not a JSON object");
+  // 3. Try to extract the outermost JSON object from the response
+  const objStart = content.indexOf("{");
+  const objEnd = content.lastIndexOf("}");
+  if (objStart !== -1 && objEnd > objStart) {
+    const result = tryParseJson(content.slice(objStart, objEnd + 1));
+    if (result) return result;
   }
 
-  return parsed as ProcessLinkageMatrix;
+  throw new Error(
+    "Could not parse matrix from response. Ensure the AI returned valid JSON.",
+  );
 }
 
 /**
