@@ -8,7 +8,7 @@ import type { ForgeDeviceEntry, ForgeIoEntry, SpecAnalysis } from "@/types/forge
 import type { FbTemplate } from "@/types/fb-template";
 import type { ProcessLinkageMatrix } from "@/types/process-builder";
 
-const MATRIX_MAX_TOKENS = 12288;
+const MATRIX_MAX_TOKENS = 24000;
 
 function tryParseJson(text: string): ProcessLinkageMatrix | null {
   try {
