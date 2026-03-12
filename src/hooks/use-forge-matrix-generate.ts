@@ -9,7 +9,7 @@ import type { ForgeDeviceEntry, ForgeIoEntry, SpecAnalysis } from "@/types/forge
 import type { FbTemplate } from "@/types/fb-template";
 import type { ProcessLinkageMatrix } from "@/types/process-builder";
 
-const MATRIX_MAX_TOKENS = 16384;
+const MATRIX_MAX_TOKENS = 8192;
 
 function parseMatrix(content: string): ProcessLinkageMatrix {
   const matrixMatch = content.match(
