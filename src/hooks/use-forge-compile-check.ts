@@ -117,6 +117,7 @@ async function uploadLadArtifacts(
   tiaProjectPath: string,
 ): Promise<string[]> {
   const ladArtifacts = artifacts.filter((a) => a.language === "LAD");
+  console.log(`[forge] uploadLadArtifacts: total=${artifacts.length}, lad=${ladArtifacts.length}`, ladArtifacts.map(a => ({ name: a.name, type: a.type, language: a.language, stage: a.stage })));
   const errors: string[] = [];
 
   for (const artifact of ladArtifacts) {
@@ -130,6 +131,7 @@ async function uploadLadArtifacts(
         tia_project_path: tiaProjectPath,
         destination_folder: artifact.destination_folder,
       };
+      console.log(`[forge] importing LAD artifact: ${artifact.name} → ${BRIDGE_BASE}/tia/import-lad`);
       const resp = await fetch(`${BRIDGE_BASE}/tia/import-lad`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -137,11 +139,14 @@ async function uploadLadArtifacts(
         signal: AbortSignal.timeout(60_000),
       });
       const result = await resp.json();
+      console.log(`[forge] LAD import result for ${artifact.name}:`, result);
       if (!result.success) {
         errors.push(`LAD import failed: ${artifact.name} — ${result.message ?? "unknown"}`);
       }
     } catch (err) {
-      errors.push(`LAD import error: ${artifact.name} — ${err instanceof Error ? err.message : String(err)}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[forge] LAD import error for ${artifact.name}:`, msg);
+      errors.push(`LAD import error: ${artifact.name} — ${msg}`);
     }
   }
 
