@@ -140,7 +140,8 @@ function countIoSignals(devices: ForgeDeviceEntry[]) {
   const counts = { DI: 0, DQ: 0, AI: 0, AQ: 0 };
   for (const d of devices) {
     for (const sig of d.io_signals ?? []) {
-      counts[sig.signal_type] = (counts[sig.signal_type] ?? 0) + 1;
+      const t = sig.signal_type.toUpperCase() as keyof typeof counts;
+      if (t in counts) counts[t]++;
     }
   }
   return counts;
@@ -467,17 +468,18 @@ export function ForgeHardwareIo({
 
     for (const device of devices) {
       for (const sig of device.io_signals ?? []) {
+        const sigType = sig.signal_type.toUpperCase() as "DI" | "DQ" | "AI" | "AQ";
         const entry: ForgeIoEntry = {
           address: "",
           tag_name: sig.tag_name,
-          signal_type: sig.signal_type,
-          data_type: sig.signal_type.startsWith("A") ? "Int" : "Bool",
+          signal_type: sigType,
+          data_type: sigType.startsWith("A") ? "Int" : "Bool",
           description: sig.description,
           module: "",
           slot: 0,
           device_id: device.id,
         };
-        switch (sig.signal_type) {
+        switch (sigType) {
           case "DI": diSignals.push(entry); break;
           case "DQ": dqSignals.push(entry); break;
           case "AI": aiSignals.push(entry); break;
@@ -492,30 +494,34 @@ export function ForgeHardwareIo({
     const is1200 = hardware.cpu_type.startsWith("S7-12");
 
     let diByte = 0, diBit = 0;
-    for (const e of diSignals) {
-      e.address = `%I${diByte}.${diBit}`;
+    for (let i = 0; i < diSignals.length; i++) {
+      diSignals[i].address = `%I${diByte}.${diBit}`;
+      diSignals[i].slot = i;
       diBit++;
       if (diBit > 7) { diBit = 0; diByte++; }
     }
 
     let dqByte = 0, dqBit = 0;
-    for (const e of dqSignals) {
-      e.address = `%Q${dqByte}.${dqBit}`;
+    for (let i = 0; i < dqSignals.length; i++) {
+      dqSignals[i].address = `%Q${dqByte}.${dqBit}`;
+      dqSignals[i].slot = i;
       dqBit++;
       if (dqBit > 7) { dqBit = 0; dqByte++; }
     }
 
     const aiStart = is1200 ? 64 : Math.ceil(diSignals.length / 8) * 2;
     let aiWord = aiStart;
-    for (const e of aiSignals) {
-      e.address = `%IW${aiWord}`;
+    for (let i = 0; i < aiSignals.length; i++) {
+      aiSignals[i].address = `%IW${aiWord}`;
+      aiSignals[i].slot = i;
       aiWord += 2;
     }
 
     const aqStart = is1200 ? 64 : Math.ceil(dqSignals.length / 8) * 2;
     let aqWord = aqStart;
-    for (const e of aqSignals) {
-      e.address = `%QW${aqWord}`;
+    for (let i = 0; i < aqSignals.length; i++) {
+      aqSignals[i].address = `%QW${aqWord}`;
+      aqSignals[i].slot = i;
       aqWord += 2;
     }
 
