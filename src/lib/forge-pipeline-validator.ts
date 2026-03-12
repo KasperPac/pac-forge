@@ -31,6 +31,7 @@ const AGENT_IDENTITY_MARKERS: Record<string, string[]> = {
   
   // Review agents
   standards_reviewer: [
+    "Standards Reviewer",
     "Standards Enforcer",
     "review generated code",
     "standards violations",

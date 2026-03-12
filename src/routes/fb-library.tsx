@@ -57,6 +57,7 @@ import {
   useFbTemplateHistory,
   useRevertFbTemplateVersion,
 } from "@/hooks/use-fb-templates";
+import { useGenerateFbSummary } from "@/hooks/use-generate-fb-summary";
 import {
   useFbDeviceCategories,
   useCreateFbDeviceCategory,
@@ -378,6 +379,8 @@ export default function FbLibraryPage() {
     }
   }
 
+  const { generate: generateSummary, loadingId: summaryLoadingId } = useGenerateFbSummary();
+
   const isSaving = createTemplate.isPending || updateTemplate.isPending;
   const hasBlocks = form.blocks.some((b) => b.scl_code.trim() !== "");
 
@@ -521,6 +524,8 @@ export default function FbLibraryPage() {
                 setHistoryTemplateId(id);
                 setHistoryOpen(true);
               }}
+              onGenerateSummary={generateSummary}
+              summaryLoading={summaryLoadingId === template.id}
             />
           ))}
         </div>
@@ -871,11 +876,15 @@ function TemplateCard({
   onEdit,
   onDelete,
   onViewHistory,
+  onGenerateSummary,
+  summaryLoading,
 }: {
   template: FbTemplate;
   onEdit: (t: FbTemplate) => void;
   onDelete: (id: string) => void;
   onViewHistory: (id: string) => void;
+  onGenerateSummary: (t: FbTemplate) => void;
+  summaryLoading: boolean;
 }) {
   const blocks = template.blocks ?? [];
   const previewBlock = blocks[0];
@@ -888,15 +897,35 @@ function TemplateCard({
         <div className="min-w-0 flex-1 flex items-start gap-2.5">
           <CategoryIcon category={template.device_category} className="mt-0.5 h-7 w-7 shrink-0 text-muted-foreground" />
           <div className="min-w-0">
-          <h3 className="truncate font-mono text-sm font-semibold">{template.name}</h3>
-          {template.description && (
-            <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-              {template.description}
-            </p>
-          )}
+            <h3 className="truncate font-mono text-sm font-semibold">{template.name}</h3>
+            {template.description && (
+              <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                {template.description}
+              </p>
+            )}
+            {template.ai_summary && (
+              <p className="mt-1 line-clamp-3 text-xs text-violet-400/80">
+                <Sparkles className="mr-0.5 inline h-2.5 w-2.5" />
+                {template.ai_summary}
+              </p>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 w-7 p-0"
+            onClick={() => onGenerateSummary(template)}
+            disabled={summaryLoading || !(template.blocks && template.blocks.length > 0)}
+            title={template.ai_summary ? "Regenerate AI summary" : "Generate AI summary"}
+          >
+            {summaryLoading ? (
+              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+            ) : (
+              <Sparkles className={`h-3 w-3 ${template.ai_summary ? "text-violet-400" : "text-muted-foreground"}`} />
+            )}
+          </Button>
           <Button
             size="sm"
             variant="ghost"

@@ -129,6 +129,25 @@ namespace PacForgeBridge
         public string Comment { get; set; }        // Optional description
     }
 
+    public class ProvisionProjectRequest
+    {
+        public string TiaProjectPath { get; set; }    // Folder path, e.g. C:\...\50 PLC\01 Project Name
+        public string ProjectName { get; set; }       // Project name used when creating (folder basename if omitted)
+        public string CpuOrderNumber { get; set; }    // e.g. "6ES7 516-3AN02-0AB0/V2.9"
+        public string ProvisionId { get; set; }       // Correlation ID for WS events
+        public List<IoModuleDto> IoModules { get; set; }
+        public List<IoTagDto> IoTags { get; set; }
+    }
+
+    public class ProvisionProjectResponse
+    {
+        public bool Success { get; set; }
+        public bool Created { get; set; }             // true = new project created, false = existing opened
+        public string ProjectFilePath { get; set; }  // Full path to .ap* file
+        public string Message { get; set; }
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
     public class TiaActionResponse
     {
         public bool Success { get; set; }
@@ -343,6 +362,22 @@ namespace PacForgeBridge
             {
                 Data = new Dictionary<string, object>
                 {
+                    ["error"] = error
+                }
+            };
+        }
+
+        public static BridgeEvent ProvisionProgress(string provisionId, string step, int progress, bool complete = false, bool failed = false, string error = null)
+        {
+            return new BridgeEvent("provision_progress", null)
+            {
+                Data = new Dictionary<string, object>
+                {
+                    ["provision_id"] = provisionId,
+                    ["step"] = step,
+                    ["progress"] = progress,
+                    ["complete"] = complete,
+                    ["failed"] = failed,
                     ["error"] = error
                 }
             };

@@ -7,6 +7,7 @@ import {
   FolderKanban,
   Sparkles,
   Loader2,
+  RotateCcw,
 } from "lucide-react";
 import { useParams, useSearchParams } from "react-router";
 import { cn } from "@/lib/utils";
@@ -20,9 +21,21 @@ import { ForgeDeviceCode } from "@/components/forge/steps/forge-device-code";
 import { ForgeProcessCode } from "@/components/forge/steps/forge-process-code";
 import { ForgeHmi } from "@/components/forge/steps/forge-hmi";
 import { ForgeTiaExport } from "@/components/forge/steps/forge-tia-export";
+import { TiaProvisionDialog } from "@/components/forge/tia-provision-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { useForgeStore } from "@/stores/forge-store";
 import { FORGE_STEP_LABELS, FORGE_STEP_ORDER } from "@/types/forge";
 import type { ForgeStep, ForgeArtifact, ForgeHardwareConfig, ForgeIoEntry, ForgeDeviceEntry, SpecAnalysis, TiaForgeExportResult, QaMessage } from "@/types/forge";
@@ -36,6 +49,7 @@ import { useDesignProfile } from "@/hooks/use-design-profiles";
 import { useFbTemplates } from "@/hooks/use-fb-templates";
 import { useActivePatterns } from "@/hooks/use-patterns";
 import { useProject } from "@/hooks/use-projects";
+import { useForgeProvision } from "@/hooks/use-forge-provision";
 import type { ForgeProjectSetup as ForgeProjectSetupData } from "@/components/forge/steps/forge-project-setup";
 
 export default function ForgePage() {
@@ -51,6 +65,7 @@ export default function ForgePage() {
   const goToPreviousStep = useForgeStore(s => s.goToPreviousStep);
   const setCurrentStep = useForgeStore(s => s.setCurrentStep);
   const setStepStatus = useForgeStore(s => s.setStepStatus);
+  const resetStore = useForgeStore(s => s.reset);
 
   const currentStepIndex = FORGE_STEP_ORDER.indexOf(currentStep);
   const isFirstStep = currentStepIndex <= 0;
@@ -70,6 +85,10 @@ export default function ForgePage() {
 
   // Project data (for pre-filling step 2)
   const { data: project } = useProject(projectId);
+
+  // TIA project provisioning (runs at IO approval)
+  const { provision: provisionTia, status: provisionStatus, reset: resetProvision } = useForgeProvision();
+  const [provisionDialogOpen, setProvisionDialogOpen] = useState(false);
 
   // Dependencies
   const { data: profile } = useDesignProfile(session?.design_profile_id ?? undefined);
@@ -102,6 +121,12 @@ export default function ForgePage() {
     await updateSession({ id: session.id, updates });
   }
 
+  async function handleNewSession() {
+    if (!projectId) return;
+    resetStore();
+    await createSession({ project_id: projectId, design_profile_id: null });
+  }
+
   // Per-step handlers
   async function handleSpecComplete(specText: string, specFilename: string, analysis: SpecAnalysis) {
     await saveSession({ spec_text: specText, spec_filename: specFilename, spec_analysis: analysis, current_step: "qa_review" });
@@ -121,6 +146,10 @@ export default function ForgePage() {
         tia_version: setup.tia_version,
         racks: session?.hardware_config?.racks ?? [],
       },
+      tia_project_path: setup.tia_project_path ?? null,
+      device_fb_language: setup.device_fb_language,
+      io_linking_language: setup.io_linking_language,
+      process_code_language: setup.process_code_language,
       current_step: "hardware_io",
     });
     completeStep("project_setup");
@@ -132,6 +161,20 @@ export default function ForgePage() {
     devices: ForgeDeviceEntry[],
   ) {
     await saveSession({ hardware_config: hardware, io_list: ioList, device_list: devices, current_step: "matrix_review" });
+
+    // Provision the TIA project and show a progress dialog.
+    // If bridge is offline it silently skips; compile step handles it later.
+    if (session?.tia_project_path) {
+      resetProvision();
+      setProvisionDialogOpen(true);
+      void provisionTia(
+        session.tia_project_path,
+        hardware,
+        ioList,
+        project?.description_short ?? undefined,
+      );
+    }
+
     completeStep("hardware_io");
   }
 
@@ -158,7 +201,8 @@ export default function ForgePage() {
   }
 
   // Default profile shim (so steps never receive undefined profile)
-  const profileOrDefault = profile ?? {
+  // Session language overrides take precedence over whatever is on the design profile
+  const profileOrDefault = {
     id: "",
     name: "Default",
     client_name: null,
@@ -166,6 +210,7 @@ export default function ForgePage() {
     rules: "",
     general_rules: "",
     folder_rules: "",
+    io_linking_rules: "",
     process_rules: [],
     fb_rules: [],
     device_fb_language: "SCL" as const,
@@ -177,6 +222,11 @@ export default function ForgePage() {
     created_by: null,
     updated_at: "",
     created_at: "",
+    ...(profile ?? {}),
+    // Apply session-level language overrides (set in project setup form)
+    ...(session?.device_fb_language ? { device_fb_language: session.device_fb_language } : {}),
+    ...(session?.io_linking_language ? { io_linking_language: session.io_linking_language } : {}),
+    ...(session?.process_code_language ? { process_code_language: session.process_code_language } : {}),
   };
 
   function renderStep() {
@@ -187,6 +237,7 @@ export default function ForgePage() {
         return (
           <ForgeSpecUpload
             onComplete={handleSpecComplete}
+            fbTemplates={fbTemplates}
             onSkip={() => {
               // Skip both spec upload and Q&A
               setStepStatus("qa_review", "completed");
@@ -204,6 +255,7 @@ export default function ForgePage() {
         return (
           <ForgeQaReview
             specAnalysis={session.spec_analysis}
+            specText={session.spec_text ?? undefined}
             onComplete={handleQaComplete}
             onSkip={() => {
               void saveSession({ current_step: "project_setup" });
@@ -218,6 +270,9 @@ export default function ForgePage() {
             specAnalysis={session.spec_analysis}
             project={project ?? null}
             onComplete={handleProjectSetupComplete}
+            initialDeviceFbLanguage={session.device_fb_language ?? undefined}
+            initialIoLinkingLanguage={session.io_linking_language ?? undefined}
+            initialProcessCodeLanguage={session.process_code_language ?? undefined}
           />
         );
 
@@ -225,8 +280,12 @@ export default function ForgePage() {
         return (
           <ForgeHardwareIo
             specAnalysis={session.spec_analysis}
+            savedDevices={session.device_list?.length ? session.device_list : undefined}
+            savedIoList={session.io_list?.length ? session.io_list : undefined}
+            savedHardware={session.hardware_config ?? undefined}
             fbTemplates={fbTemplates}
             deviceFbLanguage={profileOrDefault.device_fb_language}
+            provisionStatus={provisionStatus}
             onComplete={handleHardwareIoComplete}
           />
         );
@@ -285,6 +344,11 @@ export default function ForgePage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <TiaProvisionDialog
+        open={provisionDialogOpen}
+        status={provisionStatus}
+        onClose={() => setProvisionDialogOpen(false)}
+      />
       {/* Header — collapsible */}
       <Card className="border-border/70 bg-card/80">
         {/* Always-visible slim bar */}
@@ -336,7 +400,39 @@ export default function ForgePage() {
                     <div className="mt-1 text-sm">{completedCount} / {FORGE_STEP_ORDER.length} complete</div>
                   </div>
                   <div className="rounded-lg border border-border/70 bg-background/50 px-3 py-2">
-                    <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Session</div>
+                    <div className="flex items-center justify-between">
+                      <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Session</div>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-5 gap-1 px-1.5 font-mono text-[10px] text-muted-foreground hover:text-destructive"
+                            title="Start a new session (discards current progress)"
+                          >
+                            <RotateCcw className="h-2.5 w-2.5" />
+                            New
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Start a new session?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This will create a fresh session and discard all current wizard progress — uploaded spec, Q&amp;A, hardware, devices, and generated code. The old session is not deleted and can be recovered from the database, but this wizard will start over from Step 1.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => void handleNewSession()}
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            >
+                              Start Over
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
                     <div className="mt-1 flex items-center gap-2 text-sm font-mono">
                       {sessionLoading
                         ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />

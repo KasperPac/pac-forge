@@ -327,6 +327,19 @@ LAD (Ladder Logic) editor at `/pac-lad` → `src/routes/pac-lad.tsx`. Key files:
 - No stub safety logic — safety-analyzer.ts has real rule-based checks
 - Prefer deterministic, auditable implementations over cleverness
 - Ask for missing requirements only when truly required
+
+## Post-Task Hooks
+
+After every code change that touches files matching these patterns:
+- `src/hooks/use-forge-*.ts`
+- `src/hooks/use-pipeline-*.ts`  
+- `src/lib/*-prompt*.ts`
+- `src/lib/forge-*.ts`
+- `src/lib/pipeline.ts`
+
+Automatically run: Read `.claude/agents/pipeline-auditor.md` and execute the audit 
+against the current codebase. Report findings. Block if FAIL.
+
 ## Monday Integration
 
 See `CLAUDE.monday.md` for monday.com task sync rules.
@@ -340,3 +353,9 @@ See `CLAUDE.monday.md` for monday.com task sync rules.
 This applies to bug fixes, features, improvements — everything. Never skip step 1. The task must exist in Monday BEFORE the first line of code is written.
 
 **Monday tooling**: Monday MCP is configured at `https://mcp.monday.com/mcp` — use MCP tools directly when available. Fallback: `python scripts/task_create.py --title "..." --status "Working on it" --group "..."` and `python scripts/task_update.py --task-id <id> --status "..."`. Board ID: `5092432355`. Status column: `status_cdbba809`.
+## Pipeline Integrity (MANDATORY)
+
+After completing ANY task that modifies hooks, prompt builders, or pipeline logic, 
+run the pipeline auditor agent at `.claude/agents/pipeline-auditor.md`.
+
+Do NOT proceed to the next task if the audit fails. Fix violations first.

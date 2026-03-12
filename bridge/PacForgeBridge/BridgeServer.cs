@@ -200,6 +200,13 @@ namespace PacForgeBridge
                     return;
                 }
 
+                // Route: POST /tia/provision-project
+                if (method == "POST" && path == "/tia/provision-project")
+                {
+                    await HandleProvisionProject(req, res);
+                    return;
+                }
+
                 // Route: POST /tia/demo/motor-control
                 if (method == "POST" && path == "/tia/demo/motor-control")
                 {
@@ -561,6 +568,55 @@ namespace PacForgeBridge
             {
                 Console.WriteLine($"[TIA] Open project failed: {ex.Message}");
                 await WriteJson(res, 500, new TiaActionResponse
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+        }
+
+        private async Task HandleProvisionProject(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            try
+            {
+                string body = await ReadBody(req);
+                var request = Json.Deserialize<ProvisionProjectRequest>(body);
+
+                if (request == null || string.IsNullOrEmpty(request.TiaProjectPath))
+                {
+                    await WriteJson(res, 400, new ProvisionProjectResponse
+                    {
+                        Success = false,
+                        Message = "Missing tia_project_path"
+                    });
+                    return;
+                }
+
+                Console.WriteLine($"[TIA] Provisioning project at: {request.TiaProjectPath}");
+
+                // Broadcast WS events at each provision step (fire-and-forget per event)
+                void Broadcast(BridgeEvent evt) => _wsHandler.Broadcast(evt).GetAwaiter().GetResult();
+
+                ProvisionProjectResponse result;
+                try
+                {
+                    result = _tiaService.ProvisionProject(request, Broadcast);
+                }
+                catch (Exception ex)
+                {
+                    // Broadcast failure event before returning error
+                    var provisionId = request.ProvisionId ?? "unknown";
+                    _wsHandler.Broadcast(BridgeEvent.ProvisionProgress(provisionId, ex.Message, 0, failed: true, error: ex.Message)).GetAwaiter().GetResult();
+                    throw;
+                }
+
+                await WriteJson(res, 200, result);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TIA] Provision failed: {ex.Message}");
+                Console.WriteLine($"[TIA] Stack: {ex.StackTrace}");
+                await WriteJson(res, 500, new ProvisionProjectResponse
                 {
                     Success = false,
                     Message = ex.Message

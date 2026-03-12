@@ -54,9 +54,9 @@ export function useForgeQaReview() {
   }, []);
 
   /**
-   * Start the review — sends spec analysis to PM, gets first batch of questions.
+   * Start the review — sends spec analysis (and raw spec text when sparse) to PM.
    */
-  const startReview = useCallback(async (analysis: SpecAnalysis): Promise<string> => {
+  const startReview = useCallback(async (analysis: SpecAnalysis, specText?: string): Promise<string> => {
     setLoading(true);
     setError(null);
     setMessages([]);
@@ -64,7 +64,20 @@ export function useForgeQaReview() {
     try {
       const controller = new AbortController();
 
-      const userContent = `Here is the extracted spec analysis. Please review it and ask me any clarifying questions about gaps or ambiguities:\n\n\`\`\`json\n${JSON.stringify(analysis, null, 2)}\n\`\`\``;
+      const analysisIsEmpty =
+        (analysis.devices ?? []).length === 0 &&
+        (analysis.process_sequences ?? []).length === 0;
+
+      const specTextSection =
+        specText
+          ? `\n\nOriginal specification document (use this as the primary source of truth):\n\`\`\`\n${specText.slice(0, 20000)}\n\`\`\``
+          : "";
+
+      const analysisNote = analysisIsEmpty
+        ? "Note: the extracted analysis appears sparse — please read the original specification above and ask questions based on that."
+        : "Please review the extracted analysis and ask me any clarifying questions about gaps or ambiguities.";
+
+      const userContent = `Here is the extracted spec analysis. ${analysisNote}\n\n\`\`\`json\n${JSON.stringify(analysis, null, 2)}\n\`\`\`${specTextSection}`;
 
       const systemPrompt = buildQaReviewPrompt();
       const { content } = await validateAndCall(
@@ -151,14 +164,24 @@ export function useForgeQaReview() {
    */
   const finalizeAnalysis = useCallback(async (
     originalAnalysis: SpecAnalysis,
+    specText?: string,
   ): Promise<SpecAnalysis> => {
-    // Check if the last PM message already has a JSON block
+    // Check if the last PM message already has a JSON block.
+    // Only trust it if it contains at least as many devices as the original —
+    // PM responses during Q&A often include only partial/discussed data.
     const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
     if (lastAssistant) {
       const jsonBlock = extractJsonBlock(lastAssistant.content);
       if (jsonBlock) {
         try {
-          return JSON.parse(jsonBlock) as SpecAnalysis;
+          const candidate = JSON.parse(jsonBlock) as SpecAnalysis;
+          const originalDeviceCount = (originalAnalysis.devices ?? []).length;
+          const candidateDeviceCount = (candidate.devices ?? []).length;
+          // Only use if it preserves all original devices (or original had none)
+          if (originalDeviceCount === 0 || candidateDeviceCount >= originalDeviceCount) {
+            return candidate;
+          }
+          // Otherwise fall through to dedicated finalization call
         } catch {
           // Fall through to dedicated call
         }
@@ -172,11 +195,30 @@ export function useForgeQaReview() {
     try {
       const controller = new AbortController();
 
+      // When the analysis is mostly empty, include the original spec text so the
+      // AI can re-extract devices/sequences directly rather than relying on
+      // the (empty) JSON alone.
+      const analysisIsEmpty =
+        (originalAnalysis.devices ?? []).length === 0 &&
+        (originalAnalysis.process_sequences ?? []).length === 0;
+
+      const specTextSection =
+        analysisIsEmpty && specText
+          ? [
+              "",
+              "Original functional specification (use this to extract devices and sequences):",
+              "```",
+              specText.slice(0, 20000), // cap to avoid exceeding context
+              "```",
+            ].join("\n")
+          : "";
+
       const userContent = [
-        "Original spec analysis:",
+        "Original spec analysis (may be incomplete):",
         "```json",
         JSON.stringify(originalAnalysis, null, 2),
         "```",
+        specTextSection,
         "",
         "Q&A conversation that clarified gaps:",
         messages.map((m) => `**${m.role === "assistant" ? "PM" : "Engineer"}:** ${m.content}`).join("\n\n"),
@@ -189,7 +231,7 @@ export function useForgeQaReview() {
         buildQaUpdateAnalysisPrompt(),
         [{ role: "user", content: userContent }],
         controller.signal,
-        8192,
+        16000,
         "pm_qa",
       );
 

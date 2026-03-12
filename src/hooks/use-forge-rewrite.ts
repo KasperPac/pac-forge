@@ -100,8 +100,7 @@ export function useForgeRewrite() {
         const userMessage = buildForgeRewriteUserMessage(findings, artifacts);
         const controller = new AbortController();
 
-        const isLad = artifacts.some((a) => a.language === "LAD");
-        const agentType = isLad ? "code_architect_lad" : "code_architect_scl";
+        const agentType = "code_architect_scl";
 
         const { content } = await validateAndCall(
           callNonStreaming,

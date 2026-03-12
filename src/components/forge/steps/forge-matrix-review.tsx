@@ -10,6 +10,7 @@ import {
   GitBranch,
   Shield,
   Zap,
+  ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +18,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { MermaidDiagram } from "@/components/ui/mermaid-diagram";
 import { buildMultiSequenceDiagram } from "@/lib/process-sequence-diagram";
 import { useForgeMatrixGenerate } from "@/hooks/use-forge-matrix-generate";
+import { useForgeMatrixValidate } from "@/hooks/use-forge-matrix-validate";
 import { cn } from "@/lib/utils";
 import type { ForgeSession } from "@/types/forge";
 import type { FbTemplate } from "@/types/fb-template";
@@ -256,9 +258,9 @@ function SequenceCard({ seq }: { seq: ProcessSequence }) {
                     <span className="font-mono text-[10px] font-bold text-primary">
                       Step {step.stepNumber}
                     </span>
-                    {step.devicesInvolved.length > 0 && (
+                    {(step.devicesInvolved ?? []).length > 0 && (
                       <span className="font-mono text-[9px] text-muted-foreground">
-                        [{step.devicesInvolved.join(", ")}]
+                        [{(step.devicesInvolved ?? []).join(", ")}]
                       </span>
                     )}
                   </div>
@@ -305,6 +307,8 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
   const { generate, loading, error } = useForgeMatrixGenerate();
 
   const [activeTab, setActiveTab] = useState<"devices" | "sequences">("devices");
+  const [selectedSeqId, setSelectedSeqId] = useState<string | undefined>(undefined);
+  const { validate, loading: validating, result: validationResult, clear: clearValidation } = useForgeMatrixValidate();
 
   // Auto-generate on mount if no matrix exists
   useEffect(() => {
@@ -341,10 +345,13 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
     }
   }
 
-  const diagramChart =
-    matrix?.processSequences?.length
-      ? buildMultiSequenceDiagram(matrix.processSequences)
-      : "";
+  const activeSeq = matrix?.processSequences?.length
+    ? (selectedSeqId
+        ? matrix.processSequences.find((s) => s.id === selectedSeqId) ?? matrix.processSequences[0]
+        : matrix.processSequences[0])
+    : null;
+
+  const diagramChart = activeSeq ? buildMultiSequenceDiagram([activeSeq], activeSeq.id) : "";
 
   return (
     <div className="flex h-full gap-4 min-h-0">
@@ -369,7 +376,7 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
               variant="outline"
               className="h-7 gap-1.5 font-mono text-xs"
               onClick={handleGenerate}
-              disabled={loading || completing}
+              disabled={loading || completing || validating}
             >
               {loading ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -380,9 +387,23 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
             </Button>
             <Button
               size="sm"
+              variant="outline"
+              className="h-7 gap-1.5 font-mono text-xs"
+              onClick={() => { clearValidation(); if (matrix) void validate(matrix); }}
+              disabled={!matrix || loading || completing || validating}
+            >
+              {validating ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <ShieldCheck className="h-3 w-3" />
+              )}
+              Validate
+            </Button>
+            <Button
+              size="sm"
               className="h-7 gap-1.5 font-mono text-xs"
               onClick={handleConfirm}
-              disabled={!matrix || loading || completing}
+              disabled={!matrix || loading || completing || validating}
             >
               {completing ? (
                 <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</>
@@ -398,6 +419,50 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
           <div className="flex items-center gap-2 rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
             <AlertCircle className="h-3.5 w-3.5 shrink-0" />
             {error ?? completeError}
+          </div>
+        )}
+
+        {/* Validation result */}
+        {validationResult && (
+          <div className={cn(
+            "rounded border px-3 py-2 text-xs space-y-1.5",
+            validationResult.verdict === "ok" && "border-green-500/30 bg-green-500/10 text-green-400",
+            validationResult.verdict === "warnings" && "border-amber-500/30 bg-amber-500/10 text-amber-400",
+            validationResult.verdict === "errors" && "border-destructive/30 bg-destructive/10 text-destructive",
+          )}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 font-mono font-medium uppercase tracking-wider text-[10px]">
+                <ShieldCheck className="h-3 w-3" />
+                PM Validation — {validationResult.verdict}
+                {validationResult.timerFixCount > 0 && (
+                  <span className="text-muted-foreground normal-case tracking-normal">· {validationResult.timerFixCount} timer value{validationResult.timerFixCount !== 1 ? "s" : ""} fixed</span>
+                )}
+              </div>
+              {validationResult.correctedMatrix && (
+                <button
+                  type="button"
+                  className="rounded border border-current px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider hover:opacity-80 transition-opacity"
+                  onClick={() => {
+                    setMatrix(validationResult.correctedMatrix!);
+                    clearValidation();
+                  }}
+                >
+                  Apply {validationResult.timerFixCount} Fix{validationResult.timerFixCount !== 1 ? "es" : ""}
+                </button>
+              )}
+            </div>
+            {validationResult.issues.length > 0 && (
+              <div className="space-y-0.5">
+                <div className="font-mono text-[10px] opacity-70">Issues:</div>
+                {validationResult.issues.map((issue, i) => <div key={i} className="pl-2">· {issue}</div>)}
+              </div>
+            )}
+            {validationResult.suggestions.length > 0 && (
+              <div className="space-y-0.5">
+                <div className="font-mono text-[10px] opacity-70">Suggestions:</div>
+                {validationResult.suggestions.map((s, i) => <div key={i} className="pl-2">· {s}</div>)}
+              </div>
+            )}
           </div>
         )}
 
@@ -482,27 +547,40 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
       </div>
 
       {/* Right panel — Sequence diagram */}
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <GitBranch className="h-3.5 w-3.5 text-primary" />
-          <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-            Sequence Diagram
-          </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-2 min-h-0">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <GitBranch className="h-3.5 w-3.5 text-primary" />
+            <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              Sequence Diagram
+            </span>
+          </div>
+          {matrix && matrix.processSequences.length > 1 && (
+            <select
+              value={selectedSeqId ?? matrix.processSequences[0]?.id ?? ""}
+              onChange={(e) => setSelectedSeqId(e.target.value)}
+              className="h-6 rounded border border-input bg-background px-2 font-mono text-[10px] text-foreground"
+            >
+              {matrix.processSequences.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          )}
         </div>
 
-        <ScrollArea className="flex-1 rounded-md border border-border/60 bg-background/40 p-3">
+        <div className="flex-1 overflow-auto rounded-md border border-border/60 bg-background/40 p-3 min-h-0">
           {loading && !matrix ? (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
               Waiting for matrix…
             </div>
           ) : diagramChart ? (
-            <MermaidDiagram chart={diagramChart} className="w-full" />
+            <MermaidDiagram chart={diagramChart} className="min-w-[500px]" />
           ) : (
             <div className="flex h-full items-center justify-center font-mono text-xs text-muted-foreground">
               No process sequences defined
             </div>
           )}
-        </ScrollArea>
+        </div>
       </div>
     </div>
   );

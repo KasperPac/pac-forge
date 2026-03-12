@@ -17,6 +17,8 @@ export interface DesignProfile {
   folder_rules: string;
   process_rules: ProcessRuleExample[];
   fb_rules: ProcessRuleExample[];
+  /** Rules injected specifically into IO linking FC generation (migration 031) */
+  io_linking_rules: string;
   /** Language used for device Function Blocks (migration 027) */
   device_fb_language: "SCL" | "LAD";
   /** Language used for the IO linking FC (migration 027) */

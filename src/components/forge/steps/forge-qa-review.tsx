@@ -12,6 +12,7 @@ import type { SpecAnalysis, QaMessage } from "@/types/forge";
 
 export interface ForgeQaReviewProps {
   specAnalysis: SpecAnalysis;
+  specText?: string;
   onComplete: (updatedAnalysis: SpecAnalysis, messages: QaMessage[]) => void | Promise<void>;
   onSkip: () => void;
 }
@@ -134,7 +135,7 @@ function MessageBubble({ message }: { message: QaMessage }) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function ForgeQaReview({ specAnalysis, onComplete, onSkip }: ForgeQaReviewProps) {
+export function ForgeQaReview({ specAnalysis, specText, onComplete, onSkip }: ForgeQaReviewProps) {
   const { messages, loading, error, isComplete, startReview, sendMessage, finalizeAnalysis } =
     useForgeQaReview();
 
@@ -149,9 +150,9 @@ export function ForgeQaReview({ specAnalysis, onComplete, onSkip }: ForgeQaRevie
   useEffect(() => {
     if (!started) {
       setStarted(true);
-      startReview(specAnalysis).catch(() => {/* error shown in UI */});
+      startReview(specAnalysis, specText).catch(() => {/* error shown in UI */});
     }
-  }, [started, startReview, specAnalysis]);
+  }, [started, startReview, specAnalysis, specText]);
 
   // Scroll to bottom when messages update
   useEffect(() => {
@@ -181,7 +182,7 @@ export function ForgeQaReview({ specAnalysis, onComplete, onSkip }: ForgeQaRevie
     try {
       let updated: SpecAnalysis;
       try {
-        updated = await finalizeAnalysis(specAnalysis);
+        updated = await finalizeAnalysis(specAnalysis, specText);
       } catch {
         // Finalization failed — proceed with original analysis so the step always advances
         updated = specAnalysis;

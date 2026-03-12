@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   ImagePlus,
   X,
+  Cable,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,11 +47,12 @@ import { callNonStreaming } from "@/hooks/use-generation";
 import type { MessageContent } from "@/hooks/use-generation";
 import type { ProcessRuleExample } from "@/types";
 
-type Tab = "general" | "folders" | "process" | "fb";
+type Tab = "general" | "folders" | "io_linking" | "process" | "fb";
 
 const TABS: { key: Tab; label: string; icon: typeof FileText }[] = [
   { key: "general", label: "General", icon: FileText },
   { key: "folders", label: "Folders", icon: FolderTree },
+  { key: "io_linking", label: "IO Linking", icon: Cable },
   { key: "process", label: "Process", icon: Workflow },
   { key: "fb", label: "FB", icon: Blocks },
 ];
@@ -92,6 +94,7 @@ export default function ProfileDetailPage() {
   // Local form state — initialized from profile
   const [generalRules, setGeneralRules] = useState<string | null>(null);
   const [folderRules, setFolderRules] = useState<string | null>(null);
+  const [ioLinkingRules, setIoLinkingRules] = useState<string | null>(null);
   const [processRules, setProcessRules] = useState<ProcessRuleExample[] | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- will be used when FB tab is implemented
   const [fbRules, _setFbRules] = useState<ProcessRuleExample[] | null>(null);
@@ -107,6 +110,7 @@ export default function ProfileDetailPage() {
   const currentClientName = clientName ?? profile?.client_name ?? "";
   const currentGeneralRules = generalRules ?? profile?.general_rules ?? profile?.rules ?? "";
   const currentFolderRules = folderRules ?? profile?.folder_rules ?? "";
+  const currentIoLinkingRules = ioLinkingRules ?? profile?.io_linking_rules ?? "";
   const currentProcessRules = processRules ?? profile?.process_rules ?? [];
   const currentFbRules = fbRules ?? profile?.fb_rules ?? [];
 
@@ -123,6 +127,7 @@ export default function ProfileDetailPage() {
           rules: currentGeneralRules, // keep legacy field in sync
           general_rules: currentGeneralRules,
           folder_rules: currentFolderRules,
+          io_linking_rules: currentIoLinkingRules,
           process_rules: currentProcessRules,
           fb_rules: currentFbRules,
         },
@@ -246,6 +251,12 @@ export default function ProfileDetailPage() {
               onChange={(v) => { setFolderRules(v); markDirty(); }}
             />
           )}
+          {tab === "io_linking" && (
+            <IoLinkingTab
+              rules={currentIoLinkingRules}
+              onChange={(v) => { setIoLinkingRules(v); markDirty(); }}
+            />
+          )}
           {tab === "process" && (
             <RuleExamplesTab
               kind="process"
@@ -367,6 +378,42 @@ function FoldersTab({
         onChange={(e) => onChange(e.target.value)}
         placeholder={FOLDER_PLACEHOLDER}
         className="min-h-[400px] resize-y font-mono text-xs leading-relaxed"
+      />
+    </div>
+  );
+}
+
+// ─── IO Linking Tab ──────────────────────────────────────────────────────────
+
+const IO_LINKING_PLACEHOLDER = `# LAD IO Linking Style
+- Use NO contacts connected to output coils for Bool signals
+  - E.g. rung: [NO contact: "I_MotorStart"] → [Coil: "InstMotor1.start"]
+- Use MOVE boxes only for analog (Word/Int/Real) signals
+  - E.g. rung: [MOVE: "IW_SpeedSetpoint" → "InstMotor1.speedSetpoint"]
+- One rung per IO signal
+- Rung title = "Assign {tag} → {instance}.{var}"`;
+
+function IoLinkingTab({
+  rules,
+  onChange,
+}: {
+  rules: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="font-mono text-sm font-semibold">IO Linking Rules</h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Rules applied specifically to the IO linking FC generation. Use this to define your preferred
+          LAD contact/coil style, MOVE box usage, or rung structure conventions.
+        </p>
+      </div>
+      <Textarea
+        value={rules}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={IO_LINKING_PLACEHOLDER}
+        className="min-h-[300px] resize-y font-mono text-xs leading-relaxed"
       />
     </div>
   );

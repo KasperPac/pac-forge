@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { CheckCircle2, Circle, Loader2, AlertCircle } from "lucide-react";
+import { CheckCircle2, Circle, Loader2, AlertCircle, Maximize2 } from "lucide-react";
 import { ForgeCodeViewer } from "@/components/forge/forge-code-viewer";
+import { ForgeArtifactDialog } from "@/components/forge/forge-artifact-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -77,6 +78,7 @@ export function ForgeDeviceCode({
   const [artifacts, setArtifacts] = useState<ForgeArtifact[]>(session.device_artifacts ?? []);
   const [selectedId, setSelectedId] = useState<string | null>(artifacts[0]?.id ?? null);
   const [editable, setEditable] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [stages, setStages] = useState<SubPipelineStage[]>(INITIAL_STAGES);
   const [reviewSummary, setReviewSummary] = useState<string | null>(null);
   const [compileErrors, setCompileErrors] = useState<string[]>([]);
@@ -238,7 +240,7 @@ export function ForgeDeviceCode({
                     <button
                       key={a.id}
                       onClick={() => setSelectedId(a.id)}
-                      className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs transition-colors ${selectedId === a.id ? "bg-primary/15 text-foreground" : "hover:bg-muted/40 text-muted-foreground"}`}
+                      className={`group/row flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs transition-colors ${selectedId === a.id ? "bg-primary/15 text-foreground" : "hover:bg-muted/40 text-muted-foreground"}`}
                     >
                       <button
                         onClick={e => { e.stopPropagation(); toggleApprove(a.id); }}
@@ -249,7 +251,7 @@ export function ForgeDeviceCode({
                           : <Circle className="h-3.5 w-3.5 text-muted-foreground/50" />}
                       </button>
                       <span className="min-w-0 flex-1 truncate font-mono">{a.name}</span>
-                      <div className="flex shrink-0 gap-1">
+                      <div className="flex shrink-0 items-center gap-1">
                         {a.fb_template_id && (
                           <Badge variant="outline" className="font-mono text-[9px] border-green-600/40 text-green-500">
                             library
@@ -257,6 +259,13 @@ export function ForgeDeviceCode({
                         )}
                         {typeBadge(a.type)}
                         {langBadge(a.language)}
+                        <button
+                          onClick={e => { e.stopPropagation(); setExpandedId(a.id); }}
+                          className="ml-1 hidden rounded p-0.5 hover:bg-muted/60 group-hover/row:flex"
+                          title="Open full-screen editor"
+                        >
+                          <Maximize2 className="h-3 w-3 text-muted-foreground" />
+                        </button>
                       </div>
                     </button>
                   ))}
@@ -375,6 +384,15 @@ export function ForgeDeviceCode({
           )}
         </div>
       </div>
+
+      <ForgeArtifactDialog
+        artifacts={artifacts}
+        initialId={expandedId}
+        open={expandedId !== null}
+        onClose={() => setExpandedId(null)}
+        onContentChange={updateContent}
+        onToggleApprove={toggleApprove}
+      />
     </div>
   );
 }

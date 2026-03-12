@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router";
-import { ArrowLeft, Play, Save, Plus, Trash2, ChevronDown, ChevronRight, Upload, X, FileText, Cpu, Wand2 } from "lucide-react";
+import { ArrowLeft, Play, Save, Plus, Trash2, ChevronDown, ChevronRight, Upload, X, FileText, Cpu, Wand2, FolderOpen, Pencil, Check } from "lucide-react";
+import { DropboxFolderDialog } from "@/components/dropbox-folder-dialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +29,7 @@ import { HardwareConfigEditor } from "@/components/hardware-config-editor";
 import { GitHubRepoCard } from "@/components/github-repo-card";
 import { supabase } from "@/lib/supabase";
 import type { IoEntry, RackSlotLayout, TagDbDefinition, ProjectUpdate } from "@/types";
+import type { Project } from "@/types/project";
 
 const ACCEPTED_DOC_TYPES = ".docx,.pdf,.txt,.csv";
 
@@ -350,6 +352,124 @@ function TagDbEditor({
   );
 }
 
+function DropboxSection({
+  project,
+  onSavePath,
+}: {
+  project: Project;
+  onSavePath: (path: string | null) => void;
+}) {
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [manualPath, setManualPath] = useState("");
+
+  function openLinkDialog() {
+    setManualPath(project.dropbox_folder_path ?? "");
+    setLinkOpen(true);
+  }
+
+  function commitLink() {
+    onSavePath(manualPath.trim() || null);
+    setLinkOpen(false);
+  }
+
+  return (
+    <Card className="p-4">
+      <div className="flex flex-col gap-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <FolderOpen className="h-4 w-4 text-primary" />
+              <h3 className="font-mono text-sm font-medium">Dropbox Folder</h3>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Job folder in Dropbox — used to derive the TIA project path in the Forge wizard.
+            </p>
+          </div>
+          {project.dropbox_folder_path && (
+            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground" onClick={openLinkDialog}>
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
+
+        {/* Link existing dialog */}
+        {linkOpen && (
+          <div className="rounded-lg border border-border/70 bg-background/40 p-4 space-y-3">
+            <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+              Link Existing Folder
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Open the job folder in Windows Explorer, click the address bar to select the full path, then paste it here.
+            </p>
+            <Input
+              className="font-mono text-xs"
+              placeholder="C:\Users\kaspe\Pac Technologies Dropbox\Pac\Jobs\Client\PAC-XXXX - Description"
+              value={manualPath}
+              onChange={(e) => setManualPath(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") commitLink(); if (e.key === "Escape") setLinkOpen(false); }}
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <Button size="sm" onClick={commitLink} disabled={!manualPath.trim()}>
+                <Check className="h-3.5 w-3.5" />
+                Save Path
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setLinkOpen(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {project.dropbox_folder_path ? (
+          <div className="flex flex-col gap-3 rounded-lg border border-border/70 bg-background/40 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="font-mono text-sm">{project.dropbox_folder_path}</div>
+              <div className="mt-1 font-mono text-[11px] text-muted-foreground">
+                TIA path: {project.dropbox_folder_path}\50 PLC\NN {project.description_short || "{Project Name}"}
+              </div>
+            </div>
+            <Badge variant="outline" className="font-mono text-[10px] text-green-400 border-green-600/40 shrink-0">
+              Linked
+            </Badge>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed border-border/70 bg-background/40 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="text-sm text-muted-foreground">No Dropbox folder linked.</div>
+                <div className="text-xs text-muted-foreground/70">
+                  Set up a new job folder or link an existing one to enable auto TIA path derivation.
+                </div>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <Button size="sm" onClick={() => setSetupOpen(true)}>
+                  <FolderOpen className="h-4 w-4" />
+                  Setup Folder
+                </Button>
+                <Button size="sm" variant="outline" onClick={openLinkDialog}>
+                  <Pencil className="h-4 w-4" />
+                  Link Existing
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <DropboxFolderDialog
+          open={setupOpen}
+          onOpenChange={setSetupOpen}
+          projectId={project.id}
+          clientName={project.client_name}
+          projectNumber={project.project_number ?? ""}
+          descriptionShort={project.description_short ?? ""}
+        />
+      </div>
+    </Card>
+  );
+}
+
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -530,6 +650,10 @@ export default function ProjectDetailPage() {
                     <div>{new Date(project.created_at).toLocaleString()}</div>
                   </div>
                 </div>
+
+                {/* Dropbox link status */}
+                <DropboxSection project={project} onSavePath={(path) => handleUpdate({ dropbox_folder_path: path })} />
+
                 {project.safety_notes && (
                   <div className="font-mono text-sm">
                     <div className="text-xs text-muted-foreground">Safety Notes</div>

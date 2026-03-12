@@ -153,6 +153,9 @@ export function buildForgeManifest(
 export async function buildLadXmlForArtifact(artifact: ForgeArtifact): Promise<string> {
   const { buildLadXml } = await import("@/lib/lad-xml-builder");
   const program = JSON.parse(artifact.content);
+  // AI-generated LAD may omit fields that buildLadXml requires — fill defaults
+  if (!program.variables) program.variables = [];
+  if (!program.blockType) program.blockType = artifact.type; // "FC" | "FB"
   return buildLadXml(program);
 }
 

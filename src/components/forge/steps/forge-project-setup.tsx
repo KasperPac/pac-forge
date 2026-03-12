@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { ChevronRight } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { ChevronRight, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,12 +29,17 @@ export interface ForgeProjectSetup {
   cpu_type: string;
   safety_level: string;
   safety_notes: string;
+  tia_project_path: string | null;
 }
 
 export interface ForgeProjectSetupProps {
   specAnalysis: SpecAnalysis | null;
   project: Project | null;
   onComplete: (setup: ForgeProjectSetup) => void;
+  /** Previously-saved language choices from the session (used to restore form when navigating back) */
+  initialDeviceFbLanguage?: "SCL" | "LAD";
+  initialIoLinkingLanguage?: "SCL" | "LAD";
+  initialProcessCodeLanguage?: "SCL" | "LAD";
 }
 
 const TIA_VERSIONS = ["V17", "V18", "V19", "V20"] as const;
@@ -44,7 +49,12 @@ function profileLang(profile: DesignProfile | undefined, field: "device_fb_langu
   return profile?.[field] === "LAD" ? "LAD" : "SCL";
 }
 
-export function ForgeProjectSetup({ specAnalysis, project, onComplete }: ForgeProjectSetupProps) {
+/** Pad PLC number to 2 digits: 1 → "01", 12 → "12" */
+function padPlcNum(n: number): string {
+  return String(Math.max(1, n)).padStart(2, "0");
+}
+
+export function ForgeProjectSetup({ specAnalysis, project, onComplete, initialDeviceFbLanguage, initialIoLinkingLanguage, initialProcessCodeLanguage }: ForgeProjectSetupProps) {
   const { data: profiles = [] } = useDesignProfiles();
 
   const [form, setForm] = useState<ForgeProjectSetup>({
@@ -52,14 +62,26 @@ export function ForgeProjectSetup({ specAnalysis, project, onComplete }: ForgePr
     project_number: project?.project_number ?? "",
     client_name: project?.client_name ?? "",
     design_profile_id: project?.design_profile_id ?? null,
-    device_fb_language: "SCL",
-    io_linking_language: "SCL",
-    process_code_language: "SCL",
+    device_fb_language: initialDeviceFbLanguage ?? "SCL",
+    io_linking_language: initialIoLinkingLanguage ?? "SCL",
+    process_code_language: initialProcessCodeLanguage ?? "SCL",
     tia_version: project?.tia_version ?? "V18",
     cpu_type: project?.cpu_type ?? specAnalysis?.plc_type ?? "S7-1500",
     safety_level: project?.safety_level ?? "",
     safety_notes: project?.safety_notes ?? "",
+    tia_project_path: null,
   });
+
+  // PLC sequence number within the job (01, 02, 03…)
+  const [plcNumber, setPlcNumber] = useState(1);
+
+  // Derived TIA project path from Dropbox job folder
+  const derivedTiaPath = useMemo(() => {
+    const base = project?.dropbox_folder_path;
+    const name = form.project_name.trim();
+    if (!base || !name) return null;
+    return `${base}\\50 PLC\\${padPlcNum(plcNumber)} ${name}`;
+  }, [project?.dropbox_folder_path, form.project_name, plcNumber]);
 
   // Pre-populate from spec analysis when it arrives (only fields not already from project)
   useEffect(() => {
@@ -331,11 +353,65 @@ export function ForgeProjectSetup({ specAnalysis, project, onComplete }: ForgePr
         </div>
       </div>
 
+      {/* TIA Project Location */}
+      <div className="rounded-md border border-border/60 bg-background/40 p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <FolderOpen className="h-3.5 w-3.5 text-primary" />
+          <span className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+            TIA Project Location
+          </span>
+        </div>
+
+        {project?.dropbox_folder_path ? (
+          <>
+            <div className="flex items-end gap-3">
+              <div className="space-y-1.5">
+                <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+                  PLC No.
+                </Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={99}
+                  value={plcNumber}
+                  onChange={e => setPlcNumber(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="h-9 w-16 font-mono text-sm"
+                />
+              </div>
+              <div className="flex-1 space-y-1.5">
+                <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+                  Derived Path
+                </Label>
+                <div className="flex h-9 items-center rounded-md border border-border/50 bg-muted/20 px-3 font-mono text-[11px] text-muted-foreground overflow-x-auto whitespace-nowrap">
+                  {derivedTiaPath ?? <span className="italic">Enter project name to derive path</span>}
+                </div>
+              </div>
+            </div>
+            <p className="font-mono text-[10px] text-muted-foreground/60">
+              Path: <span className="text-muted-foreground">{project.dropbox_folder_path}</span>\50 PLC\{padPlcNum(plcNumber)} {"{Project Name}"}
+            </p>
+          </>
+        ) : (
+          <div className="space-y-1.5">
+            <Label htmlFor="tia_path" className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+              TIA Project Path (manual — no Dropbox folder linked)
+            </Label>
+            <Input
+              id="tia_path"
+              value={form.tia_project_path ?? ""}
+              onChange={e => set("tia_project_path", e.target.value || null)}
+              placeholder="C:\...\50 PLC\01 Project Name"
+              className="font-mono text-xs"
+            />
+          </div>
+        )}
+      </div>
+
       <div className="mt-auto">
         <Button
           className="w-full"
           disabled={!canSubmit}
-          onClick={() => onComplete(form)}
+          onClick={() => onComplete({ ...form, tia_project_path: derivedTiaPath ?? form.tia_project_path })}
         >
           Save Project Setup
           <ChevronRight className="ml-2 h-4 w-4" />

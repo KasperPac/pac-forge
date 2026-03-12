@@ -187,17 +187,21 @@ namespace PacForgeBridge
 
         /// <summary>
         /// Open a TIA Portal project from disk.
+        /// Accepts either a full .ap* file path OR a folder path (will search for .ap* inside).
         /// </summary>
         public void OpenProject(string projectPath)
         {
             if (_tiaPortal == null)
                 throw new InvalidOperationException("TIA Portal not connected. Call Connect() first.");
 
+            // If a folder is given (not a .ap* file), find the project file inside it
+            string resolvedPath = ResolveProjectFilePath(projectPath);
+
             // If same project is already open, skip
             if (_project != null && _project.Path != null)
             {
                 string currentPath = _project.Path.FullName;
-                if (string.Equals(currentPath, projectPath, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(currentPath, resolvedPath, StringComparison.OrdinalIgnoreCase))
                 {
                     Console.WriteLine($"[TIA] Project already open: {_project.Name}");
                     return;
@@ -209,9 +213,168 @@ namespace PacForgeBridge
                 _project = null;
             }
 
-            Console.WriteLine($"[TIA] Opening project: {projectPath}");
-            _project = _tiaPortal.Projects.Open(new FileInfo(projectPath));
+            Console.WriteLine($"[TIA] Opening project: {resolvedPath}");
+            _project = _tiaPortal.Projects.Open(new FileInfo(resolvedPath));
             Console.WriteLine($"[TIA] Project opened: {_project.Name}");
+        }
+
+        /// <summary>
+        /// Resolve a project path: if it's a folder, find the .ap* file inside.
+        /// Returns the full path to the project file.
+        /// </summary>
+        private static string ResolveProjectFilePath(string path)
+        {
+            // Already a file path
+            if (File.Exists(path))
+                return path;
+
+            // It's a directory — find the .ap* project file (search subdirectories too,
+            // since TIA Portal creates projectDir\projectName\projectName.ap*)
+            if (Directory.Exists(path))
+            {
+                string[] apFiles = Directory.GetFiles(path, "*.ap*", SearchOption.AllDirectories);
+                // Filter to actual TIA project files (ap17, ap18, ap19, ap20...)
+                foreach (string f in apFiles)
+                {
+                    string ext = Path.GetExtension(f).ToLowerInvariant();
+                    if (System.Text.RegularExpressions.Regex.IsMatch(ext, @"\.ap\d+$"))
+                        return f;
+                }
+                throw new FileNotFoundException($"No TIA Portal project file (*.ap17/18/19/20) found in: {path}");
+            }
+
+            // Not a file or folder — pass through and let TIA give the error
+            return path;
+        }
+
+        /// <summary>
+        /// Provision a TIA project: open if it exists, create if it doesn't.
+        /// Adds CPU device, IO modules, and IO tag table when creating.
+        /// The optional onProgress callback is invoked at each step for WS broadcasting.
+        /// </summary>
+        public ProvisionProjectResponse ProvisionProject(ProvisionProjectRequest request, Action<BridgeEvent> onProgress = null)
+        {
+            var response = new ProvisionProjectResponse();
+            string provisionId = request.ProvisionId ?? Guid.NewGuid().ToString("N").Substring(0, 12);
+
+            void Emit(string step, int pct, bool complete = false, bool failed = false, string err = null)
+            {
+                Console.WriteLine($"[TIA] Provision [{pct}%] {step}");
+                onProgress?.Invoke(BridgeEvent.ProvisionProgress(provisionId, step, pct, complete, failed, err));
+            }
+
+            Emit("Connecting to TIA Portal", 5);
+            Connect(preferAttach: true);
+
+            string cleanFolder = request.TiaProjectPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            // TIA Projects.Create(dir, name) creates dir\name\name.ap* — so use parent of target folder
+            string parentDir = Path.GetDirectoryName(cleanFolder);
+            string folderName = Path.GetFileName(cleanFolder);
+            // projectName inside TIA = folder name (so the folder matches the session path)
+            string projectName = folderName;
+
+            // Check whether a project file already exists in the folder
+            string existingFile = null;
+            if (Directory.Exists(cleanFolder))
+            {
+                string[] apFiles = Directory.GetFiles(cleanFolder, "*.ap*", SearchOption.TopDirectoryOnly);
+                foreach (string f in apFiles)
+                {
+                    string ext = Path.GetExtension(f).ToLowerInvariant();
+                    if (System.Text.RegularExpressions.Regex.IsMatch(ext, @"\.ap\d+$"))
+                    {
+                        existingFile = f;
+                        break;
+                    }
+                }
+            }
+
+            if (existingFile != null)
+            {
+                // Project already exists — just open it
+                Emit("Opening existing project", 50);
+                OpenProject(existingFile);
+                Emit("Project opened", 100, complete: true);
+                response.Created = false;
+                response.ProjectFilePath = existingFile;
+                response.Success = true;
+                response.Message = $"Opened existing project: {_project.Name}";
+                return response;
+            }
+
+            // Create new project — pass parent directory so TIA creates folder/name.ap* at cleanFolder
+            Emit("Creating TIA project", 15);
+            Console.WriteLine($"[TIA] Provision: creating new project '{projectName}' in parent={parentDir ?? cleanFolder}");
+            CreateProject(parentDir ?? cleanFolder, projectName);
+
+            // Add CPU device
+            Emit("Adding PLC device", 35);
+            string cpuOrderNumber = !string.IsNullOrWhiteSpace(request.CpuOrderNumber)
+                ? request.CpuOrderNumber
+                : "OrderNumber:6ES7 516-3AN02-0AB0/V2.9"; // S7-1516 default
+
+            // Ensure OrderNumber: prefix
+            if (!cpuOrderNumber.StartsWith("OrderNumber:"))
+                cpuOrderNumber = "OrderNumber:" + cpuOrderNumber;
+
+            Console.WriteLine($"[TIA] Provision: adding CPU {cpuOrderNumber}");
+            Device device;
+            try
+            {
+                device = _project.Devices.CreateWithItem(cpuOrderNumber, "PLC_1", "PLC_1");
+                Console.WriteLine($"[TIA] Provision: device added: {device.Name}");
+            }
+            catch (Exception ex)
+            {
+                response.Warnings.Add($"CPU add failed ({cpuOrderNumber}): {ex.Message}. Trying default S7-1516...");
+                Console.WriteLine($"[TIA] Provision: CPU add failed, trying default: {ex.Message}");
+                device = _project.Devices.CreateWithItem("OrderNumber:6ES7 516-3AN02-0AB0/V2.9", "PLC_1", "PLC_1");
+            }
+
+            PlcSoftware plcSoftware = GetPlcSoftware();
+            var demoResult = new DemoResult { DeviceName = device.Name };
+
+            // Plug IO modules
+            if (request.IoModules != null && request.IoModules.Count > 0)
+            {
+                Emit("Adding IO modules", 55);
+                PlugIoModules(device, request.IoModules, demoResult);
+                response.Warnings.AddRange(demoResult.Warnings);
+            }
+
+            // Create IO tag table
+            if (request.IoTags != null && request.IoTags.Count > 0)
+            {
+                Emit("Creating IO tag table", 75);
+                CreateIoTags(plcSoftware, request.IoTags, demoResult);
+                response.Warnings.AddRange(demoResult.Warnings);
+            }
+
+            Emit("Saving project", 90);
+            SaveProject();
+
+            // Compile hardware configuration to validate CPU + modules
+            Emit("Compiling hardware", 95);
+            try
+            {
+                var compileResult = CompileAll(plcSoftware);
+                if (!compileResult.Success)
+                {
+                    response.Warnings.Add($"Hardware compile warnings: {compileResult.Errors.Count} error(s), {compileResult.Warnings.Count} warning(s)");
+                }
+            }
+            catch (Exception ex)
+            {
+                response.Warnings.Add($"Compile step skipped: {ex.Message}");
+            }
+
+            response.Created = true;
+            response.ProjectFilePath = _project.Path?.FullName;
+            response.Success = true;
+            response.Message = $"Created project '{_project.Name}' with {device.Name}";
+            Emit("Complete", 100, complete: true);
+            Console.WriteLine($"[TIA] Provision complete: {response.ProjectFilePath}");
+            return response;
         }
 
         /// <summary>

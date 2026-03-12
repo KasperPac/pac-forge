@@ -6,6 +6,7 @@ import {
   buildSpecAnalysisUserMessage,
 } from "@/lib/forge-prompts";
 import type { SpecAnalysis } from "@/types/forge";
+import type { FbTemplate } from "@/types/fb-template";
 
 const SPEC_ANALYSIS_MAX_TOKENS = 16384;
 
@@ -58,14 +59,14 @@ export function useForgeSpecAnalysis() {
   const [error, setError] = useState<string | null>(null);
 
   const analyze = useCallback(
-    async (specText: string): Promise<SpecAnalysis> => {
+    async (specText: string, fbTemplates?: FbTemplate[]): Promise<SpecAnalysis> => {
       setLoading(true);
       setError(null);
 
       const abort = new AbortController();
 
       try {
-        const systemPrompt = buildSpecAnalysisPrompt();
+        const systemPrompt = buildSpecAnalysisPrompt(fbTemplates);
         const userMessage = buildSpecAnalysisUserMessage(specText);
 
         const { content } = await validateAndCall(

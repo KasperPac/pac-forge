@@ -54,6 +54,7 @@ export default function ProfilesPage() {
         rules: "",
         general_rules: "",
         folder_rules: "",
+        io_linking_rules: "",
         process_rules: [],
         fb_rules: [],
         device_fb_language: "SCL" as const,

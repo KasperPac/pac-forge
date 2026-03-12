@@ -122,7 +122,10 @@ export function useUpdateForgeSession() {
     },
     onSuccess: (session) => {
       queryClient.setQueryData(sessionKey(session.id), session);
-      queryClient.invalidateQueries({ queryKey: projectSessionsKey(session.project_id) });
+      // Also push directly into the project sessions cache so any component
+      // that renders immediately after this mutation (e.g. Q&A step) sees the
+      // new data without waiting for the background refetch.
+      queryClient.setQueryData(projectSessionsKey(session.project_id), session);
     },
   });
 }

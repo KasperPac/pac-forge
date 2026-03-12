@@ -83,6 +83,11 @@ export interface ForgeSession {
   tia_project_path: string | null;
   tia_export_result: TiaForgeExportResult | null;
 
+  /** Language overrides set in project setup — take precedence over design profile defaults */
+  device_fb_language: "SCL" | "LAD" | null;
+  io_linking_language: "SCL" | "LAD" | null;
+  process_code_language: "SCL" | "LAD" | null;
+
   created_at: string;
   updated_at: string;
 }

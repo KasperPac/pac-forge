@@ -60,7 +60,16 @@ export function ForgeCodeViewer({
 
     let program: LadProgram | null = null;
     try {
-      program = JSON.parse(artifact.content) as LadProgram;
+      const parsed = JSON.parse(artifact.content) as LadProgram;
+      // Validate that the structure matches what LadCanvas expects
+      if (
+        Array.isArray(parsed.rungs) &&
+        parsed.rungs.every(
+          (r) => r.logic && Array.isArray(r.logic.nodes),
+        )
+      ) {
+        program = parsed;
+      }
     } catch {
       program = null;
     }

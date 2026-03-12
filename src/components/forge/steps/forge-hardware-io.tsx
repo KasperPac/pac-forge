@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useId, useMemo } from "react";
-import { ChevronRight, Plus, Trash2, ChevronDown, ChevronRight as ChevronRightIcon, Lightbulb, X as XIcon } from "lucide-react";
+import { ChevronRight, Plus, Trash2, ChevronDown, ChevronRight as ChevronRightIcon, Lightbulb, X as XIcon, Loader2, CheckCircle2, AlertCircle, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -16,6 +16,7 @@ import { HardwareConfigEditor } from "@/components/hardware-config-editor";
 import { IoListEditor } from "@/components/io-list-editor";
 import { matchDevicesToTemplates, applyMatchesToDevices, suggestMissingDevices } from "@/lib/forge-device-matcher";
 import type { MissingDeviceSuggestion } from "@/lib/forge-device-matcher";
+import { useForgeAiDeviceMatch } from "@/hooks/use-forge-ai-device-match";
 import { DEVICE_TYPE_IO_DEFAULTS, DEVICE_TYPES } from "@/lib/device-type-io-defaults";
 import { getCompatibleModules, getModuleByMlfb } from "@/lib/module-catalog";
 import type { IoEntry, RackSlotLayout, CpuType } from "@/types";
@@ -118,7 +119,7 @@ function devicesFromAnalysis(analysis: SpecAnalysis): ForgeDeviceEntry[] {
 function ioFromAnalysis(analysis: SpecAnalysis): ForgeIoEntry[] {
   const entries: ForgeIoEntry[] = [];
   for (const device of (analysis.devices ?? [])) {
-    for (const sig of device.io_signals) {
+    for (const sig of device.io_signals ?? []) {
       entries.push({
         address: "",
         tag_name: sig.tag_name,
@@ -207,8 +208,16 @@ function buildAddressPool(hardware: ForgeHardwareConfig): PhysicalPoint[] {
 
 export interface ForgeHardwareIoProps {
   specAnalysis: SpecAnalysis | null;
+  /** Previously saved device list from session — used when spec analysis has no devices. */
+  savedDevices?: ForgeDeviceEntry[];
+  /** Previously saved IO list from session — used when spec analysis has no IO. */
+  savedIoList?: ForgeIoEntry[];
+  /** Previously saved hardware config from session. */
+  savedHardware?: ForgeHardwareConfig;
   fbTemplates: FbTemplate[];
   deviceFbLanguage?: "SCL" | "LAD";
+  /** Status of TIA project provisioning (runs after confirm) */
+  provisionStatus?: { phase: string; created?: boolean; message?: string; warnings?: string[] };
   onComplete: (
     hardware: ForgeHardwareConfig,
     ioList: ForgeIoEntry[],
@@ -240,21 +249,29 @@ const EMPTY_FORM: AddDeviceForm = {
 
 export function ForgeHardwareIo({
   specAnalysis,
+  savedDevices,
+  savedIoList,
+  savedHardware,
   fbTemplates,
   deviceFbLanguage = "SCL",
+  provisionStatus,
   onComplete,
 }: ForgeHardwareIoProps) {
   const formId = useId();
 
-  const [hardware, setHardware] = useState<ForgeHardwareConfig>({
-    cpu_type: specAnalysis?.plc_type ?? "S7-1500",
-    tia_version: "V18",
-    racks: [{ rack: 0, modules: [] }],
+  const [hardware, setHardware] = useState<ForgeHardwareConfig>(() => {
+    if (savedHardware) return savedHardware;
+    return {
+      cpu_type: specAnalysis?.plc_type ?? "S7-1500",
+      tia_version: "V18",
+      racks: [{ rack: 0, modules: [] }],
+    };
   });
 
-  const [ioList, setIoList] = useState<ForgeIoEntry[]>(
-    specAnalysis ? ioFromAnalysis(specAnalysis) : [],
-  );
+  const [ioList, setIoList] = useState<ForgeIoEntry[]>(() => {
+    if (savedIoList && savedIoList.length > 0) return savedIoList;
+    return specAnalysis ? ioFromAnalysis(specAnalysis) : [];
+  });
 
   // Incremented when hardware generates a new IO list — forces IoListEditor remount
   const [ioListKey, setIoListKey] = useState(0);
@@ -264,7 +281,10 @@ export function ForgeHardwareIo({
   const [hardwareKey, setHardwareKey] = useState(0);
 
   const [devices, setDevices] = useState<ForgeDeviceEntry[]>(() => {
-    const raw = specAnalysis ? devicesFromAnalysis(specAnalysis) : [];
+    // Prefer previously saved devices; fall back to spec analysis extraction
+    const raw = (savedDevices && savedDevices.length > 0)
+      ? savedDevices
+      : (specAnalysis ? devicesFromAnalysis(specAnalysis) : []);
     const matches = matchDevicesToTemplates(raw, fbTemplates);
     return applyMatchesToDevices(raw, matches);
   });
@@ -279,12 +299,20 @@ export function ForgeHardwareIo({
   const [showAddForm, setShowAddForm] = useState(false);
   const [addForm, setAddForm] = useState<AddDeviceForm>(EMPTY_FORM);
 
-  // Populate from spec analysis when it arrives late (React Query async)
+  const { match: aiMatch, loading: aiMatchLoading } = useForgeAiDeviceMatch();
+
+  const handleAiMatch = useCallback(async () => {
+    const aiMatches = await aiMatch(devices, fbTemplates);
+    setDevices(applyMatchesToDevices(devices, aiMatches));
+  }, [devices, fbTemplates, aiMatch]);
+
+  // Populate from spec analysis when it arrives late (React Query async).
+  // Only runs when there are no saved/existing devices — never overwrites user edits.
   useEffect(() => {
     if (!specAnalysis) return;
 
     setDevices((prev) => {
-      if (prev.length > 0) return prev;
+      if (prev.length > 0) return prev; // already have data (saved or derived)
       const raw = devicesFromAnalysis(specAnalysis);
       const matches = matchDevicesToTemplates(raw, fbTemplates);
       return applyMatchesToDevices(raw, matches);
@@ -738,20 +766,39 @@ export function ForgeHardwareIo({
         {/* Devices Tab */}
         <TabsContent value="devices" className="mt-3 flex-1">
           <div className="flex flex-col gap-2">
-            {/* Add Device Button */}
+            {/* Device list header */}
             <div className="flex items-center justify-between">
               <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
                 {devices.length} device{devices.length !== 1 ? "s" : ""}
               </span>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 gap-1.5 font-mono text-xs"
-                onClick={() => setShowAddForm((v) => !v)}
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Add Device
-              </Button>
+              <div className="flex items-center gap-1.5">
+                {fbTemplates.some((t) => t.ai_summary) && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 gap-1.5 font-mono text-xs"
+                    onClick={handleAiMatch}
+                    disabled={aiMatchLoading || devices.length === 0}
+                    title="Re-match devices to FB templates using AI summaries"
+                  >
+                    {aiMatchLoading ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-3.5 w-3.5 text-violet-400" />
+                    )}
+                    AI Match
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1.5 font-mono text-xs"
+                  onClick={() => setShowAddForm((v) => !v)}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add Device
+                </Button>
+              </div>
             </div>
 
             {/* Missing device suggestions */}
@@ -1109,6 +1156,25 @@ export function ForgeHardwareIo({
           </div>
         </TabsContent>
       </Tabs>
+
+      {provisionStatus && provisionStatus.phase !== "idle" && (
+        <div className={`flex items-center gap-2 rounded-md border px-3 py-2 text-xs font-mono ${
+          provisionStatus.phase === "provisioning" ? "border-border/50 text-muted-foreground" :
+          provisionStatus.phase === "done" ? "border-green-600/30 bg-green-500/5 text-green-400" :
+          provisionStatus.phase === "skipped" ? "border-border/40 text-muted-foreground/60" :
+          "border-destructive/30 bg-destructive/10 text-destructive"
+        }`}>
+          {provisionStatus.phase === "provisioning" && <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />}
+          {provisionStatus.phase === "done" && <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />}
+          {provisionStatus.phase === "error" && <AlertCircle className="h-3.5 w-3.5 shrink-0" />}
+          <span>
+            {provisionStatus.phase === "provisioning" && "Provisioning TIA project…"}
+            {provisionStatus.phase === "done" && (provisionStatus.created ? "TIA project created" : "TIA project opened")}
+            {provisionStatus.phase === "skipped" && "TIA bridge offline — project will be created at compile"}
+            {provisionStatus.phase === "error" && (provisionStatus.message ?? "TIA provision failed")}
+          </span>
+        </div>
+      )}
 
       <Button className="w-full" onClick={() => onComplete(hardware, ioList, devices)}>
         Confirm Hardware & IO

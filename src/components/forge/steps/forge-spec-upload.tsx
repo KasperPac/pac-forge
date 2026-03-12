@@ -7,13 +7,15 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useForgeSpecAnalysis } from "@/hooks/use-forge-spec-analysis";
 import { extractTextFromDocx, extractTextFromPdf } from "@/lib/document-extractor";
 import type { SpecAnalysis } from "@/types/forge";
+import type { FbTemplate } from "@/types/fb-template";
 
 export interface ForgeSpecUploadProps {
   onComplete: (specText: string, specFilename: string, analysis: SpecAnalysis) => void;
   onSkip: () => void;
+  fbTemplates?: FbTemplate[];
 }
 
-export function ForgeSpecUpload({ onComplete, onSkip }: ForgeSpecUploadProps) {
+export function ForgeSpecUpload({ onComplete, onSkip, fbTemplates }: ForgeSpecUploadProps) {
   const { analyze, loading, error } = useForgeSpecAnalysis();
   const [analysis, setAnalysis] = useState<SpecAnalysis | null>(null);
   const [specText, setSpecText] = useState<string | null>(null);
@@ -39,7 +41,7 @@ export function ForgeSpecUpload({ onComplete, onSkip }: ForgeSpecUploadProps) {
       setFilename(file.name);
       setExtracting(false);
 
-      const result = await analyze(text);
+      const result = await analyze(text, fbTemplates);
       setAnalysis(result);
     } catch (err) {
       setExtractError(err instanceof Error ? err.message : String(err));

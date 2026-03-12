@@ -114,36 +114,54 @@ function parseSclArtifacts(
   return artifacts;
 }
 
-/** Parse LadProgram JSON from Claude response. */
+/** Parse LadProgram JSON from Claude response.
+ * Tries multiple strategies: raw JSON, ```json block, first { ... } object in response.
+ */
 function parseLadArtifact(
   rawContent: string,
   deviceName: string,
   stage: ForgeArtifact["stage"],
 ): ForgeArtifact | null {
-  const cleaned = rawContent
-    .trim()
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/```\s*$/, "")
-    .trim();
+  const candidates: string[] = [];
 
-  try {
-    JSON.parse(cleaned); // Validate
-    return {
-      id: crypto.randomUUID(),
-      name: deviceName,
-      type: "FB",
-      language: "LAD",
-      content: cleaned,
-      approved: false,
-      stage,
-      destination_folder: "Program blocks/Forge",
-      dependencies: [],
-      compile_after_import: true,
-    };
-  } catch {
-    return null;
+  // 1. Extract ```json ... ``` block
+  const fenceMatch = rawContent.match(/```json\s*([\s\S]*?)```/i);
+  if (fenceMatch?.[1]) candidates.push(fenceMatch[1].trim());
+
+  // 2. Strip leading/trailing fences if the whole response is wrapped
+  candidates.push(
+    rawContent
+      .trim()
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/i, "")
+      .replace(/```\s*$/, "")
+      .trim(),
+  );
+
+  // 3. First { ... } block in the response
+  const objMatch = rawContent.match(/\{[\s\S]*\}/);
+  if (objMatch) candidates.push(objMatch[0].trim());
+
+  for (const candidate of candidates) {
+    try {
+      JSON.parse(candidate);
+      return {
+        id: crypto.randomUUID(),
+        name: deviceName,
+        type: "FB",
+        language: "LAD",
+        content: candidate,
+        approved: false,
+        stage,
+        destination_folder: "Program blocks/Forge",
+        dependencies: [],
+        compile_after_import: true,
+      };
+    } catch {
+      // try next candidate
+    }
   }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -239,17 +257,22 @@ export function useForgeDeviceGenerate() {
         patterns,
       };
 
-      const ioSystemPrompt = buildIoLinkingPrompt(session.device_list, session.io_list as ForgeIoEntry[], context);
+      const ioSystemPrompt = buildIoLinkingPrompt(session.device_list, session.io_list as ForgeIoEntry[], context, ioLang);
       const { content } = await validateAndCall(
         callNonStreaming,
         ioSystemPrompt,
-        [{ role: "user", content: `Generate the IO linking FC for all devices. Use ${ioLang}.` }],
+        [{ role: "user", content: `Generate the IO linking FC for all devices.` }],
         abort.signal,
         DEVICE_GEN_MAX_TOKENS,
         "io_linking",
         !!profile,
       );
 
+      if (ioLang === "LAD") {
+        const artifact = parseLadArtifact(content, "IoLinking", "device");
+        if (!artifact) console.warn("[forge] LAD IO linking parse failed. Raw response:", content.slice(0, 500));
+        return artifact ? [{ ...artifact, type: "FC" as const }] : [];
+      }
       return parseSclArtifacts(content, "device");
     },
     [],
@@ -280,6 +303,7 @@ export function useForgeDeviceGenerate() {
               ? fbTemplates.find((t) => t.id === device.fb_template_id) ?? null
               : null;
           const isExactMatch = device.fb_match_confidence === "exact" && !!matchedTemplate?.blocks?.length;
+          console.log(`[forge] device "${device.name}": confidence=${device.fb_match_confidence}, template=${matchedTemplate?.name ?? "none"}, blocks=${matchedTemplate?.blocks?.length ?? 0}, isExactMatch=${isExactMatch}`);
 
           setProgress({
             current: i + 1,
@@ -319,8 +343,12 @@ export function useForgeDeviceGenerate() {
           total: devices.length + 1,
           currentDevice: "IO Linking FC",
         });
-        if (session.io_list && (session.io_list as ForgeIoEntry[]).length > 0) {
+        const ioList = session.io_list as ForgeIoEntry[];
+        const deviceList = session.device_list as ForgeDeviceEntry[];
+        console.log(`[forge] IO linking: ${ioList?.length ?? 0} IO entries, ${deviceList?.length ?? 0} devices`);
+        if (ioList?.length > 0) {
           const ioArtifacts = await generateIoLinking(session, profile, patterns);
+          console.log(`[forge] IO linking produced ${ioArtifacts.length} artifact(s)`);
           allArtifacts.push(...ioArtifacts);
         }
 

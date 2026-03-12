@@ -120,7 +120,9 @@ Your role is to identify gaps, ambiguities, and missing information in the extra
 ## Output format for final update
 When all gaps are filled, output:
 1. A brief summary of what was clarified
-2. The complete updated spec analysis as valid JSON inside \`\`\`json fences
+2. The **complete** updated spec analysis as valid JSON inside \`\`\`json fences
+
+**CRITICAL**: The JSON must include ALL fields from the original analysis — every device, every sequence, every alarm and interlock. Do NOT output a partial or summary JSON. If you only clarified IO signals for 3 devices, still output all 24 devices (with those 3 updated). Omitting devices causes them to disappear from the project.
 
 Be conversational and professional — this is a dialogue with an experienced engineer, not a form.`;
 }
@@ -137,7 +139,7 @@ You have already asked an initial set of questions. Review the engineer's answer
 
 Keep it brief — the engineer wants to move forward. Only ask about genuinely important gaps.
 
-When ready to finalize, output the complete updated spec analysis as valid JSON inside \`\`\`json fences.`;
+When ready to finalize, output the complete updated spec analysis as valid JSON inside \`\`\`json fences. The JSON must contain ALL original devices and sequences — not just the ones discussed. Omitting any device causes it to be lost from the project.`;
 }
 
 /**
@@ -167,9 +169,27 @@ Rules:
  * System prompt for the PM agent to extract structured data from a functional spec.
  * Call with callNonStreaming(), max_tokens: 16384.
  */
-export function buildSpecAnalysisPrompt(): string {
+export function buildSpecAnalysisPrompt(fbTemplates?: FbTemplate[]): string {
+  const librarySection =
+    fbTemplates && fbTemplates.length > 0
+      ? `## FB Library (available Function Blocks)
+
+The following FBs exist in the company library. Use this to decide how many device entries to create:
+- Each FB handles EXACTLY ONE physical device instance.
+- If the spec describes N physical devices of the same type, create N separate device entries — one per FB instance.
+- Match device_type names to the closest FB category name.
+
+${fbTemplates
+  .map((t) => `- **${t.name}** (category: ${t.device_category ?? "general"}) — ${t.blocks?.length ?? 1} block(s): ${(t.blocks ?? []).map((b) => `${b.block_type}:${b.block_name}`).join(", ") || t.name}`)
+  .join("\n")}
+
+`
+      : "";
+
   return `You are a senior automation engineer with deep experience in Siemens TIA Portal projects.
 Your task is to read a functional specification document and extract structured project data as JSON.
+
+${librarySection}
 
 ## Device extraction rules
 
@@ -178,7 +198,7 @@ Extract devices at ALL levels of the system — not just physical actuators:
 - **ACTUATORS**: Motors (DOL, VFD), Solenoids, Valves, Cylinders — have physical DQ outputs
 - **SENSORS**: Photoelectric, Proximity, Temperature, Pressure, Level, Flow — have physical DI/AI inputs
 - **SYSTEM DEVICES**: Conveyors, Pumps, Mixers — logical control entities that coordinate actuators and sensors
-- **OPERATOR DEVICES**: Push buttons, Stack lights, Selector switches — have physical DI/DQ
+- **OPERATOR DEVICES**: Push buttons, Stack lights, Selector switches — have physical DI/DQ. Each individual push button is its OWN device with ONE DI signal — do NOT group multiple buttons into a single "Push Button Station" device.
 - **SAFETY DEVICES**: E-stop circuits, Safety light curtains, Guard switches — have DI inputs
 
 **IMPORTANT:** If the spec describes "Conveyor CV01 driven by motor M01 with sensors PE01 and PE02", extract THREE separate devices:
@@ -192,7 +212,7 @@ For IO signals per device:
 - Motor: CMD (DQ), RUN feedback (DI), Overload/Fault (DI)
 - Conveyor: NO direct physical IO — receives sensor data and motor feedback as FB parameters
 - Sensor: Detection signal (DI) or analog value (AI)
-- Push Button Station: One DI per button (START, STOP, RESET)
+- Push Button (each button is a separate device): exactly 1 DI signal per device
 - Stack Light: One DQ per lamp colour (GREEN, AMBER, RED)
 - E-Stop: Circuit OK signal (DI)
 
@@ -394,20 +414,55 @@ export function buildDeviceLadUserMessage(device: ForgeDeviceEntry): string {
 
 /**
  * System prompt for generating the IO linking FC (maps physical IO to FB inputs/outputs).
+ * @param language "SCL" (default) or "LAD"
  */
 export function buildIoLinkingPrompt(
   devices: ForgeDeviceEntry[],
   ioList: ForgeIoEntry[],
   context: DeviceGenContext,
+  language: "SCL" | "LAD" = "SCL",
 ): string {
   const { profile, platformRules, patterns } = context;
   const profileSection = formatProfile(profile);
   const patternSection = formatPatterns(patterns ?? []);
+  const ioLinkingRulesSection =
+    profile?.io_linking_rules?.trim()
+      ? `## IO Linking Rules (from Design Profile)\n${profile.io_linking_rules}`
+      : "";
 
   const deviceNames = devices.map((d) => `  - ${d.name} (tag: ${d.tag})`).join("\n");
   const ioEntries = ioList
     .map((io) => `  - ${io.tag_name} (${io.signal_type}, ${io.data_type}): ${io.description}`)
     .join("\n");
+
+  const outputFormat =
+    language === "LAD"
+      ? `## Output Format
+Generate a single FC in LAD (Ladder Logic). Output a LadProgram JSON object.
+The FC reads physical IO tags and writes them to the instance DBs of each device FB.
+Each rung uses a MOVE box to assign one IO tag to one instance DB variable.
+Respond with only the raw JSON object (no markdown wrapper), using this exact schema:
+{
+  "name": "IoLinking",
+  "rungs": [
+    {
+      "id": "rung_1",
+      "title": "Assign MotorStart to InstMotor1",
+      "logic": {
+        "type": "series",
+        "nodes": [
+          { "type": "element", "element": { "id": "e1", "type": "MOVE", "operand": "IoTagName", "outputOperand": "InstDeviceName.inputVarName", "dataType": "Bool" } }
+        ]
+      }
+    }
+  ]
+}`
+      : `## Output Format
+Generate a single FC in SCL. The FC reads physical IO tags and writes them to the instance DBs of each device FB.
+Use the format:
+\`\`\`scl [FC:IoLinking]
+// code
+\`\`\``;
 
   return `You are generating an IO linking Function (FC) that maps physical IO tag values to FB instance inputs/outputs.
 
@@ -415,6 +470,8 @@ ${profileSection}
 
 ## Platform Rules
 ${platformRules}
+
+${ioLinkingRulesSection}
 
 ${patternSection}
 
@@ -424,12 +481,7 @@ ${deviceNames}
 ## IO List
 ${ioEntries}
 
-## Output Format
-Generate a single FC in SCL. The FC reads physical IO tags and writes them to the instance DBs of each device FB.
-Use the format:
-\`\`\`scl [FC:IoLinking]
-// code
-\`\`\``;
+${outputFormat}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -574,7 +626,7 @@ export function buildProcessFcPrompt(context: ProcessGenContext): string {
 
   const deviceIoMap = deviceEntries.length > 0
     ? deviceEntries.map((d) => {
-        const sigs = d.io_signals.map((s) => `    - ${s.tag_name} (${s.signal_type})`).join("\n");
+        const sigs = (d.io_signals ?? []).map((s) => `    - ${s.tag_name} (${s.signal_type})`).join("\n");
         const instName = `Inst${d.name.replace(/[^A-Za-z0-9]/g, "")}`;
         return `  "${instName}" (${d.device_type}):\n${sigs || "    (no signals)"}`;
       }).join("\n")
@@ -754,38 +806,53 @@ Return the HmiScreenSpec JSON array now.`;
 // Matrix generation prompts
 // ---------------------------------------------------------------------------
 
-const PROCESS_LINKAGE_MATRIX_SCHEMA = `{
-  "version": 1,
+
+const MATRIX_RULES_COMMON = `## Rules
+- Device names must EXACTLY match the confirmed device list
+- FB names: UpperCamelCase (e.g. ControlMotorDol, ControlValvePneumatic)
+- Instance DB names: \`Inst\` prefix (e.g. InstMotor1, InstConveyor1)
+- Wiring wireType:
+  - \`io\` — PLC IO tag name (e.g. "DI_SensorName")
+  - \`fb\` — another FB output (e.g. "InstPump1.busy")
+  - \`global\` — global DB field (e.g. "HmiData.motor1Start")
+  - \`constant\` — fixed value (e.g. "TRUE", "T#5s", "T#30s") — NEVER raw integers for time values
+- **Timer presets MUST use TIA TIME literal format: T#5s, T#30s, T#500ms, T#2m — NEVER raw millisecond integers like 5000 or 30000**
+- Step descriptions and condition descriptions that reference timer delays must say "T#5s timer" not "5000ms" or "5s (5000ms)"
+- All IDs must be unique strings (use numeric suffix, e.g. "w1", "i1", "s1")`;
+
+const DEVICE_LINKAGE_SCHEMA = `{
   "deviceLinkage": [
     {
       "id": "string (unique, e.g. DEV001)",
-      "name": "string (device name matching confirmed device list)",
+      "name": "string (device name — MUST match confirmed list exactly)",
       "deviceType": "string",
       "description": "string",
-      "fbName": "string (FB block name, e.g. ControlMotorDol)",
+      "fbName": "string (e.g. ControlMotorDol)",
       "fbTemplateName": "string | null",
       "fbTemplateId": "string | null",
       "instanceDbName": "string (e.g. InstMotor1)",
       "wiring": [
         {
-          "id": "string (unique)",
+          "id": "string (unique, e.g. w1)",
           "paramName": "string (FB parameter name)",
           "direction": "in | out",
-          "connectedTo": "string (IO tag name, global DB field, or other FB output)",
-          "wireType": "fb | io | global | constant",
-          "dataType": "string (optional, e.g. Bool, Int)"
+          "connectedTo": "string (IO tag, global DB field, or other FB output)",
+          "wireType": "fb | io | global | constant"
         }
       ],
       "interlocks": [
         {
-          "id": "string (unique)",
-          "targetDeviceName": "string (device this interlock involves)",
-          "condition": "string (condition description)",
+          "id": "string (unique, e.g. i1)",
+          "targetDeviceName": "string",
+          "condition": "string",
           "direction": "requires | blocks | follows"
         }
       ]
     }
-  ],
+  ]
+}`;
+
+const SEQUENCES_SCHEMA = `{
   "globalData": [
     {
       "id": "string (unique)",
@@ -804,7 +871,7 @@ const PROCESS_LINKAGE_MATRIX_SCHEMA = `{
   "processSequences": [
     {
       "id": "string (unique)",
-      "name": "string (sequence name)",
+      "name": "string",
       "description": "string",
       "permissives": [
         {
@@ -831,7 +898,7 @@ const PROCESS_LINKAGE_MATRIX_SCHEMA = `{
             "conditions": [
               {
                 "id": "string (unique)",
-                "description": "string (transition condition)",
+                "description": "string",
                 "deviceName": "string | null"
               }
             ]
@@ -839,69 +906,68 @@ const PROCESS_LINKAGE_MATRIX_SCHEMA = `{
           "actions": [
             {
               "id": "string (unique)",
-              "description": "string (what happens in this step)",
+              "description": "string",
               "deviceName": "string | null"
             }
           ],
-          "devicesInvolved": ["string (device names)"],
           "notes": "string"
         }
       ]
     }
   ],
-  "notes": "string (overall notes)",
-  "generatedAt": "string (ISO timestamp)",
-  "lastReviewedAt": null,
-  "reviewStatus": "draft"
+  "notes": "string",
+  "generatedAt": "string (ISO timestamp)"
 }`;
 
-/**
- * System prompt for the PM agent to generate a ProcessLinkageMatrix from project data.
- */
-export function buildMatrixGenerationPrompt(): string {
-  return `You are a senior Siemens TIA Portal automation project manager generating a Process Linkage Matrix from an existing project specification and confirmed device list.
+/** System prompt: device wiring section only. */
+export function buildDeviceLinkagePrompt(): string {
+  return `You are a senior Siemens TIA Portal automation engineer generating the device wiring section of a Process Linkage Matrix.
 
-The matrix captures:
-1. **Device linkage** — which FB each device uses, instance DB names, wiring between FB parameters and IO tags or global data, and interlocks between devices
-2. **Global data** — shared data blocks needed across devices (HMI interface, process data, alarms)
-3. **Process sequences** — the full state-machine logic with permissives, safety conditions, and step transitions
+Generate ONLY the deviceLinkage array — which FB each device uses, its instance DB name, how FB parameters wire to IO tags or global data, and interlocks between devices.
 
-## Rules
-- Device names must EXACTLY match the confirmed device list provided
-- FB names must follow UpperCamelCase naming (e.g. ControlMotorDol, ControlValvePneumatic)
-- Instance DB names must use the \`Inst\` prefix (e.g. InstMotor1, InstConveyor1)
-- Wiring must use the correct wireType:
-  - \`io\` — connected to a PLC IO tag (e.g. "TagName")
-  - \`fb\` — connected to another FB output (e.g. "InstPump1.busy")
-  - \`global\` — connected to a global DB field (e.g. "HmiData.motor1Start")
-  - \`constant\` — a fixed value (e.g. "TRUE", "500")
+${MATRIX_RULES_COMMON}
 - Interlocks must reference devices that exist in the device list
-- Process sequences must include numbered steps starting at step 0 (idle)
-- Step transitions use AND/OR combinator with explicit conditions and device references
-- Safety conditions are continuously monitored — device stops on failure
-- All IDs must be unique strings (use numeric suffix, e.g. "w1", "w2", "i1", "s1")
-- generatedAt must be the current ISO timestamp
+- Use EXACT parameter names from the FB Template Interfaces provided
 
 ## Output Format
-Wrap the JSON in [PROCESS_MATRIX]...[/PROCESS_MATRIX] tags:
-[PROCESS_MATRIX]
+Wrap the JSON in [DEVICE_LINKAGE]...[/DEVICE_LINKAGE] tags:
+[DEVICE_LINKAGE]
 { ... }
-[/PROCESS_MATRIX]
+[/DEVICE_LINKAGE]
 
-Match this schema exactly:
-${PROCESS_LINKAGE_MATRIX_SCHEMA}`;
+Schema:
+${DEVICE_LINKAGE_SCHEMA}`;
 }
 
-/**
- * User message for matrix generation — formats device list, IO list, spec sequences, and FB interfaces.
- */
-export function buildMatrixGenerationUserMessage(
+/** System prompt: process sequences + global data only. */
+export function buildSequencesPrompt(): string {
+  return `You are a senior Siemens TIA Portal automation engineer generating the process sequences and global data section of a Process Linkage Matrix.
+
+Generate ONLY the processSequences array and globalData array — state-machine logic with permissives, safety conditions, step transitions, and shared data blocks.
+
+${MATRIX_RULES_COMMON}
+- Process sequences must include numbered steps starting at step 0 (idle)
+- Step transitions use AND/OR combinator with explicit conditions
+- Safety conditions are continuously monitored — failure stops the process
+- generatedAt must be the current ISO timestamp
+- Keep descriptions and notes concise (1 sentence max) — avoid verbose explanations
+
+## Output Format
+Wrap the JSON in [SEQUENCES_DATA]...[/SEQUENCES_DATA] tags:
+[SEQUENCES_DATA]
+{ ... }
+[/SEQUENCES_DATA]
+
+Schema:
+${SEQUENCES_SCHEMA}`;
+}
+
+/** Shared helper: build device table, IO summary, and FB interface text. */
+function buildMatrixContext(
   devices: ForgeDeviceEntry[],
   ioList: ForgeIoEntry[],
-  specAnalysis: SpecAnalysis | null,
   fbTemplates?: FbTemplate[],
-): string {
-  // Build a map of template id → template for quick lookup
+): { deviceTable: string; ioSummary: string; fbInterfacesText: string } {
   const templateMap = new Map(
     (fbTemplates ?? []).map((t) => [t.id, t]),
   );
@@ -923,8 +989,71 @@ export function buildMatrixGenerationUserMessage(
     ? ioList
         .slice(0, 50)
         .map((io) => `  ${io.address}: ${io.tag_name} (${io.signal_type}) — ${io.description}`)
-        .join("\n")
+        .join("\n") + (ioList.length > 50 ? `\n  ... and ${ioList.length - 50} more` : "")
     : "  (none)";
+
+  const referencedTemplateIds = new Set(
+    devices.map((d) => d.fb_template_id).filter(Boolean),
+  );
+  const fbInterfacesText =
+    referencedTemplateIds.size > 0
+      ? [...referencedTemplateIds]
+          .map((id) => {
+            const tpl = templateMap.get(id!);
+            if (!tpl?.blocks?.length) return null;
+            const mainBlock = tpl.blocks.find((b) => b.block_type === "FB") ?? tpl.blocks[0];
+            if (!mainBlock) return null;
+            const inputParams = [...mainBlock.scl_code.matchAll(/VAR_INPUT\b[\s\S]*?END_VAR/g)]
+              .flatMap((m) => [...m[0].matchAll(/^\s+(\w+)\s*:/gm)].map((p) => p[1]))
+              .join(", ");
+            const outputParams = [...mainBlock.scl_code.matchAll(/VAR_OUTPUT\b[\s\S]*?END_VAR/g)]
+              .flatMap((m) => [...m[0].matchAll(/^\s+(\w+)\s*:/gm)].map((p) => p[1]))
+              .join(", ");
+            return `  **${tpl.name}** (${mainBlock.block_name})\n  VAR_INPUT: ${inputParams || "(none)"}\n  VAR_OUTPUT: ${outputParams || "(none)"}`;
+          })
+          .filter(Boolean)
+          .join("\n\n")
+      : "  (none — use standard parameter naming conventions)";
+
+  return { deviceTable, ioSummary, fbInterfacesText };
+}
+
+/**
+ * User message for device linkage call (call 1 of 2).
+ * Contains: device list, IO signals, FB interfaces.
+ */
+export function buildDeviceLinkageUserMessage(
+  devices: ForgeDeviceEntry[],
+  ioList: ForgeIoEntry[],
+  fbTemplates?: FbTemplate[],
+): string {
+  const { deviceTable, ioSummary, fbInterfacesText } = buildMatrixContext(devices, ioList, fbTemplates);
+
+  return `Generate the device linkage section for this project.
+
+## Confirmed Device List (${devices.length} devices)
+${deviceTable}
+
+## IO List (${ioList.length} signals)
+${ioSummary}
+
+## FB Template Interfaces (use EXACT parameter names for wiring)
+${fbInterfacesText}
+
+Generate the deviceLinkage JSON now, wrapped in [DEVICE_LINKAGE]...[/DEVICE_LINKAGE] tags.`;
+}
+
+/**
+ * User message for sequences + global data call (call 2 of 2).
+ * Contains: device name list (compact), sequences from spec, interlocks.
+ */
+export function buildSequencesUserMessage(
+  devices: ForgeDeviceEntry[],
+  specAnalysis: SpecAnalysis | null,
+): string {
+  const deviceNames = devices
+    .map((d) => `  - ${d.name} [${d.tag}] (${d.device_type}, ${d.subsystem})`)
+    .join("\n");
 
   const sequenceSummary = specAnalysis?.process_sequences?.length
     ? specAnalysis.process_sequences
@@ -944,48 +1073,10 @@ export function buildMatrixGenerationUserMessage(
         .join("\n")
     : "  (none)";
 
-  // Collect unique templates referenced by devices (for correct param names in wiring)
-  const referencedTemplateIds = new Set(
-    devices.map((d) => d.fb_template_id).filter(Boolean),
-  );
-  const fbInterfacesText =
-    referencedTemplateIds.size > 0
-      ? [...referencedTemplateIds]
-          .map((id) => {
-            const tpl = templateMap.get(id!);
-            if (!tpl?.blocks?.length) return null;
-            const mainBlock = tpl.blocks.find(
-              (b) => b.block_type === "FB",
-            ) ?? tpl.blocks[0];
-            if (!mainBlock) return null;
-            // Extract VAR_INPUT and VAR_OUTPUT param names from SCL code using regex
-            const inputParams = [
-              ...mainBlock.scl_code.matchAll(/VAR_INPUT\b[\s\S]*?END_VAR/g),
-            ]
-              .flatMap((m) =>
-                [...m[0].matchAll(/^\s+(\w+)\s*:/gm)].map((p) => p[1]),
-              )
-              .join(", ");
-            const outputParams = [
-              ...mainBlock.scl_code.matchAll(/VAR_OUTPUT\b[\s\S]*?END_VAR/g),
-            ]
-              .flatMap((m) =>
-                [...m[0].matchAll(/^\s+(\w+)\s*:/gm)].map((p) => p[1]),
-              )
-              .join(", ");
-            return `  **${tpl.name}** (${mainBlock.block_name})\n  VAR_INPUT: ${inputParams || "(none)"}\n  VAR_OUTPUT: ${outputParams || "(none)"}`;
-          })
-          .filter(Boolean)
-          .join("\n\n")
-      : "  (none — use standard parameter naming conventions)";
+  return `Generate the process sequences and global data for this project.
 
-  return `Generate the Process Linkage Matrix for this project.
-
-## Confirmed Device List (${devices.length} devices)
-${deviceTable}
-
-## IO List Summary (${ioList.length} signals)
-${ioSummary}${ioList.length > 50 ? `\n  ... and ${ioList.length - 50} more` : ""}
+## Device List (${devices.length} devices — reference for device names in conditions)
+${deviceNames}
 
 ## Process Sequences from Spec
 ${sequenceSummary}
@@ -993,8 +1084,5 @@ ${sequenceSummary}
 ## Interlocks from Spec
 ${interlocksText}
 
-## FB Template Interfaces (use EXACT parameter names for wiring)
-${fbInterfacesText}
-
-Generate the complete ProcessLinkageMatrix JSON now, wrapped in [PROCESS_MATRIX]...[/PROCESS_MATRIX] tags.`;
+Generate the processSequences and globalData JSON now, wrapped in [SEQUENCES_DATA]...[/SEQUENCES_DATA] tags.`;
 }

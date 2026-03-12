@@ -51,39 +51,65 @@ async function uploadSclArtifacts(
   const manifest = buildForgeManifest(sclArtifacts, tiaProjectPath);
   const bundle = await buildSclBundle(sclArtifacts);
 
-  const resp = await fetch(`${BRIDGE_BASE}/tia/jobs`, {
+  const jobId = crypto.randomUUID();
+  const submitResp = await fetch(`${BRIDGE_BASE}/tia/jobs`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      job_id: crypto.randomUUID(),
-      job_type: "IMPORT_COMPILE",
+      job_id: jobId,
+      job_type: "IMPORT_AND_COMPILE",
       manifest,
       artifact_bundle: bundle,
       tia_project_path: tiaProjectPath,
     }),
-    signal: AbortSignal.timeout(300_000),
+    signal: AbortSignal.timeout(30_000),
   });
 
-  if (!resp.ok) {
-    const text = await resp.text();
-    return { success: false, errors: [`Bridge error ${resp.status}: ${text}`], warnings: [] };
+  if (!submitResp.ok) {
+    const text = await submitResp.text();
+    return { success: false, errors: [`Bridge error ${submitResp.status}: ${text}`], warnings: [] };
   }
 
-  const data = await resp.json();
-  const compileResult = data.compile_result;
-  const errors: string[] = [];
-  const warnings: string[] = [];
+  // Poll for job completion
+  const POLL_INTERVAL_MS = 2000;
+  const MAX_POLL_MS = 300_000;
+  const deadline = Date.now() + MAX_POLL_MS;
 
-  if (compileResult) {
-    for (const e of (compileResult.errors ?? [])) {
-      errors.push(`${e.artifact_name ?? "?"}: ${e.error_text}`);
-    }
-    for (const w of (compileResult.warnings ?? [])) {
-      warnings.push(`${w.artifact_name ?? "?"}: ${w.error_text}`);
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+
+    const statusResp = await fetch(`${BRIDGE_BASE}/tia/jobs/${jobId}/results`, {
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!statusResp.ok) continue;
+
+    const data = await statusResp.json();
+    const status: string = data.status ?? "";
+
+    if (status === "COMPLETED" || status === "FAILED") {
+      const compileResult = data.compile_result;
+      const errors: string[] = [];
+      const warnings: string[] = [];
+
+      if (compileResult) {
+        for (const e of (compileResult.errors ?? [])) {
+          errors.push(`${e.artifact_name ?? "?"}: ${e.error_text}`);
+        }
+        for (const w of (compileResult.warnings ?? [])) {
+          warnings.push(`${w.artifact_name ?? "?"}: ${w.error_text}`);
+        }
+      }
+
+      if (status === "FAILED" && errors.length === 0) {
+        errors.push(data.error_message ?? "Job failed");
+      }
+
+      return { success: errors.length === 0, errors, warnings };
     }
   }
 
-  return { success: data.success ?? errors.length === 0, errors, warnings };
+  return { success: false, errors: ["Compile timed out after 5 minutes"], warnings: [] };
 }
 
 async function uploadLadArtifacts(

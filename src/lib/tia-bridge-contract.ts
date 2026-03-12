@@ -85,7 +85,8 @@ export type BridgeEventType =
   | "compile_started"
   | "compile_error"
   | "compile_completed"
-  | "bridge_status";
+  | "bridge_status"
+  | "provision_progress";
 
 export interface BridgeEvent {
   type: BridgeEventType;
@@ -262,3 +263,40 @@ export const DEFAULT_BRIDGE_CONFIG: BridgeConfig = {
   wsUrl: "ws://localhost:5102/tia/ws",
   timeout: 5000,
 };
+
+// --- Provision Project ---
+
+export interface IoModuleDto {
+  mlfb: string;     // Order number, e.g. "6ES7 521-1BH50-0AA0"
+  rack: number;
+  slot: number;
+  description?: string;
+}
+
+export interface IoTagDto {
+  name: string;
+  data_type: string;         // e.g. "Bool", "Int", "Word"
+  logical_address: string;   // e.g. "%I0.0", "%Q1.3"
+  comment?: string;
+}
+
+/**
+ * POST /tia/provision-project
+ * Create a new TIA project (with CPU + IO) if it doesn't exist, or open it if it does.
+ */
+export interface ProvisionProjectRequest {
+  tia_project_path: string;  // Folder path
+  project_name?: string;     // Defaults to folder basename
+  cpu_order_number?: string; // e.g. "6ES7 516-3AN02-0AB0/V2.9"
+  provision_id?: string;     // Correlation ID for WS progress events
+  io_modules?: IoModuleDto[];
+  io_tags?: IoTagDto[];
+}
+
+export interface ProvisionProjectResponse {
+  success: boolean;
+  created: boolean;           // true = new project created, false = existing opened
+  project_file_path: string;
+  message: string;
+  warnings: string[];
+}
