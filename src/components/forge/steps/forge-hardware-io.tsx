@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useId } from "react";
+import { useState, useEffect, useCallback, useId, useMemo } from "react";
 import { ChevronRight, Plus, Trash2, ChevronDown, ChevronRight as ChevronRightIcon, Lightbulb, X as XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,7 +17,7 @@ import { IoListEditor } from "@/components/io-list-editor";
 import { matchDevicesToTemplates, applyMatchesToDevices, suggestMissingDevices } from "@/lib/forge-device-matcher";
 import type { MissingDeviceSuggestion } from "@/lib/forge-device-matcher";
 import { DEVICE_TYPE_IO_DEFAULTS, DEVICE_TYPES } from "@/lib/device-type-io-defaults";
-import { getCompatibleModules } from "@/lib/module-catalog";
+import { getCompatibleModules, getModuleByMlfb } from "@/lib/module-catalog";
 import type { IoEntry, RackSlotLayout, CpuType } from "@/types";
 import type {
   SpecAnalysis,
@@ -145,6 +145,62 @@ function countIoSignals(devices: ForgeDeviceEntry[]) {
     }
   }
   return counts;
+}
+
+// ── Physical address pool ─────────────────────────────────────────────────────
+
+export interface PhysicalPoint {
+  address: string;
+  slot: number;
+  module: string;
+  signalType: "DI" | "DQ" | "AI" | "AQ";
+}
+
+/**
+ * Enumerate every physical IO point available in the current rack layout.
+ * DI/DQ use bit addresses (%I/%Q); AI/AQ use word addresses (%IW/%QW).
+ * Returns empty array when no modules have been recommended yet.
+ */
+function buildAddressPool(hardware: ForgeHardwareConfig): PhysicalPoint[] {
+  const modules = hardware.racks[0]?.modules ?? [];
+  if (modules.length === 0) return [];
+
+  const pool: PhysicalPoint[] = [];
+  const is1200 = hardware.cpu_type.startsWith("S7-12");
+
+  let diByte = 0, diBit = 0;
+  let dqByte = 0, dqBit = 0;
+  let aiWord = is1200 ? 64 : 0;
+  let aqWord = is1200 ? 64 : 0;
+
+  for (const mod of modules) {
+    const catalog = mod.order_number ? getModuleByMlfb(mod.order_number) : undefined;
+    const label = catalog?.shortLabel ?? mod.module_type;
+
+    const diCount = catalog?.diChannels ?? 0;
+    const dqCount = catalog?.dqChannels ?? 0;
+    const aiCount = catalog?.aiChannels ?? 0;
+    const aqCount = catalog?.aqChannels ?? 0;
+
+    for (let i = 0; i < diCount; i++) {
+      pool.push({ address: `%I${diByte}.${diBit}`, slot: mod.slot, module: label, signalType: "DI" });
+      diBit++; if (diBit > 7) { diBit = 0; diByte++; }
+    }
+    for (let i = 0; i < dqCount; i++) {
+      pool.push({ address: `%Q${dqByte}.${dqBit}`, slot: mod.slot, module: label, signalType: "DQ" });
+      dqBit++; if (dqBit > 7) { dqBit = 0; dqByte++; }
+    }
+    for (let i = 0; i < aiCount; i++) {
+      pool.push({ address: `%IW${aiWord}`, slot: mod.slot, module: label, signalType: "AI" });
+      aiWord += 2;
+    }
+    for (let i = 0; i < aqCount; i++) {
+      pool.push({ address: `%QW${aqWord}`, slot: mod.slot, module: label, signalType: "AQ" });
+      aqWord += 2;
+    }
+  }
+
+  return pool;
 }
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -488,6 +544,14 @@ export function ForgeHardwareIo({
       }
     }
 
+    // Build address pool from rack modules (if any have been recommended)
+    const pool = buildAddressPool(hardware);
+    const diPool = pool.filter(p => p.signalType === "DI");
+    const dqPool = pool.filter(p => p.signalType === "DQ");
+    const aiPool = pool.filter(p => p.signalType === "AI");
+    const aqPool = pool.filter(p => p.signalType === "AQ");
+    const hasPool = pool.length > 0;
+
     // Sequential address assignment
     // S7-1200: DI/DQ from %I/%Q 0.0; AI/AQ from %IW/%QW 64
     // S7-1500: All sequential from byte 0
@@ -495,16 +559,28 @@ export function ForgeHardwareIo({
 
     let diByte = 0, diBit = 0;
     for (let i = 0; i < diSignals.length; i++) {
-      diSignals[i].address = `%I${diByte}.${diBit}`;
-      diSignals[i].slot = i;
+      if (hasPool && i < diPool.length) {
+        diSignals[i].address = diPool[i].address;
+        diSignals[i].slot = diPool[i].slot;
+        diSignals[i].module = diPool[i].module;
+      } else {
+        diSignals[i].address = `%I${diByte}.${diBit}`;
+        diSignals[i].slot = 0;
+      }
       diBit++;
       if (diBit > 7) { diBit = 0; diByte++; }
     }
 
     let dqByte = 0, dqBit = 0;
     for (let i = 0; i < dqSignals.length; i++) {
-      dqSignals[i].address = `%Q${dqByte}.${dqBit}`;
-      dqSignals[i].slot = i;
+      if (hasPool && i < dqPool.length) {
+        dqSignals[i].address = dqPool[i].address;
+        dqSignals[i].slot = dqPool[i].slot;
+        dqSignals[i].module = dqPool[i].module;
+      } else {
+        dqSignals[i].address = `%Q${dqByte}.${dqBit}`;
+        dqSignals[i].slot = 0;
+      }
       dqBit++;
       if (dqBit > 7) { dqBit = 0; dqByte++; }
     }
@@ -512,16 +588,28 @@ export function ForgeHardwareIo({
     const aiStart = is1200 ? 64 : Math.ceil(diSignals.length / 8) * 2;
     let aiWord = aiStart;
     for (let i = 0; i < aiSignals.length; i++) {
-      aiSignals[i].address = `%IW${aiWord}`;
-      aiSignals[i].slot = i;
+      if (hasPool && i < aiPool.length) {
+        aiSignals[i].address = aiPool[i].address;
+        aiSignals[i].slot = aiPool[i].slot;
+        aiSignals[i].module = aiPool[i].module;
+      } else {
+        aiSignals[i].address = `%IW${aiWord}`;
+        aiSignals[i].slot = 0;
+      }
       aiWord += 2;
     }
 
     const aqStart = is1200 ? 64 : Math.ceil(dqSignals.length / 8) * 2;
     let aqWord = aqStart;
     for (let i = 0; i < aqSignals.length; i++) {
-      aqSignals[i].address = `%QW${aqWord}`;
-      aqSignals[i].slot = i;
+      if (hasPool && i < aqPool.length) {
+        aqSignals[i].address = aqPool[i].address;
+        aqSignals[i].slot = aqPool[i].slot;
+        aqSignals[i].module = aqPool[i].module;
+      } else {
+        aqSignals[i].address = `%QW${aqWord}`;
+        aqSignals[i].slot = 0;
+      }
       aqWord += 2;
     }
 
@@ -555,6 +643,7 @@ export function ForgeHardwareIo({
 
   const rackLayout = forgeHardwareToRackLayout(hardware);
   const ioEntries = ioList.map(forgeIoToIoEntry);
+  const addressPool = useMemo(() => buildAddressPool(hardware), [hardware]);
   const ioCounts = countIoSignals(devices);
   const totalIo = ioCounts.DI + ioCounts.DQ + ioCounts.AI + ioCounts.AQ;
   const cpuOnboard = getCpuOnboardIo(hardware.cpu_type);
@@ -1008,6 +1097,7 @@ export function ForgeHardwareIo({
                 key={ioListKey}
                 value={ioEntries}
                 onChange={handleIoChange}
+                physicalAddresses={addressPool.length > 0 ? addressPool : undefined}
               />
             </ScrollArea>
           </div>

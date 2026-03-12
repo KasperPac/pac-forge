@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo } from "react";
 import { Plus, Trash2, AlertTriangle, Upload, ArrowUp, ArrowDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,22 @@ import type { IoEntry } from "@/types";
 
 const DATA_TYPES = ["BOOL", "BYTE", "WORD", "DWORD", "INT", "DINT", "REAL", "LREAL", "TIME", "STRING"] as const;
 
+export interface PhysicalPoint {
+  address: string;
+  slot: number;
+  module: string;
+  signalType: "DI" | "DQ" | "AI" | "AQ";
+}
+
+function inferSignalType(address: string): "DI" | "DQ" | "AI" | "AQ" | null {
+  const a = address.toUpperCase();
+  if (a.startsWith("%IW") || a.startsWith("%ID") || a.startsWith("%IR")) return "AI";
+  if (a.startsWith("%QW") || a.startsWith("%QD") || a.startsWith("%QR")) return "AQ";
+  if (a.startsWith("%I")) return "DI";
+  if (a.startsWith("%Q")) return "DQ";
+  return null;
+}
+
 const EMPTY_ENTRY: IoEntry = {
   address: "",
   tag_name: "",
@@ -32,6 +48,7 @@ interface IoListEditorProps {
   value: IoEntry[];
   onChange: (entries: IoEntry[]) => void;
   readOnly?: boolean;
+  physicalAddresses?: PhysicalPoint[];
 }
 
 function validateDuplicateAddresses(entries: IoEntry[]): Set<number> {
@@ -48,7 +65,7 @@ function validateDuplicateAddresses(entries: IoEntry[]): Set<number> {
   return duplicates;
 }
 
-export function IoListEditor({ value, onChange, readOnly }: IoListEditorProps) {
+export function IoListEditor({ value, onChange, readOnly, physicalAddresses }: IoListEditorProps) {
   const [entries, setEntries] = useState<IoEntry[]>(value);
   const duplicates = validateDuplicateAddresses(entries);
   const invalidAddresses = new Map<number, string>();
@@ -82,6 +99,18 @@ export function IoListEditor({ value, onChange, readOnly }: IoListEditorProps) {
     );
     commit(updated);
   }
+
+  function updateEntry(idx: number, patch: Partial<IoEntry>) {
+    const updated = entries.map((e, i) => i === idx ? { ...e, ...patch } : e);
+    commit(updated);
+  }
+
+  // Set of addresses already assigned to other rows — used to hide them from dropdowns
+  const assignedAddresses = useMemo(() => {
+    const set = new Set<string>();
+    entries.forEach((e) => { if (e.address) set.add(e.address); });
+    return set;
+  }, [entries]);
 
   function moveRow(idx: number, direction: "up" | "down") {
     const target = direction === "up" ? idx - 1 : idx + 1;
@@ -137,6 +166,48 @@ export function IoListEditor({ value, onChange, readOnly }: IoListEditorProps) {
                 className={`border-b border-border/50 ${duplicates.has(idx) ? "bg-destructive/5" : ""}`}
               >
                 <td className="px-1 py-0.5">
+                  {physicalAddresses && !readOnly ? (() => {
+                    const sigType = inferSignalType(entry.address);
+                    // Available = matching type + not assigned to another row (but keep self)
+                    const available = physicalAddresses.filter(p =>
+                      (sigType === null || p.signalType === sigType) &&
+                      (!assignedAddresses.has(p.address) || p.address === entry.address)
+                    );
+                    return (
+                      <select
+                        value={entry.address}
+                        onChange={(e) => {
+                          const addr = e.target.value;
+                          if (!addr) {
+                            updateEntry(idx, { address: "", slot: 0, module: "" });
+                          } else {
+                            const pt = physicalAddresses.find(p => p.address === addr);
+                            updateEntry(idx, {
+                              address: addr,
+                              slot: pt?.slot ?? entry.slot,
+                              module: pt?.module ?? entry.module,
+                            });
+                          }
+                        }}
+                        className={cn(
+                          "h-7 w-full rounded-md border border-input bg-background px-2 font-mono text-xs",
+                          invalidAddresses.has(idx) && "border-red-500"
+                        )}
+                        title={invalidAddresses.get(idx)}
+                      >
+                        <option value="">— pick address —</option>
+                        {available.map(p => (
+                          <option key={p.address} value={p.address}>
+                            {p.address} (Slot {p.slot} · {p.module})
+                          </option>
+                        ))}
+                        {/* Keep current address visible even if not in pool */}
+                        {entry.address && !physicalAddresses.some(p => p.address === entry.address) && (
+                          <option value={entry.address}>{entry.address} (custom)</option>
+                        )}
+                      </select>
+                    );
+                  })() : (
                   <Input
                     value={entry.address}
                     onChange={(e) => updateField(idx, "address", e.target.value)}
@@ -148,6 +219,7 @@ export function IoListEditor({ value, onChange, readOnly }: IoListEditorProps) {
                     title={invalidAddresses.get(idx)}
                     disabled={readOnly}
                   />
+                  )}
                 </td>
                 <td className="px-1 py-0.5">
                   <Input
