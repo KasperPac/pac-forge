@@ -4,7 +4,7 @@
  * Stage-scoped for Standards Reviewer; rewrite and compile-fix for Code Architect.
  */
 
-import type { ForgeArtifact } from "@/types/forge";
+import type { ForgeArtifact, ForgeIoEntry, ForgeDeviceEntry } from "@/types/forge";
 import type { ReviewFinding } from "@/lib/forge-review-parser";
 
 // ---------------------------------------------------------------------------
@@ -261,4 +261,58 @@ export function buildForgePatternAnalysisUserMessage(
   artifactName: string,
 ): string {
   return `Artifact: ${artifactName}\n\n## Original\n\`\`\`scl\n${originalCode}\n\`\`\`\n\n## Corrected\n\`\`\`scl\n${fixedCode}\n\`\`\`\n\nAnalyse the diff and return the pattern JSON.`;
+}
+
+// ---------------------------------------------------------------------------
+// IO Validator — cross-reference IO linking FC against IO list and FB interfaces
+// ---------------------------------------------------------------------------
+
+/**
+ * System prompt for the IO Validator agent.
+ * Checks that the generated IO linking FC correctly maps every IO signal to a
+ * real, declared FB parameter — no invented variable names, no orphaned signals.
+ */
+export function buildForgeIoValidationPrompt(
+  devices: ForgeDeviceEntry[],
+  ioList: ForgeIoEntry[],
+): string {
+  const deviceSummary = devices
+    .map((d) => {
+      const signals = (d.io_signals ?? [])
+        .map((s) => `    ${s.tag_name} (${s.signal_type}): ${s.description ?? ""}`)
+        .join("\n");
+      return `  ${d.name} [${d.tag}] — instance DB: Inst${d.name.replace(/[^A-Za-z0-9]/g, "")}\n${signals || "    (no signals)"}`;
+    })
+    .join("\n\n");
+
+  const ioSummary = ioList
+    .map((io) => `  ${io.tag_name} (${io.signal_type}, ${io.data_type}): ${io.description ?? ""}`)
+    .join("\n");
+
+  return `You are an IO Validator. Your job is to validate IO mapping in generated Siemens TIA Portal code. You validate IO mapping by cross-referencing the IO Linking FC against the known IO list and FB interfaces.
+
+## Checks to perform
+
+1. **No invented variable names** — every instance DB access (e.g. "InstM01".someVar) must use a variable that is declared in the FB's INTERFACE/VAR sections. Report CRITICAL for any access to a non-existent variable.
+2. **No orphaned IO tags** — every IO signal in the IO list that is assigned to a device should appear in the IO linking FC. Report WARNING for any unlinked signal.
+3. **Signal direction consistency** — DI/AI signals (inputs) should feed INTO FB parameters (reads), DQ/AQ signals (outputs) should be driven FROM FB outputs (writes). Report WARNING for any reversal.
+4. **No duplicate address usage** — the same physical tag should not be written to from two different rungs/lines. Report WARNING for duplicates.
+
+## Known Devices and IO Signals
+${deviceSummary}
+
+## Full IO List
+${ioSummary}
+
+${REVIEWER_OUTPUT_FORMAT}`;
+}
+
+/**
+ * User message for the IO Validator — sends the IoLinking FC and all FB artifacts.
+ */
+export function buildForgeIoValidationUserMessage(artifacts: ForgeArtifact[]): string {
+  const ioLinkingArtifacts = artifacts.filter(
+    (a) => a.name === "IoLinking" || a.stage === "device",
+  );
+  return `Validate the IO mapping in the following artifacts:\n\n${formatArtifactsForReview(ioLinkingArtifacts)}`;
 }

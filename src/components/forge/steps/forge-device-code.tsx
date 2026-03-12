@@ -16,8 +16,10 @@ import type { SubPipelineStage } from "@/components/forge/forge-sub-pipeline";
 import { useForgeDeviceGenerate } from "@/hooks/use-forge-device-generate";
 import { useForgeReview } from "@/hooks/use-forge-review";
 import { useForgeRewrite } from "@/hooks/use-forge-rewrite";
+import { useForgeIoValidate } from "@/hooks/use-forge-io-validate";
 import { useForgeCompileCheck } from "@/hooks/use-forge-compile-check";
-import type { ForgeSession, ForgeArtifact } from "@/types/forge";
+import { useAgents } from "@/hooks/use-agents";
+import type { ForgeSession, ForgeArtifact, ForgeIoEntry, ForgeDeviceEntry } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
 import type { FbTemplate } from "@/types/fb-template";
 import type { PatternCandidate } from "@/types";
@@ -62,6 +64,7 @@ const INITIAL_STAGES: SubPipelineStage[] = [
   { label: "Generate FBs", status: "pending" },
   { label: "Review", status: "pending" },
   { label: "Fix", status: "pending" },
+  { label: "Validate IO", status: "pending" },
   { label: "Approve", status: "pending" },
   { label: "Upload", status: "pending" },
   { label: "Compile", status: "pending" },
@@ -81,14 +84,17 @@ export function ForgeDeviceCode({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [stages, setStages] = useState<SubPipelineStage[]>(INITIAL_STAGES);
   const [reviewSummary, setReviewSummary] = useState<string | null>(null);
+  const [ioValidationSummary, setIoValidationSummary] = useState<string | null>(null);
   const [compileErrors, setCompileErrors] = useState<string[]>([]);
 
   const { generateAll, loading: genLoading, progress, error: genError } = useForgeDeviceGenerate();
   const { review, loading: reviewLoading } = useForgeReview();
   const { rewrite, loading: rewriteLoading } = useForgeRewrite();
+  const { validateIo, loading: ioValidateLoading } = useForgeIoValidate();
   const { compileCheck, loading: compileLoading, progress: compileProgress } = useForgeCompileCheck();
+  const { data: agents } = useAgents();
 
-  const loading = genLoading || reviewLoading || rewriteLoading || compileLoading;
+  const loading = genLoading || reviewLoading || rewriteLoading || ioValidateLoading || compileLoading;
   const selected = artifacts.find(a => a.id === selectedId) ?? null;
 
   function setStageStatus(label: string, status: SubPipelineStage["status"], detail?: string) {
@@ -117,6 +123,7 @@ export function ForgeDeviceCode({
   async function handleGenerateAll() {
     setStages(INITIAL_STAGES.map(s => ({ ...s, status: "pending" })));
     setReviewSummary(null);
+    setIoValidationSummary(null);
     setCompileErrors([]);
 
     try {
@@ -132,6 +139,7 @@ export function ForgeDeviceCode({
       setStageStatus("Review", "running");
       const reviewResult = await review(generated, "fb", profile);
 
+      let finalArtifacts = generated;
       if (reviewResult.hasCritical || reviewResult.hasWarning) {
         const count = reviewResult.findings.filter(f => f.severity === "CRITICAL" || f.severity === "WARNING").length;
         setStageStatus("Review", "completed", `${count} issues`);
@@ -141,12 +149,35 @@ export function ForgeDeviceCode({
         const rewritten = await rewrite(generated, reviewResult.findings, profile);
         setArtifacts(rewritten);
         onArtifactsUpdate(rewritten);
+        finalArtifacts = rewritten;
         setStageStatus("Fix", "completed", `${count} fixed`);
         setReviewSummary(`Review found ${count} issue${count !== 1 ? "s" : ""} — code rewritten automatically.`);
       } else {
         setStageStatus("Review", "completed", "clean");
         setStageStatus("Fix", "skipped");
         setReviewSummary("Review passed — no issues found.");
+      }
+
+      // 4. IO Validation — skipped if IO Validator agent is disabled on the Agents page
+      const ioValidatorAgent = agents?.find(a => a.display_name === "IO Validator");
+      const ioList = session.io_list as ForgeIoEntry[];
+      const deviceList = session.device_list as ForgeDeviceEntry[];
+
+      if (!ioValidatorAgent?.is_enabled) {
+        setStageStatus("Validate IO", "skipped");
+      } else if (!ioList?.length) {
+        setStageStatus("Validate IO", "skipped");
+      } else {
+        setStageStatus("Validate IO", "running");
+        const ioResult = await validateIo(finalArtifacts, ioList, deviceList, profile);
+        if (ioResult.hasCritical || ioResult.hasWarning) {
+          const count = ioResult.findings.filter(f => f.severity === "CRITICAL" || f.severity === "WARNING").length;
+          setStageStatus("Validate IO", "completed", `${count} issues`);
+          setIoValidationSummary(`IO Validation: ${count} issue(s) found — review before approving.`);
+        } else {
+          setStageStatus("Validate IO", "completed", "clean");
+          setIoValidationSummary("IO Validation passed — all IO signals correctly mapped.");
+        }
       }
 
       setStageStatus("Approve", "pending");
@@ -327,6 +358,12 @@ export function ForgeDeviceCode({
         {reviewSummary && (
           <div className={`flex items-center gap-2 rounded border px-3 py-2 text-xs ${reviewSummary.includes("passed") ? "border-green-600/30 bg-green-500/5 text-green-400" : "border-amber-600/30 bg-amber-500/5 text-amber-400"}`}>
             {reviewSummary}
+          </div>
+        )}
+
+        {ioValidationSummary && (
+          <div className={`flex items-center gap-2 rounded border px-3 py-2 text-xs ${ioValidationSummary.includes("passed") ? "border-green-600/30 bg-green-500/5 text-green-400" : "border-red-600/30 bg-red-500/5 text-red-400"}`}>
+            {ioValidationSummary}
           </div>
         )}
 
