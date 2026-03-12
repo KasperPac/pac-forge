@@ -442,16 +442,27 @@ Generate a single FC in LAD (Ladder Logic). Output a LadProgram JSON object.
 The FC reads physical IO tags and writes them to the instance DBs of each device FB.
 Follow the IO Linking Rules from the Design Profile for rung style.
 Respond with only the raw JSON object (no markdown wrapper), using this exact schema:
+
+Valid element type values (use EXACTLY these strings):
+  "NO_CONTACT"   — normally-open contact (reads a Bool tag)
+  "NC_CONTACT"   — normally-closed contact
+  "OUTPUT_COIL"  — output coil (writes a Bool tag)
+  "MOVE"         — MOVE box: operand=source, outputOperand=destination
+  "TON"/"TOF"    — timer boxes
+  "CMP"          — compare box
+
+Example (Contact → Coil rung):
 {
   "name": "IoLinking",
   "rungs": [
     {
       "id": "rung_1",
-      "title": "Assign MotorStart to InstMotor1",
+      "title": "Assign SensorSignal to InstDevice1.sensorInput",
       "logic": {
         "type": "series",
         "nodes": [
-          { "type": "element", "element": { "id": "e1", "type": "MOVE", "operand": "IoTagName", "outputOperand": "InstDeviceName.inputVarName", "dataType": "Bool" } }
+          { "type": "element", "element": { "id": "e1", "type": "NO_CONTACT", "operand": "SensorSignal", "dataType": "Bool" } },
+          { "type": "element", "element": { "id": "e2", "type": "OUTPUT_COIL", "operand": "InstDevice1.sensorInput", "dataType": "Bool" } }
         ]
       }
     }

@@ -114,6 +114,44 @@ function parseSclArtifacts(
   return artifacts;
 }
 
+/** Normalize informal element type names that AI sometimes generates to canonical LadElementType values. */
+function normalizeLadElementTypes(program: Record<string, unknown>): void {
+  const typeMap: Record<string, string> = {
+    CONTACT: "NO_CONTACT",
+    NO_CONTACT_NORMALLY_OPEN: "NO_CONTACT",
+    NORMALLY_OPEN: "NO_CONTACT",
+    NC_CONTACT_NORMALLY_CLOSED: "NC_CONTACT",
+    NORMALLY_CLOSED: "NC_CONTACT",
+    COIL: "OUTPUT_COIL",
+    OUTPUT: "OUTPUT_COIL",
+  };
+  const rungs = program.rungs as Array<Record<string, unknown>> | undefined;
+  if (!Array.isArray(rungs)) return;
+  for (const rung of rungs) {
+    const logic = rung.logic as Record<string, unknown> | undefined;
+    if (!logic) continue;
+    normalizeChain(logic, typeMap);
+  }
+}
+
+function normalizeChain(chain: Record<string, unknown>, typeMap: Record<string, string>): void {
+  const nodes = chain.nodes as Array<Record<string, unknown>> | undefined;
+  if (!Array.isArray(nodes)) return;
+  for (const node of nodes) {
+    if (node.type === "element") {
+      const el = node.element as Record<string, unknown> | undefined;
+      if (el && typeof el.type === "string" && typeMap[el.type]) {
+        el.type = typeMap[el.type];
+      }
+    } else if (node.type === "parallel") {
+      const branches = node.branches as Array<Record<string, unknown>> | undefined;
+      if (Array.isArray(branches)) {
+        for (const branch of branches) normalizeChain(branch, typeMap);
+      }
+    }
+  }
+}
+
 /** Parse LadProgram JSON from Claude response.
  * Tries multiple strategies: raw JSON, ```json block, first { ... } object in response.
  */
@@ -144,13 +182,14 @@ function parseLadArtifact(
 
   for (const candidate of candidates) {
     try {
-      JSON.parse(candidate);
+      const program = JSON.parse(candidate) as Record<string, unknown>;
+      normalizeLadElementTypes(program);
       return {
         id: crypto.randomUUID(),
         name: deviceName,
         type: "FB",
         language: "LAD",
-        content: candidate,
+        content: JSON.stringify(program),
         approved: false,
         stage,
         destination_folder: "Program blocks/Forge",
