@@ -124,10 +124,14 @@ interface ChainResult {
 // Access node builders
 // ---------------------------------------------------------------------------
 
-function buildAccessNode(uid: number, operand: string, scope: string = "LocalVariable"): string {
-  const parts = operand.replace(/^"/, "").replace(/"$/, "").split(".");
+function buildAccessNode(uid: number, operand: string, scope?: string): string {
+  // Strip leading # (local var marker) and surrounding quotes (global var marker)
+  const stripped = operand.replace(/^#/, "").replace(/^"/, "").replace(/"$/, "");
+  // Determine scope: explicit override → #-prefixed → GlobalVariable (IO tags, global DBs)
+  const resolvedScope = scope ?? (operand.startsWith("#") ? "LocalVariable" : "GlobalVariable");
+  const parts = stripped.split(".");
   const components = parts.map((p) => `              <Component Name="${esc(p)}" />`).join("\n");
-  return `          <Access Scope="${scope}" UId="${uid}">
+  return `          <Access Scope="${resolvedScope}" UId="${uid}">
             <Symbol>
 ${components}
             </Symbol>

@@ -156,6 +156,20 @@ export async function buildLadXmlForArtifact(artifact: ForgeArtifact): Promise<s
   // AI-generated LAD may omit fields that buildLadXml requires — fill defaults
   if (!program.variables) program.variables = [];
   if (!program.blockType) program.blockType = artifact.type; // "FC" | "FB"
+  // Strip "header comment" rungs that have no output coil — TIA Portal rejects rungs
+  // with only contact elements (AI sometimes generates these as section dividers).
+  const OUTPUT_TYPES = new Set(["OUTPUT_COIL", "SET_COIL", "RESET_COIL"]);
+  if (Array.isArray(program.rungs)) {
+    program.rungs = program.rungs.filter((rung: Record<string, unknown>) => {
+      const nodes = (rung.logic as Record<string, unknown>)?.nodes as Array<Record<string, unknown>> | undefined;
+      if (!Array.isArray(nodes) || nodes.length === 0) return false;
+      return nodes.some((n) => {
+        if (n.type !== "element") return false;
+        const el = n.element as Record<string, unknown> | undefined;
+        return el ? OUTPUT_TYPES.has(el.type as string) : false;
+      });
+    });
+  }
   return buildLadXml(program);
 }
 

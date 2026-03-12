@@ -70,7 +70,7 @@ async function uploadSclArtifacts(
     return { success: false, errors: [`Bridge error ${submitResp.status}: ${text}`], warnings: [] };
   }
 
-  // Poll for job completion
+  // Poll job status endpoint until COMPLETED or FAILED
   const POLL_INTERVAL_MS = 2000;
   const MAX_POLL_MS = 300_000;
   const deadline = Date.now() + MAX_POLL_MS;
@@ -78,31 +78,39 @@ async function uploadSclArtifacts(
   while (Date.now() < deadline) {
     await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
 
-    const statusResp = await fetch(`${BRIDGE_BASE}/tia/jobs/${jobId}/results`, {
+    const statusResp = await fetch(`${BRIDGE_BASE}/tia/jobs/${jobId}`, {
       signal: AbortSignal.timeout(10_000),
     });
 
     if (!statusResp.ok) continue;
 
-    const data = await statusResp.json();
-    const status: string = data.status ?? "";
+    const statusData = await statusResp.json();
+    const status: string = statusData.status ?? "";
 
     if (status === "COMPLETED" || status === "FAILED") {
-      const compileResult = data.compile_result;
+      // Fetch compile results from the results endpoint
+      const resultsResp = await fetch(`${BRIDGE_BASE}/tia/jobs/${jobId}/results`, {
+        signal: AbortSignal.timeout(10_000),
+      });
+
       const errors: string[] = [];
       const warnings: string[] = [];
 
-      if (compileResult) {
-        for (const e of (compileResult.errors ?? [])) {
-          errors.push(`${e.artifact_name ?? "?"}: ${e.error_text}`);
-        }
-        for (const w of (compileResult.warnings ?? [])) {
-          warnings.push(`${w.artifact_name ?? "?"}: ${w.error_text}`);
+      if (resultsResp.ok) {
+        const data = await resultsResp.json();
+        const compileResult = data.compile_result;
+        if (compileResult) {
+          for (const e of (compileResult.errors ?? [])) {
+            errors.push(`${e.artifact_name ?? "?"}: ${e.error_text}`);
+          }
+          for (const w of (compileResult.warnings ?? [])) {
+            warnings.push(`${w.artifact_name ?? "?"}: ${w.error_text}`);
+          }
         }
       }
 
       if (status === "FAILED" && errors.length === 0) {
-        errors.push(data.error_message ?? "Job failed");
+        errors.push(statusData.error_message ?? "Job failed");
       }
 
       return { success: errors.length === 0, errors, warnings };
@@ -117,7 +125,6 @@ async function uploadLadArtifacts(
   tiaProjectPath: string,
 ): Promise<string[]> {
   const ladArtifacts = artifacts.filter((a) => a.language === "LAD");
-  console.log(`[forge] uploadLadArtifacts: total=${artifacts.length}, lad=${ladArtifacts.length}`, ladArtifacts.map(a => ({ name: a.name, type: a.type, language: a.language, stage: a.stage })));
   const errors: string[] = [];
 
   for (const artifact of ladArtifacts) {
@@ -131,7 +138,6 @@ async function uploadLadArtifacts(
         tia_project_path: tiaProjectPath,
         destination_folder: artifact.destination_folder,
       };
-      console.log(`[forge] importing LAD artifact: ${artifact.name} → ${BRIDGE_BASE}/tia/import-lad`);
       const resp = await fetch(`${BRIDGE_BASE}/tia/import-lad`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -139,7 +145,6 @@ async function uploadLadArtifacts(
         signal: AbortSignal.timeout(60_000),
       });
       const result = await resp.json();
-      console.log(`[forge] LAD import result for ${artifact.name}:`, result);
       if (!result.success) {
         errors.push(`LAD import failed: ${artifact.name} — ${result.message ?? "unknown"}`);
       }

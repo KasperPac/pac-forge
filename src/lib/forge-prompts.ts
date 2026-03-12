@@ -441,6 +441,7 @@ export function buildIoLinkingPrompt(
 Generate a single FC in LAD (Ladder Logic). Output a LadProgram JSON object.
 The FC reads physical IO tags and writes them to the instance DBs of each device FB.
 Follow the IO Linking Rules from the Design Profile for rung style.
+IMPORTANT: Every rung MUST contain at least one output element (OUTPUT_COIL, SET_COIL, or RESET_COIL). Do NOT generate header/comment rungs with only contacts — they are invalid in TIA Portal. Use the rung title field for section descriptions instead.
 Respond with only the raw JSON object (no markdown wrapper), using this exact schema:
 
 Valid element type values (use EXACTLY these strings):
