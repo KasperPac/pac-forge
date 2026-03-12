@@ -90,10 +90,13 @@ function interfaceScore(device: ForgeDeviceEntry, iface: FbInterface): number {
   // we reward templates where device IO is within the template's capacity.
   let boolScore = 0;
   if (boolCount > 0 && templateBool > 0) {
-    // Score peaks when template has 1–3x the device's Bool IO count (allows for HMI/status params)
+    // Industrial FBs typically have many more Bool params than physical IO (HMI, status, enable,
+    // feedback, error flags etc.). Allow up to 8× before penalising — tighter thresholds cause
+    // feature-rich templates (E-Stop, motor) to score worse than simpler sensor templates for
+    // identical 1-DI devices, which produces wrong matches.
     const ratio = templateBool / boolCount;
-    if (ratio >= 1 && ratio <= 4) boolScore = 1.0;
-    else if (ratio > 4) boolScore = Math.max(0, 1 - (ratio - 4) * 0.15); // penalise over-engineered templates
+    if (ratio >= 1 && ratio <= 8) boolScore = 1.0;
+    else if (ratio > 8) boolScore = Math.max(0.3, 1 - (ratio - 8) * 0.1); // soft penalty; floor at 0.3
     else boolScore = ratio; // template has fewer params than device IO — probably wrong FB type
   } else if (boolCount === 0 && templateBool === 0) {
     boolScore = 1.0; // both have no Bool — fine
@@ -131,9 +134,13 @@ const DEVICE_TYPE_SYNONYMS: Record<string, string[]> = {
   "motor vfd":            ["vfd motor", "variable frequency drive motor", "variable speed motor", "inverter motor"],
   "photoelectric sensor": ["photoelectric", "photo sensor", "pe sensor", "photo eye", "photoeye", "optical sensor"],
   "proximity sensor":     ["proximity", "prox sensor", "inductive sensor", "inductive proximity sensor"],
-  "push button station":  ["push button", "pushbutton", "pushbutton station", "control station", "operator station"],
+  "push button station":  ["push button", "pushbutton", "pushbutton station", "control station", "operator station",
+                           "start stop station", "start/stop station", "start button", "stop button",
+                           "momentary pushbutton", "latching pushbutton"],
   "solenoid 2-pos":       ["2 position solenoid", "solenoid valve 2 pos", "solenoid valve", "solenoid"],
-  "e-stop circuit":       ["emergency stop", "e-stop", "estop", "e stop circuit", "emergency stop circuit"],
+  "e-stop circuit":       ["emergency stop", "e-stop", "estop", "e stop circuit", "emergency stop circuit",
+                           "emergency stop button", "estop button", "e-stop button", "safety stop",
+                           "estop device", "emergency stop device", "mushroom head stop", "mushroom stop"],
   "stack light":          ["signal tower", "indicator light", "tower light", "signal light", "beacon"],
   "conveyor":             ["conveyor dol", "belt conveyor", "conveyor belt"],
 };
