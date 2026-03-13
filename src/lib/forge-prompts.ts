@@ -408,35 +408,41 @@ ${platformRules}
 ${patternSection}
 
 ## Output Format
-Return a JSON object matching the LadProgram type (defined below). Do NOT include any SCL. Do NOT wrap in markdown fences — return raw JSON only.
+Return raw JSON only — no markdown fences. Use this EXACT schema:
 
-LadProgram JSON schema:
 {
-  "name": "string (program name)",
+  "id": "prog_1",
+  "name": "DeviceName",
+  "blockType": "FB",
+  "variables": [],
   "rungs": [
     {
-      "id": "string",
-      "comment": "string",
-      "nodes": [
-        // LadNode — either a chain or parallel:
-        // Chain: { "type": "element", "element": LadElement }
-        // Parallel: { "type": "parallel", "chains": [LadSeriesChain[]] }
-      ]
+      "id": "rung_1",
+      "title": "Description of what this rung does",
+      "logic": {
+        "type": "series",
+        "nodes": [
+          { "type": "element", "element": { "id": "e1", "type": "NO_CONTACT", "operand": "TagName", "dataType": "Bool" } },
+          { "type": "element", "element": { "id": "e2", "type": "OUTPUT_COIL", "operand": "OutputTag", "dataType": "Bool" } }
+        ]
+      }
     }
   ]
 }
 
-LadElement types: "contact_no" | "contact_nc" | "coil" | "set_coil" | "reset_coil" | "coil_p" | "coil_n" | "compare" | "timer_ton" | "timer_tof" | "timer_tp" | "counter_ctu" | "counter_ctd" | "move" | "math"
+Valid element type values (use EXACTLY these strings):
+  "NO_CONTACT"   — normally-open contact
+  "NC_CONTACT"   — normally-closed contact
+  "OUTPUT_COIL"  — output coil
+  "SET_COIL"     — set coil (latch)
+  "RESET_COIL"   — reset coil (unlatch)
+  "TON"          — on-delay timer: add presetTime "T#5s", instanceDb "InstTimerName"
+  "TOF"          — off-delay timer: same fields as TON
+  "CMP"          — compare box: add cmpOperator "==" | "!=" | ">" | "<" | ">=" | "<=", operand2 "value"
+  "MOVE"         — move box: operand=source, outputOperand=destination
 
-LadElement schema:
-{
-  "type": "contact_no",
-  "tag": "full PLC tag name",
-  "label": "display label"
-}
-
-For timers: add "instance": "TimerInstName", "pt": "T#5s"
-For compare: add "operator": "GT"|"LT"|"EQ"|"GE"|"LE"|"NE", "in1": "tag or value", "in2": "tag or value"`;
+CRITICAL: every rung MUST have a "logic" object with a "nodes" array. Do NOT put "nodes" directly on the rung.
+CRITICAL: every rung MUST contain at least one output element (OUTPUT_COIL, SET_COIL, or RESET_COIL).`;
 }
 
 /**
@@ -1047,7 +1053,31 @@ Each step: set step bit when entering, reset when leaving.
 Transitions: contact on previous step + completion condition → set next step.
 
 ## Output Format
-Return raw LadProgram JSON only (same schema as device LAD generation). No markdown fences.`;
+Return raw JSON only — no markdown fences. Use this EXACT schema:
+
+{
+  "id": "prog_1",
+  "name": "SequenceName",
+  "blockType": "FC",
+  "variables": [],
+  "rungs": [
+    {
+      "id": "rung_1",
+      "title": "Description of what this rung does",
+      "logic": {
+        "type": "series",
+        "nodes": [
+          { "type": "element", "element": { "id": "e1", "type": "NO_CONTACT", "operand": "statStep01", "dataType": "Bool" } },
+          { "type": "element", "element": { "id": "e2", "type": "NO_CONTACT", "operand": "StartCondition", "dataType": "Bool" } },
+          { "type": "element", "element": { "id": "e3", "type": "SET_COIL", "operand": "statStep02", "dataType": "Bool" } }
+        ]
+      }
+    }
+  ]
+}
+
+Valid element types: "NO_CONTACT", "NC_CONTACT", "OUTPUT_COIL", "SET_COIL", "RESET_COIL", "TON", "TOF", "CMP", "MOVE"
+CRITICAL: every rung MUST have a "logic" object with a "nodes" array. Do NOT put "nodes" directly on the rung.`;
 }
 
 // ---------------------------------------------------------------------------
