@@ -492,8 +492,21 @@ export function getDeviceCallOrder(deviceType: string): number {
 }
 
 /**
+ * Derive a safe SCL variable name from an IO entry.
+ * When tag_name is missing or empty, generates a spare_Ix_y / spare_Qx_y name from the address.
+ * e.g. %I0.7 → spare_I0_7, %IW256 → spare_IW256, %Q1.0 → spare_Q1_0
+ */
+function safeTagName(io: ForgeIoEntry): string {
+  if (io.tag_name && io.tag_name.trim().length > 0) return io.tag_name.trim();
+  // Derive from address: strip leading %, replace dots and colons with underscores
+  const addr = (io.address ?? "").replace(/^%/, "").replace(/[.\s:]/g, "_").replace(/[^A-Za-z0-9_]/g, "");
+  return addr ? `spare_${addr}` : `spare_${io.signal_type ?? "IO"}_${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/**
  * Generate the Inputs global DB from the IO list.
  * Maps every physical input signal (DI/AI) to a named field.
+ * Unnamed IO entries get a spare_Ix_y name derived from their address.
  *
  * HARDCODED — not configurable via Prompts page.
  * Design Profile fields used: db_naming_prefix (via dbName parameter)
@@ -501,7 +514,7 @@ export function getDeviceCallOrder(deviceType: string): number {
 export function generateInputsDb(ioList: ForgeIoEntry[], dbName = "Inputs"): string {
   const inputs = ioList.filter((io) => io.signal_type === "DI" || io.signal_type === "AI");
   const fields = inputs
-    .map((io) => `    ${io.tag_name} : ${io.data_type};  // ${io.address} - ${io.description}`)
+    .map((io) => `    ${safeTagName(io)} : ${io.data_type};  // ${io.address} - ${io.description ?? ""}`)
     .join("\n");
   return [
     `DATA_BLOCK "${dbName}"`,
@@ -519,6 +532,7 @@ export function generateInputsDb(ioList: ForgeIoEntry[], dbName = "Inputs"): str
 /**
  * Generate the Outputs global DB from the IO list.
  * Maps every physical output signal (DQ/AQ) to a named field.
+ * Unnamed IO entries get a spare_Qx_y name derived from their address.
  *
  * HARDCODED — not configurable via Prompts page.
  * Design Profile fields used: db_naming_prefix (via dbName parameter)
@@ -526,7 +540,7 @@ export function generateInputsDb(ioList: ForgeIoEntry[], dbName = "Inputs"): str
 export function generateOutputsDb(ioList: ForgeIoEntry[], dbName = "Outputs"): string {
   const outputs = ioList.filter((io) => io.signal_type === "DQ" || io.signal_type === "AQ");
   const fields = outputs
-    .map((io) => `    ${io.tag_name} : ${io.data_type};  // ${io.address} - ${io.description}`)
+    .map((io) => `    ${safeTagName(io)} : ${io.data_type};  // ${io.address} - ${io.description ?? ""}`)
     .join("\n");
   return [
     `DATA_BLOCK "${dbName}"`,
@@ -559,10 +573,16 @@ export function generateIoLinkingFc(
   const outputs = ioList.filter((io) => io.signal_type === "DQ" || io.signal_type === "AQ");
 
   const inputLines = inputs
-    .map((io) => `  "${inputsDbName}".${io.tag_name} := "${io.tag_name}";`)
+    .map((io) => {
+      const name = safeTagName(io);
+      return `  "${inputsDbName}".${name} := "${name}";`;
+    })
     .join("\n");
   const outputLines = outputs
-    .map((io) => `  "${io.tag_name}" := "${outputsDbName}".${io.tag_name};`)
+    .map((io) => {
+      const name = safeTagName(io);
+      return `  "${name}" := "${outputsDbName}".${name};`;
+    })
     .join("\n");
 
   return [
