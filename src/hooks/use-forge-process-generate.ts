@@ -159,16 +159,16 @@ export function useForgeProcessGenerate() {
         systemPrompt = buildProcessSclPrompt(context);
         // Use matrix sequence if available — it has richer structured data
         if (matrixSequence) {
-          const permissives = matrixSequence.permissives.length > 0
-            ? `\n**Permissives (must be true before starting):**\n${matrixSequence.permissives.map(p => `  - ${p.description}${p.deviceName ? ` (${p.deviceName})` : ""}${!p.polarity ? " [active LOW — check for FALSE]" : ""}`).join("\n")}`
+          const permissives = (matrixSequence.permissives ?? []).length > 0
+            ? `\n**Permissives (must be true before starting):**\n${matrixSequence.permissives.map(p => `  - ${p.description ?? ""}${p.deviceName ? ` (${p.deviceName})` : ""}${!p.polarity ? " [active LOW — check for FALSE]" : ""}`).join("\n")}`
             : "";
-          const safety = matrixSequence.safetyConditions.length > 0
-            ? `\n**Safety Conditions (halt to safe state if violated):**\n${matrixSequence.safetyConditions.map(s => `  - ${s.description}${s.deviceName ? ` (${s.deviceName})` : ""}${!s.polarity ? " [active LOW — halt when FALSE]" : ""}`).join("\n")}`
+          const safety = (matrixSequence.safetyConditions ?? []).length > 0
+            ? `\n**Safety Conditions (halt to safe state if violated):**\n${matrixSequence.safetyConditions.map(s => `  - ${s.description ?? ""}${s.deviceName ? ` (${s.deviceName})` : ""}${!s.polarity ? " [active LOW — halt when FALSE]" : ""}`).join("\n")}`
             : "";
-          const steps = matrixSequence.steps.map(s => {
-            const actions = s.actions.map(a => `    Action: ${a.description}${a.deviceName ? ` [${a.deviceName}]` : ""}`).join("\n");
-            const conditions = s.transition.conditions.map(c => `      - ${c.description}${c.deviceName ? ` [${c.deviceName}]` : ""}`).join("\n");
-            return `  Step ${s.stepNumber}:\n${actions}\n    Done when (${s.transition.combinator}):\n${conditions}`;
+          const steps = (matrixSequence.steps ?? []).map(s => {
+            const actions = (s.actions ?? []).map(a => `    Action: ${a.description ?? ""}${a.deviceName ? ` [${a.deviceName}]` : ""}`).join("\n");
+            const conditions = (s.transition?.conditions ?? []).map(c => `      - ${c.description ?? ""}${c.deviceName ? ` [${c.deviceName}]` : ""}`).join("\n");
+            return `  Step ${s.stepNumber ?? "?"}:\n${actions || "    (no actions)"}\n    Done when (${s.transition?.combinator ?? "AND"}):\n${conditions || "      (no conditions)"}`;
           }).join("\n");
           userMessage = `Generate the SCL process FC for this sequence:
 
@@ -236,9 +236,10 @@ Generate a complete, compile-ready CASE state machine FC.`;
           });
 
           // Find matching matrix sequence for richer structured data
-          const matrixSequence = matrix?.processSequences.find(
-            s => s.name === seq.name || s.name.toLowerCase().includes(seq.name.slice(0, 15).toLowerCase()),
-          );
+          const matrixSequence = matrix?.processSequences.find(s => {
+            if (!s.name || !seq.name) return false;
+            return s.name === seq.name || s.name.toLowerCase().includes(seq.name.slice(0, 15).toLowerCase());
+          });
 
           const artifacts = await generateSequence(seq, session, profile, patterns, matrixSequence);
           allArtifacts.push(...artifacts);

@@ -1046,9 +1046,9 @@ export function buildProcessFcPrompt(context: ProcessGenContext): string {
     ? `## Device State Signals (from Matrix Review — engineer-confirmed)
 Use these instance DB paths to read device state and send commands:
 ${linkageMatrix.deviceLinkage.map(d => {
-  const outputs = d.wiring.filter(w => w.direction === "out");
-  if (outputs.length === 0) return `  - "${d.instanceDbName}" (${d.name})`;
-  return `  - "${d.instanceDbName}" (${d.name}): ${outputs.map(w => w.paramName).join(", ")}`;
+  const outputs = (d.wiring ?? []).filter(w => w.direction === "out");
+  if (outputs.length === 0) return `  - "${d.instanceDbName ?? d.name}" (${d.name})`;
+  return `  - "${d.instanceDbName ?? d.name}" (${d.name}): ${outputs.map(w => w.paramName).join(", ")}`;
 }).join("\n")}`
     : "";
 
@@ -1056,16 +1056,19 @@ ${linkageMatrix.deviceLinkage.map(d => {
   const matrixSequencesSection = linkageMatrix?.processSequences && linkageMatrix.processSequences.length > 0
     ? `## Process Sequences (from Matrix Review — engineer-confirmed structure)
 ${linkageMatrix.processSequences.map(seq => {
-  const permissives = seq.permissives.length > 0
-    ? `  Permissives: ${seq.permissives.map(p => `${p.description}${p.deviceName ? ` (${p.deviceName})` : ""}${!p.polarity ? " [INVERTED]" : ""}`).join(", ")}`
+  const permissives = (seq.permissives ?? []).length > 0
+    ? `  Permissives: ${seq.permissives.map(p => `${p.description ?? ""}${p.deviceName ? ` (${p.deviceName})` : ""}${!p.polarity ? " [INVERTED]" : ""}`).join(", ")}`
     : "";
-  const safety = seq.safetyConditions.length > 0
-    ? `  Safety: ${seq.safetyConditions.map(s => `${s.description}${s.deviceName ? ` (${s.deviceName})` : ""}${!s.polarity ? " [INVERTED]" : ""}`).join(", ")}`
+  const safety = (seq.safetyConditions ?? []).length > 0
+    ? `  Safety: ${seq.safetyConditions.map(s => `${s.description ?? ""}${s.deviceName ? ` (${s.deviceName})` : ""}${!s.polarity ? " [INVERTED]" : ""}`).join(", ")}`
     : "";
-  const stepSummary = seq.steps.map(s =>
-    `    Step ${s.stepNumber}: ${s.actions.map(a => a.description).join(", ")} | Done: ${s.transition.conditions.map(c => c.description).join(` ${s.transition.combinator} `)}`
-  ).join("\n");
-  return `### ${seq.name}\n${permissives ? permissives + "\n" : ""}${safety ? safety + "\n" : ""}  Steps:\n${stepSummary}`;
+  const stepSummary = (seq.steps ?? []).map(s => {
+    const actions = (s.actions ?? []).map(a => a.description ?? "").join(", ");
+    const conditions = s.transition?.conditions ?? [];
+    const condStr = conditions.map(c => c.description ?? "").join(` ${s.transition?.combinator ?? "AND"} `);
+    return `    Step ${s.stepNumber ?? "?"}: ${actions || "(no actions)"} | Done: ${condStr || "(no conditions)"}`;
+  }).join("\n");
+  return `### ${seq.name ?? "(unnamed)"}\n${permissives ? permissives + "\n" : ""}${safety ? safety + "\n" : ""}  Steps:\n${stepSummary}`;
 }).join("\n\n")}`
     : "";
 
