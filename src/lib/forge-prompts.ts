@@ -492,6 +492,30 @@ export function getDeviceCallOrder(deviceType: string): number {
 }
 
 /**
+ * Generate a global DATA_BLOCK from a matrix globalData entry.
+ * Produces HmiData, Configuration, and any other global DBs declared in the matrix.
+ *
+ * HARDCODED — not configurable via Prompts page.
+ */
+export function generateGlobalDb(dbName: string, fields: Array<{ fieldName: string; dataType: string; description?: string }>): string {
+  const fieldLines = fields
+    .filter(f => f.fieldName && f.fieldName.trim().length > 0)
+    .map(f => `    ${f.fieldName} : ${f.dataType || "Bool"};${f.description ? `  // ${f.description}` : ""}`)
+    .join("\n");
+
+  return [
+    `DATA_BLOCK "${dbName}"`,
+    `{ S7_Optimized_Access := 'TRUE' }`,
+    `VERSION : 0.1`,
+    `  VAR`,
+    fieldLines || "    // (no fields declared)",
+    `  END_VAR`,
+    `BEGIN`,
+    `END_DATA_BLOCK`,
+  ].join("\n");
+}
+
+/**
  * Derive a safe SCL variable name from an IO entry.
  * When tag_name is missing or empty, generates a spare_Ix_y / spare_Qx_y name from the address.
  * e.g. %I0.7 → spare_I0_7, %IW256 → spare_IW256, %Q1.0 → spare_Q1_0

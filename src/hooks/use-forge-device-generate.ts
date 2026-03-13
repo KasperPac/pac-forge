@@ -12,6 +12,7 @@ import {
   generateInputsDb,
   generateOutputsDb,
   generateIoLinkingFc,
+  generateGlobalDb,
   deviceTypeToFcName,
   getDeviceCallOrder,
   type DeviceGenContext,
@@ -310,6 +311,8 @@ export function useForgeDeviceGenerate() {
       const devices = session.device_list as ForgeDeviceEntry[];
       const ioList = session.io_list as ForgeIoEntry[];
       const matrix = session.linkage_matrix as ProcessLinkageMatrix | null;
+      // Global DBs to generate from matrix (HmiData, Configuration, etc.)
+      const matrixGlobalDbs = matrix?.globalData ?? [];
       const allArtifacts: ForgeArtifact[] = [];
       // Track template block names already copied — FB/UDT blocks are shared across devices
       const copiedTemplateBlockNames = new Set<string>();
@@ -321,8 +324,8 @@ export function useForgeDeviceGenerate() {
         ...new Set(devices.map((d) => d.device_type)),
       ].sort((a, b) => getDeviceCallOrder(a) - getDeviceCallOrder(b));
 
-      // Total steps: devices + Inputs DB + Outputs DB + IoLinking + one Device Call FC per type
-      const totalSteps = devices.length + 3 + uniqueDeviceTypes.length;
+      // Total steps: devices + Inputs DB + Outputs DB + Global DBs + IoLinking + one Device Call FC per type
+      const totalSteps = devices.length + 3 + matrixGlobalDbs.length + uniqueDeviceTypes.length;
       setProgress({ current: 0, total: totalSteps, currentDevice: "" });
 
       try {
@@ -419,9 +422,33 @@ export function useForgeDeviceGenerate() {
           });
         }
 
+        // --- Step 3b: Global DBs from matrix (HmiData, Configuration, etc.) ---
+        for (let i = 0; i < matrixGlobalDbs.length; i++) {
+          const gdb = matrixGlobalDbs[i];
+          if (!gdb.dbName) continue;
+          setProgress({
+            current: devices.length + 2 + i + 1,
+            total: totalSteps,
+            currentDevice: `${gdb.dbName} DB`,
+          });
+          const dbCode = generateGlobalDb(gdb.dbName, gdb.fields ?? []);
+          allArtifacts.push({
+            id: crypto.randomUUID(),
+            name: gdb.dbName,
+            type: "DB",
+            language: "SCL",
+            content: dbCode,
+            approved: false,
+            stage: "device",
+            destination_folder: "Data blocks",
+            dependencies: [],
+            compile_after_import: true,
+          });
+        }
+
         // --- Step 4: IoLinking FC (deterministic SCL, or LAD via AI) ---
         setProgress({
-          current: devices.length + 3,
+          current: devices.length + 3 + matrixGlobalDbs.length,
           total: totalSteps,
           currentDevice: "IoLinking FC",
         });
@@ -467,7 +494,7 @@ export function useForgeDeviceGenerate() {
           const deviceType = uniqueDeviceTypes[i];
           const fcName = deviceTypeToFcName(deviceType, profile.naming_prefix ?? undefined);
           setProgress({
-            current: devices.length + 3 + i + 1,
+            current: devices.length + 3 + matrixGlobalDbs.length + i + 1,
             total: totalSteps,
             currentDevice: `${fcName} FC`,
           });
