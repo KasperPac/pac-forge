@@ -7,8 +7,9 @@ import {
   buildProcessLadPrompt,
   buildProcessFcPrompt,
   buildProcessFcUserMessage,
-  buildOb1Prompt,
-  buildOb1UserMessage,
+  generateOb1Main,
+  deviceTypeToFcName,
+  getDeviceCallOrder,
   type ProcessGenContext,
 } from "@/lib/forge-prompts";
 import { PLATFORM_RULES } from "@/lib/platform-rules";
@@ -16,7 +17,6 @@ import type {
   ForgeSession,
   ForgeArtifact,
   ForgeDeviceEntry,
-  ForgeIoEntry,
   SpecAnalysis,
   SpecAnalysisProcessSequence,
 } from "@/types/forge";
@@ -188,9 +188,8 @@ export function useForgeProcessGenerate() {
       const specAnalysis = session.spec_analysis as SpecAnalysis | null;
       const sequences = specAnalysis?.process_sequences ?? [];
       const devices = session.device_list as ForgeDeviceEntry[];
-      const ioList = session.io_list as ForgeIoEntry[];
 
-      // Total = sequences + RunProcess FC + OB1 Main
+      // Total = sequences + RunProcess FC + OB1 Main (deterministic, no AI step)
       const totalSteps = sequences.length + 2;
       setProgress({ current: 0, total: totalSteps, currentSequence: "" });
 
@@ -210,7 +209,7 @@ export function useForgeProcessGenerate() {
           allArtifacts.push(...artifacts);
         }
 
-        // Step 2: Generate master RunProcess FC
+        // Step 2: Generate master RunProcess FC (pure process logic — no device FB calls)
         setProgress({
           current: sequences.length + 1,
           total: totalSteps,
@@ -218,8 +217,9 @@ export function useForgeProcessGenerate() {
         });
 
         const fbInterfaces = extractFbInterfaces(session.device_artifacts);
+        // Instance DBs only (not IoLinking/Device Call FCs) — for reading device state
         const instanceDbNames = (session.device_artifacts as ForgeArtifact[])
-          .filter((a) => a.type === "DB")
+          .filter((a) => a.type === "DB" && a.name.startsWith("Inst"))
           .map((a) => a.name);
         const sequenceArtifactNames = allArtifacts
           .filter((a) => a.type === "FC" || a.type === "FB")
@@ -233,8 +233,6 @@ export function useForgeProcessGenerate() {
           specAnalysis: specAnalysis ?? undefined,
           instanceDbNames,
           sequenceArtifactNames,
-          ioEntries: ioList,
-          deviceEntries: devices,
         };
 
         const abort2 = new AbortController();
@@ -251,26 +249,34 @@ export function useForgeProcessGenerate() {
         const processFcArtifacts = parseSclArtifacts(processFcContent);
         allArtifacts.push(...processFcArtifacts);
 
-        // Step 3: Generate OB1 Main
+        // Step 3: Generate OB1 Main (deterministic — no AI call)
         setProgress({
           current: sequences.length + 2,
           total: totalSteps,
           currentSequence: "OB1 Main",
         });
 
-        const abort3 = new AbortController();
-        const { content: ob1Content } = await validateAndCall(
-          callNonStreaming,
-          buildOb1Prompt(),
-          [{ role: "user", content: buildOb1UserMessage() }],
-          abort3.signal,
-          2048,
-          "code_architect_scl",
-          !!profile,
+        // Derive device call FC names from device list in correct call order
+        const uniqueDeviceTypes = [
+          ...new Set(devices.map((d) => d.device_type)),
+        ].sort((a, b) => getDeviceCallOrder(a) - getDeviceCallOrder(b));
+        const deviceCallFcNames = uniqueDeviceTypes.map((dt) =>
+          deviceTypeToFcName(dt, profile.naming_prefix ?? undefined),
         );
 
-        const ob1Artifacts = parseSclArtifacts(ob1Content);
-        allArtifacts.push(...ob1Artifacts);
+        const ob1Code = generateOb1Main(deviceCallFcNames);
+        allArtifacts.push({
+          id: crypto.randomUUID(),
+          name: "Main",
+          type: "OB",
+          language: "SCL",
+          content: ob1Code,
+          approved: false,
+          stage: "process",
+          destination_folder: "Program blocks",
+          dependencies: [],
+          compile_after_import: true,
+        });
 
         return allArtifacts;
       } catch (err) {

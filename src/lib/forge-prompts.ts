@@ -95,6 +95,10 @@ function formatProfile(profile: DesignProfile | undefined): string {
 
 /**
  * System prompt for the PM agent to review spec analysis and ask clarifying questions.
+ *
+ * HARDCODED — not configurable via Prompts page.
+ * Design Profile fields used: none (Q&A is profile-agnostic).
+ * To make configurable: add "forge:qa_review" section key to PROMPT_DEFAULTS and use resolveSection().
  */
 export function buildQaReviewPrompt(): string {
   return `You are a Project Manager reviewing an automation project specification analysis.
@@ -109,6 +113,8 @@ Your role is to identify gaps, ambiguities, and missing information in the extra
 - Keep questions focused — max 5-8 questions per response
 - After the engineer answers, acknowledge what's been clarified, then ask any remaining follow-up questions
 - When all significant gaps are filled, explicitly state "The analysis looks complete" and output the updated JSON
+- Do NOT say "ready to proceed" or "The analysis looks complete" in a response that still asks any clarifying question
+- If unanswered questions remain, keep the review open and ask only those questions
 
 ## Categories to check
 1. **PLC/Hardware** — CPU type specified? Safety PLC needed? Profinet/Profibus topology?
@@ -130,6 +136,9 @@ Be conversational and professional — this is a dialogue with an experienced en
 
 /**
  * System prompt for follow-up Q&A rounds — same role, receives conversation history.
+ *
+ * HARDCODED — not configurable via Prompts page.
+ * Design Profile fields used: none.
  */
 export function buildQaFollowUpPrompt(): string {
   return `You are a Project Manager continuing a Q&A review of an automation project specification.
@@ -137,6 +146,7 @@ You have already asked an initial set of questions. Review the engineer's answer
 - Acknowledge what has been clarified
 - Ask any remaining important follow-up questions (max 3-4)
 - If all significant gaps are now filled, say so clearly and output the updated analysis JSON
+- Do NOT mark the review complete if you are still asking a question in that same response
 
 Keep it brief — the engineer wants to move forward. Only ask about genuinely important gaps.
 
@@ -146,6 +156,9 @@ When ready to finalize, output the complete updated spec analysis as valid JSON 
 /**
  * System prompt for producing the final updated SpecAnalysis from Q&A conversation.
  * Use this for a dedicated "finalize" call when the PM hasn't already output updated JSON.
+ *
+ * HARDCODED — not configurable via Prompts page.
+ * Design Profile fields used: none.
  */
 export function buildQaUpdateAnalysisPrompt(): string {
   return `You are a senior automation engineer. You have been given:
@@ -169,6 +182,13 @@ Rules:
 /**
  * System prompt for the PM agent to extract structured data from a functional spec.
  * Call with callNonStreaming(), max_tokens: 16384.
+ *
+ * HARDCODED — not configurable via Prompts page.
+ * Design Profile fields used: none (spec analysis is profile-agnostic; the spec defines the project).
+ * Design Profile fields NOT used (could be added):
+ *   - general_rules: could bias device naming conventions during extraction
+ *   - naming_prefix: could pre-apply tag name prefixes
+ * To make configurable: add "forge:spec_analysis" section key to PROMPT_DEFAULTS and use resolveSection().
  */
 export function buildSpecAnalysisPrompt(fbTemplates?: FbTemplate[]): string {
   const librarySection =
@@ -254,6 +274,16 @@ export interface DeviceGenContext {
 
 /**
  * System prompt for generating a single device FB in SCL.
+ *
+ * HARDCODED — not configurable via Prompts page.
+ * Design Profile fields used:
+ *   - general_rules: injected as "Code Design Profile" coding standards section
+ *   - (device_fb_language determines SCL vs LAD path — handled in hook, not here)
+ * Design Profile fields NOT used (could be added):
+ *   - io_linking_rules: not relevant (device FB generation, not IO linking)
+ *   - process_rules: not relevant (device FB, not process sequence)
+ *   - naming_prefix / db_naming_prefix: could apply to FB and instance DB names
+ * To make configurable: add "forge:device_scl" section key to PROMPT_DEFAULTS and use resolveSection().
  */
 export function buildDeviceSclPrompt(
   device: ForgeDeviceEntry,
@@ -351,6 +381,14 @@ Generate complete, compile-ready SCL code.`;
 /**
  * System prompt for generating a device program as LadProgram JSON.
  * The JSON is converted to SimaticML XML by lad-xml-builder.ts.
+ *
+ * HARDCODED — not configurable via Prompts page.
+ * Design Profile fields used:
+ *   - general_rules: injected as coding standards
+ * Design Profile fields NOT used:
+ *   - io_linking_rules, process_rules: not relevant to device LAD generation
+ *   - naming_prefix: not applied (LAD program name comes from device name in hook)
+ * To make configurable: add "forge:device_lad" section key to PROMPT_DEFAULTS and use resolveSection().
  */
 export function buildDeviceLadPrompt(
   _device: ForgeDeviceEntry,
@@ -412,20 +450,284 @@ export function buildDeviceLadUserMessage(device: ForgeDeviceEntry): string {
 }
 
 // ---------------------------------------------------------------------------
-// IO linking FC prompt
+// Deterministic artifact generators (no AI needed)
 // ---------------------------------------------------------------------------
 
 /**
- * System prompt for generating the IO linking FC (maps physical IO to FB inputs/outputs).
- * @param language "SCL" (default) or "LAD"
+ * Convert a device_type string to a valid FC name.
+ * e.g. "Motor DOL" → "MotorDolCall", "Photoelectric Sensor" → "PhotoelectricSensorCall"
+ *
+ * HARDCODED — not configurable via Prompts page.
+ * Design Profile fields used: naming_prefix (if set, prepended to the FC name)
  */
-export function buildIoLinkingPrompt(
+export function deviceTypeToFcName(deviceType: string, namingPrefix?: string): string {
+  const base =
+    deviceType
+      .replace(/[^A-Za-z0-9 ]/g, "")
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join("") + "Call";
+  return namingPrefix ? `${namingPrefix}${base}` : base;
+}
+
+/**
+ * Return the call priority for a device type in OB1 Main.
+ * 1 = sensors/inputs (called first), 2 = mid-level, 3 = actuators (called last before RunProcess).
+ */
+export function getDeviceCallOrder(deviceType: string): number {
+  const lower = deviceType.toLowerCase();
+  const sensorKeywords = ["sensor", "detector", "photoeye", "proximity", "switch", "button", "level", "pressure", "temperature", "flow"];
+  const actuatorKeywords = ["motor", "pump", "valve", "solenoid", "actuator", "vfd", "drive"];
+  if (sensorKeywords.some((k) => lower.includes(k))) return 1;
+  if (actuatorKeywords.some((k) => lower.includes(k))) return 3;
+  return 2;
+}
+
+/**
+ * Generate the Inputs global DB from the IO list.
+ * Maps every physical input signal (DI/AI) to a named field.
+ *
+ * HARDCODED — not configurable via Prompts page.
+ * Design Profile fields used: db_naming_prefix (via dbName parameter)
+ */
+export function generateInputsDb(ioList: ForgeIoEntry[], dbName = "Inputs"): string {
+  const inputs = ioList.filter((io) => io.signal_type === "DI" || io.signal_type === "AI");
+  const fields = inputs
+    .map((io) => `    ${io.tag_name} : ${io.data_type};  // ${io.address} - ${io.description}`)
+    .join("\n");
+  return [
+    `DATA_BLOCK "${dbName}"`,
+    `{ S7_Optimized_Access := 'TRUE' }`,
+    `VERSION : 0.1`,
+    `NON_RETAIN`,
+    `  VAR`,
+    fields || "    // (no input signals)",
+    `  END_VAR`,
+    `BEGIN`,
+    `END_DATA_BLOCK`,
+  ].join("\n");
+}
+
+/**
+ * Generate the Outputs global DB from the IO list.
+ * Maps every physical output signal (DQ/AQ) to a named field.
+ *
+ * HARDCODED — not configurable via Prompts page.
+ * Design Profile fields used: db_naming_prefix (via dbName parameter)
+ */
+export function generateOutputsDb(ioList: ForgeIoEntry[], dbName = "Outputs"): string {
+  const outputs = ioList.filter((io) => io.signal_type === "DQ" || io.signal_type === "AQ");
+  const fields = outputs
+    .map((io) => `    ${io.tag_name} : ${io.data_type};  // ${io.address} - ${io.description}`)
+    .join("\n");
+  return [
+    `DATA_BLOCK "${dbName}"`,
+    `{ S7_Optimized_Access := 'TRUE' }`,
+    `VERSION : 0.1`,
+    `NON_RETAIN`,
+    `  VAR`,
+    fields || "    // (no output signals)",
+    `  END_VAR`,
+    `BEGIN`,
+    `END_DATA_BLOCK`,
+  ].join("\n");
+}
+
+/**
+ * Generate the IoLinking FC deterministically from the IO list.
+ * Physical input tags → Inputs DB fields.
+ * Outputs DB fields → physical output tags.
+ * No FB instance DB access — that responsibility belongs to the Device Call FCs.
+ *
+ * HARDCODED — not configurable via Prompts page.
+ * Design Profile fields used: none (io_linking_rules not applicable for purely deterministic generation)
+ */
+export function generateIoLinkingFc(
+  ioList: ForgeIoEntry[],
+  inputsDbName = "Inputs",
+  outputsDbName = "Outputs",
+): string {
+  const inputs = ioList.filter((io) => io.signal_type === "DI" || io.signal_type === "AI");
+  const outputs = ioList.filter((io) => io.signal_type === "DQ" || io.signal_type === "AQ");
+
+  const inputLines = inputs
+    .map((io) => `  "${inputsDbName}".${io.tag_name} := "${io.tag_name}";`)
+    .join("\n");
+  const outputLines = outputs
+    .map((io) => `  "${io.tag_name}" := "${outputsDbName}".${io.tag_name};`)
+    .join("\n");
+
+  return [
+    `FUNCTION "IoLinking" : Void`,
+    `{ S7_Optimized_Access := 'TRUE' }`,
+    `VERSION : 0.1`,
+    `BEGIN`,
+    `  REGION Map Physical Inputs to ${inputsDbName} DB`,
+    inputLines || "  // (no input signals)",
+    `  END_REGION`,
+    ``,
+    `  REGION Map ${outputsDbName} DB to Physical Outputs`,
+    outputLines || "  // (no output signals)",
+    `  END_REGION`,
+    `END_FUNCTION`,
+  ].join("\n");
+}
+
+/**
+ * Generate OB1 Main deterministically from the ordered list of device call FC names.
+ * Call order: IoLinking → device call FCs (pre-sorted by caller) → RunProcess.
+ *
+ * HARDCODED — not configurable via Prompts page.
+ */
+export function generateOb1Main(deviceCallFcNames: string[]): string {
+  const fcCalls = deviceCallFcNames.map((name) => `  "${name}"();`).join("\n");
+  return [
+    `ORGANIZATION_BLOCK "Main"`,
+    `TITLE = 'Main Program Sweep (Cycle)'`,
+    `{ S7_Optimized_Access := 'TRUE' }`,
+    `VERSION : 0.1`,
+    `  VAR_TEMP`,
+    `    tempFirstScan : Bool;`,
+    `  END_VAR`,
+    `BEGIN`,
+    `  "IoLinking"();`,
+    fcCalls,
+    `  "RunProcess"();`,
+    `END_ORGANIZATION_BLOCK`,
+  ].join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Device Call FC prompt (AI-generated, one per device type)
+// ---------------------------------------------------------------------------
+
+export interface DeviceCallFcContext {
+  /** Derived FC name, e.g. "MotorDolCall" */
+  fcName: string;
+  /** Device type string, e.g. "Motor DOL" */
+  deviceType: string;
+  /** All devices of this type */
+  devices: ForgeDeviceEntry[];
+  /** Instance DB names for each device, e.g. ["InstMotor1", "InstMotor2"] */
+  instanceDbNames: string[];
+  /** VAR_INPUT/VAR_OUTPUT/VAR_IN_OUT sections extracted from the FB artifact for this type */
+  fbInterfaceSection: string;
+  /** Inputs DB field names (DI/AI signals) relevant to this device type */
+  inputsDbFields: string[];
+  /** Outputs DB field names (DQ/AQ signals) relevant to this device type */
+  outputsDbFields: string[];
+  /** Name of the Inputs global DB, e.g. "Inputs" */
+  inputsDbName: string;
+  /** Name of the Outputs global DB, e.g. "Outputs" */
+  outputsDbName: string;
+  profile?: DesignProfile;
+  platformRules: string;
+  patterns?: PatternCandidate[];
+}
+
+/**
+ * System prompt for generating one Device Call FC per device type.
+ * This FC calls all FB instances of the given device type with all inputs fully wired.
+ *
+ * HARDCODED — not configurable via Prompts page.
+ * Design Profile fields used:
+ *   - general_rules: injected as coding standards
+ *   - naming_prefix: used for FC naming (passed via context.fcName)
+ * Design Profile fields NOT used (could be added):
+ *   - io_linking_rules: not relevant (device call FC, not IO linking)
+ *   - process_rules: not relevant (device call FC, not process sequences)
+ * To make configurable: add "forge:device_call_fc" section key to PROMPT_DEFAULTS and use resolveSection().
+ */
+export function buildDeviceCallFcPrompt(context: DeviceCallFcContext): string {
+  const { profile, platformRules, patterns, fcName, deviceType, devices, instanceDbNames, fbInterfaceSection, inputsDbFields, outputsDbFields, inputsDbName, outputsDbName } = context;
+
+  const profileSection = formatProfile(profile);
+  const patternSection = formatPatterns(patterns ?? []);
+
+  const deviceList = devices
+    .map((d, i) => `  ${i + 1}. "${instanceDbNames[i] ?? `Inst${d.name.replace(/[^A-Za-z0-9]/g, "")}`}" — ${d.name} (${d.tag}): ${d.description}`)
+    .join("\n");
+
+  const inputFieldsList = inputsDbFields.length > 0
+    ? inputsDbFields.map((f) => `  - "${inputsDbName}".${f}`).join("\n")
+    : "  (none)";
+
+  const outputFieldsList = outputsDbFields.length > 0
+    ? outputsDbFields.map((f) => `  - "${outputsDbName}".${f}`).join("\n")
+    : "  (none)";
+
+  return `You are a senior Siemens TIA Portal SCL programmer generating a Device Call FC.
+
+${profileSection}
+
+## Platform Rules
+${platformRules}
+
+${patternSection}
+
+## Your Task
+Generate a single FC called "${fcName}" that calls ALL instances of the "${deviceType}" FB.
+
+## Rules
+1. Call EVERY instance DB listed below — no skipped instances.
+2. Wire EVERY VAR_INPUT parameter of the FB — no unwired inputs.
+3. Physical inputs come from the "${inputsDbName}" DB (pre-populated by IoLinking FC).
+4. Physical outputs go to the "${outputsDbName}" DB (IoLinking FC will copy to hardware).
+5. Inter-device signals (e.g. sensor output feeding conveyor input) use instance DB field access: "InstSensor1".outputField.
+6. Use named association for all FB calls: "InstDBName"(param1 := source, param2 := source, ...).
+7. Do NOT wire IO tags directly — always go through the Inputs/Outputs DBs.
+
+## FB Interface — MANDATORY REFERENCE
+⛔ HARD RULE: Only use variable names that appear verbatim in the interface below. Do NOT invent names.
+${fbInterfaceSection || "(no FB interface available — infer from device type and IO signals)"}
+
+## Devices of Type "${deviceType}" to Call
+${deviceList}
+
+## Available Inputs DB Fields (DI/AI signals for this device type)
+${inputFieldsList}
+
+## Available Outputs DB Fields (DQ/AQ signals for this device type)
+${outputFieldsList}
+
+## Output Format
+\`\`\`scl [FC:${fcName}]
+// code
+\`\`\``;
+}
+
+/**
+ * User message for Device Call FC generation.
+ */
+export function buildDeviceCallFcUserMessage(context: DeviceCallFcContext): string {
+  return `Generate the "${context.fcName}" FC that calls all ${context.devices.length} "${context.deviceType}" device instance(s) with all inputs fully wired.`;
+}
+
+// ---------------------------------------------------------------------------
+// IO linking FC prompt — LAD fallback only
+// ---------------------------------------------------------------------------
+
+/**
+ * System prompt for generating the IO linking FC in LAD format.
+ * SCL IoLinking is generated deterministically via generateIoLinkingFc().
+ * This builder is only needed when io_linking_language === "LAD".
+ *
+ * HARDCODED — not configurable via Prompts page.
+ * Design Profile fields used:
+ *   - general_rules: injected as coding standards
+ *   - io_linking_rules: injected as IO linking conventions
+ * Design Profile fields NOT used (could be added):
+ *   - process_rules: not relevant
+ *   - naming_prefix / db_naming_prefix: could apply to FC name or DB references
+ * To make configurable: add "forge:io_linking_lad" section key to PROMPT_DEFAULTS and use resolveSection().
+ */
+export function buildIoLinkingLadPrompt(
   devices: ForgeDeviceEntry[],
   ioList: ForgeIoEntry[],
   context: DeviceGenContext,
-  language: "SCL" | "LAD" = "SCL",
 ): string {
-  const { profile, platformRules, patterns, deviceArtifacts } = context;
+  const { profile, platformRules, patterns } = context;
   const profileSection = formatProfile(profile);
   const patternSection = formatPatterns(patterns ?? []);
   const ioLinkingRulesSection =
@@ -433,66 +735,17 @@ export function buildIoLinkingPrompt(
       ? `## IO Linking Rules (from Design Profile)\n${profile.io_linking_rules}`
       : "";
 
-  // Extract INTERFACE sections from generated FB artifacts so AI knows the exact variable names
-  const fbInterfaceSection = (() => {
-    if (!deviceArtifacts?.length) return "";
-    const fbArtifacts = deviceArtifacts.filter((a) => a.type === "FB" && a.language === "SCL");
-    if (!fbArtifacts.length) return "";
-    const interfaces = fbArtifacts.map((a) => {
-      const match = a.content.match(/INTERFACE\s*([\s\S]*?)END_INTERFACE/i);
-      return match ? `### ${a.name}\n\`\`\`\nINTERFACE\n${match[1].trim()}\nEND_INTERFACE\n\`\`\`` : null;
-    }).filter(Boolean);
-    if (!interfaces.length) return "";
-    return `## Device FB Interfaces — MANDATORY VARIABLE REFERENCE\n⛔ HARD RULE: You MUST NOT invent, guess, or create any variable names. Every instance DB access (e.g. "InstM01".someVar) MUST use a variable name that appears verbatim in the INTERFACE section below for that FB. If an IO signal cannot be mapped to any declared variable, leave it unmapped and add a comment — do NOT fabricate a plausible-sounding name.\n\n${interfaces.join("\n\n")}`;
-  })();
-
-  const deviceNames = devices.map((d) => `  - ${d.name} (tag: ${d.tag})`).join("\n");
+  const deviceNames = devices
+    .map((d) => {
+      const instDbName = `Inst${d.name.replace(/[^A-Za-z0-9]/g, "")}`;
+      return `  - ${d.name} (tag: ${d.tag}, instanceDB: "${instDbName}")`;
+    })
+    .join("\n");
   const ioEntries = ioList
     .map((io) => `  - ${io.tag_name} (${io.signal_type}, ${io.data_type}): ${io.description}`)
     .join("\n");
 
-  const outputFormat =
-    language === "LAD"
-      ? `## Output Format
-Generate a single FC in LAD (Ladder Logic). Output a LadProgram JSON object.
-The FC reads physical IO tags and writes them to the instance DBs of each device FB.
-Follow the IO Linking Rules from the Design Profile for rung style.
-IMPORTANT: Every rung MUST contain at least one output element (OUTPUT_COIL, SET_COIL, or RESET_COIL). Do NOT generate header/comment rungs with only contacts — they are invalid in TIA Portal. Use the rung title field for section descriptions instead.
-Respond with only the raw JSON object (no markdown wrapper), using this exact schema:
-
-Valid element type values (use EXACTLY these strings):
-  "NO_CONTACT"   — normally-open contact (reads a Bool tag)
-  "NC_CONTACT"   — normally-closed contact
-  "OUTPUT_COIL"  — output coil (writes a Bool tag)
-  "MOVE"         — MOVE box: operand=source, outputOperand=destination
-  "TON"/"TOF"    — timer boxes
-  "CMP"          — compare box
-
-Example (Contact → Coil rung):
-{
-  "name": "IoLinking",
-  "rungs": [
-    {
-      "id": "rung_1",
-      "title": "Assign SensorSignal to InstDevice1.sensorInput",
-      "logic": {
-        "type": "series",
-        "nodes": [
-          { "type": "element", "element": { "id": "e1", "type": "NO_CONTACT", "operand": "SensorSignal", "dataType": "Bool" } },
-          { "type": "element", "element": { "id": "e2", "type": "OUTPUT_COIL", "operand": "InstDevice1.sensorInput", "dataType": "Bool" } }
-        ]
-      }
-    }
-  ]
-}`
-      : `## Output Format
-Generate a single FC in SCL. The FC reads physical IO tags and writes them to the instance DBs of each device FB.
-Use the format:
-\`\`\`scl [FC:IoLinking]
-// code
-\`\`\``;
-
-  return `You are an IO Validator / IO Linking Engineer for Siemens TIA Portal. Your task is to generate an IO linking Function (FC) that maps physical IO tag values to FB instance inputs/outputs.
+  return `You are an IO Validator / IO Linking Engineer for Siemens TIA Portal. Generate an IO linking FC in LAD format that maps physical IO tags to the "Inputs" and "Outputs" global DBs.
 
 ${profileSection}
 
@@ -509,9 +762,50 @@ ${deviceNames}
 ## IO List
 ${ioEntries}
 
-${fbInterfaceSection}
+## Output Format
+Generate a single FC in LAD (Ladder Logic). Output a LadProgram JSON object.
+Map physical inputs to "Inputs".fieldName and "Outputs".fieldName to physical outputs.
+IMPORTANT: Every rung MUST contain at least one output element (OUTPUT_COIL, SET_COIL, or RESET_COIL). Do NOT generate header/comment rungs with only contacts.
+Respond with only the raw JSON object (no markdown wrapper).
 
-${outputFormat}`;
+Valid element type values (use EXACTLY these strings):
+  "NO_CONTACT"   — normally-open contact
+  "NC_CONTACT"   — normally-closed contact
+  "OUTPUT_COIL"  — output coil (writes a Bool tag)
+  "MOVE"         — MOVE box: operand=source, outputOperand=destination
+
+Use this EXACT schema — the "logic" wrapper with "nodes" is mandatory:
+{
+  "name": "IoLinking",
+  "rungs": [
+    {
+      "id": "rung_1",
+      "title": "Map SensorInput to Inputs DB",
+      "logic": {
+        "type": "series",
+        "nodes": [
+          { "type": "element", "element": { "id": "e1", "type": "NO_CONTACT", "operand": "SensorTag", "dataType": "Bool" } },
+          { "type": "element", "element": { "id": "e2", "type": "OUTPUT_COIL", "operand": "Inputs.SensorTag", "dataType": "Bool" } }
+        ]
+      }
+    }
+  ]
+}`;
+}
+
+/**
+ * @deprecated Use generateIoLinkingFc() for SCL or buildIoLinkingLadPrompt() for LAD.
+ * Kept for backward compatibility — routes to the appropriate builder.
+ */
+export function buildIoLinkingPrompt(
+  devices: ForgeDeviceEntry[],
+  ioList: ForgeIoEntry[],
+  context: DeviceGenContext,
+  language: "SCL" | "LAD" = "SCL",
+): string {
+  if (language === "LAD") return buildIoLinkingLadPrompt(devices, ioList, context);
+  // SCL is now deterministic — return a minimal stub prompt (caller should use generateIoLinkingFc())
+  return buildIoLinkingLadPrompt(devices, ioList, context);
 }
 
 // ---------------------------------------------------------------------------
@@ -536,6 +830,16 @@ export interface ProcessGenContext {
 
 /**
  * System prompt for generating process/sequence code in SCL.
+ * Generates individual sequence FBs/FCs (one per sequence) — NOT the master RunProcess FC.
+ *
+ * HARDCODED — not configurable via Prompts page.
+ * Design Profile fields used:
+ *   - general_rules: injected as coding standards
+ *   - process_rules: injected as process code conventions with examples
+ * Design Profile fields NOT used (could be added):
+ *   - io_linking_rules: not relevant (process FB, not IO linking)
+ *   - naming_prefix: could apply to FB/FC names
+ * To make configurable: add "forge:process_scl" section key to PROMPT_DEFAULTS and use resolveSection().
  */
 export function buildProcessSclPrompt(context: ProcessGenContext): string {
   const { profile, platformRules, patterns, deviceFbInterfaces } = context;
@@ -635,10 +939,22 @@ Generate a complete, compile-ready CASE state machine FC.`;
 /**
  * System prompt for generating the master RunProcess FC.
  * Called after all sequence FBs are generated.
- * Receives device FB interfaces, IO entries, instance DB names, and sequence artifact names.
+ *
+ * RunProcess contains ONLY process sequence logic — it does NOT call device FBs
+ * (those are called in the per-device-type Device Call FCs) and does NOT wire IO
+ * (that is done in IoLinking FC and Device Call FCs).
+ *
+ * HARDCODED — not configurable via Prompts page.
+ * Design Profile fields used:
+ *   - general_rules: injected as coding standards
+ *   - process_rules: injected as process coding conventions
+ * Design Profile fields NOT used (could be added):
+ *   - io_linking_rules: RunProcess does not wire IO directly
+ *   - naming_prefix: could apply to the RunProcess FC name
+ * To make configurable: add "forge:process_fc" section key to PROMPT_DEFAULTS and use resolveSection().
  */
 export function buildProcessFcPrompt(context: ProcessGenContext): string {
-  const { profile, platformRules, patterns, deviceFbInterfaces, instanceDbNames = [], sequenceArtifactNames = [], ioEntries = [], deviceEntries = [] } = context;
+  const { profile, platformRules, patterns, deviceFbInterfaces, instanceDbNames = [], sequenceArtifactNames = [] } = context;
   const profileSection = formatProfile(profile);
   const patternSection = formatPatterns(patterns ?? []);
 
@@ -650,18 +966,6 @@ export function buildProcessFcPrompt(context: ProcessGenContext): string {
     ? sequenceArtifactNames.map((n) => `  - "${n}"()`).join("\n")
     : "  (no sequence FBs/FCs generated)";
 
-  const ioList = ioEntries.length > 0
-    ? ioEntries.map((io) => `  - ${io.tag_name} (${io.signal_type}): ${io.description}`).join("\n")
-    : "  (no IO entries)";
-
-  const deviceIoMap = deviceEntries.length > 0
-    ? deviceEntries.map((d) => {
-        const sigs = (d.io_signals ?? []).map((s) => `    - ${s.tag_name} (${s.signal_type})`).join("\n");
-        const instName = `Inst${d.name.replace(/[^A-Za-z0-9]/g, "")}`;
-        return `  "${instName}" (${d.device_type}):\n${sigs || "    (no signals)"}`;
-      }).join("\n")
-    : "  (no device entries)";
-
   return `You are a senior Siemens TIA Portal SCL programmer generating the master RunProcess FC.
 
 ${profileSection}
@@ -672,31 +976,29 @@ ${platformRules}
 ${patternSection}
 
 ## Your Task
-Generate a single FC called "RunProcess" that:
-1. Calls every device FB via its instance DB (using "InstDeviceName"(inputs...) syntax)
-2. Wires physical IO tags to FB inputs/outputs using the IO list below
-3. Calls all process sequence FBs/FCs
+Generate a single FC called "RunProcess" containing ONLY process sequence logic.
 
-## Device FB Interfaces
+## CRITICAL SCOPE RESTRICTIONS
+⛔ DO NOT call any device FBs — device FB calls are in the Device Call FCs (MotorCall, SensorCall, etc.)
+⛔ DO NOT wire any physical IO tags — IO wiring is in the IoLinking FC and Device Call FCs
+⛔ DO NOT wire config parameters — config wiring is in the Device Call FCs
+
+## What RunProcess CAN do
+✅ Call process sequence FBs/FCs to coordinate multi-step sequences
+✅ Read instance DB output fields to check device status (e.g. "InstMotor1".running)
+✅ Write instance DB fields to send commands (e.g. "InstMotor1".start := TRUE) where the FB supports it via VAR_IN_OUT
+✅ Implement mode selection logic (Auto/Manual/Maintenance)
+✅ Implement process-level interlocks and permissives using device state signals
+✅ Implement alarm coordination logic
+
+## Device FB Interfaces (for reading instance DB state — do NOT call these FBs here)
 ${deviceFbInterfaces}
 
-## Device Instance DBs and Their IO Signals
-${deviceIoMap}
-
-## All Instance DBs to Call
+## Device Instance DBs (for reading/writing device state)
 ${instanceDbList}
 
-## All Process Sequence FBs/FCs to Call
+## Process Sequence FBs/FCs to Call
 ${sequenceList}
-
-## Full IO List (for wiring)
-${ioList}
-
-## Calling Convention
-- Call device FBs: "InstMotor1"(start := %I0.0, feedback := %I0.1)
-- NEVER use "FBName"."InstDBName" syntax
-- Call sequence FBs: "SeqConveyor"(enable := statRunning)
-- Wire IO tags symbolically (no absolute addresses)
 
 ## Output Format
 \`\`\`scl [FC:RunProcess]
@@ -705,36 +1007,22 @@ ${ioList}
 }
 
 /**
- * System prompt for generating OB1 Main.
- * Minimal — just calls RunProcess.
- */
-export function buildOb1Prompt(): string {
-  return `You are a senior Siemens TIA Portal SCL programmer generating OB1 Main.
-
-Generate a minimal OB1 "Main" that calls the RunProcess FC. Keep it simple — just the FC call, no logic.
-
-## Output Format
-\`\`\`scl [OB:Main]
-// OB1 Main code
-\`\`\``;
-}
-
-/**
  * User message for RunProcess FC generation.
  */
 export function buildProcessFcUserMessage(): string {
-  return "Generate the RunProcess FC that calls all device FBs and sequence FBs/FCs as described above.";
-}
-
-/**
- * User message for OB1 Main generation.
- */
-export function buildOb1UserMessage(): string {
-  return 'Generate OB1 "Main" that calls RunProcess(). Keep it minimal — just the FC call.';
+  return "Generate the RunProcess FC with pure process sequence logic as described above. Do NOT call device FBs or wire IO.";
 }
 
 /**
  * System prompt for generating process/sequence code in LAD (sequential ladder).
+ *
+ * HARDCODED — not configurable via Prompts page.
+ * Design Profile fields used:
+ *   - general_rules: injected as coding standards
+ * Design Profile fields NOT used:
+ *   - process_rules: LAD process prompt uses a different step-bit approach; process_rules are SCL-specific examples
+ *   - io_linking_rules: not relevant
+ * To make configurable: add "forge:process_lad" section key to PROMPT_DEFAULTS and use resolveSection().
  */
 export function buildProcessLadPrompt(context: ProcessGenContext): string {
   const { profile, platformRules, patterns } = context;
@@ -769,6 +1057,13 @@ Return raw LadProgram JSON only (same schema as device LAD generation). No markd
 /**
  * System prompt for HMI overview + faceplate screen generation.
  * AI must output HmiScreenSpec JSON (src/types/hmi-screen.ts).
+ *
+ * HARDCODED — not configurable via Prompts page.
+ * Design Profile fields used: none (theme is passed as a parameter directly).
+ * Design Profile fields NOT used (could be added):
+ *   - general_rules: could bias HMI naming conventions
+ *   - db_naming_prefix: could apply to HMI tag DB names
+ * To make configurable: add "forge:hmi" section key to PROMPT_DEFAULTS and use resolveSection().
  */
 export function buildHmiPrompt(_devices: ForgeDeviceEntry[], theme: string): string {
   return `You are generating WinCC Unified HMI screen specifications for a Siemens TIA Portal project.
@@ -949,7 +1244,16 @@ const SEQUENCES_SCHEMA = `{
   "generatedAt": "string (ISO timestamp)"
 }`;
 
-/** System prompt: device wiring section only. */
+/**
+ * System prompt: device wiring section only (Process Linkage Matrix).
+ *
+ * HARDCODED — not configurable via Prompts page.
+ * Design Profile fields used: none (matrix generation is profile-agnostic).
+ * Design Profile fields NOT used (could be added):
+ *   - general_rules: could bias FB naming conventions
+ *   - naming_prefix / db_naming_prefix: could pre-apply naming conventions
+ * To make configurable: add "forge:device_linkage" section key to PROMPT_DEFAULTS and use resolveSection().
+ */
 export function buildDeviceLinkagePrompt(): string {
   return `You are a senior Siemens TIA Portal automation engineer generating the device wiring section of a Process Linkage Matrix.
 
@@ -969,7 +1273,15 @@ Schema:
 ${DEVICE_LINKAGE_SCHEMA}`;
 }
 
-/** System prompt: process sequences + global data only. */
+/**
+ * System prompt: process sequences + global data only (Process Linkage Matrix).
+ *
+ * HARDCODED — not configurable via Prompts page.
+ * Design Profile fields used: none.
+ * Design Profile fields NOT used (could be added):
+ *   - process_rules: could bias step/transition naming conventions
+ * To make configurable: add "forge:sequences" section key to PROMPT_DEFAULTS and use resolveSection().
+ */
 export function buildSequencesPrompt(): string {
   return `You are a senior Siemens TIA Portal automation engineer generating the process sequences and global data section of a Process Linkage Matrix.
 

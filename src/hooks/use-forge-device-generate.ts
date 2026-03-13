@@ -6,8 +6,16 @@ import {
   buildDeviceSclUserMessage,
   buildDeviceLadPrompt,
   buildDeviceLadUserMessage,
-  buildIoLinkingPrompt,
+  buildIoLinkingLadPrompt,
+  buildDeviceCallFcPrompt,
+  buildDeviceCallFcUserMessage,
+  generateInputsDb,
+  generateOutputsDb,
+  generateIoLinkingFc,
+  deviceTypeToFcName,
+  getDeviceCallOrder,
   type DeviceGenContext,
+  type DeviceCallFcContext,
 } from "@/lib/forge-prompts";
 import { PLATFORM_RULES } from "@/lib/platform-rules";
 import type { ForgeSession, ForgeArtifact, ForgeDeviceEntry, ForgeIoEntry } from "@/types/forge";
@@ -288,43 +296,6 @@ export function useForgeDeviceGenerate() {
     [],
   );
 
-  const generateIoLinking = useCallback(
-    async (
-      session: ForgeSession,
-      profile: DesignProfile,
-      patterns: PatternCandidate[],
-      deviceArtifacts: ForgeArtifact[],
-    ): Promise<ForgeArtifact[]> => {
-      const abort = new AbortController();
-      const ioLang = profile.io_linking_language ?? "SCL";
-      const context: DeviceGenContext = {
-        profile,
-        platformRules: PLATFORM_RULES,
-        patterns,
-        deviceArtifacts,
-      };
-
-      const ioSystemPrompt = buildIoLinkingPrompt(session.device_list, session.io_list as ForgeIoEntry[], context, ioLang);
-      const { content } = await validateAndCall(
-        callNonStreaming,
-        ioSystemPrompt,
-        [{ role: "user", content: `Generate the IO linking FC for all devices.` }],
-        abort.signal,
-        DEVICE_GEN_MAX_TOKENS,
-        "io_linking",
-        !!profile,
-      );
-
-      if (ioLang === "LAD") {
-        const artifact = parseLadArtifact(content, "IoLinking", "device");
-        if (!artifact) console.warn("[forge] LAD IO linking parse failed. Raw response:", content.slice(0, 500));
-        return artifact ? [{ ...artifact, type: "FC" as const }] : [];
-      }
-      return parseSclArtifacts(content, "device");
-    },
-    [],
-  );
-
   const generateAll = useCallback(
     async (
       session: ForgeSession,
@@ -336,13 +307,24 @@ export function useForgeDeviceGenerate() {
       setError(null);
 
       const devices = session.device_list as ForgeDeviceEntry[];
+      const ioList = session.io_list as ForgeIoEntry[];
       const allArtifacts: ForgeArtifact[] = [];
       // Track template block names already copied — FB/UDT blocks are shared across devices
       const copiedTemplateBlockNames = new Set<string>();
+      // Track FB interface text per device type for Device Call FC generation
+      const deviceTypeFbInterfaces = new Map<string, string>();
 
-      setProgress({ current: 0, total: devices.length + 1, currentDevice: "" });
+      // Unique device types, sorted by call order
+      const uniqueDeviceTypes = [
+        ...new Set(devices.map((d) => d.device_type)),
+      ].sort((a, b) => getDeviceCallOrder(a) - getDeviceCallOrder(b));
+
+      // Total steps: devices + Inputs DB + Outputs DB + IoLinking + one Device Call FC per type
+      const totalSteps = devices.length + 3 + uniqueDeviceTypes.length;
+      setProgress({ current: 0, total: totalSteps, currentDevice: "" });
 
       try {
+        // --- Step 1: Generate FBs + instance DBs per device ---
         for (let i = 0; i < devices.length; i++) {
           const device = devices[i];
           const matchedTemplate =
@@ -350,53 +332,185 @@ export function useForgeDeviceGenerate() {
               ? fbTemplates.find((t) => t.id === device.fb_template_id) ?? null
               : null;
           const isExactMatch = device.fb_match_confidence === "exact" && !!matchedTemplate?.blocks?.length;
-          console.log(`[forge] device "${device.name}": confidence=${device.fb_match_confidence}, template=${matchedTemplate?.name ?? "none"}, blocks=${matchedTemplate?.blocks?.length ?? 0}, isExactMatch=${isExactMatch}`);
+          console.log(`[forge] device "${device.name}": confidence=${device.fb_match_confidence}, template=${matchedTemplate?.name ?? "none"}, isExactMatch=${isExactMatch}`);
 
           setProgress({
             current: i + 1,
-            total: devices.length + 1,
+            total: totalSteps,
             currentDevice: isExactMatch ? `${device.name} (from library)` : device.name,
           });
 
+          let deviceArtifacts: ForgeArtifact[];
           if (isExactMatch && matchedTemplate) {
-            // Exact match — copy template, deduplicate shared FB/UDT blocks
-            const artifacts = copyTemplateAsArtifacts(device, matchedTemplate);
-            for (const artifact of artifacts) {
+            deviceArtifacts = copyTemplateAsArtifacts(device, matchedTemplate);
+            for (const artifact of deviceArtifacts) {
               if (artifact.type === "DB" && artifact.name.startsWith("Inst")) {
-                // Instance DBs are unique per device — always add
                 allArtifacts.push(artifact);
               } else if (!copiedTemplateBlockNames.has(artifact.name)) {
-                // FB/UDT/FC/global DB blocks — only add once per unique name
                 allArtifacts.push(artifact);
                 copiedTemplateBlockNames.add(artifact.name);
               }
             }
           } else {
-            // No exact match — use AI generation
-            const artifacts = await generateSingle(
-              device,
-              session,
-              profile,
-              fbTemplates,
-              patterns,
-            );
-            allArtifacts.push(...artifacts);
+            deviceArtifacts = await generateSingle(device, session, profile, fbTemplates, patterns);
+            allArtifacts.push(...deviceArtifacts);
+          }
+
+          // Capture FB interface for this device type (first encountered wins)
+          if (!deviceTypeFbInterfaces.has(device.device_type)) {
+            const fbArtifact = deviceArtifacts.find((a) => a.type === "FB" && a.language === "SCL");
+            if (fbArtifact) {
+              const interfaceRe =
+                /(VAR_INPUT[\s\S]*?END_VAR|VAR_OUTPUT[\s\S]*?END_VAR|VAR_IN_OUT[\s\S]*?END_VAR)/gi;
+              const matches = fbArtifact.content.match(interfaceRe);
+              if (matches) {
+                deviceTypeFbInterfaces.set(
+                  device.device_type,
+                  `### ${fbArtifact.name}\n\`\`\`\n${matches.join("\n")}\n\`\`\``,
+                );
+              }
+            }
           }
         }
 
-        // IO linking FC
+        // --- Step 2: Inputs DB (deterministic) ---
         setProgress({
           current: devices.length + 1,
-          total: devices.length + 1,
-          currentDevice: "IO Linking FC",
+          total: totalSteps,
+          currentDevice: "Inputs DB",
         });
-        const ioList = session.io_list as ForgeIoEntry[];
-        const deviceList = session.device_list as ForgeDeviceEntry[];
-        console.log(`[forge] IO linking: ${ioList?.length ?? 0} IO entries, ${deviceList?.length ?? 0} devices`);
         if (ioList?.length > 0) {
-          const ioArtifacts = await generateIoLinking(session, profile, patterns, allArtifacts);
-          console.log(`[forge] IO linking produced ${ioArtifacts.length} artifact(s)`);
-          allArtifacts.push(...ioArtifacts);
+          const inputsDbCode = generateInputsDb(ioList);
+          allArtifacts.push({
+            id: crypto.randomUUID(),
+            name: "Inputs",
+            type: "DB",
+            language: "SCL",
+            content: inputsDbCode,
+            approved: false,
+            stage: "device",
+            destination_folder: "Data blocks",
+            dependencies: [],
+            compile_after_import: true,
+          });
+        }
+
+        // --- Step 3: Outputs DB (deterministic) ---
+        setProgress({
+          current: devices.length + 2,
+          total: totalSteps,
+          currentDevice: "Outputs DB",
+        });
+        if (ioList?.length > 0) {
+          const outputsDbCode = generateOutputsDb(ioList);
+          allArtifacts.push({
+            id: crypto.randomUUID(),
+            name: "Outputs",
+            type: "DB",
+            language: "SCL",
+            content: outputsDbCode,
+            approved: false,
+            stage: "device",
+            destination_folder: "Data blocks",
+            dependencies: [],
+            compile_after_import: true,
+          });
+        }
+
+        // --- Step 4: IoLinking FC (deterministic SCL, or LAD via AI) ---
+        setProgress({
+          current: devices.length + 3,
+          total: totalSteps,
+          currentDevice: "IoLinking FC",
+        });
+        if (ioList?.length > 0) {
+          const ioLang = profile.io_linking_language ?? "SCL";
+          if (ioLang === "LAD") {
+            // LAD IoLinking still uses AI
+            const abort = new AbortController();
+            const context: DeviceGenContext = { profile, platformRules: PLATFORM_RULES, patterns };
+            const ladPrompt = buildIoLinkingLadPrompt(devices, ioList, context);
+            const { content } = await validateAndCall(
+              callNonStreaming,
+              ladPrompt,
+              [{ role: "user", content: "Generate the IoLinking LAD FC." }],
+              abort.signal,
+              DEVICE_GEN_MAX_TOKENS,
+              "io_linking",
+              !!profile,
+            );
+            const artifact = parseLadArtifact(content, "IoLinking", "device");
+            if (!artifact) console.warn("[forge] LAD IO linking parse failed:", content.slice(0, 500));
+            if (artifact) allArtifacts.push({ ...artifact, type: "FC" as const });
+          } else {
+            // SCL IoLinking is fully deterministic
+            const ioLinkingCode = generateIoLinkingFc(ioList);
+            allArtifacts.push({
+              id: crypto.randomUUID(),
+              name: "IoLinking",
+              type: "FC",
+              language: "SCL",
+              content: ioLinkingCode,
+              approved: false,
+              stage: "device",
+              destination_folder: "Program blocks/Forge",
+              dependencies: [],
+              compile_after_import: true,
+            });
+          }
+        }
+
+        // --- Step 5: Device Call FCs (one per device type, AI-generated) ---
+        for (let i = 0; i < uniqueDeviceTypes.length; i++) {
+          const deviceType = uniqueDeviceTypes[i];
+          const fcName = deviceTypeToFcName(deviceType, profile.naming_prefix ?? undefined);
+          setProgress({
+            current: devices.length + 3 + i + 1,
+            total: totalSteps,
+            currentDevice: `${fcName} FC`,
+          });
+
+          const groupDevices = devices.filter((d) => d.device_type === deviceType);
+          const instanceDbNames = groupDevices.map(
+            (d) => `Inst${d.name.replace(/[^A-Za-z0-9]/g, "")}`,
+          );
+          const groupIoSignals = groupDevices.flatMap((d) => d.io_signals ?? []);
+          const inputsDbFields = groupIoSignals
+            .filter((s) => s.signal_type === "DI" || s.signal_type === "AI")
+            .map((s) => s.tag_name);
+          const outputsDbFields = groupIoSignals
+            .filter((s) => s.signal_type === "DQ" || s.signal_type === "AQ")
+            .map((s) => s.tag_name);
+
+          const context: DeviceCallFcContext = {
+            fcName,
+            deviceType,
+            devices: groupDevices,
+            instanceDbNames,
+            fbInterfaceSection: deviceTypeFbInterfaces.get(deviceType) ?? "",
+            inputsDbFields,
+            outputsDbFields,
+            inputsDbName: "Inputs",
+            outputsDbName: "Outputs",
+            profile,
+            platformRules: PLATFORM_RULES,
+            patterns,
+          };
+
+          const abort = new AbortController();
+          const { content } = await validateAndCall(
+            callNonStreaming,
+            buildDeviceCallFcPrompt(context),
+            [{ role: "user", content: buildDeviceCallFcUserMessage(context) }],
+            abort.signal,
+            DEVICE_GEN_MAX_TOKENS,
+            "code_architect_scl",
+            !!profile,
+          );
+
+          const fcArtifacts = parseSclArtifacts(content, "device");
+          console.log(`[forge] ${fcName}: produced ${fcArtifacts.length} artifact(s)`);
+          allArtifacts.push(...fcArtifacts);
         }
 
         return allArtifacts;
@@ -408,7 +522,7 @@ export function useForgeDeviceGenerate() {
         setLoading(false);
       }
     },
-    [generateSingle, generateIoLinking],
+    [generateSingle],
   );
 
   return { generateAll, generateSingle, loading, progress, error };

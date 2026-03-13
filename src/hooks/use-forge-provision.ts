@@ -202,7 +202,7 @@ export function useForgeProvision() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(120_000),
+        signal: AbortSignal.timeout(600_000), // 10 min — TIA hardware compilation can take several minutes
       });
 
       const result: ProvisionProjectResponse = await resp.json();
@@ -226,7 +226,11 @@ export function useForgeProvision() {
       closeWs();
       const msg = err instanceof Error ? err.message : String(err);
       const isOffline = msg.includes("Failed to fetch") || msg.includes("ECONNREFUSED") || msg.includes("network");
-      setStatus(prev => ({ ...prev, phase: isOffline ? "skipped" : "error", message: msg }));
+      const isTimeout = msg.includes("timed out") || msg.includes("TimeoutError");
+      const displayMsg = isTimeout
+        ? "TIA Portal is taking longer than expected. The project may still be compiling in the background — check TIA Portal directly."
+        : msg;
+      setStatus(prev => ({ ...prev, phase: isOffline ? "skipped" : "error", message: displayMsg }));
       return null;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
