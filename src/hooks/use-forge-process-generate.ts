@@ -22,6 +22,7 @@ import type {
 } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
 import type { PatternCandidate } from "@/types";
+import type { ProcessLinkageMatrix, ProcessSequence } from "@/types/process-builder";
 
 const PROCESS_GEN_MAX_TOKENS = 8192;
 
@@ -131,11 +132,13 @@ export function useForgeProcessGenerate() {
       session: ForgeSession,
       profile: DesignProfile,
       patterns: PatternCandidate[],
+      matrixSequence?: ProcessSequence,
     ): Promise<ForgeArtifact[]> => {
       const abort = new AbortController();
       const isLad = profile.process_code_language === "LAD";
       const devices = session.device_list as ForgeDeviceEntry[];
       const fbInterfaces = extractFbInterfaces(session.device_artifacts);
+      const matrix = session.linkage_matrix as ProcessLinkageMatrix | null;
 
       const context: ProcessGenContext = {
         profile,
@@ -143,6 +146,7 @@ export function useForgeProcessGenerate() {
         patterns,
         deviceFbInterfaces: fbInterfaces,
         specAnalysis: session.spec_analysis as SpecAnalysis | undefined,
+        linkageMatrix: matrix ?? undefined,
       };
 
       let systemPrompt: string;
@@ -153,7 +157,32 @@ export function useForgeProcessGenerate() {
         userMessage = `Generate sequential LAD logic for: ${sequence.name}\n\nSteps:\n${sequence.steps.map((s) => `Step ${s.step_number}: ${s.action} → Done when: ${s.completion_criteria}`).join("\n")}`;
       } else {
         systemPrompt = buildProcessSclPrompt(context);
-        userMessage = buildProcessSclUserMessage(sequence, devices);
+        // Use matrix sequence if available — it has richer structured data
+        if (matrixSequence) {
+          const permissives = matrixSequence.permissives.length > 0
+            ? `\n**Permissives (must be true before starting):**\n${matrixSequence.permissives.map(p => `  - ${p.description}${p.deviceName ? ` (${p.deviceName})` : ""}${!p.polarity ? " [active LOW — check for FALSE]" : ""}`).join("\n")}`
+            : "";
+          const safety = matrixSequence.safetyConditions.length > 0
+            ? `\n**Safety Conditions (halt to safe state if violated):**\n${matrixSequence.safetyConditions.map(s => `  - ${s.description}${s.deviceName ? ` (${s.deviceName})` : ""}${!s.polarity ? " [active LOW — halt when FALSE]" : ""}`).join("\n")}`
+            : "";
+          const steps = matrixSequence.steps.map(s => {
+            const actions = s.actions.map(a => `    Action: ${a.description}${a.deviceName ? ` [${a.deviceName}]` : ""}`).join("\n");
+            const conditions = s.transition.conditions.map(c => `      - ${c.description}${c.deviceName ? ` [${c.deviceName}]` : ""}`).join("\n");
+            return `  Step ${s.stepNumber}:\n${actions}\n    Done when (${s.transition.combinator}):\n${conditions}`;
+          }).join("\n");
+          userMessage = `Generate the SCL process FC for this sequence:
+
+**Sequence name:** ${matrixSequence.name}
+**Description:** ${matrixSequence.description}
+${permissives}${safety}
+
+**Steps (engineer-confirmed from Matrix Review):**
+${steps}
+
+Generate a complete, compile-ready CASE state machine FC.`;
+        } else {
+          userMessage = buildProcessSclUserMessage(sequence, devices);
+        }
       }
 
       const { content } = await validateAndCall(
@@ -188,6 +217,7 @@ export function useForgeProcessGenerate() {
       const specAnalysis = session.spec_analysis as SpecAnalysis | null;
       const sequences = specAnalysis?.process_sequences ?? [];
       const devices = session.device_list as ForgeDeviceEntry[];
+      const matrix = session.linkage_matrix as ProcessLinkageMatrix | null;
 
       // Total = sequences + RunProcess FC + OB1 Main (deterministic, no AI step)
       const totalSteps = sequences.length + 2;
@@ -205,7 +235,12 @@ export function useForgeProcessGenerate() {
             currentSequence: seq.name,
           });
 
-          const artifacts = await generateSequence(seq, session, profile, patterns);
+          // Find matching matrix sequence for richer structured data
+          const matrixSequence = matrix?.processSequences.find(
+            s => s.name === seq.name || s.name.toLowerCase().includes(seq.name.slice(0, 15).toLowerCase()),
+          );
+
+          const artifacts = await generateSequence(seq, session, profile, patterns, matrixSequence);
           allArtifacts.push(...artifacts);
         }
 
@@ -233,6 +268,7 @@ export function useForgeProcessGenerate() {
           specAnalysis: specAnalysis ?? undefined,
           instanceDbNames,
           sequenceArtifactNames,
+          linkageMatrix: matrix ?? undefined,
         };
 
         const abort2 = new AbortController();

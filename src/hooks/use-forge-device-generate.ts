@@ -22,6 +22,7 @@ import type { ForgeSession, ForgeArtifact, ForgeDeviceEntry, ForgeIoEntry } from
 import type { DesignProfile } from "@/types/design-profile";
 import type { FbTemplate } from "@/types/fb-template";
 import type { PatternCandidate } from "@/types";
+import type { ProcessLinkageMatrix } from "@/types/process-builder";
 
 const DEVICE_GEN_MAX_TOKENS = 8192;
 
@@ -308,6 +309,7 @@ export function useForgeDeviceGenerate() {
 
       const devices = session.device_list as ForgeDeviceEntry[];
       const ioList = session.io_list as ForgeIoEntry[];
+      const matrix = session.linkage_matrix as ProcessLinkageMatrix | null;
       const allArtifacts: ForgeArtifact[] = [];
       // Track template block names already copied — FB/UDT blocks are shared across devices
       const copiedTemplateBlockNames = new Set<string>();
@@ -482,6 +484,15 @@ export function useForgeDeviceGenerate() {
             .filter((s) => s.signal_type === "DQ" || s.signal_type === "AQ")
             .map((s) => s.tag_name);
 
+          // Extract matrix wiring for devices of this type — engineer-confirmed connections
+          const matrixWiring = matrix?.deviceLinkage
+            .filter(d => d.deviceType === deviceType)
+            .map(d => ({
+              deviceName: d.name,
+              instanceDbName: d.instanceDbName,
+              wiring: d.wiring,
+            })) ?? [];
+
           const context: DeviceCallFcContext = {
             fcName,
             deviceType,
@@ -495,6 +506,7 @@ export function useForgeDeviceGenerate() {
             profile,
             platformRules: PLATFORM_RULES,
             patterns,
+            matrixWiring,
           };
 
           const abort = new AbortController();

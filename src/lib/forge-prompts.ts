@@ -14,6 +14,7 @@ import type {
 } from "@/types/forge";
 import type { FbTemplate } from "@/types/fb-template";
 import type { PatternCandidate } from "@/types";
+import type { ProcessLinkageMatrix, FbWire } from "@/types/process-builder";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -630,6 +631,16 @@ export interface DeviceCallFcContext {
   profile?: DesignProfile;
   platformRules: string;
   patterns?: PatternCandidate[];
+  /**
+   * Matrix wiring for devices of this type — engineer-confirmed connections from Matrix Review.
+   * When present, used as the primary wiring reference (no guessing).
+   * When empty, the AI infers from device descriptions and FB interfaces.
+   */
+  matrixWiring: Array<{
+    deviceName: string;
+    instanceDbName: string;
+    wiring: FbWire[];
+  }>;
 }
 
 /**
@@ -646,7 +657,7 @@ export interface DeviceCallFcContext {
  * To make configurable: add "forge:device_call_fc" section key to PROMPT_DEFAULTS and use resolveSection().
  */
 export function buildDeviceCallFcPrompt(context: DeviceCallFcContext): string {
-  const { profile, platformRules, patterns, fcName, deviceType, devices, instanceDbNames, fbInterfaceSection, inputsDbFields, outputsDbFields, inputsDbName, outputsDbName } = context;
+  const { profile, platformRules, patterns, fcName, deviceType, devices, instanceDbNames, fbInterfaceSection, inputsDbFields, outputsDbFields, inputsDbName, outputsDbName, matrixWiring } = context;
 
   const profileSection = formatProfile(profile);
   const patternSection = formatPatterns(patterns ?? []);
@@ -662,6 +673,52 @@ export function buildDeviceCallFcPrompt(context: DeviceCallFcContext): string {
   const outputFieldsList = outputsDbFields.length > 0
     ? outputsDbFields.map((f) => `  - "${outputsDbName}".${f}`).join("\n")
     : "  (none)";
+
+  // Format engineer-confirmed matrix wiring as the primary wiring reference
+  const matrixWiringSection = matrixWiring.length > 0
+    ? matrixWiring.map(device => {
+        const inputWires = device.wiring
+          .filter(w => w.direction === "in")
+          .map(w => {
+            let source: string;
+            if (w.wireType === "io") {
+              source = `"${inputsDbName}".${w.connectedTo}`;
+            } else if (w.wireType === "fb") {
+              const parts = w.connectedTo.split(".");
+              source = parts.length >= 2 ? `"${parts[0]}".${parts.slice(1).join(".")}` : w.connectedTo;
+            } else if (w.wireType === "global") {
+              const parts = w.connectedTo.split(".");
+              source = parts.length >= 2 ? `"${parts[0]}".${parts.slice(1).join(".")}` : w.connectedTo;
+            } else {
+              // constant
+              source = w.connectedTo;
+            }
+            return `    ${w.paramName} := ${source}`;
+          })
+          .join(",\n");
+
+        const outputWires = device.wiring
+          .filter(w => w.direction === "out")
+          .map(w => {
+            let target: string;
+            if (w.wireType === "io") {
+              target = `"${outputsDbName}".${w.connectedTo}`;
+            } else if (w.wireType === "global") {
+              const parts = w.connectedTo.split(".");
+              target = parts.length >= 2 ? `"${parts[0]}".${parts.slice(1).join(".")}` : w.connectedTo;
+            } else {
+              target = w.connectedTo;
+            }
+            return `    ${w.paramName} => ${target}`;
+          })
+          .join(",\n");
+
+        const allWires = [inputWires, outputWires].filter(Boolean).join(",\n");
+        return `### "${device.instanceDbName}" (${device.deviceName})\n\`\`\`\n"${device.instanceDbName}"(\n${allWires}\n);\n\`\`\``;
+      }).join("\n\n")
+    : "";
+
+  const hasMatrix = matrixWiring.length > 0;
 
   return `You are a senior Siemens TIA Portal SCL programmer generating a Device Call FC.
 
@@ -680,9 +737,12 @@ Generate a single FC called "${fcName}" that calls ALL instances of the "${devic
 2. Wire EVERY VAR_INPUT parameter of the FB — no unwired inputs.
 3. Physical inputs come from the "${inputsDbName}" DB (pre-populated by IoLinking FC).
 4. Physical outputs go to the "${outputsDbName}" DB (IoLinking FC will copy to hardware).
-5. Inter-device signals (e.g. sensor output feeding conveyor input) use instance DB field access: "InstSensor1".outputField.
+5. ${hasMatrix
+    ? "Inter-device signals MUST match the Matrix wiring below. Do NOT guess or infer connections — the engineer has confirmed the exact wiring. If the matrix says endSensorForward connects to InstPE01._SensorDlyOnOff, write exactly: endSensorForward := \"InstPE01\"._SensorDlyOnOff"
+    : "Inter-device signals (e.g. sensor output feeding conveyor input) use instance DB field access: \"InstSensor1\".outputField."}
 6. Use named association for all FB calls: "InstDBName"(param1 := source, param2 := source, ...).
 7. Do NOT wire IO tags directly — always go through the Inputs/Outputs DBs.
+${hasMatrix ? "8. Do NOT change, reorder, or omit any wire from the Matrix wiring. Do NOT add wires not listed unless they are mandatory FB parameters with no matrix entry." : ""}
 
 ## FB Interface — MANDATORY REFERENCE
 ⛔ HARD RULE: Only use variable names that appear verbatim in the interface below. Do NOT invent names.
@@ -690,13 +750,20 @@ ${fbInterfaceSection || "(no FB interface available — infer from device type a
 
 ## Devices of Type "${deviceType}" to Call
 ${deviceList}
+${hasMatrix ? `
+## ENGINEER-CONFIRMED WIRING (from Matrix Review)
+The following wiring has been reviewed and confirmed by the engineer.
+Use these EXACT connections. Do NOT change, reorder, or omit any wire.
+Do NOT add wires that are not listed here unless they are mandatory FB parameters with no matrix entry.
 
+${matrixWiringSection}
+` : `
 ## Available Inputs DB Fields (DI/AI signals for this device type)
 ${inputFieldsList}
 
 ## Available Outputs DB Fields (DQ/AQ signals for this device type)
 ${outputFieldsList}
-
+`}
 ## Output Format
 \`\`\`scl [FC:${fcName}]
 // code
@@ -832,6 +899,8 @@ export interface ProcessGenContext {
   ioEntries?: ForgeIoEntry[];
   /** Device entries (for IO wiring context) */
   deviceEntries?: ForgeDeviceEntry[];
+  /** Full linkage matrix with engineer-confirmed device wiring and process sequences */
+  linkageMatrix?: ProcessLinkageMatrix;
 }
 
 /**
@@ -960,7 +1029,7 @@ Generate a complete, compile-ready CASE state machine FC.`;
  * To make configurable: add "forge:process_fc" section key to PROMPT_DEFAULTS and use resolveSection().
  */
 export function buildProcessFcPrompt(context: ProcessGenContext): string {
-  const { profile, platformRules, patterns, deviceFbInterfaces, instanceDbNames = [], sequenceArtifactNames = [] } = context;
+  const { profile, platformRules, patterns, deviceFbInterfaces, instanceDbNames = [], sequenceArtifactNames = [], linkageMatrix } = context;
   const profileSection = formatProfile(profile);
   const patternSection = formatPatterns(patterns ?? []);
 
@@ -971,6 +1040,34 @@ export function buildProcessFcPrompt(context: ProcessGenContext): string {
   const sequenceList = sequenceArtifactNames.length > 0
     ? sequenceArtifactNames.map((n) => `  - "${n}"()`).join("\n")
     : "  (no sequence FBs/FCs generated)";
+
+  // Build matrix device state reference if available
+  const matrixDeviceStateSection = linkageMatrix?.deviceLinkage && linkageMatrix.deviceLinkage.length > 0
+    ? `## Device State Signals (from Matrix Review — engineer-confirmed)
+Use these instance DB paths to read device state and send commands:
+${linkageMatrix.deviceLinkage.map(d => {
+  const outputs = d.wiring.filter(w => w.direction === "out");
+  if (outputs.length === 0) return `  - "${d.instanceDbName}" (${d.name})`;
+  return `  - "${d.instanceDbName}" (${d.name}): ${outputs.map(w => w.paramName).join(", ")}`;
+}).join("\n")}`
+    : "";
+
+  // Build matrix process sequences reference if available
+  const matrixSequencesSection = linkageMatrix?.processSequences && linkageMatrix.processSequences.length > 0
+    ? `## Process Sequences (from Matrix Review — engineer-confirmed structure)
+${linkageMatrix.processSequences.map(seq => {
+  const permissives = seq.permissives.length > 0
+    ? `  Permissives: ${seq.permissives.map(p => `${p.description}${p.deviceName ? ` (${p.deviceName})` : ""}${!p.polarity ? " [INVERTED]" : ""}`).join(", ")}`
+    : "";
+  const safety = seq.safetyConditions.length > 0
+    ? `  Safety: ${seq.safetyConditions.map(s => `${s.description}${s.deviceName ? ` (${s.deviceName})` : ""}${!s.polarity ? " [INVERTED]" : ""}`).join(", ")}`
+    : "";
+  const stepSummary = seq.steps.map(s =>
+    `    Step ${s.stepNumber}: ${s.actions.map(a => a.description).join(", ")} | Done: ${s.transition.conditions.map(c => c.description).join(` ${s.transition.combinator} `)}`
+  ).join("\n");
+  return `### ${seq.name}\n${permissives ? permissives + "\n" : ""}${safety ? safety + "\n" : ""}  Steps:\n${stepSummary}`;
+}).join("\n\n")}`
+    : "";
 
   return `You are a senior Siemens TIA Portal SCL programmer generating the master RunProcess FC.
 
@@ -1005,7 +1102,8 @@ ${instanceDbList}
 
 ## Process Sequence FBs/FCs to Call
 ${sequenceList}
-
+${matrixDeviceStateSection ? "\n" + matrixDeviceStateSection + "\n" : ""}
+${matrixSequencesSection ? "\n" + matrixSequencesSection + "\n" : ""}
 ## Output Format
 \`\`\`scl [FC:RunProcess]
 // RunProcess FC code
