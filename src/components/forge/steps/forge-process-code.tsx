@@ -149,7 +149,7 @@ export function ForgeProcessCode({
     setStageStatus("Upload", "running");
 
     try {
-      const result = await compileCheck(approved, tiaProjectPath);
+      const result = await compileCheck(approved, tiaProjectPath, patterns);
 
       if (result.success) {
         setStageStatus("Upload", "completed");

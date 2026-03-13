@@ -18,6 +18,7 @@ import { PLATFORM_RULES } from "@/lib/platform-rules";
 import { supabase } from "@/lib/supabase";
 import type { ForgeArtifact } from "@/types/forge";
 import type { ImportLadRequest, ImportHmiRequest } from "@/lib/tia-bridge-contract";
+import type { PatternCandidate } from "@/types";
 
 const BRIDGE_BASE = DEFAULT_BRIDGE_CONFIG.baseUrl;
 const MAX_FIX_ATTEMPTS = 3;
@@ -234,7 +235,7 @@ async function saveCompileFixPattern(
       corrected_snippet: pattern.corrected_snippet,
       correction_type: pattern.correction_type,
       explanation_tag: pattern.explanation_tag,
-      status: "PENDING",
+      status: "APPROVED",
       created_by: user?.id ?? "",
     });
   } catch {
@@ -255,6 +256,7 @@ export function useForgeCompileCheck() {
     async (
       inputArtifacts: ForgeArtifact[],
       tiaProjectPath: string,
+      patterns?: PatternCandidate[],
     ): Promise<CompileCheckResult> => {
       setLoading(true);
       setError(null);
@@ -298,7 +300,8 @@ export function useForgeCompileCheck() {
             if (artifactErrors.length === 0) continue;
 
             const controller = new AbortController();
-            const systemPrompt = buildForgeCompileFixPrompt(PLATFORM_RULES);
+            // Inject learned patterns so the fixer avoids known mistakes
+            const systemPrompt = buildForgeCompileFixPrompt(PLATFORM_RULES, patterns);
             const userMessage = buildForgeCompileFixUserMessage(artifact, artifactErrors);
 
             try {
@@ -318,7 +321,7 @@ export function useForgeCompileCheck() {
                 if (idx !== -1) {
                   fixedArtifacts[idx] = fixed;
                   anyFixed = true;
-                  // Save pattern fire-and-forget
+                  // Save pattern auto-approved — immediately available for future generations
                   void saveCompileFixPattern(artifact.name, artifact.content, fixed.content);
                 }
               }
@@ -327,11 +330,16 @@ export function useForgeCompileCheck() {
             }
           }
 
-          if (!anyFixed) break; // No progress — stop trying
+          if (!anyFixed) {
+            // No more progress possible — stop looping
+            setProgress({ phase: "done", attempt: attempt + 1 });
+            break;
+          }
           artifacts = fixedArtifacts;
         }
 
         // Return with whatever errors remain
+        setProgress(prev => prev.phase !== "done" ? { phase: "done", attempt: prev.attempt } : prev);
         return {
           success: false,
           artifacts,

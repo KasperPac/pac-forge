@@ -6,6 +6,7 @@
 
 import type { ForgeArtifact, ForgeIoEntry, ForgeDeviceEntry } from "@/types/forge";
 import type { ReviewFinding } from "@/lib/forge-review-parser";
+import type { PatternCandidate } from "@/types";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -184,13 +185,24 @@ export function buildForgeRewriteUserMessage(
 /**
  * System prompt for Code Architect to fix compile errors.
  * Minimal, targeted — preserve interfaces and structure.
+ * Accepts optional patterns so previously-learned fixes are injected.
  */
-export function buildForgeCompileFixPrompt(platformRules: string): string {
+export function buildForgeCompileFixPrompt(platformRules: string, patterns?: PatternCandidate[]): string {
+  const patternSection = patterns && patterns.length > 0
+    ? `## Mandatory: Learned Corrections from Previous Compile Errors\n` +
+      `These mistakes have been fixed before — do NOT repeat them:\n` +
+      patterns.map(p =>
+        `### ${p.correction_type ?? "CORRECTION"}: ${p.explanation_tag ?? ""}\n` +
+        `❌ WRONG:\n\`\`\`scl\n${p.original_snippet}\n\`\`\`\n` +
+        `✅ CORRECT:\n\`\`\`scl\n${p.corrected_snippet}\n\`\`\``
+      ).join("\n\n")
+    : "";
+
   return `You are Code Architect, fixing Siemens TIA Portal SCL compile errors.
 
 ## Platform Rules
 ${platformRules}
-
+${patternSection ? "\n" + patternSection + "\n" : ""}
 ## Fixing Methodology (in order)
 1. Syntax errors — fix malformed statements, missing semicolons, wrong keywords
 2. Undeclared identifiers — add missing variable declarations to the correct VAR section
