@@ -302,7 +302,14 @@ export function useForgeCompileCheck() {
             const controller = new AbortController();
             // Inject learned patterns so the fixer avoids known mistakes
             const systemPrompt = buildForgeCompileFixPrompt(PLATFORM_RULES, patterns);
-            const userMessage = buildForgeCompileFixUserMessage(artifact, artifactErrors);
+            // Include FB interfaces as reference when errors mention invalid formal parameters
+            const hasInterfaceError = artifactErrors.some(e =>
+              /formal parameter|invalid.*parameter|parameter.*invalid/i.test(e)
+            );
+            const referenceFbs = hasInterfaceError
+              ? artifacts.filter(a => a.type === "FB" && a.language === "SCL")
+              : undefined;
+            const userMessage = buildForgeCompileFixUserMessage(artifact, artifactErrors, referenceFbs);
 
             try {
               const { content } = await validateAndCall(

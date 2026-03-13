@@ -148,8 +148,13 @@ ${profileSection}
   - All cross-artifact references (UDTs, FBs, instance DBs, Main calls) are consistent
   - No parameters dropped from FB calls during rewrite
 
+## CRITICAL: Cross-Artifact Consistency
+When you rename a parameter or variable in an FB interface (VAR_INPUT/VAR_OUTPUT/VAR_IN_OUT), you MUST also rename every call site that uses that parameter across ALL other artifacts.
+Example: if you rename _SensorDlyOnOff to sensorDlyOnOff in the FB, you must find every "_SensorDlyOnOff :=" and "_SensorDlyOnOff =>" in all Device Call FCs and update them to match.
+Failure to do this will cause compile errors even though the review findings appear fixed.
+
 ## Rewrite Scope
-- TARGETED: Only regenerate files with actual issues
+- TARGETED: Only regenerate files with actual issues — BUT if a parameter rename affects call sites in other files, those files must also be updated
 - COPY FORWARD: Unchanged files are identical to previous version
 - FULL OUTPUT: Always provide the complete artifact set
 
@@ -222,15 +227,26 @@ Return the complete corrected artifact as a \`\`\`scl [TYPE:Name] ... \`\`\` blo
 
 /**
  * User message for compile fix — sends one artifact + its compile errors.
+ * Optionally includes related FB artifacts as reference for resolving interface mismatches.
  */
 export function buildForgeCompileFixUserMessage(
   artifact: ForgeArtifact,
   compileErrors: string[],
+  referenceFbs?: ForgeArtifact[],
 ): string {
   const errorLines = compileErrors.map((e, i) => `${i + 1}. ${e}`).join("\n");
   const lang = artifact.language === "LAD" ? "json" : "scl";
 
-  return `## Compile Errors\n${errorLines}\n\n## Artifact to Fix\n### ${artifact.name} (${artifact.type})\n\`\`\`${lang}\n${artifact.content}\n\`\`\`\n\nFix the compile errors and return the corrected complete artifact.`;
+  const fbReferenceSection = referenceFbs && referenceFbs.length > 0
+    ? `\n## FB Interface Reference (authoritative — use these exact parameter names)\n` +
+      referenceFbs.map(fb => {
+        const interfaceRe = /(VAR_INPUT[\s\S]*?END_VAR|VAR_OUTPUT[\s\S]*?END_VAR|VAR_IN_OUT[\s\S]*?END_VAR)/gi;
+        const matches = fb.content.match(interfaceRe) ?? [];
+        return `### ${fb.name}\n\`\`\`scl\n${matches.join("\n") || fb.content.slice(0, 400)}\n\`\`\``;
+      }).join("\n\n")
+    : "";
+
+  return `## Compile Errors\n${errorLines}${fbReferenceSection}\n\n## Artifact to Fix\n### ${artifact.name} (${artifact.type})\n\`\`\`${lang}\n${artifact.content}\n\`\`\`\n\nFix the compile errors and return the corrected complete artifact. If an error says a formal parameter is invalid, check the FB Interface Reference above for the correct parameter names.`;
 }
 
 // ---------------------------------------------------------------------------
