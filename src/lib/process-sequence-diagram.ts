@@ -1,20 +1,17 @@
-import type { ProcessSequence, TransitionCondition } from "@/types/process-builder";
+import type { ProcessSequence, ProcessStep, TransitionCondition } from "@/types/process-builder";
 
-/** Sanitize a string for use as a Mermaid state ID. */
-function sanitizeId(str: string): string {
-  return str.replace(/[^a-zA-Z0-9_]/g, "_").substring(0, 40);
-}
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-/**
- * Escape special chars for Mermaid quoted labels.
- */
+/** Escape special characters for Mermaid quoted labels. */
 function escapeLabel(str: string): string {
   return str
     .replace(/\\/g, "")
     .replace(/"/g, "'")
     .replace(/:=/g, "=")
     .replace(/:/g, "-")
-    .replace(/[#;{}]/g, "");
+    .replace(/[#;{}()[\]]/g, "");
 }
 
 /**
@@ -34,138 +31,225 @@ function cleanLabel(desc: string): string {
 }
 
 /** Truncate a label to maxLen, appending "..." if truncated. */
-function truncate(str: string, maxLen = 45): string {
+function truncate(str: string, maxLen = 35): string {
   if (str.length <= maxLen) return str;
   return str.substring(0, maxLen - 3) + "...";
 }
 
-/** Format a transition condition as a human-readable label. */
+/** Build the title line for a step node. */
+function stepTitle(step: ProcessStep): string {
+  if (step.actions.length === 0) return `Step ${step.stepNumber}`;
+  return `Step ${step.stepNumber}: ${truncate(cleanLabel(step.actions[0].description), 30)}`;
+}
+
+/** Format a transition condition for an arrow label. */
 export function formatTransitionLabel(transition: TransitionCondition, clean = false): string {
   if (transition.conditions.length === 0) return "";
-  const fmt = (s: string) => truncate(clean ? cleanLabel(s) : s, 50);
+  const fmt = (s: string) => truncate(clean ? cleanLabel(s) : s, 40);
   if (transition.conditions.length === 1) {
     return fmt(transition.conditions[0].description);
   }
-  if (!clean) {
-    return transition.conditions
-      .map((c) => fmt(c.description))
-      .join(transition.combinator === "AND" ? " AND " : " OR ");
-  }
-  const combLine = transition.combinator;
   return transition.conditions
     .map((c) => fmt(c.description))
-    .join(`\n${combLine}\n`);
+    .join(transition.combinator === "AND" ? " ∧ " : " ∨ ");
 }
 
 const BR = "<br/>";
 
+// ---------------------------------------------------------------------------
+// Main builder
+// ---------------------------------------------------------------------------
 
 /**
- * Build a Mermaid stateDiagram-v2 from a ProcessSequence.
+ * Build a Mermaid flowchart TD from a ProcessSequence.
  *
- * Steps are rendered as **parallel branches** (CASE), not a linear chain.
- * Each step fans out from the permissives/safety gate:
+ * Steps are rendered as a sequential top-down flow:
+ *   Safety → Permissives → Step 10 → Step 20 → ... → Idle
  *
- *   SAFETY → PERMISSIVES → Condition 1 → Actions 1
- *                        → Condition 2 → Actions 2
- *                        → Condition 3 → Actions 3
+ * OR transitions produce branching paths that rejoin at the next step.
+ * Fault exits are shown as red-labeled arrows to a Fault node.
  */
 export function buildSequenceDiagram(sequence: ProcessSequence): string {
-  const lines: string[] = ["stateDiagram-v2"];
+  const lines: string[] = ["flowchart TD"];
+  let faultNodeAdded = false;
 
-  // Safety conditions state
-  if (sequence.safetyConditions.length > 0) {
-    const parts = ["SAFETY", ...sequence.safetyConditions.map((sc) => {
-      const mark = sc.polarity ? "✓" : "✗";
-      return `${mark} ${truncate(escapeLabel(cleanLabel(sc.description)), 40)}`;
-    })];
-    lines.push(`    state "${parts.join(BR)}" as Safety`);
-  }
-
-  // Permissives state
-  if (sequence.permissives.length > 0) {
-    const parts = ["PERMISSIVES", ...sequence.permissives.map((p) => {
-      const mark = p.polarity ? "✓" : "✗";
-      return `${mark} ${truncate(escapeLabel(cleanLabel(p.description)), 40)}`;
-    })];
-    lines.push(`    state "${parts.join(BR)}" as Permissives`);
-  }
-
-  const hasSafety = sequence.safetyConditions.length > 0;
-  const hasPermissives = sequence.permissives.length > 0;
-
-  // Entry transitions: [*] → Safety → Permissives
+  // --- Safety conditions node ---
+  const hasSafety = (sequence.safetyConditions ?? []).length > 0;
   if (hasSafety) {
-    lines.push(`    [*] --> Safety`);
-    if (hasPermissives) {
-      lines.push(`    Safety --> Permissives`);
-    }
-    lines.push(`    Safety --> [*] : FAULT`);
-  } else if (hasPermissives) {
-    lines.push(`    [*] --> Permissives`);
+    const safetyText = sequence.safetyConditions
+      .map(sc => {
+        const mark = sc.polarity ? "✓" : "✗";
+        return `${mark} ${truncate(escapeLabel(cleanLabel(sc.description)), 35)}`;
+      })
+      .join(BR);
+    lines.push(`    Safety{{"SAFETY${BR}${safetyText}"}}`);
+    lines.push(`    Start(( )) --> Safety`);
+    lines.push(`    Safety -->|Fail| Fault[/"⚠ FAULT"/]`);
+    faultNodeAdded = true;
   }
 
-  // The state that all steps branch from
-  const branchFrom = hasPermissives ? "Permissives" : hasSafety ? "Safety" : "[*]";
+  // --- Permissives node ---
+  const hasPerm = (sequence.permissives ?? []).length > 0;
+  if (hasPerm) {
+    const permText = sequence.permissives
+      .map(p => {
+        const mark = p.polarity ? "✓" : "✗";
+        return `${mark} ${truncate(escapeLabel(cleanLabel(p.description)), 35)}`;
+      })
+      .join(BR);
+    lines.push(`    Perm{{"PERMISSIVES${BR}${permText}"}}`);
 
-  if (sequence.steps.length === 0) {
-    if (branchFrom !== "[*]") {
-      lines.push(`    ${branchFrom} --> [*]`);
+    if (hasSafety) {
+      lines.push(`    Safety -->|All OK| Perm`);
+    } else {
+      lines.push(`    Start(( )) --> Perm`);
     }
+    lines.push(`    Perm -->|Fail| Idle([Idle])`);
+  }
+
+  // --- Entry point for first step ---
+  let prevNode = hasPerm ? "Perm" : hasSafety ? "Safety" : "Start(( ))";
+  let prevLabel = hasPerm ? "Pass" : hasSafety ? "All OK" : "";
+
+  const steps = sequence.steps ?? [];
+  if (steps.length === 0) {
+    lines.push(`    Idle([Idle / Complete])`);
+    if (prevNode !== "Start(( ))") {
+      lines.push(`    ${prevNode} -->|${prevLabel}| Idle`);
+    }
+    lines.push(...styleLines(hasSafety, hasPerm, faultNodeAdded, []));
     return lines.join("\n");
   }
 
-  // Determine if steps are parallel branches or truly sequential.
-  // Heuristic: if each step has its own independent transition conditions
-  // (not "after step N completes"), treat as parallel CASE branches.
-  // For now we always use parallel layout since that matches PLC CASE logic.
+  // --- Sequential steps ---
+  // Track all generated step IDs for classDef at the end
+  const allStepIds: string[] = [];
+  // Track branch-end nodes that need to rejoin (nodeId → next step index)
+  const pendingRejoin: Array<{ nodeId: string; label: string }> = [];
 
-  for (const step of sequence.steps) {
-    const condId = `Cond_${sanitizeId(String(step.stepNumber))}`;
-    const actionId = `Act_${sanitizeId(String(step.stepNumber))}`;
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    const stepId = `S${step.stepNumber}`;
+    const title = escapeLabel(stepTitle(step));
 
-    // Condition state: shows the transition conditions
-    const condParts = step.transition.conditions.length > 0
-      ? step.transition.conditions.map((c) => truncate(escapeLabel(cleanLabel(c.description)), 45))
-      : ["(always)"];
-    if (step.transition.conditions.length > 1) {
-      // Interleave combinator between conditions
-      const interleaved: string[] = [];
-      for (let i = 0; i < condParts.length; i++) {
-        interleaved.push(condParts[i]);
-        if (i < condParts.length - 1) {
-          interleaved.push(step.transition.combinator);
-        }
+    // Extra action lines (up to 2 more beyond the title)
+    const extraActions = step.actions
+      .slice(1, 3)
+      .map(a => truncate(escapeLabel(cleanLabel(a.description)), 38));
+    const nodeLabel = extraActions.length > 0
+      ? `${title}${BR}${extraActions.join(BR)}`
+      : title;
+
+    // --- OR branching step ---
+    if (step.transition.combinator === "OR" && step.transition.conditions.length > 1) {
+      lines.push(`    ${stepId}{"${nodeLabel}"}`);
+      allStepIds.push(stepId);
+
+      // Connect from previous
+      if (prevNode) {
+        lines.push(`    ${prevNode} -->|${escapeLabel(prevLabel)}| ${stepId}`);
       }
-      lines.push(`    state "${interleaved.join(BR)}" as ${condId}`);
+
+      // Each OR condition branches forward
+      const nextStepId = i + 1 < steps.length ? `S${steps[i + 1].stepNumber}` : "Idle";
+      for (const cond of step.transition.conditions) {
+        const condLabel = truncate(escapeLabel(cleanLabel(cond.description)), 35);
+        lines.push(`    ${stepId} -->|${condLabel}| ${nextStepId}`);
+      }
+      // Also handle "neither" / reject case if relevant
+      const hasRejectNote = step.notes?.toLowerCase().includes("reject")
+        || step.notes?.toLowerCase().includes("neither")
+        || step.notes?.toLowerCase().includes("both");
+      if (hasRejectNote) {
+        lines.push(`    ${stepId} -->|Both / neither| Reject([Reject])`);
+      }
+
+      // The next step will have prevNode = "" since branches already connect to it
+      prevNode = "";
+      prevLabel = "";
+      continue;
+    }
+
+    // --- Normal sequential step ---
+    lines.push(`    ${stepId}["${nodeLabel}"]`);
+    allStepIds.push(stepId);
+
+    if (prevNode) {
+      const arrow = prevLabel ? `-->|${escapeLabel(prevLabel)}|` : `-->`;
+      lines.push(`    ${prevNode} ${arrow} ${stepId}`);
+    }
+    // Flush any pending rejoins into this step too
+    for (const { nodeId, label } of pendingRejoin) {
+      lines.push(`    ${nodeId} -->|${escapeLabel(label)}| ${stepId}`);
+    }
+    pendingRejoin.length = 0;
+
+    // Fault exit if step involves fault-related devices or notes
+    const hasFaultExit = (step.notes ?? "").toLowerCase().includes("fault")
+      || step.actions.some(a => (a.description ?? "").toLowerCase().includes("fault"))
+      || step.devicesInvolved.some(d => d.toLowerCase().includes("estop"));
+    if (hasFaultExit) {
+      if (!faultNodeAdded) {
+        lines.push(`    Fault[/"⚠ FAULT"/]`);
+        faultNodeAdded = true;
+      }
+      lines.push(`    ${stepId} -->|Fault| Fault`);
+    }
+
+    // Set transition label for next step
+    if (step.transition.conditions.length > 0) {
+      prevLabel = step.transition.conditions
+        .map(c => truncate(escapeLabel(cleanLabel(c.description)), 35))
+        .join(step.transition.combinator === "AND" ? " ∧ " : " ∨ ");
     } else {
-      lines.push(`    state "${condParts[0]}" as ${condId}`);
+      prevLabel = "";
     }
-
-    // Action state: shows what happens
-    const actionParts = step.actions
-      .slice(0, 4)
-      .map((a) => truncate(escapeLabel(cleanLabel(a.description)), 45));
-    if (step.actions.length > 4) {
-      actionParts.push(`+${step.actions.length - 4} more`);
-    }
-    if (actionParts.length > 0) {
-      lines.push(`    state "${actionParts.join(BR)}" as ${actionId}`);
-    }
-
-    // Branch from permissives/safety to condition
-    lines.push(`    ${branchFrom} --> ${condId}`);
-
-    // Condition to actions
-    if (actionParts.length > 0) {
-      lines.push(`    ${condId} --> ${actionId}`);
-    }
+    prevNode = stepId;
   }
 
+  // --- End / Idle node ---
+  lines.push(`    Idle([Idle / Complete])`);
+  if (prevNode) {
+    const arrow = prevLabel ? `-->|${escapeLabel(prevLabel)}|` : `-->`;
+    lines.push(`    ${prevNode} ${arrow} Idle`);
+  }
+  for (const { nodeId, label } of pendingRejoin) {
+    lines.push(`    ${nodeId} -->|${escapeLabel(label)}| Idle`);
+  }
+
+  lines.push(...styleLines(hasSafety, hasPerm, faultNodeAdded, allStepIds));
   return lines.join("\n");
 }
 
-/** Build diagram for the first/selected sequence from a list. */
+function styleLines(
+  hasSafety: boolean,
+  hasPerm: boolean,
+  hasFault: boolean,
+  stepIds: string[],
+): string[] {
+  const out: string[] = [];
+  out.push(`    classDef safety fill:#3a1a50,stroke:#7F77DD,color:#e8e8e8`);
+  out.push(`    classDef perm fill:#2a2150,stroke:#7F77DD,color:#e8e8e8`);
+  out.push(`    classDef step fill:#0a3d35,stroke:#1D9E75,color:#e8e8e8`);
+  out.push(`    classDef fault fill:#3a1515,stroke:#E24B4A,color:#e8e8e8`);
+  out.push(`    classDef idle fill:#2a2a3e,stroke:#555,color:#e8e8e8`);
+  out.push(`    classDef branch fill:#1a2a40,stroke:#4A90E2,color:#e8e8e8`);
+
+  if (hasSafety) out.push(`    class Safety safety`);
+  if (hasPerm) out.push(`    class Perm perm`);
+  if (hasFault) out.push(`    class Fault fault`);
+  out.push(`    class Start,Idle idle`);
+  if (stepIds.length > 0) {
+    out.push(`    class ${stepIds.join(",")} step`);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Multi-sequence helper
+// ---------------------------------------------------------------------------
+
+/** Build diagram for the selected or first sequence from a list. */
 export function buildMultiSequenceDiagram(
   sequences: ProcessSequence[],
   selectedId?: string,
