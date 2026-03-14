@@ -286,23 +286,53 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
     return lines.join("\n");
   }
 
+  // Pre-compute which step numbers are branch targets (reached via XOR diamonds,
+  // NOT via the linear prevNode chain). These steps must NOT inherit prevNode.
+  const branchTargetNums = new Set<number>();
+  const xorNodeIds: string[] = [];
+  for (const step of steps) {
+    if ((step.transition?.combinator === "OR") && (step.transition.conditions ?? []).length > 1) {
+      for (const c of step.transition.conditions ?? []) {
+        if (c.targetStepNumber != null) branchTargetNums.add(c.targetStepNumber);
+      }
+    }
+  }
+
   // Track all generated step IDs for classDef
   const allStepIds: string[] = [];
+  // Branch ends that need to connect to the next merge (non-branch-target) step
+  const pendingBranchEnds: Array<{ nodeId: string; label: string }> = [];
 
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
     const stepId = `S${step.stepNumber}`;
     const nodeLabel = buildStepLabel(step);
-    const conditions = step.transition.conditions ?? [];
-    const isOr = step.transition.combinator === "OR" && conditions.length > 1;
+    const conditions = step.transition?.conditions ?? [];
+    const isOr = step.transition?.combinator === "OR" && conditions.length > 1;
+    const isBranchTarget = branchTargetNums.has(step.stepNumber);
 
     lines.push(`    ${stepId}["${nodeLabel}"]`);
     allStepIds.push(stepId);
 
-    // Connect from previous node
-    if (prevNode) {
-      const arrow = prevLabel ? `-->|${escapeLabel(prevLabel)}|` : `-->`;
-      lines.push(`    ${prevNode} ${arrow} ${stepId}`);
+    if (isBranchTarget) {
+      // This step is the start of a new branch. The XOR diamond already connects to it.
+      // Park the current chain as a pending branch end so it can merge later.
+      if (prevNode) {
+        pendingBranchEnds.push({ nodeId: prevNode, label: prevLabel });
+      }
+      // Do NOT emit prevNode → stepId here.
+    } else {
+      // Normal step — connect from previous chain.
+      if (prevNode) {
+        const arrow = prevLabel ? `-->|${escapeLabel(prevLabel)}|` : `-->`;
+        lines.push(`    ${prevNode} ${arrow} ${stepId}`);
+      }
+      // Flush all pending branch ends into this step (merge point).
+      for (const { nodeId, label } of pendingBranchEnds) {
+        const arrow = label ? `-->|${escapeLabel(label)}|` : `-->`;
+        lines.push(`    ${nodeId} ${arrow} ${stepId}`);
+      }
+      pendingBranchEnds.length = 0;
     }
 
     // Fault exit detection
@@ -317,58 +347,51 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
       lines.push(`    ${stepId} -->|Fault| Fault`);
     }
 
-    const nextStepId = i + 1 < steps.length ? `S${steps[i + 1].stepNumber}` : "Idle";
-
     if (isOr) {
-      // Check if conditions have targetStepNumber for proper XOR routing
       const hasTargets = conditions.every(c => c.targetStepNumber != null);
 
       if (hasTargets) {
-        // Proper XOR diamond: each branch routes to its own target step
+        // XOR diamond — each condition routes to a different branch start step.
         const xorId = `X${step.stepNumber}`;
+        xorNodeIds.push(xorId);
         lines.push(`    ${xorId}{XOR}`);
         lines.push(`    ${stepId} --> ${xorId}`);
 
         for (const cond of conditions) {
-          const condLabel = truncate(escapeLabel(shortenTransitionLabel(cond.description, cond.deviceName)), 20);
-          const targetId = `S${cond.targetStepNumber}`;
-          lines.push(`    ${xorId} -->|${condLabel}| ${targetId}`);
+          const condLabel = truncate(escapeLabel(shortenTransitionLabel(cond.description, cond.deviceName)), 18);
+          lines.push(`    ${xorId} -->|${condLabel}| S${cond.targetStepNumber}`);
         }
 
-        // Reject branch if noted
         const hasReject = (step.notes ?? "").toLowerCase().match(/reject|neither|both/);
         if (hasReject) {
           lines.push(`    ${xorId} -->|Neither| Reject([Reject])`);
         }
       } else {
-        // Fallback: merge diamond — conditions labelled, all route to next step
+        // Fallback: all OR conditions lead to next step, show as labelled arrows via merge node.
         const mergeId = `M${step.stepNumber}`;
         lines.push(`    ${mergeId}{ }`);
-
         for (const cond of conditions) {
-          const condLabel = truncate(escapeLabel(shortenTransitionLabel(cond.description, cond.deviceName)), 20);
+          const condLabel = truncate(escapeLabel(shortenTransitionLabel(cond.description, cond.deviceName)), 18);
           lines.push(`    ${stepId} -->|${condLabel}| ${mergeId}`);
         }
-
         const hasReject = (step.notes ?? "").toLowerCase().match(/reject|neither|both/);
         if (hasReject) {
           lines.push(`    ${mergeId} -->|Neither| Reject([Reject])`);
         }
-
+        const nextStepId = i + 1 < steps.length ? `S${steps[i + 1].stepNumber}` : "Idle";
         lines.push(`    ${mergeId} --> ${nextStepId}`);
       }
 
       prevNode = "";
       prevLabel = "";
     } else {
-      // Normal sequential step — compute label for next arrow
+      // Compute transition label for the next arrow.
       if (conditions.length === 0) {
         prevLabel = "";
       } else if (conditions.length === 1) {
-        prevLabel = truncate(escapeLabel(shortenTransitionLabel(conditions[0].description, null)), 20);
+        prevLabel = truncate(escapeLabel(shortenTransitionLabel(conditions[0].description, conditions[0].deviceName ?? null)), 18);
       } else {
-        // AND: show first condition + count
-        const first = truncate(escapeLabel(shortenTransitionLabel(conditions[0].description, conditions[0].deviceName)), 12);
+        const first = truncate(escapeLabel(shortenTransitionLabel(conditions[0].description, conditions[0].deviceName ?? null)), 12);
         prevLabel = `${first} +${conditions.length - 1}`;
       }
       prevNode = stepId;
@@ -381,8 +404,13 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
     const arrow = prevLabel ? `-->|${escapeLabel(prevLabel)}|` : `-->`;
     lines.push(`    ${prevNode} ${arrow} Idle`);
   }
+  // Any branch ends that never found a merge step → connect to Idle.
+  for (const { nodeId, label } of pendingBranchEnds) {
+    const arrow = label ? `-->|${escapeLabel(label)}|` : `-->`;
+    lines.push(`    ${nodeId} ${arrow} Idle`);
+  }
 
-  lines.push(...styleLines(hasSafety, hasPerm, faultNodeAdded, allStepIds));
+  lines.push(...styleLines(hasSafety, hasPerm, faultNodeAdded, allStepIds, xorNodeIds));
   return lines.join("\n");
 }
 
@@ -391,6 +419,7 @@ function styleLines(
   hasPerm: boolean,
   hasFault: boolean,
   stepIds: string[],
+  xorIds: string[] = [],
 ): string[] {
   const out: string[] = [];
   out.push(`    classDef safety fill:#3a1a50,stroke:#7F77DD,color:#e8e8e8`);
@@ -406,6 +435,7 @@ function styleLines(
   if (hasFault) out.push(`    class Fault fault`);
   out.push(`    class Start,Idle idle`);
   if (stepIds.length > 0) out.push(`    class ${stepIds.join(",")} step`);
+  if (xorIds.length > 0) out.push(`    class ${xorIds.join(",")} xor`);
   return out;
 }
 
