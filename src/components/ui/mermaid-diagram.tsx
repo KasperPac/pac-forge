@@ -21,7 +21,7 @@ function ensureInit() {
       // Do NOT use monospace here — Mermaid measures node widths via canvas
       // and monospace causes systematic under-measurement, clipping text inside boxes.
       fontFamily: "ui-sans-serif, system-ui, sans-serif",
-      fontSize: "12px",
+      fontSize: "14px",
     },
   });
 }

@@ -10,7 +10,8 @@ function escapeLabel(str: string): string {
     .replace(/\\/g, "")
     .replace(/"/g, "'")
     .replace(/:=/g, "=")
-    .replace(/:/g, "-")
+    // Keep "Step N:" colon but replace all other colons with dash
+    .replace(/(?<!Step \d+):/g, "-")
     .replace(/[#;{}()[\]]/g, "");
 }
 
@@ -194,7 +195,7 @@ function buildStepLabel(step: ProcessStep): string {
   if (actions.length === 0) return title;
 
   const primary = summarizeAction(actions[0].description, actions[0].deviceName);
-  const label = `${title}- ${primary}`;
+  const label = `${title}: ${primary}`;
 
   // Subtitle: second action summarized (only if meaningfully different)
   if (actions.length > 1) {
@@ -241,7 +242,7 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
   if (hasSafety) {
     const safetyText = sequence.safetyConditions
       .map(sc => {
-        const mark = sc.polarity ? "[OK]" : "[!]";
+        const mark = sc.polarity ? "✓" : "✗";
         const label = truncate(escapeLabel(shortenCondition(sc.description, sc.deviceName)), 28);
         return `${mark} ${label}`;
       })
@@ -257,7 +258,7 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
   if (hasPerm) {
     const permText = sequence.permissives
       .map(p => {
-        const mark = p.polarity ? "[OK]" : "[!]";
+        const mark = p.polarity ? "✓" : "✗";
         const label = truncate(escapeLabel(shortenCondition(p.description, p.deviceName)), 28);
         return `${mark} ${label}`;
       })
