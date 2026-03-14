@@ -30,24 +30,18 @@ function cleanLabel(desc: string): string {
   return s;
 }
 
-/** Truncate a label to maxLen, appending "..." if truncated. */
-function truncate(str: string, maxLen = 35): string {
-  if (str.length <= maxLen) return str;
-  return str.substring(0, maxLen - 3) + "...";
-}
-
 /** Build the title line for a step node. */
 function stepTitle(step: ProcessStep): string {
   const actions = step.actions ?? [];
   if (actions.length === 0) return `Step ${step.stepNumber}`;
-  return `Step ${step.stepNumber}: ${truncate(cleanLabel(actions[0].description), 30)}`;
+  return `Step ${step.stepNumber}: ${cleanLabel(actions[0].description)}`;
 }
 
 /** Format a transition condition for an arrow label. */
 export function formatTransitionLabel(transition: TransitionCondition, clean = false): string {
   const conditions = transition.conditions ?? [];
   if (conditions.length === 0) return "";
-  const fmt = (s: string) => truncate(clean ? cleanLabel(s) : s, 40);
+  const fmt = (s: string) => clean ? cleanLabel(s) : s;
   if (conditions.length === 1) {
     return fmt(conditions[0].description);
   }
@@ -81,7 +75,7 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
     const safetyText = sequence.safetyConditions
       .map(sc => {
         const mark = sc.polarity ? "✓" : "✗";
-        return `${mark} ${truncate(escapeLabel(cleanLabel(sc.description)), 35)}`;
+        return `${mark} ${escapeLabel(cleanLabel(sc.description))}`;
       })
       .join(BR);
     lines.push(`    Safety{{"SAFETY${BR}${safetyText}"}}`);
@@ -96,7 +90,7 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
     const permText = sequence.permissives
       .map(p => {
         const mark = p.polarity ? "✓" : "✗";
-        return `${mark} ${truncate(escapeLabel(cleanLabel(p.description)), 35)}`;
+        return `${mark} ${escapeLabel(cleanLabel(p.description))}`;
       })
       .join(BR);
     lines.push(`    Perm{{"PERMISSIVES${BR}${permText}"}}`);
@@ -137,7 +131,7 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
     // Extra action lines (up to 2 more beyond the title)
     const extraActions = (step.actions ?? [])
       .slice(1, 3)
-      .map(a => truncate(escapeLabel(cleanLabel(a.description)), 38));
+      .map(a => escapeLabel(cleanLabel(a.description)));
     const nodeLabel = extraActions.length > 0
       ? `${title}${BR}${extraActions.join(BR)}`
       : title;
@@ -155,7 +149,7 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
       // Each OR condition branches forward
       const nextStepId = i + 1 < steps.length ? `S${steps[i + 1].stepNumber}` : "Idle";
       for (const cond of (step.transition.conditions ?? [])) {
-        const condLabel = truncate(escapeLabel(cleanLabel(cond.description)), 35);
+        const condLabel = escapeLabel(cleanLabel(cond.description));
         lines.push(`    ${stepId} -->|${condLabel}| ${nextStepId}`);
       }
       // Also handle "neither" / reject case if relevant
@@ -201,7 +195,7 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
     // Set transition label for next step
     if ((step.transition.conditions ?? []).length > 0) {
       prevLabel = (step.transition.conditions ?? [])
-        .map(c => truncate(escapeLabel(cleanLabel(c.description)), 35))
+        .map(c => escapeLabel(cleanLabel(c.description)))
         .join(step.transition.combinator === "AND" ? " ∧ " : " ∨ ");
     } else {
       prevLabel = "";
