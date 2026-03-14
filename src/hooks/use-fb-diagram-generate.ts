@@ -24,7 +24,9 @@ export function useGenerateFbDiagram() {
           1024,
         );
 
-        const chart = content.trim();
+        // Strip any init directive Claude may have included, then prepend ours
+        const stripped = content.trim().replace(/^%%\{.*?\}%%\s*/s, "");
+        const chart = `%%{init: {'flowchart': {'curve': 'stepBefore'}} }%%\n${stripped}`;
 
         const { error } = await supabase
           .from("fb_templates")

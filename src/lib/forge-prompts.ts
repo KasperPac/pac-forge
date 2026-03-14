@@ -1668,6 +1668,7 @@ Use these prefixes so nodes get the correct color class:
 - NO semicolons inside node text
 - NO quotes inside node text — use apostrophes if needed
 - String labels in quotes: \`act_x["label text"]\`
+- Use \`<br/>\` for two-line labels: \`st_idle["State 0 - IDLE<br/>Outputs OFF, timers reset"]\` — title on line 1, key detail on line 2
 
 ## Color classes (REQUIRED — append EXACTLY these lines at the end of your output)
 \`\`\`
