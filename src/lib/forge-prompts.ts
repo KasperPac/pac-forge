@@ -734,8 +734,17 @@ export function buildDeviceCallFcPrompt(context: DeviceCallFcContext): string {
               const parts = w.connectedTo.split(".");
               source = parts.length >= 2 ? `"${parts[0]}".${parts.slice(1).join(".")}` : w.connectedTo;
             } else {
-              // constant
-              source = w.connectedTo;
+              // constant — guard against UDT/struct params incorrectly wired as constants
+              // (e.g. config := TRUE is invalid SCL when config is typeMotorConfig)
+              const isUdtDataType = w.dataType
+                ? !/^(Bool|Int|Real|Time|DInt|LInt|SInt|USInt|UInt|UDInt|Word|DWord|LWord|Byte|Char|LReal|LTime|S5Time|Date|TimeOfDay|DateTime)$/i.test(w.dataType)
+                : false;
+              if (isUdtDataType) {
+                // Emit as a placeholder — AI must wire to Configuration DB instead
+                source = `"Configuration".${w.paramName}Config (* ⚠ was constant "${w.connectedTo}" — wire UDT param to Configuration DB *)`;
+              } else {
+                source = w.connectedTo;
+              }
             }
             return `    ${w.paramName} := ${source}`;
           })
@@ -1315,7 +1324,8 @@ const MATRIX_RULES_COMMON = `## Rules
   - \`io\` — PLC IO tag name (e.g. "DI_SensorName")
   - \`fb\` — another FB output (e.g. "InstPump1.busy")
   - \`global\` — global DB field (e.g. "HmiData.motor1Start")
-  - \`constant\` — fixed value (e.g. "TRUE", "T#5s", "T#30s") — NEVER raw integers for time values
+  - \`constant\` — scalar primitive ONLY: Bool (TRUE/FALSE), Time (T#5s), Int (0), Real (0.0). NEVER use constant for UDT/struct parameters — any param whose type starts with "type" or is a custom struct MUST use wireType "global" pointing to a Configuration DB field (e.g. connectedTo: "Configuration.motor1Config")
+- **UDT/struct parameters** (e.g. \`config\` of type \`typeMotorConfig\`) MUST be wired to a "Configuration" global DB. Add the Configuration DB to globalData with appropriate fields for each UDT param. Example: \`{ "paramName": "config", "direction": "in", "wireType": "global", "connectedTo": "Configuration.motor1Config" }\`
 - **Timer presets MUST use TIA TIME literal format: T#5s, T#30s, T#500ms, T#2m — NEVER raw millisecond integers like 5000 or 30000**
 - Step descriptions and condition descriptions that reference timer delays must say "T#5s timer" not "5000ms" or "5s (5000ms)"
 - All IDs must be unique strings (use numeric suffix, e.g. "w1", "i1", "s1")`;
@@ -1437,6 +1447,7 @@ Generate ONLY the deviceLinkage array — which FB each device uses, its instanc
 ${MATRIX_RULES_COMMON}
 - Interlocks must reference devices that exist in the device list
 - Use EXACT parameter names from the FB Template Interfaces provided
+- If an FB has a configuration/settings parameter of a UDT type (e.g. \`config : typeMotorConfig\`), wire it as: \`{ "wireType": "global", "connectedTo": "Configuration.<instanceName>Config" }\`. Include the Configuration DB in globalData with matching fields. NEVER wire a struct param as \`constant: TRUE\`.
 
 ## Output Format
 Wrap the JSON in [DEVICE_LINKAGE]...[/DEVICE_LINKAGE] tags:
