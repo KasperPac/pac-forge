@@ -38,18 +38,20 @@ function truncate(str: string, maxLen = 35): string {
 
 /** Build the title line for a step node. */
 function stepTitle(step: ProcessStep): string {
-  if (step.actions.length === 0) return `Step ${step.stepNumber}`;
-  return `Step ${step.stepNumber}: ${truncate(cleanLabel(step.actions[0].description), 30)}`;
+  const actions = step.actions ?? [];
+  if (actions.length === 0) return `Step ${step.stepNumber}`;
+  return `Step ${step.stepNumber}: ${truncate(cleanLabel(actions[0].description), 30)}`;
 }
 
 /** Format a transition condition for an arrow label. */
 export function formatTransitionLabel(transition: TransitionCondition, clean = false): string {
-  if (transition.conditions.length === 0) return "";
+  const conditions = transition.conditions ?? [];
+  if (conditions.length === 0) return "";
   const fmt = (s: string) => truncate(clean ? cleanLabel(s) : s, 40);
-  if (transition.conditions.length === 1) {
-    return fmt(transition.conditions[0].description);
+  if (conditions.length === 1) {
+    return fmt(conditions[0].description);
   }
-  return transition.conditions
+  return conditions
     .map((c) => fmt(c.description))
     .join(transition.combinator === "AND" ? " ∧ " : " ∨ ");
 }
@@ -133,7 +135,7 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
     const title = escapeLabel(stepTitle(step));
 
     // Extra action lines (up to 2 more beyond the title)
-    const extraActions = step.actions
+    const extraActions = (step.actions ?? [])
       .slice(1, 3)
       .map(a => truncate(escapeLabel(cleanLabel(a.description)), 38));
     const nodeLabel = extraActions.length > 0
@@ -141,7 +143,7 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
       : title;
 
     // --- OR branching step ---
-    if (step.transition.combinator === "OR" && step.transition.conditions.length > 1) {
+    if (step.transition.combinator === "OR" && (step.transition.conditions ?? []).length > 1) {
       lines.push(`    ${stepId}{"${nodeLabel}"}`);
       allStepIds.push(stepId);
 
@@ -152,7 +154,7 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
 
       // Each OR condition branches forward
       const nextStepId = i + 1 < steps.length ? `S${steps[i + 1].stepNumber}` : "Idle";
-      for (const cond of step.transition.conditions) {
+      for (const cond of (step.transition.conditions ?? [])) {
         const condLabel = truncate(escapeLabel(cleanLabel(cond.description)), 35);
         lines.push(`    ${stepId} -->|${condLabel}| ${nextStepId}`);
       }
@@ -186,8 +188,8 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
 
     // Fault exit if step involves fault-related devices or notes
     const hasFaultExit = (step.notes ?? "").toLowerCase().includes("fault")
-      || step.actions.some(a => (a.description ?? "").toLowerCase().includes("fault"))
-      || step.devicesInvolved.some(d => d.toLowerCase().includes("estop"));
+      || (step.actions ?? []).some(a => (a.description ?? "").toLowerCase().includes("fault"))
+      || (step.devicesInvolved ?? []).some(d => d.toLowerCase().includes("estop"));
     if (hasFaultExit) {
       if (!faultNodeAdded) {
         lines.push(`    Fault[/"⚠ FAULT"/]`);
@@ -197,8 +199,8 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
     }
 
     // Set transition label for next step
-    if (step.transition.conditions.length > 0) {
-      prevLabel = step.transition.conditions
+    if ((step.transition.conditions ?? []).length > 0) {
+      prevLabel = (step.transition.conditions ?? [])
         .map(c => truncate(escapeLabel(cleanLabel(c.description)), 35))
         .join(step.transition.combinator === "AND" ? " ∧ " : " ∨ ");
     } else {
