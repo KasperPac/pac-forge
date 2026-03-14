@@ -18,7 +18,9 @@ function ensureInit() {
       lineColor: "#6b7280",
       secondaryColor: "#1e293b",
       tertiaryColor: "#1e293b",
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+      // Do NOT use monospace here — Mermaid measures node widths via canvas
+      // and monospace causes systematic under-measurement, clipping text inside boxes.
+      fontFamily: "ui-sans-serif, system-ui, sans-serif",
       fontSize: "12px",
     },
   });

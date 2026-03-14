@@ -14,11 +14,11 @@ function escapeLabel(str: string): string {
     .replace(/[#;{}()[\]]/g, "");
 }
 
-/** Truncate to maxLen chars, appending "…" if truncated. */
+/** Truncate to maxLen chars, appending "..." if truncated. */
 function truncate(str: string, maxLen = 30): string {
   const s = str.trim();
   if (s.length <= maxLen) return s;
-  return s.substring(0, maxLen - 1) + "…";
+  return s.substring(0, maxLen - 3) + "...";
 }
 
 /**
@@ -191,7 +191,7 @@ export function formatTransitionLabel(transition: TransitionCondition, clean = f
   }
   return conditions
     .map((c) => fmt(c.description))
-    .join(transition.combinator === "AND" ? " ∧ " : " ∨ ");
+    .join(transition.combinator === "AND" ? " AND " : " OR ");
 }
 
 const BR = "<br/>";
@@ -216,7 +216,7 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
   if (hasSafety) {
     const safetyText = sequence.safetyConditions
       .map(sc => {
-        const mark = sc.polarity ? "✓" : "✗";
+        const mark = sc.polarity ? "[OK]" : "[!]";
         const label = truncate(escapeLabel(shortenCondition(sc.description, sc.deviceName)), 28);
         return `${mark} ${label}`;
       })
@@ -232,7 +232,7 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
   if (hasPerm) {
     const permText = sequence.permissives
       .map(p => {
-        const mark = p.polarity ? "✓" : "✗";
+        const mark = p.polarity ? "[OK]" : "[!]";
         const label = truncate(escapeLabel(shortenCondition(p.description, p.deviceName)), 28);
         return `${mark} ${label}`;
       })
@@ -345,8 +345,8 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
         // AND: show first condition + count
         const first = truncate(escapeLabel(shortenTransitionLabel(conditions[0].description, null)), 14);
         prevLabel = conditions.length === 2
-          ? `${first} ∧ …`
-          : `${first} +${conditions.length - 1}`;
+          ? `${first} AND ...`
+          : `${first} (+${conditions.length - 1})`;
       }
       prevNode = stepId;
     }
