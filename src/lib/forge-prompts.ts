@@ -1680,26 +1680,8 @@ Use these prefixes so nodes get the correct color class:
 - NEVER write a standalone node definition like \`dec_foo{"label"}\` on its own line unless it is also referenced in an edge
 - If a node is not connected to the graph, do not include it
 
-## Color classes (REQUIRED — append EXACTLY these lines at the end of your output)
-\`\`\`
-    classDef action fill:#0a3d35,stroke:#1D9E75,color:#e8e8e8
-    classDef decision fill:#1a2030,stroke:#4A90E2,color:#7ab3f0
-    classDef startEnd fill:#2a2a3e,stroke:#555,color:#e8e8e8
-    classDef fault fill:#3a1515,stroke:#E24B4A,color:#e8e8e8
-    classDef state fill:#1a2a3e,stroke:#4A90E2,color:#e8e8e8
-\`\`\`
-Then assign classes using the node ID prefixes:
-- All \`act_*\` nodes → \`class act_... action\`
-- All \`dec_*\` nodes → \`class dec_... decision\`
-- All \`se_*\` nodes → \`class se_... startEnd\`
-- All \`flt_*\` nodes → \`class flt_... fault\`
-- All \`st_*\` nodes → \`class st_... state\`
-
-Example:
-    class act_runCmd,act_stopCmd action
-    class dec_faultCheck,dec_enabled decision
-    class se_start,se_end startEnd
-    class flt_alarm fault
+## Color classes
+Do NOT emit any \`classDef\` or \`class\` lines — coloring is applied automatically from the node ID prefixes after you output the chart.
 
 ## Output format
 Output ONLY the raw Mermaid code — no explanation, no markdown fences, no comments before or after. Start directly with \`flowchart TD\`.`;
