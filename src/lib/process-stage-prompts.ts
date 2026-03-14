@@ -152,10 +152,11 @@ ${lines.join("\n")}`;
 
 /** Format a transition condition as a readable string. */
 function formatTransitionLabel(transition: { combinator: string; conditions: Array<{ description: string; deviceName?: string | null }> }): string {
-  if (transition.conditions.length === 0) return "";
-  if (transition.conditions.length === 1) return transition.conditions[0].description;
+  const conditions = transition?.conditions ?? [];
+  if (conditions.length === 0) return "";
+  if (conditions.length === 1) return conditions[0].description;
   const joiner = transition.combinator === "OR" ? " OR " : " AND ";
-  return transition.conditions.map((c) => c.description).join(joiner);
+  return conditions.map((c) => c.description).join(joiner);
 }
 
 /** FC+OB stage: process sequences + device→FB→instanceDB mapping + inter-FB wiring. Main consumer. */
@@ -233,9 +234,9 @@ export function formatMatrixForFc(matrix: ProcessLinkageMatrix, hasProcessRules 
       lines.push("| Step | Transition (AND/OR) | Actions | Devices |");
       lines.push("|------|---------------------|---------|---------|");
       for (const ps of seq.steps) {
-        const transLabel = formatTransitionLabel(ps.transition);
-        const actionLabel = ps.actions.map((a) => a.description).join("; ");
-        lines.push(`| ${ps.stepNumber} | ${transLabel} | ${actionLabel} | ${ps.devicesInvolved.join(", ")} |`);
+        const transLabel = ps.transition ? formatTransitionLabel(ps.transition) : "";
+        const actionLabel = (ps.actions ?? []).map((a) => a.description).join("; ");
+        lines.push(`| ${ps.stepNumber} | ${transLabel} | ${actionLabel} | ${(ps.devicesInvolved ?? []).join(", ")} |`);
       }
     }
 
