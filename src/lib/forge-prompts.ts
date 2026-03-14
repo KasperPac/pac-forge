@@ -1641,19 +1641,47 @@ Your task is to generate a Mermaid flowchart that shows the INTERNAL LOGIC of th
 - Show the main execution path: enable/execute check → states → outputs
 - Use **decision diamonds** for all IF/CASE conditions (e.g. fault check, mode selection, sensor states)
 - Use **rectangles** for actions (output commands, timer starts, state changes)
-- Use **rounded rectangles** [ ] for start/end nodes
+- Use **rounded rectangles** for start/end nodes using syntax: \`id([text])\`
 - Show the key state machine transitions if the FB has states
 - Include fault/alarm paths — these are important for understanding safety behaviour
 - If the FB has enable/execute inputs, show "Enabled?" as the first decision
-- Keep labels SHORT — max 4 words per node. Use abbreviations if needed (e.g. "Run CMD → ON", "Fault latch SET", "Timer elapsed?")
+- Keep labels SHORT — max 4 words per node. Use abbreviations if needed (e.g. "Run CMD ON", "Fault latch SET", "Timer elapsed?")
 - Max 20 nodes — focus on the most important logic, not every line of code
 
+## Node ID naming convention (REQUIRED for coloring)
+Use these prefixes so nodes get the correct color class:
+- \`act_\` prefix for action rectangles: \`act_runCmd["Run CMD ON"]\`
+- \`dec_\` prefix for decision diamonds: \`dec_faultCheck{"Fault active?"}\`
+- \`se_\` prefix for start/end rounded: \`se_start(["Start"])\`
+- \`flt_\` prefix for fault/error nodes: \`flt_alarm["Fault latched"]\`
+- \`st_\` prefix for state nodes (if FB has a state machine): \`st_running["State: Running"]\`
+
 ## Node label rules (CRITICAL — Mermaid will fail otherwise)
-- NO colons inside node labels (they break Mermaid syntax). Use "→" instead.
-- NO semicolons, curly braces, or square brackets inside node text
+- NO colons inside node labels (they break Mermaid syntax). Use "→" or "-" instead.
+- NO semicolons inside node text
 - NO quotes inside node text — use apostrophes if needed
-- Node IDs must be simple: A, B, C or descriptive like \`startNode\`, \`faultCheck\`
-- String labels in quotes: \`A["label text here"]\`
+- String labels in quotes: \`act_x["label text"]\`
+
+## Color classes (REQUIRED — append EXACTLY these lines at the end of your output)
+\`\`\`
+    classDef action fill:#0a3d35,stroke:#1D9E75,color:#e8e8e8
+    classDef decision fill:#1a2030,stroke:#4A90E2,color:#7ab3f0
+    classDef startEnd fill:#2a2a3e,stroke:#555,color:#e8e8e8
+    classDef fault fill:#3a1515,stroke:#E24B4A,color:#e8e8e8
+    classDef state fill:#1a2a3e,stroke:#4A90E2,color:#e8e8e8
+\`\`\`
+Then assign classes using the node ID prefixes:
+- All \`act_*\` nodes → \`class act_... action\`
+- All \`dec_*\` nodes → \`class dec_... decision\`
+- All \`se_*\` nodes → \`class se_... startEnd\`
+- All \`flt_*\` nodes → \`class flt_... fault\`
+- All \`st_*\` nodes → \`class st_... state\`
+
+Example:
+    class act_runCmd,act_stopCmd action
+    class dec_faultCheck,dec_enabled decision
+    class se_start,se_end startEnd
+    class flt_alarm fault
 
 ## Output format
 Output ONLY the raw Mermaid code — no explanation, no markdown fences, no comments before or after. Start directly with \`flowchart TD\`.`;

@@ -15,6 +15,7 @@ import {
   Sparkles,
   GitBranch,
   ChevronDown,
+  Maximize2,
 } from "lucide-react";
 import { CategoryIcon } from "@/components/fb-category-icons";
 import Editor from "@monaco-editor/react";
@@ -898,6 +899,7 @@ function TemplateCard({
   diagramLoading: boolean;
 }) {
   const [diagramOpen, setDiagramOpen] = useState(false);
+  const [diagramFullscreen, setDiagramFullscreen] = useState(false);
   const blocks = template.blocks ?? [];
   const previewBlock = blocks[0];
   const previewLines = previewBlock?.scl_code.split("\n").slice(0, 5) ?? [];
@@ -1050,12 +1052,39 @@ function TemplateCard({
             <ChevronDown className={`ml-auto h-3 w-3 transition-transform ${diagramOpen ? "rotate-180" : ""}`} />
           </button>
           {diagramOpen && (
-            <div className="mt-2 overflow-x-auto rounded border border-border/50 bg-muted/30 p-2">
+            <div className="relative mt-2 overflow-x-auto rounded border border-border/50 bg-muted/30 p-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="absolute right-1 top-1 h-6 w-6 p-0 opacity-60 hover:opacity-100"
+                title="Fullscreen"
+                onClick={() => setDiagramFullscreen(true)}
+              >
+                <Maximize2 className="h-3 w-3" />
+              </Button>
               <MermaidDiagram chart={template.diagram_chart} className="text-xs" />
             </div>
           )}
         </div>
       )}
+
+      {/* Fullscreen diagram dialog */}
+      <Dialog open={diagramFullscreen} onOpenChange={setDiagramFullscreen}>
+        <DialogContent className="flex h-[95vh] max-w-[95vw] flex-col gap-0 p-0 overflow-hidden">
+          <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-2">
+            <div className="flex items-center gap-2">
+              <GitBranch className="h-4 w-4 text-blue-400" />
+              <span className="font-mono text-sm font-semibold">{template.name} — Logic Diagram</span>
+            </div>
+            <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setDiagramFullscreen(false)}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="flex-1 overflow-auto p-6">
+            <MermaidDiagram chart={template.diagram_chart ?? ""} />
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <div className="mt-2 flex items-center gap-1 font-mono text-xs text-muted-foreground">
         <Clock className="h-3 w-3" />
