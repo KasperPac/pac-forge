@@ -1671,9 +1671,14 @@ Use these prefixes so nodes get the correct color class:
 - Use \`<br/>\` for two-line labels: \`st_idle["State 0 - IDLE<br/>Outputs OFF, timers reset"]\` — title on line 1, key detail on line 2
 
 ## Edge label rules (CRITICAL — quotes inside pipes break Mermaid)
-- Edge labels use pipe syntax: \`A -->|Yes| B\` or \`A -->|direction = FWD| B\`
+- Edge labels use pipe syntax: \`A -->|Yes| B\` or \`A -->|direction FWD| B\`
 - NEVER put quotes inside pipe labels: \`-->|"Yes"|\` is INVALID — write \`-->|Yes|\`
 - Keep edge labels short — 1-3 words max
+
+## Orphan node rule (CRITICAL)
+- Every node ID you define MUST appear in at least one \`-->\` edge as source or target
+- NEVER write a standalone node definition like \`dec_foo{"label"}\` on its own line unless it is also referenced in an edge
+- If a node is not connected to the graph, do not include it
 
 ## Color classes (REQUIRED — append EXACTLY these lines at the end of your output)
 \`\`\`
