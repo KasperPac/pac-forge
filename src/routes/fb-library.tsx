@@ -900,6 +900,7 @@ function TemplateCard({
 }) {
   const [diagramOpen, setDiagramOpen] = useState(false);
   const [diagramFullscreen, setDiagramFullscreen] = useState(false);
+  const [zoom, setZoom] = useState(1);
   const blocks = template.blocks ?? [];
   const previewBlock = blocks[0];
   const previewLines = previewBlock?.scl_code.split("\n").slice(0, 5) ?? [];
@@ -1069,19 +1070,26 @@ function TemplateCard({
       )}
 
       {/* Fullscreen diagram dialog */}
-      <Dialog open={diagramFullscreen} onOpenChange={setDiagramFullscreen}>
+      <Dialog open={diagramFullscreen} onOpenChange={(o) => { setDiagramFullscreen(o); if (!o) setZoom(1); }}>
         <DialogContent className="flex h-[95vh] max-w-[95vw] flex-col gap-0 p-0 overflow-hidden">
           <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-2">
             <div className="flex items-center gap-2">
               <GitBranch className="h-4 w-4 text-blue-400" />
               <span className="font-mono text-sm font-semibold">{template.name} — Logic Diagram</span>
             </div>
-            <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setDiagramFullscreen(false)}>
-              <X className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button size="sm" variant="ghost" className="h-7 px-2 font-mono text-xs" onClick={() => setZoom((z) => Math.max(0.25, +(z - 0.25).toFixed(2)))} title="Zoom out">−</Button>
+              <button className="min-w-[3rem] text-center font-mono text-xs text-muted-foreground hover:text-foreground" onClick={() => setZoom(1)} title="Reset zoom">{Math.round(zoom * 100)}%</button>
+              <Button size="sm" variant="ghost" className="h-7 px-2 font-mono text-xs" onClick={() => setZoom((z) => Math.min(4, +(z + 0.25).toFixed(2)))} title="Zoom in">+</Button>
+              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 ml-2" onClick={() => setDiagramFullscreen(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
           <div className="flex-1 overflow-auto p-6">
-            <MermaidDiagram chart={template.diagram_chart ?? ""} />
+            <div style={{ transform: `scale(${zoom})`, transformOrigin: "top center", transition: "transform 0.15s ease" }}>
+              <MermaidDiagram chart={template.diagram_chart ?? ""} />
+            </div>
           </div>
         </DialogContent>
       </Dialog>
