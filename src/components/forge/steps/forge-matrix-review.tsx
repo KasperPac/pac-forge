@@ -11,10 +11,13 @@ import {
   Shield,
   Zap,
   ShieldCheck,
+  Maximize2,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { MermaidDiagram } from "@/components/ui/mermaid-diagram";
 import { buildMultiSequenceDiagram } from "@/lib/process-sequence-diagram";
 import { useForgeMatrixGenerate } from "@/hooks/use-forge-matrix-generate";
@@ -304,6 +307,7 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
   );
   const [completing, setCompleting] = useState(false);
   const [completeError, setCompleteError] = useState<string | null>(null);
+  const [diagramFullscreen, setDiagramFullscreen] = useState(false);
   const { generate, loading, error } = useForgeMatrixGenerate();
 
   const [activeTab, setActiveTab] = useState<"devices" | "sequences">("devices");
@@ -555,17 +559,30 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
               Sequence Diagram
             </span>
           </div>
-          {matrix && matrix.processSequences.length > 1 && (
-            <select
-              value={selectedSeqId ?? matrix.processSequences[0]?.id ?? ""}
-              onChange={(e) => setSelectedSeqId(e.target.value)}
-              className="h-6 rounded border border-input bg-background px-2 font-mono text-[10px] text-foreground"
-            >
-              {matrix.processSequences.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
-          )}
+          <div className="flex items-center gap-1.5">
+            {matrix && matrix.processSequences.length > 1 && (
+              <select
+                value={selectedSeqId ?? matrix.processSequences[0]?.id ?? ""}
+                onChange={(e) => setSelectedSeqId(e.target.value)}
+                className="h-6 rounded border border-input bg-background px-2 font-mono text-[10px] text-foreground"
+              >
+                {matrix.processSequences.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            )}
+            {diagramChart && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                title="Fullscreen"
+                onClick={() => setDiagramFullscreen(true)}
+              >
+                <Maximize2 className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="flex-1 overflow-auto rounded-md border border-border/60 bg-background/40 p-3 min-h-0">
@@ -582,6 +599,31 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
           )}
         </div>
       </div>
+
+      {/* Fullscreen diagram dialog */}
+      <Dialog open={diagramFullscreen} onOpenChange={setDiagramFullscreen}>
+        <DialogContent className="flex h-[95vh] max-w-[95vw] flex-col gap-0 p-0 overflow-hidden">
+          <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-2">
+            <div className="flex items-center gap-2">
+              <GitBranch className="h-3.5 w-3.5 text-primary" />
+              <span className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+                {activeSeq?.name ?? "Sequence Diagram"}
+              </span>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+              onClick={() => setDiagramFullscreen(false)}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="flex-1 overflow-auto p-4">
+            <MermaidDiagram chart={diagramChart} className="min-w-[600px]" />
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
