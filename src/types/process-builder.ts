@@ -188,6 +188,8 @@ export interface TransitionSubCondition {
   id: string;
   description: string;
   deviceName: string | null;
+  /** For XOR/OR transitions: the step number this condition routes to (optional, enables proper diagram branching) */
+  targetStepNumber?: number;
 }
 
 /** Compound transition condition with AND/OR logic */

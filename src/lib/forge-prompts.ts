@@ -1408,19 +1408,21 @@ const SEQUENCES_SCHEMA = `{
             "conditions": [
               {
                 "id": "string (unique)",
-                "description": "string",
-                "deviceName": "string | null"
+                "description": "short signal-level description e.g. 'PE01_DET active'",
+                "deviceName": "string | null",
+                "targetStepNumber": "number | null — REQUIRED for OR transitions: the step number this condition routes to. If condition A fires go to step 20, if condition B fires go to step 60, set targetStepNumber accordingly."
               }
             ]
           },
           "actions": [
             {
               "id": "string (unique)",
-              "description": "string",
+              "description": "short imperative e.g. 'M01_CMD_FWD = TRUE' or 'Set state = Running'",
               "deviceName": "string | null"
             }
           ],
-          "notes": "string"
+          "devicesInvolved": ["string — tag or device names used in this step"],
+          "notes": "string — optional implementation notes"
         }
       ]
     }
@@ -1479,6 +1481,9 @@ ${MATRIX_RULES_COMMON}
 - Safety conditions are continuously monitored — failure stops the process
 - generatedAt must be the current ISO timestamp
 - Keep descriptions and notes concise (1 sentence max) — avoid verbose explanations
+- For OR transitions, ALWAYS set targetStepNumber on each condition to the step number it routes to. This enables proper visual branching in the diagram. Example: if PE01 active → step 20, PE02 active → step 60, set targetStepNumber: 20 and 60 respectively.
+- Action descriptions must be short imperatives: "M01_CMD_FWD = TRUE", "Set state = Running", "ESTOP latch = OFF" — never verbose prose
+- Condition descriptions must be short signal-level labels: "PE01_DET active", "ESTOP = ON", "Speed = 0" — never full sentences
 
 ## Output Format
 Wrap the JSON in [SEQUENCES_DATA]...[/SEQUENCES_DATA] tags:
