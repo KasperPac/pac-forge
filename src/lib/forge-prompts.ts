@@ -1033,13 +1033,13 @@ export function buildProcessSclUserMessage(
   sequence: SpecAnalysisProcessSequence,
   devices: ForgeDeviceEntry[],
 ): string {
-  const steps = sequence.steps
+  const steps = (sequence.steps ?? [])
     .map((s) => `  Step ${s.step_number}: ${s.action} → Done when: ${s.completion_criteria}`)
     .join("\n");
 
   const permissives =
-    sequence.permissives.length > 0
-      ? `\n**Permissives (must be true before starting):**\n${sequence.permissives.map((p) => `  - ${p}`).join("\n")}`
+    (sequence.permissives ?? []).length > 0
+      ? `\n**Permissives (must be true before starting):**\n${(sequence.permissives ?? []).map((p) => `  - ${p}`).join("\n")}`
       : "";
 
   const relevantDevices = devices.filter(
@@ -1591,10 +1591,10 @@ export function buildSequencesUserMessage(
   const sequenceSummary = specAnalysis?.process_sequences?.length
     ? specAnalysis.process_sequences
         .map((seq) => {
-          const steps = seq.steps
+          const steps = (seq.steps ?? [])
             .map((st) => `      Step ${st.step_number}: ${st.action} → ${st.completion_criteria}`)
             .join("\n");
-          const perms = seq.permissives.length > 0 ? `\n    Permissives: ${seq.permissives.join(", ")}` : "";
+          const perms = (seq.permissives ?? []).length > 0 ? `\n    Permissives: ${(seq.permissives ?? []).join(", ")}` : "";
           return `  **${seq.name}** (${seq.subsystem})${perms}\n${steps}`;
         })
         .join("\n\n")
@@ -1602,7 +1602,7 @@ export function buildSequencesUserMessage(
 
   const interlocksText = specAnalysis?.interlocks?.length
     ? specAnalysis.interlocks
-        .map((il) => `  - ${il.name}: ${il.condition} → affects: ${il.affected_devices.join(", ")}`)
+        .map((il) => `  - ${il.name}: ${il.condition} → affects: ${(il.affected_devices ?? []).join(", ")}`)
         .join("\n")
     : "  (none)";
 
