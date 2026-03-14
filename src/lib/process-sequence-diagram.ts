@@ -75,6 +75,20 @@ function cleanLabel(desc: string): string {
 function summarizeAction(description: string, _deviceName?: string | null): string {
   let s = cleanLabel(description);
 
+  // --- Semantic shortcuts for common automation phrases ---
+  if (/\b(evaluat|check)\w*\s+(all\s+)?permissiv/i.test(s)) return "Check permissives";
+  if (/\bPLC\s+(evaluat|check|verif)/i.test(s)) return "Check permissives";
+  if (/\ball\s+output\w*\s*(=\s*)?off\b|\ball\s+cmd\w*\s*(=\s*)?off\b/i.test(s)) return "All outputs OFF";
+  if (/\breturn\s+to\s+idle\b|\bgo\s+to\s+idle\b|\bset\s+.*idle\b/i.test(s)) return "Return to idle";
+  if (/\breset\s+all\b|\bclear\s+all\b/i.test(s)) return "Reset all";
+  if (/\bwait.*motor.*stop\b|\bwait.*speed.*zero\b|\bwait.*decel\b/i.test(s)) return "Wait for stop";
+  if (/\boperator\b.*\bplace\b|\bplace\b.*\bproduct\b/i.test(s)) return "Place product";
+  if (/\boperator\b.*\bremov\b|\bremov\b.*\bproduct\b/i.test(s)) return "Remove product";
+
+  // "X = ON/OFF" as-is (already short)
+  const directEq = s.match(/^(\S+)\s*=\s*(ON|OFF)$/i);
+  if (directEq) return `${directEq[1]} = ${directEq[2]}`;
+
   // "Set X = ON/OFF/val" → "X = ON"
   const setMatch = s.match(/^set\s+(.+?)\s*=\s*(ON|OFF|\d[\d.]*)/i);
   if (setMatch) return truncate(`${setMatch[1].trim()} = ${setMatch[2]}`, 30);
@@ -83,34 +97,27 @@ function summarizeAction(description: string, _deviceName?: string | null): stri
   const holdMatch = s.match(/^hold\s+(.+?)\s*=\s*(ON|OFF)/i);
   if (holdMatch) return truncate(`${holdMatch[1].trim()} = ${holdMatch[2]}`, 30);
 
-  // Conditional "If X = ON ... Y = ON" → "Y = ON"
+  // Conditional "If X = ON/OFF → set Y = V" → "Y = V"
   const ifSetMatch = s.match(/\bif\s+\S.*?\bset\s+(.+?)\s*=\s*(ON|OFF)/i);
   if (ifSetMatch) return truncate(`${ifSetMatch[1].trim()} = ${ifSetMatch[2]}`, 30);
 
-  // "Enable/disable/start/stop/activate/deactivate X"
-  const verbMatch = s.match(/^(enable|disable|start|stop|activate|deactivate|turn\s+on|turn\s+off|energize|de-energize)\s+(.+)/i);
+  // "Enable/disable/start/stop X" → strip and truncate
+  const verbMatch = s.match(/^(enable|disable|start|stop|activate|deactivate|energize|de-energize)\s+(\S+)/i);
   if (verbMatch) return truncate(`${verbMatch[1]} ${verbMatch[2]}`, 30);
 
-  // "Monitor X"
+  // "Monitor X" / "Wait for X"
   const monitorMatch = s.match(/\bmonitor\s+(\S+)/i);
   if (monitorMatch) return truncate(`Monitor ${monitorMatch[1]}`, 30);
+  const waitMatch = s.match(/\bwait\s+for\s+(\S+)/i);
+  if (waitMatch) return truncate(`Wait for ${waitMatch[1]}`, 30);
 
-  // "Wait for X"
-  const waitMatch = s.match(/\bwait\s+for\s+(.+)/i);
-  if (waitMatch) return truncate(`Wait - ${waitMatch[1]}`, 30);
-
-  // "Operator does X"
-  const opMatch = s.match(/\boperator\s+(\w[\w\s]*)/i);
+  // "Operator VERB [1-2 words]"
+  const opMatch = s.match(/\boperator\s+(\w+(?:\s+\w+)?)/i);
   if (opMatch) return truncate(`Operator ${opMatch[1]}`, 30);
 
-  // Return to idle / all outputs off
-  if (/\b(return\s+to\s+idle|all\s+outputs?\s*=?\s*off|reset\s+all)\b/i.test(s)) {
-    return "Return to idle";
-  }
-
-  // Fallback: first 5 meaningful words
+  // Fallback: first 4 meaningful words
   const words = s.split(/\s+/).filter(w => w.length > 1);
-  return truncate(words.slice(0, 5).join(" "), 30);
+  return truncate(words.slice(0, 4).join(" "), 30);
 }
 
 /**
@@ -138,27 +145,45 @@ function shortenCondition(description: string, deviceName?: string | null): stri
 }
 
 /**
- * Build a short transition arrow label (≤20 chars).
+ * Build a short transition arrow label (≤18 chars).
  */
 function shortenTransitionLabel(description: string, deviceName?: string | null): string {
-  if (deviceName && deviceName.length <= 20) return truncate(deviceName, 20);
+  if (deviceName && deviceName.length <= 18) return deviceName;
+  if (deviceName) return truncate(deviceName, 18);
 
   let s = cleanLabel(description);
 
-  // "X rising edge" → "X active"
-  s = s.replace(/\brising\s+edge\b(\s+detected|\s+seen)?/gi, "active");
-  s = s.replace(/\bfalling\s+edge\b(\s+detected|\s+seen)?/gi, "inactive");
+  // --- Semantic shortcuts ---
+  if (/\ball\s+permissiv/i.test(s)) return "Permissives OK";
+  if (/\bno\s+fault\b|\bfault.*clear\b|\bfault.*none\b/i.test(s)) return "No fault";
+  if (/\bestop.*ok\b|\bestop.*(on|true|active)\b/i.test(s)) return "ESTOP OK";
+  if (/\bmotor.*stop\b|\bconveyor.*stop\b|\bspeed.*zero\b/i.test(s)) return "Stopped";
+  if (/\bmotor.*run\b|\bconveyor.*run\b|\bspeed.*nom\b/i.test(s)) return "Running";
+  if (/\btimeout\b|\btime.*out\b/i.test(s)) return "Timeout";
+  if (/\bproduct.*detect\b|\bpart.*detect\b|\bitem.*detect\b/i.test(s)) return "Product detected";
+  if (/\bproduct.*remov\b|\bpart.*remov\b/i.test(s)) return "Product removed";
 
-  // Strip filler words
-  s = s.replace(/\b(detected|confirmed|observed|triggered|sensed)\b/gi, "");
-  s = s.replace(/\s{2,}/g, " ").trim();
+  // Extract leading TAG_NAME (all-caps with underscores) and state
+  const tagStateMatch = s.match(/\b([A-Z][A-Z0-9_]{2,})\b.*?\b(active|on|off|true|false|ok|high|low)\b/i);
+  if (tagStateMatch) return truncate(`${tagStateMatch[1]} ${tagStateMatch[2].toUpperCase()}`, 18);
+
+  // Extract just the leading TAG_NAME if clearly a signal reference
+  const tagMatch = s.match(/^([A-Z][A-Z0-9_]{2,})\b/);
+  if (tagMatch) return truncate(tagMatch[1], 18);
+
+  // "X rising/falling edge" → "X active/inactive"
+  s = s.replace(/\brising\s+edge\b[^,]*/gi, "active");
+  s = s.replace(/\bfalling\s+edge\b[^,]*/gi, "inactive");
 
   // "X = ON/OFF"
   const eqMatch = s.match(/(\S+)\s*=\s*(ON|OFF)/i);
-  if (eqMatch) return truncate(`${eqMatch[1]} = ${eqMatch[2]}`, 20);
+  if (eqMatch) return truncate(`${eqMatch[1]} = ${eqMatch[2]}`, 18);
 
-  const words = s.split(/\s+/).filter(w => w.length > 1);
-  return truncate(words.slice(0, 3).join(" "), 20);
+  // Strip noise words, take first 2-3 meaningful words
+  s = s.replace(/\b(detected|confirmed|observed|triggered|sensed|pressed|active|true)\b/gi, "");
+  s = s.replace(/\s{2,}/g, " ").trim();
+  const words = s.split(/\s+/).filter(w => w.length > 2);
+  return truncate(words.slice(0, 2).join(" "), 18);
 }
 
 /** Build the title + subtitle label for a step node. */
@@ -343,10 +368,8 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
         prevLabel = truncate(escapeLabel(shortenTransitionLabel(conditions[0].description, null)), 20);
       } else {
         // AND: show first condition + count
-        const first = truncate(escapeLabel(shortenTransitionLabel(conditions[0].description, null)), 14);
-        prevLabel = conditions.length === 2
-          ? `${first} AND ...`
-          : `${first} (+${conditions.length - 1})`;
+        const first = truncate(escapeLabel(shortenTransitionLabel(conditions[0].description, conditions[0].deviceName)), 12);
+        prevLabel = `${first} +${conditions.length - 1}`;
       }
       prevNode = stepId;
     }
