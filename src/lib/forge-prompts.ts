@@ -1670,6 +1670,11 @@ Use these prefixes so nodes get the correct color class:
 - String labels in quotes: \`act_x["label text"]\`
 - Use \`<br/>\` for two-line labels: \`st_idle["State 0 - IDLE<br/>Outputs OFF, timers reset"]\` — title on line 1, key detail on line 2
 
+## Edge label rules (CRITICAL — quotes inside pipes break Mermaid)
+- Edge labels use pipe syntax: \`A -->|Yes| B\` or \`A -->|direction = FWD| B\`
+- NEVER put quotes inside pipe labels: \`-->|"Yes"|\` is INVALID — write \`-->|Yes|\`
+- Keep edge labels short — 1-3 words max
+
 ## Color classes (REQUIRED — append EXACTLY these lines at the end of your output)
 \`\`\`
     classDef action fill:#0a3d35,stroke:#1D9E75,color:#e8e8e8

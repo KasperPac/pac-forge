@@ -26,7 +26,9 @@ export function useGenerateFbDiagram() {
 
         // Strip any init directive Claude may have included, then prepend ours
         const stripped = content.trim().replace(/^%%\{.*?\}%%\s*/s, "");
-        const chart = `%%{init: {'flowchart': {'curve': 'stepBefore'}} }%%\n${stripped}`;
+        // Remove quotes Claude incorrectly places inside pipe edge labels: |"Yes"| → |Yes|
+        const cleaned = stripped.replace(/\|"([^"]+)"\|/g, "|$1|");
+        const chart = `%%{init: {'flowchart': {'curve': 'stepBefore'}} }%%\n${cleaned}`;
 
         const { error } = await supabase
           .from("fb_templates")
