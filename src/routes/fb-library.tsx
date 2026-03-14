@@ -1087,7 +1087,7 @@ function TemplateCard({
             </div>
           </div>
           <div className="flex-1 overflow-auto p-6">
-            <div style={{ transform: `scale(${zoom})`, transformOrigin: "top center", transition: "transform 0.15s ease" }}>
+            <div style={{ transform: `scale(${zoom})`, transformOrigin: "top left", transition: "transform 0.15s ease" }}>
               <MermaidDiagram chart={template.diagram_chart ?? ""} />
             </div>
           </div>
