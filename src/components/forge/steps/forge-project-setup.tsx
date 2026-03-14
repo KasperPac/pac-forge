@@ -1,6 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
-import { ChevronRight, FolderOpen } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useState, useEffect, useMemo, forwardRef, useImperativeHandle } from "react";
+import { FolderOpen } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,7 +13,6 @@ import {
 import { useDesignProfiles } from "@/hooks/use-design-profiles";
 import { CPU_TYPES } from "@/types/project";
 import type { SpecAnalysis } from "@/types/forge";
-import type { DesignProfile } from "@/types/design-profile";
 import type { Project } from "@/types/project";
 
 export interface ForgeProjectSetup {
@@ -36,25 +34,30 @@ export interface ForgeProjectSetupProps {
   specAnalysis: SpecAnalysis | null;
   project: Project | null;
   onComplete: (setup: ForgeProjectSetup) => void;
+  /** Called whenever the form's submit-readiness changes — lets parent enable/disable its own save button. */
+  onCanSubmitChange?: (canSubmit: boolean) => void;
   /** Previously-saved language choices from the session (used to restore form when navigating back) */
   initialDeviceFbLanguage?: "SCL" | "LAD";
   initialIoLinkingLanguage?: "SCL" | "LAD";
   initialProcessCodeLanguage?: "SCL" | "LAD";
 }
 
+/** Handle exposed via ref — lets the parent footer nav trigger save without duplicating buttons. */
+export interface ForgeProjectSetupHandle {
+  submit: () => void;
+  canSubmit: boolean;
+}
+
 const TIA_VERSIONS = ["V17", "V18", "V19", "V20"] as const;
 const CODE_LANGS = ["SCL", "LAD"] as const;
 
-function profileLang(profile: DesignProfile | undefined, field: "device_fb_language" | "io_linking_language" | "process_code_language"): "SCL" | "LAD" {
-  return profile?.[field] === "LAD" ? "LAD" : "SCL";
-}
 
 /** Pad PLC number to 2 digits: 1 → "01", 12 → "12" */
 function padPlcNum(n: number): string {
   return String(Math.max(1, n)).padStart(2, "0");
 }
 
-export function ForgeProjectSetup({ specAnalysis, project, onComplete, initialDeviceFbLanguage, initialIoLinkingLanguage, initialProcessCodeLanguage }: ForgeProjectSetupProps) {
+export const ForgeProjectSetup = forwardRef<ForgeProjectSetupHandle, ForgeProjectSetupProps>(function ForgeProjectSetup({ specAnalysis, project, onComplete, onCanSubmitChange, initialDeviceFbLanguage, initialIoLinkingLanguage, initialProcessCodeLanguage }, ref) {
   const { data: profiles = [] } = useDesignProfiles();
 
   const [form, setForm] = useState<ForgeProjectSetup>({
@@ -99,17 +102,24 @@ export function ForgeProjectSetup({ specAnalysis, project, onComplete, initialDe
   }
 
   function onProfileChange(profileId: string) {
-    const profile = profiles.find(p => p.id === profileId);
     setForm(prev => ({
       ...prev,
       design_profile_id: profileId,
-      device_fb_language: profileLang(profile, "device_fb_language"),
-      io_linking_language: profileLang(profile, "io_linking_language"),
-      process_code_language: profileLang(profile, "process_code_language"),
+      // Language settings are session-level overrides — do not reset them when switching profiles.
+      // The user sets language independently via the dropdowns below.
     }));
   }
 
   const canSubmit = (form.project_name ?? "").trim().length > 0;
+
+  useImperativeHandle(ref, () => ({
+    submit: () => onComplete({ ...form, tia_project_path: derivedTiaPath ?? form.tia_project_path }),
+    canSubmit,
+  }), [form, derivedTiaPath, canSubmit, onComplete]);
+
+  useEffect(() => {
+    onCanSubmitChange?.(canSubmit);
+  }, [canSubmit, onCanSubmitChange]);
 
   // Fields locked because they come from the linked project
   const fromProject = !!project;
@@ -407,16 +417,6 @@ export function ForgeProjectSetup({ specAnalysis, project, onComplete, initialDe
         )}
       </div>
 
-      <div className="mt-auto">
-        <Button
-          className="w-full"
-          disabled={!canSubmit}
-          onClick={() => onComplete({ ...form, tia_project_path: derivedTiaPath ?? form.tia_project_path })}
-        >
-          Save Project Setup
-          <ChevronRight className="ml-2 h-4 w-4" />
-        </Button>
-      </div>
     </div>
   );
-}
+});

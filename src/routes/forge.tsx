@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import {
   Link2,
   ChevronLeft,
@@ -50,7 +50,8 @@ import { useFbTemplates } from "@/hooks/use-fb-templates";
 import { useActivePatterns } from "@/hooks/use-patterns";
 import { useProject } from "@/hooks/use-projects";
 import { useForgeProvision } from "@/hooks/use-forge-provision";
-import type { ForgeProjectSetup as ForgeProjectSetupData } from "@/components/forge/steps/forge-project-setup";
+import { useToast } from "@/hooks/use-toast";
+import type { ForgeProjectSetup as ForgeProjectSetupData, ForgeProjectSetupHandle } from "@/components/forge/steps/forge-project-setup";
 
 export default function ForgePage() {
   const [searchParams] = useSearchParams();
@@ -85,6 +86,11 @@ export default function ForgePage() {
 
   // Project data (for pre-filling step 2)
   const { data: project } = useProject(projectId);
+
+  // Ref for project setup form — lets footer nav trigger save
+  const projectSetupRef = useRef<ForgeProjectSetupHandle>(null);
+  const [projectSetupCanSave, setProjectSetupCanSave] = useState(false);
+  const { toast } = useToast();
 
   // TIA project provisioning (runs at IO approval)
   const { provision: provisionTia, status: provisionStatus, reset: resetProvision } = useForgeProvision();
@@ -139,20 +145,28 @@ export default function ForgePage() {
   }
 
   async function handleProjectSetupComplete(setup: ForgeProjectSetupData) {
-    await saveSession({
-      design_profile_id: setup.design_profile_id,
-      hardware_config: {
-        cpu_type: setup.cpu_type,
-        tia_version: setup.tia_version,
-        racks: session?.hardware_config?.racks ?? [],
-      },
-      tia_project_path: setup.tia_project_path ?? null,
-      device_fb_language: setup.device_fb_language,
-      io_linking_language: setup.io_linking_language,
-      process_code_language: setup.process_code_language,
-      current_step: "hardware_io",
-    });
-    completeStep("project_setup");
+    try {
+      await saveSession({
+        design_profile_id: setup.design_profile_id,
+        hardware_config: {
+          cpu_type: setup.cpu_type,
+          tia_version: setup.tia_version,
+          racks: session?.hardware_config?.racks ?? [],
+        },
+        tia_project_path: setup.tia_project_path ?? null,
+        device_fb_language: setup.device_fb_language,
+        io_linking_language: setup.io_linking_language,
+        process_code_language: setup.process_code_language,
+        current_step: "hardware_io",
+      });
+      completeStep("project_setup");
+    } catch (err) {
+      toast({
+        title: "Failed to save project setup",
+        description: err instanceof Error ? err.message : "Database error — check console for details.",
+        variant: "destructive",
+      });
+    }
   }
 
   async function handleHardwareIoComplete(
@@ -267,9 +281,11 @@ export default function ForgePage() {
       case "project_setup":
         return (
           <ForgeProjectSetup
+            ref={projectSetupRef}
             specAnalysis={session.spec_analysis}
             project={project ?? null}
             onComplete={handleProjectSetupComplete}
+            onCanSubmitChange={setProjectSetupCanSave}
             initialDeviceFbLanguage={session.device_fb_language ?? undefined}
             initialIoLinkingLanguage={session.io_linking_language ?? undefined}
             initialProcessCodeLanguage={session.process_code_language ?? undefined}
@@ -497,14 +513,25 @@ export default function ForgePage() {
             <Badge variant="outline" className="font-mono text-[11px] uppercase tracking-[0.18em]">
               {stepStatuses[currentStep]}
             </Badge>
-            <Button
-              size="sm"
-              onClick={goToNextStep}
-              disabled={!canProceedToNext() || isLastStep}
-            >
-              {isLastStep ? "Complete" : "Next"}
-              <ChevronRight className="h-4 w-4" />
-            </Button>
+            {currentStep === "project_setup" ? (
+              <Button
+                size="sm"
+                disabled={!projectSetupCanSave}
+                onClick={() => projectSetupRef.current?.submit()}
+              >
+                Save Project Setup
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                onClick={goToNextStep}
+                disabled={!canProceedToNext() || isLastStep}
+              >
+                {isLastStep ? "Complete" : "Next"}
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>
