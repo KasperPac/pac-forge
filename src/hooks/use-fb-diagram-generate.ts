@@ -59,15 +59,20 @@ export function useGenerateFbDiagram() {
           buildFbDiagramSystemPrompt(),
           [{ role: "user", content: buildFbDiagramUserMessage(template) }],
           abort.signal,
-          1024,
+          2048,
         );
 
         // Strip any init directive Claude may have included, then prepend ours
         const stripped = content.trim().replace(/^%%\{.*?\}%%\s*/s, "");
         // Remove quotes Claude incorrectly places inside pipe edge labels: |"Yes"| → |Yes|
         const noQuotedEdges = stripped.replace(/\|"([^"]+)"\|/g, "|$1|");
+        // Remove incomplete edge lines (truncated output — target node missing)
+        const noIncomplete = noQuotedEdges
+          .split("\n")
+          .filter((line) => !/--[->.]+\s*(\|[^|]*\|)?\s*$/.test(line))
+          .join("\n");
         // Remove orphan node definitions that Claude generated but never connected
-        const connected = removeOrphanNodes(noQuotedEdges);
+        const connected = removeOrphanNodes(noIncomplete);
         const chart = `%%{init: {'flowchart': {'curve': 'stepBefore'}} }%%\n${connected}`;
 
         const { error } = await supabase
