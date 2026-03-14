@@ -1646,7 +1646,14 @@ Your task is to generate a Mermaid flowchart that shows the INTERNAL LOGIC of th
 - Include fault/alarm paths — these are important for understanding safety behaviour
 - If the FB has enable/execute inputs, show "Enabled?" as the first decision
 - Keep labels SHORT — max 4 words per node. Use abbreviations if needed (e.g. "Run CMD ON", "Fault latch SET", "Timer elapsed?")
-- Max 20 nodes — focus on the most important logic, not every line of code
+- Max 25 nodes — focus on the most important logic, not every line of code
+
+## CRITICAL — Show HOW state transitions are determined
+Do NOT just show a CASE/state dispatch diamond that fans out to state boxes. You MUST show the CONDITIONS that cause each transition:
+- For state machines: show the decision nodes INSIDE each state that trigger the transition OUT of it
+- Example for a motor FB in IDLE state: after the "Idle" state node, show a "Run edge?" decision diamond → Yes → another "Direction?" diamond → False = go to "St Fwd" node, True = go to "St Rev" node
+- Arrow labels MUST show the condition that fires the transition (e.g. "Yes", "No", "Timeout", "End sensor", "direction=FWD")
+- The viewer must be able to read the diagram and understand WHAT INPUT OR CONDITION causes each path — not just which states exist
 
 ## Node ID naming convention (REQUIRED for coloring)
 Use these prefixes so nodes get the correct color class:
