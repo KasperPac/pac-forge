@@ -13,6 +13,8 @@ import {
   X,
   FolderInput,
   Sparkles,
+  GitBranch,
+  ChevronDown,
 } from "lucide-react";
 import { CategoryIcon } from "@/components/fb-category-icons";
 import Editor from "@monaco-editor/react";
@@ -58,6 +60,8 @@ import {
   useRevertFbTemplateVersion,
 } from "@/hooks/use-fb-templates";
 import { useGenerateFbSummary } from "@/hooks/use-generate-fb-summary";
+import { useGenerateFbDiagram } from "@/hooks/use-fb-diagram-generate";
+import { MermaidDiagram } from "@/components/ui/mermaid-diagram";
 import {
   useFbDeviceCategories,
   useCreateFbDeviceCategory,
@@ -380,6 +384,7 @@ export default function FbLibraryPage() {
   }
 
   const { generate: generateSummary, loadingId: summaryLoadingId } = useGenerateFbSummary();
+  const { generate: generateDiagram, loadingId: diagramLoadingId } = useGenerateFbDiagram();
 
   const isSaving = createTemplate.isPending || updateTemplate.isPending;
   const hasBlocks = form.blocks.some((b) => b.scl_code.trim() !== "");
@@ -526,6 +531,8 @@ export default function FbLibraryPage() {
               }}
               onGenerateSummary={generateSummary}
               summaryLoading={summaryLoadingId === template.id}
+              onGenerateDiagram={generateDiagram}
+              diagramLoading={diagramLoadingId === template.id}
             />
           ))}
         </div>
@@ -878,6 +885,8 @@ function TemplateCard({
   onViewHistory,
   onGenerateSummary,
   summaryLoading,
+  onGenerateDiagram,
+  diagramLoading,
 }: {
   template: FbTemplate;
   onEdit: (t: FbTemplate) => void;
@@ -885,7 +894,10 @@ function TemplateCard({
   onViewHistory: (id: string) => void;
   onGenerateSummary: (t: FbTemplate) => void;
   summaryLoading: boolean;
+  onGenerateDiagram: (t: FbTemplate) => void;
+  diagramLoading: boolean;
 }) {
+  const [diagramOpen, setDiagramOpen] = useState(false);
   const blocks = template.blocks ?? [];
   const previewBlock = blocks[0];
   const previewLines = previewBlock?.scl_code.split("\n").slice(0, 5) ?? [];
@@ -912,6 +924,20 @@ function TemplateCard({
           </div>
         </div>
         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 w-7 p-0"
+            onClick={() => onGenerateDiagram(template)}
+            disabled={diagramLoading || !(template.blocks && template.blocks.length > 0)}
+            title={template.diagram_chart ? "Regenerate logic diagram" : "Generate logic diagram"}
+          >
+            {diagramLoading ? (
+              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+            ) : (
+              <GitBranch className={`h-3 w-3 ${template.diagram_chart ? "text-blue-400" : "text-muted-foreground"}`} />
+            )}
+          </Button>
           <Button
             size="sm"
             variant="ghost"
@@ -1009,6 +1035,25 @@ function TemplateCard({
             {previewLines.join("\n")}
             {hasMore && "\n..."}
           </pre>
+        </div>
+      )}
+
+      {/* Logic diagram collapsible */}
+      {template.diagram_chart && (
+        <div className="mt-2 border-t border-border/40 pt-2">
+          <button
+            className="flex w-full items-center gap-1 font-mono text-xs text-blue-400/80 hover:text-blue-400"
+            onClick={() => setDiagramOpen((o) => !o)}
+          >
+            <GitBranch className="h-3 w-3 shrink-0" />
+            Logic Diagram
+            <ChevronDown className={`ml-auto h-3 w-3 transition-transform ${diagramOpen ? "rotate-180" : ""}`} />
+          </button>
+          {diagramOpen && (
+            <div className="mt-2 overflow-x-auto rounded border border-border/50 bg-muted/30 p-2">
+              <MermaidDiagram chart={template.diagram_chart} className="text-xs" />
+            </div>
+          )}
         </div>
       )}
 

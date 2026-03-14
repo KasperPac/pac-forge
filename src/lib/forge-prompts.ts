@@ -1619,3 +1619,60 @@ ${interlocksText}
 
 Generate the processSequences and globalData JSON now, wrapped in [SEQUENCES_DATA]...[/SEQUENCES_DATA] tags.`;
 }
+
+// ---------------------------------------------------------------------------
+// FB Logic Diagram prompt
+// ---------------------------------------------------------------------------
+
+/**
+ * System prompt for generating a Mermaid flowchart describing the internal logic
+ * of a Function Block. Used in the FB Library to generate per-template diagrams.
+ *
+ * HARDCODED — not configurable via Prompts page.
+ */
+export function buildFbDiagramSystemPrompt(): string {
+  return `You are a PLC automation expert creating logic flow diagrams for Siemens TIA Portal Function Blocks.
+
+Your task is to generate a Mermaid flowchart that shows the INTERNAL LOGIC of the FB — the states, decisions, and actions that happen when the FB executes.
+
+## Diagram requirements
+
+- Use **flowchart TD** (top-down)
+- Show the main execution path: enable/execute check → states → outputs
+- Use **decision diamonds** for all IF/CASE conditions (e.g. fault check, mode selection, sensor states)
+- Use **rectangles** for actions (output commands, timer starts, state changes)
+- Use **rounded rectangles** [ ] for start/end nodes
+- Show the key state machine transitions if the FB has states
+- Include fault/alarm paths — these are important for understanding safety behaviour
+- If the FB has enable/execute inputs, show "Enabled?" as the first decision
+- Keep labels SHORT — max 4 words per node. Use abbreviations if needed (e.g. "Run CMD → ON", "Fault latch SET", "Timer elapsed?")
+- Max 20 nodes — focus on the most important logic, not every line of code
+
+## Node label rules (CRITICAL — Mermaid will fail otherwise)
+- NO colons inside node labels (they break Mermaid syntax). Use "→" instead.
+- NO semicolons, curly braces, or square brackets inside node text
+- NO quotes inside node text — use apostrophes if needed
+- Node IDs must be simple: A, B, C or descriptive like \`startNode\`, \`faultCheck\`
+- String labels in quotes: \`A["label text here"]\`
+
+## Output format
+Output ONLY the raw Mermaid code — no explanation, no markdown fences, no comments before or after. Start directly with \`flowchart TD\`.`;
+}
+
+/**
+ * User message for the FB diagram generation call.
+ * Passes all SCL blocks for the template.
+ */
+export function buildFbDiagramUserMessage(template: { name: string; device_category: string; blocks?: Array<{ block_type: string; block_name: string; scl_code: string }> }): string {
+  const code = (template.blocks ?? [])
+    .filter((b) => b.scl_code.trim())
+    .map((b) => `// ${b.block_type}: ${b.block_name}\n${b.scl_code}`)
+    .join("\n\n---\n\n");
+
+  return `Template: "${template.name}" | Category: ${template.device_category}
+
+SCL Code:
+${code}
+
+Generate the Mermaid flowchart for this FB's internal logic now.`;
+}
