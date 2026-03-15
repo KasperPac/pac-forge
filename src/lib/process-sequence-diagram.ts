@@ -223,7 +223,7 @@ function buildStepLabel(step: ProcessStep): string {
 /** Determine the CSS class for a step node. */
 function getStepClass(step: ProcessStep, deviceLinkage: LinkageDevice[]): string {
   const allText = [
-    ...step.actions.map(a => a.description),
+    ...(step.actions ?? []).map(a => a.description),
     step.notes ?? "",
   ].join(" ").toLowerCase();
 
@@ -231,7 +231,7 @@ function getStepClass(step: ProcessStep, deviceLinkage: LinkageDevice[]): string
 
   const deviceInstances = new Set(deviceLinkage.map(d => d.instanceDbName.toLowerCase()));
   const deviceNames = new Set(deviceLinkage.map(d => d.name.toLowerCase()));
-  if (step.devicesInvolved.some(d =>
+  if ((step.devicesInvolved ?? []).some(d =>
     deviceInstances.has(d.toLowerCase()) || deviceNames.has(d.toLowerCase())
   )) {
     return "fb_call";
@@ -269,12 +269,12 @@ export interface ProcessFlowContext {
 
 /** True if the device receives signals from physical inputs (DI/AI). */
 function isInputDevice(dev: LinkageDevice): boolean {
-  return dev.wiring.some(w => w.direction === "in" && w.wireType === "io");
+  return (dev.wiring ?? []).some(w => w.direction === "in" && w.wireType === "io");
 }
 
 /** True if the device drives physical outputs (DQ/AQ). */
 function isOutputDevice(dev: LinkageDevice): boolean {
-  return dev.wiring.some(w => w.direction === "out" && w.wireType === "io");
+  return (dev.wiring ?? []).some(w => w.direction === "out" && w.wireType === "io");
 }
 
 /**
@@ -286,7 +286,7 @@ function getKeyOutputs(dev: LinkageDevice, allDevices: LinkageDevice[]): string[
   const fbSources = new Set<string>();
   for (const other of allDevices) {
     if (other.instanceDbName === dev.instanceDbName) continue;
-    for (const w of other.wiring) {
+    for (const w of (other.wiring ?? [])) {
       if (w.direction === "in" && w.wireType === "fb") {
         fbSources.add(w.connectedTo.toLowerCase());
       }
@@ -294,7 +294,7 @@ function getKeyOutputs(dev: LinkageDevice, allDevices: LinkageDevice[]): string[
   }
 
   const keyOuts: string[] = [];
-  for (const w of dev.wiring) {
+  for (const w of (dev.wiring ?? [])) {
     if (w.direction !== "out") continue;
     const fullRef = `${dev.instanceDbName}.${w.paramName}`.toLowerCase();
     const shortRef = w.paramName.toLowerCase();
@@ -459,8 +459,8 @@ function buildStepsSection(
     // Fault exit
     const hasFaultExit =
       (step.notes ?? "").toLowerCase().includes("fault") ||
-      step.actions.some(a => a.description.toLowerCase().includes("fault")) ||
-      step.devicesInvolved.some(d => /estop|emergency/i.test(d));
+      (step.actions ?? []).some(a => a.description.toLowerCase().includes("fault")) ||
+      (step.devicesInvolved ?? []).some(d => /estop|emergency/i.test(d));
     if (hasFaultExit) {
       lines.push(`    ${stepId} -->|Fault| FAULT`);
     }
@@ -529,7 +529,7 @@ function buildOutputPathSection(
   if (outputDevices.length > 0) {
     for (const dev of outputDevices) {
       const fbId = safeId(`FB_${dev.instanceDbName}`);
-      const outWires = dev.wiring.filter(w => w.direction === "out" && w.wireType === "io");
+      const outWires = (dev.wiring ?? []).filter(w => w.direction === "out" && w.wireType === "io");
       const outParams = outWires
         .slice(0, 2)
         .map(w => escapeLabel(w.paramName))
@@ -585,8 +585,8 @@ function buildStopFaultSection(
   }
 
   // Fault reset (if any step has reset/clear action or stop IO exists)
-  const hasResetStep = sequence.steps.some(s =>
-    s.actions.some(a => /reset|clear.fault/i.test(a.description)),
+  const hasResetStep = (sequence.steps ?? []).some(s =>
+    (s.actions ?? []).some(a => /reset|clear.fault/i.test(a.description)),
   );
   if (hasResetStep || stopIo) {
     lines.push(`    RESET["Fault reset${BR}→ Clear latches → idle"]:::reset`);
