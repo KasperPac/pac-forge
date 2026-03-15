@@ -314,19 +314,30 @@ function getKeyOutputs(dev: LinkageDevice, allDevices: LinkageDevice[]): string[
 // ---------------------------------------------------------------------------
 
 function buildPhysicalInputsSection(ioList: ForgeIoEntry[]): string[] {
-  const inputs = ioList.filter(io => io.signal_type === "DI" || io.signal_type === "AI");
+  const inputs = ioList.filter(
+    io => (io.signal_type === "DI" || io.signal_type === "AI") && io.tag_name?.trim(),
+  );
   if (inputs.length === 0) return [];
 
+  // Deduplicate by safeId to avoid Mermaid parse errors from duplicate node definitions
+  const seen = new Set<string>();
   const lines: string[] = ["    %% Physical inputs"];
-  for (const io of inputs) {
-    const id = safeId(`PI_${io.tag_name}`);
-    lines.push(`    ${id}["${escapeLabel(io.tag_name)}"]:::input`);
+  const usedIds: string[] = [];
+
+  for (let i = 0; i < inputs.length; i++) {
+    const io = inputs[i];
+    let id = safeId(`PI_${io.tag_name}`);
+    // Ensure unique ID
+    if (seen.has(id)) id = `${id}_${i}`;
+    seen.add(id);
+    usedIds.push(id);
+    const label = escapeLabel(io.tag_name) || io.address || `IO${i}`;
+    lines.push(`    ${id}["${label}"]:::input`);
   }
 
   lines.push("    %% Inputs DB");
   lines.push(`    IDB["Inputs DB"]:::db`);
-  for (const io of inputs) {
-    const id = safeId(`PI_${io.tag_name}`);
+  for (const id of usedIds) {
     lines.push(`    ${id} --> IDB`);
   }
   return lines;
@@ -344,9 +355,9 @@ function buildFbInstancesSection(
     const fbId = safeId(`FB_${dev.instanceDbName}`);
     const keyOuts = getKeyOutputs(dev, deviceLinkage);
     const outPart = keyOuts.length > 0 ? `${BR}→ ${keyOuts.slice(0, 3).join(", ")}` : "";
-    lines.push(
-      `    ${fbId}["${escapeLabel(dev.instanceDbName)}${BR}${escapeLabel(dev.fbName)}${outPart}"]:::fb`,
-    );
+    const instLabel = escapeLabel(dev.instanceDbName) || dev.name || "FB";
+    const fbLabel = escapeLabel(dev.fbName) || "FB";
+    lines.push(`    ${fbId}["${instLabel}${BR}${fbLabel}${outPart}"]:::fb`);
     if (hasPhysicalInputs) {
       lines.push(`    IDB --> ${fbId}`);
     }
@@ -520,7 +531,9 @@ function buildOutputPathSection(
   ioList: ForgeIoEntry[],
 ): string[] {
   const outputDevices = deviceLinkage.filter(isOutputDevice);
-  const physicalOutputs = ioList.filter(io => io.signal_type === "DQ" || io.signal_type === "AQ");
+  const physicalOutputs = ioList.filter(
+    io => (io.signal_type === "DQ" || io.signal_type === "AQ") && io.tag_name?.trim(),
+  );
 
   if (outputDevices.length === 0 && physicalOutputs.length === 0) return [];
 
@@ -535,9 +548,9 @@ function buildOutputPathSection(
         .map(w => escapeLabel(w.paramName))
         .join(", ");
       const paramPart = outParams ? `${BR}${outParams}` : "";
-      lines.push(
-        `    ${fbId}["${escapeLabel(dev.instanceDbName)}${BR}${escapeLabel(dev.fbName)}${paramPart}"]:::fb`,
-      );
+      const instLabel = escapeLabel(dev.instanceDbName) || dev.name || "FB";
+      const fbLabel = escapeLabel(dev.fbName) || "FB";
+      lines.push(`    ${fbId}["${instLabel}${BR}${fbLabel}${paramPart}"]:::fb`);
     }
 
     if (physicalOutputs.length > 0) {
@@ -545,17 +558,27 @@ function buildOutputPathSection(
       for (const dev of outputDevices) {
         lines.push(`    ${safeId(`FB_${dev.instanceDbName}`)} --> OUTDB`);
       }
-      for (const io of physicalOutputs) {
-        const id = safeId(`PO_${io.tag_name}`);
-        lines.push(`    ${id}["${escapeLabel(io.tag_name)}"]:::output`);
+      const seenOut = new Set<string>();
+      for (let i = 0; i < physicalOutputs.length; i++) {
+        const io = physicalOutputs[i];
+        let id = safeId(`PO_${io.tag_name}`);
+        if (seenOut.has(id)) id = `${id}_${i}`;
+        seenOut.add(id);
+        const label = escapeLabel(io.tag_name) || io.address || `OUT${i}`;
+        lines.push(`    ${id}["${label}"]:::output`);
         lines.push(`    OUTDB --> ${id}`);
       }
     }
   } else if (physicalOutputs.length > 0) {
     lines.push(`    OUTDB["Outputs DB"]:::db`);
-    for (const io of physicalOutputs) {
-      const id = safeId(`PO_${io.tag_name}`);
-      lines.push(`    ${id}["${escapeLabel(io.tag_name)}"]:::output`);
+    const seenOut = new Set<string>();
+    for (let i = 0; i < physicalOutputs.length; i++) {
+      const io = physicalOutputs[i];
+      let id = safeId(`PO_${io.tag_name}`);
+      if (seenOut.has(id)) id = `${id}_${i}`;
+      seenOut.add(id);
+      const label = escapeLabel(io.tag_name) || io.address || `OUT${i}`;
+      lines.push(`    ${id}["${label}"]:::output`);
       lines.push(`    OUTDB --> ${id}`);
     }
   }
