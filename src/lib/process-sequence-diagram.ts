@@ -467,6 +467,72 @@ function detectDirectionPair(text: string): BranchKws | null {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Signal-assignment mutual exclusion detection
+// ---------------------------------------------------------------------------
+
+/** Extract "SIGNAL = VALUE" assignments from text (generic, any casing). */
+function extractAssignments(text: string): Array<{ signal: string; value: string }> {
+  const results: Array<{ signal: string; value: string }> = [];
+  const re = /\b(\w+)\s*=\s*(TRUE|FALSE|ON|OFF|0|1)\b/gi;
+  for (const m of text.matchAll(re)) {
+    results.push({ signal: m[1].toUpperCase(), value: m[2].toUpperCase() });
+  }
+  return results;
+}
+
+function normalizeAssignValue(v: string): string {
+  const u = v.toUpperCase();
+  return u === "TRUE" || u === "ON" || u === "1" ? "TRUE" : "FALSE";
+}
+
+/**
+ * Return true if stepA and stepB set the SAME signal to OPPOSITE values.
+ * E.g. stepA: "M01_CMD_FWD = TRUE, M01_CMD_REV = FALSE"
+ *      stepB: "M01_CMD_REV = TRUE, M01_CMD_FWD = FALSE"
+ * → M01_CMD_FWD is TRUE in A and FALSE in B → mutually exclusive.
+ */
+function areMutuallyExclusive(stepA: ProcessStep, stepB: ProcessStep): boolean {
+  const aText = (stepA.actions ?? []).map(a => a.description).join(" ");
+  const bText = (stepB.actions ?? []).map(a => a.description).join(" ");
+  const aAssigns = extractAssignments(aText);
+  const bAssigns = extractAssignments(bText);
+  for (const aAssign of aAssigns) {
+    const bAssign = bAssigns.find(b => b.signal === aAssign.signal);
+    if (bAssign && normalizeAssignValue(bAssign.value) !== normalizeAssignValue(aAssign.value)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Build a branch filter from:
+ * - Signals set to TRUE/ON in the step (active outputs — the "characteristic" signal)
+ * - All-caps signal-like tokens from the condition description (trigger signals)
+ */
+function buildBranchFilterFromSignals(step: ProcessStep, conditionText: string): RegExp {
+  const text = (step.actions ?? []).map(a => a.description).join(" ");
+  const assigns = extractAssignments(text);
+  const activeSignals = assigns
+    .filter(a => normalizeAssignValue(a.value) === "TRUE")
+    .map(a => a.signal);
+
+  // Extract SIGNAL_NAME tokens from the condition text (≥3 chars, all-caps+digits+underscore)
+  const condSignals: string[] = [];
+  const condRe = /\b([A-Z][A-Z0-9_]{2,})\b/g;
+  for (const m of conditionText.matchAll(condRe)) {
+    condSignals.push(m[1]);
+  }
+
+  const allSignals = [...new Set([...activeSignals, ...condSignals])];
+  if (allSignals.length === 0) return /(?!x)x/i; // never-match sentinel
+  return new RegExp(
+    allSignals.map(s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"),
+    "i",
+  );
+}
+
 interface SynthBranchInfo {
   /** Index of the last pre-branch step (-1 = none) */
   triggerStepIndex: number;
@@ -479,6 +545,13 @@ interface SynthBranchInfo {
   condBText: string;
   /** First step index (in steps[]) of the branching region */
   branchRegionStart: number;
+  /**
+   * Pre-built first steps for each branch (mutual-exclusion detection case).
+   * When set, these are prepended to the filtered branchSteps for each branch
+   * instead of being included in the shared filter pass.
+   */
+  prebuiltFirstA?: ProcessStep;
+  prebuiltFirstB?: ProcessStep;
 }
 
 function detectSynthBranch(steps: ProcessStep[]): SynthBranchInfo | null {
@@ -492,6 +565,32 @@ function detectSynthBranch(steps: ProcessStep[]): SynthBranchInfo | null {
 
     // Case A: OR transition without explicit targetStepNumbers
     if (isOr) {
+      // Case A1 — signal-assignment mutual exclusion (primary, generic)
+      // If the next 2 steps set the same signal to opposite values, they are
+      // the parallel branch starts — not a shared step to be filtered.
+      if (conditions.length === 2 && i + 2 < steps.length) {
+        const stepA = steps[i + 1];
+        const stepB = steps[i + 2];
+        if (areMutuallyExclusive(stepA, stepB)) {
+          const condA = conditions[0]?.description ?? "Branch A";
+          const condB = conditions[1]?.description ?? "Branch B";
+          return {
+            triggerStepIndex: i,
+            branchALabel: truncate(escapeLabel(shortenTransitionLabel(condA, null)), 18),
+            branchBLabel: truncate(escapeLabel(shortenTransitionLabel(condB, null)), 18),
+            branchAFilter: buildBranchFilterFromSignals(stepA, condA),
+            branchBFilter: buildBranchFilterFromSignals(stepB, condB),
+            condAText: condA,
+            condBText: condB,
+            // Skip the two mutually exclusive steps — they become prebuiltFirstA/B
+            branchRegionStart: i + 3,
+            prebuiltFirstA: stepA,
+            prebuiltFirstB: stepB,
+          };
+        }
+      }
+
+      // Case A2 — keyword-based direction pair detection (fallback)
       const lookAheadText = [
         ...conditions.map(c => c.description),
         ...steps.slice(i + 1).flatMap(s => (s.actions ?? []).map(a => a.description)),
@@ -812,14 +911,19 @@ function renderBranchedSteps(
   const branchBBase = branchABase + 50;
 
   // ── 6. Filter actions, insert monitoring, renumber ─────────────────────────
-  const rawA = branchSteps.map(s => ({
+  let rawA: ProcessStep[] = branchSteps.map(s => ({
     ...s,
     actions: filterBranchActions(s.actions ?? [], filterA, filterB),
   }));
-  const rawB = branchSteps.map(s => ({
+  let rawB: ProcessStep[] = branchSteps.map(s => ({
     ...s,
     actions: filterBranchActions(s.actions ?? [], filterB, filterA),
   }));
+
+  // For mutual-exclusion detection: the first step of each branch is already
+  // known (prebuiltFirstA/B) and should NOT be filtered — prepend as-is.
+  if (branch.prebuiltFirstA) rawA = [branch.prebuiltFirstA, ...rawA];
+  if (branch.prebuiltFirstB) rawB = [branch.prebuiltFirstB, ...rawB];
 
   const withMonA = insertMonitoringSteps(rawA, context.deviceLinkage);
   const withMonB = insertMonitoringSteps(rawB, context.deviceLinkage);
