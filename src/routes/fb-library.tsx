@@ -61,8 +61,8 @@ import {
   useRevertFbTemplateVersion,
 } from "@/hooks/use-fb-templates";
 import { useGenerateFbSummary } from "@/hooks/use-generate-fb-summary";
-import { useGenerateFbDiagram } from "@/hooks/use-fb-diagram-generate";
-import { MermaidDiagram } from "@/components/ui/mermaid-diagram";
+import { FbFlowRenderer } from "@/components/forge/fb-flow-renderer";
+import { parseFbFlow } from "@/lib/fb-flow-diagram";
 import {
   useFbDeviceCategories,
   useCreateFbDeviceCategory,
@@ -385,7 +385,6 @@ export default function FbLibraryPage() {
   }
 
   const { generate: generateSummary, loadingId: summaryLoadingId } = useGenerateFbSummary();
-  const { generate: generateDiagram, loadingId: diagramLoadingId } = useGenerateFbDiagram();
 
   const isSaving = createTemplate.isPending || updateTemplate.isPending;
   const hasBlocks = form.blocks.some((b) => b.scl_code.trim() !== "");
@@ -532,8 +531,6 @@ export default function FbLibraryPage() {
               }}
               onGenerateSummary={generateSummary}
               summaryLoading={summaryLoadingId === template.id}
-              onGenerateDiagram={generateDiagram}
-              diagramLoading={diagramLoadingId === template.id}
             />
           ))}
         </div>
@@ -886,8 +883,6 @@ function TemplateCard({
   onViewHistory,
   onGenerateSummary,
   summaryLoading,
-  onGenerateDiagram,
-  diagramLoading,
 }: {
   template: FbTemplate;
   onEdit: (t: FbTemplate) => void;
@@ -895,12 +890,15 @@ function TemplateCard({
   onViewHistory: (id: string) => void;
   onGenerateSummary: (t: FbTemplate) => void;
   summaryLoading: boolean;
-  onGenerateDiagram: (t: FbTemplate) => void;
-  diagramLoading: boolean;
 }) {
   const [diagramOpen, setDiagramOpen] = useState(false);
   const [diagramFullscreen, setDiagramFullscreen] = useState(false);
   const [zoom, setZoom] = useState(1);
+
+  const hasScl = (template.blocks ?? []).some((b) => b.scl_code.trim());
+  const flowDiagrams = diagramOpen && hasScl
+    ? parseFbFlow((template.blocks ?? []).map((b) => b.scl_code).join("\n\n"))
+    : [];
   const blocks = template.blocks ?? [];
   const previewBlock = blocks[0];
   const previewLines = previewBlock?.scl_code.split("\n").slice(0, 5) ?? [];
@@ -927,20 +925,6 @@ function TemplateCard({
           </div>
         </div>
         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 w-7 p-0"
-            onClick={() => onGenerateDiagram(template)}
-            disabled={diagramLoading || !(template.blocks && template.blocks.length > 0)}
-            title={template.diagram_chart ? "Regenerate logic diagram" : "Generate logic diagram"}
-          >
-            {diagramLoading ? (
-              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-            ) : (
-              <GitBranch className={`h-3 w-3 ${template.diagram_chart ? "text-blue-400" : "text-muted-foreground"}`} />
-            )}
-          </Button>
           <Button
             size="sm"
             variant="ghost"
@@ -1041,41 +1025,44 @@ function TemplateCard({
         </div>
       )}
 
-      {/* Logic diagram collapsible */}
-      {template.diagram_chart && (
+      {/* Signal flow diagram collapsible */}
+      {hasScl && (
         <div className="mt-2 border-t border-border/40 pt-2">
           <button
             className="flex w-full items-center gap-1 font-mono text-xs text-blue-400/80 hover:text-blue-400"
             onClick={() => setDiagramOpen((o) => !o)}
           >
             <GitBranch className="h-3 w-3 shrink-0" />
-            Logic Diagram
+            Signal Flow
             <ChevronDown className={`ml-auto h-3 w-3 transition-transform ${diagramOpen ? "rotate-180" : ""}`} />
           </button>
           {diagramOpen && (
-            <div className="relative mt-2 overflow-x-auto rounded border border-border/50 bg-muted/30 p-2">
+            <div className="relative mt-2 overflow-x-auto rounded border border-border/50 bg-muted/30">
               <Button
                 size="sm"
                 variant="ghost"
-                className="absolute right-1 top-1 h-6 w-6 p-0 opacity-60 hover:opacity-100"
+                className="absolute right-1 top-1 z-10 h-6 w-6 p-0 opacity-60 hover:opacity-100"
                 title="Fullscreen"
                 onClick={() => setDiagramFullscreen(true)}
               >
                 <Maximize2 className="h-3 w-3" />
               </Button>
-              <MermaidDiagram chart={template.diagram_chart} className="text-xs" />
+              {flowDiagrams.length > 0
+                ? <FbFlowRenderer diagrams={flowDiagrams} />
+                : <p className="px-3 py-4 text-center font-mono text-xs text-muted-foreground">No signal flow detected</p>
+              }
             </div>
           )}
         </div>
       )}
 
-      {/* Fullscreen diagram dialog */}
+      {/* Fullscreen signal flow dialog */}
       <Dialog open={diagramFullscreen} onOpenChange={(o) => { setDiagramFullscreen(o); if (!o) setZoom(1); }}>
         <DialogContent className="flex h-[95vh] max-w-[95vw] flex-col gap-0 p-0 overflow-hidden">
           <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-2">
             <div className="flex items-center gap-2">
               <GitBranch className="h-4 w-4 text-blue-400" />
-              <span className="font-mono text-sm font-semibold">{template.name} — Logic Diagram</span>
+              <span className="font-mono text-sm font-semibold">{template.name} — Signal Flow</span>
             </div>
             <div className="flex items-center gap-1">
               <Button size="sm" variant="ghost" className="h-7 px-2 font-mono text-xs" onClick={() => setZoom((z) => Math.max(0.25, +(z - 0.25).toFixed(2)))} title="Zoom out">−</Button>
@@ -1086,9 +1073,12 @@ function TemplateCard({
               </Button>
             </div>
           </div>
-          <div className="flex-1 overflow-auto p-6">
+          <div className="flex-1 overflow-auto">
             <div style={{ transform: `scale(${zoom})`, transformOrigin: "top left", transition: "transform 0.15s ease" }}>
-              <MermaidDiagram chart={template.diagram_chart ?? ""} />
+              {flowDiagrams.length > 0
+                ? <FbFlowRenderer diagrams={flowDiagrams} />
+                : <p className="px-6 py-8 font-mono text-xs text-muted-foreground">No signal flow detected</p>
+              }
             </div>
           </div>
         </DialogContent>
