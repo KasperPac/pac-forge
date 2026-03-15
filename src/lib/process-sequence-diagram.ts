@@ -468,12 +468,15 @@ function detectDirectionPair(text: string): BranchKws | null {
 }
 
 interface SynthBranchInfo {
-  /** Index of the last pre-branch step (the step whose transition triggers the split). -1 = no pre-branch step */
+  /** Index of the last pre-branch step (-1 = none) */
   triggerStepIndex: number;
   branchALabel: string;
   branchBLabel: string;
   branchAFilter: RegExp;
   branchBFilter: RegExp;
+  /** Raw condition text for wiring-based enhancement */
+  condAText: string;
+  condBText: string;
   /** First step index (in steps[]) of the branching region */
   branchRegionStart: number;
 }
@@ -485,7 +488,6 @@ function detectSynthBranch(steps: ProcessStep[]): SynthBranchInfo | null {
     const isOr = step.transition?.combinator === "OR" && conditions.length >= 2;
     const hasExplicitTargets = isOr && conditions.every(c => c.targetStepNumber != null);
 
-    // Already handled by explicit XOR logic
     if (hasExplicitTargets) continue;
 
     // Case A: OR transition without explicit targetStepNumbers
@@ -504,6 +506,8 @@ function detectSynthBranch(steps: ProcessStep[]): SynthBranchInfo | null {
           branchBLabel: truncate(escapeLabel(shortenTransitionLabel(condB, null)), 18),
           branchAFilter: buildBranchFilter(pair.a),
           branchBFilter: buildBranchFilter(pair.b),
+          condAText: condA,
+          condBText: condB,
           branchRegionStart: i + 1,
         };
       }
@@ -519,6 +523,8 @@ function detectSynthBranch(steps: ProcessStep[]): SynthBranchInfo | null {
         branchBLabel: pair.labelB,
         branchAFilter: buildBranchFilter(pair.a),
         branchBFilter: buildBranchFilter(pair.b),
+        condAText: pair.labelA,
+        condBText: pair.labelB,
         branchRegionStart: i,
       };
     }
@@ -526,9 +532,78 @@ function detectSynthBranch(steps: ProcessStep[]): SynthBranchInfo | null {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Wiring-based filter enhancement
+// ---------------------------------------------------------------------------
+
 /**
- * Filter a step's actions for a specific branch, stripping actions that belong
- * only to the OTHER branch. Actions matching both are split on commas/semicolons.
+ * Augment a keyword-based filter with device names and signal names from the
+ * wiring data. Finds devices mentioned in conditionText, then follows FB wires
+ * to downstream devices, and collects their output signal names.
+ */
+function buildWiringEnhancedFilter(
+  conditionText: string,
+  baseFilter: RegExp,
+  deviceLinkage: LinkageDevice[],
+): RegExp {
+  const condLower = conditionText.toLowerCase();
+
+  // Find devices mentioned in the condition text
+  const rootDevices: string[] = [];
+  for (const dev of deviceLinkage) {
+    if (
+      condLower.includes(dev.name.toLowerCase()) ||
+      condLower.includes(dev.instanceDbName.toLowerCase())
+    ) {
+      rootDevices.push(dev.instanceDbName);
+    }
+  }
+  if (rootDevices.length === 0) return baseFilter;
+
+  // Follow FB wires: find devices that receive input from root devices
+  const downstream = new Set<string>(rootDevices);
+  for (const dev of deviceLinkage) {
+    if (downstream.has(dev.instanceDbName)) continue;
+    const connected = (dev.wiring ?? []).some(
+      w =>
+        w.direction === "in" &&
+        w.wireType === "fb" &&
+        rootDevices.some(d => w.connectedTo.toLowerCase().includes(d.toLowerCase())),
+    );
+    if (connected) downstream.add(dev.instanceDbName);
+  }
+
+  // Collect output signal names from downstream devices
+  const signals: string[] = [];
+  for (const dev of deviceLinkage) {
+    if (!downstream.has(dev.instanceDbName)) continue;
+    for (const w of dev.wiring ?? []) {
+      if (w.direction === "out" && w.connectedTo) {
+        signals.push(w.connectedTo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+      }
+      if (w.direction === "out" && w.paramName) {
+        signals.push(w.paramName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+      }
+    }
+  }
+
+  const extra = [
+    ...Array.from(downstream).map(d => d.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    ...signals,
+  ];
+  if (extra.length === 0) return baseFilter;
+
+  const combined = [...baseFilter.source.split("|"), ...extra].join("|");
+  return new RegExp(combined, "i");
+}
+
+// ---------------------------------------------------------------------------
+// Action filtering for branches
+// ---------------------------------------------------------------------------
+
+/**
+ * Filter a step's actions for one branch. Uses both keyword filtering and
+ * comma/semicolon splitting for actions that mention both branches.
  */
 function filterBranchActions(
   actions: ProcessAction[],
@@ -543,7 +618,6 @@ function filterBranchActions(
       if (matchesDrop && !matchesKeep) return null;
 
       if (matchesDrop && matchesKeep) {
-        // Try to extract only the relevant portion
         const parts = a.description.split(/[,;]/).map(p => p.trim()).filter(Boolean);
         const relevant = parts.filter(p => keepFilter.test(p) || !dropFilter.test(p));
         if (relevant.length > 0) return { ...a, description: relevant.join(", ") };
@@ -555,8 +629,98 @@ function filterBranchActions(
     .filter((a): a is ProcessAction => a !== null);
 }
 
-function buildBranchStepLabel(step: ProcessStep, actions: ProcessAction[]): string {
-  const title = `Step ${step.stepNumber}`;
+// ---------------------------------------------------------------------------
+// Monitoring step insertion
+// ---------------------------------------------------------------------------
+
+/** Extract signal names set to ON or OFF from step actions. */
+function extractOutputSignals(actions: ProcessAction[], polarity: "ON" | "OFF"): string[] {
+  const signals: string[] = [];
+  const re =
+    polarity === "ON"
+      ? /\b(\w+)\s*=\s*(ON|TRUE|1)\b/gi
+      : /\b(\w+)\s*=\s*(OFF|FALSE|0)\b/gi;
+  for (const action of actions) {
+    for (const m of action.description.matchAll(re)) {
+      signals.push(m[1]);
+    }
+  }
+  return signals;
+}
+
+/**
+ * Find the completion/feedback signal for a given output signal by looking at
+ * the device's wiring for inputs that suggest completion semantics.
+ */
+function findCompletionSignal(outputSignal: string, deviceLinkage: LinkageDevice[]): string | null {
+  const lower = outputSignal.toLowerCase();
+  const driver = deviceLinkage.find(d =>
+    (d.wiring ?? []).some(
+      w => w.direction === "out" && w.wireType === "io" && w.connectedTo.toLowerCase().includes(lower),
+    ),
+  );
+  if (!driver) return null;
+
+  const feedbackRe = /endsensor|end_sensor|feedback|complete|done|arriv|position|limit|detect|finish/i;
+  const wire = (driver.wiring ?? []).find(
+    w => w.direction === "in" && (feedbackRe.test(w.paramName) || feedbackRe.test(w.connectedTo)),
+  );
+  return wire?.connectedTo ?? null;
+}
+
+/**
+ * Insert a monitoring step between any output-ON step and the following
+ * output-OFF step when no wait/monitor step already exists between them.
+ */
+function insertMonitoringSteps(
+  steps: ProcessStep[],
+  deviceLinkage: LinkageDevice[],
+): ProcessStep[] {
+  const result: ProcessStep[] = [];
+
+  for (let i = 0; i < steps.length; i++) {
+    result.push(steps[i]);
+    if (i + 1 >= steps.length) continue;
+
+    // Skip if next step already monitors
+    const nextText = (steps[i + 1].actions ?? []).map(a => a.description).join(" ");
+    if (/\b(wait|monitor|poll|await)\b/i.test(nextText)) continue;
+
+    const thisON = extractOutputSignals(steps[i].actions ?? [], "ON");
+    const nextOFF = extractOutputSignals(steps[i + 1].actions ?? [], "OFF");
+    const matchingOutput = thisON.find(o =>
+      nextOFF.some(o2 => o.toLowerCase() === o2.toLowerCase()),
+    );
+    if (!matchingOutput) continue;
+
+    const completionSig = findCompletionSignal(matchingOutput, deviceLinkage);
+    const waitDesc = completionSig
+      ? `Monitor: wait ${completionSig}`
+      : `Monitor: wait for completion`;
+    const condDesc = completionSig ? `${completionSig} = TRUE` : "completion";
+
+    result.push({
+      id: `_mon_${i}`,
+      stepNumber: 0, // placeholder — renumbered below
+      actions: [{ id: `_mact_${i}`, description: waitDesc, deviceName: null }],
+      transition: {
+        combinator: "AND",
+        conditions: [{ id: `_mc_${i}`, description: condDesc, deviceName: null }],
+      },
+      devicesInvolved: steps[i].devicesInvolved ?? [],
+      notes: "",
+    });
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Branch step label helpers
+// ---------------------------------------------------------------------------
+
+function buildBranchStepLabel(stepNum: number, actions: ProcessAction[]): string {
+  const title = `Step ${stepNum}`;
   if (actions.length === 0) return escapeLabel(title);
   const primary = summarizeAction(actions[0].description, actions[0].deviceName);
   return escapeLabel(`${title}- ${primary}`);
@@ -566,16 +730,30 @@ function computeTransitionLabel(step: ProcessStep): string {
   const conditions = step.transition?.conditions ?? [];
   if (conditions.length === 0) return "";
   if (conditions.length === 1) {
-    return truncate(escapeLabel(shortenTransitionLabel(conditions[0].description, conditions[0].deviceName ?? null)), 18);
+    return truncate(
+      escapeLabel(shortenTransitionLabel(conditions[0].description, conditions[0].deviceName ?? null)),
+      18,
+    );
   }
-  const first = truncate(escapeLabel(shortenTransitionLabel(conditions[0].description, conditions[0].deviceName ?? null)), 12);
+  const first = truncate(
+    escapeLabel(shortenTransitionLabel(conditions[0].description, conditions[0].deviceName ?? null)),
+    12,
+  );
   return `${first} +${conditions.length - 1}`;
 }
 
+// ---------------------------------------------------------------------------
+// Branch renderer
+// ---------------------------------------------------------------------------
+
 /**
  * Render steps with a synthesized XOR branch.
- * Pre-branch steps render linearly, then a XOR diamond forks into two parallel
- * subgraph paths, rejoining at the first neutral (non-directional) step.
+ * - Pre-branch steps: linear
+ * - XOR diamond
+ * - Branch A (subgraph pathFwd): filtered + monitoring inserted + unique step numbers
+ * - Branch B (subgraph pathRev): same
+ * - Merge step (first neutral step after branches) + post steps: linear
+ * - IDLE
  */
 function renderBranchedSteps(
   steps: ProcessStep[],
@@ -594,8 +772,7 @@ function renderBranchedSteps(
   for (let i = 0; i <= preBranchEnd; i++) {
     const step = steps[i];
     const stepId = `S${step.stepNumber}`;
-    const stepClass = getStepClass(step, context.deviceLinkage);
-    lines.push(`    ${stepId}["${buildStepLabel(step)}"]:::${stepClass}`);
+    lines.push(`    ${stepId}["${buildStepLabel(step)}"]:::${getStepClass(step, context.deviceLinkage)}`);
     if (prevNode) {
       const arrow = prevLabel ? `-->|${escapeLabel(prevLabel)}|` : `-->`;
       lines.push(`    ${prevNode} ${arrow} ${stepId}`);
@@ -608,35 +785,63 @@ function renderBranchedSteps(
   const triggerNum = preBranchEnd >= 0 ? steps[preBranchEnd].stepNumber : 0;
   const xorId = `XOR${triggerNum}`;
   lines.push(`    ${xorId}{"XOR"}:::decision`);
-  if (prevNode) {
-    lines.push(`    ${prevNode} --> ${xorId}`);
-  }
+  if (prevNode) lines.push(`    ${prevNode} --> ${xorId}`);
 
-  // ── 3. Classify branch steps ───────────────────────────────────────────────
+  // ── 3. Find branch region ─────────────────────────────────────────────────
   const regionSteps = steps.slice(branch.branchRegionStart);
-  let mergeOffset = regionSteps.length; // index within regionSteps where branches converge
+  let mergeOffset = regionSteps.length;
 
   for (let i = 0; i < regionSteps.length; i++) {
     const text = (regionSteps[i].actions ?? []).map(a => a.description).join(" ");
-    const mA = branch.branchAFilter.test(text);
-    const mB = branch.branchBFilter.test(text);
-    if (!mA && !mB) { mergeOffset = i; break; }
+    if (!branch.branchAFilter.test(text) && !branch.branchBFilter.test(text)) {
+      mergeOffset = i;
+      break;
+    }
   }
 
   const branchSteps = regionSteps.slice(0, mergeOffset);
   const postSteps = regionSteps.slice(mergeOffset);
 
-  // ── 4. Render branch A (subgraph) ─────────────────────────────────────────
+  // ── 4. Build wiring-enhanced filters ──────────────────────────────────────
+  const filterA = buildWiringEnhancedFilter(branch.condAText, branch.branchAFilter, context.deviceLinkage);
+  const filterB = buildWiringEnhancedFilter(branch.condBText, branch.branchBFilter, context.deviceLinkage);
+
+  // ── 5. Compute unique step numbers ────────────────────────────────────────
+  const lastPreNum = preBranchEnd >= 0 ? steps[preBranchEnd].stepNumber : 0;
+  const branchABase = Math.ceil(lastPreNum / 10 + 1) * 10;
+  const branchBBase = branchABase + 50;
+
+  // ── 6. Filter actions, insert monitoring, renumber ─────────────────────────
+  const rawA = branchSteps.map(s => ({
+    ...s,
+    actions: filterBranchActions(s.actions ?? [], filterA, filterB),
+  }));
+  const rawB = branchSteps.map(s => ({
+    ...s,
+    actions: filterBranchActions(s.actions ?? [], filterB, filterA),
+  }));
+
+  const withMonA = insertMonitoringSteps(rawA, context.deviceLinkage);
+  const withMonB = insertMonitoringSteps(rawB, context.deviceLinkage);
+
+  const numberedA = withMonA.map((s, i) => ({ ...s, stepNumber: branchABase + i * 10 }));
+  const numberedB = withMonB.map((s, i) => ({ ...s, stepNumber: branchBBase + i * 10 }));
+
+  // ── 7. Render branch A subgraph ───────────────────────────────────────────
   let lastNodeA = "";
-  if (branchSteps.length > 0) {
+  if (numberedA.length > 0) {
     lines.push(`    subgraph pathFwd[" "]`);
     let prevA = "";
-    for (const step of branchSteps) {
-      const id = `A_S${step.stepNumber}`;
-      const filtered = filterBranchActions(step.actions ?? [], branch.branchAFilter, branch.branchBFilter);
-      const label = buildBranchStepLabel(step, filtered);
-      const cls = filtered.some(a => /\b(wait|monitor)\b/i.test(a.description)) ? "monitor" : "step";
-      lines.push(`        ${id}["${label}"]:::${cls}`);
+    for (const step of numberedA) {
+      const id = `SA${step.stepNumber}`;
+      const cls = /\b(wait|monitor)\b/i.test((step.actions ?? []).map(a => a.description).join(" "))
+        ? "monitor"
+        : "step";
+      lines.push(`        ${id}["${buildBranchStepLabel(step.stepNumber, step.actions ?? [])}"]:::${cls}`);
+      if (step.notes === "" && (step.actions ?? []).some(a => /\b(wait|monitor)\b/i.test(a.description))) {
+        // auto-inserted monitoring step — add fault exit
+        lines.push(`        ${id} -->|Fault| FAULT`);
+      }
       if (prevA) lines.push(`        ${prevA} --> ${id}`);
       prevA = id;
     }
@@ -644,17 +849,20 @@ function renderBranchedSteps(
     lastNodeA = prevA;
   }
 
-  // ── 5. Render branch B (subgraph) ─────────────────────────────────────────
+  // ── 8. Render branch B subgraph ───────────────────────────────────────────
   let lastNodeB = "";
-  if (branchSteps.length > 0) {
+  if (numberedB.length > 0) {
     lines.push(`    subgraph pathRev[" "]`);
     let prevB = "";
-    for (const step of branchSteps) {
-      const id = `B_S${step.stepNumber}`;
-      const filtered = filterBranchActions(step.actions ?? [], branch.branchBFilter, branch.branchAFilter);
-      const label = buildBranchStepLabel(step, filtered);
-      const cls = filtered.some(a => /\b(wait|monitor)\b/i.test(a.description)) ? "monitor" : "step";
-      lines.push(`        ${id}["${label}"]:::${cls}`);
+    for (const step of numberedB) {
+      const id = `SB${step.stepNumber}`;
+      const cls = /\b(wait|monitor)\b/i.test((step.actions ?? []).map(a => a.description).join(" "))
+        ? "monitor"
+        : "step";
+      lines.push(`        ${id}["${buildBranchStepLabel(step.stepNumber, step.actions ?? [])}"]:::${cls}`);
+      if (step.notes === "" && (step.actions ?? []).some(a => /\b(wait|monitor)\b/i.test(a.description))) {
+        lines.push(`        ${id} -->|Fault| FAULT`);
+      }
       if (prevB) lines.push(`        ${prevB} --> ${id}`);
       prevB = id;
     }
@@ -662,33 +870,41 @@ function renderBranchedSteps(
     lastNodeB = prevB;
   }
 
-  // ── 6. Connect XOR → branches ─────────────────────────────────────────────
-  if (branchSteps.length > 0) {
-    const firstNum = branchSteps[0].stepNumber;
-    lines.push(`    ${xorId} -->|${branch.branchALabel}| A_S${firstNum}`);
-    lines.push(`    ${xorId} -->|${branch.branchBLabel}| B_S${firstNum}`);
-  } else {
-    // No branch steps detected — just go to IDLE
+  // ── 9. Connect XOR → branches ─────────────────────────────────────────────
+  if (numberedA.length > 0) {
+    lines.push(`    ${xorId} -->|${branch.branchALabel}| SA${numberedA[0].stepNumber}`);
+  }
+  if (numberedB.length > 0) {
+    lines.push(`    ${xorId} -->|${branch.branchBLabel}| SB${numberedB[0].stepNumber}`);
+  }
+  if (numberedA.length === 0 && numberedB.length === 0) {
     lines.push(`    ${xorId} --> IDLE`);
   }
 
-  // ── 7. IDLE node ──────────────────────────────────────────────────────────
+  // ── 10. IDLE node ─────────────────────────────────────────────────────────
   lines.push(`    IDLE(["Idle / Complete"]):::idle`);
 
-  // ── 8. Post-merge steps ───────────────────────────────────────────────────
+  // ── 11. Merge step number ──────────────────────────────────────────────────
+  const lastANum = numberedA.at(-1)?.stepNumber ?? 0;
+  const lastBNum = numberedB.at(-1)?.stepNumber ?? 0;
+  const mergeNum = Math.ceil(Math.max(lastANum, lastBNum) / 10 + 1) * 10;
+
+  // ── 12. Post-merge steps ───────────────────────────────────────────────────
   if (postSteps.length > 0) {
+    const mergeId = `SM${mergeNum}`;
     const mergeStep = postSteps[0];
-    const mergeId = `S${mergeStep.stepNumber}`;
-    lines.push(`    ${mergeId}["${buildStepLabel(mergeStep)}"]:::${getStepClass(mergeStep, context.deviceLinkage)}`);
+    lines.push(`    ${mergeId}["${buildStepLabel({ ...mergeStep, stepNumber: mergeNum })}"]:::${getStepClass(mergeStep, context.deviceLinkage)}`);
     if (lastNodeA) lines.push(`    ${lastNodeA} --> ${mergeId}`);
     if (lastNodeB) lines.push(`    ${lastNodeB} --> ${mergeId}`);
 
     let prevMerge = mergeId;
+    let mergeOffset2 = mergeNum + 10;
     for (const step of postSteps.slice(1)) {
-      const id = `S${step.stepNumber}`;
-      lines.push(`    ${id}["${buildStepLabel(step)}"]:::${getStepClass(step, context.deviceLinkage)}`);
+      const id = `SM${mergeOffset2}`;
+      lines.push(`    ${id}["${buildStepLabel({ ...step, stepNumber: mergeOffset2 })}"]:::${getStepClass(step, context.deviceLinkage)}`);
       lines.push(`    ${prevMerge} --> ${id}`);
       prevMerge = id;
+      mergeOffset2 += 10;
     }
     lines.push(`    ${prevMerge} --> IDLE`);
   } else {
