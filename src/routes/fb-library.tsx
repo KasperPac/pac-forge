@@ -61,8 +61,9 @@ import {
   useRevertFbTemplateVersion,
 } from "@/hooks/use-fb-templates";
 import { useGenerateFbSummary } from "@/hooks/use-generate-fb-summary";
+import { useGenerateFbFlow, parseFlowDiagramJson } from "@/hooks/use-fb-flow-generate";
 import { FbFlowRenderer } from "@/components/forge/fb-flow-renderer";
-import { parseFbFlow } from "@/lib/fb-flow-diagram";
+import type { FbFlowDiagram } from "@/lib/fb-flow-diagram";
 import {
   useFbDeviceCategories,
   useCreateFbDeviceCategory,
@@ -385,6 +386,7 @@ export default function FbLibraryPage() {
   }
 
   const { generate: generateSummary, loadingId: summaryLoadingId } = useGenerateFbSummary();
+  const { generate: generateFlow, loadingId: flowLoadingId } = useGenerateFbFlow();
 
   const isSaving = createTemplate.isPending || updateTemplate.isPending;
   const hasBlocks = form.blocks.some((b) => b.scl_code.trim() !== "");
@@ -531,6 +533,8 @@ export default function FbLibraryPage() {
               }}
               onGenerateSummary={generateSummary}
               summaryLoading={summaryLoadingId === template.id}
+              onGenerateFlow={generateFlow}
+              flowLoading={flowLoadingId === template.id}
             />
           ))}
         </div>
@@ -883,6 +887,8 @@ function TemplateCard({
   onViewHistory,
   onGenerateSummary,
   summaryLoading,
+  onGenerateFlow,
+  flowLoading,
 }: {
   template: FbTemplate;
   onEdit: (t: FbTemplate) => void;
@@ -890,15 +896,26 @@ function TemplateCard({
   onViewHistory: (id: string) => void;
   onGenerateSummary: (t: FbTemplate) => void;
   summaryLoading: boolean;
+  onGenerateFlow: (t: FbTemplate) => Promise<FbFlowDiagram[] | null>;
+  flowLoading: boolean;
 }) {
   const [diagramOpen, setDiagramOpen] = useState(false);
   const [diagramFullscreen, setDiagramFullscreen] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [localFlowDiagrams, setLocalFlowDiagrams] = useState<FbFlowDiagram[] | null>(null);
 
   const hasScl = (template.blocks ?? []).some((b) => b.scl_code.trim());
-  const flowDiagrams = diagramOpen && hasScl
-    ? parseFbFlow((template.blocks ?? []).map((b) => b.scl_code).join("\n\n"))
-    : [];
+
+  // Use stored JSON if available, otherwise use locally generated result
+  const storedDiagrams = template.flow_diagram_json
+    ? parseFlowDiagramJson(template.flow_diagram_json)
+    : null;
+  const flowDiagrams: FbFlowDiagram[] = storedDiagrams ?? localFlowDiagrams ?? [];
+
+  async function handleGenerateFlow() {
+    const result = await onGenerateFlow(template);
+    if (result) setLocalFlowDiagrams(result);
+  }
   const blocks = template.blocks ?? [];
   const previewBlock = blocks[0];
   const previewLines = previewBlock?.scl_code.split("\n").slice(0, 5) ?? [];
@@ -1028,14 +1045,34 @@ function TemplateCard({
       {/* Signal flow diagram collapsible */}
       {hasScl && (
         <div className="mt-2 border-t border-border/40 pt-2">
-          <button
-            className="flex w-full items-center gap-1 font-mono text-xs text-blue-400/80 hover:text-blue-400"
-            onClick={() => setDiagramOpen((o) => !o)}
-          >
-            <GitBranch className="h-3 w-3 shrink-0" />
-            Signal Flow
-            <ChevronDown className={`ml-auto h-3 w-3 transition-transform ${diagramOpen ? "rotate-180" : ""}`} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              className="flex flex-1 items-center gap-1 font-mono text-xs text-blue-400/80 hover:text-blue-400"
+              onClick={() => setDiagramOpen((o) => !o)}
+            >
+              <GitBranch className="h-3 w-3 shrink-0" />
+              Signal Flow
+              {template.flow_diagram_generated_at && (
+                <span className="ml-1 text-[10px] text-muted-foreground">
+                  {new Date(template.flow_diagram_generated_at).toLocaleDateString()}
+                </span>
+              )}
+              <ChevronDown className={`ml-auto h-3 w-3 transition-transform ${diagramOpen ? "rotate-180" : ""}`} />
+            </button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-5 w-5 p-0"
+              title={flowDiagrams.length > 0 ? "Regenerate signal flow" : "Generate signal flow with AI"}
+              onClick={handleGenerateFlow}
+              disabled={flowLoading}
+            >
+              {flowLoading
+                ? <Loader2 className="h-2.5 w-2.5 animate-spin text-blue-400" />
+                : <Sparkles className={`h-2.5 w-2.5 ${flowDiagrams.length > 0 ? "text-blue-400" : "text-muted-foreground"}`} />
+              }
+            </Button>
+          </div>
           {diagramOpen && (
             <div className="relative mt-2 overflow-x-auto rounded border border-border/50 bg-muted/30">
               <Button
@@ -1049,7 +1086,11 @@ function TemplateCard({
               </Button>
               {flowDiagrams.length > 0
                 ? <FbFlowRenderer diagrams={flowDiagrams} />
-                : <p className="px-3 py-4 text-center font-mono text-xs text-muted-foreground">No signal flow detected</p>
+                : (
+                  <p className="px-3 py-4 text-center font-mono text-xs text-muted-foreground">
+                    Click <Sparkles className="inline h-2.5 w-2.5" /> to generate AI signal flow
+                  </p>
+                )
               }
             </div>
           )}
@@ -1077,7 +1118,7 @@ function TemplateCard({
             <div style={{ transform: `scale(${zoom})`, transformOrigin: "top left", transition: "transform 0.15s ease" }}>
               {flowDiagrams.length > 0
                 ? <FbFlowRenderer diagrams={flowDiagrams} />
-                : <p className="px-6 py-8 font-mono text-xs text-muted-foreground">No signal flow detected</p>
+                : <p className="px-6 py-8 font-mono text-xs text-muted-foreground">No signal flow generated yet — click the sparkle button on the card</p>
               }
             </div>
           </div>

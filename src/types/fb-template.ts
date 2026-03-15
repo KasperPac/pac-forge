@@ -36,6 +36,8 @@ export interface FbTemplate {
   ai_summary: string | null;
   diagram_chart: string | null;
   diagram_generated_at: string | null;
+  flow_diagram_json: string | null;
+  flow_diagram_generated_at: string | null;
   version: number;
   tags: string[];
   created_by: string | null;
@@ -45,7 +47,7 @@ export interface FbTemplate {
   profile_ids?: string[];
 }
 
-export type FbTemplateCreate = Omit<FbTemplate, "id" | "created_at" | "updated_at" | "created_by" | "blocks" | "profile_ids" | "version" | "ai_summary" | "diagram_chart" | "diagram_generated_at"> & {
+export type FbTemplateCreate = Omit<FbTemplate, "id" | "created_at" | "updated_at" | "created_by" | "blocks" | "profile_ids" | "version" | "ai_summary" | "diagram_chart" | "diagram_generated_at" | "flow_diagram_json" | "flow_diagram_generated_at"> & {
   blocks: Array<{ block_name: string; block_type: FbBlockType; scl_code: string; sort_order: number }>;
   profile_ids?: string[];
 };

@@ -1704,3 +1704,116 @@ ${code}
 
 Generate the Mermaid flowchart for this FB's internal logic now.`;
 }
+
+// ---------------------------------------------------------------------------
+// FB Signal Flow Diagram prompt (AI-generated FbFlowDiagram[] JSON)
+// ---------------------------------------------------------------------------
+
+/**
+ * System prompt for generating structured FbFlowDiagram[] JSON from SCL code.
+ * The AI reads the SCL, understands the signal flow semantics, and produces
+ * the exact JSON schema used by FbFlowRenderer.
+ */
+export function buildFbFlowSystemPrompt(): string {
+  return `You are a senior PLC automation engineer analysing Siemens TIA Portal SCL Function Blocks.
+
+Your task is to generate a structured signal flow diagram that shows how VAR_INPUT signals flow through internal logic to each VAR_OUTPUT.
+
+## Output format
+
+Output a JSON array of diagram groups wrapped in [FLOW_DIAGRAM]...[/FLOW_DIAGRAM] tags. Each group covers a set of related outputs. Use these exact TypeScript types:
+
+\`\`\`
+interface FbFlowDiagram {
+  title: string;              // e.g. "ControlConveyor — Control Outputs"
+  columns: FbFlowColumn[];
+}
+interface FbFlowColumn {
+  outputName: string;         // The VAR_OUTPUT name this column traces to
+  nodes: FbFlowNode[];
+  connections: FbFlowConnection[];
+}
+interface FbFlowNode {
+  id: string;                 // unique within the diagram, e.g. "n1", "n2"
+  type: "input" | "condition" | "timer" | "intermediate" | "output" | "fault";
+  label: string;              // short, e.g. "#_Sensor", "#statState = 1", "#M002R.Q"
+  sublabel?: string;          // optional second line, e.g. "PT: T#30s"
+  shape: "rect" | "pill" | "hexagon";
+  x: number;                  // layout x in pixels
+  y: number;                  // layout y in pixels
+  width: number;
+  height: number;
+}
+interface FbFlowConnection {
+  fromId: string;
+  toId: string;
+  type: "normal" | "fault" | "selfhold" | "reset";
+  label?: string;             // "AND", "OR", "TRUE", "FALSE" at merge/split points
+}
+\`\`\`
+
+## Node rules
+
+- **VAR_INPUT** → type: "input", shape: "rect", width: 160, height: 38
+- **Condition / comparison** → type: "condition", shape: "rect", width: 160, height: 38
+- **Timer / edge instance** → type: "timer", shape: "rect", width: 160, height: 38, sublabel: "PT: T#Xs"
+- **Static intermediate variable** → type: "intermediate", shape: "pill", width: 160, height: 38
+- **VAR_OUTPUT** → type: "output", shape: "hexagon", width: 160, height: 44
+- **Fault latch / fault output** → type: "fault", shape: "rect" (or "hexagon" for VAR_OUTPUT), width: 160, height: 38
+
+## Layout rules
+
+- Columns are laid out left to right. Column X positions: col 0 at x=32, col 1 at x=224, col 2 at x=416, col 3 at x=608
+- Within each column, nodes stack top to bottom. Start y=32. Each node: y += (height + 28)
+- The VAR_OUTPUT hexagon is always the BOTTOM node in its column
+- AND conditions: stack vertically (one above the other in the same column)
+- OR conditions: side by side at the same Y level, offset ±100px from column centre
+
+## Signal tracing rules
+
+For each VAR_OUTPUT:
+1. Find its direct assignment: \`#output := expression\`
+2. Trace the expression RECURSIVELY until you reach VAR_INPUT variables or constants
+3. For intermediate static/temp vars, trace THEIR assignment too — show the full chain
+4. For timers: \`#timer(IN := #cond, PT := T#Xs)\` then \`#result := #timer.Q\` → show condition → timer node (with PT sublabel) → .Q → result
+5. For self-hold latches: \`#latch := (#set OR #latch) AND #hold\` → show set and latch (dashed selfhold) as OR inputs, then AND with hold, dashed arrow back to latch input
+6. For CASE state machine outputs like \`#runForward := (#statState = 1) AND NOT #fault AND NOT #eStop\`: show each term as a condition node, AND-chained vertically
+
+## Grouping
+
+Split outputs into diagrams by type (max 4 columns per diagram):
+- "Control Outputs": run commands, direction outputs, motor outputs
+- "Fault Outputs": fault latches, error flags, eStop status
+- "Status Outputs": busy, idle, running flags, status words, remaining time
+
+## Important
+
+- Every connection's fromId and toId MUST reference real node IDs in the same diagram
+- Nodes must be unique per column — do NOT reuse the same input node across columns if they have different IDs
+- Keep labels SHORT — max 4-5 words. Use \`#varName\` format for variable references
+- Generate realistic x/y coordinates that would produce a clean top-down layout`;
+}
+
+/**
+ * User message for the FB signal flow generation call.
+ */
+export function buildFbFlowUserMessage(template: {
+  name: string;
+  device_category: string;
+  description: string | null;
+  blocks?: Array<{ block_type: string; block_name: string; scl_code: string }>;
+}): string {
+  const code = (template.blocks ?? [])
+    .filter((b) => b.scl_code.trim())
+    .map((b) => `// ${b.block_type}: ${b.block_name}\n${b.scl_code}`)
+    .join("\n\n---\n\n");
+
+  const descLine = template.description ? `Description: ${template.description}\n` : "";
+
+  return `FB Template: "${template.name}" | Category: ${template.device_category}
+${descLine}
+SCL Code:
+${code}
+
+Analyse the signal flow and generate the FbFlowDiagram[] JSON now, wrapped in [FLOW_DIAGRAM]...[/FLOW_DIAGRAM] tags.`;
+}
