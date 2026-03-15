@@ -1,6 +1,7 @@
 import type {
   ProcessSequence,
   ProcessStep,
+  ProcessAction,
   TransitionCondition,
   LinkageDevice,
 } from "@/types/process-builder";
@@ -411,6 +412,297 @@ function buildPermissivesSection(
   return { lines, hasPerm: true };
 }
 
+// ---------------------------------------------------------------------------
+// Synthesized branch detection and rendering
+// ---------------------------------------------------------------------------
+
+/**
+ * Mutually exclusive direction keyword pairs.
+ * If a step's action text matches BOTH sides of a pair, it needs to be split.
+ */
+const DIRECTION_PAIRS: Array<{ a: string[]; b: string[]; labelA: string; labelB: string }> = [
+  {
+    a: ["fwd", "forward", "cmd_fwd", "fwdrun", "dir.*fwd", "direction.*forward"],
+    b: ["rev", "reverse", "cmd_rev", "revrun", "dir.*rev", "direction.*reverse"],
+    labelA: "Forward",
+    labelB: "Reverse",
+  },
+  {
+    a: ["open", "opening", "cmd_open"],
+    b: ["clos", "closing", "cmd_close"],
+    labelA: "Open",
+    labelB: "Close",
+  },
+  {
+    a: ["extend", "advance"],
+    b: ["retract", "retreat"],
+    labelA: "Extend",
+    labelB: "Retract",
+  },
+  {
+    a: ["\\bup\\b", "raise"],
+    b: ["\\bdown\\b", "lower"],
+    labelA: "Up",
+    labelB: "Down",
+  },
+];
+
+function buildBranchFilter(keywords: string[]): RegExp {
+  return new RegExp(keywords.join("|"), "i");
+}
+
+interface BranchKws {
+  a: string[];
+  b: string[];
+  labelA: string;
+  labelB: string;
+}
+
+function detectDirectionPair(text: string): BranchKws | null {
+  for (const pair of DIRECTION_PAIRS) {
+    const aRe = buildBranchFilter(pair.a);
+    const bRe = buildBranchFilter(pair.b);
+    if (aRe.test(text) && bRe.test(text)) return pair;
+  }
+  return null;
+}
+
+interface SynthBranchInfo {
+  /** Index of the last pre-branch step (the step whose transition triggers the split). -1 = no pre-branch step */
+  triggerStepIndex: number;
+  branchALabel: string;
+  branchBLabel: string;
+  branchAFilter: RegExp;
+  branchBFilter: RegExp;
+  /** First step index (in steps[]) of the branching region */
+  branchRegionStart: number;
+}
+
+function detectSynthBranch(steps: ProcessStep[]): SynthBranchInfo | null {
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    const conditions = step.transition?.conditions ?? [];
+    const isOr = step.transition?.combinator === "OR" && conditions.length >= 2;
+    const hasExplicitTargets = isOr && conditions.every(c => c.targetStepNumber != null);
+
+    // Already handled by explicit XOR logic
+    if (hasExplicitTargets) continue;
+
+    // Case A: OR transition without explicit targetStepNumbers
+    if (isOr) {
+      const lookAheadText = [
+        ...conditions.map(c => c.description),
+        ...steps.slice(i + 1).flatMap(s => (s.actions ?? []).map(a => a.description)),
+      ].join(" ");
+      const pair = detectDirectionPair(lookAheadText);
+      if (pair) {
+        const condA = conditions[0]?.description ?? pair.labelA;
+        const condB = conditions[1]?.description ?? pair.labelB;
+        return {
+          triggerStepIndex: i,
+          branchALabel: truncate(escapeLabel(shortenTransitionLabel(condA, null)), 18),
+          branchBLabel: truncate(escapeLabel(shortenTransitionLabel(condB, null)), 18),
+          branchAFilter: buildBranchFilter(pair.a),
+          branchBFilter: buildBranchFilter(pair.b),
+          branchRegionStart: i + 1,
+        };
+      }
+    }
+
+    // Case B: step whose action text contains BOTH sides of a direction pair
+    const stepText = (step.actions ?? []).map(a => a.description).join(" ");
+    const pair = detectDirectionPair(stepText);
+    if (pair) {
+      return {
+        triggerStepIndex: i - 1,
+        branchALabel: pair.labelA,
+        branchBLabel: pair.labelB,
+        branchAFilter: buildBranchFilter(pair.a),
+        branchBFilter: buildBranchFilter(pair.b),
+        branchRegionStart: i,
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Filter a step's actions for a specific branch, stripping actions that belong
+ * only to the OTHER branch. Actions matching both are split on commas/semicolons.
+ */
+function filterBranchActions(
+  actions: ProcessAction[],
+  keepFilter: RegExp,
+  dropFilter: RegExp,
+): ProcessAction[] {
+  return actions
+    .map((a): ProcessAction | null => {
+      const matchesKeep = keepFilter.test(a.description);
+      const matchesDrop = dropFilter.test(a.description);
+
+      if (matchesDrop && !matchesKeep) return null;
+
+      if (matchesDrop && matchesKeep) {
+        // Try to extract only the relevant portion
+        const parts = a.description.split(/[,;]/).map(p => p.trim()).filter(Boolean);
+        const relevant = parts.filter(p => keepFilter.test(p) || !dropFilter.test(p));
+        if (relevant.length > 0) return { ...a, description: relevant.join(", ") };
+        return null;
+      }
+
+      return a;
+    })
+    .filter((a): a is ProcessAction => a !== null);
+}
+
+function buildBranchStepLabel(step: ProcessStep, actions: ProcessAction[]): string {
+  const title = `Step ${step.stepNumber}`;
+  if (actions.length === 0) return escapeLabel(title);
+  const primary = summarizeAction(actions[0].description, actions[0].deviceName);
+  return escapeLabel(`${title}- ${primary}`);
+}
+
+function computeTransitionLabel(step: ProcessStep): string {
+  const conditions = step.transition?.conditions ?? [];
+  if (conditions.length === 0) return "";
+  if (conditions.length === 1) {
+    return truncate(escapeLabel(shortenTransitionLabel(conditions[0].description, conditions[0].deviceName ?? null)), 18);
+  }
+  const first = truncate(escapeLabel(shortenTransitionLabel(conditions[0].description, conditions[0].deviceName ?? null)), 12);
+  return `${first} +${conditions.length - 1}`;
+}
+
+/**
+ * Render steps with a synthesized XOR branch.
+ * Pre-branch steps render linearly, then a XOR diamond forks into two parallel
+ * subgraph paths, rejoining at the first neutral (non-directional) step.
+ */
+function renderBranchedSteps(
+  steps: ProcessStep[],
+  context: ProcessFlowContext,
+  entryNode: string,
+  entryLabel: string,
+  branch: SynthBranchInfo,
+): string[] {
+  const lines: string[] = [];
+
+  // ── 1. Pre-branch steps (linear) ──────────────────────────────────────────
+  const preBranchEnd = Math.max(-1, branch.triggerStepIndex);
+  let prevNode = entryNode;
+  let prevLabel = entryLabel;
+
+  for (let i = 0; i <= preBranchEnd; i++) {
+    const step = steps[i];
+    const stepId = `S${step.stepNumber}`;
+    const stepClass = getStepClass(step, context.deviceLinkage);
+    lines.push(`    ${stepId}["${buildStepLabel(step)}"]:::${stepClass}`);
+    if (prevNode) {
+      const arrow = prevLabel ? `-->|${escapeLabel(prevLabel)}|` : `-->`;
+      lines.push(`    ${prevNode} ${arrow} ${stepId}`);
+    }
+    prevNode = stepId;
+    prevLabel = computeTransitionLabel(step);
+  }
+
+  // ── 2. XOR node ────────────────────────────────────────────────────────────
+  const triggerNum = preBranchEnd >= 0 ? steps[preBranchEnd].stepNumber : 0;
+  const xorId = `XOR${triggerNum}`;
+  lines.push(`    ${xorId}{"XOR"}:::decision`);
+  if (prevNode) {
+    lines.push(`    ${prevNode} --> ${xorId}`);
+  }
+
+  // ── 3. Classify branch steps ───────────────────────────────────────────────
+  const regionSteps = steps.slice(branch.branchRegionStart);
+  let mergeOffset = regionSteps.length; // index within regionSteps where branches converge
+
+  for (let i = 0; i < regionSteps.length; i++) {
+    const text = (regionSteps[i].actions ?? []).map(a => a.description).join(" ");
+    const mA = branch.branchAFilter.test(text);
+    const mB = branch.branchBFilter.test(text);
+    if (!mA && !mB) { mergeOffset = i; break; }
+  }
+
+  const branchSteps = regionSteps.slice(0, mergeOffset);
+  const postSteps = regionSteps.slice(mergeOffset);
+
+  // ── 4. Render branch A (subgraph) ─────────────────────────────────────────
+  let lastNodeA = "";
+  if (branchSteps.length > 0) {
+    lines.push(`    subgraph pathFwd[" "]`);
+    let prevA = "";
+    for (const step of branchSteps) {
+      const id = `A_S${step.stepNumber}`;
+      const filtered = filterBranchActions(step.actions ?? [], branch.branchAFilter, branch.branchBFilter);
+      const label = buildBranchStepLabel(step, filtered);
+      const cls = filtered.some(a => /\b(wait|monitor)\b/i.test(a.description)) ? "monitor" : "step";
+      lines.push(`        ${id}["${label}"]:::${cls}`);
+      if (prevA) lines.push(`        ${prevA} --> ${id}`);
+      prevA = id;
+    }
+    lines.push(`    end`);
+    lastNodeA = prevA;
+  }
+
+  // ── 5. Render branch B (subgraph) ─────────────────────────────────────────
+  let lastNodeB = "";
+  if (branchSteps.length > 0) {
+    lines.push(`    subgraph pathRev[" "]`);
+    let prevB = "";
+    for (const step of branchSteps) {
+      const id = `B_S${step.stepNumber}`;
+      const filtered = filterBranchActions(step.actions ?? [], branch.branchBFilter, branch.branchAFilter);
+      const label = buildBranchStepLabel(step, filtered);
+      const cls = filtered.some(a => /\b(wait|monitor)\b/i.test(a.description)) ? "monitor" : "step";
+      lines.push(`        ${id}["${label}"]:::${cls}`);
+      if (prevB) lines.push(`        ${prevB} --> ${id}`);
+      prevB = id;
+    }
+    lines.push(`    end`);
+    lastNodeB = prevB;
+  }
+
+  // ── 6. Connect XOR → branches ─────────────────────────────────────────────
+  if (branchSteps.length > 0) {
+    const firstNum = branchSteps[0].stepNumber;
+    lines.push(`    ${xorId} -->|${branch.branchALabel}| A_S${firstNum}`);
+    lines.push(`    ${xorId} -->|${branch.branchBLabel}| B_S${firstNum}`);
+  } else {
+    // No branch steps detected — just go to IDLE
+    lines.push(`    ${xorId} --> IDLE`);
+  }
+
+  // ── 7. IDLE node ──────────────────────────────────────────────────────────
+  lines.push(`    IDLE(["Idle / Complete"]):::idle`);
+
+  // ── 8. Post-merge steps ───────────────────────────────────────────────────
+  if (postSteps.length > 0) {
+    const mergeStep = postSteps[0];
+    const mergeId = `S${mergeStep.stepNumber}`;
+    lines.push(`    ${mergeId}["${buildStepLabel(mergeStep)}"]:::${getStepClass(mergeStep, context.deviceLinkage)}`);
+    if (lastNodeA) lines.push(`    ${lastNodeA} --> ${mergeId}`);
+    if (lastNodeB) lines.push(`    ${lastNodeB} --> ${mergeId}`);
+
+    let prevMerge = mergeId;
+    for (const step of postSteps.slice(1)) {
+      const id = `S${step.stepNumber}`;
+      lines.push(`    ${id}["${buildStepLabel(step)}"]:::${getStepClass(step, context.deviceLinkage)}`);
+      lines.push(`    ${prevMerge} --> ${id}`);
+      prevMerge = id;
+    }
+    lines.push(`    ${prevMerge} --> IDLE`);
+  } else {
+    if (lastNodeA) lines.push(`    ${lastNodeA} --> IDLE`);
+    if (lastNodeB) lines.push(`    ${lastNodeB} --> IDLE`);
+  }
+
+  return lines;
+}
+
+// ---------------------------------------------------------------------------
+// Main steps section builder
+// ---------------------------------------------------------------------------
+
 function buildStepsSection(
   sequence: ProcessSequence,
   context: ProcessFlowContext,
@@ -421,6 +713,13 @@ function buildStepsSection(
   if (steps.length === 0) return [];
 
   const lines: string[] = ["    %% Steps"];
+
+  // Detect direction-dependent steps that need synthetic parallel branching
+  const synthBranch = detectSynthBranch(steps);
+  if (synthBranch) {
+    lines.push(...renderBranchedSteps(steps, context, entryNode, entryLabel, synthBranch));
+    return lines;
+  }
 
   // Pre-compute branch target step numbers (reached via XOR diamond, not linear chain)
   const branchTargetNums = new Set<number>();
