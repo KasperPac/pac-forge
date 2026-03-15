@@ -69,6 +69,7 @@ type ExprNode =
 interface TimerCall {
   timerName: string;
   inCondition: string | null;
+  ptExpression: string | null;
 }
 
 interface EdgeCall {
@@ -153,13 +154,19 @@ function parseTimerCalls(scl: string): TimerCall[] {
   const clean = stripComments(scl);
   const result: TimerCall[] = [];
 
-  // #timerName(IN := #condition, ...)
-  const re = /#(\w+)\s*\(\s*IN\s*:=\s*([^,)]+)/gi;
+  // Match the full call block: #timerName( ... ) across multiple lines
+  const callRe = /#(\w+)\s*\(([^)]+)\)/gi;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(clean)) !== null) {
+  while ((m = callRe.exec(clean)) !== null) {
+    const timerName = m[1];
+    const body = m[2];
+    const inMatch = body.match(/IN\s*:=\s*([^,]+)/i);
+    const ptMatch = body.match(/PT\s*:=\s*([^,)]+)/i);
+    if (!inMatch) continue; // not a timer/FB call with IN param
     result.push({
-      timerName: m[1],
-      inCondition: m[2].trim(),
+      timerName,
+      inCondition: inMatch[1].trim(),
+      ptExpression: ptMatch ? ptMatch[1].trim() : null,
     });
   }
   return result;
@@ -349,7 +356,8 @@ interface BuildCtx {
   edgeCalls: EdgeCall[];
   faultLatches: FaultLatch[];
   nodeCounter: { n: number };
-  depth: number; // prevent infinite recursion
+  depth: number;
+  visited: Set<string>; // cycle prevention for self-hold / mutual assignments
 }
 
 function nextId(ctx: BuildCtx): string {
@@ -361,16 +369,6 @@ interface SubGraph {
   connections: FbFlowConnection[];
   /** The bottom-most node id that downstream nodes should connect from */
   outId: string;
-}
-
-/** Resolve a variable name: follow assignments if it is a temp/static */
-function resolveVar(name: string, ctx: BuildCtx): string {
-  if (ctx.depth > 6) return name;
-  const decl = ctx.vars.get(name);
-  if (!decl) return name;
-  // Don't follow inputs or outputs — they are sources/sinks
-  if (decl.kind === "input" || decl.kind === "output") return name;
-  return name;
 }
 
 /** Build sub-graph for an ExprNode, returning the output node id */
@@ -386,94 +384,116 @@ function buildExprGraph(
 
   switch (expr.kind) {
     case "var": {
-      const varName = resolveVar(expr.name, ctx);
-      const decl = ctx.vars.get(varName);
-      const id = nextId(ctx);
+      const rawName = expr.name; // may include ".Q" suffix e.g. "M002R_P1DlyBlocked.Q"
 
-      // Check if this var is a timer .Q reference
-      const timerCall = ctx.timerCalls.find(
-        (t) => varName === t.timerName,
-      );
-      const edgeCall = ctx.edgeCalls.find(
-        (e) => varName === e.edgeName,
-      );
+      // ── Timer/Edge .Q access ─────────────────────────────────────────────
+      const dotQMatch = rawName.match(/^(\w+)\.Q$/i);
+      if (dotQMatch) {
+        const timerName = dotQMatch[1];
+        const timerCall = ctx.timerCalls.find((t) => t.timerName === timerName);
+        const edgeCall = ctx.edgeCalls.find((e) => e.edgeName === timerName);
 
-      if (timerCall) {
-        // Timer node
-        const timerId = id;
-        nodes.push({
-          id: timerId,
-          type: "timer",
-          label: `#${varName}.Q`,
-          sublabel: "Timer output",
-          shape: "rect",
-          x: colX,
-          y: outputY,
-          width: NODE_WIDTH,
-          height: NODE_HEIGHT,
-        });
-        // Add the IN condition as an input node above the timer
-        if (timerCall.inCondition) {
-          const condId = nextId(ctx);
-          const condLabel = timerCall.inCondition
-            .replace(/#/g, "#")
-            .trim();
-          const condDecl = ctx.vars.get(
-            timerCall.inCondition.replace(/^#/, ""),
-          );
+        if (timerCall) {
+          const timerId = nextId(ctx);
+          const ptLabel = timerCall.ptExpression
+            ? `PT: ${timerCall.ptExpression.replace(/#/g, "#")}`
+            : undefined;
           nodes.push({
-            id: condId,
-            type: condDecl?.kind === "input" ? "input" : "condition",
-            label: condLabel,
+            id: timerId,
+            type: "timer",
+            label: `#${timerName}`,
+            sublabel: ptLabel,
             shape: "rect",
             x: colX,
-            y: outputY - NODE_HEIGHT - V_GAP,
+            y: outputY,
             width: NODE_WIDTH,
             height: NODE_HEIGHT,
           });
-          connections.push({
-            fromId: condId,
-            toId: timerId,
-            type: "normal",
-          });
+          // Recursively trace the IN condition
+          if (timerCall.inCondition) {
+            const inExpr = parseExpr(timerCall.inCondition);
+            const inSub = buildExprGraph(inExpr, outputY - NODE_HEIGHT - V_GAP, colX, ctx, isFault);
+            nodes.push(...inSub.nodes);
+            connections.push(...inSub.connections);
+            connections.push({ fromId: inSub.outId, toId: timerId, type: "normal" });
+          }
+          return { nodes, connections, outId: timerId };
         }
-        return { nodes, connections, outId: timerId };
+
+        if (edgeCall) {
+          const edgeId = nextId(ctx);
+          const edgeType = ctx.vars.get(timerName)?.type ?? "R_TRIG";
+          const arrow = edgeType === "F_TRIG" ? "↓" : "↑";
+          nodes.push({
+            id: edgeId,
+            type: "condition",
+            label: `#${timerName} (${arrow} edge)`,
+            shape: "rect",
+            x: colX,
+            y: outputY,
+            width: NODE_WIDTH,
+            height: NODE_HEIGHT,
+          });
+          if (edgeCall.clkCondition) {
+            const clkExpr = parseExpr(edgeCall.clkCondition);
+            const clkSub = buildExprGraph(clkExpr, outputY - NODE_HEIGHT - V_GAP, colX, ctx, isFault);
+            nodes.push(...clkSub.nodes);
+            connections.push(...clkSub.connections);
+            connections.push({ fromId: clkSub.outId, toId: edgeId, type: "normal" });
+          }
+          return { nodes, connections, outId: edgeId };
+        }
       }
 
-      if (edgeCall) {
-        const edgeId = id;
-        const edgeType = ctx.vars.get(varName)?.type ?? "R_TRIG";
-        const arrow = edgeType === "F_TRIG" ? "↓" : "↑";
-        nodes.push({
-          id: edgeId,
-          type: "condition",
-          label: `#${varName} (${arrow} edge)`,
-          shape: "rect",
-          x: colX,
-          y: outputY,
-          width: NODE_WIDTH,
-          height: NODE_HEIGHT,
-        });
-        return { nodes, connections, outId: edgeId };
+      const varName = rawName;
+      const decl = ctx.vars.get(varName);
+
+      // ── Recursively trace static/temp intermediate variables ─────────────
+      if (
+        (decl?.kind === "static" || decl?.kind === "temp") &&
+        !ctx.visited.has(varName)
+      ) {
+        ctx.visited.add(varName);
+        const assignment = ctx.assignments.find((a) => a.lhs === varName);
+
+        if (assignment) {
+          // Intermediate node for this variable (pill)
+          const interimId = nextId(ctx);
+          nodes.push({
+            id: interimId,
+            type: "intermediate",
+            label: `#${varName}`,
+            shape: "pill",
+            x: colX,
+            y: outputY,
+            width: NODE_WIDTH,
+            height: NODE_HEIGHT,
+          });
+
+          // Recursively build the sub-graph for the RHS of this assignment
+          const rhsExpr = parseExpr(assignment.rhs);
+          const sub = buildExprGraph(rhsExpr, outputY - NODE_HEIGHT - V_GAP, colX, ctx, isFault);
+          nodes.push(...sub.nodes);
+          connections.push(...sub.connections);
+          connections.push({ fromId: sub.outId, toId: interimId, type: isFault ? "fault" : "normal" });
+
+          ctx.visited.delete(varName);
+          return { nodes, connections, outId: interimId };
+        }
+
+        ctx.visited.delete(varName);
       }
 
+      // ── Leaf node (VAR_INPUT, constant, or unresolved) ───────────────────
+      const id = nextId(ctx);
       const nodeType: FbFlowNode["type"] =
-        decl?.kind === "input"
-          ? "input"
-          : isFault
-            ? "fault"
-            : decl?.kind === "static"
-              ? "intermediate"
-              : "condition";
-
-      const nodeShape: FbFlowNode["shape"] =
-        decl?.kind === "static" ? "pill" : "rect";
+        decl?.kind === "input" ? "input" : isFault ? "fault" : "condition";
 
       nodes.push({
         id,
         type: nodeType,
         label: `#${varName}`,
-        shape: nodeShape,
+        shape: "rect",
         x: colX,
         y: outputY,
         width: NODE_WIDTH,
@@ -923,6 +943,7 @@ export function parseFbFlow(sclContent: string): FbFlowDiagram[] {
     faultLatches,
     nodeCounter: { n: 0 },
     depth: 0,
+    visited: new Set(),
   };
 
   // Build columns
