@@ -1728,10 +1728,19 @@ interface FbFlowDiagram {
   title: string;              // e.g. "ControlConveyor — Control Outputs"
   columns: FbFlowColumn[];
 }
+interface FbFlowTruthTableRow {
+  values: string[];           // one value per header ("TRUE", "FALSE", "= 1", "ANY")
+  result: string;             // output value for this combination ("TRUE", state name, etc.)
+}
 interface FbFlowColumn {
   outputName: string;         // The VAR_OUTPUT name this column traces to
   nodes: FbFlowNode[];
   connections: FbFlowConnection[];
+  // Use truthTable INSTEAD of nodes/connections for IF/ELSIF/CASE state machine outputs:
+  truthTable?: {
+    headers: string[];        // input variable names shown as column headers
+    rows: FbFlowTruthTableRow[];
+  };
 }
 interface FbFlowNode {
   id: string;                 // unique within the diagram, e.g. "n1", "n2"
@@ -1779,6 +1788,15 @@ For each VAR_OUTPUT:
 5. For self-hold latches: \`#latch := (#set OR #latch) AND #hold\` → show set and latch (dashed selfhold) as OR inputs, then AND with hold, dashed arrow back to latch input
 6. For CASE state machine outputs like \`#runForward := (#statState = 1) AND NOT #fault AND NOT #eStop\`: show each term as a condition node, AND-chained vertically
 
+## Truth table rule (IMPORTANT)
+
+For any output whose value is determined by a CASE statement or a chain of IF/ELSIF conditions based on a state machine variable, use \`truthTable\` INSTEAD of nodes/connections:
+- \`headers\`: the input variables that determine the output (e.g. ["#statState", "#fault", "#eStop"])
+- \`rows\`: one row per branch/case, \`values\` matching each header, \`result\` = what the output becomes
+- Leave \`nodes\` as [] and \`connections\` as [] when \`truthTable\` is present
+- Example: \`#_runForward\` driven by CASE #statState: headers=["#statState"], rows=[{values:["1"],result:"TRUE"},{values:["OTHER"],result:"FALSE"}]
+- Example: \`#_status\` driven by (#statState = 2) AND NOT #fault: headers=["#statState","#fault"], rows=[{values:["= 2","FALSE"],result:"TRUE"},{values:["OTHER","ANY"],result:"FALSE"}]
+
 ## Grouping
 
 Split outputs into diagrams by type (max 4 columns per diagram):
@@ -1791,7 +1809,11 @@ Split outputs into diagrams by type (max 4 columns per diagram):
 - Every connection's fromId and toId MUST reference real node IDs in the same diagram
 - Nodes must be unique per column — do NOT reuse the same input node across columns if they have different IDs
 - Keep labels SHORT — max 4-5 words. Use \`#varName\` format for variable references
-- Generate realistic x/y coordinates that would produce a clean top-down layout`;
+- Generate realistic x/y coordinates that would produce a clean top-down layout
+
+## Output instruction
+
+Output ONLY the [FLOW_DIAGRAM] tag block — no explanation, no markdown fences, no text before or after the tags. Start your response with [FLOW_DIAGRAM] and end with [/FLOW_DIAGRAM].`;
 }
 
 /**

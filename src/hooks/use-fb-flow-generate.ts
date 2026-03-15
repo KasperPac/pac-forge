@@ -16,8 +16,13 @@ import type { FbFlowDiagram } from "@/lib/fb-flow-diagram";
 export function parseFlowDiagramJson(content: string): FbFlowDiagram[] | null {
   const match = content.match(/\[FLOW_DIAGRAM\]([\s\S]*?)\[\/FLOW_DIAGRAM\]/);
   if (!match) return null;
+
+  // Strip any markdown code fences the AI may have added inside the tags
+  let jsonStr = match[1].trim();
+  jsonStr = jsonStr.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+
   try {
-    const parsed = JSON.parse(match[1].trim());
+    const parsed = JSON.parse(jsonStr);
     if (!Array.isArray(parsed)) return null;
     return parsed as FbFlowDiagram[];
   } catch {
@@ -41,24 +46,39 @@ export function useGenerateFbFlow() {
           buildFbFlowSystemPrompt(),
           [{ role: "user", content: buildFbFlowUserMessage(template) }],
           abort.signal,
-          4096,
+          8192,
         );
 
         const diagrams = parseFlowDiagramJson(content);
-        if (!diagrams) return null;
+        if (!diagrams) {
+          console.error("[FbFlow] Failed to parse AI response. Raw content:", content.slice(0, 500));
+          throw new Error("AI did not return valid [FLOW_DIAGRAM] JSON. Check console for raw response.");
+        }
 
+        const now = new Date().toISOString();
         const jsonStr = JSON.stringify(diagrams);
         const { error } = await supabase
           .from("fb_templates")
           .update({
             flow_diagram_json: jsonStr,
-            flow_diagram_generated_at: new Date().toISOString(),
+            flow_diagram_generated_at: now,
           })
           .eq("id", template.id);
 
         if (error) throw error;
 
-        queryClient.invalidateQueries({ queryKey: ["fb-templates"] });
+        // Write directly into every matching cache entry so the data survives
+        // navigation without depending on a background refetch completing first.
+        queryClient.setQueriesData<FbTemplate[]>(
+          { queryKey: ["fb-templates"] },
+          (old) =>
+            old?.map((t) =>
+              t.id === template.id
+                ? { ...t, flow_diagram_json: jsonStr, flow_diagram_generated_at: now }
+                : t,
+            ),
+        );
+
         return diagrams;
       } finally {
         setLoadingId(null);

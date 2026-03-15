@@ -7,10 +7,20 @@ export interface FbFlowDiagram {
   columns: FbFlowColumn[];
 }
 
+export interface FbFlowTruthTableRow {
+  values: string[];   // one value per header column ("TRUE", "FALSE", "= 1", "ANY", etc.)
+  result: string;     // the output value for this row ("TRUE", "FALSE", state name, etc.)
+}
+
 export interface FbFlowColumn {
   outputName: string;
   nodes: FbFlowNode[];
   connections: FbFlowConnection[];
+  /** Present instead of nodes/connections for IF/ELSIF/CASE state machine outputs */
+  truthTable?: {
+    headers: string[];               // input variable names (column headers)
+    rows: FbFlowTruthTableRow[];
+  };
 }
 
 export interface FbFlowNode {
