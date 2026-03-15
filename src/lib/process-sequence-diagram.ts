@@ -1,8 +1,19 @@
-import type { ProcessSequence, ProcessStep, TransitionCondition } from "@/types/process-builder";
+import type {
+  ProcessSequence,
+  ProcessStep,
+  TransitionCondition,
+  LinkageDevice,
+} from "@/types/process-builder";
+import type { ForgeIoEntry, ForgeDeviceEntry } from "@/types/forge";
 
 // ---------------------------------------------------------------------------
 // Text reduction helpers
 // ---------------------------------------------------------------------------
+
+/** Sanitise a string for use as a Mermaid node ID (alphanumeric + underscore). */
+function safeId(s: string): string {
+  return s.replace(/[^a-zA-Z0-9]/g, "_").replace(/^_+/, "X");
+}
 
 /** Escape special characters for Mermaid quoted labels. */
 function escapeLabel(str: string): string {
@@ -187,6 +198,8 @@ function shortenTransitionLabel(description: string, deviceName?: string | null)
   return truncate(words.slice(0, 2).join(" "), 18);
 }
 
+const BR = "<br/>";
+
 /** Build the title + subtitle label for a step node. */
 function buildStepLabel(step: ProcessStep): string {
   const actions = step.actions ?? [];
@@ -195,7 +208,7 @@ function buildStepLabel(step: ProcessStep): string {
   if (actions.length === 0) return title;
 
   const primary = summarizeAction(actions[0].description, actions[0].deviceName);
-  const label = `${title}: ${primary}`;
+  const label = `${title}- ${primary}`;
 
   // Subtitle: second action summarized (only if meaningfully different)
   if (actions.length > 1) {
@@ -205,6 +218,26 @@ function buildStepLabel(step: ProcessStep): string {
     }
   }
   return escapeLabel(label);
+}
+
+/** Determine the CSS class for a step node. */
+function getStepClass(step: ProcessStep, deviceLinkage: LinkageDevice[]): string {
+  const allText = [
+    ...step.actions.map(a => a.description),
+    step.notes ?? "",
+  ].join(" ").toLowerCase();
+
+  if (/\b(wait|monitor|poll|await|watching)\b/.test(allText)) return "monitor";
+
+  const deviceInstances = new Set(deviceLinkage.map(d => d.instanceDbName.toLowerCase()));
+  const deviceNames = new Set(deviceLinkage.map(d => d.name.toLowerCase()));
+  if (step.devicesInvolved.some(d =>
+    deviceInstances.has(d.toLowerCase()) || deviceNames.has(d.toLowerCase())
+  )) {
+    return "fb_call";
+  }
+
+  return "step";
 }
 
 /** Format a transition condition for an arrow label (exported for external use). */
@@ -220,18 +253,431 @@ export function formatTransitionLabel(transition: TransitionCondition, clean = f
     .join(transition.combinator === "AND" ? " AND " : " OR ");
 }
 
-const BR = "<br/>";
+// ---------------------------------------------------------------------------
+// Context for the new process flow diagram
+// ---------------------------------------------------------------------------
+
+export interface ProcessFlowContext {
+  devices: ForgeDeviceEntry[];
+  deviceLinkage: LinkageDevice[];
+  ioList: ForgeIoEntry[];
+}
 
 // ---------------------------------------------------------------------------
-// Main builder
+// Device classification helpers
+// ---------------------------------------------------------------------------
+
+/** True if the device receives signals from physical inputs (DI/AI). */
+function isInputDevice(dev: LinkageDevice): boolean {
+  return dev.wiring.some(w => w.direction === "in" && w.wireType === "io");
+}
+
+/** True if the device drives physical outputs (DQ/AQ). */
+function isOutputDevice(dev: LinkageDevice): boolean {
+  return dev.wiring.some(w => w.direction === "out" && w.wireType === "io");
+}
+
+/**
+ * Find the "key output" parameter names for an input FB device —
+ * those outputs that other devices consume as FB inputs.
+ */
+function getKeyOutputs(dev: LinkageDevice, allDevices: LinkageDevice[]): string[] {
+  // Collect all connectedTo values from other devices' "in" FB wires
+  const fbSources = new Set<string>();
+  for (const other of allDevices) {
+    if (other.instanceDbName === dev.instanceDbName) continue;
+    for (const w of other.wiring) {
+      if (w.direction === "in" && w.wireType === "fb") {
+        fbSources.add(w.connectedTo.toLowerCase());
+      }
+    }
+  }
+
+  const keyOuts: string[] = [];
+  for (const w of dev.wiring) {
+    if (w.direction !== "out") continue;
+    const fullRef = `${dev.instanceDbName}.${w.paramName}`.toLowerCase();
+    const shortRef = w.paramName.toLowerCase();
+    if (
+      fbSources.has(fullRef) ||
+      fbSources.has(shortRef) ||
+      [...fbSources].some(s => s.includes(shortRef))
+    ) {
+      keyOuts.push(w.paramName);
+    }
+  }
+  return [...new Set(keyOuts)];
+}
+
+// ---------------------------------------------------------------------------
+// Section builders
+// ---------------------------------------------------------------------------
+
+function buildPhysicalInputsSection(ioList: ForgeIoEntry[]): string[] {
+  const inputs = ioList.filter(io => io.signal_type === "DI" || io.signal_type === "AI");
+  if (inputs.length === 0) return [];
+
+  const lines: string[] = ["    %% Physical inputs"];
+  for (const io of inputs) {
+    const id = safeId(`PI_${io.tag_name}`);
+    lines.push(`    ${id}["${escapeLabel(io.tag_name)}"]:::input`);
+  }
+
+  lines.push("    %% Inputs DB");
+  lines.push(`    IDB["Inputs DB"]:::db`);
+  for (const io of inputs) {
+    const id = safeId(`PI_${io.tag_name}`);
+    lines.push(`    ${id} --> IDB`);
+  }
+  return lines;
+}
+
+function buildFbInstancesSection(
+  deviceLinkage: LinkageDevice[],
+  hasPhysicalInputs: boolean,
+): string[] {
+  const inputDevices = deviceLinkage.filter(isInputDevice);
+  if (inputDevices.length === 0) return [];
+
+  const lines: string[] = ["    %% FB instances"];
+  for (const dev of inputDevices) {
+    const fbId = safeId(`FB_${dev.instanceDbName}`);
+    const keyOuts = getKeyOutputs(dev, deviceLinkage);
+    const outPart = keyOuts.length > 0 ? `${BR}→ ${keyOuts.slice(0, 3).join(", ")}` : "";
+    lines.push(
+      `    ${fbId}["${escapeLabel(dev.instanceDbName)}${BR}${escapeLabel(dev.fbName)}${outPart}"]:::fb`,
+    );
+    if (hasPhysicalInputs) {
+      lines.push(`    IDB --> ${fbId}`);
+    }
+  }
+  return lines;
+}
+
+function buildSafetySection(sequence: ProcessSequence): { lines: string[]; hasSafety: boolean } {
+  const conditions = sequence.safetyConditions ?? [];
+  if (conditions.length === 0) return { lines: [], hasSafety: false };
+
+  const safetyText = conditions
+    .map(sc => {
+      const mark = sc.polarity ? "✓" : "✗";
+      return `${mark} ${truncate(escapeLabel(shortenCondition(sc.description, sc.deviceName)), 25)}`;
+    })
+    .join(BR);
+
+  const lines = [
+    "    %% Safety",
+    `    SAFETY{{"SAFETY${BR}${safetyText}"}}:::safety`,
+    `    SAFETY -->|Fail| FAULT["⚠ FAULT"]:::fault`,
+  ];
+  return { lines, hasSafety: true };
+}
+
+function buildPermissivesSection(
+  sequence: ProcessSequence,
+  hasSafety: boolean,
+): { lines: string[]; hasPerm: boolean } {
+  const permissives = sequence.permissives ?? [];
+  if (permissives.length === 0) return { lines: [], hasPerm: false };
+
+  const permText = permissives
+    .map(p => {
+      const mark = p.polarity ? "✓" : "✗";
+      return `${mark} ${truncate(escapeLabel(shortenCondition(p.description, p.deviceName)), 25)}`;
+    })
+    .join(BR);
+
+  const lines = [
+    "    %% Permissives",
+    `    PERM{{"PERMISSIVES${BR}${permText}"}}:::perm`,
+  ];
+
+  if (hasSafety) {
+    lines.push(`    SAFETY -->|All OK| PERM`);
+  }
+  lines.push(`    PERM -->|Fail| IDLE`);
+
+  return { lines, hasPerm: true };
+}
+
+function buildStepsSection(
+  sequence: ProcessSequence,
+  context: ProcessFlowContext,
+  entryNode: string,
+  entryLabel: string,
+): string[] {
+  const steps = sequence.steps ?? [];
+  if (steps.length === 0) return [];
+
+  const lines: string[] = ["    %% Steps"];
+
+  // Pre-compute branch target step numbers (reached via XOR diamond, not linear chain)
+  const branchTargetNums = new Set<number>();
+  for (const step of steps) {
+    if (step.transition?.combinator === "OR" && (step.transition.conditions ?? []).length > 1) {
+      for (const c of step.transition.conditions ?? []) {
+        if (c.targetStepNumber != null) branchTargetNums.add(c.targetStepNumber);
+      }
+    }
+  }
+
+  let prevNode = entryNode;
+  let prevLabel = entryLabel;
+  const pendingBranchEnds: Array<{ nodeId: string; label: string }> = [];
+
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    const stepId = `S${step.stepNumber}`;
+    const conditions = step.transition?.conditions ?? [];
+    const isOr = step.transition?.combinator === "OR" && conditions.length > 1;
+    const isBranchTarget = branchTargetNums.has(step.stepNumber);
+
+    const stepClass = getStepClass(step, context.deviceLinkage);
+    const nodeLabel = buildStepLabel(step);
+
+    lines.push(`    ${stepId}["${nodeLabel}"]:::${stepClass}`);
+
+    if (isBranchTarget) {
+      // Branch target: park the current chain as a pending end
+      if (prevNode) {
+        pendingBranchEnds.push({ nodeId: prevNode, label: prevLabel });
+      }
+    } else {
+      // Normal step: connect from previous
+      if (prevNode) {
+        const arrow = prevLabel ? `-->|${escapeLabel(prevLabel)}|` : `-->`;
+        lines.push(`    ${prevNode} ${arrow} ${stepId}`);
+      }
+      // Flush pending branch ends at this merge point
+      for (const { nodeId, label } of pendingBranchEnds) {
+        const arrow = label ? `-->|${escapeLabel(label)}|` : `-->`;
+        lines.push(`    ${nodeId} ${arrow} ${stepId}`);
+      }
+      pendingBranchEnds.length = 0;
+    }
+
+    // Fault exit
+    const hasFaultExit =
+      (step.notes ?? "").toLowerCase().includes("fault") ||
+      step.actions.some(a => a.description.toLowerCase().includes("fault")) ||
+      step.devicesInvolved.some(d => /estop|emergency/i.test(d));
+    if (hasFaultExit) {
+      lines.push(`    ${stepId} -->|Fault| FAULT`);
+    }
+
+    if (isOr) {
+      const hasTargets = conditions.every(c => c.targetStepNumber != null);
+      if (hasTargets) {
+        const xorId = `X${step.stepNumber}`;
+        lines.push(`    ${xorId}{"XOR"}:::decision`);
+        lines.push(`    ${stepId} --> ${xorId}`);
+        for (const cond of conditions) {
+          const condLabel = truncate(escapeLabel(shortenTransitionLabel(cond.description, cond.deviceName ?? null)), 18);
+          lines.push(`    ${xorId} -->|${condLabel}| S${cond.targetStepNumber}`);
+        }
+      } else {
+        // Fallback: merge node
+        const mergeId = `M${step.stepNumber}`;
+        lines.push(`    ${mergeId}{ }`);
+        for (const cond of conditions) {
+          const condLabel = truncate(escapeLabel(shortenTransitionLabel(cond.description, cond.deviceName ?? null)), 18);
+          lines.push(`    ${stepId} -->|${condLabel}| ${mergeId}`);
+        }
+        const nextStepId = i + 1 < steps.length ? `S${steps[i + 1].stepNumber}` : "IDLE";
+        lines.push(`    ${mergeId} --> ${nextStepId}`);
+      }
+      prevNode = "";
+      prevLabel = "";
+    } else {
+      if (conditions.length === 0) {
+        prevLabel = "";
+      } else if (conditions.length === 1) {
+        prevLabel = truncate(escapeLabel(shortenTransitionLabel(conditions[0].description, conditions[0].deviceName ?? null)), 18);
+      } else {
+        const first = truncate(escapeLabel(shortenTransitionLabel(conditions[0].description, conditions[0].deviceName ?? null)), 12);
+        prevLabel = `${first} +${conditions.length - 1}`;
+      }
+      prevNode = stepId;
+    }
+  }
+
+  // Connect trailing chain to IDLE
+  lines.push(`    IDLE(["Idle / Complete"]):::idle`);
+  if (prevNode) {
+    const arrow = prevLabel ? `-->|${escapeLabel(prevLabel)}|` : `-->`;
+    lines.push(`    ${prevNode} ${arrow} IDLE`);
+  }
+  for (const { nodeId, label } of pendingBranchEnds) {
+    const arrow = label ? `-->|${escapeLabel(label)}|` : `-->`;
+    lines.push(`    ${nodeId} ${arrow} IDLE`);
+  }
+
+  return lines;
+}
+
+function buildOutputPathSection(
+  deviceLinkage: LinkageDevice[],
+  ioList: ForgeIoEntry[],
+): string[] {
+  const outputDevices = deviceLinkage.filter(isOutputDevice);
+  const physicalOutputs = ioList.filter(io => io.signal_type === "DQ" || io.signal_type === "AQ");
+
+  if (outputDevices.length === 0 && physicalOutputs.length === 0) return [];
+
+  const lines: string[] = ["    %% Output path"];
+
+  if (outputDevices.length > 0) {
+    for (const dev of outputDevices) {
+      const fbId = safeId(`FB_${dev.instanceDbName}`);
+      const outWires = dev.wiring.filter(w => w.direction === "out" && w.wireType === "io");
+      const outParams = outWires
+        .slice(0, 2)
+        .map(w => escapeLabel(w.paramName))
+        .join(", ");
+      const paramPart = outParams ? `${BR}${outParams}` : "";
+      lines.push(
+        `    ${fbId}["${escapeLabel(dev.instanceDbName)}${BR}${escapeLabel(dev.fbName)}${paramPart}"]:::fb`,
+      );
+    }
+
+    if (physicalOutputs.length > 0) {
+      lines.push(`    OUTDB["Outputs DB"]:::db`);
+      for (const dev of outputDevices) {
+        lines.push(`    ${safeId(`FB_${dev.instanceDbName}`)} --> OUTDB`);
+      }
+      for (const io of physicalOutputs) {
+        const id = safeId(`PO_${io.tag_name}`);
+        lines.push(`    ${id}["${escapeLabel(io.tag_name)}"]:::output`);
+        lines.push(`    OUTDB --> ${id}`);
+      }
+    }
+  } else if (physicalOutputs.length > 0) {
+    lines.push(`    OUTDB["Outputs DB"]:::db`);
+    for (const io of physicalOutputs) {
+      const id = safeId(`PO_${io.tag_name}`);
+      lines.push(`    ${id}["${escapeLabel(io.tag_name)}"]:::output`);
+      lines.push(`    OUTDB --> ${id}`);
+    }
+  }
+
+  return lines;
+}
+
+function buildStopFaultSection(
+  sequence: ProcessSequence,
+  ioList: ForgeIoEntry[],
+): string[] {
+  const lines: string[] = ["    %% Stop and fault"];
+
+  // E-Stop from safety conditions
+  const eStopCond = sequence.safetyConditions.find(sc =>
+    /estop|emergency.stop/i.test(sc.description + (sc.deviceName ?? "")),
+  );
+  if (eStopCond) {
+    const label = truncate(escapeLabel(shortenCondition(eStopCond.description, eStopCond.deviceName)), 25);
+    lines.push(`    ESTOP["E-Stop${BR}${label} = FALSE${BR}→ All OFF"]:::fault`);
+  }
+
+  // Normal stop from IO list
+  const stopIo = ioList.find(io => /stop/i.test(io.tag_name));
+  if (stopIo) {
+    lines.push(`    STOP["Normal stop${BR}${escapeLabel(stopIo.tag_name)}${BR}→ Idle"]:::stop`);
+  }
+
+  // Fault reset (if any step has reset/clear action or stop IO exists)
+  const hasResetStep = sequence.steps.some(s =>
+    s.actions.some(a => /reset|clear.fault/i.test(a.description)),
+  );
+  if (hasResetStep || stopIo) {
+    lines.push(`    RESET["Fault reset${BR}→ Clear latches → idle"]:::reset`);
+  }
+
+  // Only emit section if there's something to show
+  return lines.length > 1 ? lines : [];
+}
+
+function buildStylesSection(): string[] {
+  return [
+    "    %% Styles",
+    "    classDef input fill:#0C447C,stroke:#85B7EB,color:#E6F1FB",
+    "    classDef output fill:#3B6D11,stroke:#97C459,color:#EAF3DE",
+    "    classDef db fill:#2C2C2A,stroke:#888780,color:#F1EFE8",
+    "    classDef fb fill:#085041,stroke:#5DCAA5,color:#E1F5EE",
+    "    classDef fb_call fill:#085041,stroke:#5DCAA5,color:#E1F5EE",
+    "    classDef step fill:#085041,stroke:#5DCAA5,color:#E1F5EE",
+    "    classDef monitor fill:#3C3489,stroke:#AFA9EC,color:#EEEDFE",
+    "    classDef safety fill:#3C3489,stroke:#AFA9EC,color:#EEEDFE",
+    "    classDef perm fill:#3C3489,stroke:#AFA9EC,color:#EEEDFE",
+    "    classDef decision fill:#2C2C2A,stroke:#888780,color:#F1EFE8",
+    "    classDef fault fill:#791F1F,stroke:#F09595,color:#FCEBEB",
+    "    classDef stop fill:#712B13,stroke:#F0997B,color:#FAECE7",
+    "    classDef reset fill:#712B13,stroke:#F0997B,color:#FAECE7",
+    "    classDef idle fill:#2C2C2A,stroke:#888780,color:#F1EFE8",
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// New main builder — template-fill approach
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a complete Mermaid flowchart TD for a process sequence.
+ * Follows a fixed 10-section template filled from sequence + context data.
+ * Mermaid handles the layout.
+ */
+export function buildProcessFlowDiagram(
+  sequence: ProcessSequence,
+  context: ProcessFlowContext,
+): string {
+  const physicalInputs = context.ioList.filter(
+    io => io.signal_type === "DI" || io.signal_type === "AI",
+  );
+  const hasPhysicalInputs = physicalInputs.length > 0;
+
+  const { lines: safetyLines, hasSafety } = buildSafetySection(sequence);
+  const { lines: permLines, hasPerm } = buildPermissivesSection(sequence, hasSafety);
+
+  // Determine entry node and label for the steps chain
+  let entryNode: string;
+  let entryLabel: string;
+  if (hasPerm) {
+    entryNode = "PERM";
+    entryLabel = "Pass";
+  } else if (hasSafety) {
+    entryNode = "SAFETY";
+    entryLabel = "All OK";
+  } else {
+    entryNode = "";
+    entryLabel = "";
+  }
+
+  const sections: string[][] = [
+    ["flowchart TD"],
+    buildPhysicalInputsSection(context.ioList),
+    buildFbInstancesSection(context.deviceLinkage, hasPhysicalInputs),
+    safetyLines,
+    permLines,
+    buildStepsSection(sequence, context, entryNode, entryLabel),
+    buildOutputPathSection(context.deviceLinkage, context.ioList),
+    buildStopFaultSection(sequence, context.ioList),
+    buildStylesSection(),
+  ];
+
+  return sections
+    .filter(s => s.length > 0)
+    .map(s => s.join("\n"))
+    .join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Legacy builder (used by process-builder linkage-matrix-panel)
 // ---------------------------------------------------------------------------
 
 /**
  * Build a Mermaid flowchart TD from a ProcessSequence.
+ * Legacy version without IO/device context — kept for backward compatibility.
  *
- * Each node is a compact title + one subtitle.
- * OR transitions branch visually and rejoin at the next step.
- * Fault exits are red-labelled arrows to a Fault node.
+ * @deprecated Use buildProcessFlowDiagram for Forge matrix review.
  */
 export function buildSequenceDiagram(sequence: ProcessSequence): string {
   const lines: string[] = ["flowchart TD"];
@@ -283,12 +729,11 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
     if (prevNode !== "Start(( ))") {
       lines.push(`    ${prevNode} -->|${prevLabel}| Idle`);
     }
-    lines.push(...styleLines(hasSafety, hasPerm, faultNodeAdded, []));
+    lines.push(...legacyStyleLines(hasSafety, hasPerm, faultNodeAdded, []));
     return lines.join("\n");
   }
 
-  // Pre-compute which step numbers are branch targets (reached via XOR diamonds,
-  // NOT via the linear prevNode chain). These steps must NOT inherit prevNode.
+  // Pre-compute branch targets
   const branchTargetNums = new Set<number>();
   const xorNodeIds: string[] = [];
   for (const step of steps) {
@@ -299,9 +744,7 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
     }
   }
 
-  // Track all generated step IDs for classDef
   const allStepIds: string[] = [];
-  // Branch ends that need to connect to the next merge (non-branch-target) step
   const pendingBranchEnds: Array<{ nodeId: string; label: string }> = [];
 
   for (let i = 0; i < steps.length; i++) {
@@ -316,19 +759,14 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
     allStepIds.push(stepId);
 
     if (isBranchTarget) {
-      // This step is the start of a new branch. The XOR diamond already connects to it.
-      // Park the current chain as a pending branch end so it can merge later.
       if (prevNode) {
         pendingBranchEnds.push({ nodeId: prevNode, label: prevLabel });
       }
-      // Do NOT emit prevNode → stepId here.
     } else {
-      // Normal step — connect from previous chain.
       if (prevNode) {
         const arrow = prevLabel ? `-->|${escapeLabel(prevLabel)}|` : `-->`;
         lines.push(`    ${prevNode} ${arrow} ${stepId}`);
       }
-      // Flush all pending branch ends into this step (merge point).
       for (const { nodeId, label } of pendingBranchEnds) {
         const arrow = label ? `-->|${escapeLabel(label)}|` : `-->`;
         lines.push(`    ${nodeId} ${arrow} ${stepId}`);
@@ -336,7 +774,6 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
       pendingBranchEnds.length = 0;
     }
 
-    // Fault exit detection
     const hasFaultExit = (step.notes ?? "").toLowerCase().includes("fault")
       || (step.actions ?? []).some(a => (a.description ?? "").toLowerCase().includes("fault"))
       || (step.devicesInvolved ?? []).some(d => d.toLowerCase().includes("estop"));
@@ -352,7 +789,6 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
       const hasTargets = conditions.every(c => c.targetStepNumber != null);
 
       if (hasTargets) {
-        // XOR diamond — each condition routes to a different branch start step.
         const xorId = `X${step.stepNumber}`;
         xorNodeIds.push(xorId);
         lines.push(`    ${xorId}{XOR}`);
@@ -368,7 +804,6 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
           lines.push(`    ${xorId} -->|Neither| Reject([Reject])`);
         }
       } else {
-        // Fallback: all OR conditions lead to next step, show as labelled arrows via merge node.
         const mergeId = `M${step.stepNumber}`;
         lines.push(`    ${mergeId}{ }`);
         for (const cond of conditions) {
@@ -386,7 +821,6 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
       prevNode = "";
       prevLabel = "";
     } else {
-      // Compute transition label for the next arrow.
       if (conditions.length === 0) {
         prevLabel = "";
       } else if (conditions.length === 1) {
@@ -399,23 +833,21 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
     }
   }
 
-  // --- End / Idle node ---
   lines.push(`    Idle([Idle / Complete])`);
   if (prevNode) {
     const arrow = prevLabel ? `-->|${escapeLabel(prevLabel)}|` : `-->`;
     lines.push(`    ${prevNode} ${arrow} Idle`);
   }
-  // Any branch ends that never found a merge step → connect to Idle.
   for (const { nodeId, label } of pendingBranchEnds) {
     const arrow = label ? `-->|${escapeLabel(label)}|` : `-->`;
     lines.push(`    ${nodeId} ${arrow} Idle`);
   }
 
-  lines.push(...styleLines(hasSafety, hasPerm, faultNodeAdded, allStepIds, xorNodeIds));
+  lines.push(...legacyStyleLines(hasSafety, hasPerm, faultNodeAdded, allStepIds, xorNodeIds));
   return lines.join("\n");
 }
 
-function styleLines(
+function legacyStyleLines(
   hasSafety: boolean,
   hasPerm: boolean,
   hasFault: boolean,
@@ -441,7 +873,7 @@ function styleLines(
 }
 
 // ---------------------------------------------------------------------------
-// Multi-sequence helper
+// Multi-sequence helper (backward compat)
 // ---------------------------------------------------------------------------
 
 /** Build diagram for the selected or first sequence from a list. */

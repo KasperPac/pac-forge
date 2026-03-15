@@ -19,7 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { MermaidDiagram } from "@/components/ui/mermaid-diagram";
-import { buildMultiSequenceDiagram } from "@/lib/process-sequence-diagram";
+import { buildProcessFlowDiagram } from "@/lib/process-sequence-diagram";
 import { useForgeMatrixGenerate } from "@/hooks/use-forge-matrix-generate";
 import { useForgeMatrixValidate } from "@/hooks/use-forge-matrix-validate";
 import { cn } from "@/lib/utils";
@@ -355,7 +355,13 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
         : matrix.processSequences[0])
     : null;
 
-  const diagramChart = activeSeq ? buildMultiSequenceDiagram([activeSeq], activeSeq.id) : "";
+  const diagramChart = activeSeq
+    ? buildProcessFlowDiagram(activeSeq, {
+        devices: session.device_list ?? [],
+        deviceLinkage: matrix?.deviceLinkage ?? [],
+        ioList: session.io_list ?? [],
+      })
+    : "";
 
   return (
     <div className="flex h-full gap-4 min-h-0">
