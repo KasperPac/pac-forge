@@ -4,6 +4,7 @@ import type {
   ProcessAction,
   TransitionCondition,
   LinkageDevice,
+  SequenceRow,
 } from "@/types/process-builder";
 import type { ForgeIoEntry, ForgeDeviceEntry } from "@/types/forge";
 
@@ -1226,10 +1227,12 @@ function buildStopFaultSection(
     lines.push(`    STOP["Normal stop${BR}${escapeLabel(stopIo.tag_name)}${BR}→ Idle"]:::stop`);
   }
 
-  // Fault reset (if any step has reset/clear action or stop IO exists)
-  const hasResetStep = (sequence.steps ?? []).some(s =>
-    (s.actions ?? []).some(a => /reset|clear.fault/i.test(a.description)),
-  );
+  // Fault reset (if any step/row has reset/clear action or stop IO exists)
+  const hasResetStep =
+    (sequence.rows ?? []).some(r => /reset|clear.fault/i.test(r.action)) ||
+    (sequence.steps ?? []).some(s =>
+      (s.actions ?? []).some(a => /reset|clear.fault/i.test(a.description)),
+    );
   if (hasResetStep || stopIo) {
     lines.push(`    RESET["Fault reset${BR}→ Clear latches → idle"]:::reset`);
   }
@@ -1256,6 +1259,153 @@ function buildStylesSection(): string[] {
     "    classDef reset fill:#712B13,stroke:#F0997B,color:#FAECE7",
     "    classDef idle fill:#2C2C2A,stroke:#888780,color:#F1EFE8",
   ];
+}
+
+// ---------------------------------------------------------------------------
+// Rows-based steps section (v2 table format)
+// ---------------------------------------------------------------------------
+
+/**
+ * Render the sequential steps section from a SequenceRow[] array.
+ * No text parsing — branching, monitoring, and fault exits are explicit in data.
+ */
+function buildRowsSection(
+  rows: SequenceRow[],
+  entryNode: string,
+  entryLabel: string,
+): string[] {
+  if (rows.length === 0) return [];
+
+  const lines: string[] = ["    %% Steps"];
+
+  // Deduplicate and group rows by step number
+  const stepMap = new Map<number, SequenceRow[]>();
+  for (const row of rows) {
+    const group = stepMap.get(row.step) ?? [];
+    group.push(row);
+    stepMap.set(row.step, group);
+  }
+
+  // Sort steps in ascending order
+  const orderedSteps = [...stepMap.keys()].sort((a, b) => a - b);
+
+  // Track which node to connect FROM and the edge label to use
+  let prevNode = entryNode;
+  let prevLabel = entryLabel;
+
+  // Track pending merge connections: branch-end nodes that should connect to the merge step
+  const pendingMerge = new Map<string, string>(); // nodeId → edge label
+
+  // FAULT and IDLE are referenced but defined elsewhere — just use as IDs
+  lines.push(`    FAULT["⚠ FAULT"]:::fault`);
+  lines.push(`    IDLE(["Idle / Complete"]):::idle`);
+
+  for (const stepNum of orderedSteps) {
+    const stepRows = stepMap.get(stepNum)!;
+    const actionRows = stepRows.filter(r => r.type !== "fault_exit");
+    const faultRows = stepRows.filter(r => r.type === "fault_exit");
+    const branches = [...new Set(actionRows.map(r => r.branch).filter(Boolean))];
+
+    if (branches.length > 1 || (branches.length === 1 && branches[0] !== null)) {
+      // BRANCHING STEP — one XOR decision node, one path per branch
+      const xorId = `XOR${stepNum}`;
+      lines.push(`    ${xorId}{"XOR"}:::decision`);
+
+      // Connect from previous (or pending merge ends)
+      if (pendingMerge.size > 0) {
+        for (const [nodeId, edgeLabel] of pendingMerge) {
+          const arrow = edgeLabel ? `-->|${escapeLabel(edgeLabel)}|` : `-->`;
+          lines.push(`    ${nodeId} ${arrow} ${xorId}`);
+        }
+        pendingMerge.clear();
+      } else if (prevNode) {
+        const arrow = prevLabel ? `-->|${escapeLabel(prevLabel)}|` : `-->`;
+        lines.push(`    ${prevNode} ${arrow} ${xorId}`);
+      }
+
+      // Render one node per branch
+      for (const branch of branches) {
+        const branchRows = actionRows.filter(r => r.branch === branch);
+        const mainRow = branchRows.find(r => r.type === "branch" || r.type === "action" || r.type === "monitor");
+        if (!mainRow) continue;
+
+        const nodeId = `S${stepNum}${branch}`;
+        const nodeClass = mainRow.type === "monitor" ? "monitor" : "step";
+        const outputPart = mainRow.output ? `${BR}${escapeLabel(mainRow.output)}` : "";
+        const condLabel = truncate(escapeLabel(mainRow.condition), 18);
+        lines.push(`    ${nodeId}["Step ${stepNum}${branch}- ${escapeLabel(truncate(mainRow.action, 22))}${outputPart}"]:::${nodeClass}`);
+        lines.push(`    ${xorId} -->|"${condLabel}"| ${nodeId}`);
+
+        // Fault exits from this branch row
+        const branchFaults = stepRows.filter(r => r.type === "fault_exit" && r.branch === branch);
+        for (const fault of branchFaults) {
+          lines.push(`    ${nodeId} -->|"${truncate(escapeLabel(fault.condition), 14)}"| FAULT`);
+        }
+
+        // Register this branch node as pending (will connect to merge when we see it)
+        const nextLabel = mainRow.type === "monitor"
+          ? truncate(escapeLabel(mainRow.condition), 14)
+          : "";
+        pendingMerge.set(nodeId, nextLabel);
+      }
+
+      prevNode = "";
+      prevLabel = "";
+
+    } else {
+      // SINGLE STEP (no branching at this step number)
+      const mainRow = actionRows[0];
+      if (!mainRow) continue;
+
+      const nodeId = `S${stepNum}`;
+      const isMerge = mainRow.type === "merge";
+      const nodeClass = mainRow.type === "monitor" ? "monitor" : "step";
+      const outputPart = mainRow.output ? `${BR}${escapeLabel(mainRow.output)}` : "";
+      lines.push(`    ${nodeId}["Step ${stepNum}- ${escapeLabel(truncate(mainRow.action, 22))}${outputPart}"]:::${nodeClass}`);
+
+      // Connect pending merge branch ends
+      if (pendingMerge.size > 0 && isMerge) {
+        for (const [nodeId2, edgeLabel] of pendingMerge) {
+          const arrow = edgeLabel ? `-->|${escapeLabel(edgeLabel)}|` : `-->`;
+          lines.push(`    ${nodeId2} ${arrow} ${nodeId}`);
+        }
+        pendingMerge.clear();
+      } else if (prevNode) {
+        const condLabel = prevLabel ? `-->|${escapeLabel(prevLabel)}|` : `-->`;
+        lines.push(`    ${prevNode} ${condLabel} ${nodeId}`);
+      }
+
+      // Fault exits
+      for (const fault of faultRows) {
+        lines.push(`    ${nodeId} -->|"${truncate(escapeLabel(fault.condition), 14)}"| FAULT`);
+      }
+
+      // Handle IDLE/FAULT as next target
+      if (mainRow.next === "IDLE") {
+        lines.push(`    ${nodeId} --> IDLE`);
+        prevNode = "";
+        prevLabel = "";
+      } else if (mainRow.next === "FAULT") {
+        lines.push(`    ${nodeId} --> FAULT`);
+        prevNode = "";
+        prevLabel = "";
+      } else {
+        prevNode = nodeId;
+        prevLabel = mainRow.type === "monitor"
+          ? truncate(escapeLabel(mainRow.condition), 16)
+          : "";
+      }
+    }
+  }
+
+  // Connect any remaining chain to IDLE
+  if (prevNode) lines.push(`    ${prevNode} --> IDLE`);
+  for (const [nodeId, edgeLabel] of pendingMerge) {
+    const arrow = edgeLabel ? `-->|${escapeLabel(edgeLabel)}|` : `-->`;
+    lines.push(`    ${nodeId} ${arrow} IDLE`);
+  }
+
+  return lines;
 }
 
 // ---------------------------------------------------------------------------
@@ -1293,13 +1443,19 @@ export function buildProcessFlowDiagram(
     entryLabel = "";
   }
 
+  // Choose renderer: v2 rows format if present, else legacy steps format
+  const stepsSection =
+    sequence.rows && sequence.rows.length > 0
+      ? buildRowsSection(sequence.rows, entryNode, entryLabel)
+      : buildStepsSection(sequence, context, entryNode, entryLabel);
+
   const sections: string[][] = [
     ["flowchart TD"],
     buildPhysicalInputsSection(context.ioList),
     buildFbInstancesSection(context.deviceLinkage, hasPhysicalInputs),
     safetyLines,
     permLines,
-    buildStepsSection(sequence, context, entryNode, entryLabel),
+    stepsSection,
     buildOutputPathSection(context.deviceLinkage, context.ioList),
     buildStopFaultSection(sequence, context.ioList),
     buildStylesSection(),

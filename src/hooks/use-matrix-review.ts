@@ -173,7 +173,7 @@ function serializeMatrix(matrix: ProcessLinkageMatrix): string {
           deviceName: p.deviceName,
           polarity: p.polarity,
         })),
-        steps: sq.steps.map((ps) => ({
+        steps: (sq.steps ?? []).map((ps) => ({
           stepNumber: ps.stepNumber,
           transition: {
             combinator: ps.transition.combinator,

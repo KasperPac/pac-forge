@@ -277,7 +277,7 @@ export function QaSummaryPanel() {
                         <span className="font-mono text-xs font-medium">{seq.name}</span>
                       </div>
                       <div className="mt-0.5 flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
-                        <span>{seq.steps.length} steps</span>
+                        <span>{(seq.steps ?? seq.rows ?? []).length} steps</span>
                         <span>&middot;</span>
                         <span>{seq.permissives.length} permissives</span>
                         {seq.safetyConditions.length > 0 && (

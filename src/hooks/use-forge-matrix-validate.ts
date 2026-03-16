@@ -103,7 +103,7 @@ export function useForgeMatrixValidate() {
       ).join("\n\n");
 
       const seqSummary = matrix.processSequences.map(s =>
-        `${s.name}: ${s.steps.length} steps, permissives: ${s.permissives.map(p => p.description).join(", ") || "none"}`
+        `${s.name}: ${(s.rows ?? s.steps ?? []).length} rows/steps, permissives: ${s.permissives.map(p => p.description).join(", ") || "none"}`
       ).join("\n");
 
       const { content } = await callNonStreaming(

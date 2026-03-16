@@ -219,13 +219,44 @@ export interface SafetyCondition {
   polarity: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Sequence Row — one-condition-per-row table format (v2)
+// ---------------------------------------------------------------------------
+
+/**
+ * A single row in the process sequence table.
+ * Rows sharing the same `step` number are ALTERNATIVES (branches).
+ * The `next` field makes control flow explicit — no text parsing needed.
+ */
+export interface SequenceRow {
+  /** Step number. Rows sharing this value are parallel branch alternatives. */
+  step: number;
+  /** Sub-ID for branches: "a", "b", "c". null if no branching at this step. */
+  branch: string | null;
+  /** The ONE condition for this row to execute. Use actual signal names. */
+  condition: string;
+  /** What this row does — one short imperative action. */
+  action: string;
+  /** The specific signal change, or null. Format: "SIGNAL = VALUE". */
+  output: string | null;
+  /** Which step executes next. "FAULT" → fault state. "IDLE" → return to idle. */
+  next: number | "FAULT" | "IDLE";
+  /** Row type — drives how the flow diagram renders it. */
+  type: "action" | "monitor" | "branch" | "fault_exit" | "merge";
+  /** Device names involved in this row. */
+  devices: string[];
+}
+
 export interface ProcessSequence {
   id: string;
   name: string;
   description: string;
   permissives: ProcessPermissive[];
   safetyConditions: SafetyCondition[];
-  steps: ProcessStep[];
+  /** New table format (v2) — one condition per row, branching explicit via step/branch fields. */
+  rows?: SequenceRow[];
+  /** @deprecated Legacy step format — used when rows is absent. */
+  steps?: ProcessStep[];
 }
 
 export interface ProcessStep {

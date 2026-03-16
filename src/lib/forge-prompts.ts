@@ -1115,13 +1115,19 @@ ${linkageMatrix.processSequences.map(seq => {
   const safety = (seq.safetyConditions ?? []).length > 0
     ? `  Safety: ${seq.safetyConditions.map(s => `${s.description ?? ""}${s.deviceName ? ` (${s.deviceName})` : ""}${!s.polarity ? " [INVERTED]" : ""}`).join(", ")}`
     : "";
-  const stepSummary = (seq.steps ?? []).map(s => {
-    const actions = (s.actions ?? []).map(a => a.description ?? "").join(", ");
-    const conditions = s.transition?.conditions ?? [];
-    const condStr = conditions.map(c => c.description ?? "").join(` ${s.transition?.combinator ?? "AND"} `);
-    return `    Step ${s.stepNumber ?? "?"}: ${actions || "(no actions)"} | Done: ${condStr || "(no conditions)"}`;
-  }).join("\n");
-  return `### ${seq.name ?? "(unnamed)"}\n${permissives ? permissives + "\n" : ""}${safety ? safety + "\n" : ""}  Steps:\n${stepSummary}`;
+  const stepSummary = seq.rows && seq.rows.length > 0
+    ? seq.rows.map(r => {
+        const branchPart = r.branch ? `${r.step}${r.branch}` : `${r.step}`;
+        const outputPart = r.output ? ` → ${r.output}` : "";
+        return `    Row ${branchPart} [${r.type}]: ${r.condition} | ${r.action}${outputPart} → next: ${r.next}`;
+      }).join("\n")
+    : (seq.steps ?? []).map(s => {
+        const actions = (s.actions ?? []).map(a => a.description ?? "").join(", ");
+        const conditions = s.transition?.conditions ?? [];
+        const condStr = conditions.map(c => c.description ?? "").join(` ${s.transition?.combinator ?? "AND"} `);
+        return `    Step ${s.stepNumber ?? "?"}: ${actions || "(no actions)"} | Done: ${condStr || "(no conditions)"}`;
+      }).join("\n");
+  return `### ${seq.name ?? "(unnamed)"}\n${permissives ? permissives + "\n" : ""}${safety ? safety + "\n" : ""}  Rows:\n${stepSummary}`;
 }).join("\n\n")}`
     : "";
 
@@ -1399,30 +1405,16 @@ const SEQUENCES_SCHEMA = `{
           "polarity": true
         }
       ],
-      "steps": [
+      "rows": [
         {
-          "id": "string (unique)",
-          "stepNumber": 0,
-          "transition": {
-            "combinator": "AND | OR",
-            "conditions": [
-              {
-                "id": "string (unique)",
-                "description": "short signal-level description e.g. 'PE01_DET active'",
-                "deviceName": "string | null",
-                "targetStepNumber": "number | null — REQUIRED for OR transitions: the step number this condition routes to. If condition A fires go to step 20, if condition B fires go to step 60, set targetStepNumber accordingly."
-              }
-            ]
-          },
-          "actions": [
-            {
-              "id": "string (unique)",
-              "description": "short imperative e.g. 'M01_CMD_FWD = TRUE' or 'Set state = Running'",
-              "deviceName": "string | null"
-            }
-          ],
-          "devicesInvolved": ["string — tag or device names used in this step"],
-          "notes": "string — optional implementation notes"
+          "step": 0,
+          "branch": null,
+          "condition": "string — ONE condition using actual signal names e.g. 'PE01_DET = TRUE', 'PB_START rising edge'",
+          "action": "string — ONE short imperative e.g. 'Set motor forward', 'Start timeout timer'",
+          "output": "string | null — specific signal change e.g. 'M01_CMD_FWD = TRUE', null if no output",
+          "next": "number | FAULT | IDLE — step number to go to next, or FAULT, or IDLE",
+          "type": "action | monitor | branch | fault_exit | merge",
+          "devices": ["string — device names involved"]
         }
       ]
     }
@@ -1473,17 +1465,42 @@ ${DEVICE_LINKAGE_SCHEMA}`;
 export function buildSequencesPrompt(): string {
   return `You are a senior Siemens TIA Portal automation engineer generating the process sequences and global data section of a Process Linkage Matrix.
 
-Generate ONLY the processSequences array and globalData array — state-machine logic with permissives, safety conditions, step transitions, and shared data blocks.
+Generate ONLY the processSequences array and globalData array — state-machine logic with permissives, safety conditions, step rows, and shared data blocks.
 
 ${MATRIX_RULES_COMMON}
-- Process sequences must include numbered steps starting at step 0 (idle)
-- Step transitions use AND/OR combinator with explicit conditions
+- Process sequences use a ONE-CONDITION-PER-ROW table format (see rules below)
 - Safety conditions are continuously monitored — failure stops the process
 - generatedAt must be the current ISO timestamp
-- Keep descriptions and notes concise (1 sentence max) — avoid verbose explanations
-- For OR transitions, ALWAYS set targetStepNumber on each condition to the step number it routes to. This enables proper visual branching in the diagram. Example: if PE01 active → step 20, PE02 active → step 60, set targetStepNumber: 20 and 60 respectively.
-- Action descriptions must be short imperatives: "M01_CMD_FWD = TRUE", "Set state = Running", "ESTOP latch = OFF" — never verbose prose
-- Condition descriptions must be short signal-level labels: "PE01_DET active", "ESTOP = ON", "Speed = 0" — never full sentences
+- Keep descriptions concise — avoid verbose prose
+
+## CRITICAL: Row Format Rules
+
+Each sequence has a \`rows\` array. EVERY row represents ONE condition, ONE action, ONE output change.
+
+1. ONE condition per row. Never combine with AND/OR inside a single row.
+   WRONG: "PE01_DET = TRUE AND ESTOP_OK = TRUE"
+   RIGHT: Put AND conditions in permissives. Each row has a single signal condition.
+
+2. ONE action per row. Never combine multiple operations.
+   WRONG: "Set M01_CMD_FWD = TRUE, M01_CMD_REV = FALSE, start timer"
+   RIGHT: Three separate rows for CMD_FWD, CMD_REV, and timer.
+
+3. Branching is EXPLICIT. When a step has mutually exclusive alternatives, give EACH alternative its own row with a DIFFERENT branch letter and different condition and next values.
+   WRONG: A single step row with "if PE01 active run FWD, if PE02 active run REV"
+   RIGHT:
+     { "step": 20, "branch": "a", "condition": "PE01_DET = TRUE", "output": "CMD_FWD = TRUE", "next": 30, "type": "branch" }
+     { "step": 20, "branch": "b", "condition": "PE02_DET = TRUE", "output": "CMD_REV = TRUE", "next": 40, "type": "branch" }
+
+4. Monitoring rows have type "monitor". Fault exits from a monitoring step are SEPARATE rows with type "fault_exit" at the SAME step number.
+     { "step": 30, "branch": "a", "condition": "PE02_DET = TRUE",    "action": "Arrived", "next": 50, "type": "monitor" }
+     { "step": 30, "branch": "a", "condition": "timeout elapsed",    "action": "Timeout", "next": "FAULT", "type": "fault_exit" }
+
+5. The "next" field makes control flow explicit. Branches merge when two branches' "next" values point to the same step.
+
+6. Step numbers must be multiples of 10 (0, 10, 20, 30 ...). The "branch" letter is just a sub-ID — it does NOT affect step numbering.
+
+7. Use actual signal names throughout: device instance names, IO tag names, DB field names.
+   WRONG: "motor runs forward"   RIGHT: "M01_CMD_FWD = TRUE"
 
 ## Output Format
 Wrap the JSON in [SEQUENCES_DATA]...[/SEQUENCES_DATA] tags:

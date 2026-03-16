@@ -456,7 +456,7 @@ export const useProcessBuilderStore = create<ProcessBuilderState>()(
       return {
         linkageMatrix: updateMatrixSequence(s.linkageMatrix, sequenceId, (seq) => ({
           ...seq,
-          steps: [...seq.steps, step],
+          steps: [...(seq.steps ?? []), step],
         })),
       };
     }),
@@ -467,7 +467,7 @@ export const useProcessBuilderStore = create<ProcessBuilderState>()(
       return {
         linkageMatrix: updateMatrixSequence(s.linkageMatrix, sequenceId, (seq) => ({
           ...seq,
-          steps: seq.steps.map((ps) => ps.id === stepId ? { ...ps, ...updates } : ps),
+          steps: (seq.steps ?? []).map((ps) => ps.id === stepId ? { ...ps, ...updates } : ps),
         })),
       };
     }),
@@ -478,7 +478,7 @@ export const useProcessBuilderStore = create<ProcessBuilderState>()(
       return {
         linkageMatrix: updateMatrixSequence(s.linkageMatrix, sequenceId, (seq) => ({
           ...seq,
-          steps: seq.steps
+          steps: (seq.steps ?? [])
             .filter((ps) => ps.id !== stepId)
             .map((ps, i) => ({ ...ps, stepNumber: i + 1 })),
         })),
@@ -490,7 +490,7 @@ export const useProcessBuilderStore = create<ProcessBuilderState>()(
       if (!s.linkageMatrix) return s;
       return {
         linkageMatrix: updateMatrixSequence(s.linkageMatrix, sequenceId, (seq) => {
-          const stepMap = new Map(seq.steps.map((ps) => [ps.id, ps]));
+          const stepMap = new Map((seq.steps ?? []).map((ps) => [ps.id, ps]));
           const reordered = stepIds
             .map((id) => stepMap.get(id))
             .filter((ps): ps is ProcessStep => !!ps)
@@ -572,7 +572,7 @@ export const useProcessBuilderStore = create<ProcessBuilderState>()(
       return {
         linkageMatrix: updateMatrixSequence(s.linkageMatrix, sequenceId, (seq) => ({
           ...seq,
-          steps: seq.steps.map((ps) =>
+          steps: (seq.steps ?? []).map((ps) =>
             ps.id === stepId
               ? { ...ps, transition: { ...ps.transition, conditions: [...ps.transition.conditions, subCondition] } }
               : ps
@@ -587,7 +587,7 @@ export const useProcessBuilderStore = create<ProcessBuilderState>()(
       return {
         linkageMatrix: updateMatrixSequence(s.linkageMatrix, sequenceId, (seq) => ({
           ...seq,
-          steps: seq.steps.map((ps) =>
+          steps: (seq.steps ?? []).map((ps) =>
             ps.id === stepId
               ? {
                   ...ps,
@@ -610,7 +610,7 @@ export const useProcessBuilderStore = create<ProcessBuilderState>()(
       return {
         linkageMatrix: updateMatrixSequence(s.linkageMatrix, sequenceId, (seq) => ({
           ...seq,
-          steps: seq.steps.map((ps) =>
+          steps: (seq.steps ?? []).map((ps) =>
             ps.id === stepId
               ? {
                   ...ps,
@@ -631,7 +631,7 @@ export const useProcessBuilderStore = create<ProcessBuilderState>()(
       return {
         linkageMatrix: updateMatrixSequence(s.linkageMatrix, sequenceId, (seq) => ({
           ...seq,
-          steps: seq.steps.map((ps) =>
+          steps: (seq.steps ?? []).map((ps) =>
             ps.id === stepId
               ? { ...ps, transition: { ...ps.transition, combinator } }
               : ps

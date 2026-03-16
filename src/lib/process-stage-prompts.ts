@@ -229,11 +229,11 @@ export function formatMatrixForFc(matrix: ProcessLinkageMatrix, hasProcessRules 
     }
 
     // Steps table
-    if (seq.steps.length > 0) {
+    if ((seq.steps ?? []).length > 0) {
       lines.push("");
       lines.push("| Step | Transition (AND/OR) | Actions | Devices |");
       lines.push("|------|---------------------|---------|---------|");
-      for (const ps of seq.steps) {
+      for (const ps of (seq.steps ?? [])) {
         const transLabel = ps.transition ? formatTransitionLabel(ps.transition) : "";
         const actionLabel = (ps.actions ?? []).map((a) => a.description).join("; ");
         lines.push(`| ${ps.stepNumber} | ${transLabel} | ${actionLabel} | ${(ps.devicesInvolved ?? []).join(", ")} |`);

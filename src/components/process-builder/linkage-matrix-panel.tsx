@@ -411,7 +411,7 @@ function ProcessSequenceTab() {
     if (!activeSeqId) return;
     const step: ProcessStep = {
       id: crypto.randomUUID(),
-      stepNumber: (activeSeq?.steps.length ?? 0) + 1,
+      stepNumber: (activeSeq?.steps?.length ?? 0) + 1,
       transition: { combinator: "AND", conditions: [] },
       actions: [],
       devicesInvolved: [],
@@ -423,7 +423,7 @@ function ProcessSequenceTab() {
   const moveStep = useCallback(
     (stepId: string, direction: "up" | "down") => {
       if (!activeSeqId || !activeSeq) return;
-      const ids = activeSeq.steps.map((s) => s.id);
+      const ids = (activeSeq.steps ?? []).map((s) => s.id);
       const idx = ids.indexOf(stepId);
       if (direction === "up" && idx > 0) {
         [ids[idx - 1], ids[idx]] = [ids[idx], ids[idx - 1]];
@@ -438,7 +438,7 @@ function ProcessSequenceTab() {
   const toggleDevice = useCallback(
     (stepId: string, deviceName: string) => {
       if (!activeSeqId || !activeSeq) return;
-      const step = activeSeq.steps.find((s) => s.id === stepId);
+      const step = (activeSeq.steps ?? []).find((s) => s.id === stepId);
       if (!step) return;
       const involved = step.devicesInvolved.includes(deviceName)
         ? step.devicesInvolved.filter((d) => d !== deviceName)
@@ -628,7 +628,7 @@ function ProcessSequenceTab() {
           </div>
 
           {/* Step rows */}
-          {activeSeq.steps.map((step) => {
+          {(activeSeq.steps ?? []).map((step) => {
             const isExpanded = expandedStepId === step.id;
             const transLabel = formatTransitionLabel(step.transition);
             const firstAction = step.actions[0]?.description ?? "";
