@@ -336,15 +336,26 @@ ${patternSection}
 
 ## Output Format
 Return the complete SCL code for:
-1. The device FB (type FB, named according to naming conventions)
-2. The instance DB (type DB, named "Inst${device.name.replace(/[^A-Za-z0-9]/g, "")}")
+1. Any custom UDT types used by the FB (type UDT) — output FIRST, before the FB
+2. The device FB (type FB, named according to naming conventions)
+3. The instance DB (type DB, named "Inst${device.name.replace(/[^A-Za-z0-9]/g, "")}")
+
+**UDT rule**: If the FB declares any parameter or static variable with a custom struct type (name starts with "type"), output that UDT as a separate block BEFORE the FB. Do NOT skip UDTs — a missing UDT causes a compile error. Do NOT output standard built-in types (Bool, Int, Real, Time, etc.).
 
 Use this exact format:
 \`\`\`scl [BlockType:BlockName]
 // content
 \`\`\`
 
-Example:
+Example with UDT:
+\`\`\`scl [UDT:typeMotorConfig]
+TYPE "typeMotorConfig" :
+STRUCT
+  runTimeout : Time;
+  startDelay : Time;
+END_STRUCT;
+END_TYPE
+\`\`\`
 \`\`\`scl [FB:ControlMotorDol]
 // FB code
 \`\`\`
@@ -1018,12 +1029,22 @@ ${patternSection}
 Do NOT generate OB1 or the master Process FC here — only the sequence-specific FB/FC.
 The master Process FC (RunProcess) and OB1 Main are generated separately after all sequences.
 
-## Output Format
-\`\`\`scl [FB:ProcessName]
-// code
+## Output Format — MANDATORY
+Wrap your code in an SCL fenced block with a type+name tag. Replace the placeholder with the ACTUAL sequence name from the user message:
+
+\`\`\`scl [FB:ActualSequenceName]
+FUNCTION_BLOCK ActualSequenceName
+// ...
+END_FUNCTION_BLOCK
 \`\`\`
 
-Generate one FB per process sequence (or FC if purely stateless).`;
+Rules:
+- Tag format: \`[FB:Name]\` for FBs (stateful, timers, edges), \`[FC:Name]\` for FCs (purely stateless)
+- The name in the tag MUST match the FUNCTION_BLOCK / FUNCTION declaration name
+- The \`[TYPE:Name]\` tag on the opening fence line is REQUIRED — without it the artifact cannot be imported
+- Do NOT wrap in prose, markdown headings, or explanation — output the \`\`\`scl block directly
+
+Generate one block per sequence.`;
 }
 
 /**

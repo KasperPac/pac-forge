@@ -226,7 +226,7 @@ export function useForgeProcessGenerate() {
             }).join("\n");
           }
 
-          userMessage = `Generate the SCL process FC for this sequence:
+          userMessage = `Generate the SCL process FB/FC for this sequence:
 
 **Sequence name:** ${matrixSequence.name}
 **Description:** ${matrixSequence.description}
@@ -235,7 +235,8 @@ ${permissives}${safety}
 **Steps (engineer-confirmed from Matrix Review):**
 ${stepsSection}
 
-Generate a complete, compile-ready CASE state machine FC.`;
+Generate a complete, compile-ready CASE state machine FB (or FC if purely stateless).
+Output MUST use the tagged fenced block format: \`\`\`scl [FB:${matrixSequence.name}] ... \`\`\``;
         } else {
           userMessage = buildProcessSclUserMessage(sequence, devices);
         }
@@ -256,7 +257,31 @@ Generate a complete, compile-ready CASE state machine FC.`;
         return artifact ? [artifact] : [];
       }
 
-      return parseSclArtifacts(content);
+      const parsed = parseSclArtifacts(content);
+      if (parsed.length > 0) return parsed;
+
+      // Fallback: AI didn't use the [TYPE:Name] tag — extract any fenced SCL block
+      const fallbackRe = /```(?:scl)?\s*\n([\s\S]*?)```/gi;
+      const fallbackMatch = fallbackRe.exec(content);
+      if (fallbackMatch) {
+        const code = fallbackMatch[1].trim();
+        if (code.length > 50) {
+          const isFb = /\bFUNCTION_BLOCK\b/i.test(code);
+          return [{
+            id: crypto.randomUUID(),
+            name: (matrixSequence?.name ?? sequence.name).replace(/\s+/g, "_"),
+            type: isFb ? "FB" : "FC" as ForgeArtifact["type"],
+            language: "SCL",
+            content: code,
+            approved: false,
+            stage: "process",
+            destination_folder: "Program blocks/Forge/Process",
+            dependencies: [],
+            compile_after_import: true,
+          }];
+        }
+      }
+      return [];
     },
     [],
   );
