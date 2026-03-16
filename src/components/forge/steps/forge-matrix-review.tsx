@@ -33,6 +33,7 @@ import type {
   ProcessLinkageMatrix,
   LinkageDevice,
   ProcessSequence,
+  ProcessStep,
   SequenceRow,
 } from "@/types/process-builder";
 
@@ -186,6 +187,55 @@ function DeviceCard({ device }: { device: LinkageDevice }) {
   );
 }
 
+/** Best-effort conversion of legacy ProcessStep[] to SequenceRow[] for display. */
+function migrateStepsToRows(steps: ProcessStep[]): SequenceRow[] {
+  const rows: SequenceRow[] = [];
+  for (const step of steps) {
+    const conditions = step.transition?.conditions ?? [];
+    const combinator = step.transition?.combinator ?? "AND";
+    const actions = step.actions ?? [];
+    const isOr = combinator === "OR" && conditions.length >= 2;
+
+    const firstCond = conditions[0]?.description ?? "—";
+    const mainActions = actions.length > 0 ? actions : [{ id: "", description: "(idle)", deviceName: null }];
+
+    for (let i = 0; i < mainActions.length; i++) {
+      const a = mainActions[i];
+      const isMonitor = /\b(wait|monitor|poll|await)\b/i.test(a.description);
+      // Try to extract "SIGNAL = VALUE" from the action text as the output field
+      const outputMatch = a.description.match(/\b(\w+\s*=\s*(?:TRUE|FALSE|ON|OFF|0|1))\b/i);
+      rows.push({
+        step: step.stepNumber,
+        branch: null,
+        condition: i === 0 ? firstCond : "—",
+        action: a.description,
+        output: outputMatch ? outputMatch[1] : null,
+        next: "IDLE",
+        type: isMonitor ? "monitor" : "action",
+        devices: step.devicesInvolved ?? [],
+      });
+    }
+
+    // OR transition: extra conditions become branch rows
+    if (isOr) {
+      for (let ci = 1; ci < conditions.length; ci++) {
+        const c = conditions[ci];
+        rows.push({
+          step: step.stepNumber,
+          branch: String.fromCharCode(97 + ci), // "b", "c", ...
+          condition: c.description,
+          action: "Branch",
+          output: null,
+          next: c.targetStepNumber ?? "IDLE",
+          type: "branch",
+          devices: step.devicesInvolved ?? [],
+        });
+      }
+    }
+  }
+  return rows;
+}
+
 const ROW_TYPE_COLORS: Record<string, string> = {
   action: "text-teal-400",
   branch: "text-blue-400",
@@ -269,7 +319,8 @@ function SequenceCard({ seq }: { seq: ProcessSequence }) {
           <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
             {seq.rows
               ? `${seq.rows.filter(r => r.type !== "fault_exit").length} rows`
-              : `${(seq.steps ?? []).length} steps`} · {seq.permissives.length} permissives
+              : `${(seq.steps ?? []).length} steps`
+            } · {seq.permissives.length} permissives
             {seq.safetyConditions.length > 0 &&
               ` · ${seq.safetyConditions.length} safety`}
           </div>
@@ -317,56 +368,13 @@ function SequenceCard({ seq }: { seq: ProcessSequence }) {
             </div>
           )}
 
-          {seq.rows && seq.rows.length > 0 ? (
-            <SequenceRowsTable rows={seq.rows} />
-          ) : (
-            <div>
-              <div className="mb-1 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
-                Steps
-              </div>
-              <div className="space-y-2">
-                {(seq.steps ?? []).map((step) => (
-                  <div
-                    key={step.id}
-                    className="rounded border border-border/40 bg-background/30 px-2.5 py-2"
-                  >
-                    <div className="mb-1 flex items-center gap-2">
-                      <span className="font-mono text-[10px] font-bold text-primary">
-                        Step {step.stepNumber}
-                      </span>
-                      {(step.devicesInvolved ?? []).length > 0 && (
-                        <span className="font-mono text-[9px] text-muted-foreground">
-                          [{(step.devicesInvolved ?? []).join(", ")}]
-                        </span>
-                      )}
-                    </div>
-                    {(step.actions ?? []).length > 0 && (
-                      <div className="space-y-0.5">
-                        {(step.actions ?? []).map((a) => (
-                          <div key={a.id} className="flex items-start gap-1.5 text-xs">
-                            <span className="mt-0.5 h-1 w-1 rounded-full bg-primary/60 shrink-0" />
-                            <span className="text-foreground">{a.description}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {(step.transition?.conditions ?? []).length > 0 && (
-                      <div className="mt-1.5 flex items-start gap-1.5 text-xs">
-                        <span className="shrink-0 font-mono text-[9px] text-muted-foreground">
-                          → {step.transition.combinator}:
-                        </span>
-                        <span className="text-muted-foreground">
-                          {step.transition.conditions
-                            .map((c) => c.description)
-                            .join(` ${step.transition.combinator} `)}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          <SequenceRowsTable
+            rows={
+              seq.rows && seq.rows.length > 0
+                ? seq.rows
+                : migrateStepsToRows(seq.steps ?? [])
+            }
+          />
         </div>
       )}
     </div>
