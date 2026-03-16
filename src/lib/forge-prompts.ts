@@ -1485,17 +1485,43 @@ Each sequence has a \`rows\` array. EVERY row represents ONE condition, ONE acti
    WRONG: "Set M01_CMD_FWD = TRUE, M01_CMD_REV = FALSE, start timer"
    RIGHT: Three separate rows for CMD_FWD, CMD_REV, and timer.
 
-3. Branching is EXPLICIT. When a step has mutually exclusive alternatives, give EACH alternative its own row with a DIFFERENT branch letter and different condition and next values.
-   WRONG: A single step row with "if PE01 active run FWD, if PE02 active run REV"
-   RIGHT:
-     { "step": 20, "branch": "a", "condition": "PE01_DET = TRUE", "output": "CMD_FWD = TRUE", "next": 30, "type": "branch" }
-     { "step": 20, "branch": "b", "condition": "PE02_DET = TRUE", "output": "CMD_REV = TRUE", "next": 40, "type": "branch" }
+3. GATES vs BRANCHES — this is the most important rule:
+
+   A BRANCH is a genuinely different process path where both outcomes continue the process in different directions.
+   Use type "branch" ONLY when the two paths lead to DIFFERENT subsequent steps (different physical operations, different recipes, different routes).
+   CORRECT branch example — product route depends on sensor:
+     { "step": 70, "branch": "a", "condition": "PE01_DET = TRUE", "output": "M01_CMD_FWD = TRUE", "next": 80, "type": "branch" }
+     { "step": 70, "branch": "b", "condition": "PE02_DET = TRUE", "output": "M01_CMD_REV = TRUE", "next": 80, "type": "branch" }
+
+   A GATE is a pass/fail check where one outcome continues and the other rejects/faults.
+   Use type "action" + "fault_exit" when one path continues the process and the other goes to FAULT/0/IDLE.
+   NEVER use branch rows (a/b pairs) for gates.
+   CORRECT gate example — permissive check:
+     { "step": 20, "branch": null, "condition": "PB_START rising edge", "action": "Evaluate all permissives", "output": null, "next": 30, "type": "action" }
+     { "step": 20, "branch": null, "condition": "Any permissive fails",  "action": "Reject start",              "output": null, "next": 0,  "type": "fault_exit" }
+
+   THE ANTI-PATTERN TO AVOID — do NOT decompose permissive checks into individual pass/fail branch pairs:
+   WRONG (creates a useless waterfall of XOR diamonds for what is just one AND gate):
+     { "step": 20, "branch": "a", "condition": "ESTOP_OK = TRUE",              "next": 30, "type": "branch" }
+     { "step": 20, "branch": "b", "condition": "ESTOP_OK = FALSE",             "next": 0,  "type": "branch" }
+     { "step": 30, "branch": "a", "condition": "FaultData.anyFaultLatched = FALSE", "next": 40, "type": "branch" }
+     { "step": 30, "branch": "b", "condition": "FaultData.anyFaultLatched = TRUE",  "next": 0,  "type": "branch" }
+     ... (repeated for every individual check)
+   RIGHT: one action row + one fault_exit row covers all permissives as a single gate.
+
+   If all permissive conditions are already declared in the sequence's \`permissives\` array, you do NOT need any rows for them at all — they are checked automatically before the sequence can run.
 
 4. Monitoring rows have type "monitor". Fault exits from a monitoring step are SEPARATE rows with type "fault_exit" at the SAME step number.
-     { "step": 30, "branch": "a", "condition": "PE02_DET = TRUE",    "action": "Arrived", "next": 50, "type": "monitor" }
-     { "step": 30, "branch": "a", "condition": "timeout elapsed",    "action": "Timeout", "next": "FAULT", "type": "fault_exit" }
+     { "step": 30, "branch": null, "condition": "PE02_DET = TRUE",  "action": "Arrived", "next": 50, "type": "monitor" }
+     { "step": 30, "branch": null, "condition": "timeout elapsed",  "action": "Timeout", "next": "FAULT", "type": "fault_exit" }
 
-5. The "next" field makes control flow explicit. Branches merge when two branches' "next" values point to the same step.
+5. CRITICAL — "next" pointer rules:
+   - A branch row's "next" MUST point to the IMMEDIATELY NEXT step number in sequence.
+   - NEVER skip over common/merge steps. If branches rejoin at step 40, ALL branch rows MUST have "next": 40 — not 50, not 60.
+   - Every step number in the table must be reachable via at least one "next" pointer (except step 0, which is the entry).
+   - WRONG: step 10a → next: 30  (skips common step 20)
+   - RIGHT:  step 10a → next: 20  (points to the immediately next step, even if 20 is a common merge step)
+   - Branches merge when two branches' "next" values BOTH point to the same common step.
 
 6. Step numbers must be multiples of 10 (0, 10, 20, 30 ...). The "branch" letter is just a sub-ID — it does NOT affect step numbering.
 

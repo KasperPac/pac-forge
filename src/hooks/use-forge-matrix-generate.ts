@@ -8,7 +8,7 @@ import {
 } from "@/lib/forge-prompts";
 import type { ForgeDeviceEntry, ForgeIoEntry, SpecAnalysis } from "@/types/forge";
 import type { FbTemplate } from "@/types/fb-template";
-import type { ProcessLinkageMatrix } from "@/types/process-builder";
+import type { ProcessLinkageMatrix, ProcessSequence } from "@/types/process-builder";
 
 const DEVICE_LINKAGE_MAX_TOKENS = 20000;
 const SEQUENCES_MAX_TOKENS = 28000;
@@ -69,6 +69,51 @@ function parseSequences(content: string): Pick<ProcessLinkageMatrix, "processSeq
 }
 
 /**
+ * Post-processing: scan each sequence's rows for "orphan" steps — steps where no
+ * other row's `next` pointer targets them (and they're not the entry step).
+ * When found, fix the preceding step group's `next` pointers to target the orphan
+ * instead of skipping over it.
+ */
+function fixOrphanSteps(sequences: ProcessSequence[]): ProcessSequence[] {
+  return sequences.map((seq) => {
+    if (!seq.rows?.length) return seq;
+
+    const rows = seq.rows;
+    const allStepNums = [...new Set(rows.map((r) => r.step))].sort((a, b) => a - b);
+    const entryStep = allStepNums[0];
+
+    // Build set of all steps targeted by a `next` pointer
+    const targeted = new Set<number>();
+    for (const r of rows) {
+      if (typeof r.next === "number") targeted.add(r.next);
+    }
+
+    // Orphans: step numbers not targeted by any `next` pointer, excluding the entry step
+    const orphans = allStepNums.filter((s) => s !== entryStep && !targeted.has(s));
+    if (orphans.length === 0) return seq;
+
+    // For each orphan, find the preceding step group (highest step < orphan)
+    // and fix any rows whose `next` currently skips over it
+    const fixedRows = rows.map((r) => {
+      let row = r;
+      for (const orphan of orphans) {
+        const prevStep = Math.max(...allStepNums.filter((s) => s < orphan));
+        if (
+          r.step === prevStep &&
+          typeof r.next === "number" &&
+          r.next > orphan
+        ) {
+          row = { ...row, next: orphan };
+        }
+      }
+      return row;
+    });
+
+    return { ...seq, rows: fixedRows };
+  });
+}
+
+/**
  * Hook to generate a ProcessLinkageMatrix from session data.
  * Runs two parallel AI calls (device linkage + sequences/global data) and merges results.
  */
@@ -113,11 +158,13 @@ export function useForgeMatrixGenerate() {
         const { deviceLinkage } = parseDeviceLinkage(deviceContent);
         const { processSequences, globalData, notes, generatedAt } = parseSequences(sequenceContent);
 
+        const fixedSequences = fixOrphanSteps(processSequences ?? []);
+
         return {
           version: 1,
           deviceLinkage,
           globalData: globalData ?? [],
-          processSequences: processSequences ?? [],
+          processSequences: fixedSequences,
           notes: notes ?? "",
           generatedAt: generatedAt ?? new Date().toISOString(),
           lastReviewedAt: null,

@@ -22,7 +22,7 @@ import type {
 } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
 import type { PatternCandidate } from "@/types";
-import type { ProcessLinkageMatrix, ProcessSequence } from "@/types/process-builder";
+import type { ProcessLinkageMatrix, ProcessSequence, SequenceRow } from "@/types/process-builder";
 
 const PROCESS_GEN_MAX_TOKENS = 8192;
 
@@ -107,6 +107,52 @@ function parseLadArtifact(rawContent: string, name: string): ForgeArtifact | nul
   }
 }
 
+/**
+ * Convert engineer-reviewed SequenceRow[] into a structured steps section for the
+ * process code generation prompt. Groups rows by step number, rendering branches
+ * as explicit alternatives and fault_exits as error paths.
+ */
+function buildStepsSectionFromRows(rows: SequenceRow[]): string {
+  // Group by step number, preserving order
+  const stepMap = new Map<number, SequenceRow[]>();
+  for (const row of rows) {
+    if (!stepMap.has(row.step)) stepMap.set(row.step, []);
+    stepMap.get(row.step)!.push(row);
+  }
+
+  const lines: string[] = [];
+
+  for (const [stepNum, stepRows] of stepMap) {
+    const actionRows = stepRows.filter(r => r.type !== "fault_exit");
+    const faultRows = stepRows.filter(r => r.type === "fault_exit");
+    const isBranched = actionRows.some(r => r.branch !== null);
+
+    if (isBranched) {
+      lines.push(`  Step ${stepNum}: [BRANCH]`);
+      for (const row of actionRows) {
+        const label = row.branch ? `${stepNum}${row.branch}` : String(stepNum);
+        const out = row.output ? ` → ${row.output}` : "";
+        const next = row.next === "FAULT" ? "→ FAULT" : row.next === "IDLE" ? "→ IDLE" : `→ Step ${row.next}`;
+        lines.push(`    Branch ${label}: IF ${row.condition} THEN ${row.action}${out} [${next}]`);
+      }
+    } else {
+      const row = actionRows[0];
+      if (row) {
+        const out = row.output ? ` → ${row.output}` : "";
+        const next = row.next === "FAULT" ? "→ FAULT" : row.next === "IDLE" ? "→ IDLE" : `→ Step ${row.next}`;
+        const typeTag = row.type === "monitor" ? " [MONITOR — wait for condition]" : "";
+        lines.push(`  Step ${stepNum}${typeTag}: IF ${row.condition} THEN ${row.action}${out} [${next}]`);
+      }
+    }
+
+    for (const fault of faultRows) {
+      lines.push(`    FAULT EXIT: IF ${fault.condition} → go to FAULT state (${fault.action})`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
@@ -165,11 +211,21 @@ export function useForgeProcessGenerate() {
           const safety = (matrixSequence.safetyConditions ?? []).length > 0
             ? `\n**Safety Conditions (halt to safe state if violated):**\n${matrixSequence.safetyConditions.map(s => `  - ${s.description ?? ""}${s.deviceName ? ` (${s.deviceName})` : ""}${!s.polarity ? " [active LOW — halt when FALSE]" : ""}`).join("\n")}`
             : "";
-          const steps = (matrixSequence.steps ?? []).map(s => {
-            const actions = (s.actions ?? []).map(a => `    Action: ${a.description ?? ""}${a.deviceName ? ` [${a.deviceName}]` : ""}`).join("\n");
-            const conditions = (s.transition?.conditions ?? []).map(c => `      - ${c.description ?? ""}${c.deviceName ? ` [${c.deviceName}]` : ""}`).join("\n");
-            return `  Step ${s.stepNumber ?? "?"}:\n${actions || "    (no actions)"}\n    Done when (${s.transition?.combinator ?? "AND"}):\n${conditions || "      (no conditions)"}`;
-          }).join("\n");
+
+          let stepsSection: string;
+
+          if (matrixSequence.rows && matrixSequence.rows.length > 0) {
+            // Preferred path: use engineer-reviewed SequenceRow[] format
+            stepsSection = buildStepsSectionFromRows(matrixSequence.rows);
+          } else {
+            // Fallback: legacy ProcessStep[] format
+            stepsSection = (matrixSequence.steps ?? []).map(s => {
+              const actions = (s.actions ?? []).map(a => `    Action: ${a.description ?? ""}${a.deviceName ? ` [${a.deviceName}]` : ""}`).join("\n");
+              const conditions = (s.transition?.conditions ?? []).map(c => `      - ${c.description ?? ""}${c.deviceName ? ` [${c.deviceName}]` : ""}`).join("\n");
+              return `  Step ${s.stepNumber ?? "?"}:\n${actions || "    (no actions)"}\n    Done when (${s.transition?.combinator ?? "AND"}):\n${conditions || "      (no conditions)"}`;
+            }).join("\n");
+          }
+
           userMessage = `Generate the SCL process FC for this sequence:
 
 **Sequence name:** ${matrixSequence.name}
@@ -177,7 +233,7 @@ export function useForgeProcessGenerate() {
 ${permissives}${safety}
 
 **Steps (engineer-confirmed from Matrix Review):**
-${steps}
+${stepsSection}
 
 Generate a complete, compile-ready CASE state machine FC.`;
         } else {

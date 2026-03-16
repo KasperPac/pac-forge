@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   RefreshCw,
   ChevronDown,
@@ -17,15 +17,17 @@ import {
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
+  Wrench,
+  BookMarked,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { MermaidDiagram } from "@/components/ui/mermaid-diagram";
-import { buildProcessFlowDiagram } from "@/lib/process-sequence-diagram";
+import { renderProcessFlowSvg } from "@/lib/process-flow-svg";
 import { useForgeMatrixGenerate } from "@/hooks/use-forge-matrix-generate";
 import { useForgeMatrixValidate } from "@/hooks/use-forge-matrix-validate";
+import { useCreatePatternCandidate } from "@/hooks/use-patterns";
 import { cn } from "@/lib/utils";
 import type { ForgeSession } from "@/types/forge";
 import type { FbTemplate } from "@/types/fb-template";
@@ -244,21 +246,78 @@ const ROW_TYPE_COLORS: Record<string, string> = {
   merge: "text-amber-400",
 };
 
+type ColKey = "step" | "condition" | "action" | "output" | "next";
+const COL_LABELS: Record<ColKey, string> = { step: "Step", condition: "Condition", action: "Action", output: "Output", next: "Next" };
+const COLS: ColKey[] = ["step", "condition", "action", "output", "next"];
+
 function SequenceRowsTable({ rows }: { rows: SequenceRow[] }) {
+  // null = auto layout (browser fits content); Record = user has dragged at least one column
+  const [colWidths, setColWidths] = useState<Record<ColKey, number> | null>(null);
+  const tableRef = useRef<HTMLTableElement>(null);
+  const dragRef = useRef<{ col: ColKey; startX: number; startW: number } | null>(null);
+
+  const onDragStart = (col: ColKey, e: React.MouseEvent) => {
+    e.preventDefault();
+
+    // On first drag: snapshot the browser's auto-computed widths so resize starts from reality
+    let widths = colWidths;
+    if (!widths && tableRef.current) {
+      const ths = tableRef.current.querySelectorAll<HTMLElement>("thead th");
+      widths = {} as Record<ColKey, number>;
+      COLS.forEach((c, i) => { widths![c] = ths[i]?.offsetWidth ?? 120; });
+      setColWidths(widths);
+    }
+
+    dragRef.current = { col, startX: e.clientX, startW: widths![col] ?? 120 };
+
+    const onMove = (me: MouseEvent) => {
+      if (!dragRef.current) return;
+      const delta = me.clientX - dragRef.current.startX;
+      setColWidths((prev) => ({
+        ...prev!,
+        [dragRef.current!.col]: Math.max(48, dragRef.current!.startW + delta),
+      }));
+    };
+    const onUp = () => {
+      dragRef.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
   return (
-    <div>
+    <div className="w-full">
       <div className="mb-1 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
         Sequence Rows
       </div>
-      <div className="overflow-x-auto rounded border border-border/40">
-        <table className="w-full font-mono text-[10px]">
+      <div className="w-full overflow-x-auto rounded border border-border/40">
+        <table
+          ref={tableRef}
+          className={cn("font-mono text-xs w-full", colWidths ? "table-fixed" : "table-auto")}
+          style={colWidths ? { width: COLS.reduce((s, c) => s + colWidths[c], 0) } : undefined}
+        >
+          {colWidths && (
+            <colgroup>
+              {COLS.map((col) => (
+                <col key={col} style={{ width: colWidths[col] }} />
+              ))}
+            </colgroup>
+          )}
           <thead>
             <tr className="border-b border-border/40 bg-muted/20 text-muted-foreground">
-              <th className="px-2 py-1 text-left">Step</th>
-              <th className="px-2 py-1 text-left">Condition</th>
-              <th className="px-2 py-1 text-left">Action</th>
-              <th className="px-2 py-1 text-left">Output</th>
-              <th className="px-2 py-1 text-left">Next</th>
+              {COLS.map((col, idx) => (
+                <th key={col} className="relative px-2 py-1.5 text-left font-medium select-none">
+                  {COL_LABELS[col]}
+                  {idx < COLS.length - 1 && (
+                    <div
+                      className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-primary/50 active:bg-primary/80"
+                      onMouseDown={(e) => onDragStart(col, e)}
+                    />
+                  )}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -272,21 +331,21 @@ function SequenceRowsTable({ rows }: { rows: SequenceRow[] }) {
                   row.type === "branch" && "bg-blue-500/5",
                 )}
               >
-                <td className="px-2 py-1 whitespace-nowrap">
+                <td className="px-2 py-1.5 whitespace-nowrap overflow-hidden">
                   <span className="font-bold text-primary">{row.step}</span>
                   {row.branch && (
                     <span className="ml-0.5 text-muted-foreground">{row.branch}</span>
                   )}
-                  <span className={cn("ml-1.5 text-[9px]", ROW_TYPE_COLORS[row.type] ?? "text-muted-foreground")}>
+                  <span className={cn("ml-1.5 text-[10px]", ROW_TYPE_COLORS[row.type] ?? "text-muted-foreground")}>
                     {row.type}
                   </span>
                 </td>
-                <td className="px-2 py-1 text-muted-foreground max-w-[160px] truncate">{row.condition}</td>
-                <td className="px-2 py-1 text-foreground max-w-[160px] truncate">{row.action}</td>
-                <td className="px-2 py-1 text-teal-400 whitespace-nowrap">{row.output ?? "—"}</td>
+                <td className="px-2 py-1.5 text-muted-foreground truncate overflow-hidden">{row.condition}</td>
+                <td className="px-2 py-1.5 text-foreground font-medium truncate overflow-hidden">{row.action}</td>
+                <td className="px-2 py-1.5 text-teal-400 truncate overflow-hidden">{row.output ?? "—"}</td>
                 <td className={cn(
-                  "px-2 py-1 whitespace-nowrap",
-                  row.next === "FAULT" ? "text-red-400" : row.next === "IDLE" ? "text-amber-400" : "text-muted-foreground",
+                  "px-2 py-1.5 whitespace-nowrap overflow-hidden",
+                  row.next === "FAULT" ? "text-red-400 font-bold" : row.next === "IDLE" ? "text-amber-400 font-bold" : "text-muted-foreground",
                 )}>
                   {String(row.next)}
                 </td>
@@ -396,7 +455,11 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
 
   const [activeTab, setActiveTab] = useState<"devices" | "sequences">("devices");
   const [selectedSeqId, setSelectedSeqId] = useState<string | undefined>(undefined);
-  const { validate, loading: validating, result: validationResult, clear: clearValidation } = useForgeMatrixValidate();
+  const { validate, applySelectedFixes, loading: validating, applying: applyingFixes, result: validationResult, clear: clearValidation } = useForgeMatrixValidate();
+  const createPattern = useCreatePatternCandidate();
+  const [selectedIssueIds, setSelectedIssueIds] = useState<Set<string>>(new Set());
+  const [savedToLibrary, setSavedToLibrary] = useState<Set<string>>(new Set());
+  const [applyError, setApplyError] = useState<string | null>(null);
 
   // Auto-generate on mount if no matrix exists
   useEffect(() => {
@@ -439,13 +502,7 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
         : matrix.processSequences[0])
     : null;
 
-  const diagramChart = activeSeq
-    ? buildProcessFlowDiagram(activeSeq, {
-        devices: session.device_list ?? [],
-        deviceLinkage: matrix?.deviceLinkage ?? [],
-        ioList: session.io_list ?? [],
-      })
-    : "";
+  const hasDiagram = !!(activeSeq?.rows?.length || activeSeq?.steps?.length);
 
   return (
     <div className="flex h-full gap-2 min-h-0">
@@ -503,7 +560,7 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
               size="sm"
               variant="outline"
               className="h-7 gap-1.5 font-mono text-xs"
-              onClick={() => { clearValidation(); if (matrix) void validate(matrix); }}
+              onClick={() => { clearValidation(); setSelectedIssueIds(new Set()); setSavedToLibrary(new Set()); setApplyError(null); if (matrix) void validate(matrix); }}
               disabled={!matrix || loading || completing || validating}
             >
               {validating ? (
@@ -547,42 +604,152 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
         {/* Validation result */}
         {validationResult && (
           <div className={cn(
-            "rounded border px-3 py-2 text-xs space-y-1.5",
+            "rounded border px-3 py-2 text-xs space-y-2",
             validationResult.verdict === "ok" && "border-green-500/30 bg-green-500/10 text-green-400",
             validationResult.verdict === "warnings" && "border-amber-500/30 bg-amber-500/10 text-amber-400",
             validationResult.verdict === "errors" && "border-destructive/30 bg-destructive/10 text-destructive",
           )}>
+            {/* Header */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 font-mono font-medium uppercase tracking-wider text-[10px]">
                 <ShieldCheck className="h-3 w-3" />
                 PM Validation — {validationResult.verdict}
                 {validationResult.timerFixCount > 0 && (
-                  <span className="text-muted-foreground normal-case tracking-normal">· {validationResult.timerFixCount} timer value{validationResult.timerFixCount !== 1 ? "s" : ""} fixed</span>
+                  <span className="text-muted-foreground normal-case tracking-normal">
+                    · {validationResult.timerFixCount} timer value{validationResult.timerFixCount !== 1 ? "s" : ""} auto-fixed
+                  </span>
                 )}
               </div>
               {validationResult.correctedMatrix && (
                 <button
                   type="button"
                   className="rounded border border-current px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider hover:opacity-80 transition-opacity"
-                  onClick={() => {
-                    setMatrix(validationResult.correctedMatrix!);
-                    clearValidation();
-                  }}
+                  onClick={() => { setMatrix(validationResult.correctedMatrix!); clearValidation(); }}
                 >
-                  Apply {validationResult.timerFixCount} Fix{validationResult.timerFixCount !== 1 ? "es" : ""}
+                  Apply T# Fixes
                 </button>
               )}
             </div>
-            {validationResult.issues.length > 0 && (
-              <div className="space-y-0.5">
-                <div className="font-mono text-[10px] opacity-70">Issues:</div>
-                {validationResult.issues.map((issue, i) => <div key={i} className="pl-2">· {issue}</div>)}
+
+            {/* Per-issue checkboxes */}
+            {validationResult.fixableIssues.length > 0 && (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-[10px] opacity-70 uppercase tracking-wider">Issues ({validationResult.fixableIssues.length})</span>
+                  <button
+                    type="button"
+                    className="font-mono text-[10px] opacity-60 hover:opacity-100 transition-opacity"
+                    onClick={() => {
+                      const allIds = new Set(validationResult.fixableIssues.map(i => i.id));
+                      setSelectedIssueIds(prev => prev.size === allIds.size ? new Set() : allIds);
+                    }}
+                  >
+                    {selectedIssueIds.size === validationResult.fixableIssues.length ? "Deselect all" : "Select all"}
+                  </button>
+                </div>
+                {validationResult.fixableIssues.map(issue => (
+                  <label
+                    key={issue.id}
+                    className="flex items-start gap-2 cursor-pointer rounded px-2 py-1.5 hover:bg-white/5 transition-colors"
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-3 w-3 shrink-0 accent-current"
+                      checked={selectedIssueIds.has(issue.id)}
+                      onChange={e => {
+                        setSelectedIssueIds(prev => {
+                          const next = new Set(prev);
+                          e.target.checked ? next.add(issue.id) : next.delete(issue.id);
+                          return next;
+                        });
+                      }}
+                    />
+                    <div className="min-w-0 space-y-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className={cn(
+                          "font-mono text-[9px] uppercase tracking-wider px-1 rounded",
+                          issue.severity === "error" ? "bg-destructive/20" : "bg-amber-500/20",
+                        )}>
+                          {issue.severity}
+                        </span>
+                        <span className="opacity-60 font-mono text-[10px]">{issue.field}</span>
+                      </div>
+                      <div>{issue.description}</div>
+                      <div className="opacity-70">→ {issue.suggestedFix}</div>
+                    </div>
+                  </label>
+                ))}
               </div>
             )}
+
+            {/* Apply selected button */}
+            {selectedIssueIds.size > 0 && matrix && (
+              <div className="flex items-center gap-2 pt-0.5">
+                <button
+                  type="button"
+                  disabled={applyingFixes}
+                  className="flex items-center gap-1.5 rounded border border-current px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider hover:opacity-80 transition-opacity disabled:opacity-40"
+                  onClick={async () => {
+                    setApplyError(null);
+                    const selected = validationResult.fixableIssues.filter(i => selectedIssueIds.has(i.id));
+                    try {
+                      const corrected = await applySelectedFixes(matrix, selected);
+                      setMatrix(corrected);
+                      // Mark as available for library save
+                      setSavedToLibrary(new Set());
+                      // Remove applied issues from result
+                      clearValidation();
+                    } catch (err) {
+                      setApplyError(err instanceof Error ? err.message : String(err));
+                    }
+                  }}
+                >
+                  {applyingFixes ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wrench className="h-3 w-3" />}
+                  Apply {selectedIssueIds.size} Fix{selectedIssueIds.size !== 1 ? "es" : ""}
+                </button>
+                <button
+                  type="button"
+                  disabled={applyingFixes || createPattern.isPending}
+                  className="flex items-center gap-1.5 rounded border border-current px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider hover:opacity-80 transition-opacity disabled:opacity-40 opacity-70"
+                  onClick={async () => {
+                    const selected = validationResult.fixableIssues.filter(
+                      i => selectedIssueIds.has(i.id) && !savedToLibrary.has(i.id)
+                    );
+                    for (const issue of selected) {
+                      await createPattern.mutateAsync({
+                        plc_brand: "SIEMENS_TIA",
+                        device_type: issue.field.split("[")[0] ?? "matrix",
+                        context: `Matrix validation: ${issue.field}`,
+                        original_snippet: issue.wrongSnippet,
+                        corrected_snippet: issue.correctSnippet,
+                        correction_type: "matrix_validation",
+                        explanation_tag: issue.description,
+                      });
+                    }
+                    setSavedToLibrary(prev => {
+                      const next = new Set(prev);
+                      selected.forEach(i => next.add(i.id));
+                      return next;
+                    });
+                  }}
+                >
+                  {createPattern.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <BookMarked className="h-3 w-3" />}
+                  Save {selectedIssueIds.size - savedToLibrary.size > 0
+                    ? `${selectedIssueIds.size - savedToLibrary.size} `
+                    : ""}to Library
+                </button>
+              </div>
+            )}
+
+            {applyError && (
+              <div className="text-destructive text-[10px] font-mono">{applyError}</div>
+            )}
+
+            {/* Suggestions */}
             {validationResult.suggestions.length > 0 && (
-              <div className="space-y-0.5">
-                <div className="font-mono text-[10px] opacity-70">Suggestions:</div>
-                {validationResult.suggestions.map((s, i) => <div key={i} className="pl-2">· {s}</div>)}
+              <div className="space-y-0.5 pt-0.5 border-t border-current/10">
+                <div className="font-mono text-[10px] opacity-70 uppercase tracking-wider">Suggestions</div>
+                {validationResult.suggestions.map((s, i) => <div key={i} className="pl-2 opacity-80">· {s}</div>)}
               </div>
             )}
           </div>
@@ -710,7 +877,7 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
                 ))}
               </select>
             )}
-            {diagramChart && (
+            {hasDiagram && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -737,8 +904,11 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
               Waiting for matrix…
             </div>
-          ) : diagramChart ? (
-            <MermaidDiagram chart={diagramChart} className="min-w-[500px]" />
+          ) : activeSeq ? (
+            <div
+              className="w-full"
+              dangerouslySetInnerHTML={{ __html: renderProcessFlowSvg(activeSeq) }}
+            />
           ) : (
             <div className="flex h-full items-center justify-center font-mono text-xs text-muted-foreground">
               No process sequences defined
@@ -768,7 +938,9 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
             </Button>
           </div>
           <div className="flex-1 overflow-auto p-4">
-            <MermaidDiagram chart={diagramChart} className="min-w-[600px]" />
+            {activeSeq && (
+              <div dangerouslySetInnerHTML={{ __html: renderProcessFlowSvg(activeSeq) }} />
+            )}
           </div>
         </DialogContent>
       </Dialog>
