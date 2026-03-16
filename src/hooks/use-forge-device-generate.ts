@@ -41,7 +41,10 @@ const DEVICE_GEN_MAX_TOKENS = 8192;
  * the name stem (strip "type" prefix, compare lowercase). If confidence is
  * high (one candidate clearly best), rewrite the reference.
  */
-function reconcileUdtReferences(artifacts: ForgeArtifact[]): ForgeArtifact[] {
+function reconcileUdtReferences(
+  artifacts: ForgeArtifact[],
+  log: (level: DeviceGenLogLevel, msg: string) => void,
+): ForgeArtifact[] {
   const udtNames = artifacts.filter(a => a.type === "UDT").map(a => a.name);
   if (udtNames.length === 0) return artifacts;
 
@@ -77,8 +80,10 @@ function reconcileUdtReferences(artifacts: ForgeArtifact[]): ForgeArtifact[] {
       if (udtSet.has(ref)) continue; // already correct
       const fix = bestMatch(ref);
       if (fix && fix !== ref) {
-        console.log(`[forge] UDT reconcile: "${ref}" → "${fix}" in ${a.name}`);
+        log("fix", `UDT name corrected in ${a.name}: "${ref}" → "${fix}"`);
         content = content.replaceAll(ref, fix);
+      } else if (!fix) {
+        log("warn", `UDT "${ref}" in ${a.name} has no matching UDT artifact — will cause compile error`);
       }
     }
     return content !== a.content ? { ...a, content } : a;
@@ -99,6 +104,7 @@ function reconcileUdtReferences(artifacts: ForgeArtifact[]): ForgeArtifact[] {
 function normalizeInstanceDbNames(
   artifacts: ForgeArtifact[],
   devices: ForgeDeviceEntry[],
+  log: (level: DeviceGenLogLevel, msg: string) => void,
 ): ForgeArtifact[] {
   // Build canonical name map: any "Inst..." DB → canonical deterministic name
   const canonicalName = (deviceName: string) => `Inst${deviceName.replace(/[^A-Za-z0-9]/g, "")}`;
@@ -114,7 +120,7 @@ function normalizeInstanceDbNames(
       const currentStem = a.name.replace(/^Inst/i, "").replace(/[^A-Za-z0-9]/g, "").toLowerCase();
       if (currentStem === deviceStem) {
         renames.set(a.name, canonical);
-        console.log(`[forge] instance DB rename: "${a.name}" → "${canonical}"`);
+        log("fix", `Instance DB renamed: "${a.name}" → "${canonical}"`);
       }
     }
   }
@@ -359,6 +365,13 @@ export interface ForgeDeviceGenerateProgress {
   currentDevice: string;
 }
 
+export type DeviceGenLogLevel = "info" | "fix" | "warn";
+export interface DeviceGenLogEntry {
+  level: DeviceGenLogLevel;
+  message: string;
+  ts: number;
+}
+
 export function useForgeDeviceGenerate() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<ForgeDeviceGenerateProgress>({
@@ -367,6 +380,16 @@ export function useForgeDeviceGenerate() {
     currentDevice: "",
   });
   const [error, setError] = useState<string | null>(null);
+  const [log, setLog] = useState<DeviceGenLogEntry[]>([]);
+
+  function appendLog(level: DeviceGenLogLevel, message: string) {
+    setLog(prev => [...prev, { level, message, ts: Date.now() }]);
+    console.log(`[forge:${level}] ${message}`);
+  }
+
+  function clearLog() {
+    setLog([]);
+  }
 
   const generateSingle = useCallback(
     async (
@@ -375,6 +398,7 @@ export function useForgeDeviceGenerate() {
       profile: DesignProfile,
       fbTemplates: FbTemplate[],
       patterns: PatternCandidate[],
+      log: (level: DeviceGenLogLevel, msg: string) => void,
     ): Promise<ForgeArtifact[]> => {
       const abort = new AbortController();
       const effectiveLang = device.language_override ?? profile.device_fb_language;
@@ -387,6 +411,7 @@ export function useForgeDeviceGenerate() {
 
       // Exact match — skip AI entirely, copy template blocks as-is
       if (device.fb_match_confidence === "exact" && matchedTemplate?.blocks?.length) {
+        log("info", `${device.name}: copied from library template "${matchedTemplate.name}"`);
         return copyTemplateAsArtifacts(device, matchedTemplate);
       }
 
@@ -420,10 +445,18 @@ export function useForgeDeviceGenerate() {
 
       if (isLad) {
         const artifact = parseLadArtifact(content, device.name, "device");
+        if (!artifact) log("warn", `${device.name}: LAD parse returned no artifact`);
+        else log("info", `${device.name}: generated LAD FB`);
         return artifact ? [artifact] : [];
       }
 
-      return parseSclArtifacts(content, "device");
+      const artifacts = parseSclArtifacts(content, "device");
+      if (artifacts.length === 0) {
+        log("warn", `${device.name}: SCL parse returned no artifacts — check AI output format`);
+      } else {
+        log("info", `${device.name}: generated ${artifacts.map(a => `${a.type}:${a.name}`).join(", ")}`);
+      }
+      return artifacts;
     },
     [],
   );
@@ -437,6 +470,7 @@ export function useForgeDeviceGenerate() {
     ): Promise<ForgeArtifact[]> => {
       setLoading(true);
       setError(null);
+      clearLog();
 
       const devices = session.device_list as ForgeDeviceEntry[];
       const ioList = session.io_list as ForgeIoEntry[];
@@ -487,7 +521,7 @@ export function useForgeDeviceGenerate() {
               }
             }
           } else {
-            deviceArtifacts = await generateSingle(device, session, profile, fbTemplates, patterns);
+            deviceArtifacts = await generateSingle(device, session, profile, fbTemplates, patterns, appendLog);
             allArtifacts.push(...deviceArtifacts);
           }
 
@@ -515,6 +549,7 @@ export function useForgeDeviceGenerate() {
           currentDevice: "Inputs DB",
         });
         if (ioList?.length > 0) {
+          const inputFields = ioList.filter(io => io.signal_type === "DI" || io.signal_type === "AI");
           const inputsDbCode = generateInputsDb(ioList);
           allArtifacts.push({
             id: crypto.randomUUID(),
@@ -528,6 +563,7 @@ export function useForgeDeviceGenerate() {
             dependencies: [],
             compile_after_import: true,
           });
+          appendLog("info", `Inputs DB: ${inputFields.length} fields — ${inputFields.map(io => io.tag_name).join(", ")}`);
         }
 
         // --- Step 3: Outputs DB (deterministic) ---
@@ -537,6 +573,7 @@ export function useForgeDeviceGenerate() {
           currentDevice: "Outputs DB",
         });
         if (ioList?.length > 0) {
+          const outputFields = ioList.filter(io => io.signal_type === "DQ" || io.signal_type === "AQ");
           const outputsDbCode = generateOutputsDb(ioList);
           allArtifacts.push({
             id: crypto.randomUUID(),
@@ -550,6 +587,7 @@ export function useForgeDeviceGenerate() {
             dependencies: [],
             compile_after_import: true,
           });
+          appendLog("info", `Outputs DB: ${outputFields.length} fields — ${outputFields.map(io => io.tag_name).join(", ")}`);
         }
 
         // --- Step 3b: Global DBs from matrix (HmiData, Configuration, etc.) ---
@@ -574,6 +612,7 @@ export function useForgeDeviceGenerate() {
             dependencies: [],
             compile_after_import: true,
           });
+          appendLog("info", `Global DB "${gdb.dbName}": ${(gdb.fields ?? []).length} fields`);
         }
 
         // --- Step 4: IoLinking FC (deterministic SCL, or LAD via AI) ---
@@ -658,6 +697,7 @@ export function useForgeDeviceGenerate() {
           );
           const inputsDbFields = relevantInputs.map((io) => io.tag_name);
           const outputsDbFields = relevantOutputs.map((io) => io.tag_name);
+          appendLog("info", `${fcName}: calling instances [${instanceDbNames.join(", ")}], inputs [${inputsDbFields.join(", ") || "none"}], outputs [${outputsDbFields.join(", ") || "none"}]`);
 
           // Build IO tag normalizer: given a matrix connectedTo name (AI-invented, may have
           // extra prefix like "DI_PE01_DET"), find the actual IO list tag name ("PE01_DET").
@@ -672,7 +712,7 @@ export function useForgeDeviceGenerate() {
               return ts === stem || stem.includes(ts) || ts.includes(stem);
             });
             if (match && match !== connectedTo) {
-              console.log(`[forge] IO tag normalize: "${connectedTo}" → "${match}"`);
+              appendLog("fix", `IO tag normalized in matrix wiring: "${connectedTo}" → "${match}"`);
             }
             return match ?? connectedTo;
           }
@@ -719,12 +759,17 @@ export function useForgeDeviceGenerate() {
           );
 
           const fcArtifacts = parseSclArtifacts(content, "device");
-          console.log(`[forge] ${fcName}: produced ${fcArtifacts.length} artifact(s)`);
+          if (fcArtifacts.length === 0) {
+            appendLog("warn", `${fcName}: no artifacts parsed — Device Call FC may be missing`);
+          } else {
+            appendLog("info", `${fcName}: generated ${fcArtifacts.map(a => a.name).join(", ")}`);
+          }
           allArtifacts.push(...fcArtifacts);
         }
 
-        const normalized = normalizeInstanceDbNames(allArtifacts, devices);
-        return reconcileUdtReferences(normalized);
+        appendLog("info", `Post-processing ${allArtifacts.length} artifacts…`);
+        const normalized = normalizeInstanceDbNames(allArtifacts, devices, appendLog);
+        return reconcileUdtReferences(normalized, appendLog);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         setError(msg);
@@ -736,5 +781,5 @@ export function useForgeDeviceGenerate() {
     [generateSingle],
   );
 
-  return { generateAll, generateSingle, loading, progress, error };
+  return { generateAll, generateSingle, loading, progress, error, log, clearLog };
 }

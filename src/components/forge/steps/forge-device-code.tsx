@@ -27,6 +27,7 @@ import {
 import { ForgeSubPipeline } from "@/components/forge/forge-sub-pipeline";
 import type { SubPipelineStage } from "@/components/forge/forge-sub-pipeline";
 import { useForgeDeviceGenerate } from "@/hooks/use-forge-device-generate";
+import type { DeviceGenLogEntry } from "@/hooks/use-forge-device-generate";
 import { useForgeIoValidate } from "@/hooks/use-forge-io-validate";
 import { useForgeCompileCheck } from "@/hooks/use-forge-compile-check";
 import { useCreatePatternCandidate } from "@/hooks/use-patterns";
@@ -74,6 +75,42 @@ function langBadge(lang: ForgeArtifact["language"]) {
   );
 }
 
+function GenerationLog({ entries }: { entries: DeviceGenLogEntry[] }) {
+  const [open, setOpen] = useState(true);
+  const warnCount = entries.filter(e => e.level === "warn").length;
+  const fixCount = entries.filter(e => e.level === "fix").length;
+
+  return (
+    <div className="rounded-md border border-border/60 bg-muted/10">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left"
+      >
+        {open ? <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />}
+        <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Generation Log</span>
+        <div className="ml-auto flex items-center gap-1.5">
+          {fixCount > 0 && <Badge variant="outline" className="font-mono text-[9px] border-amber-500/50 text-amber-400">{fixCount} auto-fixed</Badge>}
+          {warnCount > 0 && <Badge variant="outline" className="font-mono text-[9px] border-red-500/50 text-red-400">{warnCount} warnings</Badge>}
+          <Badge variant="outline" className="font-mono text-[9px]">{entries.length} entries</Badge>
+        </div>
+      </button>
+      {open && (
+        <div className="border-t border-border/40 px-3 py-2">
+          <div className="max-h-48 overflow-y-auto space-y-0.5 font-mono text-[10px]">
+            {entries.map((e, i) => (
+              <div key={i} className={`flex gap-2 ${e.level === "warn" ? "text-red-400" : e.level === "fix" ? "text-amber-400" : "text-muted-foreground"}`}>
+                <span className="shrink-0 text-muted-foreground/50">{new Date(e.ts).toLocaleTimeString()}</span>
+                <span className={`shrink-0 uppercase ${e.level === "warn" ? "text-red-500" : e.level === "fix" ? "text-amber-500" : "text-blue-500"}`}>{e.level}</span>
+                <span className="break-all">{e.message}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const INITIAL_STAGES: SubPipelineStage[] = [
   { label: "Generate FBs", status: "pending" },
   { label: "Validate IO", status: "pending" },
@@ -108,7 +145,7 @@ export function ForgeDeviceCode({
   const [selectedForLibrary, setSelectedForLibrary] = useState<Set<string>>(new Set());
   const [savedToLibrary, setSavedToLibrary] = useState<Set<string>>(new Set());
 
-  const { generateAll, loading: genLoading, progress, error: genError } = useForgeDeviceGenerate();
+  const { generateAll, loading: genLoading, progress, error: genError, log: genLog } = useForgeDeviceGenerate();
   const { validateIo, loading: ioValidateLoading } = useForgeIoValidate();
   const { compileCheck, loading: compileLoading, progress: compileProgress } = useForgeCompileCheck();
   const { data: agents } = useAgents();
@@ -523,6 +560,11 @@ export function ForgeDeviceCode({
           <div className={`flex items-center gap-2 rounded border px-3 py-2 text-xs ${ioValidationSummary.includes("passed") ? "border-green-600/30 bg-green-500/5 text-green-400" : "border-red-600/30 bg-red-500/5 text-red-400"}`}>
             {ioValidationSummary}
           </div>
+        )}
+
+        {/* Generation log */}
+        {genLog.length > 0 && (
+          <GenerationLog entries={genLog} />
         )}
 
         {(genError ?? pipelineError ?? compileErrors.length > 0) && (
