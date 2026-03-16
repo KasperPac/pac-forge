@@ -13,6 +13,10 @@ import {
   ShieldCheck,
   Maximize2,
   X,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -378,6 +382,8 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
   const [completing, setCompleting] = useState(false);
   const [completeError, setCompleteError] = useState<string | null>(null);
   const [diagramFullscreen, setDiagramFullscreen] = useState(false);
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(false);
   const { generate, loading, error } = useForgeMatrixGenerate();
 
   const [activeTab, setActiveTab] = useState<"devices" | "sequences">("devices");
@@ -434,9 +440,29 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
     : "";
 
   return (
-    <div className="flex h-full gap-4 min-h-0">
+    <div className="flex h-full gap-2 min-h-0">
       {/* Left panel — Matrix editor */}
-      <div className="flex w-[55%] shrink-0 flex-col gap-3 min-h-0">
+      {leftCollapsed ? (
+        <div className="flex w-7 shrink-0 flex-col items-center gap-2 py-1">
+          <button
+            type="button"
+            title="Expand matrix panel"
+            onClick={() => setLeftCollapsed(false)}
+            className="flex h-6 w-6 items-center justify-center rounded hover:bg-accent/30 text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <PanelLeftOpen className="h-3.5 w-3.5" />
+          </button>
+          <div className="flex-1 flex items-center justify-center">
+            <span
+              className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground whitespace-nowrap"
+              style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
+            >
+              Matrix
+            </span>
+          </div>
+        </div>
+      ) : (
+      <div className={cn("flex shrink-0 flex-col gap-3 min-h-0 transition-all", rightCollapsed ? "flex-1" : "w-[55%]")}>
         {/* Toolbar */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -491,6 +517,14 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
                 <><CheckCircle2 className="h-3.5 w-3.5" /> Confirm & Continue</>
               )}
             </Button>
+            <button
+              type="button"
+              title="Collapse matrix panel"
+              onClick={() => setLeftCollapsed(true)}
+              className="flex h-6 w-6 items-center justify-center rounded hover:bg-accent/30 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <PanelLeftClose className="h-3.5 w-3.5" />
+            </button>
           </div>
         </div>
 
@@ -625,9 +659,30 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
           </>
         )}
       </div>
+      )} {/* end left panel conditional */}
 
       {/* Right panel — Sequence diagram */}
-      <div className="flex min-w-0 flex-1 flex-col gap-2 min-h-0">
+      {rightCollapsed ? (
+        <div className="flex w-7 shrink-0 flex-col items-center gap-2 py-1">
+          <button
+            type="button"
+            title="Expand diagram panel"
+            onClick={() => setRightCollapsed(false)}
+            className="flex h-6 w-6 items-center justify-center rounded hover:bg-accent/30 text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <PanelRightOpen className="h-3.5 w-3.5" />
+          </button>
+          <div className="flex-1 flex items-center justify-center">
+            <span
+              className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground whitespace-nowrap"
+              style={{ writingMode: "vertical-rl" }}
+            >
+              Diagram
+            </span>
+          </div>
+        </div>
+      ) : (
+      <div className={cn("flex min-w-0 flex-col gap-2 min-h-0", leftCollapsed ? "flex-1" : "flex-1")}>
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <GitBranch className="h-3.5 w-3.5 text-primary" />
@@ -658,6 +713,14 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
                 <Maximize2 className="h-3.5 w-3.5" />
               </Button>
             )}
+            <button
+              type="button"
+              title="Collapse diagram panel"
+              onClick={() => setRightCollapsed(true)}
+              className="flex h-6 w-6 items-center justify-center rounded hover:bg-accent/30 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <PanelRightClose className="h-3.5 w-3.5" />
+            </button>
           </div>
         </div>
 
@@ -675,6 +738,7 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
           )}
         </div>
       </div>
+      )} {/* end right panel conditional */}
 
       {/* Fullscreen diagram dialog */}
       <Dialog open={diagramFullscreen} onOpenChange={setDiagramFullscreen}>
