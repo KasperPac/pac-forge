@@ -32,6 +32,136 @@ const DEVICE_GEN_MAX_TOKENS = 8192;
 // ---------------------------------------------------------------------------
 
 /**
+ * After all device artifacts are collected, fix UDT type name mismatches in
+ * DB artifacts (mainly the Configuration DB). The matrix AI invents UDT names
+ * that may not exactly match the template's UDT block names.
+ *
+ * Strategy: for each `: typeSomething` reference in a DB that doesn't match
+ * any existing UDT artifact name, find the closest UDT artifact by comparing
+ * the name stem (strip "type" prefix, compare lowercase). If confidence is
+ * high (one candidate clearly best), rewrite the reference.
+ */
+function reconcileUdtReferences(artifacts: ForgeArtifact[]): ForgeArtifact[] {
+  const udtNames = artifacts.filter(a => a.type === "UDT").map(a => a.name);
+  if (udtNames.length === 0) return artifacts;
+
+  const udtSet = new Set(udtNames);
+
+  // Strip "type" prefix and lowercase for fuzzy matching
+  const stem = (name: string) => name.replace(/^type/i, "").toLowerCase();
+  const udtStems = udtNames.map(n => ({ name: n, stem: stem(n) }));
+
+  function bestMatch(typeName: string): string | null {
+    if (udtSet.has(typeName)) return typeName; // exact match — nothing to do
+    const s = stem(typeName);
+    // Find UDT whose stem is contained in the query stem or vice versa
+    const candidates = udtStems.filter(u =>
+      u.stem.includes(s) || s.includes(u.stem) || levenshtein(u.stem, s) <= 3
+    );
+    if (candidates.length === 1) return candidates[0].name;
+    // If multiple candidates, pick shortest-stem distance
+    if (candidates.length > 1) {
+      candidates.sort((a, b) => levenshtein(a.stem, s) - levenshtein(b.stem, s));
+      return candidates[0].name;
+    }
+    return null;
+  }
+
+  return artifacts.map(a => {
+    if (a.type !== "DB") return a;
+    // Find all ": typeXxx" references in the DB content
+    let content = a.content;
+    const typeRefs = [...new Set((content.match(/:\s*(type[A-Za-z0-9]+)/g) ?? [])
+      .map(r => r.replace(/^:\s*/, "")))];
+    for (const ref of typeRefs) {
+      if (udtSet.has(ref)) continue; // already correct
+      const fix = bestMatch(ref);
+      if (fix && fix !== ref) {
+        console.log(`[forge] UDT reconcile: "${ref}" → "${fix}" in ${a.name}`);
+        content = content.replaceAll(ref, fix);
+      }
+    }
+    return content !== a.content ? { ...a, content } : a;
+  });
+}
+
+/**
+ * Normalize instance DB names across all artifacts.
+ *
+ * Problem: AI may generate "InstPB_Start" while the deterministic formula yields "InstPBStart"
+ * (stripping special chars). The Device Call FC uses the deterministic formula, so they
+ * never agree. Fix: rename every AI-generated instance DB to the deterministic name, then
+ * update all cross-references in other artifacts.
+ *
+ * Also updates the matrix-provided instanceDbName in the Device Call FC content when the
+ * matrix used a different naming convention.
+ */
+function normalizeInstanceDbNames(
+  artifacts: ForgeArtifact[],
+  devices: ForgeDeviceEntry[],
+): ForgeArtifact[] {
+  // Build canonical name map: any "Inst..." DB → canonical deterministic name
+  const canonicalName = (deviceName: string) => `Inst${deviceName.replace(/[^A-Za-z0-9]/g, "")}`;
+  const renames = new Map<string, string>(); // oldName → newName
+
+  for (const device of devices) {
+    const canonical = canonicalName(device.name);
+    // Find instance DBs for this device — name starts with "Inst" and fuzzy-matches device name
+    const deviceStem = device.name.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+    for (const a of artifacts) {
+      if (a.type !== "DB" || !a.name.startsWith("Inst")) continue;
+      if (a.name === canonical) continue; // already correct
+      const currentStem = a.name.replace(/^Inst/i, "").replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+      if (currentStem === deviceStem) {
+        renames.set(a.name, canonical);
+        console.log(`[forge] instance DB rename: "${a.name}" → "${canonical}"`);
+      }
+    }
+  }
+
+  if (renames.size === 0) return artifacts;
+
+  return artifacts.map(a => {
+    // Rename the DB artifact itself
+    if (a.type === "DB" && renames.has(a.name)) {
+      const newName = renames.get(a.name)!;
+      const content = a.content.replace(
+        new RegExp(`DATA_BLOCK\\s+"${a.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`, "g"),
+        `DATA_BLOCK "${newName}"`,
+      );
+      return { ...a, name: newName, content };
+    }
+    // Update all references in other artifacts
+    let content = a.content;
+    let changed = false;
+    for (const [oldName, newName] of renames) {
+      const escaped = oldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      // Match quoted references: "InstPB_Start"( or "InstPB_Start".field
+      const re = new RegExp(`"${escaped}"`, "g");
+      if (re.test(content)) {
+        content = content.replace(re, `"${newName}"`);
+        changed = true;
+      }
+    }
+    return changed ? { ...a, content } : a;
+  });
+}
+
+/** Simple Levenshtein distance for short UDT stem comparison. */
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
+    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+  );
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+  return dp[m][n];
+}
+
+/**
  * Copy template blocks directly as artifacts (exact match — no AI call).
  * Returns FB/UDT/FC blocks from the template + a deterministically-generated instance DB.
  */
@@ -503,13 +633,31 @@ export function useForgeDeviceGenerate() {
           const instanceDbNames = groupDevices.map(
             (d) => `Inst${d.name.replace(/[^A-Za-z0-9]/g, "")}`,
           );
-          const groupIoSignals = groupDevices.flatMap((d) => d.io_signals ?? []);
-          const inputsDbFields = groupIoSignals
-            .filter((s) => s.signal_type === "DI" || s.signal_type === "AI")
-            .map((s) => s.tag_name);
-          const outputsDbFields = groupIoSignals
-            .filter((s) => s.signal_type === "DQ" || s.signal_type === "AQ")
-            .map((s) => s.tag_name);
+
+          // Use IO list tag names (same source as generated Inputs/Outputs DBs) rather than
+          // device.io_signals tag names (AI-extracted from spec, may differ from CSV names).
+          // Match IO list entries to this device group by comparing tag names case-insensitively.
+          const groupSignalTags = new Set(
+            groupDevices
+              .flatMap((d) => d.io_signals ?? [])
+              .map((s) => s.tag_name.replace(/[^A-Za-z0-9]/g, "").toLowerCase()),
+          );
+          const groupIoListEntries = (ioList ?? []).filter((io) => {
+            const ioStem = (io.tag_name ?? "").replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+            // Match if the IO tag stem contains or is contained in any device signal tag stem
+            return [...groupSignalTags].some(
+              (s) => ioStem.includes(s) || s.includes(ioStem) || ioStem === s,
+            );
+          });
+          // Fallback: if matching finds nothing, include all IO entries for this signal type
+          const relevantInputs = groupIoListEntries.filter(
+            (io) => io.signal_type === "DI" || io.signal_type === "AI",
+          );
+          const relevantOutputs = groupIoListEntries.filter(
+            (io) => io.signal_type === "DQ" || io.signal_type === "AQ",
+          );
+          const inputsDbFields = relevantInputs.map((io) => io.tag_name);
+          const outputsDbFields = relevantOutputs.map((io) => io.tag_name);
 
           // Extract matrix wiring for devices of this type — engineer-confirmed connections
           const matrixWiring = matrix?.deviceLinkage
@@ -552,7 +700,8 @@ export function useForgeDeviceGenerate() {
           allArtifacts.push(...fcArtifacts);
         }
 
-        return allArtifacts;
+        const normalized = normalizeInstanceDbNames(allArtifacts, devices);
+        return reconcileUdtReferences(normalized);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         setError(msg);

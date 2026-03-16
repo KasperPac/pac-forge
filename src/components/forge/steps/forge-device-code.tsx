@@ -1,7 +1,20 @@
 import { useState } from "react";
-import { CheckCircle2, Circle, Loader2, AlertCircle, Maximize2 } from "lucide-react";
+import {
+  CheckCircle2,
+  Circle,
+  Loader2,
+  AlertCircle,
+  Maximize2,
+  GitCompareArrows,
+  Code2,
+  Undo2,
+  BookMarked,
+  ChevronDown,
+  ChevronRight,
+} from "lucide-react";
 import { ForgeCodeViewer } from "@/components/forge/forge-code-viewer";
 import { ForgeArtifactDialog } from "@/components/forge/forge-artifact-dialog";
+import { DiffView } from "@/components/pac-st/diff-view";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -14,11 +27,12 @@ import {
 import { ForgeSubPipeline } from "@/components/forge/forge-sub-pipeline";
 import type { SubPipelineStage } from "@/components/forge/forge-sub-pipeline";
 import { useForgeDeviceGenerate } from "@/hooks/use-forge-device-generate";
-import { useForgeReview } from "@/hooks/use-forge-review";
-import { useForgeRewrite } from "@/hooks/use-forge-rewrite";
 import { useForgeIoValidate } from "@/hooks/use-forge-io-validate";
 import { useForgeCompileCheck } from "@/hooks/use-forge-compile-check";
+import { useCreatePatternCandidate } from "@/hooks/use-patterns";
 import { useAgents } from "@/hooks/use-agents";
+import { computeDiff, extractFocusedSnippets } from "@/lib/diff-engine";
+import { cn } from "@/lib/utils";
 import type { ForgeSession, ForgeArtifact, ForgeIoEntry, ForgeDeviceEntry } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
 import type { FbTemplate } from "@/types/fb-template";
@@ -62,8 +76,6 @@ function langBadge(lang: ForgeArtifact["language"]) {
 
 const INITIAL_STAGES: SubPipelineStage[] = [
   { label: "Generate FBs", status: "pending" },
-  { label: "Review", status: "pending" },
-  { label: "Fix", status: "pending" },
   { label: "Validate IO", status: "pending" },
   { label: "Approve", status: "pending" },
   { label: "Upload", status: "pending" },
@@ -83,19 +95,29 @@ export function ForgeDeviceCode({
   const [editable, setEditable] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [stages, setStages] = useState<SubPipelineStage[]>(INITIAL_STAGES);
-  const [reviewSummary, setReviewSummary] = useState<string | null>(null);
   const [ioValidationSummary, setIoValidationSummary] = useState<string | null>(null);
   const [compileErrors, setCompileErrors] = useState<string[]>([]);
+  const [pipelineError, setPipelineError] = useState<string | null>(null);
+  const [currentStepLabel, setCurrentStepLabel] = useState<string | null>(null);
+
+  // Manual diff state (user-triggered, not auto-review)
+  const [preRewriteArtifacts, setPreRewriteArtifacts] = useState<ForgeArtifact[] | null>(null);
+  const [changedIds, setChangedIds] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useState<"code" | "diff">("code");
+  const [changesOpen, setChangesOpen] = useState(false);
+  const [selectedForLibrary, setSelectedForLibrary] = useState<Set<string>>(new Set());
+  const [savedToLibrary, setSavedToLibrary] = useState<Set<string>>(new Set());
 
   const { generateAll, loading: genLoading, progress, error: genError } = useForgeDeviceGenerate();
-  const { review, loading: reviewLoading } = useForgeReview();
-  const { rewrite, loading: rewriteLoading } = useForgeRewrite();
   const { validateIo, loading: ioValidateLoading } = useForgeIoValidate();
   const { compileCheck, loading: compileLoading, progress: compileProgress } = useForgeCompileCheck();
   const { data: agents } = useAgents();
+  const createPattern = useCreatePatternCandidate();
 
-  const loading = genLoading || reviewLoading || rewriteLoading || ioValidateLoading || compileLoading;
+  const loading = genLoading || ioValidateLoading || compileLoading;
   const selected = artifacts.find(a => a.id === selectedId) ?? null;
+  const selectedPre = preRewriteArtifacts?.find(a => a.id === selectedId) ?? null;
+  const showDiffToggle = !!selectedPre && changedIds.has(selectedId ?? "");
 
   function setStageStatus(label: string, status: SubPipelineStage["status"], detail?: string) {
     setStages(prev => prev.map(s => s.label === label ? { ...s, status, detail } : s));
@@ -120,45 +142,60 @@ export function ForgeDeviceCode({
     onArtifactsUpdate(updated);
   }
 
+  function revertArtifact(id: string) {
+    if (!preRewriteArtifacts) return;
+    const original = preRewriteArtifacts.find(a => a.id === id);
+    if (!original) return;
+    updateContent(id, original.content);
+    setChangedIds(prev => { const next = new Set(prev); next.delete(id); return next; });
+  }
+
+  async function saveToLibrary(ids: string[]) {
+    if (!preRewriteArtifacts) return;
+    for (const id of ids) {
+      if (savedToLibrary.has(id)) continue;
+      const pre = preRewriteArtifacts.find(a => a.id === id);
+      const post = artifacts.find(a => a.id === id);
+      if (!pre || !post) continue;
+      const diff = computeDiff(pre.content, post.content);
+      const { originalSnippet, correctedSnippet } = extractFocusedSnippets(diff);
+      await createPattern.mutateAsync({
+        plc_brand: "SIEMENS_TIA",
+        device_type: post.name,
+        context: `Auto-review fix in ${post.name} (${post.type})`,
+        original_snippet: originalSnippet,
+        corrected_snippet: correctedSnippet,
+        correction_type: "review_rewrite",
+        explanation_tag: `Review fix — ${post.name}`,
+      });
+    }
+    setSavedToLibrary(prev => { const next = new Set(prev); ids.forEach(id => next.add(id)); return next; });
+  }
+
   async function handleGenerateAll() {
     setStages(INITIAL_STAGES.map(s => ({ ...s, status: "pending" })));
-    setReviewSummary(null);
     setIoValidationSummary(null);
     setCompileErrors([]);
+    setPipelineError(null);
+    setCurrentStepLabel(null);
+    setPreRewriteArtifacts(null);
+    setChangedIds(new Set());
+    setViewMode("code");
+    setChangesOpen(false);
+    setSelectedForLibrary(new Set());
+    setSavedToLibrary(new Set());
 
     try {
       // 1. Generate
       setStageStatus("Generate FBs", "running");
+      setCurrentStepLabel("Generating device FBs…");
       const generated = await generateAll(session, profile, fbTemplates, patterns);
       setArtifacts(generated);
       onArtifactsUpdate(generated);
       if (generated.length > 0) setSelectedId(generated[0].id);
       setStageStatus("Generate FBs", "completed", `${generated.length} artifacts`);
 
-      // 2. Review (FB scope)
-      setStageStatus("Review", "running");
-      const reviewResult = await review(generated, "fb", profile);
-
-      let finalArtifacts = generated;
-      if (reviewResult.hasCritical || reviewResult.hasWarning) {
-        const count = reviewResult.findings.filter(f => f.severity === "CRITICAL" || f.severity === "WARNING").length;
-        setStageStatus("Review", "completed", `${count} issues`);
-
-        // 3. Rewrite
-        setStageStatus("Fix", "running");
-        const rewritten = await rewrite(generated, reviewResult.findings, profile);
-        setArtifacts(rewritten);
-        onArtifactsUpdate(rewritten);
-        finalArtifacts = rewritten;
-        setStageStatus("Fix", "completed", `${count} fixed`);
-        setReviewSummary(`Review found ${count} issue${count !== 1 ? "s" : ""} — code rewritten automatically.`);
-      } else {
-        setStageStatus("Review", "completed", "clean");
-        setStageStatus("Fix", "skipped");
-        setReviewSummary("Review passed — no issues found.");
-      }
-
-      // 4. IO Validation — skipped if IO Validator agent is disabled on the Agents page
+      // 2. IO Validation
       const ioValidatorAgent = agents?.find(a => a.display_name === "IO Validator");
       const ioList = session.io_list as ForgeIoEntry[];
       const deviceList = session.device_list as ForgeDeviceEntry[];
@@ -169,7 +206,8 @@ export function ForgeDeviceCode({
         setStageStatus("Validate IO", "skipped");
       } else {
         setStageStatus("Validate IO", "running");
-        const ioResult = await validateIo(finalArtifacts, ioList, deviceList, profile);
+        setCurrentStepLabel("IO Validator checking signal mappings…");
+        const ioResult = await validateIo(generated, ioList, deviceList, profile);
         if (ioResult.hasCritical || ioResult.hasWarning) {
           const count = ioResult.findings.filter(f => f.severity === "CRITICAL" || f.severity === "WARNING").length;
           setStageStatus("Validate IO", "completed", `${count} issues`);
@@ -181,10 +219,12 @@ export function ForgeDeviceCode({
       }
 
       setStageStatus("Approve", "pending");
+      setCurrentStepLabel(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      const runningStage = stages.find(s => s.status === "running");
-      if (runningStage) setStageStatus(runningStage.label, "failed", msg);
+      setPipelineError(msg);
+      setCurrentStepLabel(null);
+      setStages(prev => prev.map(s => s.status === "running" ? { ...s, status: "failed", detail: msg } : s));
     }
   }
 
@@ -208,8 +248,6 @@ export function ForgeDeviceCode({
         setStageStatus("Upload", "completed");
         setStageStatus("Compile", "completed", "clean");
         setCompileErrors([]);
-
-        // Update artifacts with any auto-fixed versions
         const updatedArtifacts = artifacts.map(orig => {
           const fixed = result.artifacts.find(a => a.id === orig.id);
           return fixed ?? orig;
@@ -270,7 +308,7 @@ export function ForgeDeviceCode({
                   {artifacts.map(a => (
                     <button
                       key={a.id}
-                      onClick={() => setSelectedId(a.id)}
+                      onClick={() => { setSelectedId(a.id); setViewMode("code"); }}
                       className={`group/row flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs transition-colors ${selectedId === a.id ? "bg-primary/15 text-foreground" : "hover:bg-muted/40 text-muted-foreground"}`}
                     >
                       <button
@@ -283,6 +321,11 @@ export function ForgeDeviceCode({
                       </button>
                       <span className="min-w-0 flex-1 truncate font-mono">{a.name}</span>
                       <div className="flex shrink-0 items-center gap-1">
+                        {changedIds.has(a.id) && (
+                          <Badge variant="outline" className="font-mono text-[9px] border-amber-500/50 text-amber-400">
+                            edited
+                          </Badge>
+                        )}
                         {a.fb_template_id && (
                           <Badge variant="outline" className="font-mono text-[9px] border-green-600/40 text-green-500">
                             library
@@ -308,25 +351,53 @@ export function ForgeDeviceCode({
 
         <ResizableHandle withHandle />
 
-        {/* Right panel — Monaco editor */}
+        {/* Right panel — Monaco editor / diff */}
         <ResizablePanel defaultSize={65}>
           <div className="flex h-full flex-col">
             <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
               <span className="font-mono text-[11px] text-muted-foreground">
                 {selected ? selected.name : "Select an artifact"}
               </span>
+              {showDiffToggle && (
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode(viewMode === "diff" ? "code" : "diff")}
+                    className={cn(
+                      "flex items-center gap-1 rounded px-2 py-0.5 font-mono text-[10px] transition-colors",
+                      viewMode === "diff"
+                        ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/40 border border-transparent"
+                    )}
+                  >
+                    {viewMode === "diff"
+                      ? <><Code2 className="h-3 w-3" /> Show Code</>
+                      : <><GitCompareArrows className="h-3 w-3" /> Show Diff</>}
+                  </button>
+                  {viewMode === "diff" && (
+                    <button
+                      type="button"
+                      onClick={() => { revertArtifact(selectedId!); setViewMode("code"); }}
+                      className="flex items-center gap-1 rounded border border-destructive/30 px-2 py-0.5 font-mono text-[10px] text-destructive hover:bg-destructive/10 transition-colors"
+                      title="Revert this artifact to the pre-review version"
+                    >
+                      <Undo2 className="h-3 w-3" /> Revert
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
             <div className="min-h-0 flex-1">
-              <ForgeCodeViewer
-                artifact={selected}
-                editable={editable}
-                onToggleEditable={() => setEditable((value) => !value)}
-                onContentChange={(content) => {
-                  if (selected) {
-                    updateContent(selected.id, content);
-                  }
-                }}
-              />
+              {viewMode === "diff" && selected && selectedPre ? (
+                <DiffView original={selectedPre.content} modified={selected.content} />
+              ) : (
+                <ForgeCodeViewer
+                  artifact={selected}
+                  editable={editable}
+                  onToggleEditable={() => setEditable(v => !v)}
+                  onContentChange={content => { if (selected) updateContent(selected.id, content); }}
+                />
+              )}
             </div>
           </div>
         </ResizablePanel>
@@ -337,14 +408,17 @@ export function ForgeDeviceCode({
         {genLoading && (
           <div className="space-y-1">
             <div className="flex items-center justify-between">
-              <span className="font-mono text-xs text-muted-foreground">
-                {progress.currentDevice}
-              </span>
-              <span className="font-mono text-xs text-muted-foreground">
-                {progress.current}/{progress.total}
-              </span>
+              <span className="font-mono text-xs text-muted-foreground">{progress.currentDevice}</span>
+              <span className="font-mono text-xs text-muted-foreground">{progress.current}/{progress.total}</span>
             </div>
             <Progress value={progressPct} className="h-1.5" />
+          </div>
+        )}
+
+        {currentStepLabel && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            {currentStepLabel}
           </div>
         )}
 
@@ -355,9 +429,93 @@ export function ForgeDeviceCode({
           </div>
         )}
 
-        {reviewSummary && (
-          <div className={`flex items-center gap-2 rounded border px-3 py-2 text-xs ${reviewSummary.includes("passed") ? "border-green-600/30 bg-green-500/5 text-green-400" : "border-amber-600/30 bg-amber-500/5 text-amber-400"}`}>
-            {reviewSummary}
+        {/* Manual edit diff panel — shown when user edits and wants to save to pattern library */}
+        {preRewriteArtifacts && changedIds.size > 0 && (
+          <div className="rounded border border-amber-500/20 bg-amber-500/5 text-xs">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-amber-400 hover:bg-amber-500/10 transition-colors"
+              onClick={() => setChangesOpen(v => !v)}
+            >
+              <span className="flex items-center gap-1.5">
+                <GitCompareArrows className="h-3 w-3" />
+                Review Changes — {changedIds.size} artifact{changedIds.size !== 1 ? "s" : ""} modified
+              </span>
+              {changesOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            </button>
+
+            {changesOpen && (
+              <div className="border-t border-amber-500/20 px-3 py-2 space-y-2">
+                {/* Per-artifact rows */}
+                {artifacts.filter(a => changedIds.has(a.id)).map(a => {
+                  const pre = preRewriteArtifacts.find(p => p.id === a.id);
+                  const isSaved = savedToLibrary.has(a.id);
+                  return (
+                    <div key={a.id} className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        className="h-3 w-3 accent-amber-400"
+                        checked={selectedForLibrary.has(a.id)}
+                        onChange={e => setSelectedForLibrary(prev => {
+                          const next = new Set(prev);
+                          e.target.checked ? next.add(a.id) : next.delete(a.id);
+                          return next;
+                        })}
+                      />
+                      <span className="flex-1 font-mono text-amber-300/80">{a.name}</span>
+                      {pre && (
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          {pre.content.split("\n").length} → {a.content.split("\n").length} lines
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedId(a.id); setViewMode("diff"); }}
+                        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition-colors"
+                      >
+                        <GitCompareArrows className="h-3 w-3" /> Diff
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { revertArtifact(a.id); }}
+                        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono border border-border/50 text-muted-foreground hover:text-destructive hover:border-destructive/40 transition-colors"
+                      >
+                        <Undo2 className="h-3 w-3" /> Revert
+                      </button>
+                      {isSaved && (
+                        <span className="font-mono text-[10px] text-green-400">saved</span>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* Save to library footer */}
+                <div className="flex items-center gap-2 border-t border-amber-500/15 pt-2">
+                  <button
+                    type="button"
+                    className="font-mono text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={() => {
+                      const all = new Set(changedIds);
+                      setSelectedForLibrary(prev => prev.size === all.size ? new Set() : all);
+                    }}
+                  >
+                    {selectedForLibrary.size === changedIds.size ? "Deselect all" : "Select all"}
+                  </button>
+                  <div className="flex-1" />
+                  <button
+                    type="button"
+                    disabled={selectedForLibrary.size === 0 || createPattern.isPending}
+                    onClick={() => void saveToLibrary([...selectedForLibrary])}
+                    className="flex items-center gap-1.5 rounded border border-amber-500/30 px-2 py-1 font-mono text-[10px] text-amber-400 hover:bg-amber-500/10 transition-colors disabled:opacity-40"
+                  >
+                    {createPattern.isPending
+                      ? <Loader2 className="h-3 w-3 animate-spin" />
+                      : <BookMarked className="h-3 w-3" />}
+                    Save {selectedForLibrary.size > 0 ? selectedForLibrary.size : ""} to Pattern Library
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -367,12 +525,18 @@ export function ForgeDeviceCode({
           </div>
         )}
 
-        {(genError ?? compileErrors.length > 0) && (
+        {(genError ?? pipelineError ?? compileErrors.length > 0) && (
           <div className="flex flex-col gap-1 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2">
             {genError && (
               <div className="flex items-center gap-2 text-xs text-destructive">
                 <AlertCircle className="h-3.5 w-3.5 shrink-0" />
                 {genError}
+              </div>
+            )}
+            {pipelineError && (
+              <div className="flex items-center gap-2 text-xs text-destructive">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                {pipelineError}
               </div>
             )}
             {compileErrors.map((e, i) => (
@@ -391,7 +555,7 @@ export function ForgeDeviceCode({
             disabled={loading}
             className="gap-2"
           >
-            {(genLoading || reviewLoading || rewriteLoading) && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {genLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             Generate All
           </Button>
 
