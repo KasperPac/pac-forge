@@ -659,13 +659,36 @@ export function useForgeDeviceGenerate() {
           const inputsDbFields = relevantInputs.map((io) => io.tag_name);
           const outputsDbFields = relevantOutputs.map((io) => io.tag_name);
 
-          // Extract matrix wiring for devices of this type — engineer-confirmed connections
+          // Build IO tag normalizer: given a matrix connectedTo name (AI-invented, may have
+          // extra prefix like "DI_PE01_DET"), find the actual IO list tag name ("PE01_DET").
+          // The Inputs/Outputs DBs use IO list tag names so the Device Call FC must match them.
+          const allIoTags = (ioList ?? []).map(io => io.tag_name);
+          function normalizeIoTag(connectedTo: string): string {
+            if (allIoTags.includes(connectedTo)) return connectedTo; // exact match
+            const stem = connectedTo.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+            // Find IO list tag whose stripped name matches or is contained in the stem
+            const match = allIoTags.find(t => {
+              const ts = t.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+              return ts === stem || stem.includes(ts) || ts.includes(stem);
+            });
+            if (match && match !== connectedTo) {
+              console.log(`[forge] IO tag normalize: "${connectedTo}" → "${match}"`);
+            }
+            return match ?? connectedTo;
+          }
+
+          // Extract matrix wiring for devices of this type — engineer-confirmed connections.
+          // Normalize io-type wire connectedTo values to match actual IO list tag names.
           const matrixWiring = matrix?.deviceLinkage
             .filter(d => d.deviceType === deviceType)
             .map(d => ({
               deviceName: d.name,
               instanceDbName: d.instanceDbName,
-              wiring: d.wiring,
+              wiring: d.wiring.map(w =>
+                w.wireType === "io"
+                  ? { ...w, connectedTo: normalizeIoTag(w.connectedTo ?? "") }
+                  : w
+              ),
             })) ?? [];
 
           const context: DeviceCallFcContext = {
