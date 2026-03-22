@@ -82,6 +82,10 @@ namespace PacForgeBridge
         public string TiaVersion { get; set; }
         public bool TiaProjectOpen { get; set; }
         public string BridgeVersion { get; set; }
+        /// <summary>e.g. "SIMATIC 300" — device family name from open project</summary>
+        public string SourcePlcFamily { get; set; }
+        /// <summary>e.g. "OrderNumber:6ES7 317-2EK14-0AB0/V3.3" — CPU slot TypeIdentifier</summary>
+        public string SourceCpuTypeId { get; set; }
     }
 
     // --- TIA Action Requests/Responses ---
@@ -195,6 +199,8 @@ namespace PacForgeBridge
         public bool Success { get; set; }
         public string Message { get; set; }
         public Dictionary<string, string> Sources { get; set; } = new Dictionary<string, string>();
+        /// <summary>Block name → programming language ("SCL", "STL", "LAD", "FBD", "DB", "UDT")</summary>
+        public Dictionary<string, string> SourceLanguages { get; set; } = new Dictionary<string, string>();
         public List<string> Warnings { get; set; } = new List<string>();
     }
 

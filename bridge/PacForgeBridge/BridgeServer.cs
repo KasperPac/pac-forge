@@ -304,9 +304,9 @@ namespace PacForgeBridge
             string body = await ReadBody(req);
             var request = Json.Deserialize<SubmitJobRequest>(body);
 
-            if (request == null || string.IsNullOrEmpty(request.TiaProjectPath))
+            if (request == null)
             {
-                await WriteJson(res, 400, new { error = "Missing required fields (tia_project_path)" });
+                await WriteJson(res, 400, new { error = "Missing or invalid request body" });
                 return;
             }
 
@@ -721,20 +721,32 @@ namespace PacForgeBridge
 
         private async Task HandleExportSources(HttpListenerResponse res)
         {
+            ExportSourcesResponse result = null;
+            Exception exportEx = null;
+
             try
             {
                 Console.WriteLine("[TIA] Exporting sources from TIA Portal...");
-                var result = _tiaService.ExportSources();
-                await WriteJson(res, 200, result);
+                result = _tiaService.ExportSources();
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[TIA] Export sources failed: {ex.Message}");
-                await WriteJson(res, 500, new ExportSourcesResponse
-                {
-                    Success = false,
-                    Message = ex.Message
-                });
+                exportEx = ex;
+            }
+
+            // Write response separately — client may have timed out while TIA was exporting.
+            // Guard against "response already submitted" / "network name no longer available".
+            try
+            {
+                if (exportEx != null)
+                    await WriteJson(res, 500, new ExportSourcesResponse { Success = false, Message = exportEx.Message });
+                else
+                    await WriteJson(res, 200, result);
+            }
+            catch (Exception writeEx)
+            {
+                Console.WriteLine($"[HTTP] Export response write failed (client likely timed out): {writeEx.Message}");
             }
         }
 

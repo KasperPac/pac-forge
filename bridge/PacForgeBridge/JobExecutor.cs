@@ -120,9 +120,18 @@ namespace PacForgeBridge
                 UpdateProgress(job, 5, "Connecting to TIA Portal");
                 _tiaService.Connect(preferAttach: true);
 
-                // Step 2: Open project
-                UpdateProgress(job, 10, "Opening project");
-                _tiaService.OpenProject(job.TiaProjectPath);
+                // Step 2: Open project (skip if no path — use whatever is already open in TIA)
+                if (!string.IsNullOrWhiteSpace(job.TiaProjectPath))
+                {
+                    UpdateProgress(job, 10, "Opening project");
+                    _tiaService.OpenProject(job.TiaProjectPath);
+                }
+                else
+                {
+                    UpdateProgress(job, 10, "Using currently open project");
+                    if (!_tiaService.IsProjectOpen)
+                        throw new InvalidOperationException("No TIA project open and no tia_project_path supplied. Open a project in TIA Portal first.");
+                }
 
                 // Step 3: Get PLC Software target
                 UpdateProgress(job, 15, "Locating PLC");

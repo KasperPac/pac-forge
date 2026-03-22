@@ -17,6 +17,7 @@ import { ForgeProjectSetup } from "@/components/forge/steps/forge-project-setup"
 import { ForgeQaReview } from "@/components/forge/steps/forge-qa-review";
 import { ForgeHardwareIo } from "@/components/forge/steps/forge-hardware-io";
 import { ForgeMatrixReview } from "@/components/forge/steps/forge-matrix-review";
+import { ForgeDeviceFb } from "@/components/forge/steps/forge-device-fb";
 import { ForgeDeviceCode } from "@/components/forge/steps/forge-device-code";
 import { ForgeProcessCode } from "@/components/forge/steps/forge-process-code";
 import { ForgeHmi } from "@/components/forge/steps/forge-hmi";
@@ -47,6 +48,7 @@ import {
 } from "@/hooks/use-forge-session";
 import { useDesignProfile } from "@/hooks/use-design-profiles";
 import { useFbTemplates } from "@/hooks/use-fb-templates";
+import type { FbTemplate } from "@/types/fb-template";
 import { useActivePatterns } from "@/hooks/use-patterns";
 import { useProject } from "@/hooks/use-projects";
 import { useForgeProvision } from "@/hooks/use-forge-provision";
@@ -98,7 +100,11 @@ export default function ForgePage() {
 
   // Dependencies
   const { data: profile } = useDesignProfile(session?.design_profile_id ?? undefined);
-  const { data: fbTemplates = [] } = useFbTemplates();
+  const { data: fbTemplates = [], refetch: refetchFbTemplates } = useFbTemplates();
+  const fetchFreshTemplates = async (): Promise<FbTemplate[]> => {
+    const result = await refetchFbTemplates();
+    return result.data ?? fbTemplates;
+  };
   const { data: patterns = [] } = useActivePatterns("SIEMENS_TIA");
 
   // Auto-create session if none exists
@@ -174,7 +180,7 @@ export default function ForgePage() {
     ioList: ForgeIoEntry[],
     devices: ForgeDeviceEntry[],
   ) {
-    await saveSession({ hardware_config: hardware, io_list: ioList, device_list: devices, current_step: "matrix_review" });
+    await saveSession({ hardware_config: hardware, io_list: ioList, device_list: devices, current_step: "device_fb" });
 
     // Provision the TIA project and show a progress dialog.
     // If bridge is offline it silently skips; compile step handles it later.
@@ -306,6 +312,19 @@ export default function ForgePage() {
           />
         );
 
+      case "device_fb":
+        return (
+          <ForgeDeviceFb
+            session={session}
+            profile={profileOrDefault}
+            fbTemplates={fbTemplates}
+            patterns={patterns}
+            onArtifactsUpdate={handleDeviceArtifactsUpdate}
+            onBeforeGenerate={fetchFreshTemplates}
+            onComplete={() => completeStep("device_fb")}
+          />
+        );
+
       case "matrix_review":
         return (
           <ForgeMatrixReview
@@ -323,6 +342,7 @@ export default function ForgePage() {
             fbTemplates={fbTemplates}
             patterns={patterns}
             onArtifactsUpdate={handleDeviceArtifactsUpdate}
+            onBeforeGenerate={fetchFreshTemplates}
             onComplete={() => completeStep("device_code")}
           />
         );

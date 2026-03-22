@@ -22,6 +22,7 @@ import { useAuditLog } from "@/hooks/use-audit-log";
 import type { PatternStatus, CorrectionType } from "@/types";
 
 type StatusFilter = PatternStatus | "all" | "conflicts";
+type PatternSource = "SIEMENS_TIA" | "SIEMENS_MIGRATION";
 
 const STATUS_TABS: Array<{ value: StatusFilter; label: string }> = [
   { value: "all", label: "All" },
@@ -41,14 +42,31 @@ const CORRECTION_FILTERS: Array<{ value: CorrectionType | "all"; label: string }
   { value: "TIMING", label: "Timing" },
 ];
 
+const MIGRATION_CORRECTION_FILTERS: Array<{ value: string | "all"; label: string }> = [
+  { value: "all", label: "All Types" },
+  { value: "TIMER", label: "Timer" },
+  { value: "COUNTER", label: "Counter" },
+  { value: "NAMING", label: "Naming" },
+  { value: "ADDRESSING", label: "Addressing" },
+  { value: "BLOCK_CALL", label: "Block Call" },
+  { value: "DATA_TYPE", label: "Data Type" },
+  { value: "OB_INTERFACE", label: "OB Interface" },
+  { value: "SYSTEM_FUNCTION", label: "System Function" },
+  { value: "OTHER", label: "Other" },
+];
+
 export default function PatternsPage() {
+  const [source, setSource] = useState<PatternSource>("SIEMENS_TIA");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("PENDING");
-  const [typeFilter, setTypeFilter] = useState<CorrectionType | "all">("all");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
-  const { data: patterns, isLoading } = usePatternCandidates(
+  const { data: allPatterns, isLoading } = usePatternCandidates(
     statusFilter === "all" || statusFilter === "conflicts" ? undefined : statusFilter
   );
+
+  // Filter by source (plc_brand)
+  const patterns = (allPatterns ?? []).filter((p) => p.plc_brand === source);
   const { data: designProfiles } = useDesignProfiles();
   const { data: allKnowledgeDocs } = useAllAgentKnowledgeDocs();
   const approvePattern = useApprovePattern();
@@ -118,9 +136,8 @@ export default function PatternsPage() {
               Pattern Library
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Review, approve, and manage correction patterns learned from
-              compile fixes and code reviews. Approved patterns are injected
-              into all future generation prompts.
+              Review, approve, and manage correction patterns. Approved patterns are injected
+              into future generation and migration prompts.
             </p>
           </div>
           <Badge variant="outline" className="mt-4 font-mono text-xs">
@@ -129,6 +146,24 @@ export default function PatternsPage() {
         </div>
 
         <Separator />
+
+        {/* Source toggle */}
+        <div className="flex items-center gap-1 rounded-md border p-0.5 w-fit">
+          {([
+            { value: "SIEMENS_TIA" as PatternSource, label: "Pac-ST" },
+            { value: "SIEMENS_MIGRATION" as PatternSource, label: "Migration" },
+          ]).map((s) => (
+            <Button
+              key={s.value}
+              variant={source === s.value ? "secondary" : "ghost"}
+              size="sm"
+              className="h-7 px-3 font-mono text-[10px]"
+              onClick={() => { setSource(s.value); setTypeFilter("all"); }}
+            >
+              {s.label}
+            </Button>
+          ))}
+        </div>
 
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-3">
@@ -152,8 +187,8 @@ export default function PatternsPage() {
             ))}
           </div>
 
-          <div className="flex items-center gap-1 rounded-md border p-0.5">
-            {CORRECTION_FILTERS.map((f) => (
+          <div className="flex items-center gap-1 rounded-md border p-0.5 flex-wrap">
+            {(source === "SIEMENS_MIGRATION" ? MIGRATION_CORRECTION_FILTERS : CORRECTION_FILTERS).map((f) => (
               <Button
                 key={f.value}
                 variant={typeFilter === f.value ? "secondary" : "ghost"}

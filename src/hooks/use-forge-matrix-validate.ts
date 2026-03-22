@@ -93,8 +93,10 @@ Rules:
 - verdict: "ok" if no issues, "warnings" if minor issues, "errors" if serious issues
 - severity: "error" for serious problems, "warning" for minor ones
 - field: use format deviceLinkage[DeviceName].fieldName or processSequences[SeqName].fieldName
-- wrongSnippet: the exact current bad value
-- correctSnippet: the exact corrected value
+- wrongSnippet: the exact current bad value (keep short, max 40 chars)
+- correctSnippet: the exact corrected value (keep short, max 40 chars)
+- description: max 15 words
+- suggestedFix: max 10 words
 - DO NOT output any text outside the JSON object`;
 
 // ---------------------------------------------------------------------------
@@ -142,55 +144,49 @@ export function useForgeMatrixValidate() {
           content: `Devices (${matrix.deviceLinkage.length}):\n${summary}\n\nSequences (${matrix.processSequences.length}):\n${seqSummary}`,
         }],
         ctrl.signal,
-        2048,
+        4096,
       );
 
-      // Parse JSON response — try several extraction strategies
+      // Parse JSON response — extract the first { ... } block regardless of fencing
       let parsed: { verdict: string; issues: MatrixIssue[]; suggestions: string[] };
       try {
-        // Strategy 1: strip markdown fences and parse directly
-        const cleaned = content.trim().replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/, "").trim();
-        parsed = JSON.parse(cleaned);
+        const startIdx = content.indexOf("{");
+        const endIdx = content.lastIndexOf("}");
+        if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) throw new Error("no json");
+        parsed = JSON.parse(content.slice(startIdx, endIdx + 1));
       } catch {
-        try {
-          // Strategy 2: extract first {...} block from prose response
-          const jsonMatch = content.match(/\{[\s\S]*\}/);
-          if (!jsonMatch) throw new Error("no json block");
-          parsed = JSON.parse(jsonMatch[0]);
-        } catch {
-          // Strategy 3: parse numbered findings from prose into individual issues
-          const findings = content
-            .split(/\n/)
-            .map(l => l.trim())
-            .filter(l => /^\d+[\.\)]/.test(l) || /^[-•*]/.test(l))
-            .map(l => l.replace(/^\d+[\.\)]\s*/, "").replace(/^[-•*]\s*/, "").trim())
-            .filter(l => l.length > 10)
-            .slice(0, 10);
+        // Fallback: parse numbered/bulleted findings from prose into individual issues
+        const findings = content
+          .split(/\n/)
+          .map(l => l.trim())
+          .filter(l => /^\d+[\.\)]/.test(l) || /^[-•*]/.test(l))
+          .map(l => l.replace(/^\d+[\.\)]\s*/, "").replace(/^[-•*]\s*/, "").trim())
+          .filter(l => l.length > 10)
+          .slice(0, 10);
 
-          parsed = {
-            verdict: "warnings",
-            issues: findings.length > 0
-              ? findings.map((f, i) => ({
-                  id: `prose_${i}`,
-                  severity: "warning" as const,
-                  description: f.slice(0, 200),
-                  field: "matrix",
-                  suggestedFix: "Review and correct manually",
-                  wrongSnippet: "",
-                  correctSnippet: "",
-                }))
-              : [{
-                  id: "parse_error",
-                  severity: "warning" as const,
-                  description: content.slice(0, 300),
-                  field: "matrix",
-                  suggestedFix: "Review manually",
-                  wrongSnippet: "",
-                  correctSnippet: "",
-                }],
-            suggestions: [],
-          };
-        }
+        parsed = {
+          verdict: "warnings",
+          issues: findings.length > 0
+            ? findings.map((f, i) => ({
+                id: `prose_${i}`,
+                severity: "warning" as const,
+                description: f,
+                field: "matrix",
+                suggestedFix: "Review and correct manually",
+                wrongSnippet: "",
+                correctSnippet: "",
+              }))
+            : [{
+                id: "parse_error",
+                severity: "warning" as const,
+                description: "Validator returned an unexpected response format. Review the matrix manually.",
+                field: "matrix",
+                suggestedFix: "Review manually",
+                wrongSnippet: "",
+                correctSnippet: "",
+              }],
+          suggestions: [],
+        };
       }
 
       // Coerce any field to string — Claude sometimes returns nested objects

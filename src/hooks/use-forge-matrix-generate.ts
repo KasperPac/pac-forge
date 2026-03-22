@@ -6,7 +6,7 @@ import {
   buildSequencesPrompt,
   buildSequencesUserMessage,
 } from "@/lib/forge-prompts";
-import type { ForgeDeviceEntry, ForgeIoEntry, SpecAnalysis } from "@/types/forge";
+import type { ForgeDeviceEntry, ForgeIoEntry, ForgeArtifact, SpecAnalysis } from "@/types/forge";
 import type { FbTemplate } from "@/types/fb-template";
 import type { ProcessLinkageMatrix, ProcessSequence } from "@/types/process-builder";
 
@@ -127,6 +127,7 @@ export function useForgeMatrixGenerate() {
       ioList: ForgeIoEntry[],
       specAnalysis: SpecAnalysis | null,
       fbTemplates?: FbTemplate[],
+      generatedFbArtifacts?: ForgeArtifact[],
     ): Promise<ProcessLinkageMatrix> => {
       setLoading(true);
       setError(null);
@@ -136,7 +137,7 @@ export function useForgeMatrixGenerate() {
           streamFromEdgeFunction(
             {
               system_prompt: buildDeviceLinkagePrompt(),
-              messages: [{ role: "user", content: buildDeviceLinkageUserMessage(devices, ioList, fbTemplates) }],
+              messages: [{ role: "user", content: buildDeviceLinkageUserMessage(devices, ioList, fbTemplates, generatedFbArtifacts) }],
               stream: true,
             },
             new AbortController().signal,

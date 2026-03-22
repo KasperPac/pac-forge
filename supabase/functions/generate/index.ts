@@ -39,7 +39,7 @@ interface GenerateRequest {
     project_id: string;
     session_id: string;
   };
-  generation_mode?: "FB_PER_DEVICE" | "PROJECT_LEVEL" | "PROCESS_CODE" | "FB_BUILDER";
+  generation_mode?: "FB_PER_DEVICE" | "PROJECT_LEVEL" | "PROCESS_CODE" | "FB_BUILDER" | "MIGRATION";
   stream?: boolean;
   max_tokens?: number;
 }

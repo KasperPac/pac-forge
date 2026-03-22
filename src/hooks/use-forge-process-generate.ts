@@ -5,8 +5,6 @@ import {
   buildProcessSclPrompt,
   buildProcessSclUserMessage,
   buildProcessLadPrompt,
-  buildProcessFcPrompt,
-  buildProcessFcUserMessage,
   generateOb1Main,
   deviceTypeToFcName,
   getDeviceCallOrder,
@@ -24,7 +22,7 @@ import type { DesignProfile } from "@/types/design-profile";
 import type { PatternCandidate } from "@/types";
 import type { ProcessLinkageMatrix, ProcessSequence, SequenceRow } from "@/types/process-builder";
 
-const PROCESS_GEN_MAX_TOKENS = 8192;
+const PROCESS_GEN_MAX_TOKENS = 32768;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -182,9 +180,15 @@ export function useForgeProcessGenerate() {
     ): Promise<ForgeArtifact[]> => {
       const abort = new AbortController();
       const isLad = profile.process_code_language === "LAD";
-      const devices = session.device_list as ForgeDeviceEntry[];
-      const fbInterfaces = extractFbInterfaces(session.device_artifacts);
+      const devices = (session.device_list as ForgeDeviceEntry[]) ?? [];
+      const deviceArtifacts = (session.device_artifacts as ForgeArtifact[]) ?? [];
+      const fbInterfaces = extractFbInterfaces(deviceArtifacts);
       const matrix = session.linkage_matrix as ProcessLinkageMatrix | null;
+
+      const globalDbSchemas = deviceArtifacts
+        .filter(a => a.type === "DB" && !a.name.startsWith("Inst") && a.name !== "Inputs" && a.name !== "Outputs")
+        .map(a => a.content)
+        .join("\n\n");
 
       const context: ProcessGenContext = {
         profile,
@@ -193,6 +197,7 @@ export function useForgeProcessGenerate() {
         deviceFbInterfaces: fbInterfaces,
         specAnalysis: session.spec_analysis as SpecAnalysis | undefined,
         linkageMatrix: matrix ?? undefined,
+        globalDbSchemas: globalDbSchemas || undefined,
       };
 
       let systemPrompt: string;
@@ -200,16 +205,16 @@ export function useForgeProcessGenerate() {
 
       if (isLad) {
         systemPrompt = buildProcessLadPrompt(context);
-        userMessage = `Generate sequential LAD logic for: ${sequence.name}\n\nSteps:\n${sequence.steps.map((s) => `Step ${s.step_number}: ${s.action} → Done when: ${s.completion_criteria}`).join("\n")}`;
+        userMessage = `Generate sequential LAD logic for: ${sequence.name}\n\nSteps:\n${(sequence.steps ?? []).map((s) => `Step ${s.step_number}: ${s.action} → Done when: ${s.completion_criteria}`).join("\n")}`;
       } else {
         systemPrompt = buildProcessSclPrompt(context);
         // Use matrix sequence if available — it has richer structured data
         if (matrixSequence) {
           const permissives = (matrixSequence.permissives ?? []).length > 0
-            ? `\n**Permissives (must be true before starting):**\n${matrixSequence.permissives.map(p => `  - ${p.description ?? ""}${p.deviceName ? ` (${p.deviceName})` : ""}${!p.polarity ? " [active LOW — check for FALSE]" : ""}`).join("\n")}`
+            ? `\n**Permissives (must be true before starting):**\n${(matrixSequence.permissives ?? []).map(p => `  - ${p.description ?? ""}${p.deviceName ? ` (${p.deviceName})` : ""}${!p.polarity ? " [active LOW — check for FALSE]" : ""}`).join("\n")}`
             : "";
           const safety = (matrixSequence.safetyConditions ?? []).length > 0
-            ? `\n**Safety Conditions (halt to safe state if violated):**\n${matrixSequence.safetyConditions.map(s => `  - ${s.description ?? ""}${s.deviceName ? ` (${s.deviceName})` : ""}${!s.polarity ? " [active LOW — halt when FALSE]" : ""}`).join("\n")}`
+            ? `\n**Safety Conditions (halt to safe state if violated):**\n${(matrixSequence.safetyConditions ?? []).map(s => `  - ${s.description ?? ""}${s.deviceName ? ` (${s.deviceName})` : ""}${!s.polarity ? " [active LOW — halt when FALSE]" : ""}`).join("\n")}`
             : "";
 
           let stepsSection: string;
@@ -235,7 +240,7 @@ ${permissives}${safety}
 **Steps (engineer-confirmed from Matrix Review):**
 ${stepsSection}
 
-Generate a complete, compile-ready CASE state machine FB (or FC if purely stateless).
+Generate a complete, compile-ready FB (or FC if purely stateless) using the code structure pattern defined in the system prompt.
 Output MUST use the tagged fenced block format: \`\`\`scl [FB:${matrixSequence.name}] ... \`\`\``;
         } else {
           userMessage = buildProcessSclUserMessage(sequence, devices);
@@ -254,13 +259,14 @@ Output MUST use the tagged fenced block format: \`\`\`scl [FB:${matrixSequence.n
 
       if (isLad) {
         const artifact = parseLadArtifact(content, sequence.name);
-        return artifact ? [artifact] : [];
+        if (artifact) return [artifact];
+        // AI didn't produce valid JSON — fall through to SCL parsing as fallback
       }
 
       const parsed = parseSclArtifacts(content);
       if (parsed.length > 0) return parsed;
 
-      // Fallback: AI didn't use the [TYPE:Name] tag — extract any fenced SCL block
+      // Fallback 1: AI didn't use the [TYPE:Name] tag — extract any fenced SCL block (with closing fence)
       const fallbackRe = /```(?:scl)?\s*\n([\s\S]*?)```/gi;
       const fallbackMatch = fallbackRe.exec(content);
       if (fallbackMatch) {
@@ -281,6 +287,45 @@ Output MUST use the tagged fenced block format: \`\`\`scl [FB:${matrixSequence.n
           }];
         }
       }
+
+      // Fallback 2: truncated response — opening fence exists but no closing fence
+      const truncatedMatch = /```(?:scl)?\s*(?:\[[^\]]+\])?\s*\n([\s\S]+)$/i.exec(content);
+      if (truncatedMatch) {
+        const code = truncatedMatch[1].trim();
+        if (code.length > 50) {
+          const isFb = /\bFUNCTION_BLOCK\b/i.test(code);
+          return [{
+            id: crypto.randomUUID(),
+            name: (matrixSequence?.name ?? sequence.name).replace(/\s+/g, "_"),
+            type: isFb ? "FB" : "FC" as ForgeArtifact["type"],
+            language: "SCL",
+            content: code,
+            approved: false,
+            stage: "process",
+            destination_folder: "Program blocks/Forge/Process",
+            dependencies: [],
+            compile_after_import: true,
+          }];
+        }
+      }
+
+      // Fallback 3: no fences at all — if the response looks like raw SCL, capture it
+      if (/\bFUNCTION_BLOCK\b|\bFUNCTION\b/i.test(content) && content.trim().length > 50) {
+        const isFb = /\bFUNCTION_BLOCK\b/i.test(content);
+        return [{
+          id: crypto.randomUUID(),
+          name: (matrixSequence?.name ?? sequence.name).replace(/\s+/g, "_"),
+          type: isFb ? "FB" : "FC" as ForgeArtifact["type"],
+          language: "SCL",
+          content: content.trim(),
+          approved: false,
+          stage: "process",
+          destination_folder: "Program blocks/Forge/Process",
+          dependencies: [],
+          compile_after_import: true,
+        }];
+      }
+
       return [];
     },
     [],
@@ -296,80 +341,67 @@ Output MUST use the tagged fenced block format: \`\`\`scl [FB:${matrixSequence.n
       setError(null);
 
       const specAnalysis = session.spec_analysis as SpecAnalysis | null;
-      const sequences = specAnalysis?.process_sequences ?? [];
-      const devices = session.device_list as ForgeDeviceEntry[];
+      const specSequences = specAnalysis?.process_sequences ?? [];
+      const devices = (session.device_list as ForgeDeviceEntry[]) ?? [];
       const matrix = session.linkage_matrix as ProcessLinkageMatrix | null;
+      const matrixSequences = matrix?.processSequences ?? [];
 
-      // Total = sequences + RunProcess FC + OB1 Main (deterministic, no AI step)
-      const totalSteps = sequences.length + 2;
+      // Matrix sequences are engineer-confirmed (Matrix Review step) — always prefer them.
+      // Fall back to spec analysis sequences only if the matrix has none.
+      const useMatrixAsPrimary = matrixSequences.length > 0;
+
+      // Total = sequences + OB1 Main (deterministic, no AI step)
+      const totalSteps = (useMatrixAsPrimary ? matrixSequences.length : specSequences.length) + 1;
       setProgress({ current: 0, total: totalSteps, currentSequence: "" });
 
       const allArtifacts: ForgeArtifact[] = [];
 
       try {
         // Step 1: Generate all sequence FBs/FCs
-        for (let i = 0; i < sequences.length; i++) {
-          const seq = sequences[i];
-          setProgress({
-            current: i + 1,
-            total: totalSteps,
-            currentSequence: seq.name,
-          });
-
-          // Find matching matrix sequence for richer structured data
-          const matrixSequence = matrix?.processSequences.find(s => {
-            if (!s.name || !seq.name) return false;
-            return s.name === seq.name || s.name.toLowerCase().includes(seq.name.slice(0, 15).toLowerCase());
-          });
-
-          const artifacts = await generateSequence(seq, session, profile, patterns, matrixSequence);
-          allArtifacts.push(...artifacts);
+        if (useMatrixAsPrimary) {
+          // Primary path: drive generation from matrix sequences (engineer-confirmed structure)
+          for (let i = 0; i < matrixSequences.length; i++) {
+            const matrixSeq = matrixSequences[i];
+            setProgress({
+              current: i + 1,
+              total: totalSteps,
+              currentSequence: matrixSeq.name,
+            });
+            // Find matching spec sequence for any extra context (e.g. high-level description)
+            const specSeq = specSequences.find(s =>
+              s.name === matrixSeq.name || matrixSeq.name.toLowerCase().includes((s.name ?? "").slice(0, 15).toLowerCase()),
+            );
+            // Build a minimal SpecAnalysisProcessSequence stub from the matrix sequence if no spec match
+            const seqStub: SpecAnalysisProcessSequence = specSeq ?? {
+              name: matrixSeq.name,
+              subsystem: matrixSeq.description ?? "",
+              permissives: [],
+              steps: (matrixSeq.steps ?? []).map(s => ({
+                step_number: s.stepNumber ?? 0,
+                action: (s.actions ?? []).map(a => a.description ?? "").join("; "),
+                completion_criteria: (s.transition?.conditions ?? []).map(c => c.description ?? "").join("; "),
+              })),
+            };
+            const artifacts = await generateSequence(seqStub, session, profile, patterns, matrixSeq);
+            allArtifacts.push(...artifacts);
+          }
+        } else {
+          // Fallback path: spec analysis sequences (no engineer-confirmed matrix)
+          for (let i = 0; i < specSequences.length; i++) {
+            const seq = specSequences[i];
+            setProgress({
+              current: i + 1,
+              total: totalSteps,
+              currentSequence: seq.name,
+            });
+            const artifacts = await generateSequence(seq, session, profile, patterns, undefined);
+            allArtifacts.push(...artifacts);
+          }
         }
 
-        // Step 2: Generate master RunProcess FC (pure process logic — no device FB calls)
+        // Step 2: Generate OB1 Main (deterministic — no AI call)
         setProgress({
-          current: sequences.length + 1,
-          total: totalSteps,
-          currentSequence: "RunProcess FC",
-        });
-
-        const fbInterfaces = extractFbInterfaces(session.device_artifacts);
-        // Instance DBs only (not IoLinking/Device Call FCs) — for reading device state
-        const instanceDbNames = (session.device_artifacts as ForgeArtifact[])
-          .filter((a) => a.type === "DB" && a.name.startsWith("Inst"))
-          .map((a) => a.name);
-        const sequenceArtifactNames = allArtifacts
-          .filter((a) => a.type === "FC" || a.type === "FB")
-          .map((a) => a.name);
-
-        const processFcContext: ProcessGenContext = {
-          profile,
-          platformRules: PLATFORM_RULES,
-          patterns,
-          deviceFbInterfaces: fbInterfaces,
-          specAnalysis: specAnalysis ?? undefined,
-          instanceDbNames,
-          sequenceArtifactNames,
-          linkageMatrix: matrix ?? undefined,
-        };
-
-        const abort2 = new AbortController();
-        const { content: processFcContent } = await validateAndCall(
-          callNonStreaming,
-          buildProcessFcPrompt(processFcContext),
-          [{ role: "user", content: buildProcessFcUserMessage() }],
-          abort2.signal,
-          8192,
-          "code_architect_scl",
-          !!profile,
-        );
-
-        const processFcArtifacts = parseSclArtifacts(processFcContent);
-        allArtifacts.push(...processFcArtifacts);
-
-        // Step 3: Generate OB1 Main (deterministic — no AI call)
-        setProgress({
-          current: sequences.length + 2,
+          current: (useMatrixAsPrimary ? matrixSequences.length : specSequences.length) + 1,
           total: totalSteps,
           currentSequence: "OB1 Main",
         });
@@ -382,7 +414,12 @@ Output MUST use the tagged fenced block format: \`\`\`scl [FB:${matrixSequence.n
           deviceTypeToFcName(dt, profile.naming_prefix ?? undefined),
         );
 
-        const ob1Code = generateOb1Main(deviceCallFcNames);
+        // Sequence FBs/FCs generated in Step 1 — call them directly from Main
+        const sequenceFcNames = allArtifacts
+          .filter((a) => a.type === "FC" || a.type === "FB")
+          .map((a) => a.name);
+
+        const ob1Code = generateOb1Main(deviceCallFcNames, sequenceFcNames);
         allArtifacts.push({
           id: crypto.randomUUID(),
           name: "Main",

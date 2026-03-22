@@ -5,6 +5,7 @@ export const FORGE_STEPS = {
   QA_REVIEW: "qa_review",
   PROJECT_SETUP: "project_setup",
   HARDWARE_IO: "hardware_io",
+  DEVICE_FB: "device_fb",
   MATRIX_REVIEW: "matrix_review",
   DEVICE_CODE: "device_code",
   PROCESS_CODE: "process_code",
@@ -19,6 +20,7 @@ export const FORGE_STEP_LABELS: Record<ForgeStep, string> = {
   qa_review: "Q&A Review",
   project_setup: "Project Setup",
   hardware_io: "Hardware & IO",
+  device_fb: "Device FBs",
   matrix_review: "Matrix Review",
   device_code: "Device Code",
   process_code: "Process Code",
@@ -31,6 +33,7 @@ export const FORGE_STEP_ORDER: ForgeStep[] = [
   "qa_review",
   "project_setup",
   "hardware_io",
+  "device_fb",
   "matrix_review",
   "device_code",
   "process_code",
@@ -104,7 +107,7 @@ export type ForgeSessionUpdate = Partial<
 
 export type ForgeArtifactType = "UDT" | "FB" | "FC" | "DB" | "OB" | "TAG_TABLE";
 export type ForgeArtifactLanguage = "SCL" | "LAD";
-export type ForgeArtifactStage = "device" | "process" | "hmi";
+export type ForgeArtifactStage = "device_fb" | "device" | "process" | "hmi";
 
 export interface ForgeArtifact {
   id: string;

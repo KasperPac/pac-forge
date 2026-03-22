@@ -18,18 +18,24 @@ function makeMessage(role: QaMessage["role"], content: string): QaMessage {
 }
 
 /**
- * Detect whether the PM response signals the analysis is complete.
- * Looks for "analysis looks complete", "ready to proceed", or presence of a ```json block.
+ * Detect whether the PM response signals the Q&A review is complete.
+ * Only treat the step as complete when the PM explicitly finalizes or emits
+ * updated JSON. Do not mark complete if the same message still asks questions.
  */
 function detectComplete(text: string): boolean {
+  if (/```json/.test(text)) return true;
+
   const lower = text.toLowerCase();
-  return (
+  const hasExplicitFinalization =
+    lower.includes("the analysis looks complete") ||
     lower.includes("analysis looks complete") ||
-    lower.includes("ready to proceed") ||
     lower.includes("no further questions") ||
-    lower.includes("all gaps are filled") ||
-    /```json/.test(text)
-  );
+    lower.includes("all significant gaps are filled") ||
+    lower.includes("all gaps are filled");
+
+  const hasOutstandingQuestions = text.includes("?");
+
+  return hasExplicitFinalization && !hasOutstandingQuestions;
 }
 
 /**

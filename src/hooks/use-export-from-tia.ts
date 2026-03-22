@@ -14,7 +14,7 @@ export function useExportFromTia() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          signal: AbortSignal.timeout(120_000), // TIA export can be slow
+          signal: AbortSignal.timeout(600_000), // TIA export can be slow — large projects (200+ blocks) can take 5+ minutes
         }
       );
 

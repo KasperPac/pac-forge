@@ -65,13 +65,59 @@ namespace PacForgeBridge
                 }
             }
 
+            string sourcePlcFamily = null;
+            string sourceCpuTypeId = null;
+            if (projectOpen)
+            {
+                try { GetSourcePlcInfo(out sourcePlcFamily, out sourceCpuTypeId); } catch { }
+            }
+
             return new BridgeStatusResponse
             {
                 Connected = connected,
                 TiaVersion = tiaVersion,
                 TiaProjectOpen = projectOpen,
-                BridgeVersion = "1.0.0"
+                BridgeVersion = "1.0.0",
+                SourcePlcFamily = sourcePlcFamily,
+                SourceCpuTypeId = sourceCpuTypeId,
             };
+        }
+
+        /// <summary>
+        /// Read the source PLC family name and CPU TypeIdentifier from the open project.
+        /// </summary>
+        private void GetSourcePlcInfo(out string familyName, out string typeId)
+        {
+            familyName = null;
+            typeId = null;
+            if (_project == null) return;
+
+            foreach (Device device in _project.Devices)
+            {
+                familyName = device.Name;
+                typeId = FindCpuTypeId(device.DeviceItems);
+                if (typeId != null) return;
+            }
+        }
+
+        private string FindCpuTypeId(DeviceItemComposition items)
+        {
+            foreach (DeviceItem item in items)
+            {
+                SoftwareContainer container = item.GetService<SoftwareContainer>();
+                if (container?.Software is PlcSoftware)
+                {
+                    try
+                    {
+                        var id = item.GetAttribute("TypeIdentifier") as string;
+                        if (!string.IsNullOrWhiteSpace(id)) return id;
+                    }
+                    catch { }
+                }
+                string nested = FindCpuTypeId(item.DeviceItems);
+                if (nested != null) return nested;
+            }
+            return null;
         }
 
         /// <summary>
@@ -318,18 +364,53 @@ namespace PacForgeBridge
                 cpuOrderNumber = "OrderNumber:" + cpuOrderNumber;
 
             Console.WriteLine($"[TIA] Provision: adding CPU {cpuOrderNumber}");
-            Device device;
-            try
+            Device device = null;
+
+            // Build list of order numbers to try: requested first, then fallbacks
+            var orderNumbersToTry = new List<string> { cpuOrderNumber };
+
+            // Also try stripping/changing version suffix variants
+            string baseOrderNum = cpuOrderNumber.Replace("OrderNumber:", "");
+            int slashIdx = baseOrderNum.LastIndexOf('/');
+            if (slashIdx > 0)
             {
-                device = _project.Devices.CreateWithItem(cpuOrderNumber, "PLC_1", "PLC_1");
-                Console.WriteLine($"[TIA] Provision: device added: {device.Name}");
+                string withoutVersion = "OrderNumber:" + baseOrderNum.Substring(0, slashIdx);
+                if (!orderNumbersToTry.Contains(withoutVersion))
+                    orderNumbersToTry.Add(withoutVersion);
             }
-            catch (Exception ex)
+
+            // Known-good fallbacks for common S7-1500 CPUs installed in TIA V18
+            var fallbacks = new[]
             {
-                response.Warnings.Add($"CPU add failed ({cpuOrderNumber}): {ex.Message}. Trying default S7-1516...");
-                Console.WriteLine($"[TIA] Provision: CPU add failed, trying default: {ex.Message}");
-                device = _project.Devices.CreateWithItem("OrderNumber:6ES7 516-3AN02-0AB0/V2.9", "PLC_1", "PLC_1");
+                "OrderNumber:6ES7 516-3AN02-0AB0/V2.9",
+                "OrderNumber:6ES7 516-3AN02-0AB0/V2.8",
+                "OrderNumber:6ES7 516-3AN02-0AB0",
+                "OrderNumber:6ES7 515-2AM02-0AB0/V2.9",
+                "OrderNumber:6ES7 513-1AL02-0AB0/V2.1",
+                "OrderNumber:6ES7 513-1AL02-0AB0",
+            };
+            foreach (var f in fallbacks)
+                if (!orderNumbersToTry.Contains(f)) orderNumbersToTry.Add(f);
+
+            Exception lastEx = null;
+            foreach (string on in orderNumbersToTry)
+            {
+                try
+                {
+                    Console.WriteLine($"[TIA] Provision: trying CPU {on}");
+                    device = _project.Devices.CreateWithItem(on, "PLC_1", "PLC_1");
+                    Console.WriteLine($"[TIA] Provision: device added with {on}: {device.Name}");
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[TIA] Provision: {on} failed: {ex.Message}");
+                    lastEx = ex;
+                }
             }
+
+            if (device == null)
+                throw new InvalidOperationException($"Could not add any S7-1500 CPU to project. Last error: {lastEx?.Message}");
 
             PlcSoftware plcSoftware = GetPlcSoftware();
             var demoResult = new DemoResult { DeviceName = device.Name };
@@ -731,7 +812,17 @@ namespace PacForgeBridge
         {
             foreach (CompilerResultMessage msg in messages)
             {
-                string effectivePath = msg.Path ?? parentPath;
+                // Accumulate path: TIA Portal msg.Path is sometimes a full path, sometimes just
+                // a segment name. Treat it as a segment if it contains no "/" and parentPath is set.
+                string segment = msg.Path ?? "";
+                string effectivePath;
+                if (string.IsNullOrEmpty(segment))
+                    effectivePath = parentPath;
+                else if (segment.Contains("/") || string.IsNullOrEmpty(parentPath))
+                    effectivePath = segment;          // already a full path
+                else
+                    effectivePath = parentPath + "/" + segment;  // append segment
+
                 bool hasChildren = msg.Messages != null && msg.Messages.Count > 0;
 
                 if (hasChildren)
@@ -774,15 +865,35 @@ namespace PacForgeBridge
 
         /// <summary>
         /// Extract a meaningful artifact name from compiler message path.
-        /// Paths look like: "PLC_1/Program blocks/FB_TrafficLight (FB1)"
+        /// Paths look like: "PLC_1/Program blocks/FB_TrafficLight (FB1)/Interface"
         /// Returns the block name without the TIA type suffix, e.g. "FB_TrafficLight".
+        /// Skips structural section names (Interface, Code, Temp, Static, Constant)
+        /// that TIA Portal appends after the block name.
         /// </summary>
         private string ExtractArtifactName(string path)
         {
             if (string.IsNullOrEmpty(path)) return "Unknown";
 
             string[] parts = path.Split('/');
-            string last = parts.Length > 0 ? parts[parts.Length - 1] : path;
+
+            // Walk backwards, skipping known TIA structural section names
+            var structuralSections = new System.Collections.Generic.HashSet<string>(System.StringComparer.OrdinalIgnoreCase)
+            {
+                "Interface", "Code", "Temp", "Static", "Constant", "InOut", "Input", "Output",
+                "Return", "Network", "Program blocks", "PLC data types", "External source files"
+            };
+
+            string last = null;
+            for (int i = parts.Length - 1; i >= 0; i--)
+            {
+                string part = parts[i].Trim();
+                if (!structuralSections.Contains(part) && !string.IsNullOrEmpty(part))
+                {
+                    last = part;
+                    break;
+                }
+            }
+            if (last == null) last = parts[parts.Length - 1].Trim();
 
             // Strip TIA type suffix like " (FB1)", " (DB3)", " (FC2)"
             var suffixMatch = System.Text.RegularExpressions.Regex.Match(last, @"\s*\([A-Z]+\d+\)\s*$");
@@ -791,7 +902,7 @@ namespace PacForgeBridge
                 last = last.Substring(0, suffixMatch.Index).Trim();
             }
 
-            return last;
+            return string.IsNullOrEmpty(last) ? "Unknown" : last;
         }
 
         /// <summary>
@@ -1435,22 +1546,19 @@ END_ORGANIZATION_BLOCK
                 // Export each block individually (try/catch per block so one failure doesn't stop others)
                 foreach (PlcBlock block in allBlocks)
                 {
+                    string blockLang = "SCL";
+                    try { blockLang = block.ProgrammingLanguage.ToString(); } catch { }
+
                     try
                     {
                         // Determine correct file extension based on programming language
                         string ext = ".scl";
-                        try
-                        {
-                            string lang = block.ProgrammingLanguage.ToString();
-                            if (lang == "STL") ext = ".awl";
-                            else if (lang == "DB") ext = ".db";
-                            // SCL is the default; LAD/FBD will throw in GenerateSource (caught below)
-                        }
-                        catch { }
+                        if (blockLang == "STL") ext = ".awl";
+                        else if (blockLang == "DB") ext = ".db";
+                        // LAD/FBD: try GenerateSource first; fall back to XML Export below
 
                         string outputFile = Path.Combine(tempDir, block.Name + ext);
 
-                        // GenerateSource requires 3 params: blocks, fileInfo, generateOptions
                         plcSoftware.ExternalSourceGroup.GenerateSource(
                             new PlcBlock[] { block },
                             new FileInfo(outputFile),
@@ -1459,18 +1567,79 @@ END_ORGANIZATION_BLOCK
                         if (File.Exists(outputFile))
                         {
                             result.Sources[block.Name] = File.ReadAllText(outputFile);
-                            Console.WriteLine($"[TIA] Exported: {block.Name}");
+                            result.SourceLanguages[block.Name] = blockLang == "DB" ? "DB" : blockLang == "STL" ? "STL" : "SCL";
+                            Console.WriteLine($"[TIA] Exported ({blockLang}): {block.Name}");
                         }
                         else
                         {
                             result.Warnings.Add($"{block.Name}: No output file generated");
                         }
                     }
+                    catch (Exception)
+                    {
+                        // GenerateSource failed — likely a LAD/FBD block.
+                        // Fall back to SimaticML XML export so the block is still captured.
+                        if (blockLang == "LAD" || blockLang == "FBD" || blockLang == "GRAPH")
+                        {
+                            try
+                            {
+                                string xmlFile = Path.Combine(tempDir, block.Name + ".xml");
+                                block.Export(new FileInfo(xmlFile), ExportOptions.WithDefaults);
+                                if (File.Exists(xmlFile))
+                                {
+                                    result.Sources[block.Name] = File.ReadAllText(xmlFile);
+                                    result.SourceLanguages[block.Name] = blockLang;
+                                    Console.WriteLine($"[TIA] Exported XML ({blockLang}): {block.Name}");
+                                }
+                                else
+                                {
+                                    result.Warnings.Add($"{block.Name}: LAD/FBD XML export produced no file");
+                                }
+                            }
+                            catch (Exception xmlEx)
+                            {
+                                Console.WriteLine($"[TIA] XML export also failed for {block.Name}: {xmlEx.Message}");
+                                result.Warnings.Add($"{block.Name}: {xmlEx.Message}");
+                            }
+                        }
+                        else
+                        {
+                            Console.WriteLine($"[TIA] Export skipped for {block.Name} ({blockLang})");
+                            result.Warnings.Add($"{block.Name}: not exportable");
+                        }
+                    }
+                }
+
+                // Also export UDTs (PLC data types) from the type group
+                var allTypes = new List<PlcType>();
+                CollectTypes(plcSoftware.TypeGroup, allTypes);
+                Console.WriteLine($"[TIA] Exporting {allTypes.Count} UDT(s)...");
+
+                foreach (PlcType type in allTypes)
+                {
+                    try
+                    {
+                        // UDTs require .udt extension (TIA Openness requirement)
+                        string outputFile = Path.Combine(tempDir, type.Name + ".udt");
+                        plcSoftware.ExternalSourceGroup.GenerateSource(
+                            new PlcType[] { type },
+                            new FileInfo(outputFile),
+                            GenerateOptions.None);
+
+                        if (File.Exists(outputFile))
+                        {
+                            result.Sources[type.Name] = File.ReadAllText(outputFile);
+                            Console.WriteLine($"[TIA] Exported UDT: {type.Name}");
+                        }
+                        else
+                        {
+                            result.Warnings.Add($"UDT {type.Name}: No output file generated");
+                        }
+                    }
                     catch (Exception ex)
                     {
-                        // LAD/FBD blocks or system blocks may not be exportable as SCL
-                        Console.WriteLine($"[TIA] Export skipped for {block.Name}: {ex.Message}");
-                        result.Warnings.Add($"{block.Name}: {ex.Message}");
+                        Console.WriteLine($"[TIA] UDT export skipped for {type.Name}: {ex.Message}");
+                        result.Warnings.Add($"UDT {type.Name}: {ex.Message}");
                     }
                 }
 
@@ -1483,6 +1652,22 @@ END_ORGANIZATION_BLOCK
             }
 
             return result;
+        }
+
+        private void CollectTypes(PlcTypeSystemGroup group, List<PlcType> types)
+        {
+            foreach (PlcType type in group.Types)
+                types.Add(type);
+            foreach (PlcTypeUserGroup subGroup in group.Groups)
+                CollectTypesFromUserGroup(subGroup, types);
+        }
+
+        private void CollectTypesFromUserGroup(PlcTypeUserGroup group, List<PlcType> types)
+        {
+            foreach (PlcType type in group.Types)
+                types.Add(type);
+            foreach (PlcTypeUserGroup subGroup in group.Groups)
+                CollectTypesFromUserGroup(subGroup, types);
         }
 
         /// <summary>

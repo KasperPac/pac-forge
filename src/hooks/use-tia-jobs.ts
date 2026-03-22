@@ -142,6 +142,8 @@ export function useBridgeStatus() {
       projectOpen: boolean;
       version: string | null;
       bridgeVersion: string | null;
+      sourcePlcFamily: string | null;
+      sourceCpuTypeId: string | null;
     }> => {
       try {
         const response = await fetch(
@@ -157,6 +159,8 @@ export function useBridgeStatus() {
             projectOpen: data.tia_project_open ?? false,
             version: data.tia_version,
             bridgeVersion: data.bridge_version ?? null,
+            sourcePlcFamily: data.source_plc_family ?? null,
+            sourceCpuTypeId: data.source_cpu_type_id ?? null,
           };
         }
       } catch {
@@ -169,6 +173,8 @@ export function useBridgeStatus() {
         projectOpen: false,
         version: null,
         bridgeVersion: null,
+        sourcePlcFamily: null,
+        sourceCpuTypeId: null,
       };
     },
     refetchInterval: 10_000, // Check every 10s for snappier status updates

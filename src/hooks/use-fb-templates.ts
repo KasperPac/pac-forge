@@ -99,8 +99,9 @@ export function useFbTemplatesForSession(profileId?: string) {
 
       const hydrated = await hydrateTemplates(allTemplates as FbTemplate[]);
 
-      // Filter: global (no profile tags) OR tagged to this profile
+      // Filter: enabled + (global or tagged to this profile)
       return hydrated.filter((t) => {
+        if (!t.is_enabled) return false;
         const pids = t.profile_ids ?? [];
         if (pids.length === 0) return true; // global
         if (profileId && pids.includes(profileId)) return true;
@@ -282,6 +283,42 @@ export function useDeleteFbTemplate() {
       const { error } = await supabase
         .from("fb_templates")
         .delete()
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: FB_TEMPLATES_KEY });
+    },
+  });
+}
+
+/** Enable or disable all templates belonging to a given library_name in one shot. */
+export function useSetLibraryEnabled() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ libraryName, enabled }: { libraryName: string; enabled: boolean }) => {
+      const { error } = await supabase
+        .from("fb_templates")
+        .update({ is_enabled: enabled })
+        .eq("library_name", libraryName);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: FB_TEMPLATES_KEY });
+    },
+  });
+}
+
+/** Enable or disable a single template. */
+export function useSetTemplateEnabled() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) => {
+      const { error } = await supabase
+        .from("fb_templates")
+        .update({ is_enabled: enabled })
         .eq("id", id);
       if (error) throw error;
     },

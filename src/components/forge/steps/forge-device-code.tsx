@@ -45,6 +45,7 @@ export interface ForgeDeviceCodeProps {
   fbTemplates: FbTemplate[];
   patterns: PatternCandidate[];
   onArtifactsUpdate: (artifacts: ForgeArtifact[]) => void;
+  onBeforeGenerate?: () => Promise<FbTemplate[]>;
   onComplete: () => void;
 }
 
@@ -112,7 +113,7 @@ function GenerationLog({ entries }: { entries: DeviceGenLogEntry[] }) {
 }
 
 const INITIAL_STAGES: SubPipelineStage[] = [
-  { label: "Generate FBs", status: "pending" },
+  { label: "Generate Call Code", status: "pending" },
   { label: "Validate IO", status: "pending" },
   { label: "Approve", status: "pending" },
   { label: "Upload", status: "pending" },
@@ -122,7 +123,6 @@ const INITIAL_STAGES: SubPipelineStage[] = [
 export function ForgeDeviceCode({
   session,
   profile,
-  fbTemplates,
   patterns,
   onArtifactsUpdate,
   onComplete,
@@ -145,7 +145,7 @@ export function ForgeDeviceCode({
   const [selectedForLibrary, setSelectedForLibrary] = useState<Set<string>>(new Set());
   const [savedToLibrary, setSavedToLibrary] = useState<Set<string>>(new Set());
 
-  const { generateAll, loading: genLoading, progress, error: genError, log: genLog } = useForgeDeviceGenerate();
+  const { generateCallCode, loading: genLoading, progress, error: genError, log: genLog } = useForgeDeviceGenerate();
   const { validateIo, loading: ioValidateLoading } = useForgeIoValidate();
   const { compileCheck, loading: compileLoading, progress: compileProgress } = useForgeCompileCheck();
   const { data: agents } = useAgents();
@@ -223,14 +223,15 @@ export function ForgeDeviceCode({
     setSavedToLibrary(new Set());
 
     try {
-      // 1. Generate
-      setStageStatus("Generate FBs", "running");
-      setCurrentStepLabel("Generating device FBs…");
-      const generated = await generateAll(session, profile, fbTemplates, patterns);
+      // 2. Generate call code using pre-generated FB artifacts from device_fb step
+      setStageStatus("Generate Call Code", "running");
+      setCurrentStepLabel("Generating call code…");
+      const existingFbArtifacts = (session.device_artifacts as ForgeArtifact[])?.filter(a => a.stage === "device_fb") ?? [];
+      const generated = await generateCallCode(session, profile, existingFbArtifacts, patterns);
       setArtifacts(generated);
       onArtifactsUpdate(generated);
       if (generated.length > 0) setSelectedId(generated[0].id);
-      setStageStatus("Generate FBs", "completed", `${generated.length} artifacts`);
+      setStageStatus("Generate Call Code", "completed", `${generated.length} artifacts`);
 
       // 2. IO Validation
       const ioValidatorAgent = agents?.find(a => a.display_name === "IO Validator");

@@ -259,7 +259,7 @@ export function ForgeQaReview({ specAnalysis, specText, onComplete, onSkip }: Fo
           <div className="flex items-center justify-between rounded border border-green-600/30 bg-green-500/5 px-3 py-2">
             <div className="flex items-center gap-2 text-sm text-green-400">
               <CheckCircle2 className="h-4 w-4" />
-              Analysis is complete — ready to proceed
+              PM marked Q&A complete — ready to proceed
             </div>
             <Button
               size="sm"

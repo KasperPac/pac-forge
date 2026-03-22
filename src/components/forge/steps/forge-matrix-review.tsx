@@ -29,7 +29,7 @@ import { useForgeMatrixGenerate } from "@/hooks/use-forge-matrix-generate";
 import { useForgeMatrixValidate } from "@/hooks/use-forge-matrix-validate";
 import { useCreatePatternCandidate } from "@/hooks/use-patterns";
 import { cn } from "@/lib/utils";
-import type { ForgeSession } from "@/types/forge";
+import type { ForgeSession, ForgeArtifact } from "@/types/forge";
 import type { FbTemplate } from "@/types/fb-template";
 import type {
   ProcessLinkageMatrix,
@@ -471,11 +471,14 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
 
   async function handleGenerate() {
     try {
+      const deviceFbArtifacts = (session.device_artifacts as ForgeArtifact[] | null)
+        ?.filter((a) => a.stage === "device_fb") ?? [];
       const result = await generate(
         session.device_list,
         session.io_list,
         session.spec_analysis,
         fbTemplates,
+        deviceFbArtifacts,
       );
       setMatrix(result);
     } catch {

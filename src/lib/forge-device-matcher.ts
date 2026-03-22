@@ -121,12 +121,12 @@ function interfaceScore(device: ForgeDeviceEntry, iface: FbInterface): number {
 // Name affinity — existing synonym-based logic (secondary signal)
 // ---------------------------------------------------------------------------
 
-function normalise(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]/g, "");
+function normalise(s: string | null | undefined): string {
+  return (s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-function normaliseWords(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(Boolean).sort().join(" ");
+function normaliseWords(s: string | null | undefined): string {
+  return (s ?? "").toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(Boolean).sort().join(" ");
 }
 
 const DEVICE_TYPE_SYNONYMS: Record<string, string[]> = {

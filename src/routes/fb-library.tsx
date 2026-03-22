@@ -59,8 +59,11 @@ import {
   useDeleteFbTemplate,
   useFbTemplateHistory,
   useRevertFbTemplateVersion,
+  useSetLibraryEnabled,
 } from "@/hooks/use-fb-templates";
+import { Switch } from "@/components/ui/switch";
 import { useGenerateFbSummary } from "@/hooks/use-generate-fb-summary";
+import { useToast } from "@/hooks/use-toast";
 import { useGenerateFbFlow, parseFlowDiagramJson } from "@/hooks/use-fb-flow-generate";
 import { FbFlowRenderer } from "@/components/forge/fb-flow-renderer";
 import type { FbFlowDiagram } from "@/lib/fb-flow-diagram";
@@ -144,6 +147,7 @@ export default function FbLibraryPage() {
   const resolvedTheme = useUiStore((s) => s.resolvedTheme);
 
   const { data: templates, isLoading } = useFbTemplates(activeCategory ?? undefined);
+  const { data: allTemplates } = useFbTemplates(); // for library list (unfiltered)
   const { data: categories, isLoading: catsLoading } = useFbDeviceCategories();
   const { data: profiles } = useDesignProfiles();
   const createTemplate = useCreateFbTemplate();
@@ -152,6 +156,7 @@ export default function FbLibraryPage() {
   const createCategory = useCreateFbDeviceCategory();
   const deleteCategory = useDeleteFbDeviceCategory();
   const exportFromTia = useExportFromTia();
+  const setLibraryEnabled = useSetLibraryEnabled();
 
   function openCreate() {
     setEditingTemplate(null);
@@ -399,6 +404,22 @@ export default function FbLibraryPage() {
     }
   }
 
+  // Collect distinct libraries from ALL templates (ignore active category filter)
+  const libraryMap = new Map<string, { count: number; enabled: boolean }>();
+  for (const t of allTemplates ?? []) {
+    if (t.source === "library" && t.library_name) {
+      const existing = libraryMap.get(t.library_name);
+      if (!existing) {
+        libraryMap.set(t.library_name, { count: 1, enabled: t.is_enabled });
+      } else {
+        existing.count++;
+        // Library is "enabled" if at least one of its templates is enabled
+        if (t.is_enabled) existing.enabled = true;
+      }
+    }
+  }
+  const libraries = [...libraryMap.entries()].sort(([a], [b]) => a.localeCompare(b));
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -505,6 +526,26 @@ export default function FbLibraryPage() {
           <Plus className="inline h-3 w-3" /> Add
         </button>
       </div>
+
+      {/* Imported libraries — enable/disable toggles */}
+      {libraries.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-md border border-border/50 bg-muted/20 px-3 py-2">
+          <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Libraries</span>
+          {libraries.map(([name, { count, enabled }]) => (
+            <label key={name} className="flex cursor-pointer items-center gap-1.5">
+              <Switch
+                checked={enabled}
+                onCheckedChange={(val) => setLibraryEnabled.mutate({ libraryName: name, enabled: val })}
+                className="h-4 w-7 data-[state=checked]:bg-amber-500"
+              />
+              <span className={`font-mono text-xs ${enabled ? "text-foreground" : "text-muted-foreground line-through"}`}>
+                {name}
+              </span>
+              <span className="font-mono text-[10px] text-muted-foreground">({count})</span>
+            </label>
+          ))}
+        </div>
+      )}
 
       {/* Template grid */}
       {isLoading ? (
@@ -903,6 +944,7 @@ function TemplateCard({
   const [diagramFullscreen, setDiagramFullscreen] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [localFlowDiagrams, setLocalFlowDiagrams] = useState<FbFlowDiagram[] | null>(null);
+  const { toast } = useToast();
 
   const hasScl = (template.blocks ?? []).some((b) => b.scl_code.trim());
 
@@ -913,8 +955,17 @@ function TemplateCard({
   const flowDiagrams: FbFlowDiagram[] = storedDiagrams ?? localFlowDiagrams ?? [];
 
   async function handleGenerateFlow() {
-    const result = await onGenerateFlow(template);
-    if (result) setLocalFlowDiagrams(result);
+    try {
+      const result = await onGenerateFlow(template);
+      if (result) {
+        setLocalFlowDiagrams(result);
+        if (!diagramOpen) setDiagramOpen(true);
+      } else {
+        toast({ title: "Flow generation failed", description: "Check browser console for details.", variant: "destructive" });
+      }
+    } catch (err) {
+      toast({ title: "Flow generation error", description: err instanceof Error ? err.message : String(err), variant: "destructive" });
+    }
   }
   const blocks = template.blocks ?? [];
   const previewBlock = blocks[0];
@@ -922,7 +973,7 @@ function TemplateCard({
   const hasMore = (previewBlock?.scl_code.split("\n").length ?? 0) > 5;
 
   return (
-    <Card className="group flex flex-col p-4 transition-colors hover:bg-accent/30">
+    <Card className={`group flex flex-col p-4 transition-colors hover:bg-accent/30 ${!template.is_enabled ? "opacity-50" : ""}`}>
       <div className="flex items-start justify-between">
         <div className="min-w-0 flex-1 flex items-start gap-2.5">
           <CategoryIcon category={template.device_category} className="mt-0.5 h-7 w-7 shrink-0 text-muted-foreground" />
@@ -1010,6 +1061,16 @@ function TemplateCard({
         <Badge variant="outline" className="font-mono text-xs">
           {blocks.length} block{blocks.length !== 1 ? "s" : ""}
         </Badge>
+        {template.source === "library" && (
+          <Badge variant="outline" className="font-mono text-[10px] border-amber-500/40 text-amber-400">
+            {template.library_name ?? "library"}
+          </Badge>
+        )}
+        {template.source === "standard" && (
+          <Badge variant="outline" className="font-mono text-[10px] border-sky-500/40 text-sky-400">
+            standard
+          </Badge>
+        )}
         {template.tags.slice(0, 2).map((tag) => (
           <Badge key={tag} variant="outline" className="font-mono text-xs">
             <Tag className="mr-0.5 h-2.5 w-2.5" />

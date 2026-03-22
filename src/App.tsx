@@ -29,6 +29,8 @@ const PacLadPage = lazy(() => import("@/routes/pac-lad"));
 const ProfilePage = lazy(() => import("@/routes/profile"));
 const DropboxCallbackPage = lazy(() => import("@/routes/dropbox-callback"));
 const ForgePage = lazy(() => import("@/routes/forge"));
+const MigratePage = lazy(() => import("@/routes/migrate"));
+const LibraryImportPage = lazy(() => import("@/routes/library-import"));
 
 function LazyRoute({ children }: { children: React.ReactNode }) {
   return (
@@ -52,6 +54,7 @@ const router = createBrowserRouter([
           { index: true, element: <Navigate to="/projects" replace /> },
           { path: "projects", element: <ProjectsPage /> },
           { path: "forge", element: <LazyRoute><ForgePage /></LazyRoute> },
+          { path: "migrate", element: <LazyRoute><MigratePage /></LazyRoute> },
           { path: "projects/:id", element: <LazyRoute><ProjectDetailPage /></LazyRoute> },
           { path: "pac-st", element: <Navigate to="/pac-st/chat" replace /> },
           { path: "pac-st/chat", element: <LazyRoute><PacStPage /></LazyRoute> },
@@ -62,6 +65,7 @@ const router = createBrowserRouter([
           { path: "patterns", element: <LazyRoute><PatternsPage /></LazyRoute> },
           { path: "tia-console", element: <LazyRoute><TiaConsolePage /></LazyRoute> },
           { path: "fb-library", element: <LazyRoute><FbLibraryPage /></LazyRoute> },
+          { path: "library-import", element: <LazyRoute><LibraryImportPage /></LazyRoute> },
           { path: "profiles", element: <LazyRoute><ProfilesPage /></LazyRoute> },
           { path: "profiles/:id", element: <LazyRoute><ProfileDetailPage /></LazyRoute> },
           { path: "knowledge", element: <LazyRoute><KnowledgePage /></LazyRoute> },

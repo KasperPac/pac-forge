@@ -491,7 +491,7 @@ export function deviceTypeToFcName(deviceType: string, namingPrefix?: string): s
 
 /**
  * Return the call priority for a device type in OB1 Main.
- * 1 = sensors/inputs (called first), 2 = mid-level, 3 = actuators (called last before RunProcess).
+ * 1 = sensors/inputs (called first), 2 = mid-level, 3 = actuators (called last before sequence FBs/FCs).
  */
 export function getDeviceCallOrder(deviceType: string): number {
   const lower = deviceType.toLowerCase();
@@ -638,12 +638,14 @@ export function generateIoLinkingFc(
 
 /**
  * Generate OB1 Main deterministically from the ordered list of device call FC names.
- * Call order: IoLinking → device call FCs (pre-sorted by caller) → RunProcess.
+ * Call order: IoLinking → device call FCs (pre-sorted by caller) → sequence FBs/FCs.
+ * Sequence FBs/FCs are called directly; no separate RunProcess FC wrapper.
  *
  * HARDCODED — not configurable via Prompts page.
  */
-export function generateOb1Main(deviceCallFcNames: string[]): string {
+export function generateOb1Main(deviceCallFcNames: string[], sequenceFcNames: string[] = []): string {
   const fcCalls = deviceCallFcNames.map((name) => `  "${name}"();`).join("\n");
+  const seqCalls = sequenceFcNames.map((name) => `  "${name}"();`).join("\n");
   return [
     `ORGANIZATION_BLOCK "Main"`,
     `TITLE = 'Main Program Sweep (Cycle)'`,
@@ -655,7 +657,7 @@ export function generateOb1Main(deviceCallFcNames: string[]): string {
     `BEGIN`,
     `  "IoLinking"();`,
     fcCalls,
-    `  "RunProcess"();`,
+    ...(seqCalls ? [seqCalls] : []),
     `END_ORGANIZATION_BLOCK`,
   ].join("\n");
 }
@@ -806,10 +808,12 @@ Generate a single FC called "${fcName}" that calls ALL instances of the "${devic
     : "Inter-device signals (e.g. sensor output feeding conveyor input) use instance DB field access: \"InstSensor1\".outputField."}
 6. Use named association for all FB calls: "InstDBName"(param1 := source, param2 := source, ...).
 7. Do NOT wire IO tags directly — always go through the Inputs/Outputs DBs.
-${hasMatrix ? "8. Do NOT change, reorder, or omit any wire from the Matrix wiring. Do NOT add wires not listed unless they are mandatory FB parameters with no matrix entry." : ""}
+8. ⛔ If an output parameter has no wiring target, OMIT it entirely from the call. NEVER write "paramName =>" with an empty or missing right-hand side — this is a compile error. Only include output parameters that have a confirmed destination.
+${hasMatrix ? `9. Do NOT change, reorder, or omit any wire from the Matrix wiring. Do NOT add wires not listed unless they are mandatory FB parameters with no matrix entry.
+10. ⛔ Do NOT write to HmiData, FaultData, Configuration, or any global DB unless that exact write is shown in the Matrix wiring above. Those DBs have a fixed, pre-generated schema — invented fields will cause compile errors. FB outputs are accessible via instance DB field reads only (e.g., "InstPE01".status). Do NOT add comment lines suggesting HmiData writes.` : ""}
 
 ## FB Interface — MANDATORY REFERENCE
-⛔ HARD RULE: Only use variable names that appear verbatim in the interface below. Do NOT invent names.
+⛔ HARD RULE: Only use parameter names that appear VERBATIM in the VAR_INPUT/VAR_OUTPUT sections below. Do NOT invent param names. Do NOT use param names from a different device type's FB.
 ${fbInterfaceSection || "(no FB interface available — infer from device type and IO signals)"}
 
 ## Devices of Type "${deviceType}" to Call
@@ -839,6 +843,83 @@ ${outputFieldsList}
  */
 export function buildDeviceCallFcUserMessage(context: DeviceCallFcContext): string {
   return `Generate the "${context.fcName}" FC that calls all ${context.devices.length} "${context.deviceType}" device instance(s) with all inputs fully wired.`;
+}
+
+/**
+ * Generate a Device Call FC deterministically from matrix wiring — no AI needed.
+ *
+ * When the matrix has wiring entries for all devices of this type, we can produce
+ * exact SCL directly: each instance DB is called with named-association params built
+ * from the matrix wiring array. This eliminates AI hallucinations (invented HmiData
+ * fields, wrong param names, duplicate assignments).
+ *
+ * Falls back to null if the matrix has no wiring for this device type (AI path used).
+ */
+export function generateDeviceCallFc(context: DeviceCallFcContext): string | null {
+  const { fcName, matrixWiring, inputsDbName, outputsDbName } = context;
+  if (matrixWiring.length === 0) return null;
+
+  const callBlocks: string[] = [];
+
+  for (const device of matrixWiring) {
+    const inputLines: string[] = [];
+    const outputLines: string[] = [];
+
+    for (const w of device.wiring) {
+      // Skip wires with no connectedTo — can't build a valid SCL expression
+      if (!w.connectedTo?.trim()) continue;
+
+      let source: string;
+      if (w.wireType === "io") {
+        source = w.direction === "in"
+          ? `"${inputsDbName}".${w.connectedTo}`
+          : `"${outputsDbName}".${w.connectedTo}`;
+      } else if (w.wireType === "fb") {
+        const parts = (w.connectedTo ?? "").split(".");
+        source = parts.length >= 2 ? `"${parts[0]}".${parts.slice(1).join(".")}` : (w.connectedTo ?? "");
+      } else if (w.wireType === "global") {
+        const parts = (w.connectedTo ?? "").split(".");
+        source = parts.length >= 2 ? `"${parts[0]}".${parts.slice(1).join(".")}` : (w.connectedTo ?? "");
+      } else {
+        // constant — check for UDT params incorrectly wired as constants
+        const isUdt = w.dataType
+          ? !/^(Bool|Int|Real|Time|DInt|LInt|SInt|USInt|UInt|UDInt|Word|DWord|LWord|Byte|Char|LReal|LTime|S5Time|Date|TimeOfDay|DateTime)$/i.test(w.dataType)
+          : false;
+        if (isUdt) {
+          // Wire config UDT to Configuration DB
+          source = `"Configuration".${w.paramName}Config`;
+        } else {
+          source = w.connectedTo ?? "";
+        }
+      }
+
+      // Skip wires with no resolved destination — emitting "param :=" or "param =>"
+      // with a blank right-hand side is a compile error.
+      if (!source.trim()) continue;
+
+      if (w.direction === "in") {
+        inputLines.push(`        ${w.paramName} := ${source}`);
+      } else {
+        outputLines.push(`        ${w.paramName} => ${source}`);
+      }
+    }
+
+    const allLines = [...inputLines, ...outputLines];
+    if (allLines.length > 0) {
+      callBlocks.push(`    "${device.instanceDbName}"(\n${allLines.join(",\n")}\n    );`);
+    } else {
+      callBlocks.push(`    "${device.instanceDbName}"();`);
+    }
+  }
+
+  return [
+    `FUNCTION "${fcName}" : Void`,
+    `{ S7_Optimized_Access := 'TRUE' }`,
+    `VERSION : 0.1`,
+    `BEGIN`,
+    callBlocks.join("\n\n"),
+    `END_FUNCTION`,
+  ].join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -955,16 +1036,15 @@ export interface ProcessGenContext {
   patterns?: PatternCandidate[];
   deviceFbInterfaces: string; // SCL INTERFACE sections of generated device FBs
   specAnalysis?: SpecAnalysis;
-  /** For RunProcess FC generation: instance DB names of all device FBs */
   instanceDbNames?: string[];
-  /** For RunProcess FC generation: names of all generated sequence FBs/FCs */
   sequenceArtifactNames?: string[];
-  /** For RunProcess FC generation: IO entries for tag wiring */
   ioEntries?: ForgeIoEntry[];
   /** Device entries (for IO wiring context) */
   deviceEntries?: ForgeDeviceEntry[];
   /** Full linkage matrix with engineer-confirmed device wiring and process sequences */
   linkageMatrix?: ProcessLinkageMatrix;
+  /** SCL content of generated global DBs (HmiData, ProcessCommands, Configuration) */
+  globalDbSchemas?: string;
 }
 
 /**
@@ -981,12 +1061,51 @@ export interface ProcessGenContext {
  * To make configurable: add "forge:process_scl" section key to PROMPT_DEFAULTS and use resolveSection().
  */
 export function buildProcessSclPrompt(context: ProcessGenContext): string {
-  const { profile, platformRules, patterns, deviceFbInterfaces } = context;
+  const { profile, platformRules, patterns, deviceFbInterfaces, linkageMatrix, globalDbSchemas } = context;
 
+  // Build a wiring summary: for each device, show where its outputs land in HmiData
+  // and where its command inputs come from in ProcessCommands. This tells the process
+  // code AI exactly which field names to read/write.
+  const wiringSummary = linkageMatrix?.deviceLinkage.length
+    ? linkageMatrix.deviceLinkage.map(device => {
+        const inputsFromProcessCommands = device.wiring
+          .filter(w => w.direction === "in" && w.wireType === "global" && (w.connectedTo ?? "").startsWith("ProcessCommands."))
+          .map(w => `    ${w.paramName} ← "${w.connectedTo}"`)
+          .join("\n");
+        const outputsToHmi = device.wiring
+          .filter(w => w.direction === "out" && w.wireType === "global")
+          .map(w => `    ${w.paramName} → "${w.connectedTo}"`)
+          .join("\n");
+        if (!inputsFromProcessCommands && !outputsToHmi) return null;
+        return [
+          `  ${device.instanceDbName} (${device.name}):`,
+          inputsFromProcessCommands && `  Commands written by process code:\n${inputsFromProcessCommands}`,
+          outputsToHmi && `  Outputs readable by process code:\n${outputsToHmi}`,
+        ].filter(Boolean).join("\n");
+      }).filter(Boolean).join("\n\n")
+    : "";
+
+  const processRules = profile?.process_rules ?? [];
   const processRulesSection =
-    profile && profile.process_rules.length > 0
-      ? `## Process Code Rules (from Design Profile: ${profile.name})\n${profile.process_rules.map((r) => `### ${r.label}\n${r.example}\n*Analysis:* ${r.analysis}`).join("\n\n")}`
+    processRules.length > 0
+      ? `## Process Code Rules (from Design Profile: ${profile?.name ?? ""})\n${processRules.map((r) => `### ${r.label}\n${r.example}\n*Analysis:* ${r.analysis}`).join("\n\n")}`
       : "";
+
+  // When the profile defines process rules (e.g. STEPS AND ACTIONS), those govern structure.
+  // Only fall back to hardcoded CASE instructions when the profile has no process rules.
+  const codeStructureInstructions = processRules.length > 0
+    ? `- Follow the code structure pattern defined in the Design Profile rules above (e.g. STEPS AND ACTIONS) — they override the defaults below
+- Use REGION blocks to organise sections
+- Declare step variable as INT in static variables (VAR, not VAR_TEMP)
+- Use PLCopen-style enable/execute + busy/done/error outputs
+- All timers/counters/edges declared in VAR (static) with inst prefix, NEVER in VAR_TEMP`
+    : `- Use CASE-based state machines for sequences (step variable, CASE step OF ... END_CASE)
+- Each step has a clear entry action, hold condition, and exit transition
+- Include ELSE branch for undefined states
+- Use REGION blocks to organise sections
+- Declare step variable as INT in static variables (VAR, not VAR_TEMP)
+- Use PLCopen-style enable/execute + busy/done/error outputs
+- All timers/counters/edges declared in VAR (static) with inst prefix, NEVER in VAR_TEMP`;
 
   const patternSection = formatPatterns(patterns ?? []);
   const profileSection = formatProfile(profile);
@@ -1004,30 +1123,36 @@ ${processRulesSection}
 The following FB interfaces are available for use in process code:
 ${deviceFbInterfaces || "(no device FBs generated yet)"}
 
+${globalDbSchemas ? `## Global DB Schemas
+These are the generated global DBs. Field comments explain what drives each field.
+Read device outputs from HmiData. Write device commands to ProcessCommands.
+\`\`\`scl
+${globalDbSchemas}
+\`\`\`` : ""}
+
+${wiringSummary ? `## Device Wiring Reference
+Shows exactly which ProcessCommands fields command each device, and which HmiData fields carry device outputs.
+Use these field names — do NOT invent alternatives.
+
+${wiringSummary}` : ""}
+
 ${patternSection}
 
 ## Process Code Requirements
-1. Implement each process sequence as an FB (not FC) with a CASE-based state machine if it needs timers or edge detection. Use FC only if purely stateless.
-2. Steps should be numbered (0, 10, 20, 30...) with clear transitions.
-3. Include interlock checks at the start of each sequence step using a dedicated #tempInterlockOK Bool.
-4. Every process FB must expose VAR_OUTPUT for HMI: currentStep (Int), running (Bool), faulted (Bool), complete (Bool).
-5. Use latching alarm patterns — set on fault condition, require operator reset via resetAlarms (Bool) input.
-6. All timed operations use TON with configurable PT as VAR_INPUT.
-7. Include safety condition checks (E-stop, safety relay) that halt the sequence to safe state on failure.
-8. Include permissive checks that gate sequence start.
+1. Implement each process sequence as an FB (stateful — needs timers and edge detection). Use FC only if purely stateless.
+2. Include interlock checks at the start of each sequence step.
+3. Every process FB must expose VAR_OUTPUT for HMI: currentStep (Int), running (Bool), faulted (Bool), complete (Bool).
+4. Use latching alarm patterns — set on fault condition, require operator reset via resetAlarms (Bool) input.
+5. All timed operations use TON with configurable PT as VAR_INPUT.
+6. Include safety condition checks (E-stop, safety relay) that halt the sequence to safe state on failure.
+7. Include permissive checks that gate sequence start.
 
 ## Code Structure Requirements
-- Use CASE-based state machines for sequences (step variable, CASE step OF ... END_CASE)
-- Each step has a clear entry action, hold condition, and exit transition
-- Include ELSE branch for undefined states
-- Use REGION blocks to organise sections
-- Declare step variable as INT in static variables (VAR, not VAR_TEMP)
-- Use PLCopen-style enable/execute + busy/done/error outputs
-- All timers/counters/edges declared in VAR (static) with inst prefix, NEVER in VAR_TEMP
+${codeStructureInstructions}
 
 ## IMPORTANT: Scope of This Call
-Do NOT generate OB1 or the master Process FC here — only the sequence-specific FB/FC.
-The master Process FC (RunProcess) and OB1 Main are generated separately after all sequences.
+Do NOT generate OB1 here — only the sequence-specific FB/FC.
+OB1 Main is generated deterministically after all sequences, calling each sequence FB/FC directly.
 
 ## Output Format — MANDATORY
 Wrap your code in an SCL fenced block with a type+name tag. Replace the placeholder with the ACTUAL sequence name from the user message:
@@ -1082,122 +1207,7 @@ ${steps}
 **Relevant devices:**
 ${deviceList || "  (use all available devices)"}
 
-Generate a complete, compile-ready CASE state machine FC.`;
-}
-
-/**
- * System prompt for generating the master RunProcess FC.
- * Called after all sequence FBs are generated.
- *
- * RunProcess contains ONLY process sequence logic — it does NOT call device FBs
- * (those are called in the per-device-type Device Call FCs) and does NOT wire IO
- * (that is done in IoLinking FC and Device Call FCs).
- *
- * HARDCODED — not configurable via Prompts page.
- * Design Profile fields used:
- *   - general_rules: injected as coding standards
- *   - process_rules: injected as process coding conventions
- * Design Profile fields NOT used (could be added):
- *   - io_linking_rules: RunProcess does not wire IO directly
- *   - naming_prefix: could apply to the RunProcess FC name
- * To make configurable: add "forge:process_fc" section key to PROMPT_DEFAULTS and use resolveSection().
- */
-export function buildProcessFcPrompt(context: ProcessGenContext): string {
-  const { profile, platformRules, patterns, deviceFbInterfaces, instanceDbNames = [], sequenceArtifactNames = [], linkageMatrix } = context;
-  const profileSection = formatProfile(profile);
-  const patternSection = formatPatterns(patterns ?? []);
-
-  const instanceDbList = instanceDbNames.length > 0
-    ? instanceDbNames.map((n) => `  - "${n}"`).join("\n")
-    : "  (no instance DBs available)";
-
-  const sequenceList = sequenceArtifactNames.length > 0
-    ? sequenceArtifactNames.map((n) => `  - "${n}"()`).join("\n")
-    : "  (no sequence FBs/FCs generated)";
-
-  // Build matrix device state reference if available
-  const matrixDeviceStateSection = linkageMatrix?.deviceLinkage && linkageMatrix.deviceLinkage.length > 0
-    ? `## Device State Signals (from Matrix Review — engineer-confirmed)
-Use these instance DB paths to read device state and send commands:
-${linkageMatrix.deviceLinkage.map(d => {
-  const outputs = (d.wiring ?? []).filter(w => w.direction === "out");
-  if (outputs.length === 0) return `  - "${d.instanceDbName ?? d.name}" (${d.name})`;
-  return `  - "${d.instanceDbName ?? d.name}" (${d.name}): ${outputs.map(w => w.paramName).join(", ")}`;
-}).join("\n")}`
-    : "";
-
-  // Build matrix process sequences reference if available
-  const matrixSequencesSection = linkageMatrix?.processSequences && linkageMatrix.processSequences.length > 0
-    ? `## Process Sequences (from Matrix Review — engineer-confirmed structure)
-${linkageMatrix.processSequences.map(seq => {
-  const permissives = (seq.permissives ?? []).length > 0
-    ? `  Permissives: ${seq.permissives.map(p => `${p.description ?? ""}${p.deviceName ? ` (${p.deviceName})` : ""}${!p.polarity ? " [INVERTED]" : ""}`).join(", ")}`
-    : "";
-  const safety = (seq.safetyConditions ?? []).length > 0
-    ? `  Safety: ${seq.safetyConditions.map(s => `${s.description ?? ""}${s.deviceName ? ` (${s.deviceName})` : ""}${!s.polarity ? " [INVERTED]" : ""}`).join(", ")}`
-    : "";
-  const stepSummary = seq.rows && seq.rows.length > 0
-    ? seq.rows.map(r => {
-        const branchPart = r.branch ? `${r.step}${r.branch}` : `${r.step}`;
-        const outputPart = r.output ? ` → ${r.output}` : "";
-        return `    Row ${branchPart} [${r.type}]: ${r.condition} | ${r.action}${outputPart} → next: ${r.next}`;
-      }).join("\n")
-    : (seq.steps ?? []).map(s => {
-        const actions = (s.actions ?? []).map(a => a.description ?? "").join(", ");
-        const conditions = s.transition?.conditions ?? [];
-        const condStr = conditions.map(c => c.description ?? "").join(` ${s.transition?.combinator ?? "AND"} `);
-        return `    Step ${s.stepNumber ?? "?"}: ${actions || "(no actions)"} | Done: ${condStr || "(no conditions)"}`;
-      }).join("\n");
-  return `### ${seq.name ?? "(unnamed)"}\n${permissives ? permissives + "\n" : ""}${safety ? safety + "\n" : ""}  Rows:\n${stepSummary}`;
-}).join("\n\n")}`
-    : "";
-
-  return `You are a senior Siemens TIA Portal SCL programmer generating the master RunProcess FC.
-
-${profileSection}
-
-## Platform Rules
-${platformRules}
-
-${patternSection}
-
-## Your Task
-Generate a single FC called "RunProcess" containing ONLY process sequence logic.
-
-## CRITICAL SCOPE RESTRICTIONS
-⛔ DO NOT call any device FBs — device FB calls are in the Device Call FCs (MotorCall, SensorCall, etc.)
-⛔ DO NOT wire any physical IO tags — IO wiring is in the IoLinking FC and Device Call FCs
-⛔ DO NOT wire config parameters — config wiring is in the Device Call FCs
-
-## What RunProcess CAN do
-✅ Call process sequence FBs/FCs to coordinate multi-step sequences
-✅ Read instance DB output fields to check device status (e.g. "InstMotor1".running)
-✅ Write instance DB fields to send commands (e.g. "InstMotor1".start := TRUE) where the FB supports it via VAR_IN_OUT
-✅ Implement mode selection logic (Auto/Manual/Maintenance)
-✅ Implement process-level interlocks and permissives using device state signals
-✅ Implement alarm coordination logic
-
-## Device FB Interfaces (for reading instance DB state — do NOT call these FBs here)
-${deviceFbInterfaces}
-
-## Device Instance DBs (for reading/writing device state)
-${instanceDbList}
-
-## Process Sequence FBs/FCs to Call
-${sequenceList}
-${matrixDeviceStateSection ? "\n" + matrixDeviceStateSection + "\n" : ""}
-${matrixSequencesSection ? "\n" + matrixSequencesSection + "\n" : ""}
-## Output Format
-\`\`\`scl [FC:RunProcess]
-// RunProcess FC code
-\`\`\``;
-}
-
-/**
- * User message for RunProcess FC generation.
- */
-export function buildProcessFcUserMessage(): string {
-  return "Generate the RunProcess FC with pure process sequence logic as described above. Do NOT call device FBs or wire IO.";
+Generate a complete, compile-ready FB/FC using the code structure pattern defined in the system prompt.`;
 }
 
 /**
@@ -1350,9 +1360,19 @@ const MATRIX_RULES_COMMON = `## Rules
 - Wiring wireType:
   - \`io\` — PLC IO tag name (e.g. "DI_SensorName")
   - \`fb\` — another FB output (e.g. "InstPump1.busy")
-  - \`global\` — global DB field (e.g. "HmiData.motor1Start")
+  - \`global\` — global DB field (e.g. "ProcessCommands.cv01Run")
   - \`constant\` — scalar primitive ONLY: Bool (TRUE/FALSE), Time (T#5s), Int (0), Real (0.0). NEVER use constant for UDT/struct parameters — any param whose type starts with "type" or is a custom struct MUST use wireType "global" pointing to a Configuration DB field (e.g. connectedTo: "Configuration.motor1Config")
 - **UDT/struct parameters** (e.g. \`config\` of type \`typeMotorConfig\`) MUST be wired to a "Configuration" global DB. Add the Configuration DB to globalData with appropriate fields for each UDT param. Example: \`{ "paramName": "config", "direction": "in", "wireType": "global", "connectedTo": "Configuration.motor1Config" }\`
+- **CRITICAL — Sequence-driven commands MUST go through ProcessCommands DB:**
+  Before wiring any operator-interface signal (pushbutton pressed, switch active) to a device FB command input, ask: does this signal appear as a condition that triggers or advances a step in the process sequences? If YES — the process code is the decision-maker, and the command must go through \`ProcessCommands.*\`. Wire the device FB input as \`wireType: "global"\` to \`ProcessCommands.*\`, and leave the process code to read the pushbutton and set that field.
+  If NO — the signal is a direct device-level action independent of sequence logic (e.g. a reset button that resets a fault latch, an e-stop that directly halts a device, a jog button) — direct FB-to-FB wiring is acceptable.
+  - WRONG (start button is a sequence trigger): \`{ "paramName": "run", "wireType": "fb", "connectedTo": "InstPbStart.pressed" }\`
+  - WRONG (IO direct to command input): \`{ "paramName": "run", "wireType": "io", "connectedTo": "PB_START" }\`
+  - WRONG (HmiData is not a command bus): \`{ "paramName": "run", "wireType": "global", "connectedTo": "HmiData.cv01Run" }\`
+  - RIGHT (sequence-driven): \`{ "paramName": "run", "wireType": "global", "connectedTo": "ProcessCommands.cv01Run" }\`
+  - RIGHT (direct reset, not sequence-driven): \`{ "paramName": "reset", "wireType": "fb", "connectedTo": "InstPbReset.pressed" }\`
+  Physical sensor/feedback signals (detection, limits, overload, fault feedback) MAY always wire directly to IO tags.
+- **HmiData** contains only status/feedback fields written by device FBs or process code for the HMI to read. Do NOT put command or control fields in HmiData.
 - **Timer presets MUST use TIA TIME literal format: T#5s, T#30s, T#500ms, T#2m — NEVER raw millisecond integers like 5000 or 30000**
 - Step descriptions and condition descriptions that reference timer delays must say "T#5s timer" not "5000ms" or "5s (5000ms)"
 - All IDs must be unique strings (use numeric suffix, e.g. "w1", "i1", "s1")`;
@@ -1373,7 +1393,7 @@ const DEVICE_LINKAGE_SCHEMA = `{
           "id": "string (unique, e.g. w1)",
           "paramName": "string (FB parameter name)",
           "direction": "in | out",
-          "connectedTo": "string (IO tag, global DB field, or other FB output)",
+          "connectedTo": "string — REQUIRED, never empty. IO tag name, global DB field (DB.field), or FB output (InstName.field). For constant wireType: the literal value (TRUE, FALSE, T#5s). If you don't know the connection, omit the wire entirely rather than leaving connectedTo blank.",
           "wireType": "fb | io | global | constant"
         }
       ],
@@ -1463,6 +1483,27 @@ ${MATRIX_RULES_COMMON}
 - Interlocks must reference devices that exist in the device list
 - Use EXACT parameter names from the FB Template Interfaces provided
 - If an FB has a configuration/settings parameter of a UDT type (e.g. \`config : typeMotorConfig\`), wire it as: \`{ "wireType": "global", "connectedTo": "Configuration.<instanceName>Config" }\`. Include the Configuration DB in globalData with matching fields. NEVER wire a struct param as \`constant: TRUE\`.
+
+## ProcessCommands DB (REQUIRED when any operator command inputs exist)
+If any device FB has operator command inputs (run, stop, start, enable, direction, reset, mode), you MUST include a "ProcessCommands" DB in the globalData array with one field per command input.
+
+Each field description MUST explain:
+1. Which process sequence sets it
+2. What it commands the device to do
+
+Example globalData entry:
+\`\`\`json
+{
+  "id": "gdb_commands",
+  "dbName": "ProcessCommands",
+  "purpose": "Interface between process sequences and device FBs. Process code writes these fields; device call FCs read them.",
+  "fields": [
+    { "id": "f1", "fieldName": "cv01Run",       "dataType": "Bool", "description": "Set by ConveyorSequence step 20 — commands CV01 to run forward" },
+    { "id": "f2", "fieldName": "cv01Direction",  "dataType": "Bool", "description": "Set by ConveyorSequence step 20 — TRUE = forward, FALSE = reverse" },
+    { "id": "f3", "fieldName": "m01Enable",      "dataType": "Bool", "description": "Set by MotorSequence step 10 — enables M01 main drive" }
+  ]
+}
+\`\`\`
 
 ## Output Format
 Wrap the JSON in [DEVICE_LINKAGE]...[/DEVICE_LINKAGE] tags:
@@ -1564,6 +1605,7 @@ function buildMatrixContext(
   devices: ForgeDeviceEntry[],
   ioList: ForgeIoEntry[],
   fbTemplates?: FbTemplate[],
+  generatedFbArtifacts?: ForgeArtifact[],
 ): { deviceTable: string; ioSummary: string; fbInterfacesText: string } {
   const templateMap = new Map(
     (fbTemplates ?? []).map((t) => [t.id, t]),
@@ -1577,7 +1619,7 @@ function buildMatrixContext(
       const tpl = d.fb_template_id ? templateMap.get(d.fb_template_id) : null;
       const fbInfo = tpl
         ? `FB Template: ${tpl.name} (${d.fb_match_confidence} match)`
-        : `FB Template: none (generate from scratch)`;
+        : `FB Template: none (AI-generated)`;
       return `**${d.name}** [${d.tag}]\n  Type: ${d.device_type}\n  Subsystem: ${d.subsystem}\n  ${fbInfo}\n  IO Signals:\n${signals || "    (none)"}`;
     })
     .join("\n\n");
@@ -1589,28 +1631,46 @@ function buildMatrixContext(
         .join("\n") + (ioList.length > 50 ? `\n  ... and ${ioList.length - 50} more` : "")
     : "  (none)";
 
+  // Helper: extract VAR_INPUT / VAR_OUTPUT param names from SCL text
+  function extractParams(scl: string, section: "VAR_INPUT" | "VAR_OUTPUT"): string {
+    return [...scl.matchAll(new RegExp(`${section}\\b[\\s\\S]*?END_VAR`, "g"))]
+      .flatMap((m) => [...m[0].matchAll(/^\s+(\w+)\s*:/gm)].map((p) => p[1]))
+      .join(", ");
+  }
+
+  // Library template interfaces (for devices with fb_template_id)
   const referencedTemplateIds = new Set(
     devices.map((d) => d.fb_template_id).filter(Boolean),
   );
-  const fbInterfacesText =
-    referencedTemplateIds.size > 0
-      ? [...referencedTemplateIds]
-          .map((id) => {
-            const tpl = templateMap.get(id!);
-            if (!tpl?.blocks?.length) return null;
-            const mainBlock = tpl.blocks.find((b) => b.block_type === "FB") ?? tpl.blocks[0];
-            if (!mainBlock) return null;
-            const inputParams = [...mainBlock.scl_code.matchAll(/VAR_INPUT\b[\s\S]*?END_VAR/g)]
-              .flatMap((m) => [...m[0].matchAll(/^\s+(\w+)\s*:/gm)].map((p) => p[1]))
-              .join(", ");
-            const outputParams = [...mainBlock.scl_code.matchAll(/VAR_OUTPUT\b[\s\S]*?END_VAR/g)]
-              .flatMap((m) => [...m[0].matchAll(/^\s+(\w+)\s*:/gm)].map((p) => p[1]))
-              .join(", ");
-            return `  **${tpl.name}** (${mainBlock.block_name})\n  VAR_INPUT: ${inputParams || "(none)"}\n  VAR_OUTPUT: ${outputParams || "(none)"}`;
-          })
-          .filter(Boolean)
-          .join("\n\n")
-      : "  (none — use standard parameter naming conventions)";
+  const templateInterfaces = referencedTemplateIds.size > 0
+    ? [...referencedTemplateIds]
+        .map((id) => {
+          const tpl = templateMap.get(id!);
+          if (!tpl?.blocks?.length) return null;
+          const mainBlock = tpl.blocks.find((b) => b.block_type === "FB") ?? tpl.blocks[0];
+          if (!mainBlock) return null;
+          const inputParams = extractParams(mainBlock.scl_code, "VAR_INPUT");
+          const outputParams = extractParams(mainBlock.scl_code, "VAR_OUTPUT");
+          return `  **${tpl.name}** (library template)\n  VAR_INPUT: ${inputParams || "(none)"}\n  VAR_OUTPUT: ${outputParams || "(none)"}`;
+        })
+        .filter(Boolean)
+        .join("\n\n")
+    : null;
+
+  // AI-generated FB interfaces (from Device FBs step — stage "device_fb", type "FB")
+  const fbArtifacts = (generatedFbArtifacts ?? []).filter((a) => a.type === "FB");
+  const generatedInterfaces = fbArtifacts.length > 0
+    ? fbArtifacts
+        .map((a) => {
+          const inputParams = extractParams(a.content, "VAR_INPUT");
+          const outputParams = extractParams(a.content, "VAR_OUTPUT");
+          return `  **${a.name}** (AI-generated)\n  VAR_INPUT: ${inputParams || "(none)"}\n  VAR_OUTPUT: ${outputParams || "(none)"}`;
+        })
+        .join("\n\n")
+    : null;
+
+  const fbInterfacesText = [templateInterfaces, generatedInterfaces].filter(Boolean).join("\n\n")
+    || "  (none — use standard parameter naming conventions)";
 
   return { deviceTable, ioSummary, fbInterfacesText };
 }
@@ -1623,8 +1683,9 @@ export function buildDeviceLinkageUserMessage(
   devices: ForgeDeviceEntry[],
   ioList: ForgeIoEntry[],
   fbTemplates?: FbTemplate[],
+  generatedFbArtifacts?: ForgeArtifact[],
 ): string {
-  const { deviceTable, ioSummary, fbInterfacesText } = buildMatrixContext(devices, ioList, fbTemplates);
+  const { deviceTable, ioSummary, fbInterfacesText } = buildMatrixContext(devices, ioList, fbTemplates, generatedFbArtifacts);
 
   return `Generate the device linkage section for this project.
 

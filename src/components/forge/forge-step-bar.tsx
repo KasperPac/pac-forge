@@ -1,4 +1,4 @@
-import { Check, Circle, Loader2, X } from "lucide-react";
+import { Check, Circle, X } from "lucide-react";
 import { FORGE_STEP_LABELS } from "@/types/forge";
 import { cn } from "@/lib/utils";
 import type { ForgeStep } from "@/types/forge";
@@ -16,7 +16,7 @@ function StepStatusIcon({ status }: { status: ForgeStepStatus }) {
     case "completed":
       return <Check className="h-3.5 w-3.5" />;
     case "active":
-      return <Loader2 className="h-3.5 w-3.5 animate-spin" />;
+      return <Circle className="h-3.5 w-3.5" />;
     case "failed":
       return <X className="h-3.5 w-3.5" />;
     default:

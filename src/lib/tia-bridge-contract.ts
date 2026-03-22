@@ -132,6 +132,8 @@ export interface BridgeStatusEvent {
     tia_version: string | null;
     tia_project_open: boolean;
     bridge_version: string;
+    source_plc_family: string | null;   // e.g. "SIMATIC 300"
+    source_cpu_type_id: string | null;  // e.g. "OrderNumber:6ES7 317-2EK14-0AB0/V3.3"
   };
 }
 
@@ -143,6 +145,8 @@ export interface ExportSourcesResponse {
   success: boolean;
   message: string;
   sources: Record<string, string>;
+  /** Block language per block name: "SCL" | "STL" | "LAD" | "FBD" | "GRAPH" | "DB" */
+  source_languages?: Record<string, string>;
   warnings: string[];
 }
 
@@ -259,8 +263,8 @@ export interface BridgeConfig {
 }
 
 export const DEFAULT_BRIDGE_CONFIG: BridgeConfig = {
-  baseUrl: "http://localhost:5102",
-  wsUrl: "ws://localhost:5102/tia/ws",
+  baseUrl: "http://localhost:5300",
+  wsUrl: "ws://localhost:5300/tia/ws",
   timeout: 5000,
 };
 

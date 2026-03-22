@@ -272,7 +272,7 @@ export function ForgeProcessCode({
                 </CardHeader>
                 <CardContent className="px-3 pb-3">
                   <div className="space-y-0.5 max-h-24 overflow-y-auto">
-                    {selectedSequence.steps.map(s => (
+                    {(selectedSequence.steps ?? []).map(s => (
                       <div key={s.step_number} className="flex gap-2 text-xs">
                         <span className="shrink-0 font-mono text-muted-foreground w-6">{s.step_number}.</span>
                         <span className="text-muted-foreground">{s.action}</span>

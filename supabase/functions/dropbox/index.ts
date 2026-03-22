@@ -362,6 +362,10 @@ async function handleCopyTemplate(
   }, rootNamespaceId);
 
   if (!result.ok) {
+    // Folder already exists — treat as success and link to it
+    if (result.error?.includes("to/conflict/folder")) {
+      return jsonResponse({ copied: false, already_exists: true, path: destPath }, 200);
+    }
     return jsonResponse({ error: result.error ?? "Failed to copy template" }, 500);
   }
 
