@@ -15,6 +15,7 @@ using Siemens.Engineering.SW.Blocks;
 using Siemens.Engineering.SW.ExternalSources;
 using Siemens.Engineering.SW.Tags;
 using Siemens.Engineering.SW.Types;
+// using Siemens.Engineering.Download; // TODO: Add when download-to-PLCSIM is automated
 using Siemens.Engineering.Library;
 using Siemens.Engineering.Library.Types;
 using Siemens.Engineering.Library.MasterCopies;
@@ -495,6 +496,11 @@ namespace PacForgeBridge
             }
             return null;
         }
+
+        // TODO: DownloadToPlcsim() — automate project download to PLCSIM Advanced.
+        // The TIA Openness V18 Download API namespace needs investigation.
+        // For now, the user downloads manually from TIA Portal (Online → Download to Device → PLCSIM).
+        // The PLCSIM instance name must match what was registered via /tia/plcsim/start.
 
         /// <summary>
         /// Import a single SCL artifact via the external source method.

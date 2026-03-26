@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Newtonsoft.Json;
 
 namespace PacForgeBridge
 {
@@ -17,6 +18,7 @@ namespace PacForgeBridge
         private readonly JobExecutor _jobExecutor;
         private readonly WebSocketHandler _wsHandler;
         private readonly TiaPortalService _tiaService;
+        private readonly PlcsimService _plcsimService;
         private CancellationTokenSource _cts;
 
         public BridgeServer(int port, JobExecutor jobExecutor, WebSocketHandler wsHandler, TiaPortalService tiaService)
@@ -26,6 +28,7 @@ namespace PacForgeBridge
             _jobExecutor = jobExecutor;
             _wsHandler = wsHandler;
             _tiaService = tiaService;
+            _plcsimService = new PlcsimService();
         }
 
         public void Start()
@@ -274,6 +277,78 @@ namespace PacForgeBridge
                 {
                     var wsContext = await context.AcceptWebSocketAsync(null);
                     await _wsHandler.AcceptClient(wsContext.WebSocket);
+                    return;
+                }
+
+                // ── PLCSIM Advanced endpoints ──────────────────────────────
+
+                // Route: POST /tia/plcsim/start
+                if (method == "POST" && path == "/tia/plcsim/start")
+                {
+                    var body = await ReadBody<PlcsimStartRequest>(req);
+                    var name = body?.InstanceName ?? "PacForge_Test";
+                    var cpu = body?.CpuType ?? 0;
+                    var timeout = body?.TimeoutMs > 0 ? body.TimeoutMs : 30000;
+                    var result = _plcsimService.Start(name, cpu, timeout);
+                    await WriteJson(res, result.Success ? 200 : 500, result);
+                    return;
+                }
+
+                // Route: GET /tia/plcsim/status
+                if (method == "GET" && path == "/tia/plcsim/status")
+                {
+                    var result = _plcsimService.GetStatus();
+                    await WriteJson(res, 200, result);
+                    return;
+                }
+
+                // TODO: POST /tia/plcsim/download — automate download to PLCSIM
+                // For now, user downloads manually from TIA Portal.
+
+                // Route: POST /tia/plcsim/stop
+                if (method == "POST" && path == "/tia/plcsim/stop")
+                {
+                    var result = _plcsimService.Stop();
+                    await WriteJson(res, result.Success ? 200 : 500, result);
+                    return;
+                }
+
+                // Route: POST /tia/plcsim/plc-mode
+                if (method == "POST" && path == "/tia/plcsim/plc-mode")
+                {
+                    var body = await ReadBody<PlcsimModeRequest>(req);
+                    var mode = body?.Mode ?? "stop";
+                    var timeout = body?.TimeoutMs > 0 ? body.TimeoutMs : 10000;
+                    var result = _plcsimService.SetMode(mode, timeout);
+                    await WriteJson(res, result.Success ? 200 : 500, result);
+                    return;
+                }
+
+                // Route: POST /tia/plcsim/write-tag
+                if (method == "POST" && path == "/tia/plcsim/write-tag")
+                {
+                    var body = await ReadBody<PlcsimWriteRequest>(req);
+                    if (body == null || string.IsNullOrEmpty(body.TagName))
+                    {
+                        await WriteJson(res, 400, new { success = false, message = "tag_name is required" });
+                        return;
+                    }
+                    var result = _plcsimService.WriteTag(body.TagName, body.Value, body.DataType ?? "Bool");
+                    await WriteJson(res, result.Success ? 200 : 500, result);
+                    return;
+                }
+
+                // Route: POST /tia/plcsim/read-tags
+                if (method == "POST" && path == "/tia/plcsim/read-tags")
+                {
+                    var body = await ReadBody<List<TagReadRequest>>(req);
+                    if (body == null || body.Count == 0)
+                    {
+                        await WriteJson(res, 400, new { success = false, message = "Request body must be an array of tag read requests" });
+                        return;
+                    }
+                    var result = _plcsimService.ReadTags(body);
+                    await WriteJson(res, result.Success ? 200 : 500, result);
                     return;
                 }
 
@@ -1033,6 +1108,14 @@ namespace PacForgeBridge
             {
                 return await reader.ReadToEndAsync();
             }
+        }
+
+        private static async Task<T> ReadBody<T>(HttpListenerRequest req) where T : class
+        {
+            var json = await ReadBody(req);
+            if (string.IsNullOrWhiteSpace(json)) return null;
+            try { return JsonConvert.DeserializeObject<T>(json); }
+            catch { return null; }
         }
 
         private static async Task WriteJson(HttpListenerResponse res, int statusCode, object body)

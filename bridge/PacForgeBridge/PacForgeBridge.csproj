@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework>net481</TargetFramework>
     <LangVersion>7.3</LangVersion>
     <RootNamespace>PacForgeBridge</RootNamespace>
     <AssemblyName>PacForgeBridge</AssemblyName>
