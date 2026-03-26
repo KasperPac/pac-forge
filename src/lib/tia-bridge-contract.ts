@@ -304,3 +304,78 @@ export interface ProvisionProjectResponse {
   message: string;
   warnings: string[];
 }
+
+// --- PLCSIM Advanced Endpoints ---
+
+/**
+ * POST /tia/plcsim/start
+ * Register and power on a PLCSIM Advanced virtual controller.
+ */
+export interface PlcsimStartRequest {
+  instance_name?: string;  // Default: "PacForge_Test"
+  cpu_type?: number;       // ECPUType enum value (default: S7-1515)
+  timeout_ms?: number;     // Default: 30000
+}
+
+export interface PlcsimStartResponse {
+  success: boolean;
+  message: string;
+  operating_state?: string;
+}
+
+/**
+ * GET /tia/plcsim/status
+ * Check PLCSIM connection status and operating state.
+ */
+export interface PlcsimStatusResponse {
+  connected: boolean;
+  instance_name: string | null;
+  operating_state: string;
+  has_instance: boolean;
+}
+
+/**
+ * POST /tia/plcsim/plc-mode
+ * Set PLC to RUN or STOP mode.
+ */
+export interface PlcsimModeRequest {
+  mode: "run" | "stop";
+  timeout_ms?: number;
+}
+
+/**
+ * POST /tia/plcsim/write-tag
+ * Write a single tag by symbolic name.
+ */
+export interface PlcsimWriteTagRequest {
+  tag_name: string;
+  value: boolean | number | string;
+  data_type?: string;  // "Bool" | "Int" | "DInt" | "Real" — default "Bool"
+}
+
+/**
+ * POST /tia/plcsim/read-tags
+ * Read multiple tags by symbolic name.
+ * Request body: array of PlcsimReadTagRequest.
+ */
+export interface PlcsimReadTagRequest {
+  tag_name: string;
+  data_type: string;
+}
+
+export interface PlcsimReadTagValue {
+  tag_name: string;
+  data_type: string;
+  value: boolean | number | string | null;
+  success: boolean;
+  error?: string;
+}
+
+export interface PlcsimReadTagsResponse {
+  success: boolean;
+  message: string;
+  values: PlcsimReadTagValue[];
+}
+
+/** POST /tia/plcsim/stop — Shutdown PLCSIM instance */
+export type PlcsimStopResponse = PlcsimStartResponse;
