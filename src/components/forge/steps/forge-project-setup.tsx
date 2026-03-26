@@ -21,6 +21,7 @@ export interface ForgeProjectSetup {
   client_name: string;
   design_profile_id: string | null;
   device_fb_language: "SCL" | "LAD";
+  device_call_fc_language: "SCL" | "LAD";
   io_linking_language: "SCL" | "LAD";
   process_code_language: "SCL" | "LAD";
   tia_version: string;
@@ -38,6 +39,7 @@ export interface ForgeProjectSetupProps {
   onCanSubmitChange?: (canSubmit: boolean) => void;
   /** Previously-saved language choices from the session (used to restore form when navigating back) */
   initialDeviceFbLanguage?: "SCL" | "LAD";
+  initialDeviceCallFcLanguage?: "SCL" | "LAD";
   initialIoLinkingLanguage?: "SCL" | "LAD";
   initialProcessCodeLanguage?: "SCL" | "LAD";
 }
@@ -57,7 +59,7 @@ function padPlcNum(n: number): string {
   return String(Math.max(1, n)).padStart(2, "0");
 }
 
-export const ForgeProjectSetup = forwardRef<ForgeProjectSetupHandle, ForgeProjectSetupProps>(function ForgeProjectSetup({ specAnalysis, project, onComplete, onCanSubmitChange, initialDeviceFbLanguage, initialIoLinkingLanguage, initialProcessCodeLanguage }, ref) {
+export const ForgeProjectSetup = forwardRef<ForgeProjectSetupHandle, ForgeProjectSetupProps>(function ForgeProjectSetup({ specAnalysis, project, onComplete, onCanSubmitChange, initialDeviceFbLanguage, initialDeviceCallFcLanguage, initialIoLinkingLanguage, initialProcessCodeLanguage }, ref) {
   const { data: profiles = [] } = useDesignProfiles();
 
   const [form, setForm] = useState<ForgeProjectSetup>({
@@ -66,6 +68,7 @@ export const ForgeProjectSetup = forwardRef<ForgeProjectSetupHandle, ForgeProjec
     client_name: project?.client_name ?? "",
     design_profile_id: project?.design_profile_id ?? null,
     device_fb_language: initialDeviceFbLanguage ?? "SCL",
+    device_call_fc_language: initialDeviceCallFcLanguage ?? "SCL",
     io_linking_language: initialIoLinkingLanguage ?? "SCL",
     process_code_language: initialProcessCodeLanguage ?? "SCL",
     tia_version: project?.tia_version ?? "V18",
@@ -221,7 +224,7 @@ export const ForgeProjectSetup = forwardRef<ForgeProjectSetupHandle, ForgeProjec
 
         {/* Right column */}
         <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-4 gap-3">
             <div className="space-y-1.5">
               <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
                 Device FB Lang
@@ -229,6 +232,23 @@ export const ForgeProjectSetup = forwardRef<ForgeProjectSetupHandle, ForgeProjec
               <Select
                 value={form.device_fb_language}
                 onValueChange={v => set("device_fb_language", v as "SCL" | "LAD")}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CODE_LANGS.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+                Call FC Lang
+              </Label>
+              <Select
+                value={form.device_call_fc_language}
+                onValueChange={v => set("device_call_fc_language", v as "SCL" | "LAD")}
               >
                 <SelectTrigger>
                   <SelectValue />

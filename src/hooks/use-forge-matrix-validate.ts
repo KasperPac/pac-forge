@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { callNonStreaming } from "@/hooks/use-generation";
-import type { ProcessLinkageMatrix, LinkageDevice } from "@/types/process-builder";
+import type { ProcessLinkageMatrix, LinkageDevice } from "@/types/forge-matrix";
 
 // ---------------------------------------------------------------------------
 // Types

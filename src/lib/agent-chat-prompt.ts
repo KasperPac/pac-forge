@@ -2,6 +2,7 @@ import { getAgentProfile } from "@/lib/agent-profiles";
 import type { AgentKnowledgeDoc, Artifact } from "@/types";
 import type { PipelineStepResult } from "@/lib/pipeline";
 import type { TiaCompileResult, CompileFixMessage } from "@/stores/tia-console-store";
+import type { ForgeSession } from "@/types/forge";
 
 /** Hard cap for total system prompt size (chars). Edge Function has ~100K limit. */
 const MAX_PROMPT_CHARS = 60_000;
@@ -26,6 +27,8 @@ export interface SessionContext {
   compileResult?: TiaCompileResult | null;
   /** Compile-fix chat messages (auto-fix conversation history) */
   compileFixMessages?: CompileFixMessage[];
+  /** Active forge wizard session — spec analysis, devices, artifacts, Q&A */
+  forgeSession?: ForgeSession | null;
 }
 
 /**
@@ -84,7 +87,102 @@ export function buildAgentChatPrompt(
     }
   }
 
-  // Inject current session context so agent can discuss what was just built
+  // Inject forge wizard context — spec analysis, devices, Q&A, artifacts
+  if (sessionContext?.forgeSession) {
+    const fs = sessionContext.forgeSession;
+    sections.push("", "## Forge Wizard — Active Session");
+    sections.push(
+      "The engineer is currently working through the Forge project wizard. " +
+        "This is the state of the current session. Use this to answer questions " +
+        "about decisions made during the wizard, including spec analysis, device extraction, and code generation.",
+    );
+
+    if (fs.spec_analysis) {
+      const sa = fs.spec_analysis;
+      sections.push("", "### Spec Analysis");
+      sections.push(`**Project:** ${sa.project_name}`);
+      sections.push(`**Description:** ${sa.project_description}`);
+      sections.push(`**PLC:** ${sa.plc_type} | **HMI:** ${sa.hmi_type || "not specified"}`);
+
+      if (sa.subsystems.length > 0) {
+        sections.push("", "**Subsystems:**");
+        for (const sub of sa.subsystems) {
+          sections.push(`- ${sub.name}: ${sub.description}`);
+        }
+      }
+
+      if (sa.devices.length > 0) {
+        sections.push("", "**Devices extracted from spec:**");
+        for (const d of sa.devices) {
+          const signals = d.io_signals.map(s => `${s.tag_name}(${s.signal_type})`).join(", ");
+          sections.push(`- ${d.tag} — ${d.name} (${d.device_type}, subsystem: ${d.subsystem})${signals ? ` | IO: ${signals}` : ""}`);
+        }
+      }
+
+      if (sa.process_sequences.length > 0) {
+        sections.push("", "**Process Sequences:**");
+        for (const seq of sa.process_sequences) {
+          sections.push(`- **${seq.name}** (${seq.subsystem}): ${seq.steps.length} steps, permissives: ${seq.permissives.join(", ") || "none"}`);
+        }
+      }
+
+      if (sa.interlocks.length > 0) {
+        sections.push("", "**Interlocks:**");
+        for (const il of sa.interlocks) {
+          sections.push(`- ${il.name}: ${il.condition} → affects: ${il.affected_devices.join(", ")}`);
+        }
+      }
+
+      if (sa.alarms.length > 0) {
+        sections.push("", "**Alarms:**");
+        for (const al of sa.alarms) {
+          sections.push(`- ${al.name} (${al.severity}): ${al.description}`);
+        }
+      }
+    }
+
+    if (fs.qa_messages.length > 0) {
+      sections.push("", "### Q&A Review Conversation");
+      sections.push("This Q&A happened between the PM agent and the engineer to clarify spec gaps:");
+      for (const m of fs.qa_messages) {
+        const label = m.role === "assistant" ? "PM Agent" : "Engineer";
+        sections.push(`**${label}:** ${truncate(m.content, MAX_STEP_CHARS)}`, "");
+      }
+    }
+
+    if (fs.device_list.length > 0) {
+      sections.push("", "### Confirmed Device List");
+      for (const d of fs.device_list) {
+        const signals = (d.io_signals ?? []).map(s => `${s.tag_name}(${s.signal_type})`).join(", ");
+        sections.push(`- ${d.tag} — ${d.name} (${d.device_type}, FB template: ${d.fb_template_id ? "matched" : "AI-generated"}, confidence: ${d.fb_match_confidence})${signals ? ` | IO: ${signals}` : ""}`);
+      }
+    }
+
+    if (fs.device_artifacts.length > 0) {
+      sections.push("", "### Generated Device Code");
+      for (const a of fs.device_artifacts) {
+        const lang = a.language === "LAD" ? "json" : "scl";
+        sections.push(`#### ${a.name} (${a.type})`, `\`\`\`${lang}`, truncate(a.content, MAX_ARTIFACT_CHARS), "```", "");
+      }
+    }
+
+    if (fs.process_artifacts.length > 0) {
+      sections.push("", "### Generated Process Code");
+      for (const a of fs.process_artifacts) {
+        const lang = a.language === "LAD" ? "json" : "scl";
+        sections.push(`#### ${a.name} (${a.type})`, `\`\`\`${lang}`, truncate(a.content, MAX_ARTIFACT_CHARS), "```", "");
+      }
+    }
+
+    if (fs.linkage_matrix) {
+      sections.push("", "### Linkage Matrix");
+      sections.push(truncate(JSON.stringify(fs.linkage_matrix, null, 2), MAX_STEP_CHARS));
+    }
+
+    sections.push("");
+  }
+
+  // Inject current Pac-ST/TIA session context so agent can discuss what was just built
   if (sessionContext) {
     const { artifacts, pipelineSteps } = sessionContext;
 

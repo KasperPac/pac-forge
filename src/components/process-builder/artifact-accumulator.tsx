@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useProcessBuilderStore } from "@/stores/process-builder-store";
-import { PROCESS_STAGE_ORDER, PROCESS_STAGE_LABELS } from "@/types/process-builder";
+import { PROCESS_STAGE_ORDER, PROCESS_STAGE_LABELS } from "@/types/forge-matrix";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { ChevronDown, ChevronRight, FileCode, Package } from "lucide-react";

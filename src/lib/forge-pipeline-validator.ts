@@ -106,14 +106,16 @@ const AGENT_IDENTITY_MARKERS: Record<string, string[]> = {
     "maps physical IO",
   ],
   
-  // Process code
+  // Process code (Code Architect role)
   process_scl: [
+    "Code Architect",
     "process sequence",
     "state machine",
     "CASE-based",
     "sequence logic",
   ],
   process_lad: [
+    "Code Architect",
     "process sequence",
     "sequential ladder",
     "sequence logic",

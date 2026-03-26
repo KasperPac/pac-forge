@@ -6,7 +6,7 @@ import type {
   AgentKnowledgeDoc,
   ReferenceLibrarySection,
 } from "@/types";
-import type { ProcessStage } from "@/types/process-builder";
+import type { ProcessStage } from "@/types/forge-matrix";
 import type { PromptRole } from "@/types/prompt-section";
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { getAgentProfile } from "@/lib/agent-profiles";

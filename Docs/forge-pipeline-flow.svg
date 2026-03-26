@@ -1,0 +1,496 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 2800" font-family="JetBrains Mono, Consolas, monospace">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b22"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <!-- Agent colors -->
+    <linearGradient id="pmGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#6d28d9"/>
+    </linearGradient>
+    <linearGradient id="archGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="reviewGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#d97706"/>
+      <stop offset="100%" stop-color="#b45309"/>
+    </linearGradient>
+    <linearGradient id="userGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#059669"/>
+      <stop offset="100%" stop-color="#047857"/>
+    </linearGradient>
+    <linearGradient id="bridgeGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#dc2626"/>
+      <stop offset="100%" stop-color="#b91c1c"/>
+    </linearGradient>
+    <linearGradient id="dataGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#334155"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1400" height="2800" fill="url(#bgGrad)"/>
+
+  <!-- Title -->
+  <text x="700" y="45" text-anchor="middle" fill="#e2e8f0" font-size="22" font-weight="bold">Forge Wizard Pipeline — Agent Flow &amp; Data Dependencies</text>
+  <text x="700" y="70" text-anchor="middle" fill="#64748b" font-size="12">Example: Conveyor Transfer System (1 motor, 2 PE sensors, E-Stop, 2 pushbuttons)</text>
+
+  <!-- Legend -->
+  <g transform="translate(30, 90)">
+    <rect x="0" y="0" width="12" height="12" rx="2" fill="url(#pmGrad)"/>
+    <text x="18" y="11" fill="#a78bfa" font-size="10">Project Manager</text>
+    <rect x="160" y="0" width="12" height="12" rx="2" fill="url(#archGrad)"/>
+    <text x="178" y="11" fill="#60a5fa" font-size="10">Code Architect</text>
+    <rect x="320" y="0" width="12" height="12" rx="2" fill="url(#reviewGrad)"/>
+    <text x="338" y="11" fill="#fbbf24" font-size="10">Standards Reviewer</text>
+    <rect x="510" y="0" width="12" height="12" rx="2" fill="url(#userGrad)"/>
+    <text x="528" y="11" fill="#34d399" font-size="10">Engineer (Manual)</text>
+    <rect x="680" y="0" width="12" height="12" rx="2" fill="url(#bridgeGrad)"/>
+    <text x="698" y="11" fill="#f87171" font-size="10">TIA Bridge</text>
+    <rect x="830" y="0" width="12" height="12" rx="2" fill="url(#dataGrad)"/>
+    <text x="848" y="11" fill="#94a3b8" font-size="10">Data (Session State)</text>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- STEP 1: Functional Spec Upload -->
+  <!-- ============================================================ -->
+  <g transform="translate(50, 130)">
+    <rect x="0" y="0" width="1300" height="170" rx="8" fill="#1e1e2e" stroke="#7c3aed" stroke-width="1.5" opacity="0.9"/>
+    <text x="20" y="25" fill="#a78bfa" font-size="13" font-weight="bold">STEP 1: Functional Spec Analysis</text>
+
+    <!-- User uploads doc -->
+    <rect x="30" y="45" width="200" height="50" rx="6" fill="url(#userGrad)" opacity="0.9"/>
+    <text x="130" y="67" text-anchor="middle" fill="white" font-size="10">Engineer uploads</text>
+    <text x="130" y="80" text-anchor="middle" fill="white" font-size="10">.docx / .pdf spec</text>
+
+    <!-- Arrow -->
+    <line x1="240" y1="70" x2="290" y2="70" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+    <!-- PM Agent -->
+    <rect x="300" y="40" width="280" height="60" rx="6" fill="url(#pmGrad)" opacity="0.9"/>
+    <text x="440" y="62" text-anchor="middle" fill="white" font-size="11" font-weight="bold">PM Agent</text>
+    <text x="440" y="78" text-anchor="middle" fill="#ddd6fe" font-size="9">buildSpecAnalysisPrompt()</text>
+
+    <!-- Arrow -->
+    <line x1="590" y1="70" x2="640" y2="70" stroke="#64748b" stroke-width="1.5"/>
+
+    <!-- Output data -->
+    <rect x="650" y="40" width="320" height="60" rx="6" fill="url(#dataGrad)" stroke="#475569" stroke-width="1"/>
+    <text x="810" y="60" text-anchor="middle" fill="#94a3b8" font-size="10" font-weight="bold">spec_analysis (JSON)</text>
+    <text x="810" y="75" text-anchor="middle" fill="#64748b" font-size="9">devices[], process_sequences[], alarms[]</text>
+    <text x="810" y="87" text-anchor="middle" fill="#64748b" font-size="9">subsystems[], interlocks[]</text>
+
+    <!-- Example -->
+    <rect x="30" y="110" width="940" height="45" rx="4" fill="#0f172a" stroke="#334155" stroke-width="0.5"/>
+    <text x="40" y="128" fill="#64748b" font-size="9">Example output:</text>
+    <text x="40" y="142" fill="#86efac" font-size="9">devices: [{name:"M01", type:"Motor DOL"}, {name:"PE01", type:"PE Sensor"}, {name:"PE02", type:"PE Sensor"}, {name:"ESTOP", type:"Safety"}]</text>
+  </g>
+
+  <!-- Connector -->
+  <line x1="700" y1="305" x2="700" y2="330" stroke="#475569" stroke-width="2" stroke-dasharray="4,4"/>
+
+  <!-- ============================================================ -->
+  <!-- STEP 2: Q&A Review -->
+  <!-- ============================================================ -->
+  <g transform="translate(50, 335)">
+    <rect x="0" y="0" width="1300" height="155" rx="8" fill="#1e1e2e" stroke="#7c3aed" stroke-width="1.5" opacity="0.9"/>
+    <text x="20" y="25" fill="#a78bfa" font-size="13" font-weight="bold">STEP 2: Q&amp;A Review (Iterative)</text>
+
+    <!-- PM asks questions -->
+    <rect x="30" y="45" width="280" height="50" rx="6" fill="url(#pmGrad)" opacity="0.9"/>
+    <text x="170" y="65" text-anchor="middle" fill="white" font-size="10" font-weight="bold">PM Agent asks questions</text>
+    <text x="170" y="78" text-anchor="middle" fill="#ddd6fe" font-size="9">FAIL/PASS audit checklist</text>
+
+    <!-- Bidirectional arrow -->
+    <line x1="320" y1="60" x2="370" y2="60" stroke="#64748b" stroke-width="1.5"/>
+    <line x1="370" y1="60" x2="320" y2="60" stroke="#64748b" stroke-width="1.5"/>
+    <line x1="320" y1="80" x2="370" y2="80" stroke="#64748b" stroke-width="1.5"/>
+    <text x="345" y="56" text-anchor="middle" fill="#64748b" font-size="8">ask</text>
+    <text x="345" y="92" text-anchor="middle" fill="#64748b" font-size="8">answer</text>
+
+    <!-- Engineer responds -->
+    <rect x="380" y="45" width="200" height="50" rx="6" fill="url(#userGrad)" opacity="0.9"/>
+    <text x="480" y="67" text-anchor="middle" fill="white" font-size="10">Engineer clarifies</text>
+    <text x="480" y="80" text-anchor="middle" fill="white" font-size="9">missing details</text>
+
+    <!-- Arrow to output -->
+    <line x1="590" y1="70" x2="640" y2="70" stroke="#64748b" stroke-width="1.5"/>
+
+    <!-- Output -->
+    <rect x="650" y="40" width="320" height="60" rx="6" fill="url(#dataGrad)" stroke="#475569" stroke-width="1"/>
+    <text x="810" y="60" text-anchor="middle" fill="#94a3b8" font-size="10" font-weight="bold">Refined spec_analysis</text>
+    <text x="810" y="78" text-anchor="middle" fill="#64748b" font-size="9">Gaps filled, devices confirmed, sequences detailed</text>
+
+    <!-- Loop indicator -->
+    <rect x="1020" y="45" width="120" height="50" rx="20" fill="none" stroke="#7c3aed" stroke-width="1" stroke-dasharray="3,3"/>
+    <text x="1080" y="68" text-anchor="middle" fill="#a78bfa" font-size="9">Loop until</text>
+    <text x="1080" y="80" text-anchor="middle" fill="#a78bfa" font-size="9">complete</text>
+
+    <!-- Example -->
+    <rect x="30" y="105" width="940" height="35" rx="4" fill="#0f172a" stroke="#334155" stroke-width="0.5"/>
+    <text x="40" y="120" fill="#64748b" font-size="9">PM: "How many PE sensors at each end? What triggers the transfer — operator button or automatic?"</text>
+    <text x="40" y="132" fill="#86efac" font-size="9">Engineer: "1 PE sensor each end. PB_START triggers. Bi-directional — direction based on which PE is active."</text>
+  </g>
+
+  <!-- Connector -->
+  <line x1="700" y1="495" x2="700" y2="520" stroke="#475569" stroke-width="2" stroke-dasharray="4,4"/>
+
+  <!-- ============================================================ -->
+  <!-- STEP 3-4: Project Setup + Hardware IO -->
+  <!-- ============================================================ -->
+  <g transform="translate(50, 525)">
+    <rect x="0" y="0" width="1300" height="140" rx="8" fill="#1e1e2e" stroke="#059669" stroke-width="1.5" opacity="0.9"/>
+    <text x="20" y="25" fill="#34d399" font-size="13" font-weight="bold">STEPS 3-4: Project Setup + Hardware &amp; IO (Engineer-driven, no AI)</text>
+
+    <rect x="30" y="45" width="280" height="70" rx="6" fill="url(#userGrad)" opacity="0.9"/>
+    <text x="170" y="65" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Engineer configures</text>
+    <text x="170" y="78" text-anchor="middle" fill="white" font-size="9">CPU: S7-1500, TIA V18</text>
+    <text x="170" y="91" text-anchor="middle" fill="white" font-size="9">Languages: LAD for process code</text>
+    <text x="170" y="104" text-anchor="middle" fill="white" font-size="9">Design Profile: "Pac Standard"</text>
+
+    <line x1="320" y1="80" x2="370" y2="80" stroke="#64748b" stroke-width="1.5"/>
+
+    <rect x="380" y="40" width="260" height="80" rx="6" fill="url(#dataGrad)" stroke="#475569" stroke-width="1"/>
+    <text x="510" y="60" text-anchor="middle" fill="#94a3b8" font-size="10" font-weight="bold">Session configured:</text>
+    <text x="510" y="76" text-anchor="middle" fill="#64748b" font-size="9">design_profile_id, hardware_config</text>
+    <text x="510" y="89" text-anchor="middle" fill="#64748b" font-size="9">io_list[] (6 signals), device_list[] (6 devices)</text>
+    <text x="510" y="102" text-anchor="middle" fill="#64748b" font-size="9">language overrides (process=LAD)</text>
+
+    <line x1="650" y1="80" x2="700" y2="80" stroke="#64748b" stroke-width="1.5"/>
+
+    <rect x="710" y="45" width="290" height="70" rx="6" fill="#0f172a" stroke="#334155" stroke-width="0.5"/>
+    <text x="855" y="63" text-anchor="middle" fill="#64748b" font-size="9">Example IO list:</text>
+    <text x="855" y="76" text-anchor="middle" fill="#86efac" font-size="8">DI: ESTOP_OK, PE01_DET, PE02_DET, M01_OL, PB_START, PB_STOP</text>
+    <text x="855" y="89" text-anchor="middle" fill="#86efac" font-size="8">DQ: M01_CMD_FWD, M01_CMD_REV</text>
+    <text x="855" y="102" text-anchor="middle" fill="#86efac" font-size="8">Devices: M01(Motor DOL), PE01, PE02, ESTOP, PB_START, PB_STOP</text>
+  </g>
+
+  <!-- Connector -->
+  <line x1="700" y1="670" x2="700" y2="695" stroke="#475569" stroke-width="2" stroke-dasharray="4,4"/>
+
+  <!-- ============================================================ -->
+  <!-- STEP 5: Device FBs -->
+  <!-- ============================================================ -->
+  <g transform="translate(50, 700)">
+    <rect x="0" y="0" width="1300" height="190" rx="8" fill="#1e1e2e" stroke="#2563eb" stroke-width="1.5" opacity="0.9"/>
+    <text x="20" y="25" fill="#60a5fa" font-size="13" font-weight="bold">STEP 5: Device FB Generation (1 AI call per device)</text>
+
+    <!-- Input -->
+    <rect x="30" y="45" width="200" height="60" rx="6" fill="url(#dataGrad)" stroke="#475569" stroke-width="1"/>
+    <text x="130" y="63" text-anchor="middle" fill="#94a3b8" font-size="9" font-weight="bold">Inputs:</text>
+    <text x="130" y="76" text-anchor="middle" fill="#64748b" font-size="8">device_list, io_list</text>
+    <text x="130" y="88" text-anchor="middle" fill="#64748b" font-size="8">fb_templates, patterns, profile</text>
+
+    <line x1="240" y1="75" x2="280" y2="75" stroke="#64748b" stroke-width="1.5"/>
+
+    <!-- Code Architect -->
+    <rect x="290" y="40" width="280" height="70" rx="6" fill="url(#archGrad)" opacity="0.9"/>
+    <text x="430" y="62" text-anchor="middle" fill="white" font-size="11" font-weight="bold">Code Architect (per device)</text>
+    <text x="430" y="78" text-anchor="middle" fill="#bfdbfe" font-size="9">buildDeviceSclPrompt() / buildDeviceLadPrompt()</text>
+    <text x="430" y="91" text-anchor="middle" fill="#bfdbfe" font-size="8">Matches FB templates or generates from scratch</text>
+
+    <line x1="580" y1="75" x2="620" y2="75" stroke="#64748b" stroke-width="1.5"/>
+
+    <!-- Output -->
+    <rect x="630" y="35" width="340" height="85" rx="6" fill="url(#dataGrad)" stroke="#475569" stroke-width="1"/>
+    <text x="800" y="55" text-anchor="middle" fill="#94a3b8" font-size="10" font-weight="bold">device_artifacts[] saved to session</text>
+    <text x="800" y="70" text-anchor="middle" fill="#64748b" font-size="8">ControlMotor (FB), ControlPeSensor (FB)</text>
+    <text x="800" y="82" text-anchor="middle" fill="#64748b" font-size="8">SafetyDevice (FB), ControlPushbutton (FB)</text>
+    <text x="800" y="94" text-anchor="middle" fill="#64748b" font-size="8">InstM01, InstPE01, InstPE02, InstESTOP (Instance DBs)</text>
+    <text x="800" y="106" text-anchor="middle" fill="#64748b" font-size="8">DB_Inputs, DB_Outputs, HmiData, ProcessCommands (Global DBs)</text>
+
+    <!-- Example -->
+    <rect x="30" y="130" width="940" height="45" rx="4" fill="#0f172a" stroke="#334155" stroke-width="0.5"/>
+    <text x="40" y="148" fill="#64748b" font-size="9">Example: ControlMotor FB generates with:</text>
+    <text x="40" y="162" fill="#86efac" font-size="8">VAR_INPUT: enable, fwdCmd, revCmd, resetAlarms | VAR_OUTPUT: fwdrun, revrun, overload, busy, error, status:Word</text>
+  </g>
+
+  <!-- Connector -->
+  <line x1="700" y1="895" x2="700" y2="920" stroke="#475569" stroke-width="2" stroke-dasharray="4,4"/>
+
+  <!-- ============================================================ -->
+  <!-- STEP 6: Matrix Review -->
+  <!-- ============================================================ -->
+  <g transform="translate(50, 925)">
+    <rect x="0" y="0" width="1300" height="230" rx="8" fill="#1e1e2e" stroke="#2563eb" stroke-width="1.5" opacity="0.9"/>
+    <text x="20" y="25" fill="#60a5fa" font-size="13" font-weight="bold">STEP 6: Linkage Matrix Generation + Engineer Review</text>
+
+    <!-- Two parallel AI calls -->
+    <rect x="30" y="45" width="380" height="80" rx="6" fill="url(#archGrad)" opacity="0.9"/>
+    <text x="220" y="65" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Code Architect: Device Wiring</text>
+    <text x="220" y="80" text-anchor="middle" fill="#bfdbfe" font-size="8">Maps FB params to global DBs</text>
+    <text x="220" y="93" text-anchor="middle" fill="#bfdbfe" font-size="8">InstM01.fwdrun wires to "HmiData".motor01FwdRun</text>
+    <text x="220" y="106" text-anchor="middle" fill="#bfdbfe" font-size="8">InstM01.fwdCmd reads from "ProcessCommands".m01CmdFwd</text>
+
+    <rect x="440" y="45" width="380" height="80" rx="6" fill="url(#archGrad)" opacity="0.9"/>
+    <text x="630" y="65" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Code Architect: Process Sequences</text>
+    <text x="630" y="80" text-anchor="middle" fill="#bfdbfe" font-size="8">Defines step-by-step sequences from spec</text>
+    <text x="630" y="93" text-anchor="middle" fill="#bfdbfe" font-size="8">Permissives, safety conditions, fault exits</text>
+    <text x="630" y="106" text-anchor="middle" fill="#bfdbfe" font-size="8">SequenceRow[] with branching + transitions</text>
+
+    <!-- Parallel indicator -->
+    <text x="425" y="85" text-anchor="middle" fill="#fbbf24" font-size="18" font-weight="bold">||</text>
+
+    <!-- Merge arrow -->
+    <line x1="400" y1="130" x2="400" y2="140" stroke="#64748b" stroke-width="1.5"/>
+    <line x1="620" y1="130" x2="620" y2="140" stroke="#64748b" stroke-width="1.5"/>
+    <line x1="400" y1="140" x2="620" y2="140" stroke="#64748b" stroke-width="1.5"/>
+    <line x1="510" y1="140" x2="510" y2="150" stroke="#64748b" stroke-width="1.5"/>
+
+    <!-- Engineer review -->
+    <rect x="850" y="45" width="200" height="80" rx="6" fill="url(#userGrad)" opacity="0.9"/>
+    <text x="950" y="70" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Engineer reviews</text>
+    <text x="950" y="85" text-anchor="middle" fill="white" font-size="9">Edits wiring, confirms</text>
+    <text x="950" y="100" text-anchor="middle" fill="white" font-size="9">sequences, steps, faults</text>
+
+    <!-- Output -->
+    <rect x="30" y="155" width="820" height="60" rx="6" fill="url(#dataGrad)" stroke="#475569" stroke-width="1"/>
+    <text x="440" y="175" text-anchor="middle" fill="#94a3b8" font-size="10" font-weight="bold">linkage_matrix saved to session — SINGLE SOURCE OF TRUTH for all subsequent code generation</text>
+    <text x="440" y="192" text-anchor="middle" fill="#64748b" font-size="8">deviceLinkage[].wiring[] (exact param-to-DB field mapping) | processSequences[].rows[] (step flow) | safetyConditions[] | permissives[]</text>
+    <text x="440" y="204" text-anchor="middle" fill="#86efac" font-size="8">Example wiring: InstM01.fwdCmd reads "ProcessCommands".m01CmdFwd | InstM01.fwdrun writes "HmiData".motor01FwdRun</text>
+  </g>
+
+  <!-- Connector -->
+  <line x1="700" y1="1160" x2="700" y2="1185" stroke="#475569" stroke-width="2" stroke-dasharray="4,4"/>
+
+  <!-- ============================================================ -->
+  <!-- STEP 7: Device Code -->
+  <!-- ============================================================ -->
+  <g transform="translate(50, 1190)">
+    <rect x="0" y="0" width="1300" height="200" rx="8" fill="#1e1e2e" stroke="#2563eb" stroke-width="1.5" opacity="0.9"/>
+    <text x="20" y="25" fill="#60a5fa" font-size="13" font-weight="bold">STEP 7: Device Code (Call FCs, IO Linking, Global DBs)</text>
+
+    <!-- Generate -->
+    <rect x="30" y="45" width="200" height="55" rx="6" fill="url(#archGrad)" opacity="0.9"/>
+    <text x="130" y="65" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Code Architect</text>
+    <text x="130" y="80" text-anchor="middle" fill="#bfdbfe" font-size="8">Call FCs + IO Linking + Global DBs</text>
+
+    <line x1="240" y1="72" x2="270" y2="72" stroke="#64748b" stroke-width="1.5"/>
+
+    <!-- Review -->
+    <rect x="280" y="45" width="180" height="55" rx="6" fill="url(#reviewGrad)" opacity="0.9"/>
+    <text x="370" y="65" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Standards Reviewer</text>
+    <text x="370" y="80" text-anchor="middle" fill="#fef3c7" font-size="8">Checks rules + profile</text>
+
+    <line x1="470" y1="72" x2="500" y2="72" stroke="#64748b" stroke-width="1.5"/>
+
+    <!-- Rewrite -->
+    <rect x="510" y="45" width="160" height="55" rx="6" fill="url(#archGrad)" opacity="0.9"/>
+    <text x="590" y="65" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Code Architect</text>
+    <text x="590" y="80" text-anchor="middle" fill="#bfdbfe" font-size="8">Rewrites if issues found</text>
+
+    <line x1="680" y1="72" x2="710" y2="72" stroke="#64748b" stroke-width="1.5"/>
+
+    <!-- Compile -->
+    <rect x="720" y="45" width="180" height="55" rx="6" fill="url(#bridgeGrad)" opacity="0.9"/>
+    <text x="810" y="65" text-anchor="middle" fill="white" font-size="10" font-weight="bold">TIA Bridge</text>
+    <text x="810" y="80" text-anchor="middle" fill="#fecaca" font-size="8">Upload + Compile</text>
+
+    <line x1="910" y1="72" x2="940" y2="72" stroke="#64748b" stroke-width="1.5"/>
+
+    <!-- Compile fix -->
+    <rect x="950" y="45" width="180" height="55" rx="6" fill="url(#archGrad)" opacity="0.9"/>
+    <text x="1040" y="65" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Code Architect</text>
+    <text x="1040" y="80" text-anchor="middle" fill="#bfdbfe" font-size="8">Auto-fix compile errors</text>
+
+    <!-- Loop back arrow -->
+    <path d="M 1040 100 L 1040 115 L 810 115 L 810 105" fill="none" stroke="#f87171" stroke-width="1" stroke-dasharray="3,3"/>
+    <text x="925" y="128" text-anchor="middle" fill="#f87171" font-size="8">recompile (max 3x)</text>
+
+    <!-- Output -->
+    <rect x="30" y="140" width="600" height="45" rx="6" fill="url(#dataGrad)" stroke="#475569" stroke-width="1"/>
+    <text x="330" y="158" text-anchor="middle" fill="#94a3b8" font-size="10" font-weight="bold">device_artifacts[] updated</text>
+    <text x="330" y="173" text-anchor="middle" fill="#64748b" font-size="8">+ MotorCall (FC), SensorCall (FC), IoLinking (FC), HmiData (DB), ProcessCommands (DB), Configuration (DB)</text>
+  </g>
+
+  <!-- Connector -->
+  <line x1="700" y1="1395" x2="700" y2="1420" stroke="#475569" stroke-width="2" stroke-dasharray="4,4"/>
+
+  <!-- ============================================================ -->
+  <!-- STEP 8: Process Code — the main event -->
+  <!-- ============================================================ -->
+  <g transform="translate(50, 1425)">
+    <rect x="0" y="0" width="1300" height="440" rx="8" fill="#1e1e2e" stroke="#2563eb" stroke-width="1.5" opacity="0.9"/>
+    <text x="20" y="25" fill="#60a5fa" font-size="13" font-weight="bold">STEP 8: Process Code Generation (the main event)</text>
+
+    <!-- Pre-generation: derive fault spec + tag dictionary -->
+    <rect x="30" y="45" width="600" height="70" rx="6" fill="#0f172a" stroke="#475569" stroke-width="1"/>
+    <text x="330" y="63" text-anchor="middle" fill="#94a3b8" font-size="10" font-weight="bold">Pre-generation (deterministic, no AI)</text>
+    <text x="330" y="78" text-anchor="middle" fill="#64748b" font-size="8">1. Derive fault spec from matrix safetyConditions[] + fault_exit rows + device types</text>
+    <text x="330" y="91" text-anchor="middle" fill="#64748b" font-size="8">2. Pre-compute step/action DB names | 3. Build filtered tag dictionary per sequence from device artifacts</text>
+    <text x="330" y="104" text-anchor="middle" fill="#86efac" font-size="8">Tag dict: only tags for devices used in THIS sequence (from matrix rows[].devices)</text>
+
+    <!-- Per-sequence generation -->
+    <rect x="30" y="125" width="400" height="100" rx="6" fill="url(#archGrad)" opacity="0.9"/>
+    <text x="230" y="145" text-anchor="middle" fill="white" font-size="11" font-weight="bold">Code Architect (per sequence)</text>
+    <text x="230" y="162" text-anchor="middle" fill="#bfdbfe" font-size="9">buildProcessLadPrompt() + filtered tags</text>
+    <text x="230" y="178" text-anchor="middle" fill="#bfdbfe" font-size="8">Receives: matrix steps, permissives, safety conditions</text>
+    <text x="230" y="191" text-anchor="middle" fill="#bfdbfe" font-size="8">Receives: VALID TAGS list — "InstM01".fwdrun:Bool(out)</text>
+    <text x="230" y="204" text-anchor="middle" fill="#bfdbfe" font-size="8">Receives: exact DB name — "STEPS_ACTIONS_CONVEYOR_TRANSFER_SEQUENCE_DB"</text>
+
+    <line x1="440" y1="175" x2="470" y2="175" stroke="#64748b" stroke-width="1.5"/>
+
+    <!-- Sequence output -->
+    <rect x="480" y="130" width="300" height="90" rx="6" fill="url(#dataGrad)" stroke="#475569" stroke-width="1"/>
+    <text x="630" y="150" text-anchor="middle" fill="#94a3b8" font-size="10" font-weight="bold">Sequence artifacts</text>
+    <text x="630" y="166" text-anchor="middle" fill="#64748b" font-size="8">CONV_TRANSFER_SEQ (FB, LAD)</text>
+    <text x="630" y="178" text-anchor="middle" fill="#64748b" font-size="8">FAULT_RESET_SEQ (FB, LAD)</text>
+    <text x="630" y="190" text-anchor="middle" fill="#64748b" font-size="8">Step/Action pattern: latching circuits</text>
+    <text x="630" y="202" text-anchor="middle" fill="#64748b" font-size="8">NO fault logic (separate FC handles that)</text>
+
+    <!-- Deterministic DBs -->
+    <rect x="820" y="130" width="250" height="90" rx="6" fill="url(#dataGrad)" stroke="#475569" stroke-width="1"/>
+    <text x="945" y="150" text-anchor="middle" fill="#94a3b8" font-size="10" font-weight="bold">Auto-generated DBs</text>
+    <text x="945" y="166" text-anchor="middle" fill="#64748b" font-size="8">STEPS_ACTIONS_CONV_TRANSFER_SEQ_DB</text>
+    <text x="945" y="178" text-anchor="middle" fill="#64748b" font-size="8">STEPS_ACTIONS_FAULT_RESET_SEQ_DB</text>
+    <text x="945" y="190" text-anchor="middle" fill="#64748b" font-size="8">DB_Faults (from derived fault spec)</text>
+    <text x="945" y="202" text-anchor="middle" fill="#86efac" font-size="8">Deterministic — no AI, exact field names</text>
+
+    <!-- Fault FC -->
+    <rect x="30" y="240" width="400" height="65" rx="6" fill="url(#archGrad)" opacity="0.9"/>
+    <text x="230" y="260" text-anchor="middle" fill="white" font-size="11" font-weight="bold">Code Architect: Fault Handler FC</text>
+    <text x="230" y="276" text-anchor="middle" fill="#bfdbfe" font-size="8">buildFaultFcPrompt() — references ONLY "DB_Faults".fieldName tags</text>
+    <text x="230" y="289" text-anchor="middle" fill="#bfdbfe" font-size="8">Latching circuits: (FaultCond OR "DB_Faults".Fxxx) AND NOT reset</text>
+
+    <!-- OB1 -->
+    <rect x="480" y="240" width="300" height="65" rx="6" fill="#0f172a" stroke="#475569" stroke-width="1"/>
+    <text x="630" y="260" text-anchor="middle" fill="#94a3b8" font-size="10" font-weight="bold">OB1 Main (deterministic)</text>
+    <text x="630" y="276" text-anchor="middle" fill="#64748b" font-size="8">IoLinking() → MotorCall() → SensorCall()</text>
+    <text x="630" y="289" text-anchor="middle" fill="#64748b" font-size="8">→ ConvTransferSeq() → FaultResetSeq() → FaultHandler()</text>
+
+    <!-- Review pipeline for SCL only -->
+    <rect x="30" y="320" width="750" height="55" rx="6" fill="url(#reviewGrad)" opacity="0.3"/>
+    <text x="405" y="340" text-anchor="middle" fill="#fbbf24" font-size="10">Review + Fix pipeline (SCL artifacts only — LAD skipped)</text>
+    <text x="405" y="355" text-anchor="middle" fill="#fbbf24" font-size="8">Standards Reviewer checks SCL → Code Architect rewrites if needed → TIA Bridge compile → auto-fix loop</text>
+
+    <!-- Process artifacts output -->
+    <rect x="30" y="385" width="600" height="40" rx="6" fill="url(#dataGrad)" stroke="#2563eb" stroke-width="1"/>
+    <text x="330" y="405" text-anchor="middle" fill="#60a5fa" font-size="10" font-weight="bold">process_artifacts[] saved to session</text>
+    <text x="330" y="418" text-anchor="middle" fill="#64748b" font-size="8">Sequence FBs (LAD) + Fault FC (LAD) + Step/Action DBs (SCL) + DB_Faults (SCL) + Main (SCL)</text>
+  </g>
+
+  <!-- Connector -->
+  <line x1="700" y1="1870" x2="700" y2="1895" stroke="#475569" stroke-width="2" stroke-dasharray="4,4"/>
+
+  <!-- ============================================================ -->
+  <!-- STEP 9: HMI -->
+  <!-- ============================================================ -->
+  <g transform="translate(50, 1900)">
+    <rect x="0" y="0" width="1300" height="110" rx="8" fill="#1e1e2e" stroke="#2563eb" stroke-width="1.5" opacity="0.9"/>
+    <text x="20" y="25" fill="#60a5fa" font-size="13" font-weight="bold">STEP 9: HMI Screen Generation</text>
+
+    <rect x="30" y="45" width="280" height="50" rx="6" fill="url(#archGrad)" opacity="0.9"/>
+    <text x="170" y="67" text-anchor="middle" fill="white" font-size="10" font-weight="bold">HMI Generator</text>
+    <text x="170" y="80" text-anchor="middle" fill="#bfdbfe" font-size="8">buildHmiPrompt() — WinCC RT screen specs</text>
+
+    <line x1="320" y1="70" x2="360" y2="70" stroke="#64748b" stroke-width="1.5"/>
+
+    <rect x="370" y="45" width="300" height="50" rx="6" fill="url(#dataGrad)" stroke="#475569" stroke-width="1"/>
+    <text x="520" y="65" text-anchor="middle" fill="#94a3b8" font-size="10" font-weight="bold">hmi_artifacts[] saved to session</text>
+    <text x="520" y="80" text-anchor="middle" fill="#64748b" font-size="8">Overview screen, Motor faceplate, Diagnostics screen</text>
+  </g>
+
+  <!-- Connector -->
+  <line x1="700" y1="2015" x2="700" y2="2040" stroke="#475569" stroke-width="2" stroke-dasharray="4,4"/>
+
+  <!-- ============================================================ -->
+  <!-- STEP 10: TIA Export -->
+  <!-- ============================================================ -->
+  <g transform="translate(50, 2045)">
+    <rect x="0" y="0" width="1300" height="180" rx="8" fill="#1e1e2e" stroke="#dc2626" stroke-width="1.5" opacity="0.9"/>
+    <text x="20" y="25" fill="#f87171" font-size="13" font-weight="bold">STEP 10: TIA Portal Export (Bridge Integration)</text>
+
+    <rect x="30" y="45" width="250" height="70" rx="6" fill="url(#dataGrad)" stroke="#475569" stroke-width="1"/>
+    <text x="155" y="65" text-anchor="middle" fill="#94a3b8" font-size="10" font-weight="bold">All approved artifacts</text>
+    <text x="155" y="80" text-anchor="middle" fill="#64748b" font-size="8">device_artifacts + process_artifacts</text>
+    <text x="155" y="93" text-anchor="middle" fill="#64748b" font-size="8">+ hmi_artifacts (all approved)</text>
+
+    <line x1="290" y1="80" x2="330" y2="80" stroke="#64748b" stroke-width="1.5"/>
+
+    <rect x="340" y="40" width="280" height="80" rx="6" fill="url(#bridgeGrad)" opacity="0.9"/>
+    <text x="480" y="60" text-anchor="middle" fill="white" font-size="11" font-weight="bold">TIA Bridge</text>
+    <text x="480" y="76" text-anchor="middle" fill="#fecaca" font-size="8">1. Import SCL (topological sort: UDTs → FBs → DBs → OBs)</text>
+    <text x="480" y="88" text-anchor="middle" fill="#fecaca" font-size="8">2. Import LAD (SimaticML XML via PlcBlockGroup.Import)</text>
+    <text x="480" y="100" text-anchor="middle" fill="#fecaca" font-size="8">3. Import HMI (WinCC RT screen XML)</text>
+
+    <line x1="630" y1="80" x2="670" y2="80" stroke="#64748b" stroke-width="1.5"/>
+
+    <rect x="680" y="45" width="250" height="70" rx="6" fill="url(#bridgeGrad)" opacity="0.9"/>
+    <text x="805" y="65" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Final Compile</text>
+    <text x="805" y="80" text-anchor="middle" fill="#fecaca" font-size="8">Full project compilation</text>
+    <text x="805" y="93" text-anchor="middle" fill="#fecaca" font-size="8">Errors → compile-fix loop</text>
+
+    <!-- Result -->
+    <rect x="30" y="130" width="940" height="35" rx="4" fill="#0f172a" stroke="#334155" stroke-width="0.5"/>
+    <text x="40" y="148" fill="#64748b" font-size="9">Result: TIA Portal project with all PLC blocks + HMI screens compiled and ready for download to PLC</text>
+    <text x="40" y="160" fill="#86efac" font-size="8">Compile errors auto-fixed via Pattern Librarian → corrections saved for future generations</text>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- Cross-cutting: Pattern Learning -->
+  <!-- ============================================================ -->
+  <g transform="translate(50, 2260)">
+    <rect x="0" y="0" width="1300" height="130" rx="8" fill="#1e1e2e" stroke="#f59e0b" stroke-width="1.5" opacity="0.9"/>
+    <text x="20" y="25" fill="#fbbf24" font-size="13" font-weight="bold">CROSS-CUTTING: Pattern Learning (feeds back into all future generations)</text>
+
+    <rect x="30" y="45" width="350" height="70" rx="6" fill="url(#reviewGrad)" opacity="0.6"/>
+    <text x="205" y="65" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Compile Fix Auto-Learn</text>
+    <text x="205" y="80" text-anchor="middle" fill="#fef3c7" font-size="8">When a compile fix succeeds, Pattern Librarian AI</text>
+    <text x="205" y="92" text-anchor="middle" fill="#fef3c7" font-size="8">analyzes before/after diff → saves APPROVED pattern</text>
+
+    <line x1="390" y1="80" x2="430" y2="80" stroke="#64748b" stroke-width="1.5"/>
+
+    <rect x="440" y="45" width="300" height="70" rx="6" fill="url(#dataGrad)" stroke="#f59e0b" stroke-width="1"/>
+    <text x="590" y="65" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="bold">pattern_candidates table</text>
+    <text x="590" y="80" text-anchor="middle" fill="#64748b" font-size="8">WRONG snippet → CORRECT snippet</text>
+    <text x="590" y="92" text-anchor="middle" fill="#64748b" font-size="8">Status: APPROVED | plc_brand: SIEMENS_TIA</text>
+
+    <line x1="750" y1="80" x2="790" y2="80" stroke="#64748b" stroke-width="1.5"/>
+
+    <rect x="800" y="45" width="350" height="70" rx="6" fill="url(#archGrad)" opacity="0.6"/>
+    <text x="975" y="65" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Injected into ALL generation prompts</text>
+    <text x="975" y="80" text-anchor="middle" fill="#bfdbfe" font-size="8">## MANDATORY: Learned Corrections</text>
+    <text x="975" y="92" text-anchor="middle" fill="#bfdbfe" font-size="8">Device FBs, Call FCs, Process Code, Compile Fix</text>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- Data flow summary -->
+  <!-- ============================================================ -->
+  <g transform="translate(50, 2420)">
+    <rect x="0" y="0" width="1300" height="160" rx="8" fill="#0f172a" stroke="#475569" stroke-width="1"/>
+    <text x="20" y="25" fill="#e2e8f0" font-size="13" font-weight="bold">DATA FLOW SUMMARY — What feeds what</text>
+
+    <text x="30" y="50" fill="#a78bfa" font-size="10">spec_analysis</text>
+    <text x="200" y="50" fill="#64748b" font-size="10">→ Q&amp;A → devices, sequences → Matrix → device wiring, process steps</text>
+
+    <text x="30" y="70" fill="#60a5fa" font-size="10">device_artifacts</text>
+    <text x="200" y="70" fill="#64748b" font-size="10">→ FB interfaces + global DB schemas → tag dictionary → process code (exact field names)</text>
+
+    <text x="30" y="90" fill="#60a5fa" font-size="10">linkage_matrix</text>
+    <text x="200" y="90" fill="#64748b" font-size="10">→ device wiring (param→DB field) + process sequences (steps, faults) → process code + fault FC</text>
+
+    <text x="30" y="110" fill="#34d399" font-size="10">design_profile</text>
+    <text x="200" y="110" fill="#64748b" font-size="10">→ naming conventions, process rules (step/action pattern), FB rules → ALL generation prompts</text>
+
+    <text x="30" y="130" fill="#fbbf24" font-size="10">patterns</text>
+    <text x="200" y="130" fill="#64748b" font-size="10">→ learned corrections from compile fixes → injected as WRONG/CORRECT examples in ALL prompts</text>
+
+    <text x="30" y="150" fill="#f87171" font-size="10">tag dictionary</text>
+    <text x="200" y="150" fill="#64748b" font-size="10">→ parsed from device artifacts + matrix wiring → filtered per sequence → prevents AI inventing tags</text>
+  </g>
+
+  <!-- Arrow marker definition -->
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/>
+    </marker>
+  </defs>
+</svg>

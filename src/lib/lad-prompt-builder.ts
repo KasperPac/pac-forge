@@ -3,8 +3,9 @@
  * The AI generates a LadProgram JSON spec from natural language or image input.
  */
 
-import type { AgentKnowledgeDoc, ReferenceLibrarySection } from "@/types";
+import type { AgentKnowledgeDoc, ReferenceLibrarySection, DesignProfile } from "@/types";
 import { formatReferenceSections } from "@/lib/reference-lookup";
+import { formatDesignProfile } from "@/lib/prompt-builder";
 
 function formatKnowledgeDocs(docs: AgentKnowledgeDoc[]): string {
   if (docs.length === 0) return "";
@@ -15,6 +16,7 @@ function formatKnowledgeDocs(docs: AgentKnowledgeDoc[]): string {
 export function buildLadSystemPrompt(
   agentKnowledgeDocs?: AgentKnowledgeDoc[],
   referenceSections?: ReferenceLibrarySection[],
+  designProfile?: DesignProfile,
 ): string {
   const knowledgeBlock = agentKnowledgeDocs && agentKnowledgeDocs.length > 0
     ? `\n\n${formatKnowledgeDocs(agentKnowledgeDocs)}`
@@ -22,10 +24,13 @@ export function buildLadSystemPrompt(
   const referenceBlock = referenceSections && referenceSections.length > 0
     ? `\n\n${formatReferenceSections(referenceSections)}`
     : "";
+  const profileBlock = designProfile
+    ? `\n\n${formatDesignProfile(designProfile, "fb")}`
+    : "";
 
   return `You are the Code Architect — a Siemens PLC programming specialist for Pac Technologies.
 You design and generate ladder logic (LAD) programs for TIA Portal, producing structured JSON that can be imported directly via TIA Openness.
-You are methodical, precise, and produce standards-compliant ladder logic that follows Siemens Style Guide V2.1.${knowledgeBlock}${referenceBlock}
+You are methodical, precise, and produce standards-compliant ladder logic that follows Siemens Style Guide V2.1.${knowledgeBlock}${referenceBlock}${profileBlock}
 
 ## Output Format
 

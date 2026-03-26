@@ -26,6 +26,13 @@
       V20: Portal V20\PublicAPI\V20\
   -->
   <ItemGroup>
+    <Reference Include="PlcsimBridge">
+      <HintPath>..\PlcsimBridge\PacForgeBridge\bin\Debug\net48\PlcsimBridge.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
     <Reference Include="Siemens.Engineering">
       <HintPath>C:\Program Files\Siemens\Automation\Portal V18\PublicAPI\V18\Siemens.Engineering.dll</HintPath>
       <Private>false</Private>

@@ -8,8 +8,10 @@ import {
   buildDeviceLadUserMessage,
   buildIoLinkingLadPrompt,
   buildDeviceCallFcPrompt,
+  buildDeviceCallFcLadPrompt,
   buildDeviceCallFcUserMessage,
   generateDeviceCallFc,
+  generateDeviceCallFcLad,
   generateInputsDb,
   generateOutputsDb,
   generateIoLinkingFc,
@@ -20,17 +22,38 @@ import {
   type DeviceCallFcContext,
 } from "@/lib/forge-prompts";
 import { PLATFORM_RULES } from "@/lib/platform-rules";
+import { parseGeneralRules, parseFolderRules, resolveDestinationFolder } from "@/lib/design-profile-schemas";
 import type { ForgeSession, ForgeArtifact, ForgeDeviceEntry, ForgeIoEntry } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
 import type { FbTemplate } from "@/types/fb-template";
 import type { PatternCandidate } from "@/types";
-import type { ProcessLinkageMatrix } from "@/types/process-builder";
+import type { ProcessLinkageMatrix } from "@/types/forge-matrix";
+import { extractBlockName } from "@/lib/scl-block-parser";
+import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 
 const DEVICE_GEN_MAX_TOKENS = 8192;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** Resolve the DB naming prefix from structured rules or flat field */
+function resolveDbPrefix(profile: DesignProfile): string {
+  const general = parseGeneralRules(profile.general_rules);
+  return general.naming.db_prefix || profile.db_naming_prefix || "";
+}
+
+/** Resolve the instance DB prefix from structured rules (default "Inst") */
+function resolveInstDbPrefix(profile: DesignProfile): string {
+  const general = parseGeneralRules(profile.general_rules);
+  return general.naming.instance_db_prefix || "Inst";
+}
+
+/** Resolve the FC prefix from structured rules or flat naming_prefix field */
+function resolveFcPrefix(profile: DesignProfile): string {
+  const general = parseGeneralRules(profile.general_rules);
+  return general.naming.fc_prefix || profile.naming_prefix || "";
+}
 
 /**
  * After all device artifacts are collected, fix UDT type name mismatches in
@@ -123,19 +146,21 @@ function normalizeInstanceDbNames(
   artifacts: ForgeArtifact[],
   devices: ForgeDeviceEntry[],
   log: (level: DeviceGenLogLevel, msg: string) => void,
+  instDbPrefix = "Inst",
 ): ForgeArtifact[] {
   // Build canonical name map: any "Inst..." DB → canonical deterministic name
-  const canonicalName = (deviceName: string) => `Inst${deviceName.replace(/[^A-Za-z0-9]/g, "")}`;
+  const canonicalName = (deviceName: string) => `${instDbPrefix}${deviceName.replace(/[^A-Za-z0-9]/g, "")}`;
   const renames = new Map<string, string>(); // oldName → newName
 
   for (const device of devices) {
     const canonical = canonicalName(device.name);
-    // Find instance DBs for this device — name starts with "Inst" and fuzzy-matches device name
+    // Find instance DBs for this device — name starts with prefix and fuzzy-matches device name
     const deviceStem = device.name.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+    const prefixRe = new RegExp(`^${instDbPrefix}`, "i");
     for (const a of artifacts) {
-      if (a.type !== "DB" || !a.name.startsWith("Inst")) continue;
+      if (a.type !== "DB" || !prefixRe.test(a.name)) continue;
       if (a.name === canonical) continue; // already correct
-      const currentStem = a.name.replace(/^Inst/i, "").replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+      const currentStem = a.name.replace(prefixRe, "").replace(/[^A-Za-z0-9]/g, "").toLowerCase();
       if (currentStem === deviceStem) {
         renames.set(a.name, canonical);
         log("fix", `Instance DB renamed: "${a.name}" → "${canonical}"`);
@@ -185,16 +210,23 @@ function normalizeInstanceDbNames(
 function backfillGlobalDbFields(
   artifacts: ForgeArtifact[],
   log: (level: DeviceGenLogLevel, msg: string) => void,
+  instDbPrefix = "Inst",
 ): ForgeArtifact[] {
   const globalDbs = artifacts.filter(
-    a => a.type === "DB" && !a.name.startsWith("Inst") && a.name !== "Inputs" && a.name !== "Outputs",
+    a => a.type === "DB" && !a.name.startsWith(instDbPrefix) && a.name !== "Inputs" && a.name !== "Outputs",
   );
   if (globalDbs.length === 0) return artifacts;
   const globalDbNames = new Set(globalDbs.map(db => db.name));
+  // Also resolve DB names without prefix: "HmiData" → "DB_HmiData"
+  const globalDbNameResolve = new Map<string, string>(); // referenced name → actual artifact name
+  for (const name of globalDbNames) {
+    globalDbNameResolve.set(name, name);
+    if (name.startsWith("DB_")) globalDbNameResolve.set(name.slice(3), name);
+  }
 
   function parseDbFields(content: string): Map<string, string> {
     const fields = new Map<string, string>(); // fieldName → currentType
-    const re = /^\s{4}(\w+)\s*:\s*([\w.]+)\s*;/gm;
+    const re = /^\s{4}(\w+)\s*:\s*"?([\w.]+)"?\s*;/gm;
     let m: RegExpExecArray | null;
     while ((m = re.exec(content)) !== null) fields.set(m[1], m[2]);
     return fields;
@@ -207,7 +239,7 @@ function backfillGlobalDbFields(
     const varRe = /(VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT)([\s\S]*?)END_VAR/gi;
     let vm: RegExpExecArray | null;
     while ((vm = varRe.exec(a.content)) !== null) {
-      const fieldRe = /^\s+(\w+)\s*:\s*([\w.]+)\s*;/gm;
+      const fieldRe = /^\s+(\w+)\s*:\s*"?([\w.]+)"?\s*;/gm;
       let fm: RegExpExecArray | null;
       while ((fm = fieldRe.exec(vm[2])) !== null) {
         if (!fbParamTypes.has(fm[1])) fbParamTypes.set(fm[1], fm[2]);
@@ -262,14 +294,15 @@ function backfillGlobalDbFields(
     const paramAssignRe = /(\w+)\s*:=\s*"([A-Za-z][A-Za-z0-9_]*)"\s*\.\s*([A-Za-z]\w*)/g;
     while ((m = paramAssignRe.exec(fc.content)) !== null) {
       const [, paramName, dbName, fieldName] = m;
-      if (!globalDbNames.has(dbName)) continue;
+      const resolvedDb = globalDbNameResolve.get(dbName);
+      if (!resolvedDb) continue;
       const fbType = fbParamTypes.get(paramName);
       if (fbType) {
-        setRef(dbName, fieldName, { dataType: fbType, authoritative: true });
+        setRef(resolvedDb, fieldName, { dataType: fbType, authoritative: true });
       } else {
         // UDT config structs won't be in fbParamTypes — try UDT name match
         const udt = resolveConfigType(fieldName);
-        if (udt) setRef(dbName, fieldName, { dataType: udt, authoritative: true });
+        if (udt) setRef(resolvedDb, fieldName, { dataType: udt, authoritative: true });
         // Otherwise: unknown type — don't guess, skip
       }
     }
@@ -279,9 +312,10 @@ function backfillGlobalDbFields(
     const outputAssocRe = /(\w+)\s*=>\s*"([A-Za-z][A-Za-z0-9_]*)"\s*\.\s*([A-Za-z]\w*)/g;
     while ((m = outputAssocRe.exec(fc.content)) !== null) {
       const [, fbOutputName, dbName, fieldName] = m;
-      if (!globalDbNames.has(dbName)) continue;
+      const resolvedDb = globalDbNameResolve.get(dbName);
+      if (!resolvedDb) continue;
       const fbType = fbParamTypes.get(fbOutputName);
-      if (fbType) setRef(dbName, fieldName, { dataType: fbType, authoritative: true });
+      if (fbType) setRef(resolvedDb, fieldName, { dataType: fbType, authoritative: true });
     }
 
     // Pattern 2b: "DbName".fieldName := "Inst...".outputName — explicit assignment style
@@ -289,9 +323,48 @@ function backfillGlobalDbFields(
     const outputWriteRe = /"([A-Za-z][A-Za-z0-9_]*)"\s*\.\s*([A-Za-z]\w*)\s*:=\s*"Inst[A-Za-z0-9_]*"\s*\.\s*([A-Za-z]\w*)/g;
     while ((m = outputWriteRe.exec(fc.content)) !== null) {
       const [, dbName, fieldName, fbOutputName] = m;
-      if (!globalDbNames.has(dbName)) continue;
+      const resolvedDb = globalDbNameResolve.get(dbName);
+      if (!resolvedDb) continue;
       const fbType = fbParamTypes.get(fbOutputName);
-      if (fbType) setRef(dbName, fieldName, { dataType: fbType, authoritative: true });
+      if (fbType) setRef(resolvedDb, fieldName, { dataType: fbType, authoritative: true });
+    }
+  }
+
+  // Scan LAD artifacts (JSON content) for global DB references in callParams
+  const ladArtifacts = artifacts.filter(a => a.language === "LAD" && (a.type === "FC" || a.type === "OB"));
+  for (const lad of ladArtifacts) {
+    try {
+      const program = JSON.parse(lad.content);
+      for (const rung of (program.rungs ?? [])) {
+        const nodes = rung?.logic?.nodes ?? [];
+        for (const node of nodes) {
+          const el = node?.element;
+          if (!el?.callParams) continue;
+          for (const param of el.callParams) {
+            const value = param.value?.trim();
+            if (!value) continue;
+            // Parse "DbName".fieldName pattern from the value string
+            const dbRef = value.match(/^"([A-Za-z][A-Za-z0-9_]*)"\s*\.\s*([A-Za-z]\w*)$/);
+            if (!dbRef) continue;
+            const [, dbName, fieldName] = dbRef;
+            const resolvedDb = globalDbNameResolve.get(dbName);
+            if (!resolvedDb) continue;
+            // Use the FB param's data type as the authoritative source
+            const fbType = fbParamTypes.get(param.name);
+            if (fbType) {
+              setRef(resolvedDb, fieldName, { dataType: fbType, authoritative: true });
+            } else {
+              // Infer from the param's dataType field
+              const paramType = param.dataType;
+              if (paramType && paramType !== "Variant") {
+                setRef(resolvedDb, fieldName, { dataType: paramType, authoritative: false });
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      // Not valid JSON — skip
     }
   }
 
@@ -305,15 +378,19 @@ function backfillGlobalDbFields(
     let corrected = a.content;
     let correctedCount = 0;
 
+    // UDT types (starting with "type" or containing uppercase after first char) need quotes in SCL
+    const needsQuotes = (t: string) => /^type/i.test(t) || /^[A-Z]/.test(t) && !/^(Bool|Int|DInt|Real|LReal|Word|DWord|Byte|String|WString|Time|LTime|Date|USInt|UInt|UDInt|SInt|LInt|ULInt|Char|WChar|Array)$/i.test(t);
+    const formatType = (t: string) => needsQuotes(t) ? `"${t}"` : t;
+
     for (const [fieldName, { dataType, authoritative }] of refs) {
       const currentType = existing.get(fieldName);
       if (currentType === undefined) {
-        // Field missing — add it
-        toAdd.push(`    ${fieldName} : ${dataType};`);
+        // Field missing — add it (quote UDT types)
+        toAdd.push(`    ${fieldName} : ${formatType(dataType)};`);
       } else if (authoritative && currentType.toLowerCase() !== dataType.toLowerCase()) {
         // Type mismatch and we have an authoritative source (FB param declaration) — correct it
-        const fieldRe = new RegExp(`(^\\s{4}${fieldName}\\s*:\\s*)[\\w.]+\\s*;`, "m");
-        const fixed = corrected.replace(fieldRe, `$1${dataType};`);
+        const fieldRe = new RegExp(`(^\\s{4}${fieldName}\\s*:\\s*)"?[\\w.]+"?\\s*;`, "m");
+        const fixed = corrected.replace(fieldRe, `$1${formatType(dataType)};`);
         if (fixed !== corrected) {
           corrected = fixed;
           correctedCount++;
@@ -351,9 +428,10 @@ function backfillGlobalDbFields(
 function fixFcInstanceDbReferences(
   artifacts: ForgeArtifact[],
   log: (level: DeviceGenLogLevel, msg: string) => void,
+  instDbPrefix = "Inst",
 ): ForgeArtifact[] {
   const dbNames = new Set(artifacts.filter(a => a.type === "DB").map(a => a.name));
-  const instDbNames = [...dbNames].filter(n => n.startsWith("Inst"));
+  const instDbNames = [...dbNames].filter(n => n.startsWith(instDbPrefix));
 
   return artifacts.map(a => {
     if (a.type !== "FC" && a.type !== "OB") return a;
@@ -361,9 +439,10 @@ function fixFcInstanceDbReferences(
     let content = a.content;
     let changed = false;
 
-    // Collect all "Inst..." references in this artifact
+    // Collect all "prefix..." references in this artifact
     const refs = new Set<string>();
-    const instRefRe = /"(Inst[A-Za-z0-9_]+)"/g;
+    const escapedPrefix = instDbPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const instRefRe = new RegExp(`"(${escapedPrefix}[A-Za-z0-9_]+)"`, "g");
     let m: RegExpExecArray | null;
     while ((m = instRefRe.exec(content)) !== null) {
       refs.add(m[1]);
@@ -373,7 +452,8 @@ function fixFcInstanceDbReferences(
       if (dbNames.has(ref)) continue; // already exists — nothing to fix
 
       // Find canonical DB whose stripped stem matches
-      const refStem = ref.replace(/^Inst/i, "").replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+      const prefixRe = new RegExp(`^${escapedPrefix}`, "i");
+      const refStem = ref.replace(prefixRe, "").replace(/[^A-Za-z0-9]/g, "").toLowerCase();
       const best = instDbNames.find(n => {
         const nStem = n.replace(/^Inst/i, "").replace(/[^A-Za-z0-9]/g, "").toLowerCase();
         return nStem === refStem;
@@ -460,13 +540,14 @@ function deduplicateFbCallParams(
 function fixFbInstanceFieldRefs(
   artifacts: ForgeArtifact[],
   log: (level: DeviceGenLogLevel, msg: string) => void,
+  instDbPrefix = "Inst",
 ): ForgeArtifact[] {
   // Build instDbName → FB artifact map
   const instToFb = new Map<string, ForgeArtifact>();
   const fbByName = new Map(artifacts.filter(a => a.type === "FB" && a.language === "SCL").map(a => [a.name, a]));
 
   for (const a of artifacts) {
-    if (a.type !== "DB" || !a.name.startsWith("Inst")) continue;
+    if (a.type !== "DB" || !a.name.startsWith(instDbPrefix)) continue;
     // Instance DB content has the FB type name on its own quoted line
     for (const line of a.content.split("\n")) {
       const stripped = line.trim();
@@ -557,19 +638,335 @@ function levenshtein(a: string, b: string): number {
 }
 
 /**
+ * Scan ALL matrix wiring connectedTo values for global DB field references.
+ * Add any missing fields to the global DB artifacts BEFORE Device Call FCs are generated.
+ * This ensures the DBs have all required fields regardless of whether the FC generator
+ * includes them (SCL AI might, deterministic LAD might filter some out).
+ */
+function backfillGlobalDbFieldsFromWiring(
+  artifacts: ForgeArtifact[],
+  matrix: ProcessLinkageMatrix | null,
+  fbArtifacts: ForgeArtifact[],
+  log: (level: DeviceGenLogLevel, msg: string) => void,
+  instDbPrefix = "Inst",
+  dbPrefix = "",
+): ForgeArtifact[] {
+  if (!matrix?.deviceLinkage) return artifacts;
+
+  // Identify global DB artifacts (not Inputs/Outputs/instance DBs)
+  const inputsName = `${dbPrefix}Inputs`;
+  const outputsName = `${dbPrefix}Outputs`;
+  const globalDbs = artifacts.filter(
+    a => a.type === "DB" && !a.name.startsWith(instDbPrefix) && a.name !== inputsName && a.name !== outputsName,
+  );
+  if (globalDbs.length === 0) return artifacts;
+
+  const globalDbNames = new Set(globalDbs.map(db => db.name));
+  // Also match without DB_ prefix
+  const globalDbNameMap = new Map<string, string>(); // lowercase variants → actual name
+  for (const name of globalDbNames) {
+    globalDbNameMap.set(name.toLowerCase(), name);
+    if (name.startsWith("DB_")) globalDbNameMap.set(name.slice(3).toLowerCase(), name);
+  }
+
+  // Build FB param types from all FB artifacts
+  const fbParamTypes = new Map<string, string>(); // paramName → dataType
+  for (const a of [...fbArtifacts, ...artifacts.filter(a => a.type === "FB")]) {
+    if (a.language !== "SCL") continue;
+    const varRe = /(VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT)([\s\S]*?)END_VAR/gi;
+    let vm: RegExpExecArray | null;
+    while ((vm = varRe.exec(a.content)) !== null) {
+      const fieldRe = /^\s+(\w+)\s*:\s*"?([\w.]+)"?/gm;
+      let fm: RegExpExecArray | null;
+      while ((fm = fieldRe.exec(vm[2])) !== null) {
+        if (!fbParamTypes.has(fm[1])) fbParamTypes.set(fm[1], fm[2]);
+      }
+    }
+  }
+
+  // Parse existing DB fields
+  function parseDbFields(content: string): Set<string> {
+    const fields = new Set<string>();
+    const re = /^\s+(\w+)\s*:/gm;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(content)) !== null) fields.add(m[1]);
+    return fields;
+  }
+
+  // Collect all wiring references to global DBs
+  const dbFieldsToAdd = new Map<string, Map<string, string>>(); // dbName → fieldName → dataType
+
+  for (const device of matrix.deviceLinkage) {
+    for (const wire of device.wiring) {
+      // Check both "global" wireType AND "fb" wireType — the matrix AI may tag
+      // global DB references as "fb" since they look like DB.field references.
+      if (wire.wireType !== "global" && wire.wireType !== "fb") continue;
+      const connectedTo = wire.connectedTo ?? "";
+      const dotIdx = connectedTo.indexOf(".");
+      if (dotIdx === -1) continue;
+
+      const rawDbName = connectedTo.slice(0, dotIdx);
+      const fieldName = connectedTo.slice(dotIdx + 1);
+      if (!fieldName) continue;
+
+      // Resolve DB name (try exact, then without DB_ prefix, case-insensitive)
+      const resolvedDbName = globalDbNameMap.get(rawDbName.toLowerCase());
+      if (!resolvedDbName) continue;
+
+      // For "fb" wires: skip if this is actually an instance DB reference, not a global DB
+      if (wire.wireType === "fb") {
+        const dbStripped = rawDbName.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+        const looksLikeInstDb = dbStripped.startsWith(instDbPrefix.toLowerCase());
+        if (looksLikeInstDb) continue; // instance DB cross-reference, not a global DB
+      }
+
+      // Determine data type: from wire.dataType, from FB param, or from name heuristic
+      let dataType = wire.dataType;
+      if (!dataType || dataType === "Variant") {
+        dataType = fbParamTypes.get(wire.paramName) ?? undefined;
+      }
+      if (!dataType) {
+        // Name-based heuristics
+        const lower = fieldName.toLowerCase();
+        if (lower.includes("status")) dataType = "Int";
+        else if (lower.includes("fault") || lower.includes("error") || lower.includes("run") || lower.includes("stop") || lower.includes("busy") || lower.includes("idle") || lower.includes("active") || lower.includes("faulted") || lower.includes("enable") || lower.includes("forced") || lower.includes("hold") || lower.includes("direction") || lower.includes("running") || lower.includes("sensor")) dataType = "Bool";
+        else if (lower.includes("mode") || lower.includes("count")) dataType = "Int";
+        else if (lower.includes("speed") || lower.includes("temp") || lower.includes("level") || lower.includes("value")) dataType = "Real";
+        else if (lower.includes("dly") || lower.includes("delay") || lower.includes("time")) dataType = "Time";
+        else dataType = "Bool"; // safe default for HMI tags
+      }
+
+      if (!dbFieldsToAdd.has(resolvedDbName)) dbFieldsToAdd.set(resolvedDbName, new Map());
+      if (!dbFieldsToAdd.get(resolvedDbName)!.has(fieldName)) {
+        dbFieldsToAdd.get(resolvedDbName)!.set(fieldName, dataType);
+      }
+    }
+  }
+
+  if (dbFieldsToAdd.size === 0) return artifacts;
+
+  return artifacts.map(a => {
+    if (a.type !== "DB") return a;
+    const fieldsMap = dbFieldsToAdd.get(a.name);
+    if (!fieldsMap || fieldsMap.size === 0) return a;
+
+    const existing = parseDbFields(a.content);
+    const toAdd: string[] = [];
+    // UDT types need quotes in SCL declarations
+    const needsQ = (t: string) => /^type/i.test(t) || /^[A-Z]/.test(t) && !/^(Bool|Int|DInt|Real|LReal|Word|DWord|Byte|String|WString|Time|LTime|Date|USInt|UInt|UDInt|SInt|LInt|ULInt|Char|WChar|Array)$/i.test(t);
+    for (const [fieldName, dataType] of fieldsMap) {
+      if (!existing.has(fieldName)) {
+        const formatted = needsQ(dataType) ? `"${dataType}"` : dataType;
+        toAdd.push(`    ${fieldName} : ${formatted};`);
+      }
+    }
+
+    if (toAdd.length === 0) return a;
+
+    const insertPoint = a.content.lastIndexOf("  END_VAR");
+    if (insertPoint === -1) return a;
+
+    const newContent =
+      a.content.slice(0, insertPoint) +
+      toAdd.join("\n") + "\n" +
+      a.content.slice(insertPoint);
+
+    log("fix", `${a.name} DB: added ${toAdd.length} field(s) from matrix wiring [${toAdd.map(f => f.trim().split(" ")[0]).join(", ")}]`);
+    return { ...a, content: newContent };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Shared matrix wiring normalization
+// ---------------------------------------------------------------------------
+
+interface NormalizedWiringEntry {
+  deviceName: string;
+  instanceDbName: string;
+  wiring: import("@/types/forge-matrix").FbWire[];
+}
+
+/**
+ * Build normalized matrix wiring for a device type.
+ * Consolidates ALL normalizations:
+ * 1. Instance DB name → canonical formula
+ * 2. ParamName → actual FB interface (strip _/i_/o_ prefixes)
+ * 3. IO connectedTo → actual IO list tag names
+ * 4. FB connectedTo instance DB names → canonical names
+ * 5. FB connectedTo field names → actual FB interface of referenced device
+ * 6. Global DB connectedTo names → actual artifact names (e.g. HmiData → DB_HmiData)
+ */
+function buildNormalizedMatrixWiring(
+  matrix: ProcessLinkageMatrix | null,
+  deviceType: string,
+  allDevices: ForgeDeviceEntry[],
+  instDbPrefix: string,
+  ioList: ForgeIoEntry[],
+  deviceTypeFbInterfaces: Map<string, string>,
+  log: (level: DeviceGenLogLevel, msg: string) => void,
+  globalDbNameMap?: Map<string, string>, // referenced name (lowercase) → actual artifact name
+): NormalizedWiringEntry[] {
+  if (!matrix?.deviceLinkage) return [];
+
+  // --- IO tag normalization ---
+  const allIoTags = ioList.map(io => io.tag_name);
+  function normalizeIoTag(connectedTo: string): string {
+    if (allIoTags.includes(connectedTo)) return connectedTo;
+    const stem = connectedTo.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+    const match = allIoTags.find(t => {
+      const ts = t.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+      return ts === stem || stem.includes(ts) || ts.includes(stem);
+    });
+    if (match && match !== connectedTo) {
+      log("fix", `IO tag normalized in matrix wiring: "${connectedTo}" → "${match}"`);
+    }
+    return match ?? connectedTo;
+  }
+
+  // --- FB param name extraction from interface text ---
+  function extractFbParams(interfaceText: string): Map<string, string> {
+    const params = new Map<string, string>(); // lowercase → original case
+    const re = /^\s+(\w+)\s*:/gm;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(interfaceText)) !== null) {
+      params.set(m[1].toLowerCase(), m[1]);
+    }
+    return params;
+  }
+
+  // --- Param name remap logic ---
+  function remapName(matrixName: string, actualParams: Map<string, string>): string {
+    if (actualParams.size === 0) return matrixName;
+    const lower = matrixName.toLowerCase();
+    if (actualParams.has(lower)) return actualParams.get(lower)!;
+    // Strip leading underscore
+    if (lower.startsWith("_") && actualParams.has(lower.slice(1))) return actualParams.get(lower.slice(1))!;
+    // Add leading underscore
+    if (actualParams.has("_" + lower)) return actualParams.get("_" + lower)!;
+    // Strip i_, o_, io_ prefixes
+    const stripped = lower.replace(/^(i_|o_|io_)/, "");
+    if (stripped !== lower && actualParams.has(stripped)) return actualParams.get(stripped)!;
+    return matrixName;
+  }
+
+  // --- Build canonical instance DB name map (ALL devices, ALL matrix entries) ---
+  const instDbCanonicalMap = new Map<string, string>(); // stripped lowercase → canonical
+  for (const d of allDevices) {
+    const canonical = `${instDbPrefix}${d.name.replace(/[^A-Za-z0-9]/g, "")}`;
+    instDbCanonicalMap.set(canonical.toLowerCase(), canonical);
+  }
+  for (const d of matrix.deviceLinkage) {
+    const canonical = `${instDbPrefix}${d.name.replace(/[^A-Za-z0-9]/g, "")}`;
+    if (d.instanceDbName) {
+      instDbCanonicalMap.set(d.instanceDbName.replace(/[^A-Za-z0-9]/g, "").toLowerCase(), canonical);
+    }
+    instDbCanonicalMap.set(canonical.toLowerCase(), canonical);
+  }
+
+  // --- Build instance DB → FB params map (for cross-device field remapping) ---
+  // Maps canonical inst DB name → FB param map (lowercase → original)
+  const instDbToFbParams = new Map<string, Map<string, string>>();
+  for (const d of allDevices) {
+    const canonical = `${instDbPrefix}${d.name.replace(/[^A-Za-z0-9]/g, "")}`;
+    const iface = deviceTypeFbInterfaces.get(d.device_type);
+    if (iface && !instDbToFbParams.has(canonical)) {
+      instDbToFbParams.set(canonical, extractFbParams(iface));
+    }
+  }
+
+  // --- Normalize connectedTo for fb-type and global-type wires ---
+  function normalizeConnectedTo(connectedTo: string, wireType: string): string {
+    if (!connectedTo || (wireType !== "fb" && wireType !== "global")) return connectedTo;
+
+    const dotIdx = connectedTo.indexOf(".");
+    if (dotIdx === -1) return connectedTo;
+
+    const dbPart = connectedTo.slice(0, dotIdx);
+    const fieldPart = connectedTo.slice(dotIdx + 1);
+
+    // First check if this references a global DB (e.g. HmiData → DB_HmiData)
+    if (globalDbNameMap) {
+      const globalResolved = globalDbNameMap.get(dbPart.toLowerCase());
+      if (globalResolved && globalResolved !== dbPart) {
+        log("fix", `Wiring global DB name normalized: "${dbPart}" → "${globalResolved}"`);
+        return `${globalResolved}.${fieldPart}`;
+      }
+      if (globalResolved) return connectedTo; // already correct global DB name, skip inst DB logic
+    }
+
+    // Normalize instance DB name
+    const dbStripped = dbPart.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+    const canonicalDb = instDbCanonicalMap.get(dbStripped);
+    const resolvedDb = canonicalDb ?? dbPart;
+    if (canonicalDb && canonicalDb !== dbPart) {
+      log("fix", `Wiring connectedTo DB normalized: "${dbPart}" → "${canonicalDb}"`);
+    }
+
+    // Remap field name against the referenced device's FB interface
+    const fbParams = instDbToFbParams.get(resolvedDb);
+    const resolvedField = fbParams ? remapName(fieldPart, fbParams) : fieldPart;
+    if (resolvedField !== fieldPart) {
+      log("fix", `Wiring connectedTo field remapped: "${dbPart}.${fieldPart}" → "${resolvedDb}.${resolvedField}"`);
+    }
+
+    return `${resolvedDb}.${resolvedField}`;
+  }
+
+  // --- Current device type's FB params for paramName remapping ---
+  const fbInterfaceText = deviceTypeFbInterfaces.get(deviceType) ?? "";
+  const actualFbParams = extractFbParams(fbInterfaceText);
+
+  // --- Build normalized wiring ---
+  return matrix.deviceLinkage
+    .filter(d => d.deviceType === deviceType)
+    .map(d => {
+      const canonical = `${instDbPrefix}${d.name.replace(/[^A-Za-z0-9]/g, "")}`;
+      if (d.instanceDbName && d.instanceDbName !== canonical) {
+        log("fix", `Matrix instance DB name normalized: "${d.instanceDbName}" → "${canonical}"`);
+      }
+      return {
+        deviceName: d.name,
+        instanceDbName: canonical,
+        wiring: d.wiring.map(w => {
+          // Remap paramName
+          const remappedParam = remapName(w.paramName, actualFbParams);
+          if (remappedParam !== w.paramName) {
+            log("fix", `Matrix param remapped: "${w.paramName}" → "${remappedParam}" (FB interface)`);
+          }
+
+          // Normalize connectedTo based on wireType
+          let connectedTo = w.connectedTo ?? "";
+          if (w.wireType === "io") {
+            connectedTo = normalizeIoTag(connectedTo);
+          } else if (w.wireType === "fb" || w.wireType === "global") {
+            connectedTo = normalizeConnectedTo(connectedTo, w.wireType);
+          }
+
+          return { ...w, paramName: remappedParam, connectedTo };
+        }),
+      };
+    });
+}
+
+/**
  * Copy template blocks directly as artifacts (exact match — no AI call).
  * Returns FB/UDT/FC blocks from the template + a deterministically-generated instance DB.
  */
 function copyTemplateAsArtifacts(
   device: ForgeDeviceEntry,
   template: FbTemplate,
+  instDbPrefix = "Inst",
 ): ForgeArtifact[] {
   const artifacts: ForgeArtifact[] = [];
 
   for (const block of (template.blocks ?? []).sort((a, b) => a.sort_order - b.sort_order)) {
+    // Use the declared name from inside the SCL (e.g., FUNCTION_BLOCK "ControlMotor"),
+    // NOT block_name from the DB which may differ (e.g., "ControlMotor_DOL").
+    // TIA Portal imports under the declared name, so all references must match.
+    const declaredName = extractBlockName(block.scl_code) ?? block.block_name;
     artifacts.push({
       id: crypto.randomUUID(),
-      name: block.block_name,
+      name: declaredName,
       type: block.block_type as ForgeArtifact["type"],
       language: "SCL",
       content: block.scl_code,
@@ -594,7 +991,7 @@ function copyTemplateAsArtifacts(
     const declaredNameMatch = mainFb.scl_code.match(/FUNCTION_BLOCK\s+"([^"]+)"/i);
     const actualFbName = declaredNameMatch?.[1] ?? mainFb.block_name;
 
-    const instDbName = `Inst${device.name.replace(/[^A-Za-z0-9]/g, "")}`;
+    const instDbName = `${instDbPrefix}${device.name.replace(/[^A-Za-z0-9]/g, "")}`;
     const instDbCode = [
       `DATA_BLOCK "${instDbName}"`,
       `{ S7_Optimized_Access := 'TRUE' }`,
@@ -762,6 +1159,7 @@ export interface DeviceGenLogEntry {
 }
 
 export function useForgeDeviceGenerate() {
+  const { data: promptSections } = useActivePromptSections();
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<ForgeDeviceGenerateProgress>({
     current: 0,
@@ -821,7 +1219,7 @@ export function useForgeDeviceGenerate() {
         systemPrompt = buildDeviceLadPrompt(device, context);
         userMessage = buildDeviceLadUserMessage(device);
       } else {
-        systemPrompt = buildDeviceSclPrompt(device, context);
+        systemPrompt = buildDeviceSclPrompt(device, context, promptSections);
         userMessage = buildDeviceSclUserMessage(device);
       }
 
@@ -856,7 +1254,8 @@ export function useForgeDeviceGenerate() {
       if (fbArtifact) {
         const declaredNameMatch = fbArtifact.content.match(/FUNCTION_BLOCK\s+"([^"]+)"/i);
         const actualFbName = declaredNameMatch?.[1] ?? fbArtifact.name;
-        const instDbName = `Inst${device.name.replace(/[^A-Za-z0-9]/g, "")}`;
+        const instPrefix = resolveInstDbPrefix(profile);
+        const instDbName = `${instPrefix}${device.name.replace(/[^A-Za-z0-9]/g, "")}`;
         const instDbCode = [
           `DATA_BLOCK "${instDbName}"`,
           `{ S7_Optimized_Access := 'TRUE' }`,
@@ -909,8 +1308,24 @@ export function useForgeDeviceGenerate() {
       const allArtifacts: ForgeArtifact[] = [];
       // Track template block names already copied — FB/UDT blocks are shared across devices
       const copiedTemplateBlockNames = new Set<string>();
-      // Track FB interface text per device type for Device Call FC generation
+      // Track FB interface text and actual FB name per device type for Device Call FC generation
       const deviceTypeFbInterfaces = new Map<string, string>();
+      const deviceTypeFbNames = new Map<string, string>();
+
+      // Resolve naming prefixes from profile
+      const dbPrefix = resolveDbPrefix(profile);
+      const instDbPrefix = resolveInstDbPrefix(profile);
+      const fcPrefix = resolveFcPrefix(profile);
+      const inputsDbName = dbPrefix + "Inputs";
+      const outputsDbName = dbPrefix + "Outputs";
+
+      // Resolve folder structure from profile
+      const folders = parseFolderRules(profile.folder_rules);
+      const fbFolder = resolveDestinationFolder(folders, "device_fb");
+      const instDbFolder = resolveDestinationFolder(folders, "device_instance_db");
+      const callFcFolder = resolveDestinationFolder(folders, "device_call_fc");
+      const ioLinkingFolder = resolveDestinationFolder(folders, "io_linking");
+      const globalDbFolder = resolveDestinationFolder(folders, "global_db");
 
       // Unique device types, sorted by call order
       const uniqueDeviceTypes = [
@@ -942,9 +1357,15 @@ export function useForgeDeviceGenerate() {
 
           let deviceArtifacts: ForgeArtifact[];
           if (useTemplate && matchedTemplate) {
-            deviceArtifacts = copyTemplateAsArtifacts(device, matchedTemplate);
+            deviceArtifacts = copyTemplateAsArtifacts(device, matchedTemplate, instDbPrefix);
+            // Apply profile folder rules to all template artifacts
+            for (const a of deviceArtifacts) {
+              if (a.type === "FB" || a.type === "FC") a.destination_folder = fbFolder;
+              else if (a.type === "DB" && a.name.startsWith(instDbPrefix)) a.destination_folder = instDbFolder;
+              else if (a.type === "DB") a.destination_folder = globalDbFolder;
+            }
             for (const artifact of deviceArtifacts) {
-              if (artifact.type === "DB" && artifact.name.startsWith("Inst")) {
+              if (artifact.type === "DB" && artifact.name.startsWith(instDbPrefix)) {
                 allArtifacts.push(artifact);
               } else if (!copiedTemplateBlockNames.has(artifact.name)) {
                 allArtifacts.push(artifact);
@@ -962,6 +1383,13 @@ export function useForgeDeviceGenerate() {
             }
           } else {
             deviceArtifacts = await generateSingle(device, session, profile, fbTemplates, patterns, appendLog);
+            // Apply profile folder rules to AI-generated artifacts
+            for (const a of deviceArtifacts) {
+              if (a.type === "FB") a.destination_folder = fbFolder;
+              else if (a.type === "DB" && a.name.startsWith(instDbPrefix)) a.destination_folder = instDbFolder;
+              else if (a.type === "DB") a.destination_folder = globalDbFolder;
+              else if (a.type === "FC") a.destination_folder = callFcFolder;
+            }
             allArtifacts.push(...deviceArtifacts);
           }
 
@@ -973,10 +1401,14 @@ export function useForgeDeviceGenerate() {
                 /(VAR_INPUT[\s\S]*?END_VAR|VAR_OUTPUT[\s\S]*?END_VAR|VAR_IN_OUT[\s\S]*?END_VAR)/gi;
               const matches = fbArtifact.content.match(interfaceRe);
               if (matches) {
+                // Use the declared name from inside the SCL (FUNCTION_BLOCK "ActualName"),
+                // NOT artifact.name which may differ. TIA imports under the declared name.
+                const declaredFbName = extractBlockName(fbArtifact.content) ?? fbArtifact.name;
                 deviceTypeFbInterfaces.set(
                   device.device_type,
-                  `### ${fbArtifact.name}\n\`\`\`\n${matches.join("\n")}\n\`\`\``,
+                  `### ${declaredFbName}\n\`\`\`\n${matches.join("\n")}\n\`\`\``,
                 );
+                deviceTypeFbNames.set(device.device_type, declaredFbName);
               }
             }
           }
@@ -990,20 +1422,20 @@ export function useForgeDeviceGenerate() {
         });
         if (ioList?.length > 0) {
           const inputFields = ioList.filter(io => io.signal_type === "DI" || io.signal_type === "AI");
-          const inputsDbCode = generateInputsDb(ioList);
+          const inputsDbCode = generateInputsDb(ioList, inputsDbName);
           allArtifacts.push({
             id: crypto.randomUUID(),
-            name: "Inputs",
+            name: inputsDbName,
             type: "DB",
             language: "SCL",
             content: inputsDbCode,
             approved: false,
             stage: "device",
-            destination_folder: "Data blocks",
+            destination_folder: globalDbFolder,
             dependencies: [],
             compile_after_import: true,
           });
-          appendLog("info", `Inputs DB: ${inputFields.length} fields — ${inputFields.map(io => io.tag_name).join(", ")}`);
+          appendLog("info", `${inputsDbName} DB: ${inputFields.length} fields — ${inputFields.map(io => io.tag_name).join(", ")}`);
         }
 
         // --- Step 3: Outputs DB (deterministic) ---
@@ -1014,84 +1446,94 @@ export function useForgeDeviceGenerate() {
         });
         if (ioList?.length > 0) {
           const outputFields = ioList.filter(io => io.signal_type === "DQ" || io.signal_type === "AQ");
-          const outputsDbCode = generateOutputsDb(ioList);
+          const outputsDbCode = generateOutputsDb(ioList, outputsDbName);
           allArtifacts.push({
             id: crypto.randomUUID(),
-            name: "Outputs",
+            name: outputsDbName,
             type: "DB",
             language: "SCL",
             content: outputsDbCode,
             approved: false,
             stage: "device",
-            destination_folder: "Data blocks",
+            destination_folder: globalDbFolder,
             dependencies: [],
             compile_after_import: true,
           });
-          appendLog("info", `Outputs DB: ${outputFields.length} fields — ${outputFields.map(io => io.tag_name).join(", ")}`);
+          appendLog("info", `${outputsDbName} DB: ${outputFields.length} fields — ${outputFields.map(io => io.tag_name).join(", ")}`);
         }
 
         // --- Step 3b: Global DBs from matrix (HmiData, Configuration, etc.) ---
         for (let i = 0; i < matrixGlobalDbs.length; i++) {
           const gdb = matrixGlobalDbs[i];
           if (!gdb.dbName) continue;
+          // Apply db_prefix if the name doesn't already have it
+          const prefixedDbName = dbPrefix && !gdb.dbName.startsWith(dbPrefix) ? `${dbPrefix}${gdb.dbName}` : gdb.dbName;
           setProgress({
             current: devices.length + 2 + i + 1,
             total: totalSteps,
-            currentDevice: `${gdb.dbName} DB`,
+            currentDevice: `${prefixedDbName} DB`,
           });
-          const dbCode = generateGlobalDb(gdb.dbName, gdb.fields ?? []);
+          const dbCode = generateGlobalDb(prefixedDbName, gdb.fields ?? []);
           allArtifacts.push({
             id: crypto.randomUUID(),
-            name: gdb.dbName,
+            name: prefixedDbName,
             type: "DB",
             language: "SCL",
             content: dbCode,
             approved: false,
             stage: "device",
-            destination_folder: "Data blocks",
+            destination_folder: globalDbFolder,
             dependencies: [],
             compile_after_import: true,
           });
-          appendLog("info", `Global DB "${gdb.dbName}": ${(gdb.fields ?? []).length} fields`);
+          appendLog("info", `Global DB "${prefixedDbName}": ${(gdb.fields ?? []).length} fields`);
         }
 
+        // Backfill global DB fields from matrix wiring before generating FCs
+        const fbOnlyArtifacts = allArtifacts.filter(a => a.type === "FB");
+        const backfilledArtifacts = backfillGlobalDbFieldsFromWiring(allArtifacts, matrix, fbOnlyArtifacts, appendLog, instDbPrefix, dbPrefix);
+        // Replace allArtifacts contents with backfilled versions
+        allArtifacts.length = 0;
+        allArtifacts.push(...backfilledArtifacts);
+
         // --- Step 4: IoLinking FC (deterministic SCL, or LAD via AI) ---
+        const ioLinkingFcName = fcPrefix ? `${fcPrefix}IoLinking` : "IoLinking";
         setProgress({
           current: devices.length + 3 + matrixGlobalDbs.length,
           total: totalSteps,
-          currentDevice: "IoLinking FC",
+          currentDevice: `${ioLinkingFcName} FC`,
         });
         if (ioList?.length > 0) {
           const ioLang = profile.io_linking_language ?? "SCL";
           if (ioLang === "LAD") {
             // LAD IoLinking still uses AI
             const abort = new AbortController();
-            const context: DeviceGenContext = { profile, platformRules: PLATFORM_RULES, patterns };
-            const ladPrompt = buildIoLinkingLadPrompt(devices, ioList, context);
+            const context: DeviceGenContext = { profile, platformRules: PLATFORM_RULES, patterns, inputsDbName, outputsDbName };
+            const ladPrompt = buildIoLinkingLadPrompt(devices, ioList, context, promptSections);
             const { content } = await validateAndCall(
               callNonStreaming,
               ladPrompt,
-              [{ role: "user", content: "Generate the IoLinking LAD FC." }],
+              [{ role: "user", content: `Generate the ${ioLinkingFcName} LAD FC.` }],
               abort.signal,
               DEVICE_GEN_MAX_TOKENS,
               "io_linking",
               !!profile,
             );
-            const artifact = parseLadArtifact(content, "IoLinking", "device");
+            const artifact = parseLadArtifact(content, ioLinkingFcName, "device");
             if (!artifact) console.warn("[forge] LAD IO linking parse failed:", content.slice(0, 500));
             if (artifact) allArtifacts.push({ ...artifact, type: "FC" as const });
           } else {
             // SCL IoLinking is fully deterministic
-            const ioLinkingCode = generateIoLinkingFc(ioList);
+            const ioLinkingCode = generateIoLinkingFc(ioList, inputsDbName, outputsDbName, ioLinkingFcName);
             allArtifacts.push({
               id: crypto.randomUUID(),
-              name: "IoLinking",
+              name: ioLinkingFcName,
               type: "FC",
               language: "SCL",
               content: ioLinkingCode,
               approved: false,
               stage: "device",
-              destination_folder: "Program blocks/Forge",
+              destination_folder: ioLinkingFolder,
               dependencies: [],
               compile_after_import: true,
             });
@@ -1099,9 +1541,10 @@ export function useForgeDeviceGenerate() {
         }
 
         // --- Step 5: Device Call FCs (one per device type, AI-generated) ---
+        const callFcLang = profile.device_call_fc_language ?? "SCL";
         for (let i = 0; i < uniqueDeviceTypes.length; i++) {
           const deviceType = uniqueDeviceTypes[i];
-          const fcName = deviceTypeToFcName(deviceType, profile.naming_prefix ?? undefined);
+          const fcName = deviceTypeToFcName(deviceType, fcPrefix || undefined);
           setProgress({
             current: devices.length + 3 + matrixGlobalDbs.length + i + 1,
             total: totalSteps,
@@ -1110,7 +1553,7 @@ export function useForgeDeviceGenerate() {
 
           const groupDevices = devices.filter((d) => d.device_type === deviceType);
           const instanceDbNames = groupDevices.map(
-            (d) => `Inst${d.name.replace(/[^A-Za-z0-9]/g, "")}`,
+            (d) => `${instDbPrefix}${d.name.replace(/[^A-Za-z0-9]/g, "")}`,
           );
 
           // Use IO list tag names (same source as generated Inputs/Outputs DBs) rather than
@@ -1139,56 +1582,32 @@ export function useForgeDeviceGenerate() {
           const outputsDbFields = relevantOutputs.map((io) => io.tag_name);
           appendLog("info", `${fcName}: calling instances [${instanceDbNames.join(", ")}], inputs [${inputsDbFields.join(", ") || "none"}], outputs [${outputsDbFields.join(", ") || "none"}]`);
 
-          // Build IO tag normalizer: given a matrix connectedTo name (AI-invented, may have
-          // extra prefix like "DI_PE01_DET"), find the actual IO list tag name ("PE01_DET").
-          // The Inputs/Outputs DBs use IO list tag names so the Device Call FC must match them.
-          const allIoTags = (ioList ?? []).map(io => io.tag_name);
-          function normalizeIoTag(connectedTo: string): string {
-            if (allIoTags.includes(connectedTo)) return connectedTo; // exact match
-            const stem = connectedTo.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
-            // Find IO list tag whose stripped name matches or is contained in the stem
-            const match = allIoTags.find(t => {
-              const ts = t.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
-              return ts === stem || stem.includes(ts) || ts.includes(stem);
-            });
-            if (match && match !== connectedTo) {
-              appendLog("fix", `IO tag normalized in matrix wiring: "${connectedTo}" → "${match}"`);
-            }
-            return match ?? connectedTo;
+          // Build global DB name map for wiring normalization (HmiData → DB_HmiData etc.)
+          const globalDbMap = new Map<string, string>();
+          for (const a of allArtifacts) {
+            if (a.type !== "DB" || a.name.startsWith(instDbPrefix) || a.name === inputsDbName || a.name === outputsDbName) continue;
+            globalDbMap.set(a.name.toLowerCase(), a.name);
+            if (a.name.startsWith("DB_")) globalDbMap.set(a.name.slice(3).toLowerCase(), a.name);
           }
 
-          // Extract matrix wiring for devices of this type — engineer-confirmed connections.
-          // Normalize instanceDbName to canonical formula (Inst + stripped device name) so the
-          // wiring code sample shown to the AI uses the same name as the generated instance DB.
-          // Also normalize io-type wire connectedTo values to match actual IO list tag names.
-          const matrixWiring = matrix?.deviceLinkage
-            .filter(d => d.deviceType === deviceType)
-            .map(d => {
-              const canonical = `Inst${d.name.replace(/[^A-Za-z0-9]/g, "")}`;
-              if (d.instanceDbName && d.instanceDbName !== canonical) {
-                appendLog("fix", `Matrix instance DB name normalized: "${d.instanceDbName}" → "${canonical}"`);
-              }
-              return {
-                deviceName: d.name,
-                instanceDbName: canonical,
-                wiring: d.wiring.map(w =>
-                  w.wireType === "io"
-                    ? { ...w, connectedTo: normalizeIoTag(w.connectedTo ?? "") }
-                    : w
-                ),
-              };
-            }) ?? [];
+          // Build normalized wiring with all fixes applied
+          const matrixWiring = buildNormalizedMatrixWiring(
+            matrix, deviceType, devices, instDbPrefix, ioList ?? [], deviceTypeFbInterfaces, appendLog, globalDbMap,
+          );
+
+          const fbInterfaceText = deviceTypeFbInterfaces.get(deviceType) ?? "";
 
           const context: DeviceCallFcContext = {
             fcName,
             deviceType,
+            fbName: deviceTypeFbNames.get(deviceType),
             devices: groupDevices,
             instanceDbNames,
-            fbInterfaceSection: deviceTypeFbInterfaces.get(deviceType) ?? "",
+            fbInterfaceSection: fbInterfaceText,
             inputsDbFields,
             outputsDbFields,
-            inputsDbName: "Inputs",
-            outputsDbName: "Outputs",
+            inputsDbName,
+            outputsDbName,
             profile,
             platformRules: PLATFORM_RULES,
             patterns,
@@ -1201,54 +1620,91 @@ export function useForgeDeviceGenerate() {
             matrixWiring.some(d => d.instanceDbName === name && d.wiring.length > 0),
           );
 
-          // Validate that matrix param names actually exist in the generated FB interface.
-          // The matrix AI invents param names independently of the FB generation — if they
-          // don't match, the deterministic call FC will reference non-existent params and
-          // fail to compile. Force AI fallback instead so it can use the real interface.
-          const fbInterfaceText = deviceTypeFbInterfaces.get(deviceType) ?? "";
-          const actualFbParams = new Set<string>();
-          const paramDeclRe = /^\s{1,4}(\w+)\s*:/gm;
-          let paramMatch: RegExpExecArray | null;
-          while ((paramMatch = paramDeclRe.exec(fbInterfaceText)) !== null) {
-            actualFbParams.add(paramMatch[1].toLowerCase());
-          }
+          // Validate that all wiring param names exist in the FB interface
+          const fbParamsRe = /^\s+(\w+)\s*:/gm;
+          const actualFbParamSet = new Set<string>();
+          let _pm: RegExpExecArray | null;
+          while ((_pm = fbParamsRe.exec(fbInterfaceText)) !== null) actualFbParamSet.add(_pm[1].toLowerCase());
 
-          const allWiringParamsValid = actualFbParams.size === 0 || matrixWiring.every(d =>
-            d.wiring.every(w => actualFbParams.has(w.paramName.toLowerCase())),
+          const allWiringParamsValid = actualFbParamSet.size === 0 || matrixWiring.every(d =>
+            d.wiring.every(w => actualFbParamSet.has(w.paramName.toLowerCase())),
           );
 
           if (!allWiringParamsValid) {
             const badParams = matrixWiring
-              .flatMap(d => d.wiring.filter(w => !actualFbParams.has(w.paramName.toLowerCase())).map(w => w.paramName))
+              .flatMap(d => d.wiring.filter(w => !actualFbParamSet.has(w.paramName.toLowerCase())).map(w => w.paramName))
               .filter((v, i, a) => a.indexOf(v) === i);
             appendLog("warn", `${fcName}: matrix param(s) [${badParams.join(", ")}] not found in generated FB — falling back to AI for correct interface`);
           }
 
-          const deterministicScl = (allInstancesWired && allWiringParamsValid) ? generateDeviceCallFc(context) : null;
           if (!allInstancesWired && matrixWiring.length > 0) {
             appendLog("warn", `${fcName}: ${instanceDbNames.length - matrixWiring.filter(d => d.wiring.length > 0).length} instance(s) missing matrix wiring — falling back to AI`);
           }
 
-          if (deterministicScl) {
-            appendLog("info", `${fcName}: generated deterministically from matrix wiring`);
-            allArtifacts.push({
-              id: crypto.randomUUID(),
-              name: fcName,
-              type: "FC",
-              language: "SCL",
-              content: deterministicScl,
-              approved: false,
-              stage: "device",
-              destination_folder: "Program blocks/Forge",
-              dependencies: [],
-              compile_after_import: true,
-            });
-          } else {
-            // Incomplete or no matrix wiring — fall back to AI
+          // Deterministic path — all instances wired and params valid
+          if (allInstancesWired && allWiringParamsValid) {
+            if (callFcLang === "LAD") {
+              // Deterministic LAD from matrix
+              const ladJson = generateDeviceCallFcLad(context);
+              if (ladJson) {
+                appendLog("info", `${fcName}: generated LAD deterministically from matrix wiring`);
+                allArtifacts.push({
+                  id: crypto.randomUUID(),
+                  name: fcName,
+                  type: "FC",
+                  language: "LAD",
+                  content: ladJson,
+                  approved: false,
+                  stage: "device",
+                  destination_folder: callFcFolder,
+                  dependencies: [],
+                  compile_after_import: true,
+                });
+              }
+            } else {
+              // Deterministic SCL from matrix
+              const deterministicScl = generateDeviceCallFc(context);
+              if (deterministicScl) {
+                appendLog("info", `${fcName}: generated SCL deterministically from matrix wiring`);
+                allArtifacts.push({
+                  id: crypto.randomUUID(),
+                  name: fcName,
+                  type: "FC",
+                  language: "SCL",
+                  content: deterministicScl,
+                  approved: false,
+                  stage: "device",
+                  destination_folder: callFcFolder,
+                  dependencies: [],
+                  compile_after_import: true,
+                });
+              }
+            }
+          } else if (callFcLang === "LAD") {
+            // LAD AI fallback — incomplete matrix wiring
             const abort = new AbortController();
             const { content } = await validateAndCall(
               callNonStreaming,
-              buildDeviceCallFcPrompt(context),
+              buildDeviceCallFcLadPrompt(context),
+              [{ role: "user", content: buildDeviceCallFcUserMessage(context) }],
+              abort.signal,
+              DEVICE_GEN_MAX_TOKENS,
+              "code_architect_lad",
+              !!profile,
+            );
+            const artifact = parseLadArtifact(content, fcName, "device");
+            if (!artifact) {
+              appendLog("warn", `${fcName}: LAD parse failed — no artifact`);
+            } else {
+              appendLog("info", `${fcName}: generated LAD Call FC via AI`);
+              allArtifacts.push({ ...artifact, type: "FC" as const });
+            }
+          } else {
+            // SCL AI fallback — incomplete or no matrix wiring
+            const abort = new AbortController();
+            const { content } = await validateAndCall(
+              callNonStreaming,
+              buildDeviceCallFcPrompt(context, promptSections),
               [{ role: "user", content: buildDeviceCallFcUserMessage(context) }],
               abort.signal,
               DEVICE_GEN_MAX_TOKENS,
@@ -1273,12 +1729,12 @@ export function useForgeDeviceGenerate() {
         const dedupedArtifacts = [...deduped.values()];
 
         appendLog("info", `Post-processing ${dedupedArtifacts.length} artifacts…`);
-        const normalized = normalizeInstanceDbNames(dedupedArtifacts, devices, appendLog);
-        const fixedRefs = fixFcInstanceDbReferences(normalized, appendLog);
-        const fixedFields = fixFbInstanceFieldRefs(fixedRefs, appendLog);
+        const normalized = normalizeInstanceDbNames(dedupedArtifacts, devices, appendLog, instDbPrefix);
+        const fixedRefs = fixFcInstanceDbReferences(normalized, appendLog, instDbPrefix);
+        const fixedFields = fixFbInstanceFieldRefs(fixedRefs, appendLog, instDbPrefix);
         const deduped2 = deduplicateFbCallParams(fixedFields, appendLog);
         const reconciled = reconcileUdtReferences(deduped2, appendLog);
-        return backfillGlobalDbFields(reconciled, appendLog);
+        return backfillGlobalDbFields(reconciled, appendLog, instDbPrefix);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         setError(msg);
@@ -1307,6 +1763,14 @@ export function useForgeDeviceGenerate() {
       const devices = session.device_list as ForgeDeviceEntry[];
       const allArtifacts: ForgeArtifact[] = [];
       const copiedTemplateBlockNames = new Set<string>();
+      const instDbPrefix = resolveInstDbPrefix(profile);
+
+      // Resolve folder structure from profile
+      const folders = parseFolderRules(profile.folder_rules);
+      const fbFolder = resolveDestinationFolder(folders, "device_fb");
+      const instDbFolder = resolveDestinationFolder(folders, "device_instance_db");
+      const globalDbFolder = resolveDestinationFolder(folders, "global_db");
+      const callFcFolder = resolveDestinationFolder(folders, "device_call_fc");
 
       setProgress({ current: 0, total: devices.length, currentDevice: "" });
 
@@ -1327,9 +1791,15 @@ export function useForgeDeviceGenerate() {
 
           let deviceArtifacts: ForgeArtifact[];
           if (useTemplate && matchedTemplate) {
-            deviceArtifacts = copyTemplateAsArtifacts(device, matchedTemplate);
+            deviceArtifacts = copyTemplateAsArtifacts(device, matchedTemplate, instDbPrefix);
+            // Apply profile folder rules
+            for (const a of deviceArtifacts) {
+              if (a.type === "FB" || a.type === "FC") a.destination_folder = fbFolder;
+              else if (a.type === "DB" && a.name.startsWith(instDbPrefix)) a.destination_folder = instDbFolder;
+              else if (a.type === "DB") a.destination_folder = globalDbFolder;
+            }
             for (const artifact of deviceArtifacts) {
-              if (artifact.type === "DB" && artifact.name.startsWith("Inst")) {
+              if (artifact.type === "DB" && artifact.name.startsWith(instDbPrefix)) {
                 allArtifacts.push({ ...artifact, stage: "device_fb" });
               } else if (!copiedTemplateBlockNames.has(artifact.name)) {
                 allArtifacts.push({ ...artifact, stage: "device_fb" });
@@ -1338,6 +1808,13 @@ export function useForgeDeviceGenerate() {
             }
           } else {
             deviceArtifacts = await generateSingle(device, session, profile, fbTemplates, patterns, appendLog);
+            // Apply profile folder rules to AI-generated artifacts
+            for (const a of deviceArtifacts) {
+              if (a.type === "FB") a.destination_folder = fbFolder;
+              else if (a.type === "DB" && a.name.startsWith(instDbPrefix)) a.destination_folder = instDbFolder;
+              else if (a.type === "DB") a.destination_folder = globalDbFolder;
+              else if (a.type === "FC") a.destination_folder = callFcFolder;
+            }
             allArtifacts.push(...deviceArtifacts.map(a => ({ ...a, stage: "device_fb" as const })));
           }
         }
@@ -1347,7 +1824,7 @@ export function useForgeDeviceGenerate() {
         for (const a of allArtifacts) deduped.set(`${a.type}:${a.name}`, a);
         const dedupedArtifacts = [...deduped.values()];
         appendLog("info", `FB post-processing ${dedupedArtifacts.length} artifacts…`);
-        const normalized = normalizeInstanceDbNames(dedupedArtifacts, devices, appendLog);
+        const normalized = normalizeInstanceDbNames(dedupedArtifacts, devices, appendLog, instDbPrefix);
         return reconcileUdtReferences(normalized, appendLog);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -1380,31 +1857,58 @@ export function useForgeDeviceGenerate() {
       const matrixGlobalDbs = matrix?.globalData ?? [];
       const allArtifacts: ForgeArtifact[] = [];
 
+      // Resolve naming prefixes from profile
+      const dbPrefix = resolveDbPrefix(profile);
+      const instDbPrefix = resolveInstDbPrefix(profile);
+      const fcPrefix = resolveFcPrefix(profile);
+      const inputsDbName = dbPrefix + "Inputs";
+      const outputsDbName = dbPrefix + "Outputs";
+
+      // Resolve folder structure from profile
+      const folders = parseFolderRules(profile.folder_rules);
+      const callFcFolder = resolveDestinationFolder(folders, "device_call_fc");
+      const ioLinkingFolder = resolveDestinationFolder(folders, "io_linking");
+      const globalDbFolder = resolveDestinationFolder(folders, "global_db");
+
       const uniqueDeviceTypes = [
         ...new Set(devices.map((d) => d.device_type)),
       ].sort((a, b) => getDeviceCallOrder(a) - getDeviceCallOrder(b));
 
-      // Build deviceTypeFbInterfaces from pre-existing FB artifacts
+      // Build deviceTypeFbInterfaces and FB names from pre-existing FB artifacts
+      // Match by fb_template_id first (reliable), then fall back to name matching (no catch-all)
       const deviceTypeFbInterfaces = new Map<string, string>();
+      const deviceTypeFbNames = new Map<string, string>();
       for (const device of devices) {
         if (!deviceTypeFbInterfaces.has(device.device_type)) {
-          // Find the FB for this device type by name matching
-          const deviceFb =
-            fbArtifacts.find(a =>
+          // 1. Match by fb_template_id (most reliable — set during Device FB step)
+          let deviceFb = device.fb_template_id
+            ? fbArtifacts.find(a =>
+                a.type === "FB" && a.fb_template_id === device.fb_template_id
+              )
+            : undefined;
+
+          // 2. Fall back to name matching (no dangerous catch-all)
+          if (!deviceFb) {
+            deviceFb = fbArtifacts.find(a =>
               a.type === "FB" && a.language === "SCL" &&
               (a.name.toLowerCase().includes(device.device_type.toLowerCase().replace(/\s+/g, "")) ||
                device.device_type.toLowerCase().replace(/\s+/g, "").includes(a.name.toLowerCase()))
-            ) ?? fbArtifacts.find(a => a.type === "FB" && a.language === "SCL");
+            );
+          }
 
           if (deviceFb) {
             const interfaceRe =
               /(VAR_INPUT[\s\S]*?END_VAR|VAR_OUTPUT[\s\S]*?END_VAR|VAR_IN_OUT[\s\S]*?END_VAR)/gi;
             const matches = deviceFb.content.match(interfaceRe);
             if (matches) {
+              // Use the declared name from inside the SCL (FUNCTION_BLOCK "ActualName"),
+              // NOT artifact.name which may differ. TIA imports under the declared name.
+              const declaredFbName = extractBlockName(deviceFb.content) ?? deviceFb.name;
               deviceTypeFbInterfaces.set(
                 device.device_type,
-                `### ${deviceFb.name}\n\`\`\`\n${matches.join("\n")}\n\`\`\``,
+                `### ${declaredFbName}\n\`\`\`\n${matches.join("\n")}\n\`\`\``,
               );
+              deviceTypeFbNames.set(device.device_type, declaredFbName);
             }
           }
         }
@@ -1422,20 +1926,20 @@ export function useForgeDeviceGenerate() {
         });
         if (ioList?.length > 0) {
           const inputFields = ioList.filter(io => io.signal_type === "DI" || io.signal_type === "AI");
-          const inputsDbCode = generateInputsDb(ioList);
+          const inputsDbCode = generateInputsDb(ioList, inputsDbName);
           allArtifacts.push({
             id: crypto.randomUUID(),
-            name: "Inputs",
+            name: inputsDbName,
             type: "DB",
             language: "SCL",
             content: inputsDbCode,
             approved: false,
             stage: "device",
-            destination_folder: "Data blocks",
+            destination_folder: globalDbFolder,
             dependencies: [],
             compile_after_import: true,
           });
-          appendLog("info", `Inputs DB: ${inputFields.length} fields — ${inputFields.map(io => io.tag_name).join(", ")}`);
+          appendLog("info", `${inputsDbName} DB: ${inputFields.length} fields — ${inputFields.map(io => io.tag_name).join(", ")}`);
         }
 
         // --- Step 3: Outputs DB (deterministic) ---
@@ -1446,82 +1950,91 @@ export function useForgeDeviceGenerate() {
         });
         if (ioList?.length > 0) {
           const outputFields = ioList.filter(io => io.signal_type === "DQ" || io.signal_type === "AQ");
-          const outputsDbCode = generateOutputsDb(ioList);
+          const outputsDbCode = generateOutputsDb(ioList, outputsDbName);
           allArtifacts.push({
             id: crypto.randomUUID(),
-            name: "Outputs",
+            name: outputsDbName,
             type: "DB",
             language: "SCL",
             content: outputsDbCode,
             approved: false,
             stage: "device",
-            destination_folder: "Data blocks",
+            destination_folder: globalDbFolder,
             dependencies: [],
             compile_after_import: true,
           });
-          appendLog("info", `Outputs DB: ${outputFields.length} fields — ${outputFields.map(io => io.tag_name).join(", ")}`);
+          appendLog("info", `${outputsDbName} DB: ${outputFields.length} fields — ${outputFields.map(io => io.tag_name).join(", ")}`);
         }
 
         // --- Step 3b: Global DBs from matrix (HmiData, Configuration, etc.) ---
         for (let i = 0; i < matrixGlobalDbs.length; i++) {
           const gdb = matrixGlobalDbs[i];
           if (!gdb.dbName) continue;
+          // Apply db_prefix if the name doesn't already have it
+          const prefixedDbName = dbPrefix && !gdb.dbName.startsWith(dbPrefix) ? `${dbPrefix}${gdb.dbName}` : gdb.dbName;
           setProgress({
             current: 2 + i + 1,
             total: totalSteps,
-            currentDevice: `${gdb.dbName} DB`,
+            currentDevice: `${prefixedDbName} DB`,
           });
-          const dbCode = generateGlobalDb(gdb.dbName, gdb.fields ?? []);
+          const dbCode = generateGlobalDb(prefixedDbName, gdb.fields ?? []);
           allArtifacts.push({
             id: crypto.randomUUID(),
-            name: gdb.dbName,
+            name: prefixedDbName,
             type: "DB",
             language: "SCL",
             content: dbCode,
             approved: false,
             stage: "device",
-            destination_folder: "Data blocks",
+            destination_folder: globalDbFolder,
             dependencies: [],
             compile_after_import: true,
           });
-          appendLog("info", `Global DB "${gdb.dbName}": ${(gdb.fields ?? []).length} fields`);
+          appendLog("info", `Global DB "${prefixedDbName}": ${(gdb.fields ?? []).length} fields`);
         }
 
+        // Backfill global DB fields from matrix wiring before generating FCs
+        const fbOnlyArtifacts2 = [...fbArtifacts, ...allArtifacts.filter(a => a.type === "FB")];
+        const backfilledArtifacts2 = backfillGlobalDbFieldsFromWiring(allArtifacts, matrix, fbOnlyArtifacts2, appendLog, instDbPrefix, dbPrefix);
+        allArtifacts.length = 0;
+        allArtifacts.push(...backfilledArtifacts2);
+
         // --- Step 4: IoLinking FC (deterministic SCL, or LAD via AI) ---
+        const ioLinkingFcName = fcPrefix ? `${fcPrefix}IoLinking` : "IoLinking";
         setProgress({
           current: 3 + matrixGlobalDbs.length,
           total: totalSteps,
-          currentDevice: "IoLinking FC",
+          currentDevice: `${ioLinkingFcName} FC`,
         });
         if (ioList?.length > 0) {
           const ioLang = profile.io_linking_language ?? "SCL";
           if (ioLang === "LAD") {
             const abort = new AbortController();
-            const context: DeviceGenContext = { profile, platformRules: PLATFORM_RULES, patterns };
-            const ladPrompt = buildIoLinkingLadPrompt(devices, ioList, context);
+            const context: DeviceGenContext = { profile, platformRules: PLATFORM_RULES, patterns, inputsDbName, outputsDbName };
+            const ladPrompt = buildIoLinkingLadPrompt(devices, ioList, context, promptSections);
             const { content } = await validateAndCall(
               callNonStreaming,
               ladPrompt,
-              [{ role: "user", content: "Generate the IoLinking LAD FC." }],
+              [{ role: "user", content: `Generate the ${ioLinkingFcName} LAD FC.` }],
               abort.signal,
               DEVICE_GEN_MAX_TOKENS,
               "io_linking",
               !!profile,
             );
-            const artifact = parseLadArtifact(content, "IoLinking", "device");
+            const artifact = parseLadArtifact(content, ioLinkingFcName, "device");
             if (!artifact) console.warn("[forge] LAD IO linking parse failed:", content.slice(0, 500));
             if (artifact) allArtifacts.push({ ...artifact, type: "FC" as const });
           } else {
-            const ioLinkingCode = generateIoLinkingFc(ioList);
+            const ioLinkingCode = generateIoLinkingFc(ioList, inputsDbName, outputsDbName, ioLinkingFcName);
             allArtifacts.push({
               id: crypto.randomUUID(),
-              name: "IoLinking",
+              name: ioLinkingFcName,
               type: "FC",
               language: "SCL",
               content: ioLinkingCode,
               approved: false,
               stage: "device",
-              destination_folder: "Program blocks/Forge",
+              destination_folder: ioLinkingFolder,
               dependencies: [],
               compile_after_import: true,
             });
@@ -1529,9 +2042,10 @@ export function useForgeDeviceGenerate() {
         }
 
         // --- Step 5: Device Call FCs (one per device type, AI-generated) ---
+        const callFcLang2 = profile.device_call_fc_language ?? "SCL";
         for (let i = 0; i < uniqueDeviceTypes.length; i++) {
           const deviceType = uniqueDeviceTypes[i];
-          const fcName = deviceTypeToFcName(deviceType, profile.naming_prefix ?? undefined);
+          const fcName = deviceTypeToFcName(deviceType, fcPrefix || undefined);
           setProgress({
             current: 3 + matrixGlobalDbs.length + i + 1,
             total: totalSteps,
@@ -1540,7 +2054,7 @@ export function useForgeDeviceGenerate() {
 
           const groupDevices = devices.filter((d) => d.device_type === deviceType);
           const instanceDbNames = groupDevices.map(
-            (d) => `Inst${d.name.replace(/[^A-Za-z0-9]/g, "")}`,
+            (d) => `${instDbPrefix}${d.name.replace(/[^A-Za-z0-9]/g, "")}`,
           );
 
           const groupSignalTags = new Set(
@@ -1564,48 +2078,32 @@ export function useForgeDeviceGenerate() {
           const outputsDbFields = relevantOutputs.map((io) => io.tag_name);
           appendLog("info", `${fcName}: calling instances [${instanceDbNames.join(", ")}], inputs [${inputsDbFields.join(", ") || "none"}], outputs [${outputsDbFields.join(", ") || "none"}]`);
 
-          const allIoTags = (ioList ?? []).map(io => io.tag_name);
-          function normalizeIoTag(connectedTo: string): string {
-            if (allIoTags.includes(connectedTo)) return connectedTo;
-            const stem = connectedTo.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
-            const match = allIoTags.find(t => {
-              const ts = t.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
-              return ts === stem || stem.includes(ts) || ts.includes(stem);
-            });
-            if (match && match !== connectedTo) {
-              appendLog("fix", `IO tag normalized in matrix wiring: "${connectedTo}" → "${match}"`);
-            }
-            return match ?? connectedTo;
+          // Build global DB name map for wiring normalization (HmiData → DB_HmiData etc.)
+          const globalDbMap2 = new Map<string, string>();
+          for (const a of allArtifacts) {
+            if (a.type !== "DB" || a.name.startsWith(instDbPrefix) || a.name === inputsDbName || a.name === outputsDbName) continue;
+            globalDbMap2.set(a.name.toLowerCase(), a.name);
+            if (a.name.startsWith("DB_")) globalDbMap2.set(a.name.slice(3).toLowerCase(), a.name);
           }
 
-          const matrixWiring = matrix?.deviceLinkage
-            .filter(d => d.deviceType === deviceType)
-            .map(d => {
-              const canonical = `Inst${d.name.replace(/[^A-Za-z0-9]/g, "")}`;
-              if (d.instanceDbName && d.instanceDbName !== canonical) {
-                appendLog("fix", `Matrix instance DB name normalized: "${d.instanceDbName}" → "${canonical}"`);
-              }
-              return {
-                deviceName: d.name,
-                instanceDbName: canonical,
-                wiring: d.wiring.map(w =>
-                  w.wireType === "io"
-                    ? { ...w, connectedTo: normalizeIoTag(w.connectedTo ?? "") }
-                    : w
-                ),
-              };
-            }) ?? [];
+          // Build normalized wiring with all fixes applied
+          const matrixWiring = buildNormalizedMatrixWiring(
+            matrix, deviceType, devices, instDbPrefix, ioList ?? [], deviceTypeFbInterfaces, appendLog, globalDbMap2,
+          );
+
+          const fbIfaceText = deviceTypeFbInterfaces.get(deviceType) ?? "";
 
           const context: DeviceCallFcContext = {
             fcName,
             deviceType,
+            fbName: deviceTypeFbNames.get(deviceType),
             devices: groupDevices,
             instanceDbNames,
-            fbInterfaceSection: deviceTypeFbInterfaces.get(deviceType) ?? "",
+            fbInterfaceSection: fbIfaceText,
             inputsDbFields,
             outputsDbFields,
-            inputsDbName: "Inputs",
-            outputsDbName: "Outputs",
+            inputsDbName,
+            outputsDbName,
             profile,
             platformRules: PLATFORM_RULES,
             patterns,
@@ -1616,44 +2114,84 @@ export function useForgeDeviceGenerate() {
             matrixWiring.some(d => d.instanceDbName === name && d.wiring.length > 0),
           );
 
-          // Validate matrix param names against actual generated FB interface
-          const fbIfaceText = deviceTypeFbInterfaces.get(deviceType) ?? "";
-          const actualParams2 = new Set<string>();
-          const paramRe2 = /^\s{1,4}(\w+)\s*:/gm;
-          let pm2: RegExpExecArray | null;
-          while ((pm2 = paramRe2.exec(fbIfaceText)) !== null) actualParams2.add(pm2[1].toLowerCase());
-          const wiringParamsValid2 = actualParams2.size === 0 || matrixWiring.every(d =>
-            d.wiring.every(w => actualParams2.has(w.paramName.toLowerCase())),
+          // Validate that all wiring param names exist in the FB interface
+          const fbParamsRe2 = /^\s+(\w+)\s*:/gm;
+          const actualFbParamSet2 = new Set<string>();
+          let _pm2: RegExpExecArray | null;
+          while ((_pm2 = fbParamsRe2.exec(fbIfaceText)) !== null) actualFbParamSet2.add(_pm2[1].toLowerCase());
+
+          const wiringParamsValid2 = actualFbParamSet2.size === 0 || matrixWiring.every(d =>
+            d.wiring.every(w => actualFbParamSet2.has(w.paramName.toLowerCase())),
           );
           if (!wiringParamsValid2) {
-            const bad2 = matrixWiring.flatMap(d => d.wiring.filter(w => !actualParams2.has(w.paramName.toLowerCase())).map(w => w.paramName)).filter((v, i, a) => a.indexOf(v) === i);
+            const bad2 = matrixWiring.flatMap(d => d.wiring.filter(w => !actualFbParamSet2.has(w.paramName.toLowerCase())).map(w => w.paramName)).filter((v, i, a) => a.indexOf(v) === i);
             appendLog("warn", `${fcName}: matrix param(s) [${bad2.join(", ")}] not found in FB — falling back to AI`);
           }
 
-          const deterministicScl = (allInstancesWired && wiringParamsValid2) ? generateDeviceCallFc(context) : null;
           if (!allInstancesWired && matrixWiring.length > 0) {
             appendLog("warn", `${fcName}: ${instanceDbNames.length - matrixWiring.filter(d => d.wiring.length > 0).length} instance(s) missing matrix wiring — falling back to AI`);
           }
 
-          if (deterministicScl) {
-            appendLog("info", `${fcName}: generated deterministically from matrix wiring`);
-            allArtifacts.push({
-              id: crypto.randomUUID(),
-              name: fcName,
-              type: "FC",
-              language: "SCL",
-              content: deterministicScl,
-              approved: false,
-              stage: "device",
-              destination_folder: "Program blocks/Forge",
-              dependencies: [],
-              compile_after_import: true,
-            });
+          // Deterministic path — all instances wired and params valid
+          if (allInstancesWired && wiringParamsValid2) {
+            if (callFcLang2 === "LAD") {
+              const ladJson = generateDeviceCallFcLad(context);
+              if (ladJson) {
+                appendLog("info", `${fcName}: generated LAD deterministically from matrix wiring`);
+                allArtifacts.push({
+                  id: crypto.randomUUID(),
+                  name: fcName,
+                  type: "FC",
+                  language: "LAD",
+                  content: ladJson,
+                  approved: false,
+                  stage: "device",
+                  destination_folder: callFcFolder,
+                  dependencies: [],
+                  compile_after_import: true,
+                });
+              }
+            } else {
+              const deterministicScl = generateDeviceCallFc(context);
+              if (deterministicScl) {
+                appendLog("info", `${fcName}: generated SCL deterministically from matrix wiring`);
+                allArtifacts.push({
+                  id: crypto.randomUUID(),
+                  name: fcName,
+                  type: "FC",
+                  language: "SCL",
+                  content: deterministicScl,
+                  approved: false,
+                  stage: "device",
+                  destination_folder: callFcFolder,
+                  dependencies: [],
+                  compile_after_import: true,
+                });
+              }
+            }
+          } else if (callFcLang2 === "LAD") {
+            const abort = new AbortController();
+            const { content } = await validateAndCall(
+              callNonStreaming,
+              buildDeviceCallFcLadPrompt(context),
+              [{ role: "user", content: buildDeviceCallFcUserMessage(context) }],
+              abort.signal,
+              DEVICE_GEN_MAX_TOKENS,
+              "code_architect_lad",
+              !!profile,
+            );
+            const artifact = parseLadArtifact(content, fcName, "device");
+            if (!artifact) {
+              appendLog("warn", `${fcName}: LAD parse failed — no artifact`);
+            } else {
+              appendLog("info", `${fcName}: generated LAD Call FC via AI`);
+              allArtifacts.push({ ...artifact, type: "FC" as const });
+            }
           } else {
             const abort = new AbortController();
             const { content } = await validateAndCall(
               callNonStreaming,
-              buildDeviceCallFcPrompt(context),
+              buildDeviceCallFcPrompt(context, promptSections),
               [{ role: "user", content: buildDeviceCallFcUserMessage(context) }],
               abort.signal,
               DEVICE_GEN_MAX_TOKENS,
@@ -1677,12 +2215,12 @@ export function useForgeDeviceGenerate() {
         const dedupedArtifacts = [...deduped.values()];
 
         appendLog("info", `Post-processing ${dedupedArtifacts.length} artifacts…`);
-        const normalized = normalizeInstanceDbNames(dedupedArtifacts, devices, appendLog);
-        const fixedRefs = fixFcInstanceDbReferences(normalized, appendLog);
-        const fixedFields = fixFbInstanceFieldRefs(fixedRefs, appendLog);
+        const normalized = normalizeInstanceDbNames(dedupedArtifacts, devices, appendLog, instDbPrefix);
+        const fixedRefs = fixFcInstanceDbReferences(normalized, appendLog, instDbPrefix);
+        const fixedFields = fixFbInstanceFieldRefs(fixedRefs, appendLog, instDbPrefix);
         const deduped2 = deduplicateFbCallParams(fixedFields, appendLog);
         const reconciled = reconcileUdtReferences(deduped2, appendLog);
-        return backfillGlobalDbFields(reconciled, appendLog);
+        return backfillGlobalDbFields(reconciled, appendLog, instDbPrefix);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         setError(msg);

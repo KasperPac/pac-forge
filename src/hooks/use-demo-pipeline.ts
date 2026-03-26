@@ -58,6 +58,7 @@ export interface DemoPipelineResult {
 const DEFAULT_PROJECT: Project = {
   id: "",
   client_name: "Demo",
+  client_id: null,
   project_number: null,
   design_profile_id: null,
   plc_brand: "SIEMENS_TIA",

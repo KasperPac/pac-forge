@@ -29,7 +29,9 @@ import type { SubPipelineStage } from "@/components/forge/forge-sub-pipeline";
 import { useForgeDeviceGenerate } from "@/hooks/use-forge-device-generate";
 import type { DeviceGenLogEntry } from "@/hooks/use-forge-device-generate";
 import { useForgeIoValidate } from "@/hooks/use-forge-io-validate";
-import { useForgeCompileCheck } from "@/hooks/use-forge-compile-check";
+import { useForgeCompileCheck, saveCompileFixPattern } from "@/hooks/use-forge-compile-check";
+import type { CompileFixProposal } from "@/hooks/use-forge-compile-check";
+import { ForgeCompileReview } from "@/components/forge/forge-compile-review";
 import { useCreatePatternCandidate } from "@/hooks/use-patterns";
 import { useAgents } from "@/hooks/use-agents";
 import { computeDiff, extractFocusedSnippets } from "@/lib/diff-engine";
@@ -38,6 +40,7 @@ import type { ForgeSession, ForgeArtifact, ForgeIoEntry, ForgeDeviceEntry } from
 import type { DesignProfile } from "@/types/design-profile";
 import type { FbTemplate } from "@/types/fb-template";
 import type { PatternCandidate } from "@/types";
+import type { ReviewFinding } from "@/lib/forge-review-parser";
 
 export interface ForgeDeviceCodeProps {
   session: ForgeSession;
@@ -133,9 +136,20 @@ export function ForgeDeviceCode({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [stages, setStages] = useState<SubPipelineStage[]>(INITIAL_STAGES);
   const [ioValidationSummary, setIoValidationSummary] = useState<string | null>(null);
+  const [ioFindings, setIoFindings] = useState<ReviewFinding[]>([]);
+  const [ioFindingsOpen, setIoFindingsOpen] = useState(false);
   const [compileErrors, setCompileErrors] = useState<string[]>([]);
+  const [, setCompileWarnings] = useState<string[]>([]);
   const [pipelineError, setPipelineError] = useState<string | null>(null);
   const [currentStepLabel, setCurrentStepLabel] = useState<string | null>(null);
+
+  // Compile review state (two-phase flow)
+  const [showCompileReview, setShowCompileReview] = useState(false);
+  const [compileProposals, setCompileProposals] = useState<CompileFixProposal[]>([]);
+  const [proposingFixes, setProposingFixes] = useState(false);
+  const [recompileSuccess, setRecompileSuccess] = useState<boolean | null>(null);
+  const [recompileErrors, setRecompileErrors] = useState<string[]>([]);
+  const [savingToLibrary, setSavingToLibrary] = useState(false);
 
   // Manual diff state (user-triggered, not auto-review)
   const [preRewriteArtifacts, setPreRewriteArtifacts] = useState<ForgeArtifact[] | null>(null);
@@ -147,7 +161,13 @@ export function ForgeDeviceCode({
 
   const { generateCallCode, loading: genLoading, progress, error: genError, log: genLog } = useForgeDeviceGenerate();
   const { validateIo, loading: ioValidateLoading } = useForgeIoValidate();
-  const { compileCheck, loading: compileLoading, progress: compileProgress } = useForgeCompileCheck();
+  const {
+    uploadAndCompile,
+    proposeFixes,
+    applyFixesAndRecompile,
+    loading: compileLoading,
+    progress: compileProgress,
+  } = useForgeCompileCheck();
   const { data: agents } = useAgents();
   const createPattern = useCreatePatternCandidate();
 
@@ -212,6 +232,8 @@ export function ForgeDeviceCode({
   async function handleGenerateAll() {
     setStages(INITIAL_STAGES.map(s => ({ ...s, status: "pending" })));
     setIoValidationSummary(null);
+    setIoFindings([]);
+    setIoFindingsOpen(false);
     setCompileErrors([]);
     setPipelineError(null);
     setCurrentStepLabel(null);
@@ -246,13 +268,16 @@ export function ForgeDeviceCode({
         setStageStatus("Validate IO", "running");
         setCurrentStepLabel("IO Validator checking signal mappings…");
         const ioResult = await validateIo(generated, ioList, deviceList, profile);
+        const issueFindings = ioResult.findings.filter(f => f.severity === "CRITICAL" || f.severity === "WARNING");
         if (ioResult.hasCritical || ioResult.hasWarning) {
-          const count = ioResult.findings.filter(f => f.severity === "CRITICAL" || f.severity === "WARNING").length;
-          setStageStatus("Validate IO", "completed", `${count} issues`);
-          setIoValidationSummary(`IO Validation: ${count} issue(s) found — review before approving.`);
+          setStageStatus("Validate IO", "completed", `${issueFindings.length} issues`);
+          setIoValidationSummary(`IO Validation: ${issueFindings.length} issue(s) found — review before approving.`);
+          setIoFindings(ioResult.findings);
+          setIoFindingsOpen(true);
         } else {
           setStageStatus("Validate IO", "completed", "clean");
           setIoValidationSummary("IO Validation passed — all IO signals correctly mapped.");
+          setIoFindings([]);
         }
       }
 
@@ -276,31 +301,95 @@ export function ForgeDeviceCode({
       return;
     }
 
+    // Reset compile review state
+    setShowCompileReview(false);
+    setCompileProposals([]);
+    setRecompileSuccess(null);
+    setRecompileErrors([]);
+
     setStageStatus("Approve", "completed", `${approved.length} approved`);
     setStageStatus("Upload", "running");
 
     try {
-      const result = await compileCheck(approved, tiaProjectPath, patterns);
+      // Phase 1: Upload & compile (no auto-fix)
+      const result = await uploadAndCompile(approved, tiaProjectPath);
 
       if (result.success) {
         setStageStatus("Upload", "completed");
         setStageStatus("Compile", "completed", "clean");
         setCompileErrors([]);
-        const updatedArtifacts = artifacts.map(orig => {
-          const fixed = result.artifacts.find(a => a.id === orig.id);
-          return fixed ?? orig;
-        });
-        setArtifacts(updatedArtifacts);
-        onArtifactsUpdate(updatedArtifacts);
+        setCompileWarnings(result.warnings);
       } else {
         setStageStatus("Upload", "completed");
-        setStageStatus("Compile", "failed", `${result.compileErrors.length} errors`);
-        setCompileErrors(result.compileErrors);
+        setStageStatus("Compile", "failed", `${result.errors.length} errors`);
+        setCompileErrors(result.errors);
+        setCompileWarnings(result.warnings);
+
+        // Show review panel and propose fixes
+        setShowCompileReview(true);
+        setProposingFixes(true);
+        const proposals = await proposeFixes(approved, result.errors, patterns);
+        setCompileProposals(proposals);
+        setProposingFixes(false);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setStageStatus("Compile", "failed", msg);
       setCompileErrors([msg]);
+    }
+  }
+
+  function handleUpdateProposal(artifactId: string, code: string) {
+    setCompileProposals(prev =>
+      prev.map(p => p.artifactId === artifactId ? { ...p, proposedCode: code } : p)
+    );
+  }
+
+  function handleToggleAccepted(artifactId: string) {
+    setCompileProposals(prev =>
+      prev.map(p => p.artifactId === artifactId ? { ...p, accepted: !p.accepted } : p)
+    );
+  }
+
+  async function handleApplyAndRecompile() {
+    const tiaProjectPath = session.tia_project_path;
+    if (!tiaProjectPath) return;
+
+    const approved = artifacts.filter(a => a.approved);
+    setRecompileSuccess(null);
+    setRecompileErrors([]);
+
+    const result = await applyFixesAndRecompile(approved, compileProposals, tiaProjectPath);
+
+    if (result.success) {
+      setRecompileSuccess(true);
+      setRecompileErrors([]);
+      setStageStatus("Compile", "completed", "clean (after fix)");
+      setCompileErrors([]);
+      // Update artifacts with fixed code
+      const updatedArtifacts = artifacts.map(orig => {
+        const fixed = result.artifacts.find(a => a.id === orig.id);
+        return fixed ?? orig;
+      });
+      setArtifacts(updatedArtifacts);
+      onArtifactsUpdate(updatedArtifacts);
+    } else {
+      setRecompileSuccess(false);
+      setRecompileErrors(result.compileErrors);
+      setStageStatus("Compile", "failed", `${result.compileErrors.length} errors after fix`);
+    }
+  }
+
+  async function handleSaveFixesToLibrary(artifactIds: string[]) {
+    setSavingToLibrary(true);
+    try {
+      for (const id of artifactIds) {
+        const proposal = compileProposals.find(p => p.artifactId === id);
+        if (!proposal || proposal.proposedCode === proposal.originalCode) continue;
+        await saveCompileFixPattern(proposal.artifactName, proposal.originalCode, proposal.proposedCode);
+      }
+    } finally {
+      setSavingToLibrary(false);
     }
   }
 
@@ -494,11 +583,13 @@ export function ForgeDeviceCode({
                         type="checkbox"
                         className="h-3 w-3 accent-amber-400"
                         checked={selectedForLibrary.has(a.id)}
-                        onChange={e => setSelectedForLibrary(prev => {
-                          const next = new Set(prev);
-                          e.target.checked ? next.add(a.id) : next.delete(a.id);
-                          return next;
-                        })}
+                        onChange={e => {
+                          setSelectedForLibrary(prev => {
+                            const next = new Set(prev);
+                            if (e.target.checked) { next.add(a.id); } else { next.delete(a.id); }
+                            return next;
+                          });
+                        }}
                       />
                       <span className="flex-1 font-mono text-amber-300/80">{a.name}</span>
                       {pre && (
@@ -558,8 +649,42 @@ export function ForgeDeviceCode({
         )}
 
         {ioValidationSummary && (
-          <div className={`flex items-center gap-2 rounded border px-3 py-2 text-xs ${ioValidationSummary.includes("passed") ? "border-green-600/30 bg-green-500/5 text-green-400" : "border-red-600/30 bg-red-500/5 text-red-400"}`}>
-            {ioValidationSummary}
+          <div className={`rounded border text-xs ${ioValidationSummary.includes("passed") ? "border-green-600/30 bg-green-500/5" : "border-red-600/30 bg-red-500/5"}`}>
+            <button
+              type="button"
+              onClick={() => ioFindings.length > 0 && setIoFindingsOpen(v => !v)}
+              className={`flex w-full items-center gap-2 px-3 py-2 text-left ${ioValidationSummary.includes("passed") ? "text-green-400" : "text-red-400"} ${ioFindings.length > 0 ? "cursor-pointer hover:bg-muted/10" : "cursor-default"}`}
+            >
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              <span className="flex-1">{ioValidationSummary}</span>
+              {ioFindings.length > 0 && (
+                ioFindingsOpen
+                  ? <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  : <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+              )}
+            </button>
+            {ioFindingsOpen && ioFindings.length > 0 && (
+              <div className="border-t border-border/30 px-3 py-2 space-y-1">
+                {ioFindings.map((f, i) => (
+                  <div key={i} className="flex items-start gap-2 font-mono text-[11px]">
+                    <Badge
+                      variant="outline"
+                      className={`shrink-0 px-1 py-0 text-[9px] ${
+                        f.severity === "CRITICAL"
+                          ? "border-red-500/50 text-red-400"
+                          : f.severity === "WARNING"
+                            ? "border-amber-500/50 text-amber-400"
+                            : "border-blue-500/50 text-blue-400"
+                      }`}
+                    >
+                      {f.severity}
+                    </Badge>
+                    <span className="shrink-0 text-muted-foreground">{f.artifactName}</span>
+                    <span className="text-foreground/80">{f.message}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -568,7 +693,7 @@ export function ForgeDeviceCode({
           <GenerationLog entries={genLog} />
         )}
 
-        {(genError ?? pipelineError ?? compileErrors.length > 0) && (
+        {(genError ?? pipelineError) && (
           <div className="flex flex-col gap-1 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2">
             {genError && (
               <div className="flex items-center gap-2 text-xs text-destructive">
@@ -582,13 +707,25 @@ export function ForgeDeviceCode({
                 {pipelineError}
               </div>
             )}
-            {compileErrors.map((e, i) => (
-              <div key={i} className="flex items-center gap-2 text-xs text-destructive">
-                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                {e}
-              </div>
-            ))}
           </div>
+        )}
+
+        {/* Compile error review panel (two-phase flow) */}
+        {showCompileReview && compileErrors.length > 0 && (
+          <ForgeCompileReview
+            compileErrors={compileErrors}
+            proposals={compileProposals}
+            proposing={proposingFixes}
+            recompiling={compileLoading}
+            recompileSuccess={recompileSuccess}
+            recompileErrors={recompileErrors}
+            onUpdateProposal={handleUpdateProposal}
+            onToggleAccepted={handleToggleAccepted}
+            onApplyAndRecompile={() => void handleApplyAndRecompile()}
+            onSaveToLibrary={(ids) => void handleSaveFixesToLibrary(ids)}
+            onDismiss={() => setShowCompileReview(false)}
+            savingToLibrary={savingToLibrary}
+          />
         )}
 
         <div className="flex items-center gap-2">

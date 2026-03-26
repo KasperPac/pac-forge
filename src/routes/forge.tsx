@@ -40,7 +40,7 @@ import {
 import { useForgeStore } from "@/stores/forge-store";
 import { FORGE_STEP_LABELS, FORGE_STEP_ORDER } from "@/types/forge";
 import type { ForgeStep, ForgeArtifact, ForgeHardwareConfig, ForgeIoEntry, ForgeDeviceEntry, SpecAnalysis, TiaForgeExportResult, QaMessage } from "@/types/forge";
-import type { ProcessLinkageMatrix } from "@/types/process-builder";
+import type { ProcessLinkageMatrix } from "@/types/forge-matrix";
 import {
   useActiveForgeSession,
   useCreateForgeSession,
@@ -107,6 +107,25 @@ export default function ForgePage() {
   };
   const { data: patterns = [] } = useActivePatterns("SIEMENS_TIA");
 
+  // Hydrate store from DB session on load
+  const hydrated = useForgeStore(s => s.hydrated);
+  const hydrateFromSession = useForgeStore(s => s.hydrateFromSession);
+  const setActiveSessionId = useForgeStore(s => s.setActiveSessionId);
+
+  useEffect(() => {
+    if (session && !hydrated) {
+      hydrateFromSession(session.current_step, session.step_statuses ?? {});
+    }
+  }, [session, hydrated, hydrateFromSession]);
+
+  // Expose active session ID so agent chat can access forge context
+  useEffect(() => {
+    if (session?.id) {
+      setActiveSessionId(session.id);
+    }
+    return () => setActiveSessionId(null);
+  }, [session?.id, setActiveSessionId]);
+
   // Auto-create session if none exists
   useEffect(() => {
     if (!sessionLoading && !session && projectId) {
@@ -121,10 +140,15 @@ export default function ForgePage() {
     }
   }, [currentStep, setStepStatus, stepStatuses]);
 
-  // Advance step
+  // Advance step — also persist step_statuses to DB
   function completeStep(step: ForgeStep) {
     setStepStatus(step, "completed");
     goToNextStep();
+    // Persist the updated step statuses to DB so they survive refresh
+    const updatedStatuses = { ...useForgeStore.getState().stepStatuses };
+    if (session) {
+      void updateSession({ id: session.id, updates: { step_statuses: updatedStatuses } });
+    }
   }
 
   // Session update helpers
@@ -161,6 +185,7 @@ export default function ForgePage() {
         },
         tia_project_path: setup.tia_project_path ?? null,
         device_fb_language: setup.device_fb_language,
+        device_call_fc_language: setup.device_call_fc_language,
         io_linking_language: setup.io_linking_language,
         process_code_language: setup.process_code_language,
         current_step: "hardware_io",
@@ -234,6 +259,7 @@ export default function ForgePage() {
     process_rules: [],
     fb_rules: [],
     device_fb_language: "SCL" as const,
+    device_call_fc_language: "SCL" as const,
     io_linking_language: "SCL" as const,
     process_code_language: "SCL" as const,
     hmi_theme: "default",
@@ -245,6 +271,7 @@ export default function ForgePage() {
     ...(profile ?? {}),
     // Apply session-level language overrides (set in project setup form)
     ...(session?.device_fb_language ? { device_fb_language: session.device_fb_language } : {}),
+    ...(session?.device_call_fc_language ? { device_call_fc_language: session.device_call_fc_language } : {}),
     ...(session?.io_linking_language ? { io_linking_language: session.io_linking_language } : {}),
     ...(session?.process_code_language ? { process_code_language: session.process_code_language } : {}),
   };
@@ -293,6 +320,7 @@ export default function ForgePage() {
             onComplete={handleProjectSetupComplete}
             onCanSubmitChange={setProjectSetupCanSave}
             initialDeviceFbLanguage={session.device_fb_language ?? undefined}
+            initialDeviceCallFcLanguage={session.device_call_fc_language ?? undefined}
             initialIoLinkingLanguage={session.io_linking_language ?? undefined}
             initialProcessCodeLanguage={session.process_code_language ?? undefined}
           />

@@ -33,6 +33,7 @@ import {
 import { useAgentChatStore } from "@/stores/agent-chat-store";
 import { usePacStStore } from "@/stores/pac-st-store";
 import { useTiaConsoleStore } from "@/stores/tia-console-store";
+import { useForgeStore } from "@/stores/forge-store";
 import { useAgentChat } from "@/hooks/use-agent-chat";
 import type { ChatMessage } from "@/types";
 
@@ -77,7 +78,8 @@ export function AgentChatPanel() {
       (s.compileFixSession?.messages.length ?? 0) > 0 ||
       s.pipelineSteps.length > 0,
   );
-  const hasSessionContext = hasPacStContext || hasTiaContext;
+  const hasForgeContext = useForgeStore((s) => s.activeSessionId != null);
+  const hasSessionContext = hasPacStContext || hasTiaContext || hasForgeContext;
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -191,7 +193,7 @@ export function AgentChatPanel() {
                 </p>
                 {hasSessionContext && (
                   <p className="text-[10px]">
-                    Has context from current session — ask about generated code.
+                    Has context from current session — ask about the wizard, generated code, or decisions made.
                   </p>
                 )}
               </div>

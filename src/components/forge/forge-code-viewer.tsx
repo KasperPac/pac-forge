@@ -75,13 +75,8 @@ export function ForgeCodeViewer({
     let program: LadProgram | null = null;
     try {
       const parsed = JSON.parse(artifact.content) as LadProgram;
-      // Validate that the structure matches what LadCanvas expects
-      if (
-        Array.isArray(parsed.rungs) &&
-        parsed.rungs.every(
-          (r) => r.logic && Array.isArray(r.logic.nodes),
-        )
-      ) {
+      // Validate that the structure has rungs — layout engine handles missing fields defensively
+      if (Array.isArray(parsed.rungs) && parsed.rungs.length > 0) {
         program = parsed;
       }
     } catch {

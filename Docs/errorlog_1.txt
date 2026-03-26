@@ -1,0 +1,207 @@
+16:12:33
+info
+ESTOP: generated UDT:typeEStopConfig, FB:ControlEStop, DB:InstESTOP
+16:12:33
+info
+Inputs DB: 16 fields — M01_RUN, M01_OL, PE01_DET, PE02_DET, PB_START, PB_STOP, ESTOP_OK, , , , , , , , ,
+16:12:33
+info
+Outputs DB: 16 fields — M01_CMD_FWD, M01_CMD_REV, , , , , , , , , , , , , ,
+16:12:33
+info
+Global DB "Configuration": 6 fields
+16:12:33
+info
+Global DB "FaultData": 6 fields
+16:12:33
+info
+Global DB "HmiData": 6 fields
+16:12:33
+info
+Global DB "SequenceState": 4 fields
+16:12:47
+info
+PhotoelectricSensorCall: calling instances [InstPE01, InstPE02], inputs [PE01_DET, PE02_DET, , , , , , , , , ], outputs [, , , , , , , , , , , , , ]
+16:12:47
+fix
+IO tag normalized in matrix wiring: "DI_PE01_DET" → "PE01_DET"
+16:12:47
+fix
+IO tag normalized in matrix wiring: "DI_PE02_DET" → "PE02_DET"
+16:13:00
+info
+PhotoelectricSensorCall: generated PhotoelectricSensorCall
+16:13:00
+info
+PushbuttonCall: calling instances [InstPBSTART, InstPBSTOP], inputs [PB_START, PB_STOP, , , , , , , , , ], outputs [, , , , , , , , , , , , , ]
+16:13:00
+fix
+IO tag normalized in matrix wiring: "DI_PB_START" → "PB_START"
+16:13:00
+fix
+IO tag normalized in matrix wiring: "DI_PB_STOP" → "PB_STOP"
+16:13:19
+info
+PushbuttonCall: generated PushbuttonCall
+16:13:19
+info
+ConveyorCall: calling instances [InstCV01], inputs [none], outputs [none]
+16:13:40
+info
+ConveyorCall: generated ConveyorCall
+16:13:40
+info
+EStopCall: calling instances [InstESTOP], inputs [ESTOP_OK, , , , , , , , , ], outputs [, , , , , , , , , , , , , ]
+16:13:40
+fix
+IO tag normalized in matrix wiring: "DI_ESTOP_OK" → "ESTOP_OK"
+16:14:03
+info
+EStopCall: generated EStopCall
+16:14:03
+info
+MotorDOLCall: calling instances [InstM01], inputs [M01_RUN, M01_OL, , , , , , , , , ], outputs [M01_CMD_FWD, M01_CMD_REV, , , , , , , , , , , , , , ]
+16:14:03
+fix
+IO tag normalized in matrix wiring: "DI_M01_RUN" → "M01_RUN"
+16:14:03
+fix
+IO tag normalized in matrix wiring: "DI_M01_OL" → "M01_OL"
+16:14:28
+info
+MotorDOLCall: generated MotorDOLCall
+16:14:28
+info
+Post-processing 28 artifacts…
+16:14:28
+fix
+UDT name corrected in Configuration: "typeMotorConfig" → "typeEStopConfig"
+16:14:28
+warn
+UDT "typeConveyorConfig" in Configuration has no matching UDT artifact — will cause compile error
+
+PLC_1,,113,1,4:15:47 PM
+Program blocks,,113,1,4:15:48 PM
+Forge,,112,1,4:15:48 PM
+PhotoelectricSensorCall (FC1),,12,0,4:15:48 PM
+12,Tag "HmiData".pe01ForcedCtrl not defined.,,,4:15:48 PM
+13,Tag "HmiData".pe01ForcedSignal not defined.,,,4:15:48 PM
+14,Tag "HmiData".pe01SensorDlyOnOff not defined.,,,4:15:48 PM
+15,Tag "HmiData".pe01SensorDlyOn not defined.,,,4:15:48 PM
+16,Tag "HmiData".pe01SensorDlyOff not defined.,,,4:15:48 PM
+17,Tag "HmiData".pe01Status not defined.,,,4:15:48 PM
+29,Tag "HmiData".pe02ForcedCtrl not defined.,,,4:15:48 PM
+30,Tag "HmiData".pe02ForcedSignal not defined.,,,4:15:48 PM
+31,Tag "HmiData".pe02SensorDlyOnOff not defined.,,,4:15:48 PM
+32,Tag "HmiData".pe02SensorDlyOn not defined.,,,4:15:48 PM
+33,Tag "HmiData".pe02SensorDlyOff not defined.,,,4:15:48 PM
+34,Tag "HmiData".pe02Status not defined.,,,4:15:48 PM
+PushbuttonCall (FC2),,35,0,4:15:48 PM
+40,Block "Configuration" that is accessed has not been compiled.,,,4:15:48 PM
+39,The formal parameter 'buttonInput' is invalid.,,,4:15:48 PM
+40,The formal parameter 'config' is invalid.,,,4:15:48 PM
+40,Tag "Configuration".pbStopConfig not defined.,,,4:15:48 PM
+41,The formal parameter 'reset' is invalid.,,,4:15:48 PM
+42,The formal parameter 'pressed' is invalid.,,,4:15:48 PM
+42,Tag "HmiData".pbStopPressed not defined.,,,4:15:48 PM
+38,Tag "InstPB_STOP" not defined.,,,4:15:48 PM
+43,The formal parameter 'shortHold' is invalid.,,,4:15:48 PM
+44,The formal parameter 'longHold' is invalid.,,,4:15:48 PM
+44,Tag "HmiData".pbStopLongHold not defined.,,,4:15:48 PM
+45,The formal parameter 'busy' is invalid.,,,4:15:48 PM
+45,Tag "HmiData".pbStopBusy not defined.,,,4:15:48 PM
+46,The formal parameter 'error' is invalid.,,,4:15:48 PM
+46,Tag "HmiData".pbStopError not defined.,,,4:15:48 PM
+43,Tag "HmiData".pbStopShortHold not defined.,,,4:15:48 PM
+47,The formal parameter 'status' is invalid.,,,4:15:48 PM
+23,Tag "HmiData".pbStartStatus not defined.,,,4:15:48 PM
+22,Tag "HmiData".pbStartError not defined.,,,4:15:48 PM
+14,Tag "InstPB_START" not defined.,,,4:15:48 PM
+15,The formal parameter 'buttonInput' is invalid.,,,4:15:48 PM
+16,The formal parameter 'config' is invalid.,,,4:15:48 PM
+16,Tag "Configuration".pbStartConfig not defined.,,,4:15:48 PM
+17,The formal parameter 'reset' is invalid.,,,4:15:48 PM
+18,The formal parameter 'pressed' is invalid.,,,4:15:48 PM
+23,The formal parameter 'status' is invalid.,,,4:15:48 PM
+18,Tag "HmiData".cv01Run not defined.,,,4:15:48 PM
+19,Tag "HmiData".pbStartShortHold not defined.,,,4:15:48 PM
+20,The formal parameter 'longHold' is invalid.,,,4:15:48 PM
+20,Tag "HmiData".pbStartLongHold not defined.,,,4:15:48 PM
+21,The formal parameter 'busy' is invalid.,,,4:15:48 PM
+21,Tag "HmiData".pbStartBusy not defined.,,,4:15:48 PM
+22,The formal parameter 'error' is invalid.,,,4:15:48 PM
+19,The formal parameter 'shortHold' is invalid.,,,4:15:48 PM
+47,Tag "HmiData".pbStopStatus not defined.,,,4:15:48 PM
+ConveyorCall (FC3),,19,0,4:15:48 PM
+36,Tag "HmiData".cv01Run not defined.,,,4:15:48 PM
+57,Tag "HmiData".cv01EndSensorFault not defined.,,,4:15:48 PM
+56,Tag "HmiData".cv01JamFault not defined.,,,4:15:48 PM
+55,Tag "HmiData".cv01TimeoutFault not defined.,,,4:15:48 PM
+54,Tag "HmiData".cv01RunningReverse not defined.,,,4:15:48 PM
+53,Tag "HmiData".cv01RunningForward not defined.,,,4:15:48 PM
+52,Tag "HmiData".cv01EStopActive not defined.,,,4:15:48 PM
+51,Tag "HmiData".cv01Faulted not defined.,,,4:15:48 PM
+58,Tag "HmiData".cv01Status not defined.,,,4:15:48 PM
+50,Tag "HmiData".cv01Idle not defined.,,,4:15:48 PM
+48,Tag "HmiData".cv01RunReverse not defined.,,,4:15:48 PM
+47,Tag "HmiData".cv01RunForward not defined.,,,4:15:48 PM
+42,Tag "InstPB_STOP".longHold not defined.,,,4:15:48 PM
+41,Tag "InstESTOP".pressed not defined.,,,4:15:48 PM
+39,Tag "InstPE02"._SensorDlyOn not defined.,,,4:15:48 PM
+38,Tag "InstPE01"._SensorDlyOn not defined.,,,4:15:48 PM
+37,Tag "HmiData".cv01Direction not defined.,,,4:15:48 PM
+49,Tag "HmiData".cv01Busy not defined.,,,4:15:48 PM
+59,Tag "HmiData".cv01Error not defined.,,,4:15:48 PM
+EStopCall (FC4),,19,0,4:15:48 PM
+34,Block "Configuration" that is accessed has not been compiled.,,,4:15:48 PM
+39,Tag "HmiData".eStopBusy not defined.,,,4:15:48 PM
+38,Parameters of the function or the function block do not match the transferred formal parameters.  ,,,4:15:48 PM
+38,Tag "HmiData".eStopLongHold not defined.,,,4:15:48 PM
+38,The formal parameter 'longHold' is invalid.,,,4:15:48 PM
+37,Parameters of the function or the function block do not match the transferred formal parameters.  ,,,4:15:48 PM
+37,Tag "HmiData".eStopShortHold not defined.,,,4:15:48 PM
+37,The formal parameter 'shortHold' is invalid.,,,4:15:48 PM
+40,Tag "HmiData".eStopError not defined.,,,4:15:48 PM
+36,Parameters of the function or the function block do not match the transferred formal parameters.  ,,,4:15:48 PM
+36,The formal parameter 'pressed' is invalid.,,,4:15:48 PM
+35,Parameters of the function or the function block do not match the transferred formal parameters.  ,,,4:15:48 PM
+35,Tag "InstPB_STOP".longHold not defined.,,,4:15:48 PM
+35,The formal parameter 'reset' is invalid.,,,4:15:48 PM
+34,Tag "Configuration".eStopConfig not defined.,,,4:15:48 PM
+33,Parameters of the function or the function block do not match the transferred formal parameters.  ,,,4:15:48 PM
+33,The formal parameter 'buttonInput' is invalid.,,,4:15:48 PM
+36,Tag "HmiData".eStopActive not defined.,,,4:15:48 PM
+41,Tag "HmiData".eStopStatus not defined.,,,4:15:48 PM
+MotorDOLCall (FC5),,10,0,4:15:48 PM
+43,Tag "InstESTOP".pressed not defined.,,,4:15:48 PM
+44,Tag "HmiData".m01Mode not defined.,,,4:15:48 PM
+47,Tag "HmiData".m01ManRun not defined.,,,4:15:48 PM
+48,Tag "HmiData".m01MaintRun not defined.,,,4:15:48 PM
+54,Tag "InstESTOP".pressed not defined.,,,4:15:48 PM
+56,Tag "InstPB_STOP".longHold not defined.,,,4:15:48 PM
+59,Tag "HmiData".m01RunFault not defined.,,,4:15:48 PM
+60,Tag "HmiData".m01StopFault not defined.,,,4:15:48 PM
+61,Tag "HmiData".m01GeneralFault not defined.,,,4:15:48 PM
+62,Tag "HmiData".m01Status not defined.,,,4:15:48 PM
+PE_Sensor (FB3),,17,1,4:15:48 PM
+2,Tag #_Sensor not defined.,,,4:15:48 PM
+38,Tag #_Status not defined.,,,4:15:48 PM
+37,Tag #_Forced_Ctrl not defined.,,,4:15:48 PM
+36,Tag #_Status not defined.,,,4:15:48 PM
+35,Tag #_Forced_Ctrl not defined.,,,4:15:48 PM
+34,Tag #_Status not defined.,,,4:15:48 PM
+33,Tag #_Forced_Ctrl not defined.,,,4:15:48 PM
+29,Tag #_SensorDlyOnOff not defined.,,,4:15:48 PM
+25,Tag #_SensorDlyOff not defined.,,,4:15:48 PM
+21,Tag #_SensorDlyOn not defined.,,,4:15:48 PM
+6,Tag #_ClearDly not defined.,,,4:15:48 PM
+4,Tag #_BlockedDly not defined.,,,4:15:48 PM
+2,Tag #_Forced_Ctrl not defined.,,,4:15:48 PM
+2,Tag #_Forced_Signal not defined.,,,4:15:48 PM
+2,Tag #_Forced_Ctrl not defined.,,,4:15:48 PM
+39,Tag #_Forced_Ctrl not defined.,,,4:15:48 PM
+40,Tag #_Status not defined.,,,4:15:48 PM
+Data blocks,,1,0,4:15:48 PM
+Configuration (DB5),,1,0,4:15:48 PM
+Interface,Data type "typeConveyorConfig" is unknown.,,,4:15:48 PM
+,Compiling finished (errors: 113; warnings: 1),,,4:15:50 PM

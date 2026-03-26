@@ -54,6 +54,7 @@ export interface RackSlotLayout {
 export interface Project {
   id: string;
   client_name: string;
+  client_id: string | null;
   project_number: string | null;
   design_profile_id: string | null;
   plc_brand: PlcBrand;

@@ -66,6 +66,7 @@ async function submitSclJob(
 async function importLadArtifact(
   artifact: ForgeArtifact,
   tiaProjectPath: string,
+  compile = false,
 ): Promise<ImportLadResponse | null> {
   try {
     const xmlContent = await buildLadXmlForArtifact(artifact);
@@ -73,7 +74,7 @@ async function importLadArtifact(
       xml_content: xmlContent,
       block_name: artifact.name,
       block_type: "FC",
-      compile: artifact.compile_after_import,
+      compile,
       tia_project_path: tiaProjectPath,
       destination_folder: artifact.destination_folder,
     };
@@ -162,17 +163,34 @@ export function useForgeTiaExport() {
           if (!sclResult.success) result.success = false;
         }
 
-        // 2. LAD imports (one at a time)
+        // 2. LAD imports (one at a time, compile only on the last one)
         if (ladArtifacts.length > 0) {
           setProgress({ phase: "lad", current: 0, total: ladArtifacts.length });
           for (let i = 0; i < ladArtifacts.length; i++) {
             setProgress({ phase: "lad", current: i + 1, total: ladArtifacts.length });
-            const ladResult = await importLadArtifact(ladArtifacts[i], tiaProjectPath);
-            if (ladResult?.success) {
+            const isLast = i === ladArtifacts.length - 1;
+            const ladResult = await importLadArtifact(ladArtifacts[i], tiaProjectPath, isLast);
+            if (ladResult) {
               result.lad_imported++;
+              // Capture compile errors/warnings from the final compile
+              if (ladResult.compile_result) {
+                for (const e of (ladResult.compile_result.errors ?? [])) {
+                  result.compile_errors.push(`${e.artifact_name ?? "?"}: ${e.error_text}`);
+                }
+                for (const w of (ladResult.compile_result.warnings ?? [])) {
+                  result.compile_warnings.push(`${w.artifact_name ?? "?"}: ${w.error_text}`);
+                }
+                if (!ladResult.compile_result.success) result.success = false;
+              }
+              if (!ladResult.success && !ladResult.compile_result) {
+                result.compile_errors.push(
+                  `LAD import failed: ${ladArtifacts[i].name} — ${ladResult.message ?? "unknown error"}`,
+                );
+                result.success = false;
+              }
             } else {
               result.compile_errors.push(
-                `LAD import failed: ${ladArtifacts[i].name} — ${ladResult?.message ?? "unknown error"}`,
+                `LAD import failed: ${ladArtifacts[i].name} — unknown error`,
               );
               result.success = false;
             }

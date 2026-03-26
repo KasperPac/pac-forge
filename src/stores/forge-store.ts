@@ -11,6 +11,10 @@ interface ForgeStoreState {
   stepStatuses: Record<ForgeStep, ForgeStepStatus>;
   setStepStatus: (step: ForgeStep, status: ForgeStepStatus) => void;
 
+  /** Active forge session ID — set when a session is loaded so agent chat can access it */
+  activeSessionId: string | null;
+  setActiveSessionId: (id: string | null) => void;
+
   selectedArtifactId: string | null;
   setSelectedArtifactId: (id: string | null) => void;
 
@@ -18,6 +22,11 @@ interface ForgeStoreState {
   setSpecText: (text: string | null) => void;
   specFilename: string | null;
   setSpecFilename: (name: string | null) => void;
+
+  /** Whether the store has been hydrated from a DB session this page load */
+  hydrated: boolean;
+  /** Restore step navigation state from a DB session */
+  hydrateFromSession: (currentStep: ForgeStep, stepStatuses: Partial<Record<ForgeStep, ForgeStepStatus>>) => void;
 
   canProceedToNext: () => boolean;
   goToNextStep: () => void;
@@ -44,9 +53,31 @@ const getStepIndex = (step: ForgeStep) => FORGE_STEP_ORDER.indexOf(step);
 export const useForgeStore = create<ForgeStoreState>((set, get) => ({
   currentStep: "spec_upload",
   stepStatuses: createInitialStepStatuses(),
+  activeSessionId: null,
+  setActiveSessionId: (id) => set({ activeSessionId: id }),
   selectedArtifactId: null,
   specText: null,
   specFilename: null,
+  hydrated: false,
+
+  hydrateFromSession: (dbStep, dbStatuses) => {
+    // Rebuild step statuses: all steps before current are "completed",
+    // current is "active", rest are from DB or "pending"
+    const currentIdx = getStepIndex(dbStep);
+    const statuses = createInitialStepStatuses();
+    for (let i = 0; i < FORGE_STEP_ORDER.length; i++) {
+      const step = FORGE_STEP_ORDER[i];
+      if (dbStatuses[step]) {
+        statuses[step] = dbStatuses[step]!;
+      } else if (i < currentIdx) {
+        statuses[step] = "completed";
+      } else if (i === currentIdx) {
+        statuses[step] = "active";
+      }
+      // else stays "pending" from createInitialStepStatuses
+    }
+    set({ currentStep: dbStep, stepStatuses: statuses, hydrated: true });
+  },
 
   setCurrentStep: (step) =>
     set((state) => {
@@ -152,5 +183,6 @@ export const useForgeStore = create<ForgeStoreState>((set, get) => ({
       selectedArtifactId: null,
       specText: null,
       specFilename: null,
+      hydrated: false,
     }),
 }));

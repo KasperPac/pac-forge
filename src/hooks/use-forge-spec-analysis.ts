@@ -7,6 +7,7 @@ import {
 } from "@/lib/forge-prompts";
 import type { SpecAnalysis } from "@/types/forge";
 import type { FbTemplate } from "@/types/fb-template";
+import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 
 const SPEC_ANALYSIS_MAX_TOKENS = 16384;
 
@@ -55,6 +56,7 @@ function validateSpecAnalysis(parsed: unknown): SpecAnalysis {
  *   const result = await analyze(specText);
  */
 export function useForgeSpecAnalysis() {
+  const { data: promptSections } = useActivePromptSections();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,7 +68,7 @@ export function useForgeSpecAnalysis() {
       const abort = new AbortController();
 
       try {
-        const systemPrompt = buildSpecAnalysisPrompt(fbTemplates);
+        const systemPrompt = buildSpecAnalysisPrompt(fbTemplates, promptSections);
         const userMessage = buildSpecAnalysisUserMessage(specText);
 
         const { content } = await validateAndCall(

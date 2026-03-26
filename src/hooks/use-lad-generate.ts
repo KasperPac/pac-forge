@@ -8,11 +8,12 @@ import { supabase } from "@/lib/supabase";
 import { buildLadSystemPrompt } from "@/lib/lad-prompt-builder";
 import { getRelevantReferenceSections } from "@/lib/reference-lookup";
 import type { LadProgram } from "@/types/lad";
-import type { AgentKnowledgeDoc } from "@/types";
+import type { AgentKnowledgeDoc, DesignProfile } from "@/types";
 
 interface UseLadGenerateOptions {
   agentKnowledgeDocs?: AgentKnowledgeDoc[];
   promptSections?: Record<string, string>;
+  designProfile?: DesignProfile;
 }
 
 interface UseLadGenerateReturn {
@@ -43,7 +44,7 @@ export function useLadGenerate(options?: UseLadGenerateOptions): UseLadGenerateR
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { agentKnowledgeDocs, promptSections } = options ?? {};
+  const { agentKnowledgeDocs, promptSections, designProfile } = options ?? {};
 
   const generate = useCallback(async (prompt: string): Promise<LadProgram | null> => {
     setLoading(true);
@@ -71,7 +72,7 @@ export function useLadGenerate(options?: UseLadGenerateOptions): UseLadGenerateR
 
       const { data, error: fnError } = await supabase.functions.invoke("generate", {
         body: {
-          system_prompt: buildLadSystemPrompt(agentKnowledgeDocs, referenceSections),
+          system_prompt: buildLadSystemPrompt(agentKnowledgeDocs, referenceSections, designProfile),
           messages: [{ role: "user", content: prompt }],
           max_tokens: 8192,
         },
@@ -87,7 +88,7 @@ export function useLadGenerate(options?: UseLadGenerateOptions): UseLadGenerateR
     } finally {
       setLoading(false);
     }
-  }, [agentKnowledgeDocs, promptSections]);
+  }, [agentKnowledgeDocs, promptSections, designProfile]);
 
   const generateFromImage = useCallback(
     async (imageBase64: string, prompt?: string): Promise<LadProgram | null> => {
@@ -118,7 +119,7 @@ export function useLadGenerate(options?: UseLadGenerateOptions): UseLadGenerateR
 
         const { data, error: fnError } = await supabase.functions.invoke("generate", {
           body: {
-            system_prompt: buildLadSystemPrompt(agentKnowledgeDocs, referenceSections),
+            system_prompt: buildLadSystemPrompt(agentKnowledgeDocs, referenceSections, designProfile),
             messages: [
               {
                 role: "user",
@@ -153,7 +154,7 @@ export function useLadGenerate(options?: UseLadGenerateOptions): UseLadGenerateR
         setLoading(false);
       }
     },
-    [agentKnowledgeDocs, promptSections],
+    [agentKnowledgeDocs, promptSections, designProfile],
   );
 
   return { generate, generateFromImage, loading, error };

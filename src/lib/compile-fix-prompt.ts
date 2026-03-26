@@ -1,5 +1,5 @@
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
-import { formatIoList, formatFbTemplates, formatRackLayout } from "@/lib/prompt-builder";
+import { formatIoList, formatFbTemplates, formatRackLayout, formatDesignProfile } from "@/lib/prompt-builder";
 import { getAgentProfile } from "@/lib/agent-profiles";
 import { buildPriorityHierarchyBlock } from "@/lib/knowledge-priority";
 import type { PatternCandidate, DesignProfile, AgentKnowledgeDoc, Project, FbTemplate, ReferenceLibrarySection } from "@/types";
@@ -62,10 +62,9 @@ ${formatIoList(project.io_lists)}` : "";
       ? `\n\n${formatFbTemplates(fbTemplates)}`
       : "";
 
-  const profileSection =
-    designProfile?.rules?.trim()
-      ? `\n\n## Code Design Profile: ${designProfile.name}\n\n${designProfile.rules}`
-      : "";
+  const profileSection = designProfile
+    ? `\n\n${formatDesignProfile(designProfile, "general")}`
+    : "";
 
   const knowledgeSection =
     knowledgeDocs && knowledgeDocs.length > 0

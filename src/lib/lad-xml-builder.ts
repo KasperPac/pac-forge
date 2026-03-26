@@ -74,6 +74,8 @@ function getPartName(el: LadElement): string {
       return el.mathOperator ?? "Add";
     case "MOVE":
       return "Move";
+    case "FB_CALL":
+      return el.fbName ?? el.operand;
     default:
       return "Contact";
   }
@@ -113,11 +115,6 @@ interface ChainResult {
   /** UID of the last element's rung-flow "out" pin */
   outUid: number;
   outPin: string;
-  /**
-   * Additional rung-flow entry points (parallel branch starts beyond the first).
-   * The upstream wire must fan out to ALL of these in addition to inUid/inPin.
-   */
-  extraIns?: Array<{ uid: number; pin: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -125,12 +122,31 @@ interface ChainResult {
 // ---------------------------------------------------------------------------
 
 function buildAccessNode(uid: number, operand: string, scope?: string): string {
-  // Strip leading # (local var marker) and surrounding quotes (global var marker)
-  const stripped = operand.replace(/^#/, "").replace(/^"/, "").replace(/"$/, "");
+  // Strip leading # (local var marker)
+  const noHash = operand.replace(/^#/, "");
   // Determine scope: explicit override → #-prefixed → GlobalVariable (IO tags, global DBs)
   const resolvedScope = scope ?? (operand.startsWith("#") ? "LocalVariable" : "GlobalVariable");
+  // Strip ALL quote characters
+  const stripped = noHash.replace(/"/g, "");
   const parts = stripped.split(".");
-  const components = parts.map((p) => `              <Component Name="${esc(p)}" />`).join("\n");
+  const components = parts.map((p) => {
+    // Handle array access: S[90] → <Component Name="S" AccessModifier="Array"><Access>...</Access></Component>
+    // Matches TIA Portal's export format exactly
+    const arrMatch = p.match(/^(\w+)\[(\d+)\]$/);
+    if (arrMatch) {
+      return `              <Component Name="${esc(arrMatch[1])}" AccessModifier="Array">
+                <Access Scope="LiteralConstant">
+                  <Constant>
+                    <ConstantType>DInt</ConstantType>
+                    <ConstantValue>${arrMatch[2]}</ConstantValue>
+                  </Constant>
+                </Access>
+              </Component>`;
+    }
+    // Skip empty component names (from leading dots or double dots)
+    if (!p.trim()) return null;
+    return `              <Component Name="${esc(p)}" />`;
+  }).filter(Boolean).join("\n");
   return `          <Access Scope="${resolvedScope}" UId="${uid}">
             <Symbol>
 ${components}
@@ -226,7 +242,9 @@ function processElement(
     parts.push({ uid: partUid, isAccess: false, xml: instXml });
 
     // PT (preset time) — TypedConstant for time literals
-    const ptValue = el.presetTime ?? "T#1s";
+    // AI may use "pt" instead of "presetTime"
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ptValue = el.presetTime ?? (el as any).pt ?? "T#1s";
     const ptUid = counter.next();
     parts.push({ uid: ptUid, isAccess: true, xml: buildTypedConstantAccess(ptUid, ptValue) });
 
@@ -438,6 +456,120 @@ function processElement(
     return { inUid: partUid, inPin: "en", outUid: partUid, outPin: "eno" };
   }
 
+  // ── FB Call ───────────────────────────────────────────────────────────────
+  // Generates a Call block with CallInfo + Instance + Parameter declarations.
+  // Confirmed from TIA V18 export — FB calls use <Call> + <CallInfo>, NOT <Part>.
+  //
+  // SimaticML structure (from real TIA export):
+  //   <Call UId="X">
+  //     <CallInfo Name="FBName" BlockType="FB">
+  //       <Instance Scope="GlobalVariable" UId="Y">
+  //         <Component Name="InstanceDbName" />
+  //       </Instance>
+  //       <Parameter Name="paramName" Section="Input" Type="Bool" />
+  //       ...
+  //     </CallInfo>
+  //   </Call>
+  //   + Access nodes for connected param values
+  //   + Wires: connected params use IdentCon, unconnected use OpenCon
+  if (el.type === "FB_CALL") {
+    const fbName = el.fbName ?? el.operand;
+    const instDbName = el.fbInstanceDb ?? el.instanceDb ?? fbName;
+    const params = el.callParams ?? [];
+
+    // Map direction to SimaticML Section name
+    const sectionName = (dir: string) => {
+      if (dir === "in") return "Input";
+      if (dir === "out") return "Output";
+      return "InOut";
+    };
+
+    // Build Parameter declarations
+    const paramDecls = params
+      .map(p => `            <Parameter Name="${esc(p.name)}" Section="${sectionName(p.direction)}" Type="${esc(p.dataType ?? "Variant")}" />`)
+      .join("\n");
+
+    // Instance + CallInfo
+    const instUid = counter.next();
+    const callXml = `          <Call UId="${partUid}">
+            <CallInfo Name="${esc(fbName)}" BlockType="FB">
+              <Instance Scope="GlobalVariable" UId="${instUid}">
+                <Component Name="${esc(instDbName)}" />
+              </Instance>
+${paramDecls}
+            </CallInfo>
+          </Call>`;
+    parts.push({ uid: partUid, isAccess: false, xml: callXml });
+
+    // Wire each parameter — connected params get Access + IdentCon, unconnected get OpenCon
+    for (const param of params) {
+      const value = param.value?.trim();
+      const hasValue = value && value !== "" && value !== "-";
+
+      if (hasValue) {
+        // Connected parameter — create Access node + wire with IdentCon
+        const accessUid = counter.next();
+
+        // Detect literals vs tag references
+        const isTimeLiteral = /^T#/i.test(value);
+        const isNumLiteral = /^-?\d+(\.\d+)?$/.test(value);
+        const isBoolLiteral = /^(true|false)$/i.test(value);
+
+        if (isTimeLiteral) {
+          parts.push({ uid: accessUid, isAccess: true, xml: buildTypedConstantAccess(accessUid, value) });
+        } else if (isNumLiteral) {
+          parts.push({ uid: accessUid, isAccess: true, xml: buildLiteralAccess(accessUid, value, param.dataType ?? "Int") });
+        } else if (isBoolLiteral) {
+          parts.push({ uid: accessUid, isAccess: true, xml: buildLiteralAccess(accessUid, value.toLowerCase(), "Bool") });
+        } else {
+          parts.push({ uid: accessUid, isAccess: true, xml: buildAccessNode(accessUid, value) });
+        }
+
+        const wireUid = counter.next();
+        if (param.direction === "in" || param.direction === "inout") {
+          wires.push({
+            uid: wireUid,
+            xml: `          <Wire UId="${wireUid}">
+            <IdentCon UId="${accessUid}" />
+            <NameCon UId="${partUid}" Name="${esc(param.name)}" />
+          </Wire>`,
+          });
+        } else {
+          wires.push({
+            uid: wireUid,
+            xml: `          <Wire UId="${wireUid}">
+            <NameCon UId="${partUid}" Name="${esc(param.name)}" />
+            <IdentCon UId="${accessUid}" />
+          </Wire>`,
+          });
+        }
+      } else {
+        // Unconnected parameter — wire with OpenCon
+        const openUid = counter.next();
+        const wireUid = counter.next();
+        if (param.direction === "in" || param.direction === "inout") {
+          wires.push({
+            uid: wireUid,
+            xml: `          <Wire UId="${wireUid}">
+            <OpenCon UId="${openUid}" />
+            <NameCon UId="${partUid}" Name="${esc(param.name)}" />
+          </Wire>`,
+          });
+        } else {
+          wires.push({
+            uid: wireUid,
+            xml: `          <Wire UId="${wireUid}">
+            <NameCon UId="${partUid}" Name="${esc(param.name)}" />
+            <OpenCon UId="${openUid}" />
+          </Wire>`,
+          });
+        }
+      }
+    }
+
+    return { inUid: partUid, inPin: "en", outUid: partUid, outPin: "eno" };
+  }
+
   // Fallback
   const accessUid = counter.next();
   parts.push({ uid: accessUid, isAccess: true, xml: buildAccessNode(accessUid, el.operand ?? "?") });
@@ -454,18 +586,45 @@ function processElement(
 }
 
 // ---------------------------------------------------------------------------
-// Parallel (OR) branch processor
+// NEW ARCHITECTURE: Two-pass wiring
+//
+// TIA Portal wires the Powerrail to EVERY first contact across ALL nesting
+// levels in a single flat <Wire>. It does NOT route through O-Parts or
+// intermediate elements. Our old approach used "extraIns" propagation which
+// broke for nested parallels.
+//
+// New approach:
+// Pass 1 (processChain/processParallel/processNode): Generate Parts, wire
+//   branch outputs → O-Part inputs, wire series element-to-element. Collect
+//   ALL leaf-level powerrail targets in a flat array.
+// Pass 2 (buildRungPartsAndWires): Create a single Powerrail wire that fans
+//   to every collected entry point.
 // ---------------------------------------------------------------------------
 
-function processParallel(
+/** Extended result that collects ALL powerrail targets recursively */
+interface ChainResult2 {
+  /** UID of the first element (for upstream wiring in series) */
+  inUid: number;
+  /** Pin name of first element's input */
+  inPin: string;
+  /** UID of the last element (for downstream wiring in series) */
+  outUid: number;
+  /** Pin name of last element's output */
+  outPin: string;
+  /** ALL entry contacts that need powerrail connection — flat across all nesting */
+  powerrailTargets: Array<{ uid: number; pin: string }>;
+}
+
+function processParallel2(
   node: LadNode & { type: "parallel" },
   counter: UidCounter,
   parts: PartEntry[],
   wires: WireEntry[],
-): ChainResult {
-  const N = node.branches.length;
-  if (N === 0) return { inUid: -1, inPin: "in", outUid: -1, outPin: "out" };
-  if (N === 1) return processChain(node.branches[0], counter, parts, wires);
+): ChainResult2 {
+  const branches = node.branches ?? [];
+  const N = branches.length;
+  if (N === 0) return { inUid: -1, inPin: "in", outUid: -1, outPin: "out", powerrailTargets: [] };
+  if (N === 1) return processChain2(branches[0], counter, parts, wires);
 
   // Create O Part (OR gate) with N inputs
   const oUid = counter.next();
@@ -478,90 +637,102 @@ function processParallel(
   });
 
   // Process each branch, wire branch.out → O.inN
-  const branchInUids: Array<{ uid: number; pin: string }> = [];
+  // Collect ALL powerrail targets from all branches (flat)
+  const allPowerrailTargets: Array<{ uid: number; pin: string }> = [];
 
-  for (let i = 0; i < node.branches.length; i++) {
-    const br = processChain(node.branches[i], counter, parts, wires);
-    branchInUids.push({ uid: br.inUid, pin: br.inPin });
+  for (let i = 0; i < branches.length; i++) {
+    const br = processChain2(branches[i], counter, parts, wires);
 
-    const w = counter.next();
-    wires.push({
-      uid: w,
-      xml: `          <Wire UId="${w}">
+    // Collect powerrail targets from this branch (recursive — includes nested parallels)
+    allPowerrailTargets.push(...br.powerrailTargets);
+
+    // Wire branch output → O-Part input
+    if (br.outUid >= 0) {
+      const w = counter.next();
+      wires.push({
+        uid: w,
+        xml: `          <Wire UId="${w}">
             <NameCon UId="${br.outUid}" Name="${br.outPin}" />
             <NameCon UId="${oUid}" Name="in${i + 1}" />
           </Wire>`,
-    });
+      });
+    }
   }
 
-  // Return: inUid = first branch, extraIns = remaining branches
-  // The caller will fan the upstream wire to ALL branch starts.
   return {
-    inUid: branchInUids[0].uid,
-    inPin: branchInUids[0].pin,
-    extraIns: branchInUids.slice(1),
+    inUid: allPowerrailTargets[0]?.uid ?? -1,
+    inPin: allPowerrailTargets[0]?.pin ?? "in",
     outUid: oUid,
     outPin: "out",
+    powerrailTargets: allPowerrailTargets,
   };
 }
 
-// ---------------------------------------------------------------------------
-// Node dispatcher
-// ---------------------------------------------------------------------------
-
-function processNode(
+function processNode2(
   node: LadNode,
   counter: UidCounter,
   parts: PartEntry[],
   wires: WireEntry[],
-): ChainResult {
+): ChainResult2 {
   if (node.type === "element") {
-    return processElement(node.element, counter, parts, wires);
+    const r = processElement(node.element, counter, parts, wires);
+    return {
+      ...r,
+      powerrailTargets: [{ uid: r.inUid, pin: r.inPin }],
+    };
   }
-  return processParallel(node, counter, parts, wires);
+  return processParallel2(node, counter, parts, wires);
 }
 
-// ---------------------------------------------------------------------------
-// Series chain processor
-// ---------------------------------------------------------------------------
-
-function processChain(
+function processChain2(
   chain: LadSeriesChain,
   counter: UidCounter,
   parts: PartEntry[],
   wires: WireEntry[],
-): ChainResult {
+): ChainResult2 {
+  // Guard: bare element or parallel passed as a "branch"
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const raw = chain as any;
+  if (raw.type === "element") {
+    const r = processElement(raw.element, counter, parts, wires);
+    return { ...r, powerrailTargets: [{ uid: r.inUid, pin: r.inPin }] };
+  }
+  if (raw.type === "parallel") {
+    return processParallel2(raw, counter, parts, wires);
+  }
+
+  const nodes = chain.nodes ?? [];
+  if (nodes.length === 0) {
+    return { inUid: -1, inPin: "in", outUid: -1, outPin: "out", powerrailTargets: [] };
+  }
+
   let prevOutUid = -1;
   let prevOutPin = "";
-  let firstInUid = -1;
-  let firstInPin = "";
-  let firstExtraIns: Array<{ uid: number; pin: string }> = [];
+  let firstPowerrailTargets: Array<{ uid: number; pin: string }> = [];
 
-  for (let i = 0; i < chain.nodes.length; i++) {
-    const node = chain.nodes[i];
-    const nodeResult = processNode(node, counter, parts, wires);
+  for (let i = 0; i < nodes.length; i++) {
+    const nodeResult = processNode2(nodes[i], counter, parts, wires);
 
     if (i === 0) {
-      firstInUid = nodeResult.inUid;
-      firstInPin = nodeResult.inPin;
-      firstExtraIns = nodeResult.extraIns ?? [];
+      // First node: its powerrail targets become the chain's powerrail targets
+      firstPowerrailTargets = nodeResult.powerrailTargets;
     } else {
-      // Wire from previous output to ALL inputs of this node.
-      // Parallel branches expose multiple entry points (extraIns).
-      const allTargets = [
-        { uid: nodeResult.inUid, pin: nodeResult.inPin },
-        ...(nodeResult.extraIns ?? []),
-      ];
-      const targetsXml = allTargets
-        .map((t) => `\n            <NameCon UId="${t.uid}" Name="${t.pin}" />`)
-        .join("");
-      const wireUid = counter.next();
-      wires.push({
-        uid: wireUid,
-        xml: `          <Wire UId="${wireUid}">
+      // Subsequent nodes: wire previous output → this node's powerrail targets
+      // This handles the case where a parallel is not the first element in a chain —
+      // the upstream contact's output fans to ALL branch entry contacts.
+      const targets = nodeResult.powerrailTargets;
+      if (targets.length > 0 && prevOutUid >= 0) {
+        const targetsXml = targets
+          .map((t) => `\n            <NameCon UId="${t.uid}" Name="${t.pin}" />`)
+          .join("");
+        const wireUid = counter.next();
+        wires.push({
+          uid: wireUid,
+          xml: `          <Wire UId="${wireUid}">
             <NameCon UId="${prevOutUid}" Name="${prevOutPin}" />${targetsXml}
           </Wire>`,
-      });
+        });
+      }
     }
 
     prevOutUid = nodeResult.outUid;
@@ -569,11 +740,11 @@ function processChain(
   }
 
   return {
-    inUid: firstInUid,
-    inPin: firstInPin,
+    inUid: firstPowerrailTargets[0]?.uid ?? -1,
+    inPin: firstPowerrailTargets[0]?.pin ?? "in",
     outUid: prevOutUid,
     outPin: prevOutPin,
-    extraIns: firstExtraIns,
+    powerrailTargets: firstPowerrailTargets,
   };
 }
 
@@ -588,23 +759,27 @@ function buildRungPartsAndWires(
   const parts: PartEntry[] = [];
   const wires: WireEntry[] = [];
 
-  const result = processChain(rung.logic, counter, parts, wires);
+  // Normalize: if rung.logic is a parallel (not a series chain), wrap it
+  const logic: LadSeriesChain = rung.logic?.type === "series"
+    ? rung.logic
+    : { type: "series", nodes: [rung.logic as unknown as LadNode] };
+  const result = processChain2(logic, counter, parts, wires);
 
-  // Powerrail wire fans to ALL first-node inputs (handles parallel branches at start)
-  const allFirstIns = [
-    { uid: result.inUid, pin: result.inPin },
-    ...(result.extraIns ?? []),
-  ];
-  const targetsXml = allFirstIns
-    .map((t) => `\n            <NameCon UId="${t.uid}" Name="${t.pin}" />`)
-    .join("");
-  const railWireUid = counter.next();
-  wires.push({
-    uid: railWireUid,
-    xml: `          <Wire UId="${railWireUid}">
+  // Single Powerrail wire fans to ALL entry contacts — flat across all nesting levels
+  // This matches TIA Portal's export format exactly.
+  const targets = result.powerrailTargets.filter(t => t.uid >= 0);
+  if (targets.length > 0) {
+    const targetsXml = targets
+      .map((t) => `\n            <NameCon UId="${t.uid}" Name="${t.pin}" />`)
+      .join("");
+    const railWireUid = counter.next();
+    wires.push({
+      uid: railWireUid,
+      xml: `          <Wire UId="${railWireUid}">
             <Powerrail />${targetsXml}
           </Wire>`,
-  });
+    });
+  }
 
   return { parts, wires };
 }
@@ -716,14 +891,21 @@ ${wiresXml}
 export function buildLadXml(program: LadProgram, tiaVersion: string = "V18"): string {
   const counter = new UidCounter();
 
+  // Auto-upgrade FC → FB if the program has static variables (timers, step bits, latches).
+  // FCs cannot have static state — they lose data every scan cycle.
+  let effectiveBlockType = program.blockType;
+  if (effectiveBlockType === "FC" && program.variables.some(v => v.section === "Static")) {
+    effectiveBlockType = "FB";
+  }
+
   const blockElement =
-    program.blockType === "FC"
+    effectiveBlockType === "FC"
       ? "SW.Blocks.FC"
-      : program.blockType === "OB"
+      : effectiveBlockType === "OB"
         ? "SW.Blocks.OB"
         : "SW.Blocks.FB";
 
-  const interfaceXml = buildInterface(program.variables, program.blockType);
+  const interfaceXml = buildInterface(program.variables, effectiveBlockType);
 
   const compileUnits = program.rungs
     .map((rung, i) => buildCompileUnit(rung, i, counter))

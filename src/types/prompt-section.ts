@@ -12,26 +12,31 @@ export interface PromptSection {
 
 export const PROMPT_ROLES = {
   SHARED: "shared",
-  GENERATE: "generate",
-  PROCESS: "process",
-  REVIEW: "review",
-  REWRITE: "rewrite",
-  COMPILE_FIX: "compile_fix",
-  PLAN: "plan",
-  SUMMARY: "summary",
-  PATTERNS: "patterns",
-  FB_BUILDER: "fb_builder",
-  PROCESS_QA: "process_qa",
-  PROCESS_MATRIX_REVIEW: "process_matrix_review",
-  PROCESS_IO: "process_io",
-  PROCESS_FOLDERS: "process_folders",
-  PROCESS_FB: "process_fb",
-  PROCESS_DB: "process_db",
-  PROCESS_FC: "process_fc",
+  // Project Manager
+  FORGE_PM_SPEC_ANALYSIS: "forge_pm_spec_analysis",
+  FORGE_PM_QA_REVIEW: "forge_pm_qa_review",
+  FORGE_PM_DEVICE_LINKAGE: "forge_pm_device_linkage",
+  FORGE_PM_SEQUENCES: "forge_pm_sequences",
+  // Code Architect
+  FORGE_ARCH_DEVICE: "forge_arch_device",
+  FORGE_ARCH_CALL_FC: "forge_arch_call_fc",
+  FORGE_ARCH_IO_LINKING: "forge_arch_io_linking",
+  FORGE_ARCH_PROCESS: "forge_arch_process",
+  FORGE_ARCH_REWRITE: "forge_arch_rewrite",
+  FORGE_ARCH_COMPILE_FIX: "forge_arch_compile_fix",
+  // Standards Reviewer
+  FORGE_REVIEWER: "forge_reviewer",
   REVIEW_SCOPE_IO: "review_scope_io",
   REVIEW_SCOPE_FB: "review_scope_fb",
   REVIEW_SCOPE_DB: "review_scope_db",
   REVIEW_SCOPE_FC: "review_scope_fc",
+  // IO Validator
+  FORGE_IO_VALIDATOR: "forge_io_validator",
+  // Pattern Librarian
+  FORGE_PATTERN_LIBRARIAN: "forge_pattern_librarian",
+  // Safety Auditor
+  FORGE_SAFETY_AUDITOR: "forge_safety_auditor",
+  // HMI Agent
   HMI_DESIGNER: "hmi_designer",
   HMI_SVG_GENERATOR: "hmi_svg_generator",
 } as const;
@@ -41,26 +46,31 @@ export type PromptRole = (typeof PROMPT_ROLES)[keyof typeof PROMPT_ROLES];
 /** Human-readable labels for each role */
 export const PROMPT_ROLE_LABELS: Record<PromptRole, string> = {
   shared: "Shared (Platform Rules & Examples)",
-  generate: "Generate",
-  process: "Process Code",
-  review: "Review",
-  rewrite: "Rewrite",
-  compile_fix: "Compile Fix",
-  plan: "Plan",
-  summary: "Summary",
-  patterns: "Pattern Analysis",
-  fb_builder: "FB Builder",
-  process_qa: "Process Q&A",
-  process_matrix_review: "Process: Matrix Review",
-  process_io: "Process: IO Stage",
-  process_folders: "Process: Folder Stage",
-  process_fb: "Process: FB Stage",
-  process_db: "Process: DB Stage",
-  process_fc: "Process: FC+OB Stage",
+  // Project Manager
+  forge_pm_spec_analysis: "Spec Analysis",
+  forge_pm_qa_review: "Q&A Review",
+  forge_pm_device_linkage: "Matrix: Device Linkage",
+  forge_pm_sequences: "Matrix: Process Sequences",
+  // Code Architect
+  forge_arch_device: "Device FB Generation",
+  forge_arch_call_fc: "Device Call FC",
+  forge_arch_io_linking: "IO Linking FC",
+  forge_arch_process: "Process Code",
+  forge_arch_rewrite: "Rewrite from Review",
+  forge_arch_compile_fix: "Compile Fix",
+  // Standards Reviewer
+  forge_reviewer: "Code Review",
   review_scope_io: "Review: IO Stage Scope",
   review_scope_fb: "Review: FB Stage Scope",
   review_scope_db: "Review: DB Stage Scope",
   review_scope_fc: "Review: FC+OB Stage Scope",
+  // IO Validator
+  forge_io_validator: "IO Validation",
+  // Pattern Librarian
+  forge_pattern_librarian: "Pattern Analysis",
+  // Safety Auditor
+  forge_safety_auditor: "Safety Audit",
+  // HMI Agent
   hmi_designer: "HMI Screen Designer",
   hmi_svg_generator: "HMI SVG Generator",
 };
@@ -68,26 +78,31 @@ export const PROMPT_ROLE_LABELS: Record<PromptRole, string> = {
 /** Which section keys each role supports */
 export const ROLE_SECTIONS: Record<PromptRole, string[]> = {
   shared: ["platform_rules", "code_examples", "reference_retrieval"],
-  generate: ["identity", "instructions"],
-  process: ["identity", "instructions"],
-  review: ["identity", "instructions"],
-  rewrite: ["identity", "instructions"],
-  compile_fix: ["identity", "instructions"],
-  plan: ["identity", "instructions"],
-  summary: ["identity", "instructions"],
-  patterns: ["identity", "instructions"],
-  fb_builder: ["identity", "instructions"],
-  process_qa: ["identity", "instructions"],
-  process_matrix_review: ["instructions"],
-  process_io: ["instructions"],
-  process_folders: ["instructions"],
-  process_fb: ["instructions"],
-  process_db: ["instructions"],
-  process_fc: ["instructions"],
+  // Project Manager
+  forge_pm_spec_analysis: ["identity", "instructions"],
+  forge_pm_qa_review: ["identity", "instructions"],
+  forge_pm_device_linkage: ["identity", "instructions"],
+  forge_pm_sequences: ["identity", "instructions"],
+  // Code Architect
+  forge_arch_device: ["identity", "instructions"],
+  forge_arch_call_fc: ["identity", "instructions"],
+  forge_arch_io_linking: ["identity", "instructions"],
+  forge_arch_process: ["identity", "instructions"],
+  forge_arch_rewrite: ["identity", "instructions"],
+  forge_arch_compile_fix: ["identity", "instructions"],
+  // Standards Reviewer
+  forge_reviewer: ["identity", "instructions"],
   review_scope_io: ["scope"],
   review_scope_fb: ["scope"],
   review_scope_db: ["scope"],
   review_scope_fc: ["scope"],
+  // IO Validator
+  forge_io_validator: ["identity", "instructions"],
+  // Pattern Librarian
+  forge_pattern_librarian: ["identity", "instructions"],
+  // Safety Auditor
+  forge_safety_auditor: ["identity", "instructions"],
+  // HMI Agent
   hmi_designer: ["identity", "instructions"],
   hmi_svg_generator: ["identity", "instructions"],
 };

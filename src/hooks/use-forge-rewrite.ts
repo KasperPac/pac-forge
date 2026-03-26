@@ -12,6 +12,7 @@ import { supabase } from "@/lib/supabase";
 import type { ForgeArtifact } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
 import type { ReviewFinding } from "@/lib/forge-review-parser";
+import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 
 /** Re-parse rewritten SCL artifacts from Code Architect response. */
 function parseRewrittenArtifacts(
@@ -81,6 +82,7 @@ async function savePattern(
 }
 
 export function useForgeRewrite() {
+  const { data: promptSections } = useActivePromptSections();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -96,7 +98,7 @@ export function useForgeRewrite() {
       try {
         const platformRules = PLATFORM_RULES;
         const profileRules = profile?.general_rules ?? undefined;
-        const systemPrompt = buildForgeRewritePrompt(platformRules, profileRules);
+        const systemPrompt = buildForgeRewritePrompt(platformRules, profileRules, promptSections);
         const userMessage = buildForgeRewriteUserMessage(findings, artifacts);
         const controller = new AbortController();
 
@@ -118,7 +120,7 @@ export function useForgeRewrite() {
         // TODO (FIX 7): Once the review/rewrite pipeline is fully implemented end-to-end,
         // extend this to also compute diffs between original generation and final rewritten
         // artifacts (not just per-rewrite-round diffs) for higher-signal pattern candidates.
-        const patternSystemPrompt = buildForgePatternAnalysisPrompt();
+        const patternSystemPrompt = buildForgePatternAnalysisPrompt(promptSections);
         for (const orig of artifacts) {
           const updated = rewritten.find((r) => r.id === orig.id);
           if (updated && updated.content !== orig.content) {

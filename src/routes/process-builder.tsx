@@ -46,8 +46,8 @@ import {
   ResizablePanel,
   ResizableHandle,
 } from "@/components/ui/resizable";
-import { PROCESS_STAGE_ORDER, PROCESS_STAGE_LABELS } from "@/types/process-builder";
-import type { ProcessStage } from "@/types/process-builder";
+import { PROCESS_STAGE_ORDER, PROCESS_STAGE_LABELS } from "@/types/forge-matrix";
+import type { ProcessStage } from "@/types/forge-matrix";
 import type { CompileError } from "@/types";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";

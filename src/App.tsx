@@ -31,6 +31,7 @@ const DropboxCallbackPage = lazy(() => import("@/routes/dropbox-callback"));
 const ForgePage = lazy(() => import("@/routes/forge"));
 const MigratePage = lazy(() => import("@/routes/migrate"));
 const LibraryImportPage = lazy(() => import("@/routes/library-import"));
+const ClientsPage = lazy(() => import("@/routes/clients"));
 
 function LazyRoute({ children }: { children: React.ReactNode }) {
   return (
@@ -53,6 +54,7 @@ const router = createBrowserRouter([
         children: [
           { index: true, element: <Navigate to="/projects" replace /> },
           { path: "projects", element: <ProjectsPage /> },
+          { path: "clients", element: <LazyRoute><ClientsPage /></LazyRoute> },
           { path: "forge", element: <LazyRoute><ForgePage /></LazyRoute> },
           { path: "migrate", element: <LazyRoute><MigratePage /></LazyRoute> },
           { path: "projects/:id", element: <LazyRoute><ProjectDetailPage /></LazyRoute> },

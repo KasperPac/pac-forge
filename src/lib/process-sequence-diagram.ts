@@ -5,7 +5,7 @@ import type {
   TransitionCondition,
   LinkageDevice,
   SequenceRow,
-} from "@/types/process-builder";
+} from "@/types/forge-matrix";
 import type { ForgeIoEntry, ForgeDeviceEntry } from "@/types/forge";
 
 // ---------------------------------------------------------------------------

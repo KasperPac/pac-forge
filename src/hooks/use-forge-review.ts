@@ -14,10 +14,12 @@ import {
 import { PLATFORM_RULES } from "@/lib/platform-rules";
 import type { ForgeArtifact } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
+import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 
 export type { ReviewStage };
 
 export function useForgeReview() {
+  const { data: promptSections } = useActivePromptSections();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,7 +35,7 @@ export function useForgeReview() {
       try {
         const platformRules = PLATFORM_RULES;
         const profileRules = profile?.general_rules ?? undefined;
-        const systemPrompt = buildForgeReviewPrompt(stage, platformRules, profileRules);
+        const systemPrompt = buildForgeReviewPrompt(stage, platformRules, profileRules, promptSections);
         const userMessage = buildForgeReviewUserMessage(artifacts);
         const controller = new AbortController();
 

@@ -106,25 +106,34 @@ export function ForgeProcessCode({
       if (generated.length > 0) setSelectedId(generated[0].id);
       setStageStatus("Generate", "completed", `${generated.length} artifacts`);
 
-      // 2. Full review (process code references everything)
-      setStageStatus("Review", "running");
-      const reviewResult = await review(generated, "process", profile);
+      // 2. Review SCL artifacts only — LAD JSON can't be meaningfully reviewed by Standards Enforcer
+      const sclArtifacts = generated.filter(a => a.language === "SCL");
+      if (sclArtifacts.length > 0) {
+        setStageStatus("Review", "running");
+        const reviewResult = await review(sclArtifacts, "process", profile);
 
-      if (reviewResult.hasCritical || reviewResult.hasWarning) {
-        const count = reviewResult.findings.filter(f => f.severity === "CRITICAL" || f.severity === "WARNING").length;
-        setStageStatus("Review", "completed", `${count} issues`);
+        if (reviewResult.hasCritical || reviewResult.hasWarning) {
+          const count = reviewResult.findings.filter(f => f.severity === "CRITICAL" || f.severity === "WARNING").length;
+          setStageStatus("Review", "completed", `${count} issues`);
 
-        // 3. Rewrite
-        setStageStatus("Fix", "running");
-        const rewritten = await rewrite(generated, reviewResult.findings, profile);
-        setArtifacts(rewritten);
-        onArtifactsUpdate(rewritten);
-        setStageStatus("Fix", "completed", `${count} fixed`);
-        setReviewSummary(`Review found ${count} issue${count !== 1 ? "s" : ""} — code rewritten automatically.`);
+          // 3. Rewrite
+          setStageStatus("Fix", "running");
+          const rewritten = await rewrite(sclArtifacts, reviewResult.findings, profile);
+          // Merge rewritten SCL back with unchanged LAD artifacts
+          const ladArtifacts = generated.filter(a => a.language !== "SCL");
+          const merged = [...ladArtifacts, ...rewritten];
+          setArtifacts(merged);
+          onArtifactsUpdate(merged);
+          setStageStatus("Fix", "completed", `${count} fixed`);
+          setReviewSummary(`Review found ${count} issue${count !== 1 ? "s" : ""} — code rewritten automatically.`);
+        } else {
+          setStageStatus("Review", "completed", "clean");
+          setStageStatus("Fix", "skipped");
+          setReviewSummary("Review passed — no issues found.");
+        }
       } else {
-        setStageStatus("Review", "completed", "clean");
+        setStageStatus("Review", "skipped");
         setStageStatus("Fix", "skipped");
-        setReviewSummary("Review passed — no issues found.");
       }
 
       setStageStatus("Approve", "pending");
@@ -239,6 +248,14 @@ export function ForgeProcessCode({
                       </button>
                       <span className="min-w-0 flex-1 truncate font-mono">{a.name}</span>
                       <div className="flex shrink-0 items-center gap-1">
+                        <Badge variant="outline" className={`font-mono text-[10px] ${
+                          a.type === "FB" ? "border-blue-500/50 text-blue-400" :
+                          a.type === "FC" ? "border-cyan-500/50 text-cyan-400" :
+                          a.type === "DB" ? "border-purple-500/50 text-purple-400" :
+                          a.type === "OB" ? "border-green-500/50 text-green-400" : ""
+                        }`}>
+                          {a.type}
+                        </Badge>
                         <Badge variant="outline" className={`font-mono text-[10px] ${a.language === "SCL" ? "border-emerald-500/50 text-emerald-400" : "border-yellow-500/50 text-yellow-400"}`}>
                           {a.language}
                         </Badge>

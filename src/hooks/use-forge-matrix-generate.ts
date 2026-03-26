@@ -8,7 +8,8 @@ import {
 } from "@/lib/forge-prompts";
 import type { ForgeDeviceEntry, ForgeIoEntry, ForgeArtifact, SpecAnalysis } from "@/types/forge";
 import type { FbTemplate } from "@/types/fb-template";
-import type { ProcessLinkageMatrix, ProcessSequence } from "@/types/process-builder";
+import type { ProcessLinkageMatrix, ProcessSequence } from "@/types/forge-matrix";
+import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 
 const DEVICE_LINKAGE_MAX_TOKENS = 20000;
 const SEQUENCES_MAX_TOKENS = 28000;
@@ -118,6 +119,7 @@ function fixOrphanSteps(sequences: ProcessSequence[]): ProcessSequence[] {
  * Runs two parallel AI calls (device linkage + sequences/global data) and merges results.
  */
 export function useForgeMatrixGenerate() {
+  const { data: promptSections } = useActivePromptSections();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -136,7 +138,7 @@ export function useForgeMatrixGenerate() {
         const [deviceContent, sequenceContent] = await Promise.all([
           streamFromEdgeFunction(
             {
-              system_prompt: buildDeviceLinkagePrompt(),
+              system_prompt: buildDeviceLinkagePrompt(promptSections),
               messages: [{ role: "user", content: buildDeviceLinkageUserMessage(devices, ioList, fbTemplates, generatedFbArtifacts) }],
               stream: true,
             },
@@ -146,7 +148,7 @@ export function useForgeMatrixGenerate() {
           ),
           streamFromEdgeFunction(
             {
-              system_prompt: buildSequencesPrompt(),
+              system_prompt: buildSequencesPrompt(promptSections),
               messages: [{ role: "user", content: buildSequencesUserMessage(devices, specAnalysis) }],
               stream: true,
             },

@@ -40,29 +40,53 @@ export const RAIL_RIGHT = 16;
 // Layout a single node
 // ---------------------------------------------------------------------------
 
+/** FB_CALL boxes are wider and taller to fit all parameters */
+function fbCallHeight(node: LadNode): number {
+  if (node.type !== "element" || node.element.type !== "FB_CALL") return BOX_H;
+  const paramCount = node.element.callParams?.length ?? 0;
+  // Base height (title + EN/ENO row) + 14px per param line + padding
+  return Math.max(BOX_H, 50 + (paramCount + 1) * 14 + 10);
+}
+
+function elementWidth(node: LadNode): number {
+  if (node.type !== "element") return BOX_W;
+  if (node.element.type === "FB_CALL") return 340;
+  return isBoxElement(node.element.type) ? BOX_W : CELL_W;
+}
+
+function elementHeight(node: LadNode): number {
+  if (node.type !== "element") return BOX_H;
+  if (node.element.type === "FB_CALL") return fbCallHeight(node);
+  return isBoxElement(node.element.type) ? BOX_H : CELL_H;
+}
+
 function nodeWidth(node: LadNode): number {
   if (node.type === "element") {
-    return isBoxElement(node.element.type) ? BOX_W : CELL_W;
+    return elementWidth(node);
   }
   // Parallel: width is the max width across all branches
+  const branches = node.branches ?? [];
+  if (branches.length === 0) return CELL_W;
   return Math.max(
-    ...node.branches.map((branch) =>
-      branch.nodes.reduce((sum, n) => sum + nodeWidth(n), 0),
+    ...branches.map((branch) =>
+      (branch.nodes ?? []).reduce((sum, n) => sum + nodeWidth(n), 0),
     ),
   );
 }
 
 function nodeHeight(node: LadNode): number {
   if (node.type === "element") {
-    return isBoxElement(node.element.type) ? BOX_H : CELL_H;
+    return elementHeight(node);
   }
   // Parallel: sum of all branch heights + gaps
-  const branchHeights = node.branches.map((b) => chainHeight(b));
+  const branches = node.branches ?? [];
+  if (branches.length === 0) return CELL_H;
+  const branchHeights = branches.map((b) => chainHeight(b));
   return branchHeights.reduce((sum, h) => sum + h, 0) + (branchHeights.length - 1) * BRANCH_GAP;
 }
 
 function chainHeight(chain: LadSeriesChain): number {
-  if (chain.nodes.length === 0) return CELL_H;
+  if (!chain.nodes?.length) return CELL_H;
   return Math.max(...chain.nodes.map((n) => nodeHeight(n)));
 }
 
@@ -75,14 +99,24 @@ function layoutChain(
   startX: number,
   startY: number,
 ): { nodes: LadLayoutNode[]; width: number; height: number } {
+  // Guard: bare element or parallel passed as a "branch" — wrap as single-node chain
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const raw = chain as any;
+  if (raw.type === "element") {
+    return layoutChain({ type: "series", nodes: [raw as unknown as LadNode] }, startX, startY);
+  }
+  if (raw.type === "parallel") {
+    return layoutChain({ type: "series", nodes: [raw as unknown as LadNode] }, startX, startY);
+  }
+
   const layoutNodes: LadLayoutNode[] = [];
   let x = startX;
   let maxH = CELL_H;
 
-  for (const node of chain.nodes) {
+  for (const node of (chain.nodes ?? [])) {
     if (node.type === "element") {
-      const w = isBoxElement(node.element.type) ? BOX_W : CELL_W;
-      const h = isBoxElement(node.element.type) ? BOX_H : CELL_H;
+      const w = elementWidth(node);
+      const h = elementHeight(node);
       layoutNodes.push({
         element: node.element,
         x,
@@ -98,7 +132,7 @@ function layoutChain(
       const branches: LadLayoutBranch[] = [];
       let branchY = startY;
 
-      for (const branch of node.branches) {
+      for (const branch of (node.branches ?? [])) {
         const result = layoutChain(branch, x, branchY);
         const bh = Math.max(chainHeight(branch), result.height);
         branches.push({
@@ -139,9 +173,14 @@ export function layoutProgram(program: LadProgram): {
   let y = 0;
   let maxWidth = 0;
 
-  for (const rung of program.rungs) {
+  for (const rung of (program.rungs ?? [])) {
     const rungY = y + TITLE_H;
-    const result = layoutChain(rung.logic, RAIL_LEFT, rungY);
+    // Guard: if logic is a parallel (not series), wrap it; if missing, use empty series
+    const rawLogic = rung.logic ?? { type: "series", nodes: [] };
+    const logic: LadSeriesChain = rawLogic.type === "series"
+      ? rawLogic
+      : { type: "series", nodes: [rawLogic as unknown as LadNode] };
+    const result = layoutChain(logic, RAIL_LEFT, rungY);
     const totalW = RAIL_LEFT + result.width + RAIL_RIGHT;
     const rungH = TITLE_H + result.height;
 
@@ -178,7 +217,7 @@ export function flattenNodes(nodes: LadLayoutNode[]): LadLayoutNode[] {
     }
     if (node.branches) {
       result.push(node); // The parallel group itself
-      for (const branch of node.branches) {
+      for (const branch of (node.branches ?? [])) {
         result.push(...flattenNodes(branch.nodes));
       }
     }
@@ -192,7 +231,7 @@ export function getRightEdge(nodes: LadLayoutNode[]): number {
   for (const node of nodes) {
     max = Math.max(max, node.x + node.width);
     if (node.branches) {
-      for (const branch of node.branches) {
+      for (const branch of (node.branches ?? [])) {
         max = Math.max(max, getRightEdge(branch.nodes));
       }
     }

@@ -12,8 +12,10 @@ import {
 } from "@/lib/forge-review-parser";
 import type { ForgeArtifact, ForgeIoEntry, ForgeDeviceEntry } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
+import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 
 export function useForgeIoValidate() {
+  const { data: promptSections } = useActivePromptSections();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,7 +30,7 @@ export function useForgeIoValidate() {
       setError(null);
 
       try {
-        const systemPrompt = buildForgeIoValidationPrompt(devices, ioList);
+        const systemPrompt = buildForgeIoValidationPrompt(devices, ioList, promptSections);
         const userMessage = buildForgeIoValidationUserMessage(artifacts);
         const controller = new AbortController();
 

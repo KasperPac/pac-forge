@@ -31,6 +31,18 @@ import {
   useDeleteDesignProfile,
 } from "@/hooks/use-design-profiles";
 import type { DesignProfile, DesignProfileCreate } from "@/types";
+import {
+  PAC_STANDARD_GENERAL_RULES,
+  PAC_STANDARD_FB_RULES,
+  PAC_STANDARD_PROCESS_RULES,
+  serializeGeneralRules,
+  serializeFbRules,
+  serializeProcessRules,
+  DEFAULT_GENERAL_RULES,
+  DEFAULT_FB_RULES,
+  DEFAULT_PROCESS_RULES,
+} from "@/lib/design-profile-schemas";
+import { cn } from "@/lib/utils";
 
 const EMPTY_FORM: Pick<DesignProfileCreate, "name" | "client_name" | "plc_brand"> = {
   name: "",
@@ -41,6 +53,7 @@ const EMPTY_FORM: Pick<DesignProfileCreate, "name" | "client_name" | "plc_brand"
 export default function ProfilesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [template, setTemplate] = useState<'blank' | 'pac_standard'>('blank');
   const navigate = useNavigate();
 
   const { data: profiles, isLoading } = useDesignProfiles();
@@ -48,16 +61,18 @@ export default function ProfilesPage() {
   const deleteProfile = useDeleteDesignProfile();
 
   function handleCreate() {
+    const isPac = template === 'pac_standard';
     createProfile.mutate(
       {
         ...form,
         rules: "",
-        general_rules: "",
+        general_rules: serializeGeneralRules(isPac ? PAC_STANDARD_GENERAL_RULES : DEFAULT_GENERAL_RULES),
         folder_rules: "",
         io_linking_rules: "",
-        process_rules: [],
-        fb_rules: [],
+        process_rules: serializeProcessRules(isPac ? PAC_STANDARD_PROCESS_RULES : DEFAULT_PROCESS_RULES),
+        fb_rules: serializeFbRules(isPac ? PAC_STANDARD_FB_RULES : DEFAULT_FB_RULES),
         device_fb_language: "SCL" as const,
+        device_call_fc_language: "SCL" as const,
         io_linking_language: "SCL" as const,
         process_code_language: "SCL" as const,
         hmi_theme: "default",
@@ -68,6 +83,7 @@ export default function ProfilesPage() {
         onSuccess: (profile) => {
           setDialogOpen(false);
           setForm(EMPTY_FORM);
+          setTemplate('blank');
           navigate(`/profiles/${profile.id}`);
         },
       },
@@ -107,7 +123,7 @@ export default function ProfilesPage() {
           </div>
         </div>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {profiles?.map((profile) => (
             <ProfileCard
               key={profile.id}
@@ -126,6 +142,32 @@ export default function ProfilesPage() {
             <DialogTitle className="font-mono">New Design Profile</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
+            <div className="space-y-2">
+              <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+                Start from
+              </Label>
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  { value: 'blank' as const, label: 'Blank', desc: 'No pre-filled rules' },
+                  { value: 'pac_standard' as const, label: 'Pac Standard', desc: 'Pre-filled with Pac Technologies standard layout' },
+                ] as const).map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setTemplate(opt.value)}
+                    className={cn(
+                      'p-3 rounded border text-left transition-colors',
+                      template === opt.value
+                        ? 'border-primary bg-primary/10'
+                        : 'border-border hover:border-primary/50'
+                    )}
+                  >
+                    <p className="font-mono text-xs font-medium">{opt.label}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">{opt.desc}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="space-y-1">
               <Label className="font-mono text-xs">Profile Name</Label>
               <Input

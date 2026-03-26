@@ -1,5 +1,5 @@
-import type { ProcessStage, ProcessStageStatus } from "@/types/process-builder";
-import { PROCESS_STAGE_ORDER } from "@/types/process-builder";
+import type { ProcessStage, ProcessStageStatus } from "@/types/forge-matrix";
+import { PROCESS_STAGE_ORDER } from "@/types/forge-matrix";
 import type { Artifact } from "@/types";
 
 /** Stage config for each generation stage. */

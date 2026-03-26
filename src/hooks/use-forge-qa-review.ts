@@ -3,10 +3,10 @@ import { callNonStreaming } from "@/hooks/use-generation";
 import { validateAndCall } from "@/lib/forge-pipeline-validator";
 import {
   buildQaReviewPrompt,
-  buildQaFollowUpPrompt,
   buildQaUpdateAnalysisPrompt,
 } from "@/lib/forge-prompts";
 import type { QaMessage, SpecAnalysis } from "@/types/forge";
+import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 
 function makeMessage(role: QaMessage["role"], content: string): QaMessage {
   return {
@@ -23,9 +23,17 @@ function makeMessage(role: QaMessage["role"], content: string): QaMessage {
  * updated JSON. Do not mark complete if the same message still asks questions.
  */
 function detectComplete(text: string): boolean {
+  // JSON block output signals completion
   if (/```json/.test(text)) return true;
 
   const lower = text.toLowerCase();
+
+  // New prompt's explicit completion signal
+  if (lower.includes("✓ analysis complete") || text.includes("✓ Analysis complete")) {
+    return true;
+  }
+
+  // Legacy signals — keep for backward compatibility
   const hasExplicitFinalization =
     lower.includes("the analysis looks complete") ||
     lower.includes("analysis looks complete") ||
@@ -47,6 +55,7 @@ function extractJsonBlock(text: string): string | null {
 }
 
 export function useForgeQaReview() {
+  const { data: promptSections } = useActivePromptSections();
   const [messages, setMessages] = useState<QaMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -85,7 +94,7 @@ export function useForgeQaReview() {
 
       const userContent = `Here is the extracted spec analysis. ${analysisNote}\n\n\`\`\`json\n${JSON.stringify(analysis, null, 2)}\n\`\`\`${specTextSection}`;
 
-      const systemPrompt = buildQaReviewPrompt();
+      const systemPrompt = buildQaReviewPrompt(promptSections);
       const { content } = await validateAndCall(
         callNonStreaming,
         systemPrompt,
@@ -132,8 +141,7 @@ export function useForgeQaReview() {
         content: m.content,
       }));
 
-      const isFirstFollowUp = updatedMessages.filter((m) => m.role === "user").length === 1;
-      const systemPrompt = isFirstFollowUp ? buildQaReviewPrompt() : buildQaFollowUpPrompt();
+      const systemPrompt = buildQaReviewPrompt(promptSections);
 
       const { content } = await validateAndCall(
         callNonStreaming,

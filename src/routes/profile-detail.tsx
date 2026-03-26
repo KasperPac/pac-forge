@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useParams, useNavigate } from "react-router";
 import {
   ArrowLeft,
@@ -8,12 +8,7 @@ import {
   FolderTree,
   Workflow,
   Blocks,
-  Plus,
-  Trash2,
-  Sparkles,
   AlertTriangle,
-  ImagePlus,
-  X,
   Cable,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -23,7 +18,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Card } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,6 +37,26 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import type {
+  FolderRulesSchema,
+  GeneralRulesSchema,
+  FbRulesSchema,
+  ProcessRulesSchema,
+  StructuredRule,
+  RuleBlockTarget,
+  RuleStrength,
+  StepActionDbRules,
+  FbInterfaceRules,
+} from "@/types/design-profile";
+import {
+  parseGeneralRules,
+  parseFbRules,
+  parseProcessRules,
+  serializeGeneralRules,
+  serializeFbRules,
+  serializeProcessRules,
+  makeRule,
+} from "@/lib/design-profile-schemas";
 import {
   useDesignProfile,
   useUpdateDesignProfile,
@@ -43,9 +65,6 @@ import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 import { resolveSection } from "@/lib/prompt-defaults";
 import { detectConflicts } from "@/lib/conflict-detector";
 import type { KnowledgeConflict } from "@/lib/conflict-detector";
-import { callNonStreaming } from "@/hooks/use-generation";
-import type { MessageContent } from "@/hooks/use-generation";
-import type { ProcessRuleExample } from "@/types";
 
 type Tab = "general" | "folders" | "io_linking" | "process" | "fb";
 
@@ -57,29 +76,87 @@ const TABS: { key: Tab; label: string; icon: typeof FileText }[] = [
   { key: "fb", label: "FB", icon: Blocks },
 ];
 
-const GENERAL_PLACEHOLDER = `# Naming Conventions
-- FB prefix: FB_CK_
-- FC prefix: FC_CK_
-- Variable style: camelCase for locals
+const DEFAULT_FOLDER_SCHEMA: FolderRulesSchema = {
+  version: 2,
+  pattern: 'section_per_area',
+  shared_device_group: true,
+  device_group_name: 'DEVICE',
+  device_subfolders: { fbs: 'FB', dbs: 'DB', call_fcs_at_root: true },
+  section_groups: [],
+  other_root_groups: ['OB', 'IO_MAPPING', 'DATA_MGMT', 'SAFETY', 'SYS'],
+  call_fc_rules: {
+    one_fc_per_device_type: true,
+    one_network_per_instance: true,
+    networks_contain_wiring_only: true,
+  },
+  custom_notes: '',
+};
 
-# Comment Style
-- Language: English
-- Every FB must have a file header
-- Section comments before each REGION
+function parseFolderSchema(raw: string | null | undefined): FolderRulesSchema {
+  if (!raw?.trim()) return { ...DEFAULT_FOLDER_SCHEMA };
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed?.version === 2) return parsed as FolderRulesSchema;
+  } catch { /* fall through */ }
+  // Legacy freetext — return default, preserve text in custom_notes
+  return { ...DEFAULT_FOLDER_SCHEMA, custom_notes: raw };
+}
 
-# Code Structure
-- State machines: CASE with integer literals (0, 10, 20...)
-- All timers must use TON with configurable PT as VAR_INPUT`;
-
-const FOLDER_PLACEHOLDER = `# Program Structure
-- Root group: "Main"
-- Group "DEVICES" contains:
-  - FC for each device call (SensorCall_FC, MotorCall_FC, etc.)
-  - Subfolder "FBs" — all device function blocks
-  - Subfolder "DBs" — all instance/global data blocks
-- Group "PROCESS" — process FCs and sequence logic
-- Group "HMI" — HMI data blocks and mapping FCs
-- Group "UTILITIES" — shared helper FCs`;
+function FolderGroupEditor({
+  label, hint, values, onChange,
+}: {
+  label: string;
+  hint: string;
+  values: string[];
+  onChange: (v: string[]) => void;
+}) {
+  const [input, setInput] = useState('');
+  return (
+    <div className="space-y-2">
+      <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+        {label}
+      </Label>
+      <div className="flex flex-wrap gap-1 min-h-[28px]">
+        {values.map(v => (
+          <Badge key={v} variant="secondary" className="font-mono text-xs gap-1">
+            {v}
+            <button
+              type="button"
+              onClick={() => onChange(values.filter(x => x !== v))}
+              className="hover:text-destructive"
+            >×</button>
+          </Badge>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <Input
+          value={input}
+          onChange={e => setInput(e.target.value.toUpperCase())}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && input.trim()) {
+              e.preventDefault();
+              if (!values.includes(input.trim())) onChange([...values, input.trim()]);
+              setInput('');
+            }
+          }}
+          placeholder={hint}
+          className="font-mono text-xs"
+        />
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            if (input.trim() && !values.includes(input.trim())) {
+              onChange([...values, input.trim()]);
+              setInput('');
+            }
+          }}
+        >Add</Button>
+      </div>
+    </div>
+  );
+}
 
 export default function ProfileDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -92,14 +169,22 @@ export default function ProfileDetailPage() {
   const [dirty, setDirty] = useState(false);
 
   // Local form state — initialized from profile
-  const [generalRules, setGeneralRules] = useState<string | null>(null);
+  const [generalSchema, setGeneralSchema] = useState<GeneralRulesSchema | null>(null);
+  const [fbSchema, setFbSchema] = useState<FbRulesSchema | null>(null);
+  const [processSchema, setProcessSchema] = useState<ProcessRulesSchema | null>(null);
   const [folderRules, setFolderRules] = useState<string | null>(null);
   const [ioLinkingRules, setIoLinkingRules] = useState<string | null>(null);
-  const [processRules, setProcessRules] = useState<ProcessRuleExample[] | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- will be used when FB tab is implemented
-  const [fbRules, _setFbRules] = useState<ProcessRuleExample[] | null>(null);
   const [name, setName] = useState<string | null>(null);
   const [clientName, setClientName] = useState<string | null>(null);
+
+  // Initialize schema state from profile when it loads
+  useEffect(() => {
+    if (!profile) return;
+    if (!generalSchema) setGeneralSchema(parseGeneralRules(profile.general_rules));
+    if (!fbSchema) setFbSchema(parseFbRules(profile.fb_rules as string));
+    if (!processSchema) setProcessSchema(parseProcessRules(profile.process_rules as string));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only on profile load
+  }, [profile]);
 
   // Conflict detection
   const [conflicts, setConflicts] = useState<KnowledgeConflict[]>([]);
@@ -108,11 +193,9 @@ export default function ProfileDetailPage() {
   // Resolve current values (local edits or profile data)
   const currentName = name ?? profile?.name ?? "";
   const currentClientName = clientName ?? profile?.client_name ?? "";
-  const currentGeneralRules = generalRules ?? profile?.general_rules ?? profile?.rules ?? "";
+  const currentGeneralRules = generalSchema ? serializeGeneralRules(generalSchema) : (profile?.general_rules ?? "");
   const currentFolderRules = folderRules ?? profile?.folder_rules ?? "";
   const currentIoLinkingRules = ioLinkingRules ?? profile?.io_linking_rules ?? "";
-  const currentProcessRules = processRules ?? profile?.process_rules ?? [];
-  const currentFbRules = fbRules ?? profile?.fb_rules ?? [];
 
   function markDirty() { setDirty(true); }
 
@@ -128,8 +211,8 @@ export default function ProfileDetailPage() {
           general_rules: currentGeneralRules,
           folder_rules: currentFolderRules,
           io_linking_rules: currentIoLinkingRules,
-          process_rules: currentProcessRules,
-          fb_rules: currentFbRules,
+          process_rules: processSchema ? serializeProcessRules(processSchema) : '[]',
+          fb_rules: fbSchema ? serializeFbRules(fbSchema) : '[]',
         },
       },
       {
@@ -224,25 +307,29 @@ export default function ProfileDetailPage() {
               tab === t.key
                 ? "border-primary text-foreground"
                 : "border-transparent text-muted-foreground hover:text-foreground",
-              t.key === "fb" && "opacity-50",
+              false,
             )}
           >
             <t.icon className="h-3.5 w-3.5" />
             {t.label}
-            {t.key === "fb" && <span className="text-[9px] text-muted-foreground">(soon)</span>}
           </button>
         ))}
       </div>
 
       {/* Tab content */}
       <ScrollArea className="flex-1">
-        <div className="max-w-3xl p-4">
+        <div className="p-4">
           {tab === "general" && (
             <GeneralTab
-              rules={currentGeneralRules}
+              schema={generalSchema}
               clientName={currentClientName}
-              onRulesChange={(v) => { setGeneralRules(v); markDirty(); }}
+              profile={profile}
+              onSchemaChange={(v) => { setGeneralSchema(v); markDirty(); }}
               onClientNameChange={(v) => { setClientName(v); markDirty(); }}
+              onLanguageChange={(field, value) => {
+                if (!profile) return;
+                updateProfile.mutate({ id: profile.id, updates: { [field]: value } });
+              }}
             />
           )}
           {tab === "folders" && (
@@ -258,20 +345,16 @@ export default function ProfileDetailPage() {
             />
           )}
           {tab === "process" && (
-            <RuleExamplesTab
-              kind="process"
-              examples={currentProcessRules}
-              onChange={(v) => { setProcessRules(v); markDirty(); }}
-              profileName={currentName}
+            <ProcessTab
+              schema={processSchema}
+              onSchemaChange={(v) => { setProcessSchema(v); markDirty(); }}
             />
           )}
           {tab === "fb" && (
-            <div className="rounded-md border border-dashed px-4 py-12 text-center">
-              <Blocks className="mx-auto h-8 w-8 text-muted-foreground/40" />
-              <div className="mt-2 font-mono text-sm text-muted-foreground">
-                FB Rules coming soon. Same concept as Process Rules — example code with AI analysis.
-              </div>
-            </div>
+            <FbTab
+              schema={fbSchema}
+              onSchemaChange={(v) => { setFbSchema(v); markDirty(); }}
+            />
           )}
         </div>
       </ScrollArea>
@@ -318,15 +401,19 @@ export default function ProfileDetailPage() {
 // ─── General Tab ────────────────────────────────────────────────────────────
 
 function GeneralTab({
-  rules,
+  schema,
   clientName,
-  onRulesChange,
+  profile,
+  onSchemaChange,
   onClientNameChange,
+  onLanguageChange,
 }: {
-  rules: string;
+  schema: GeneralRulesSchema | null;
   clientName: string;
-  onRulesChange: (v: string) => void;
+  profile: import("@/types").DesignProfile | undefined;
+  onSchemaChange: (v: GeneralRulesSchema) => void;
   onClientNameChange: (v: string) => void;
+  onLanguageChange: (field: string, value: string) => void;
 }) {
   return (
     <div className="space-y-4">
@@ -345,12 +432,204 @@ function GeneralTab({
           className="max-w-sm font-mono text-sm"
         />
       </div>
-      <Textarea
-        value={rules}
-        onChange={(e) => onRulesChange(e.target.value)}
-        placeholder={GENERAL_PLACEHOLDER}
-        className="min-h-[400px] resize-y font-mono text-xs leading-relaxed"
-      />
+
+      {/* Language defaults */}
+      {profile && (
+        <div>
+          <h3 className="font-mono text-xs uppercase tracking-wider text-muted-foreground mb-3">
+            Language Defaults
+          </h3>
+          <p className="text-xs text-muted-foreground mb-3">
+            These are used as defaults in the project wizard. Engineers can still override per session.
+          </p>
+          <div className="grid grid-cols-4 gap-3">
+            {([
+              { field: 'device_fb_language' as const, label: 'Device FB language' },
+              { field: 'device_call_fc_language' as const, label: 'Call FC language' },
+              { field: 'io_linking_language' as const, label: 'IO linking FC language' },
+              { field: 'process_code_language' as const, label: 'Process code language' },
+            ]).map(({ field, label }) => (
+              <div key={field} className="space-y-1">
+                <Label className="text-xs text-muted-foreground">{label}</Label>
+                <Select
+                  value={profile[field] ?? 'SCL'}
+                  onValueChange={v => onLanguageChange(field, v)}
+                >
+                  <SelectTrigger className="font-mono text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="SCL">SCL</SelectItem>
+                    <SelectItem value="LAD">LAD</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <Separator />
+
+      {schema && (
+        <div className="space-y-6">
+          {/* Naming */}
+          <div>
+            <h3 className="font-mono text-xs uppercase tracking-wider text-muted-foreground mb-3">
+              Naming
+            </h3>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              {([
+                { key: 'fb_prefix' as const, label: 'FB prefix', placeholder: 'e.g. MOTOR_FB or FB_CK_' },
+                { key: 'fc_prefix' as const, label: 'FC prefix', placeholder: 'e.g. CALL_' },
+                { key: 'db_prefix' as const, label: 'DB prefix', placeholder: 'e.g. DB_' },
+                { key: 'udt_prefix' as const, label: 'UDT prefix', placeholder: 'e.g. type' },
+                { key: 'instance_db_prefix' as const, label: 'Instance DB prefix', placeholder: 'e.g. Inst' },
+                { key: 'static_var_prefix' as const, label: 'Static var prefix', placeholder: 'e.g. stat' },
+                { key: 'temp_var_prefix' as const, label: 'Temp var prefix', placeholder: 'e.g. temp' },
+                { key: 'instance_var_prefix' as const, label: 'Instance var prefix', placeholder: 'e.g. inst' },
+              ]).map(({ key, label, placeholder }) => (
+                <div key={key} className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">{label}</Label>
+                  <Input
+                    value={schema.naming[key]}
+                    onChange={e => onSchemaChange({
+                      ...schema, naming: { ...schema.naming, [key]: e.target.value }
+                    })}
+                    placeholder={placeholder}
+                    className="font-mono text-xs"
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-3">
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Block name casing</Label>
+                <Select
+                  value={schema.naming.block_name_casing}
+                  onValueChange={v => onSchemaChange({
+                    ...schema, naming: { ...schema.naming, block_name_casing: v as GeneralRulesSchema['naming']['block_name_casing'] }
+                  })}
+                >
+                  <SelectTrigger className="font-mono text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="UPPER_SNAKE_CASE">UPPER_SNAKE_CASE</SelectItem>
+                    <SelectItem value="UpperCamelCase">UpperCamelCase</SelectItem>
+                    <SelectItem value="custom">Custom (see notes)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Parameter casing</Label>
+                <Select
+                  value={schema.naming.param_casing}
+                  onValueChange={v => onSchemaChange({
+                    ...schema, naming: { ...schema.naming, param_casing: v as GeneralRulesSchema['naming']['param_casing'] }
+                  })}
+                >
+                  <SelectTrigger className="font-mono text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="lowerCamelCase">lowerCamelCase</SelectItem>
+                    <SelectItem value="custom">Custom (see notes)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="mt-3 space-y-1">
+              <Label className="text-xs text-muted-foreground">Naming notes</Label>
+              <Textarea
+                value={schema.naming.custom_notes}
+                onChange={e => onSchemaChange({
+                  ...schema, naming: { ...schema.naming, custom_notes: e.target.value }
+                })}
+                placeholder="Additional naming conventions not covered above..."
+                className="font-mono text-xs min-h-[60px]"
+              />
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* State Machine */}
+          <div>
+            <h3 className="font-mono text-xs uppercase tracking-wider text-muted-foreground mb-3">
+              State Machine
+            </h3>
+            <div className="grid grid-cols-3 gap-3">
+              {([
+                { key: 'step_start' as const, label: 'First step value' },
+                { key: 'step_increment' as const, label: 'Step increment' },
+                { key: 'fault_step' as const, label: 'Fault step value' },
+              ]).map(({ key, label }) => (
+                <div key={key} className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">{label}</Label>
+                  <Input
+                    type="number"
+                    value={schema.state_machine[key]}
+                    onChange={e => onSchemaChange({
+                      ...schema, state_machine: { ...schema.state_machine, [key]: parseInt(e.target.value) || 0 }
+                    })}
+                    className="font-mono text-xs"
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between mt-3">
+              <Label className="text-xs text-muted-foreground">CASE always requires ELSE branch</Label>
+              <Switch
+                checked={schema.state_machine.always_has_else}
+                onCheckedChange={v => onSchemaChange({
+                  ...schema, state_machine: { ...schema.state_machine, always_has_else: v }
+                })}
+              />
+            </div>
+            {schema.state_machine.always_has_else && (
+              <div className="mt-2 space-y-1">
+                <Label className="text-xs text-muted-foreground">ELSE action</Label>
+                <Input
+                  value={schema.state_machine.else_action}
+                  onChange={e => onSchemaChange({
+                    ...schema, state_machine: { ...schema.state_machine, else_action: e.target.value }
+                  })}
+                  placeholder="e.g. set fault step and status 16#8600"
+                  className="font-mono text-xs"
+                />
+              </div>
+            )}
+            <div className="mt-3 space-y-1">
+              <Label className="text-xs text-muted-foreground">State machine notes</Label>
+              <Textarea
+                value={schema.state_machine.custom_notes}
+                onChange={e => onSchemaChange({
+                  ...schema, state_machine: { ...schema.state_machine, custom_notes: e.target.value }
+                })}
+                placeholder="Additional state machine conventions..."
+                className="font-mono text-xs min-h-[60px]"
+              />
+            </div>
+          </div>
+
+          <Separator />
+
+          <ExtraRulesEditor
+            rules={schema.extra_rules}
+            onChange={v => onSchemaChange({ ...schema, extra_rules: v })}
+          />
+
+          <Separator />
+
+          {/* Freetext escape hatch */}
+          <div className="space-y-1">
+            <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+              Additional Rules (freetext)
+            </Label>
+            <Textarea
+              value={schema.freetext}
+              onChange={e => onSchemaChange({ ...schema, freetext: e.target.value })}
+              placeholder="Any additional general rules not covered by the structured fields above..."
+              className="font-mono text-xs min-h-[100px]"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -364,6 +643,20 @@ function FoldersTab({
   rules: string;
   onChange: (v: string) => void;
 }) {
+  const [folderSchema, setFolderSchema] = useState<FolderRulesSchema>(() => parseFolderSchema(rules));
+  const [showRawFolderJson, setShowRawFolderJson] = useState(false);
+  const initialRender = useRef(true);
+
+  // Sync schema changes back to the string field used by save
+  useEffect(() => {
+    if (initialRender.current) {
+      initialRender.current = false;
+      return;
+    }
+    onChange(JSON.stringify(folderSchema, null, 2));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only sync when schema changes
+  }, [folderSchema]);
+
   return (
     <div className="space-y-4">
       <div>
@@ -373,12 +666,161 @@ function FoldersTab({
           These rules are applied when creating project structure.
         </p>
       </div>
-      <Textarea
-        value={rules}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={FOLDER_PLACEHOLDER}
-        className="min-h-[400px] resize-y font-mono text-xs leading-relaxed"
-      />
+
+      <div className="space-y-6">
+        {/* Pattern */}
+        <div className="space-y-2">
+          <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+            Folder Pattern
+          </Label>
+          <Select
+            value={folderSchema.pattern}
+            onValueChange={v => setFolderSchema(s => ({
+              ...s, pattern: v as FolderRulesSchema['pattern']
+            }))}
+          >
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="section_per_area">Section per area</SelectItem>
+              <SelectItem value="flat">Flat (no sections)</SelectItem>
+              <SelectItem value="custom">Custom</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Shared device group */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+              Shared Device Group
+            </Label>
+            <Switch
+              checked={folderSchema.shared_device_group}
+              onCheckedChange={v => setFolderSchema(s => ({ ...s, shared_device_group: v }))}
+            />
+          </div>
+          {folderSchema.shared_device_group && (
+            <div className="space-y-3 pl-3 border-l border-border">
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Group name</Label>
+                <Input
+                  value={folderSchema.device_group_name}
+                  onChange={e => setFolderSchema(s => ({ ...s, device_group_name: e.target.value }))}
+                  placeholder="DEVICE"
+                  className="font-mono text-sm"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">FB subfolder</Label>
+                  <Input
+                    value={folderSchema.device_subfolders.fbs}
+                    onChange={e => setFolderSchema(s => ({
+                      ...s, device_subfolders: { ...s.device_subfolders, fbs: e.target.value }
+                    }))}
+                    placeholder="FB"
+                    className="font-mono text-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">DB subfolder</Label>
+                  <Input
+                    value={folderSchema.device_subfolders.dbs}
+                    onChange={e => setFolderSchema(s => ({
+                      ...s, device_subfolders: { ...s.device_subfolders, dbs: e.target.value }
+                    }))}
+                    placeholder="DB"
+                    className="font-mono text-sm"
+                  />
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-muted-foreground">Call FCs at group root (not in subfolder)</Label>
+                <Switch
+                  checked={folderSchema.device_subfolders.call_fcs_at_root}
+                  onCheckedChange={v => setFolderSchema(s => ({
+                    ...s, device_subfolders: { ...s.device_subfolders, call_fcs_at_root: v }
+                  }))}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Call FC rules */}
+        <div className="space-y-3">
+          <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+            Call FC Rules
+          </Label>
+          {([
+            { key: 'one_fc_per_device_type' as const, label: 'One FC per device type' },
+            { key: 'one_network_per_instance' as const, label: 'One network per device instance' },
+            { key: 'networks_contain_wiring_only' as const, label: 'Networks contain wiring only (no logic)' },
+          ]).map(({ key, label }) => (
+            <div key={key} className="flex items-center justify-between">
+              <Label className="text-xs text-muted-foreground">{label}</Label>
+              <Switch
+                checked={folderSchema.call_fc_rules[key]}
+                onCheckedChange={v => setFolderSchema(s => ({
+                  ...s, call_fc_rules: { ...s.call_fc_rules, [key]: v }
+                }))}
+              />
+            </div>
+          ))}
+        </div>
+
+        {/* Section groups */}
+        <FolderGroupEditor
+          label="Section Groups"
+          hint="e.g. CONVEYORS, ELEVATORS, SAFETY"
+          values={folderSchema.section_groups}
+          onChange={v => setFolderSchema(s => ({ ...s, section_groups: v }))}
+        />
+
+        {/* Other root groups */}
+        <FolderGroupEditor
+          label="Other Root Groups"
+          hint="e.g. OB, IO_MAPPING, DATA_MGMT, SYS"
+          values={folderSchema.other_root_groups}
+          onChange={v => setFolderSchema(s => ({ ...s, other_root_groups: v }))}
+        />
+
+        {/* Custom notes */}
+        <div className="space-y-1">
+          <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+            Custom Notes
+          </Label>
+          <Textarea
+            value={folderSchema.custom_notes}
+            onChange={e => setFolderSchema(s => ({ ...s, custom_notes: e.target.value }))}
+            placeholder="Any additional folder/structure rules not covered above..."
+            className="font-mono text-xs min-h-[80px]"
+          />
+        </div>
+
+        {/* Raw JSON toggle */}
+        <div className="pt-2">
+          <button
+            type="button"
+            onClick={() => setShowRawFolderJson(v => !v)}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {showRawFolderJson ? 'Hide' : 'Show'} raw JSON
+          </button>
+          {showRawFolderJson && (
+            <Textarea
+              value={JSON.stringify(folderSchema, null, 2)}
+              onChange={e => {
+                try {
+                  const parsed = JSON.parse(e.target.value);
+                  if (parsed?.version === 2) setFolderSchema(parsed);
+                } catch { /* ignore invalid JSON while typing */ }
+              }}
+              className="font-mono text-xs mt-2 min-h-[200px]"
+            />
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -419,279 +861,435 @@ function IoLinkingTab({
   );
 }
 
-// ─── Process / FB Rule Examples Tab ─────────────────────────────────────────
+// ─── FB Tab ────────────────────────────────────────────────────────────────
 
-function RuleExamplesTab({
-  kind,
-  examples,
-  onChange,
-  profileName,
+function FbTab({
+  schema,
+  onSchemaChange,
 }: {
-  kind: "process" | "fb";
-  examples: ProcessRuleExample[];
-  onChange: (v: ProcessRuleExample[]) => void;
-  profileName: string;
+  schema: FbRulesSchema | null;
+  onSchemaChange: (v: FbRulesSchema) => void;
 }) {
-  const [analyzing, setAnalyzing] = useState<number | null>(null);
-  const label = kind === "process" ? "Process" : "Function Block";
-
-  function addExample() {
-    onChange([...examples, { label: `Example ${examples.length + 1}`, example: "", analysis: "" }]);
-  }
-
-  function updateExample(index: number, patch: Partial<ProcessRuleExample>) {
-    const updated = examples.map((ex, i) => (i === index ? { ...ex, ...patch } : ex));
-    onChange(updated);
-  }
-
-  function removeExample(index: number) {
-    onChange(examples.filter((_, i) => i !== index));
-  }
-
-  const analyzeExample = useCallback(async (index: number) => {
-    const ex = examples[index];
-    if (!ex?.example?.trim() && !(ex?.screenshots?.length)) return;
-
-    setAnalyzing(index);
-    try {
-      const hasScreenshots = (ex.screenshots?.length ?? 0) > 0;
-      const hasCode = !!ex.example.trim();
-
-      const systemPrompt = `You are an expert PLC programmer analyzing code examples to extract structural patterns.
-
-The user has provided ${hasCode && hasScreenshots ? "both example code and screenshots of ladder logic/code" : hasScreenshots ? "screenshots of ladder logic/code" : `example ${label} code`} that represent how they want their ${label.toLowerCase()} code structured.
-
-Analyze ${hasScreenshots ? "the screenshots and any code provided" : "the code"} and produce a clear, structured summary of the patterns you see. Focus on:
-- Overall code organization (regions, networks, sections)
-- Naming conventions used
-- State machine / sequencing approach (if any)
-- How steps, actions, transitions are structured
-- Variable naming and data block structure
-- Timer/counter usage patterns
-- Error handling patterns
-- Comment style
-
-Output a concise analysis (bullet points preferred) that another AI agent could follow to replicate this exact coding style. Be specific — cite actual names, prefixes, array structures, etc. from the code.
-
-Start with a one-line summary like: "This code uses a [pattern name] pattern with [key characteristic]."`;
-
-      // Build multimodal message content
-      const contentParts: MessageContent = [];
-      if (hasScreenshots) {
-        for (const dataUri of ex.screenshots!) {
-          const match = dataUri.match(/^data:(image\/[^;]+);base64,(.+)$/);
-          if (match) {
-            contentParts.push({
-              type: "image",
-              source: { type: "base64", media_type: match[1], data: match[2] },
-            });
-          }
-        }
-      }
-      const textContent = hasCode
-        ? `Profile: ${profileName}\n\nAnalyze this ${label} example:\n\n\`\`\`scl\n${ex.example}\n\`\`\``
-        : `Profile: ${profileName}\n\nAnalyze the ${label} pattern shown in the screenshot(s) above.`;
-      contentParts.push({ type: "text", text: textContent });
-
-      const response = await callNonStreaming(
-        systemPrompt,
-        [{ role: "user", content: contentParts }],
-        AbortSignal.timeout(90_000),
-        4096,
-      );
-
-      const text = typeof response === "string" ? response : typeof response?.content === "string" ? response.content : "";
-      if (text) {
-        const updated = examples.map((e, j) => (j === index ? { ...e, analysis: text } : e));
-        onChange(updated);
-      }
-    } catch (err) {
-      console.error("Analysis failed:", err);
-    } finally {
-      setAnalyzing(null);
-    }
-  }, [examples, profileName, label, onChange]);
-
+  if (!schema) return null;
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between">
-        <div>
-          <h2 className="font-mono text-sm font-semibold">{label} Rules</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Add example code showing how {label.toLowerCase()} logic should be structured.
-            The AI will analyze each example to understand the pattern, then follow it during generation.
-            {kind === "process" && " This also influences the linkage matrix and sequence diagrams."}
-          </p>
-        </div>
-        <Button size="sm" variant="outline" onClick={addExample} className="gap-1.5">
-          <Plus className="h-3.5 w-3.5" />
-          Add Example
-        </Button>
+      <div>
+        <h2 className="font-mono text-sm font-semibold">Function Block Rules</h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Define interface patterns, alarm handling, and FB-specific code conventions.
+        </p>
       </div>
 
-      {examples.length === 0 ? (
-        <div className="rounded-md border border-dashed px-4 py-12 text-center">
-          <Workflow className="mx-auto h-8 w-8 text-muted-foreground/40" />
-          <div className="mt-2 font-mono text-sm text-muted-foreground">
-            No examples yet. Add an example to define your {label.toLowerCase()} code pattern.
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Interface pattern */}
+        <div>
+          <h3 className="font-mono text-xs uppercase tracking-wider text-muted-foreground mb-3">
+            Interface Pattern
+          </h3>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">PLCopen pattern</Label>
+              <Select
+                value={schema.interface_pattern.pattern}
+                onValueChange={v => onSchemaChange({
+                  ...schema, interface_pattern: { ...schema.interface_pattern, pattern: v as FbInterfaceRules['pattern'] }
+                })}
+              >
+                <SelectTrigger className="font-mono text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="plcopen_enable">Enable (level-triggered, device FBs)</SelectItem>
+                  <SelectItem value="plcopen_execute">Execute (edge-triggered, one-shot commands)</SelectItem>
+                  <SelectItem value="custom">Custom (see notes)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Status word initial value</Label>
+              <Input
+                value={schema.interface_pattern.status_initial_value}
+                onChange={e => onSchemaChange({
+                  ...schema, interface_pattern: { ...schema.interface_pattern, status_initial_value: e.target.value }
+                })}
+                placeholder="16#7000"
+                className="font-mono text-xs w-32"
+              />
+            </div>
+            {(['include_busy', 'include_done', 'include_error', 'include_status'] as const).map(key => (
+              <div key={key} className="flex items-center justify-between">
+                <Label className="text-xs text-muted-foreground">
+                  {key === 'include_busy' && 'Include "busy : Bool" output'}
+                  {key === 'include_done' && 'Include "done : Bool" output'}
+                  {key === 'include_error' && 'Include "error : Bool" output'}
+                  {key === 'include_status' && 'Include "status : Word" output'}
+                </Label>
+                <Switch
+                  checked={schema.interface_pattern[key]}
+                  onCheckedChange={v => onSchemaChange({
+                    ...schema, interface_pattern: { ...schema.interface_pattern, [key]: v }
+                  })}
+                />
+              </div>
+            ))}
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Interface notes</Label>
+              <Textarea
+                value={schema.interface_pattern.custom_notes}
+                onChange={e => onSchemaChange({
+                  ...schema, interface_pattern: { ...schema.interface_pattern, custom_notes: e.target.value }
+                })}
+                className="font-mono text-xs min-h-[60px]"
+                placeholder="Additional interface rules..."
+              />
+            </div>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground/70">
-            Paste SCL code or upload a screenshot of ladder logic — the AI will analyze the structure.
-          </p>
         </div>
-      ) : (
-        <div className="space-y-4">
-          {examples.map((ex, i) => (
-            <ExampleCard
-              key={i}
-              example={ex}
-              onUpdate={(patch) => updateExample(i, patch)}
-              onRemove={() => removeExample(i)}
-              onAnalyze={() => analyzeExample(i)}
-              analyzing={analyzing === i}
+
+        {/* Alarm handling */}
+        <div>
+          <h3 className="font-mono text-xs uppercase tracking-wider text-muted-foreground mb-3">
+            Alarm Handling
+          </h3>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs text-muted-foreground">Alarms latch (require explicit reset)</Label>
+              <Switch
+                checked={schema.alarm_handling.latching}
+                onCheckedChange={v => onSchemaChange({
+                  ...schema, alarm_handling: { ...schema.alarm_handling, latching: v }
+                })}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label className="text-xs text-muted-foreground">Reset via VAR_INPUT</Label>
+              <Switch
+                checked={schema.alarm_handling.reset_via_input}
+                onCheckedChange={v => onSchemaChange({
+                  ...schema, alarm_handling: { ...schema.alarm_handling, reset_via_input: v }
+                })}
+              />
+            </div>
+            {schema.alarm_handling.reset_via_input && (
+              <div className="space-y-1 pl-3 border-l border-border">
+                <Label className="text-xs text-muted-foreground">Reset input name</Label>
+                <Input
+                  value={schema.alarm_handling.reset_input_name}
+                  onChange={e => onSchemaChange({
+                    ...schema, alarm_handling: { ...schema.alarm_handling, reset_input_name: e.target.value }
+                  })}
+                  placeholder="resetAlarms"
+                  className="font-mono text-xs w-48"
+                />
+              </div>
+            )}
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Alarm notes</Label>
+              <Textarea
+                value={schema.alarm_handling.custom_notes}
+                onChange={e => onSchemaChange({
+                  ...schema, alarm_handling: { ...schema.alarm_handling, custom_notes: e.target.value }
+                })}
+                className="font-mono text-xs min-h-[60px]"
+                placeholder="Additional alarm handling rules..."
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="lg:col-span-2">
+          <Separator className="mb-4" />
+          <ExtraRulesEditor
+            rules={schema.extra_rules}
+            onChange={v => onSchemaChange({ ...schema, extra_rules: v })}
+          />
+        </div>
+        <div className="lg:col-span-2">
+          <Separator className="mb-4" />
+          <div className="space-y-1">
+            <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+              Additional Rules (freetext)
+            </Label>
+            <Textarea
+              value={schema.freetext}
+              onChange={e => onSchemaChange({ ...schema, freetext: e.target.value })}
+              placeholder="Any additional FB rules not covered above..."
+              className="font-mono text-xs min-h-[100px]"
             />
-          ))}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
 
-function ExampleCard({
-  example,
-  onUpdate,
-  onRemove,
-  onAnalyze,
-  analyzing,
+// ─── Process Tab ────────────────────────────────────────────────────────────
+
+function ProcessTab({
+  schema,
+  onSchemaChange,
 }: {
-  example: ProcessRuleExample;
-  onUpdate: (patch: Partial<ProcessRuleExample>) => void;
-  onRemove: () => void;
-  onAnalyze: () => void;
-  analyzing: boolean;
+  schema: ProcessRulesSchema | null;
+  onSchemaChange: (v: ProcessRulesSchema) => void;
 }) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const screenshots = example.screenshots ?? [];
-  const hasContent = !!example.example.trim() || screenshots.length > 0;
+  if (!schema) return null;
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="font-mono text-sm font-semibold">Process Rules</h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Define step/action DB patterns, sequence structure, and process-specific conventions.
+        </p>
+      </div>
 
-  function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files;
-    if (!files?.length) return;
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Step/Action DB pattern */}
+        <div>
+          <h3 className="font-mono text-xs uppercase tracking-wider text-muted-foreground mb-3">
+            Step / Action DB Pattern
+          </h3>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs text-muted-foreground">
+                Use step/action DB pattern
+              </Label>
+              <Switch
+                checked={schema.step_action_db.enabled}
+                onCheckedChange={v => onSchemaChange({
+                  ...schema, step_action_db: { ...schema.step_action_db, enabled: v }
+                })}
+              />
+            </div>
+            {schema.step_action_db.enabled && (
+              <div className="space-y-3 pl-3 border-l border-border">
+                {([
+                  { key: 'db_name_pattern' as const, label: 'DB name pattern', placeholder: 'STEPS_ACTIONS_{SECTION}_DB' },
+                  { key: 'step_array_name' as const, label: 'Step array name', placeholder: 'AS' },
+                  { key: 'action_array_name' as const, label: 'Action array name', placeholder: 'AA' },
+                ] satisfies { key: keyof StepActionDbRules; label: string; placeholder: string }[]).map(({ key, label, placeholder }) => (
+                  <div key={key} className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">{label}</Label>
+                    <Input
+                      value={schema.step_action_db[key] as string}
+                      onChange={e => onSchemaChange({
+                        ...schema, step_action_db: { ...schema.step_action_db, [key]: e.target.value }
+                      })}
+                      placeholder={placeholder}
+                      className="font-mono text-xs"
+                    />
+                  </div>
+                ))}
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Step/action DB notes</Label>
+                  <Textarea
+                    value={schema.step_action_db.custom_notes}
+                    onChange={e => onSchemaChange({
+                      ...schema, step_action_db: { ...schema.step_action_db, custom_notes: e.target.value }
+                    })}
+                    className="font-mono text-xs min-h-[60px]"
+                    placeholder="Structure details, array sizing, access patterns..."
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
 
-    const newScreenshots = [...screenshots];
-    for (const file of Array.from(files)) {
-      if (!file.type.startsWith("image/")) continue;
-      const reader = new FileReader();
-      reader.onload = () => {
-        newScreenshots.push(reader.result as string);
-        onUpdate({ screenshots: [...newScreenshots] });
-      };
-      reader.readAsDataURL(file);
-    }
-    // Reset input so same file can be re-selected
-    e.target.value = "";
-  }
+        {/* Sequence structure */}
+        <div>
+          <h3 className="font-mono text-xs uppercase tracking-wider text-muted-foreground mb-3">
+            Sequence Structure
+          </h3>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs text-muted-foreground">
+                Safety contacts inline in step transition rung
+              </Label>
+              <Switch
+                checked={schema.sequence_structure.safety_inline}
+                onCheckedChange={v => onSchemaChange({
+                  ...schema, sequence_structure: { ...schema.sequence_structure, safety_inline: v }
+                })}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label className="text-xs text-muted-foreground">
+                Permissive conditions checked in first network
+              </Label>
+              <Switch
+                checked={schema.sequence_structure.permissives_as_first_rung}
+                onCheckedChange={v => onSchemaChange({
+                  ...schema, sequence_structure: { ...schema.sequence_structure, permissives_as_first_rung: v }
+                })}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Sequence notes</Label>
+              <Textarea
+                value={schema.sequence_structure.custom_notes}
+                onChange={e => onSchemaChange({
+                  ...schema, sequence_structure: { ...schema.sequence_structure, custom_notes: e.target.value }
+                })}
+                className="font-mono text-xs min-h-[60px]"
+                placeholder="Management FC pattern, how steps drive outputs..."
+              />
+            </div>
+          </div>
+        </div>
 
-  function removeScreenshot(index: number) {
-    onUpdate({ screenshots: screenshots.filter((_, i) => i !== index) });
-  }
+        <div className="lg:col-span-2">
+          <Separator className="mb-4" />
+          <ExtraRulesEditor
+            rules={schema.extra_rules}
+            onChange={v => onSchemaChange({ ...schema, extra_rules: v })}
+          />
+        </div>
+        <div className="lg:col-span-2">
+          <Separator className="mb-4" />
+          <div className="space-y-1">
+            <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+              Additional Rules (freetext)
+            </Label>
+            <Textarea
+              value={schema.freetext}
+              onChange={e => onSchemaChange({ ...schema, freetext: e.target.value })}
+              placeholder="Any additional process rules not covered above..."
+              className="font-mono text-xs min-h-[100px]"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Extra Rules Editor ─────────────────────────────────────────────────────
+
+const RULE_TARGETS: RuleBlockTarget[] = ['ALL','FB','FC','OB','DB','UDT','CALL_FC','PROCESS_FC','DEVICE_FB'];
+const RULE_STRENGTHS: RuleStrength[] = ['MUST','MUST NOT','SHOULD','SHOULD NOT'];
+
+function ExtraRulesEditor({
+  rules,
+  onChange,
+}: {
+  rules: StructuredRule[];
+  onChange: (rules: StructuredRule[]) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState<Partial<StructuredRule>>({
+    category: '', target: 'ALL', strength: 'MUST', statement: '', example: '', enabled: true,
+  });
 
   return (
-    <Card className="space-y-3 p-4">
+    <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <Input
-          value={example.label}
-          onChange={(e) => onUpdate({ label: e.target.value })}
-          className="h-7 max-w-xs border-none bg-transparent p-0 font-mono text-sm font-semibold shadow-none focus-visible:ring-0"
-          placeholder="Example label..."
-        />
-        <div className="flex items-center gap-1">
+        <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+          Extra Rules
+        </Label>
+        <Button size="sm" variant="outline" onClick={() => setAdding(v => !v)}>
+          {adding ? 'Cancel' : '+ Add rule'}
+        </Button>
+      </div>
+
+      {rules.map(rule => (
+        <div key={rule.id} className="flex items-start gap-2 p-2 rounded border border-border bg-muted/30">
+          <Switch
+            checked={rule.enabled}
+            onCheckedChange={v => onChange(rules.map(r => r.id === rule.id ? { ...r, enabled: v } : r))}
+            className="mt-0.5 shrink-0"
+          />
+          <div className="flex-1 min-w-0">
+            <p className="font-mono text-xs">
+              <span className="text-primary">RULE: {rule.category}</span>
+              {' — '}
+              <span className="text-muted-foreground">{rule.target}</span>
+              {' '}
+              <span className="font-semibold">{rule.strength}</span>
+              {' '}
+              {rule.statement}
+            </p>
+            {rule.example && (
+              <pre className="mt-1 text-[10px] text-muted-foreground whitespace-pre-wrap">{rule.example}</pre>
+            )}
+          </div>
           <Button
             size="sm"
-            variant="outline"
-            className="h-7 gap-1 text-xs"
-            onClick={onAnalyze}
-            disabled={analyzing || !hasContent}
-          >
-            {analyzing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-            {analyzing ? "Analyzing..." : "Analyze"}
-          </Button>
-          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onRemove}>
-            <Trash2 className="h-3 w-3 text-muted-foreground" />
-          </Button>
+            variant="ghost"
+            className="shrink-0 text-destructive hover:text-destructive"
+            onClick={() => onChange(rules.filter(r => r.id !== rule.id))}
+          >×</Button>
         </div>
-      </div>
+      ))}
 
-      {/* Screenshots */}
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-2">
-          <Label className="font-mono text-xs text-muted-foreground">Screenshots</Label>
+      {adding && (
+        <div className="p-3 rounded border border-border space-y-3">
+          <div className="grid grid-cols-3 gap-2">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Category</Label>
+              <Input
+                value={draft.category ?? ''}
+                onChange={e => setDraft(d => ({ ...d, category: e.target.value }))}
+                placeholder="e.g. Naming"
+                className="font-mono text-xs"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Target</Label>
+              <Select
+                value={draft.target ?? 'ALL'}
+                onValueChange={v => setDraft(d => ({ ...d, target: v as RuleBlockTarget }))}
+              >
+                <SelectTrigger className="font-mono text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {RULE_TARGETS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Strength</Label>
+              <Select
+                value={draft.strength ?? 'MUST'}
+                onValueChange={v => setDraft(d => ({ ...d, strength: v as RuleStrength }))}
+              >
+                <SelectTrigger className="font-mono text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {RULE_STRENGTHS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Statement</Label>
+            <Input
+              value={draft.statement ?? ''}
+              onChange={e => setDraft(d => ({ ...d, statement: e.target.value }))}
+              placeholder="use the UPPER_SNAKE_CASE naming convention for all block names"
+              className="font-mono text-xs"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Example (optional SCL/LAD snippet)</Label>
+            <Textarea
+              value={draft.example ?? ''}
+              onChange={e => setDraft(d => ({ ...d, example: e.target.value }))}
+              className="font-mono text-xs min-h-[60px]"
+              placeholder="MOTOR_FB, SENSOR_FB, SOLENOID_2SEN_FB"
+            />
+          </div>
           <Button
             size="sm"
-            variant="outline"
-            className="h-6 gap-1 text-[10px]"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => {
+              if (!draft.category?.trim() || !draft.statement?.trim()) return;
+              onChange([...rules, makeRule(
+                draft.category!, draft.target ?? 'ALL',
+                draft.strength ?? 'MUST', draft.statement!, draft.example,
+              )]);
+              setDraft({ category: '', target: 'ALL', strength: 'MUST', statement: '', example: '', enabled: true });
+              setAdding(false);
+            }}
           >
-            <ImagePlus className="h-3 w-3" />
-            Add Image
+            Add rule
           </Button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={handleImageUpload}
-          />
-          <span className="text-[10px] text-muted-foreground/60">
-            Upload ladder logic screenshots, code screenshots, etc.
-          </span>
-        </div>
-        {screenshots.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {screenshots.map((uri, i) => (
-              <div key={i} className="group/img relative">
-                <img
-                  src={uri}
-                  alt={`Screenshot ${i + 1}`}
-                  className="h-24 rounded border border-border object-contain bg-muted/30"
-                />
-                <button
-                  onClick={() => removeScreenshot(i)}
-                  className="absolute -right-1 -top-1 hidden h-4 w-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground group-hover/img:flex"
-                >
-                  <X className="h-2.5 w-2.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Code */}
-      <div className="space-y-1">
-        <Label className="font-mono text-xs text-muted-foreground">Example Code (SCL) — optional if screenshots provided</Label>
-        <Textarea
-          value={example.example}
-          onChange={(e) => onUpdate({ example: e.target.value })}
-          placeholder="Paste SCL code here showing your preferred structure..."
-          className="min-h-[200px] resize-y font-mono text-xs leading-relaxed"
-        />
-      </div>
-
-      {example.analysis && (
-        <div className="space-y-1">
-          <div className="flex items-center justify-between">
-            <Label className="font-mono text-xs text-muted-foreground">AI Analysis</Label>
-            <span className="text-[10px] text-muted-foreground/60">Editable — adjust if the AI missed anything</span>
-          </div>
-          <Textarea
-            value={example.analysis}
-            onChange={(e) => onUpdate({ analysis: e.target.value })}
-            className="min-h-[150px] resize-y border-emerald-500/20 bg-emerald-500/5 font-mono text-xs leading-relaxed"
-          />
         </div>
       )}
-    </Card>
+    </div>
   );
 }

@@ -15,6 +15,7 @@ export const LAD_ELEMENT_TYPES = {
   CMP: "CMP",
   MATH: "MATH",
   MOVE: "MOVE",
+  FB_CALL: "FB_CALL",
 } as const;
 
 export type LadElementType =
@@ -40,16 +41,32 @@ export const LAD_ELEMENT_LABELS: Record<LadElementType, string> = {
   CMP: "Compare",
   MATH: "Math",
   MOVE: "Move",
+  FB_CALL: "FB Call",
 };
 
 /** Whether an element type is a "box" (wide, multi-pin) vs simple contact/coil */
 export function isBoxElement(type: LadElementType): boolean {
-  return ["TON", "TOF", "CTU", "CTD", "CMP", "MATH", "MOVE"].includes(type);
+  return ["TON", "TOF", "CTU", "CTD", "CMP", "MATH", "MOVE", "FB_CALL"].includes(type);
 }
 
 /** Whether an element type is an output (coil-side) element */
 export function isOutputElement(type: LadElementType): boolean {
   return ["OUTPUT_COIL", "SET_COIL", "RESET_COIL"].includes(type);
+}
+
+// ---------------------------------------------------------------------------
+// FB Call parameter wiring
+// ---------------------------------------------------------------------------
+
+export interface FbCallParam {
+  /** Parameter name on the FB interface (e.g. "start", "speed") */
+  name: string;
+  /** Direction: input, output, or inout */
+  direction: "in" | "out" | "inout";
+  /** Connected tag/operand (e.g. "Inputs.startButton", "HmiData.cv01Run") */
+  value: string;
+  /** Data type (e.g. "Bool", "Int", "Real", "Time", "Word") */
+  dataType?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,6 +94,12 @@ export interface LadElement {
   presetCount?: number;
   /** For timer/counter boxes: instance DB name */
   instanceDb?: string;
+  /** For FB_CALL: name of the FB being called (e.g. "CONVEYOR_FB") */
+  fbName?: string;
+  /** For FB_CALL: name of the instance DB (e.g. "InstCV01") */
+  fbInstanceDb?: string;
+  /** For FB_CALL: parameter wiring list */
+  callParams?: FbCallParam[];
   /** Optional comment */
   comment?: string;
 }

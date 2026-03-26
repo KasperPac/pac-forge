@@ -1,6 +1,6 @@
 import { useProcessBuilderStore } from "@/stores/process-builder-store";
-import { PROCESS_STAGE_LABELS, PROCESS_STAGE_DESCRIPTIONS, PROCESS_STAGE_ORDER } from "@/types/process-builder";
-import type { ProcessStage } from "@/types/process-builder";
+import { PROCESS_STAGE_LABELS, PROCESS_STAGE_DESCRIPTIONS, PROCESS_STAGE_ORDER } from "@/types/forge-matrix";
+import type { ProcessStage } from "@/types/forge-matrix";
 import type { CompileError, IoEntry } from "@/types";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";

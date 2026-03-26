@@ -2,13 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProjectCreate, ProjectUpdate, CpuType } from "@/types";
 import { PLC_BRANDS, CPU_TYPES } from "@/types";
 import { useDesignProfiles } from "@/hooks/use-design-profiles";
+import { useClients, useCreateClient } from "@/hooks/use-clients";
 import { useDropboxConnection, useSuggestProjectNumber } from "@/hooks/use-dropbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Loader2 } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -35,6 +36,7 @@ export function ProjectForm({
   submitting,
   mode,
 }: ProjectFormProps) {
+  const [clientId, setClientId] = useState(initialValues?.client_id ?? "none");
   const [clientName, setClientName] = useState(initialValues?.client_name ?? "");
   const [projectNumber, setProjectNumber] = useState(initialValues?.project_number ?? "");
   const [plcBrand] = useState(initialValues?.plc_brand ?? PLC_BRANDS.SIEMENS_TIA);
@@ -48,6 +50,26 @@ export function ProjectForm({
   const [safetyNotes, setSafetyNotes] = useState(initialValues?.safety_notes ?? "");
   const [designProfileId, setDesignProfileId] = useState(initialValues?.design_profile_id ?? "none");
   const { data: profiles } = useDesignProfiles();
+  const { data: clients } = useClients();
+  const createClient = useCreateClient();
+
+  // Inline new client creation
+  const [showNewClient, setShowNewClient] = useState(false);
+  const [newClientName, setNewClientName] = useState("");
+
+  function handleCreateClient() {
+    if (!newClientName.trim()) return;
+    createClient.mutate({ name: newClientName.trim() }, {
+      onSuccess: (created) => {
+        setClientId(created.id);
+        setClientName(created.name);
+        setShowNewClient(false);
+        setNewClientName("");
+        // Trigger Dropbox suggestion for new client
+        fetchSuggestion(created.name);
+      },
+    });
+  }
 
   // Dropbox auto-suggest project number
   const { data: dropboxConn } = useDropboxConnection();
@@ -68,10 +90,19 @@ export function ProjectForm({
     [isConnected]
   );
 
-  // Fetch suggestion when client name changes (on blur)
-  const handleClientNameBlur = useCallback(() => {
-    fetchSuggestion(clientName);
-  }, [clientName, fetchSuggestion]);
+  // Fetch suggestion when client changes
+  function handleClientChange(id: string) {
+    setClientId(id);
+    if (id !== "none") {
+      const selected = clients?.find((c) => c.id === id);
+      if (selected) {
+        setClientName(selected.name);
+        fetchSuggestion(selected.name);
+      }
+    } else {
+      setClientName("");
+    }
+  }
 
   // Also fetch on mount if editing and client name exists
   useEffect(() => {
@@ -83,8 +114,13 @@ export function ProjectForm({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const resolvedClientName = clientId !== "none"
+      ? (clients?.find((c) => c.id === clientId)?.name ?? clientName)
+      : clientName;
+
     const data: ProjectCreate = {
-      client_name: clientName,
+      client_name: resolvedClientName,
+      client_id: clientId !== "none" ? clientId : null,
       project_number: projectNumber || null,
       plc_brand: plcBrand,
       tia_version: tiaVersion,
@@ -108,7 +144,9 @@ export function ProjectForm({
 
     if (mode === "edit") {
       const updates: ProjectUpdate = {};
-      if (clientName !== initialValues?.client_name) updates.client_name = clientName;
+      if (resolvedClientName !== initialValues?.client_name) updates.client_name = resolvedClientName;
+      const newClientId = clientId !== "none" ? clientId : null;
+      if (newClientId !== (initialValues?.client_id ?? null)) updates.client_id = newClientId;
       if (projectNumber !== (initialValues?.project_number ?? "")) updates.project_number = projectNumber || null;
       if (tiaVersion !== initialValues?.tia_version) updates.tia_version = tiaVersion;
       if (cpuType !== initialValues?.cpu_type) updates.cpu_type = cpuType;
@@ -124,19 +162,49 @@ export function ProjectForm({
     }
   }
 
+  const hasClient = clientId !== "none";
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <Label className="font-mono text-xs">Client Name</Label>
-          <Input
-            value={clientName}
-            onChange={(e) => setClientName(e.target.value)}
-            onBlur={handleClientNameBlur}
-            required
-            placeholder="e.g. ACME Industries"
-            className="mt-1"
-          />
+          <Label className="font-mono text-xs">Client</Label>
+          {showNewClient ? (
+            <div className="mt-1 flex gap-1.5">
+              <Input
+                value={newClientName}
+                onChange={(e) => setNewClientName(e.target.value)}
+                placeholder="Client name"
+                autoFocus
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleCreateClient(); } }}
+              />
+              <Button type="button" size="sm" onClick={handleCreateClient} disabled={!newClientName.trim() || createClient.isPending}>
+                {createClient.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Add"}
+              </Button>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setShowNewClient(false)}>
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <div className="mt-1 flex gap-1.5">
+              <Select value={clientId} onValueChange={handleClientChange}>
+                <SelectTrigger className="flex-1">
+                  <SelectValue placeholder="Select client..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No client</SelectItem>
+                  {clients?.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}{c.short_code ? ` (${c.short_code})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button type="button" size="icon" variant="outline" className="h-9 w-9 shrink-0" onClick={() => setShowNewClient(true)} title="New client">
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
         </div>
 
         <div>
@@ -307,7 +375,7 @@ export function ProjectForm({
         <Button type="button" variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
-        <Button type="submit" disabled={submitting || !clientName}>
+        <Button type="submit" disabled={submitting || (!hasClient && !clientName)}>
           {submitting ? "..." : mode === "create" ? "Create Project" : "Save Changes"}
         </Button>
       </div>

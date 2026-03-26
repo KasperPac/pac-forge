@@ -226,7 +226,7 @@ function renderNodes(
         />,
       );
     }
-    if (node.branches) {
+    if (node.branches && node.branches.length > 0) {
       // Draw vertical fork/join lines
       const forkX = node.x;
       const joinX = node.x + node.width;

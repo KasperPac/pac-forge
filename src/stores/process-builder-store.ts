@@ -18,9 +18,9 @@ import type {
   SafetyCondition,
   TransitionSubCondition,
   MatrixReviewStatus,
-} from "@/types/process-builder";
+} from "@/types/forge-matrix";
 import type { PipelineExecution, PipelineStepResult } from "@/lib/pipeline";
-import { PROCESS_STAGE_ORDER } from "@/types/process-builder";
+import { PROCESS_STAGE_ORDER } from "@/types/forge-matrix";
 
 /** Chat message in the Q&A phase (reuses FB Builder pattern). */
 export interface ProcessQaMessage {

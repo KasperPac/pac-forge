@@ -38,7 +38,7 @@ import type {
   ProcessSequence,
   ProcessAction,
   MatrixReviewStatus,
-} from "@/types/process-builder";
+} from "@/types/forge-matrix";
 
 // ---------------------------------------------------------------------------
 // Device row with expandable IO signals + interlocks

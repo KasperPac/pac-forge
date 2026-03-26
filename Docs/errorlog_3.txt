@@ -1,0 +1,104 @@
+17:01:11
+info
+ESTOP: generated UDT:typeEStopConfig, FB:ControlEStop, DB:InstESTOP
+17:01:11
+info
+Inputs DB: 16 fields — M01_RUN, M01_OL, PE01_DET, PE02_DET, PB_START, PB_STOP, ESTOP_OK, , , , , , , , ,
+17:01:11
+info
+Outputs DB: 16 fields — M01_CMD_FWD, M01_CMD_REV, , , , , , , , , , , , , ,
+17:01:11
+info
+Global DB "Configuration": 5 fields
+17:01:11
+info
+Global DB "FaultData": 5 fields
+17:01:11
+info
+Global DB "HmiData": 4 fields
+17:01:26
+info
+PhotoelectricSensorCall: calling instances [InstPE01, InstPE02], inputs [PE01_DET, PE02_DET, , , , , , , , , ], outputs [, , , , , , , , , , , , , ]
+17:01:39
+info
+PhotoelectricSensorCall: generated PhotoelectricSensorCall
+17:01:39
+info
+PushbuttonCall: calling instances [InstPBSTART, InstPBSTOP], inputs [PB_START, PB_STOP, , , , , , , , , ], outputs [, , , , , , , , , , , , , ]
+17:01:39
+fix
+Matrix instance DB name normalized: "InstPbStart" → "InstPBSTART"
+17:01:39
+fix
+Matrix instance DB name normalized: "InstPbStop" → "InstPBSTOP"
+17:01:58
+info
+PushbuttonCall: generated PushbuttonCall
+17:01:58
+info
+ConveyorCall: calling instances [InstCV01], inputs [none], outputs [none]
+17:02:16
+info
+ConveyorCall: generated ConveyorCall
+17:02:16
+info
+EStopCall: calling instances [InstESTOP], inputs [ESTOP_OK, , , , , , , , , ], outputs [, , , , , , , , , , , , , ]
+17:02:16
+fix
+Matrix instance DB name normalized: "InstEstop" → "InstESTOP"
+17:02:30
+info
+EStopCall: generated EStopCall
+17:02:30
+info
+MotorDOLCall: calling instances [InstM01], inputs [M01_RUN, M01_OL, , , , , , , , , ], outputs [M01_CMD_FWD, M01_CMD_REV, , , , , , , , , , , , , , ]
+17:02:46
+info
+MotorDOLCall: generated MotorDOLCall
+17:02:46
+info
+Post-processing 27 artifacts…
+17:02:46
+fix
+FC instance ref corrected in ConveyorCall: "InstEstop" → "InstESTOP"
+17:02:46
+fix
+FC instance ref corrected in MotorDOLCall: "InstEstop" → "InstESTOP"
+17:02:46
+fix
+Phantom UDT field "typeConveyorConfig" removed from Configuration — no matching UDT artifact exists
+17:02:46
+fix
+Phantom UDT field "typeMotorConfig" removed from Configuration — no matching UDT artifact exists
+17:02:46
+fix
+Configuration DB: added 4 missing field(s) referenced by Device Call FCs
+17:02:46
+fix
+HmiData DB: added 7 missing field(s) referenced by Device Call FCs
+17:02:46
+fix
+Configuration DB: added 4 missing field(s) referenced by Device Call FCs
+17:02:46
+fix
+HmiData DB: added 7 missing field(s) referenced by Device Call FCs
+
+PLC_1,,10,1,5:03:16 PM
+Program blocks,,10,1,5:03:17 PM
+Forge,,10,1,5:03:17 PM
+PushbuttonCall (FC2),,2,0,5:03:17 PM
+16,Tag "Configuration".pbStartConfig not defined.,,,5:03:17 PM
+37,Tag "Configuration".pbStopConfig not defined.,,,5:03:17 PM
+ConveyorCall (FC3),,2,0,5:03:17 PM
+31,Tag "InstESTOP".pressed not defined.,,,5:03:17 PM
+36,Invalid parameter assignment.,,,5:03:17 PM
+EStopCall (FC4),,2,0,5:03:17 PM
+24,Tag "Configuration".eStopConfig not defined.,,,5:03:17 PM
+26,Parameter 'safeToRun' exists twice.,,,5:03:17 PM
+MotorDOLCall (FC5),,3,0,5:03:17 PM
+36,Data type 'Bool' cannot be converted implicitly into data type 'Time'.,,,5:03:17 PM
+37,Data type 'Bool' cannot be converted implicitly into data type 'Time'.,,,5:03:17 PM
+42,Tag "InstESTOP".pressed not defined.,,,5:03:17 PM
+ControlEStop (FB5),,1,1,5:03:17 PM
+124,Compound part of instruction expected.,,,5:03:17 PM
+,Compiling finished (errors: 10; warnings: 1),,,5:03:18 PM

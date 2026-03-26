@@ -1,0 +1,119 @@
+16:49:13
+info
+ESTOP: generated UDT:typeEStopConfig, FB:ControlEStop, DB:InstESTOP
+16:49:13
+info
+Inputs DB: 16 fields — M01_RUN, M01_OL, PE01_DET, PE02_DET, PB_START, PB_STOP, ESTOP_OK, , , , , , , , ,
+16:49:13
+info
+Outputs DB: 16 fields — M01_CMD_FWD, M01_CMD_REV, , , , , , , , , , , , , ,
+16:49:13
+info
+Global DB "Configuration": 5 fields
+16:49:13
+info
+Global DB "FaultData": 5 fields
+16:49:13
+info
+Global DB "HmiData": 4 fields
+16:49:29
+info
+PhotoelectricSensorCall: calling instances [InstPE01, InstPE02], inputs [PE01_DET, PE02_DET, , , , , , , , , ], outputs [, , , , , , , , , , , , , ]
+16:49:43
+info
+PhotoelectricSensorCall: generated PhotoelectricSensorCall
+16:49:43
+info
+PushbuttonCall: calling instances [InstPBSTART, InstPBSTOP], inputs [PB_START, PB_STOP, , , , , , , , , ], outputs [, , , , , , , , , , , , , ]
+16:49:43
+fix
+Matrix instance DB name normalized: "InstPbStart" → "InstPBSTART"
+16:49:43
+fix
+Matrix instance DB name normalized: "InstPbStop" → "InstPBSTOP"
+16:49:58
+info
+PushbuttonCall: generated PushbuttonCall
+16:49:58
+info
+ConveyorCall: calling instances [InstCV01], inputs [none], outputs [none]
+16:50:12
+info
+ConveyorCall: generated ConveyorCall
+16:50:12
+info
+EStopCall: calling instances [InstESTOP], inputs [ESTOP_OK, , , , , , , , , ], outputs [, , , , , , , , , , , , , ]
+16:50:12
+fix
+Matrix instance DB name normalized: "InstEstop" → "InstESTOP"
+16:50:31
+info
+EStopCall: generated EStopCall
+16:50:31
+info
+MotorDOLCall: calling instances [InstM01], inputs [M01_RUN, M01_OL, , , , , , , , , ], outputs [M01_CMD_FWD, M01_CMD_REV, , , , , , , , , , , , , , ]
+16:50:48
+info
+MotorDOLCall: generated MotorDOLCall
+16:50:48
+info
+Post-processing 27 artifacts…
+16:50:48
+fix
+FC instance ref corrected in ConveyorCall: "InstEstop" → "InstESTOP"
+16:50:48
+fix
+FC instance ref corrected in MotorDOLCall: "InstEstop" → "InstESTOP"
+16:50:48
+fix
+Phantom UDT field "typeConveyorConfig" removed from Configuration — no matching UDT artifact exists
+16:50:48
+fix
+UDT name corrected in Configuration: "typeMotorConfig" → "typeEStopConfig"
+
+PLC_1,,37,0,4:51:37 PM
+Program blocks,,37,0,4:51:38 PM
+Forge,,37,0,4:51:39 PM
+PhotoelectricSensorCall (FC1),,14,0,4:51:39 PM
+13,Tag "InstPE01" not defined.,,,4:51:39 PM
+14,The formal parameter 'Sensor' is invalid.,,,4:51:39 PM
+15,The formal parameter 'BlockedDly' is invalid.,,,4:51:39 PM
+16,The formal parameter 'ClearDly' is invalid.,,,4:51:39 PM
+17,The formal parameter 'Forced_Ctrl' is invalid.,,,4:51:39 PM
+18,The formal parameter 'Forced_Signal' is invalid.,,,4:51:39 PM
+19,The formal parameter 'SensorDlyOnOff' is invalid.,,,4:51:39 PM
+34,Tag "InstPE02" not defined.,,,4:51:39 PM
+35,The formal parameter 'Sensor' is invalid.,,,4:51:39 PM
+36,The formal parameter 'BlockedDly' is invalid.,,,4:51:39 PM
+37,The formal parameter 'ClearDly' is invalid.,,,4:51:39 PM
+38,The formal parameter 'Forced_Ctrl' is invalid.,,,4:51:39 PM
+39,The formal parameter 'Forced_Signal' is invalid.,,,4:51:39 PM
+40,The formal parameter 'SensorDlyOnOff' is invalid.,,,4:51:39 PM
+PushbuttonCall (FC2),,4,0,4:51:39 PM
+13,Tag "Configuration".pbStartConfig not defined.,,,4:51:39 PM
+31,Tag "Configuration".pbStopConfig not defined.,,,4:51:39 PM
+33,Tag "HmiData".cv01Run not defined.,,,4:51:39 PM
+34,Tag "HmiData".m01FaultReset not defined.,,,4:51:39 PM
+ConveyorCall (FC3),,10,0,4:51:39 PM
+26,Tag "HmiData".cv01Run not defined.,,,4:51:39 PM
+27,Tag "HmiData".cv01Direction not defined.,,,4:51:39 PM
+28,Tag "InstPE01".SensorDlyOnOff not defined.,,,4:51:39 PM
+29,Tag "InstPE02".SensorDlyOnOff not defined.,,,4:51:39 PM
+31,Tag "InstESTOP".pressed not defined.,,,4:51:39 PM
+32,Tag "HmiData".cv01Reset not defined.,,,4:51:39 PM
+33,Tag "Configuration".cv01TimeoutDuration not defined.,,,4:51:39 PM
+34,Tag "Configuration".cv01JamDetectionTime not defined.,,,4:51:39 PM
+36,Invalid parameter assignment.,,,4:51:39 PM
+37,Tag "HmiData".cv01Run not defined.,,,4:51:39 PM
+EStopCall (FC4),,2,0,4:51:39 PM
+34,Tag "Configuration".eStopConfig not defined.,,,4:51:39 PM
+36,Parameter 'eStopActive' exists twice.,,,4:51:39 PM
+MotorDOLCall (FC5),,7,0,4:51:39 PM
+32,Tag "HmiData".m01Enable not defined.,,,4:51:39 PM
+33,Tag "HmiData".m01Mode not defined.,,,4:51:39 PM
+38,Tag "HmiData".m01Direction not defined.,,,4:51:39 PM
+41,Tag "Configuration".m01FaultDelayRun not defined.,,,4:51:39 PM
+42,Tag "Configuration".m01FaultDelayStop not defined.,,,4:51:39 PM
+43,Tag "InstESTOP".pressed not defined.,,,4:51:39 PM
+45,Tag "HmiData".m01FaultReset not defined.,,,4:51:39 PM
+,Compiling finished (errors: 37; warnings: 0),,,4:51:40 PM

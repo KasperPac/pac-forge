@@ -156,18 +156,45 @@ export async function buildLadXmlForArtifact(artifact: ForgeArtifact): Promise<s
   // AI-generated LAD may omit fields that buildLadXml requires — fill defaults
   if (!program.variables) program.variables = [];
   if (!program.blockType) program.blockType = artifact.type; // "FC" | "FB"
+  // Normalize variable scope/section — AI generates "STATIC"/"TEMP" but LadVariable expects "Static"/"Temp"
+  const SCOPE_MAP: Record<string, string> = {
+    STATIC: "Static", Static: "Static", static: "Static",
+    TEMP: "Temp", Temp: "Temp", temp: "Temp",
+    INPUT: "Input", Input: "Input", input: "Input",
+    OUTPUT: "Output", Output: "Output", output: "Output",
+    INOUT: "InOut", InOut: "InOut", inout: "InOut",
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const v of program.variables as any[]) {
+    // AI may use "scope" instead of "section"
+    const raw = v.section ?? v.scope ?? "Temp";
+    v.section = SCOPE_MAP[raw] ?? "Temp";
+  }
   // Strip "header comment" rungs that have no output coil — TIA Portal rejects rungs
   // with only contact elements (AI sometimes generates these as section dividers).
-  const OUTPUT_TYPES = new Set(["OUTPUT_COIL", "SET_COIL", "RESET_COIL"]);
+  const VALID_OUTPUT_TYPES = new Set([
+    "OUTPUT_COIL", "SET_COIL", "RESET_COIL", "FB_CALL",
+    "TON", "TOF", "CTU", "CTD", "CMP", "MATH", "MOVE",
+  ]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function hasOutputElement(node: any): boolean {
+    if (!node) return false;
+    if (node.type === "element") return VALID_OUTPUT_TYPES.has(node.element?.type);
+    // Parallel or series: check branches/nodes recursively
+    for (const arr of [node.branches, node.nodes]) {
+      if (Array.isArray(arr)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (arr.some((c: any) => Array.isArray(c?.nodes) ? c.nodes.some(hasOutputElement) : hasOutputElement(c))) return true;
+      }
+    }
+    return false;
+  }
   if (Array.isArray(program.rungs)) {
     program.rungs = program.rungs.filter((rung: Record<string, unknown>) => {
-      const nodes = (rung.logic as Record<string, unknown>)?.nodes as Array<Record<string, unknown>> | undefined;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const nodes = (rung.logic as any)?.nodes;
       if (!Array.isArray(nodes) || nodes.length === 0) return false;
-      return nodes.some((n) => {
-        if (n.type !== "element") return false;
-        const el = n.element as Record<string, unknown> | undefined;
-        return el ? OUTPUT_TYPES.has(el.type as string) : false;
-      });
+      return nodes.some(hasOutputElement);
     });
   }
   return buildLadXml(program);

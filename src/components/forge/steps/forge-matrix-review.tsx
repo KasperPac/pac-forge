@@ -37,7 +37,7 @@ import type {
   ProcessSequence,
   ProcessStep,
   SequenceRow,
-} from "@/types/process-builder";
+} from "@/types/forge-matrix";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 

@@ -7,7 +7,7 @@ import type {
   AgentKnowledgeDoc,
   ReferenceLibrarySection,
 } from "@/types";
-import type { ProcessStage } from "@/types/process-builder";
+import type { ProcessStage } from "@/types/forge-matrix";
 import type { ParsedArtifact } from "@/lib/artifact-parser";
 import type { ReviewReport } from "@/lib/review-response-parser";
 import type { PipelineStepResult } from "@/lib/pipeline";

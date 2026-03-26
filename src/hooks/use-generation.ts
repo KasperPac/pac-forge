@@ -300,15 +300,105 @@ export async function streamFromEdgeFunction(
   return fullContent;
 }
 
-/**
- * Makes a non-streaming call to the Edge Function and returns the content + token usage.
- * Used by pipeline steps (PM plan, reviews, pattern analysis, summary).
- */
 /** Content can be a plain string or multimodal array (for vision) */
 export type MessageContent = string | Array<
   | { type: "text"; text: string }
   | { type: "image"; source: { type: "base64"; media_type: string; data: string } }
 >;
+
+/**
+ * Makes a streaming call but collects the full response — avoids edge function
+ * wall-clock timeout (60s) that kills long non-streaming calls.
+ * Same return signature as callNonStreaming.
+ */
+export async function callStreamingCollect(
+  systemPrompt: string,
+  messages: Array<{ role: "user" | "assistant"; content: MessageContent }>,
+  signal: AbortSignal,
+  maxTokens?: number,
+): Promise<{ content: string; usage: { input: number; output: number } | null }> {
+  const token = await getAuthToken();
+
+  const body: Record<string, unknown> = {
+    system_prompt: systemPrompt,
+    messages,
+    stream: true,
+  };
+  if (maxTokens) body.max_tokens = maxTokens;
+
+  const response = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
+      },
+      body: JSON.stringify(body),
+      signal,
+    },
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    let detail: string;
+    try {
+      const parsed = JSON.parse(text);
+      const parts = [parsed.error, parsed.details].filter(Boolean);
+      detail = parts.join(" — ") || text;
+    } catch {
+      detail = text;
+    }
+    throw new Error(`API call failed (${response.status}): ${detail}`);
+  }
+
+  if (!response.body) {
+    throw new Error("No response body for streaming");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let fullContent = "";
+  let buffer = "";
+  let usage: { input: number; output: number } | null = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const jsonStr = line.slice(6).trim();
+      if (!jsonStr || jsonStr === "[DONE]") continue;
+
+      try {
+        const data = JSON.parse(jsonStr);
+        if (data.type === "content_block_delta" && data.delta?.type === "text_delta") {
+          fullContent += data.delta.text as string;
+        } else if (data.type === "message_delta" && data.usage) {
+          usage = {
+            input: data.usage.input_tokens ?? 0,
+            output: data.usage.output_tokens ?? 0,
+          };
+        }
+      } catch {
+        // Skip malformed JSON lines
+      }
+    }
+  }
+
+  return { content: fullContent, usage };
+}
+
+/**
+ * Makes a non-streaming call to the Edge Function and returns the content + token usage.
+ * Used by pipeline steps (PM plan, reviews, pattern analysis, summary).
+ */
 
 export async function callNonStreaming(
   systemPrompt: string,

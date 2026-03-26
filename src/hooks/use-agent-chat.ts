@@ -10,6 +10,8 @@ import { useAgentChatStore } from "@/stores/agent-chat-store";
 import type { LearningProposal } from "@/stores/agent-chat-store";
 import { usePacStStore } from "@/stores/pac-st-store";
 import { useTiaConsoleStore } from "@/stores/tia-console-store";
+import { useForgeStore } from "@/stores/forge-store";
+import { useForgeSession } from "@/hooks/use-forge-session";
 import { useAgents } from "@/hooks/use-agents";
 import { useAgentKnowledgeDocs } from "@/hooks/use-agent-knowledge";
 import { supabase } from "@/lib/supabase";
@@ -59,6 +61,10 @@ export function useAgentChat() {
   );
   const { data: knowledgeDocs } = useAgentKnowledgeDocs(agentRecord?.id);
 
+  // Forge wizard session context
+  const forgeSessionId = useForgeStore((s) => s.activeSessionId);
+  const { data: forgeSession } = useForgeSession(forgeSessionId ?? undefined);
+
   const sendMessage = useCallback(
     async (userMessage: string) => {
       const { selectedAgent, messages } = useAgentChatStore.getState();
@@ -94,7 +100,8 @@ export function useAgentChat() {
           generatedArtifacts.length > 0 ||
           allPipelineSteps.length > 0 ||
           localCompileResult != null ||
-          (compileFixSession?.messages.length ?? 0) > 0;
+          (compileFixSession?.messages.length ?? 0) > 0 ||
+          forgeSession != null;
 
         let sessionContext: SessionContext | undefined;
         if (hasContext) {
@@ -103,6 +110,7 @@ export function useAgentChat() {
             pipelineSteps: allPipelineSteps,
             compileResult: localCompileResult,
             compileFixMessages: compileFixSession?.messages,
+            forgeSession: forgeSession ?? undefined,
           };
         }
 
@@ -136,7 +144,7 @@ export function useAgentChat() {
         abortRef.current = null;
       }
     },
-    [store, knowledgeDocs],
+    [store, knowledgeDocs, forgeSession],
   );
 
   const cancelStream = useCallback(() => {

@@ -1,4 +1,4 @@
-import type { ProcessLinkageMatrix } from "@/types/process-builder";
+import type { ProcessLinkageMatrix } from "@/types/forge-matrix";
 
 export const FORGE_STEPS = {
   SPEC_UPLOAD: "spec_upload",
@@ -88,6 +88,7 @@ export interface ForgeSession {
 
   /** Language overrides set in project setup — take precedence over design profile defaults */
   device_fb_language: "SCL" | "LAD" | null;
+  device_call_fc_language: "SCL" | "LAD" | null;
   io_linking_language: "SCL" | "LAD" | null;
   process_code_language: "SCL" | "LAD" | null;
 

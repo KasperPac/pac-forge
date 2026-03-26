@@ -7,6 +7,7 @@
 import type { ForgeArtifact, ForgeIoEntry, ForgeDeviceEntry } from "@/types/forge";
 import type { ReviewFinding } from "@/lib/forge-review-parser";
 import type { PatternCandidate } from "@/types";
+import { resolveSection } from "@/lib/prompt-defaults";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -31,18 +32,6 @@ function formatArtifactsForReview(artifacts: ForgeArtifact[]): string {
 // Standards Reviewer — stage-scoped prompts
 // ---------------------------------------------------------------------------
 
-const REVIEWER_CHECKLIST = `## Mandatory Checklist (all stages)
-1. CASE labels must be integer literals — CRITICAL if not
-2. CASE must have ELSE branch — CRITICAL if missing
-3. Instance DBs required for every FB call — CRITICAL if missing
-4. FB calls use instance DB name only (e.g., "InstMotor1"(...)) — CRITICAL if wrong syntax
-5. Timers, Counters, R_TRIG/F_TRIG must be in VAR (not VAR_TEMP) — CRITICAL
-6. Type conversions must be explicit (INT_TO_REAL, etc.) — CRITICAL if implicit
-7. # prefix on all local variables — CRITICAL if missing
-8. All FB parameters wired up in calls — CRITICAL if missing
-9. All variables used in code bodies are declared — CRITICAL if undeclared
-10. Naming conventions per platform rules (lowerCamelCase params, stat/temp/inst prefixes) — WARNING
-11. REGION blocks for code organisation — INFO`;
 
 const REVIEWER_OUTPUT_FORMAT = `## Output Format
 List every finding using EXACTLY this format:
@@ -91,15 +80,17 @@ export function buildForgeReviewPrompt(
   stage: ReviewStage,
   platformRules: string,
   profileRules?: string,
+  promptSections?: Record<string, string>,
 ): string {
+  const identity = resolveSection(promptSections, "forge_reviewer", "identity");
+  const instructions = resolveSection(promptSections, "forge_reviewer", "instructions");
   const profileSection = profileRules
     ? `\n\n## Design Profile Rules\n${profileRules}`
     : "";
 
-  return `You are a Standards Reviewer inspecting generated Siemens TIA Portal SCL/LAD code artifacts.
-Your job is to identify defects — not to rewrite code.
+  return `${identity}
 
-${REVIEWER_CHECKLIST}
+${instructions}
 
 ## Platform Rules
 ${platformRules}
@@ -127,36 +118,26 @@ export function buildForgeReviewUserMessage(artifacts: ForgeArtifact[]): string 
 export function buildForgeRewritePrompt(
   platformRules: string,
   profileRules?: string,
+  promptSections?: Record<string, string>,
 ): string {
+  const identity = resolveSection(promptSections, "forge_arch_rewrite", "identity");
+  const instructions = resolveSection(promptSections, "forge_arch_rewrite", "instructions");
   const profileSection = profileRules
     ? `\n\n## Design Profile Rules\n${profileRules}`
     : "";
 
-  return `You are Code Architect, a senior Siemens TIA Portal SCL programmer.
-Specialist reviewers have inspected the generated code and reported findings. You MUST address every CRITICAL and WARNING finding. INFO findings are optional improvements.
+  return `${identity}
 
 ## Platform Rules
 ${platformRules}
 ${profileSection}
 
-## Rewrite Instructions
-- Rewrite artifacts to fix all reported issues while preserving existing code structure and functionality
-- Do not introduce changes beyond what the findings require
-- After rewriting, verify:
-  - All variables used in code bodies are declared in VAR sections
-  - All UDT field accesses match the UDT STRUCT definitions
-  - All cross-artifact references (UDTs, FBs, instance DBs, Main calls) are consistent
-  - No parameters dropped from FB calls during rewrite
+${instructions}
 
 ## CRITICAL: Cross-Artifact Consistency
 When you rename a parameter or variable in an FB interface (VAR_INPUT/VAR_OUTPUT/VAR_IN_OUT), you MUST also rename every call site that uses that parameter across ALL other artifacts.
 Example: if you rename _SensorDlyOnOff to sensorDlyOnOff in the FB, you must find every "_SensorDlyOnOff :=" and "_SensorDlyOnOff =>" in all Device Call FCs and update them to match.
 Failure to do this will cause compile errors even though the review findings appear fixed.
-
-## Rewrite Scope
-- TARGETED: Only regenerate files with actual issues — BUT if a parameter rename affects call sites in other files, those files must also be updated
-- COPY FORWARD: Unchanged files are identical to previous version
-- FULL OUTPUT: Always provide the complete artifact set
 
 ## Response Format
 ## Rewrite Summary
@@ -192,7 +173,13 @@ export function buildForgeRewriteUserMessage(
  * Minimal, targeted — preserve interfaces and structure.
  * Accepts optional patterns so previously-learned fixes are injected.
  */
-export function buildForgeCompileFixPrompt(platformRules: string, patterns?: PatternCandidate[]): string {
+export function buildForgeCompileFixPrompt(
+  platformRules: string,
+  patterns?: PatternCandidate[],
+  promptSections?: Record<string, string>,
+): string {
+  const identity = resolveSection(promptSections, "forge_arch_compile_fix", "identity");
+  const instructions = resolveSection(promptSections, "forge_arch_compile_fix", "instructions");
   const patternSection = patterns && patterns.length > 0
     ? `## Mandatory: Learned Corrections from Previous Compile Errors\n` +
       `These mistakes have been fixed before — do NOT repeat them:\n` +
@@ -203,23 +190,12 @@ export function buildForgeCompileFixPrompt(platformRules: string, patterns?: Pat
       ).join("\n\n")
     : "";
 
-  return `You are Code Architect, fixing Siemens TIA Portal SCL compile errors.
+  return `${identity}
 
 ## Platform Rules
 ${platformRules}
 ${patternSection ? "\n" + patternSection + "\n" : ""}
-## Fixing Methodology (in order)
-1. Syntax errors — fix malformed statements, missing semicolons, wrong keywords
-2. Undeclared identifiers — add missing variable declarations to the correct VAR section
-3. Data type mismatches — add explicit type conversion functions (INT_TO_REAL, etc.)
-4. Call interface mismatches — match formal parameter names and types exactly
-
-## Rules
-- Apply MINIMAL corrections — do not redesign, rename, or remove logic
-- Preserve block interface (VAR_INPUT, VAR_OUTPUT, VAR_IN_OUT sections) exactly
-- Preserve STAT memory layout and UDT structures
-- Do NOT invent missing members or add unrelated improvements
-- If no safe fix is possible, output: NO_SAFE_FIX_FOUND
+${instructions}
 
 ## Output Format
 Return the complete corrected artifact as a \`\`\`scl [TYPE:Name] ... \`\`\` block.`;
@@ -256,18 +232,15 @@ export function buildForgeCompileFixUserMessage(
 /**
  * System prompt for the Pattern Librarian to analyse a before/after diff.
  */
-export function buildForgePatternAnalysisPrompt(): string {
-  return `You are Pattern Librarian, analyzing a before/after code correction to extract a reusable pattern.
+export function buildForgePatternAnalysisPrompt(
+  promptSections?: Record<string, string>,
+): string {
+  const identity = resolveSection(promptSections, "forge_pattern_librarian", "identity");
+  const instructions = resolveSection(promptSections, "forge_pattern_librarian", "instructions");
 
-## Your Task
-Compare the original and corrected code. Identify what changed and why, then extract a generalised rule.
+  return `${identity}
 
-## Correction Types
-NAMING | IO_MAPPING | STATE_LOGIC | ALARM | SAFETY | TIMING | TYPE_CONVERSION | DECLARATION | SYNTAX | OTHER
-
-## Pattern Types
-SYSTEMIC_PATTERN — a mistake that will likely recur across many similar blocks
-LOCAL_PATTERN — a one-off specific to this device or context
+${instructions}
 
 ## Output Format (JSON only, no markdown fences)
 {
@@ -303,7 +276,10 @@ export function buildForgePatternAnalysisUserMessage(
 export function buildForgeIoValidationPrompt(
   devices: ForgeDeviceEntry[],
   ioList: ForgeIoEntry[],
+  promptSections?: Record<string, string>,
 ): string {
+  const identity = resolveSection(promptSections, "forge_io_validator", "identity");
+  const instructions = resolveSection(promptSections, "forge_io_validator", "instructions");
   const deviceSummary = devices
     .map((d) => {
       const signals = (d.io_signals ?? [])
@@ -317,14 +293,9 @@ export function buildForgeIoValidationPrompt(
     .map((io) => `  ${io.tag_name} (${io.signal_type}, ${io.data_type}): ${io.description ?? ""}`)
     .join("\n");
 
-  return `You are an IO Validator. Your job is to validate IO mapping in generated Siemens TIA Portal code. You validate IO mapping by cross-referencing the IO Linking FC against the known IO list and FB interfaces.
+  return `${identity}
 
-## Checks to perform
-
-1. **No invented variable names** — every instance DB access (e.g. "InstM01".someVar) must use a variable that is declared in the FB's INTERFACE/VAR sections. Report CRITICAL for any access to a non-existent variable.
-2. **No orphaned IO tags** — every IO signal in the IO list that is assigned to a device should appear in the IO linking FC. Report WARNING for any unlinked signal.
-3. **Signal direction consistency** — DI/AI signals (inputs) should feed INTO FB parameters (reads), DQ/AQ signals (outputs) should be driven FROM FB outputs (writes). Report WARNING for any reversal.
-4. **No duplicate address usage** — the same physical tag should not be written to from two different rungs/lines. Report WARNING for duplicates.
+${instructions}
 
 ## Known Devices and IO Signals
 ${deviceSummary}

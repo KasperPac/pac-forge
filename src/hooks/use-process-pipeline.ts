@@ -26,8 +26,8 @@ import {
   createPendingStep,
   CODE_GEN_MAX_TOKENS,
 } from "@/lib/pipeline";
-import { PROCESS_STAGE_ORDER } from "@/types/process-builder";
-import type { ProcessStage } from "@/types/process-builder";
+import { PROCESS_STAGE_ORDER } from "@/types/forge-matrix";
+import type { ProcessStage } from "@/types/forge-matrix";
 import type {
   Project,
   Agent,

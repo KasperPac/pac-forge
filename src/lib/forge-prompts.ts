@@ -14,7 +14,69 @@ import type {
 } from "@/types/forge";
 import type { FbTemplate } from "@/types/fb-template";
 import type { PatternCandidate } from "@/types";
-import type { ProcessLinkageMatrix, FbWire } from "@/types/process-builder";
+import type { ProcessLinkageMatrix, FbWire } from "@/types/forge-matrix";
+import type { ProcessRulesSchema } from "@/types/design-profile";
+import { parseProcessRules } from "@/lib/design-profile-schemas";
+import { formatDesignProfile } from "@/lib/prompt-builder";
+import { resolveSection } from "@/lib/prompt-defaults";
+
+// ---------------------------------------------------------------------------
+// Step/Action DB pattern rules (injected when profile enables this pattern)
+// ---------------------------------------------------------------------------
+
+function buildStepActionRules(processSchema: ProcessRulesSchema | null): string {
+  if (!processSchema?.step_action_db?.enabled) return "";
+
+  const { step_array_name, action_array_name, db_name_pattern, custom_notes } = processSchema.step_action_db;
+  const S = step_array_name || "S";
+  const A = action_array_name || "A";
+  const seq = processSchema.sequence_structure;
+
+  return `## MANDATORY: Step/Action DB Pattern
+
+### Step Transition — Latching Circuit (REQUIRED for every step)
+Every step rung MUST use this exact latching pattern:
+
+\`\`\`
+──┤ ${S}[x-1] ├──┤ Condition ├──┬──( ${S}[x] )──
+                                │
+──┤ ${S}[x]   ├──┤/${S}[x+1]  ├──┘
+\`\`\`
+
+**Top branch (transition)**: Previous step active AND transition condition met — contacts only, NO coil here.
+**Bottom branch (seal)**: Current step seals itself (NO_CONTACT) AND next step not yet active (NC_CONTACT) — contacts only, NO coil here.
+**After the parallel closes**: A SINGLE OUTPUT_COIL for ${S}[x] — this is the ONLY coil in the rung.
+
+CRITICAL: The OUTPUT_COIL appears ONCE, AFTER the parallel block, NOT inside the branches.
+A coil operand must NEVER appear more than once in the entire program.
+
+Rules for STEP TRANSITION rungs:
+- NEVER use SET_COIL or RESET_COIL — use OUTPUT_COIL with latching circuits only
+- Each coil operand appears in exactly ONE rung — never duplicate a coil
+- The rung structure is: series[ parallel[ transition_branch, seal_branch ], OUTPUT_COIL ]
+- Transition and seal branches contain only contacts (NO_CONTACT, NC_CONTACT) — never coils
+- The seal contact is the step itself (${S}[x])
+- The break contact is the next step (NC of ${S}[x+1])
+
+### Fault Handling — SEPARATE FC (do NOT put faults in the sequence FB)
+- Fault detection, fault latching, and fault reset logic belong in a SEPARATE Fault FC
+- The sequence FB contains ONLY: step transitions, action mapping, and action linking
+- NO fault exit rungs in the sequence FB — the fault FC monitors process state and handles all faults
+- The fault FC reads step bits, process IO, and timer outputs to detect fault conditions
+- The fault FC sets fault flags (statF001, statF002, etc.), statFaultActive, and routes to the fault step
+- The fault FC handles operator reset (clearing fault latches, returning to idle)
+- Generate the Fault FC as a separate artifact alongside the sequence FB
+${db_name_pattern ? `\n### DB naming: \`${db_name_pattern}\` (replace {SECTION} with sequence name)` : ""}
+
+### Action Mapping (REQUIRED)
+- Every step ${S}[n] MUST have a corresponding action rung: \`${S}[n] → ${A}[n]\` (1:1 mapping via OUTPUT_COIL)
+- Actions are the ONLY outputs that feed process commands — steps NEVER drive outputs directly
+- Action linking rungs map ${A}[n] to actual process outputs (ProcessCommands.*, HMI flags, timer enables)
+${seq?.safety_inline ? `\n### Safety: Safety contacts (ESTOP_OK, overload) are inline in step transition rungs` : ""}
+${seq?.permissives_as_first_rung ? `\n### Permissives: All permissive conditions are evaluated in the first network(s) before any step transitions` : ""}
+${custom_notes ? `\n### Additional Notes\n${custom_notes}` : ""}
+${seq?.custom_notes ? `\n### Sequence Notes\n${seq.custom_notes}` : ""}`;
+}
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -85,10 +147,6 @@ function formatPatterns(patterns: PatternCandidate[]): string {
   return `## MANDATORY: Learned Corrections from Previous Compile Errors\n\n${lines.join("\n\n---\n\n")}`;
 }
 
-function formatProfile(profile: DesignProfile | undefined): string {
-  if (!profile) return "";
-  return `## Code Design Profile: ${profile.name}\n\n${profile.general_rules}`;
-}
 
 // ---------------------------------------------------------------------------
 // Q&A Review prompts
@@ -96,62 +154,15 @@ function formatProfile(profile: DesignProfile | undefined): string {
 
 /**
  * System prompt for the PM agent to review spec analysis and ask clarifying questions.
- *
- * HARDCODED — not configurable via Prompts page.
- * Design Profile fields used: none (Q&A is profile-agnostic).
- * To make configurable: add "forge:qa_review" section key to PROMPT_DEFAULTS and use resolveSection().
+ * Uses resolveSection() so the prompt is viewable and editable on the Prompts page.
  */
-export function buildQaReviewPrompt(): string {
-  return `You are a Project Manager reviewing an automation project specification analysis.
-Your role is to identify gaps, ambiguities, and missing information in the extracted analysis, then ask the engineer targeted clarifying questions.
+export function buildQaReviewPrompt(promptSections?: Record<string, string>): string {
+  const identity = resolveSection(promptSections, "forge_pm_qa_review", "identity");
+  const instructions = resolveSection(promptSections, "forge_pm_qa_review", "instructions");
 
-## How to behave
-- Review the spec analysis JSON provided by the engineer
-- Identify what is MISSING, UNCLEAR, or potentially WRONG
-- Ask specific, targeted questions grouped by category
-- Reference specific parts of the analysis ("I see 12 devices are listed, but none have IO signal types — can you confirm...")
-- If the analysis looks comprehensive and complete, acknowledge that and recommend proceeding
-- Keep questions focused — max 5-8 questions per response
-- After the engineer answers, acknowledge what's been clarified, then ask any remaining follow-up questions
-- When all significant gaps are filled, explicitly state "The analysis looks complete" and output the updated JSON
-- Do NOT say "ready to proceed" or "The analysis looks complete" in a response that still asks any clarifying question
-- If unanswered questions remain, keep the review open and ask only those questions
+  return `${identity}
 
-## Categories to check
-1. **PLC/Hardware** — CPU type specified? Safety PLC needed? Profinet/Profibus topology?
-2. **IO** — All devices accounted for? IO signal types (DI/DQ/AI/AQ) specified? Any signals missing?
-3. **Process sequences** — Steps clear and unambiguous? Completion criteria defined? Permissives/interlocks listed?
-4. **Safety** — E-stop handling described? Safety interlocks specified? Safety category required?
-5. **HMI** — Panel type specified (KTP, Unified Comfort)? Screen requirements clear?
-6. **Alarms** — Severity classifications complete? Response actions defined?
-
-## Output format for final update
-When all gaps are filled, output:
-1. A brief summary of what was clarified
-2. The **complete** updated spec analysis as valid JSON inside \`\`\`json fences
-
-**CRITICAL**: The JSON must include ALL fields from the original analysis — every device, every sequence, every alarm and interlock. Do NOT output a partial or summary JSON. If you only clarified IO signals for 3 devices, still output all 24 devices (with those 3 updated). Omitting devices causes them to disappear from the project.
-
-Be conversational and professional — this is a dialogue with an experienced engineer, not a form.`;
-}
-
-/**
- * System prompt for follow-up Q&A rounds — same role, receives conversation history.
- *
- * HARDCODED — not configurable via Prompts page.
- * Design Profile fields used: none.
- */
-export function buildQaFollowUpPrompt(): string {
-  return `You are a Project Manager continuing a Q&A review of an automation project specification.
-You have already asked an initial set of questions. Review the engineer's answers and:
-- Acknowledge what has been clarified
-- Ask any remaining important follow-up questions (max 3-4)
-- If all significant gaps are now filled, say so clearly and output the updated analysis JSON
-- Do NOT mark the review complete if you are still asking a question in that same response
-
-Keep it brief — the engineer wants to move forward. Only ask about genuinely important gaps.
-
-When ready to finalize, output the complete updated spec analysis as valid JSON inside \`\`\`json fences. The JSON must contain ALL original devices and sequences — not just the ones discussed. Omitting any device causes it to be lost from the project.`;
+${instructions}`;
 }
 
 /**
@@ -191,7 +202,7 @@ Rules:
  *   - naming_prefix: could pre-apply tag name prefixes
  * To make configurable: add "forge:spec_analysis" section key to PROMPT_DEFAULTS and use resolveSection().
  */
-export function buildSpecAnalysisPrompt(fbTemplates?: FbTemplate[]): string {
+export function buildSpecAnalysisPrompt(fbTemplates?: FbTemplate[], promptSections?: Record<string, string>): string {
   const librarySection =
     fbTemplates && fbTemplates.length > 0
       ? `## FB Library (available Function Blocks)
@@ -208,46 +219,14 @@ ${fbTemplates
 `
       : "";
 
-  return `You are a senior automation engineer with deep experience in Siemens TIA Portal projects.
-Your task is to read a functional specification document and extract structured project data as JSON.
+  const identity = resolveSection(promptSections, "forge_pm_spec_analysis", "identity");
+  const instructions = resolveSection(promptSections, "forge_pm_spec_analysis", "instructions");
+
+  return `${identity}
 
 ${librarySection}
 
-## Device extraction rules
-
-Extract devices at ALL levels of the system — not just physical actuators:
-
-- **ACTUATORS**: Motors (DOL, VFD), Solenoids, Valves, Cylinders — have physical DQ outputs
-- **SENSORS**: Photoelectric, Proximity, Temperature, Pressure, Level, Flow — have physical DI/AI inputs
-- **SYSTEM DEVICES**: Conveyors, Pumps, Mixers — logical control entities that coordinate actuators and sensors
-- **OPERATOR DEVICES**: Push buttons, Stack lights, Selector switches — have physical DI/DQ. Each individual push button is its OWN device with ONE DI signal — do NOT group multiple buttons into a single "Push Button Station" device.
-- **SAFETY DEVICES**: E-stop circuits, Safety light curtains, Guard switches — have DI inputs
-
-**IMPORTANT:** If the spec describes "Conveyor CV01 driven by motor M01 with sensors PE01 and PE02", extract THREE separate devices:
-1. CV01 as device_type "Conveyor" — the system device for direction, sequencing, and sensor logic
-2. M01 as device_type "Motor DOL" — the actuator that physically drives the belt
-3. PE01, PE02 as device_type "Photoelectric Sensor" — the sensors that detect product
-
-Each device type has its OWN Function Block in the PLC code. They are connected in the Process FC, not nested inside each other. The Conveyor FB does NOT contain a Motor FB — they are separate FBs wired together.
-
-For IO signals per device:
-- Motor: CMD (DQ), RUN feedback (DI), Overload/Fault (DI)
-- Conveyor: NO direct physical IO — receives sensor data and motor feedback as FB parameters
-- Sensor: Detection signal (DI) or analog value (AI)
-- Push Button (each button is a separate device): exactly 1 DI signal per device
-- Stack Light: One DQ per lamp colour (GREEN, AMBER, RED)
-- E-Stop: Circuit OK signal (DI)
-
-## General rules
-
-- Extract ALL devices, including those in instrumentation tables or IO schedules.
-- Extract ALL IO signals for each device. DI = digital input, DQ = digital output (coil), AI = analog input, AQ = analog output.
-- Extract ALL process sequences with numbered steps, actions, and completion criteria.
-- Extract alarms and interlocks where described.
-- The spec may contain Italian terminology — translate to English for all output fields.
-- Markdown tables (from mammoth/pandoc conversion) represent data tables — parse them carefully.
-- If a field cannot be determined from the spec, use an empty string or empty array.
-- Do NOT invent data that isn't in the spec.
+${instructions}
 
 Return the JSON inside \`\`\`json fences, matching this schema exactly (no explanation):
 ${SPEC_ANALYSIS_SCHEMA}`;
@@ -271,6 +250,10 @@ export interface DeviceGenContext {
   fbTemplate?: FbTemplate | null;
   /** Generated device FB artifacts — used by IO linking to know actual variable names */
   deviceArtifacts?: ForgeArtifact[];
+  /** Prefixed Inputs DB name (e.g. "DB_Inputs") */
+  inputsDbName?: string;
+  /** Prefixed Outputs DB name (e.g. "DB_Outputs") */
+  outputsDbName?: string;
 }
 
 /**
@@ -289,6 +272,7 @@ export interface DeviceGenContext {
 export function buildDeviceSclPrompt(
   device: ForgeDeviceEntry,
   context: DeviceGenContext,
+  promptSections?: Record<string, string>,
 ): string {
   const { profile, platformRules, patterns, fbTemplate } = context;
 
@@ -303,9 +287,12 @@ export function buildDeviceSclPrompt(
     : `## FB Library Template\nNo matching template found. Generate a complete FB from scratch following the platform rules below.`;
 
   const patternSection = formatPatterns(patterns ?? []);
-  const profileSection = formatProfile(profile);
+  const profileSection = profile ? formatDesignProfile(profile, "fb") : "";
 
-  return `You are a senior Siemens TIA Portal SCL programmer generating a Function Block for a single industrial device.
+  const identity = resolveSection(promptSections, "forge_arch_device", "identity");
+  const instructions = resolveSection(promptSections, "forge_arch_device", "instructions");
+
+  return `${identity}
 
 ${profileSection}
 
@@ -316,23 +303,7 @@ ${templateSection}
 
 ${patternSection}
 
-## FB Architecture Requirements
-- Organize FB body into REGION blocks: IO Mapping, State Machine, Alarm Handling, Output Mapping
-- Include PLCopen-style outputs: busy (Bool), error (Bool), status (Word := 16#7000)
-- Use status word ranges: 16#0000 done, 16#7000 idle, 16#7001 first call, 16#7002 executing, 16#8xxx errors
-- Use CASE-based state machines with integer literal labels for all sequential logic
-- Include interlock checks, alarm handling with latching/operator reset
-- All timers/counters/edges declared in VAR (static) with inst prefix, NEVER in VAR_TEMP
-- Include a resetAlarms : Bool input for operator alarm acknowledgment
-
-## Instance DB Rules
-- Generate a separate instance DB for each FB
-- Instance DB just references the FB name — do NOT redeclare variables inside the DB
-- Format: DATA_BLOCK "InstDeviceName" { S7_Optimized_Access := 'TRUE' } NON_RETAIN "FBName" BEGIN END_DATA_BLOCK
-
-## Calling Convention
-- Device FBs are called from the Process FC using instance DB name ONLY: "InstMotor1"(start := signal)
-- NEVER use "FBName"."InstDBName" syntax — it does not compile
+${instructions}
 
 ## Output Format
 Return the complete SCL code for:
@@ -407,7 +378,7 @@ export function buildDeviceLadPrompt(
   context: DeviceGenContext,
 ): string {
   const { profile, platformRules, patterns } = context;
-  const profileSection = formatProfile(profile);
+  const profileSection = profile ? formatDesignProfile(profile, "fb") : "";
   const patternSection = formatPatterns(patterns ?? []);
 
   return `You are a Siemens TIA Portal LAD (Ladder Logic) programmer generating ladder rungs for a single device.
@@ -603,6 +574,7 @@ export function generateIoLinkingFc(
   ioList: ForgeIoEntry[],
   inputsDbName = "Inputs",
   outputsDbName = "Outputs",
+  fcName = "IoLinking",
 ): string {
   const inputs = ioList.filter((io) => io.signal_type === "DI" || io.signal_type === "AI");
   const outputs = ioList.filter((io) => io.signal_type === "DQ" || io.signal_type === "AQ");
@@ -621,7 +593,7 @@ export function generateIoLinkingFc(
     .join("\n");
 
   return [
-    `FUNCTION "IoLinking" : Void`,
+    `FUNCTION "${fcName}" : Void`,
     `{ S7_Optimized_Access := 'TRUE' }`,
     `VERSION : 0.1`,
     `BEGIN`,
@@ -643,7 +615,7 @@ export function generateIoLinkingFc(
  *
  * HARDCODED — not configurable via Prompts page.
  */
-export function generateOb1Main(deviceCallFcNames: string[], sequenceFcNames: string[] = []): string {
+export function generateOb1Main(deviceCallFcNames: string[], sequenceFcNames: string[] = [], ioLinkingFcName = "IoLinking"): string {
   const fcCalls = deviceCallFcNames.map((name) => `  "${name}"();`).join("\n");
   const seqCalls = sequenceFcNames.map((name) => `  "${name}"();`).join("\n");
   return [
@@ -655,7 +627,7 @@ export function generateOb1Main(deviceCallFcNames: string[], sequenceFcNames: st
     `    tempFirstScan : Bool;`,
     `  END_VAR`,
     `BEGIN`,
-    `  "IoLinking"();`,
+    `  "${ioLinkingFcName}"();`,
     fcCalls,
     ...(seqCalls ? [seqCalls] : []),
     `END_ORGANIZATION_BLOCK`,
@@ -671,6 +643,8 @@ export interface DeviceCallFcContext {
   fcName: string;
   /** Device type string, e.g. "Motor DOL" */
   deviceType: string;
+  /** EXACT FB block name from the generated artifact, e.g. "PE_Sensor". MUST be used verbatim. */
+  fbName?: string;
   /** All devices of this type */
   devices: ForgeDeviceEntry[];
   /** Instance DB names for each device, e.g. ["InstMotor1", "InstMotor2"] */
@@ -713,10 +687,10 @@ export interface DeviceCallFcContext {
  *   - process_rules: not relevant (device call FC, not process sequences)
  * To make configurable: add "forge:device_call_fc" section key to PROMPT_DEFAULTS and use resolveSection().
  */
-export function buildDeviceCallFcPrompt(context: DeviceCallFcContext): string {
+export function buildDeviceCallFcPrompt(context: DeviceCallFcContext, promptSections?: Record<string, string>): string {
   const { profile, platformRules, patterns, fcName, deviceType, devices, instanceDbNames, fbInterfaceSection, inputsDbFields, outputsDbFields, inputsDbName, outputsDbName, matrixWiring } = context;
 
-  const profileSection = formatProfile(profile);
+  const profileSection = profile ? formatDesignProfile(profile, "general") : "";
   const patternSection = formatPatterns(patterns ?? []);
 
   const deviceList = devices
@@ -786,7 +760,9 @@ export function buildDeviceCallFcPrompt(context: DeviceCallFcContext): string {
 
   const hasMatrix = matrixWiring.length > 0;
 
-  return `You are a senior Siemens TIA Portal SCL programmer generating a Device Call FC.
+  const identity = resolveSection(promptSections, "forge_arch_call_fc", "identity");
+
+  return `${identity}
 
 ${profileSection}
 
@@ -807,7 +783,7 @@ Generate a single FC called "${fcName}" that calls ALL instances of the "${devic
     ? "Inter-device signals MUST match the Matrix wiring below. Do NOT guess or infer connections — the engineer has confirmed the exact wiring. If the matrix says endSensorForward connects to InstPE01._SensorDlyOnOff, write exactly: endSensorForward := \"InstPE01\"._SensorDlyOnOff"
     : "Inter-device signals (e.g. sensor output feeding conveyor input) use instance DB field access: \"InstSensor1\".outputField."}
 6. Use named association for all FB calls: "InstDBName"(param1 := source, param2 := source, ...).
-7. Do NOT wire IO tags directly — always go through the Inputs/Outputs DBs.
+7. Do NOT wire IO tags directly — always go through the "${inputsDbName}"/"${outputsDbName}" DBs.
 8. ⛔ If an output parameter has no wiring target, OMIT it entirely from the call. NEVER write "paramName =>" with an empty or missing right-hand side — this is a compile error. Only include output parameters that have a confirmed destination.
 ${hasMatrix ? `9. Do NOT change, reorder, or omit any wire from the Matrix wiring. Do NOT add wires not listed unless they are mandatory FB parameters with no matrix entry.
 10. ⛔ Do NOT write to HmiData, FaultData, Configuration, or any global DB unless that exact write is shown in the Matrix wiring above. Those DBs have a fixed, pre-generated schema — invented fields will cause compile errors. FB outputs are accessible via instance DB field reads only (e.g., "InstPE01".status). Do NOT add comment lines suggesting HmiData writes.` : ""}
@@ -836,6 +812,140 @@ ${outputFieldsList}
 \`\`\`scl [FC:${fcName}]
 // code
 \`\`\``;
+}
+
+/**
+ * LAD version of the Device Call FC prompt.
+ * Generates a LadProgram JSON where each network calls one FB instance.
+ */
+export function buildDeviceCallFcLadPrompt(context: DeviceCallFcContext): string {
+  const { profile, platformRules, patterns, fcName, deviceType, devices, instanceDbNames, fbInterfaceSection, inputsDbFields, outputsDbFields, inputsDbName, outputsDbName, matrixWiring } = context;
+
+  const profileSection = profile ? formatDesignProfile(profile, "general") : "";
+  const patternSection = formatPatterns(patterns ?? []);
+
+  const deviceList = devices
+    .map((d, i) => `  ${i + 1}. "${instanceDbNames[i] ?? `Inst${d.name.replace(/[^A-Za-z0-9]/g, "")}`}" — ${d.name} (${d.tag}): ${d.description}`)
+    .join("\n");
+
+  const inputFieldsList = inputsDbFields.length > 0
+    ? inputsDbFields.map((f) => `  - "${inputsDbName}".${f}`).join("\n")
+    : "  (none)";
+
+  const outputFieldsList = outputsDbFields.length > 0
+    ? outputsDbFields.map((f) => `  - "${outputsDbName}".${f}`).join("\n")
+    : "  (none)";
+
+  // Build matrix wiring description for LAD context
+  const matrixDescription = matrixWiring.length > 0
+    ? matrixWiring.map(device => {
+        const wires = device.wiring
+          .map(w => {
+            const dir = w.direction === "in" ? "←" : "→";
+            let target: string;
+            if (w.wireType === "io") {
+              target = w.direction === "in" ? `"${inputsDbName}".${w.connectedTo}` : `"${outputsDbName}".${w.connectedTo}`;
+            } else if (w.wireType === "fb" || w.wireType === "global") {
+              const parts = w.connectedTo.split(".");
+              target = parts.length >= 2 ? `"${parts[0]}".${parts.slice(1).join(".")}` : w.connectedTo;
+            } else {
+              target = w.connectedTo;
+            }
+            return `    ${w.paramName} ${dir} ${target}`;
+          })
+          .join("\n");
+        return `### "${device.instanceDbName}" (${device.deviceName})\n${wires}`;
+      }).join("\n\n")
+    : "";
+
+  const hasMatrix = matrixWiring.length > 0;
+
+  // Use the exact FB name from the generated artifact — NEVER invent or guess
+  const headerMatch = fbInterfaceSection.match(/###\s+(\S+)/);
+  const fbName = context.fbName ?? headerMatch?.[1] ?? fcName;
+
+  return `You are a senior Siemens TIA Portal LAD programmer generating a Device Call FC.
+
+${profileSection}
+
+## Platform Rules
+${platformRules}
+
+${patternSection}
+
+## Your Task
+Generate a single FC called "${fcName}" in LAD (Ladder Logic) that calls ALL instances of the "${deviceType}" FB.
+Each rung contains ONE FB_CALL element that calls the FB instance with all parameters wired.
+
+## Rules
+1. ONE rung per FB instance — each rung has exactly ONE FB_CALL element.
+2. The FB_CALL element calls the FB via its instance DB.
+3. Wire EVERY VAR_INPUT and VAR_OUTPUT parameter in the callParams array.
+4. ${hasMatrix ? "Use EXACT connections from the Matrix wiring below." : `Wire inputs from "${inputsDbName}" DB, outputs to "${outputsDbName}" DB.`}
+5. Each callParam has: name (param name), direction ("in" or "out" or "inout"), value (the connected tag), dataType.
+6. For input params: value is the source tag (e.g. "${inputsDbName}.startButton").
+7. For output params: value is the destination tag (e.g. "HmiData.cv01Status").
+8. Use quoted DB access format: "DbName".fieldName (with quotes around the DB name).
+
+## FB Interface — MANDATORY REFERENCE
+⛔ Only use parameter names that appear VERBATIM in the sections below.
+${fbInterfaceSection || "(no FB interface available)"}
+
+## FB Name for Calls
+Use fbName: "${fbName}"
+
+## Devices of Type "${deviceType}" to Call
+${deviceList}
+${hasMatrix ? `
+## ENGINEER-CONFIRMED WIRING (from Matrix Review)
+${matrixDescription}
+` : `
+## Available Inputs DB Fields
+${inputFieldsList}
+
+## Available Outputs DB Fields
+${outputFieldsList}
+`}
+## Output Format
+Generate a LadProgram JSON object. Respond with ONLY the raw JSON (no markdown wrapper).
+
+The ONLY element type you should use is "FB_CALL". Each rung has ONE FB_CALL element.
+
+Use this EXACT schema:
+{
+  "name": "${fcName}",
+  "blockType": "FC",
+  "variables": [],
+  "rungs": [
+    {
+      "id": "rung_1",
+      "title": "Call ${instanceDbNames[0] ?? "InstDevice1"}",
+      "logic": {
+        "type": "series",
+        "nodes": [
+          {
+            "type": "element",
+            "element": {
+              "id": "e1",
+              "type": "FB_CALL",
+              "operand": "${fbName}",
+              "fbName": "${fbName}",
+              "fbInstanceDb": "${instanceDbNames[0] ?? "InstDevice1"}",
+              "callParams": [
+                { "name": "enable", "direction": "in", "value": "\\"HmiData\\".cv01Run", "dataType": "Bool" },
+                { "name": "speed", "direction": "in", "value": "\\"${inputsDbName}\\".speedSetpoint", "dataType": "Real" },
+                { "name": "busy", "direction": "out", "value": "\\"HmiData\\".cv01Busy", "dataType": "Bool" },
+                { "name": "status", "direction": "out", "value": "\\"HmiData\\".cv01Status", "dataType": "Word" }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
+
+CRITICAL: Every rung must have exactly ONE FB_CALL element. Do NOT use NO_CONTACT, OUTPUT_COIL, or MOVE elements — the FB_CALL element handles all parameter wiring internally.`;
 }
 
 /**
@@ -922,6 +1032,85 @@ export function generateDeviceCallFc(context: DeviceCallFcContext): string | nul
   ].join("\n");
 }
 
+/**
+ * Deterministic LAD version of the Device Call FC generator.
+ * Produces a LadProgram JSON with one FB_CALL rung per device instance.
+ * All wiring comes from the engineer-confirmed matrix — no AI needed.
+ *
+ * Returns null if matrixWiring is empty (nothing to generate).
+ */
+export function generateDeviceCallFcLad(context: DeviceCallFcContext): string | null {
+  const { fcName, fbName: contextFbName, matrixWiring, inputsDbName, outputsDbName, fbInterfaceSection } = context;
+  if (matrixWiring.length === 0) return null;
+
+  // FB name MUST come from the actual generated artifact — no guessing or inventing.
+  // Fallback chain: explicit fbName > interface section header > error-safe default.
+  const headerMatch = fbInterfaceSection.match(/###\s+(\S+)/);
+  const fbName = contextFbName ?? headerMatch?.[1] ?? fcName;
+
+  // Extract parameter data types from the FB interface
+  const paramDataTypes = new Map<string, string>();
+  const paramTypeRe = /^\s+(\w+)\s*:\s*(\w+)/gm;
+  let ptMatch: RegExpExecArray | null;
+  while ((ptMatch = paramTypeRe.exec(fbInterfaceSection)) !== null) {
+    paramDataTypes.set(ptMatch[1].toLowerCase(), ptMatch[2]);
+  }
+
+  const rungs = matrixWiring.map((device, idx) => {
+    const callParams = device.wiring
+      .filter(w => w.connectedTo?.trim())
+      .map(w => {
+        let value: string;
+        if (w.wireType === "io") {
+          value = w.direction === "in"
+            ? `"${inputsDbName}".${w.connectedTo}`
+            : `"${outputsDbName}".${w.connectedTo}`;
+        } else if (w.wireType === "fb" || w.wireType === "global") {
+          const parts = (w.connectedTo ?? "").split(".");
+          value = parts.length >= 2 ? `"${parts[0]}".${parts.slice(1).join(".")}` : w.connectedTo;
+        } else {
+          value = w.connectedTo ?? "";
+        }
+        return {
+          name: w.paramName,
+          direction: w.direction as "in" | "out" | "inout",
+          value,
+          dataType: w.dataType ?? paramDataTypes.get(w.paramName.toLowerCase()) ?? "Variant",
+        };
+      });
+
+    return {
+      id: `rung_${idx + 1}`,
+      title: `Call ${device.instanceDbName}`,
+      logic: {
+        type: "series",
+        nodes: [
+          {
+            type: "element",
+            element: {
+              id: `e${idx + 1}`,
+              type: "FB_CALL",
+              operand: fbName,
+              fbName,
+              fbInstanceDb: device.instanceDbName,
+              callParams,
+            },
+          },
+        ],
+      },
+    };
+  });
+
+  const program = {
+    name: fcName,
+    blockType: "FC",
+    variables: [],
+    rungs,
+  };
+
+  return JSON.stringify(program);
+}
+
 // ---------------------------------------------------------------------------
 // IO linking FC prompt — LAD fallback only
 // ---------------------------------------------------------------------------
@@ -944,9 +1133,12 @@ export function buildIoLinkingLadPrompt(
   devices: ForgeDeviceEntry[],
   ioList: ForgeIoEntry[],
   context: DeviceGenContext,
+  promptSections?: Record<string, string>,
 ): string {
-  const { profile, platformRules, patterns } = context;
-  const profileSection = formatProfile(profile);
+  const { profile, platformRules, patterns, inputsDbName: inDb, outputsDbName: outDb } = context;
+  const iDbName = inDb || "Inputs";
+  const oDbName = outDb || "Outputs";
+  const profileSection = profile ? formatDesignProfile(profile, "general") : "";
   const patternSection = formatPatterns(patterns ?? []);
   const ioLinkingRulesSection =
     profile?.io_linking_rules?.trim()
@@ -963,7 +1155,10 @@ export function buildIoLinkingLadPrompt(
     .map((io) => `  - ${io.tag_name} (${io.signal_type}, ${io.data_type}): ${io.description}`)
     .join("\n");
 
-  return `You are an IO Validator / IO Linking Engineer for Siemens TIA Portal. Generate an IO linking FC in LAD format that maps physical IO tags to the "Inputs" and "Outputs" global DBs.
+  const identity = resolveSection(promptSections, "forge_arch_io_linking", "identity");
+
+  return `${identity}
+Generate an IO linking FC in LAD format that maps physical IO tags to the "${iDbName}" and "${oDbName}" global DBs.
 
 ${profileSection}
 
@@ -982,7 +1177,7 @@ ${ioEntries}
 
 ## Output Format
 Generate a single FC in LAD (Ladder Logic). Output a LadProgram JSON object.
-Map physical inputs to "Inputs".fieldName and "Outputs".fieldName to physical outputs.
+Map physical inputs to "${iDbName}".fieldName and "${oDbName}".fieldName to physical outputs.
 IMPORTANT: Every rung MUST contain at least one output element (OUTPUT_COIL, SET_COIL, or RESET_COIL). Do NOT generate header/comment rungs with only contacts.
 Respond with only the raw JSON object (no markdown wrapper).
 
@@ -998,12 +1193,12 @@ Use this EXACT schema — the "logic" wrapper with "nodes" is mandatory:
   "rungs": [
     {
       "id": "rung_1",
-      "title": "Map SensorInput to Inputs DB",
+      "title": "Map SensorInput to ${iDbName} DB",
       "logic": {
         "type": "series",
         "nodes": [
           { "type": "element", "element": { "id": "e1", "type": "NO_CONTACT", "operand": "SensorTag", "dataType": "Bool" } },
-          { "type": "element", "element": { "id": "e2", "type": "OUTPUT_COIL", "operand": "Inputs.SensorTag", "dataType": "Bool" } }
+          { "type": "element", "element": { "id": "e2", "type": "OUTPUT_COIL", "operand": "${iDbName}.SensorTag", "dataType": "Bool" } }
         ]
       }
     }
@@ -1045,6 +1240,8 @@ export interface ProcessGenContext {
   linkageMatrix?: ProcessLinkageMatrix;
   /** SCL content of generated global DBs (HmiData, ProcessCommands, Configuration) */
   globalDbSchemas?: string;
+  /** Maps wiring DB names (may lack prefix) → actual artifact/import names */
+  dbNameMap?: Map<string, string>;
 }
 
 /**
@@ -1060,21 +1257,52 @@ export interface ProcessGenContext {
  *   - naming_prefix: could apply to FB/FC names
  * To make configurable: add "forge:process_scl" section key to PROMPT_DEFAULTS and use resolveSection().
  */
-export function buildProcessSclPrompt(context: ProcessGenContext): string {
+/** Extract only the platform rule sections relevant to process code generation. */
+function trimPlatformRulesForProcess(rules: string): string {
+  // Split into sections by "## N." headers
+  const sections = rules.split(/(?=^## \d+\.)/m);
+  // Keep: 1 (naming), 2 (FB/instance), 5 (FC vs FB), 6 (timers/counters/edges), 7 (syntax), 10 (status), 12 (common mistakes)
+  const keepPrefixes = ["## 1.", "## 2.", "## 5.", "## 6.", "## 7.", "## 10.", "## 12."];
+  const kept = sections.filter(s => {
+    const trimmed = s.trimStart();
+    return keepPrefixes.some(p => trimmed.startsWith(p)) || !trimmed.startsWith("## ");
+  });
+  return kept.join("\n").trim();
+}
+
+export function buildProcessSclPrompt(context: ProcessGenContext, promptSections?: Record<string, string>): string {
   const { profile, platformRules, patterns, deviceFbInterfaces, linkageMatrix, globalDbSchemas } = context;
 
-  // Build a wiring summary: for each device, show where its outputs land in HmiData
-  // and where its command inputs come from in ProcessCommands. This tells the process
-  // code AI exactly which field names to read/write.
+  // Resolve wiring DB names using the dbNameMap (corrects "ProcessCommands" → "DB_ProcessCommands" etc.)
+  const resolveWiringRef = (connectedTo: string): string => {
+    if (!context.dbNameMap || !connectedTo) return connectedTo;
+    const dotIdx = connectedTo.indexOf(".");
+    if (dotIdx <= 0) return connectedTo;
+    const dbName = connectedTo.slice(0, dotIdx);
+    const fieldName = connectedTo.slice(dotIdx + 1);
+    const resolved = context.dbNameMap.get(dbName.toLowerCase());
+    return resolved ? `${resolved}.${fieldName}` : connectedTo;
+  };
+
+  // Build a wiring summary with resolved DB names
   const wiringSummary = linkageMatrix?.deviceLinkage.length
     ? linkageMatrix.deviceLinkage.map(device => {
         const inputsFromProcessCommands = device.wiring
-          .filter(w => w.direction === "in" && w.wireType === "global" && (w.connectedTo ?? "").startsWith("ProcessCommands."))
-          .map(w => `    ${w.paramName} ← "${w.connectedTo}"`)
+          .filter(w => w.direction === "in" && w.wireType === "global")
+          .filter(w => {
+            const ref = resolveWiringRef(w.connectedTo ?? "");
+            // Exclude Inputs/Outputs DBs — process code must not access these
+            return !/^(Inputs|Outputs|DB_Inputs|DB_Outputs)\./i.test(ref);
+          })
+          .map(w => `    ${w.paramName} ← "${resolveWiringRef(w.connectedTo ?? "")}"`)
           .join("\n");
         const outputsToHmi = device.wiring
           .filter(w => w.direction === "out" && w.wireType === "global")
-          .map(w => `    ${w.paramName} → "${w.connectedTo}"`)
+          .filter(w => {
+            const ref = resolveWiringRef(w.connectedTo ?? "");
+            return !/^(Inputs|Outputs|DB_Inputs|DB_Outputs)\./i.test(ref);
+          })
+          .map(w => `    ${w.paramName} → "${resolveWiringRef(w.connectedTo ?? "")}"`)
           .join("\n");
         if (!inputsFromProcessCommands && !outputsToHmi) return null;
         return [
@@ -1085,18 +1313,32 @@ export function buildProcessSclPrompt(context: ProcessGenContext): string {
       }).filter(Boolean).join("\n\n")
     : "";
 
-  const processRules = profile?.process_rules ?? [];
-  const processRulesSection =
-    processRules.length > 0
-      ? `## Process Code Rules (from Design Profile: ${profile?.name ?? ""})\n${processRules.map((r) => `### ${r.label}\n${r.example}\n*Analysis:* ${r.analysis}`).join("\n\n")}`
-      : "";
+  // Parse structured process rules from profile
+  let processSchema: ProcessRulesSchema | null = null;
+  try {
+    if (profile?.process_rules && typeof profile.process_rules === "string") {
+      processSchema = parseProcessRules(profile.process_rules);
+    }
+  } catch { /* ignore parse errors */ }
 
-  // When the profile defines process rules (e.g. STEPS AND ACTIONS), those govern structure.
-  // Only fall back to hardcoded CASE instructions when the profile has no process rules.
-  const codeStructureInstructions = processRules.length > 0
-    ? `- Follow the code structure pattern defined in the Design Profile rules above (e.g. STEPS AND ACTIONS) — they override the defaults below
+  const stepActionRules = buildStepActionRules(processSchema);
+  const hasStepActionPattern = !!processSchema?.step_action_db?.enabled;
+
+  // Sequence structure notes from profile
+  const seqNotes = processSchema?.sequence_structure?.custom_notes?.trim() ?? "";
+  const freetext = processSchema?.freetext?.trim() ?? "";
+  const processRulesSection = [
+    stepActionRules,
+    seqNotes ? `## Sequence Structure Notes\n${seqNotes}` : "",
+    freetext ? `## Additional Process Rules\n${freetext}` : "",
+  ].filter(Boolean).join("\n\n");
+
+  // When step/action DB is enabled, the latching pattern governs structure.
+  // Otherwise fall back to CASE-based state machines for SCL.
+  const codeStructureInstructions = hasStepActionPattern
+    ? `- Follow the Step/Action DB latching pattern defined above — it overrides defaults
 - Use REGION blocks to organise sections
-- Declare step variable as INT in static variables (VAR, not VAR_TEMP)
+- Step array and action array in static variables
 - Use PLCopen-style enable/execute + busy/done/error outputs
 - All timers/counters/edges declared in VAR (static) with inst prefix, NEVER in VAR_TEMP`
     : `- Use CASE-based state machines for sequences (step variable, CASE step OF ... END_CASE)
@@ -1108,37 +1350,33 @@ export function buildProcessSclPrompt(context: ProcessGenContext): string {
 - All timers/counters/edges declared in VAR (static) with inst prefix, NEVER in VAR_TEMP`;
 
   const patternSection = formatPatterns(patterns ?? []);
-  const profileSection = formatProfile(profile);
+  const profileSection = profile ? formatDesignProfile(profile, "process") : "";
 
-  return `You are a senior Siemens TIA Portal SCL programmer generating process/sequence code.
+  const identity = resolveSection(promptSections, "forge_arch_process", "identity");
 
-${profileSection}
+  const trimmedRules = trimPlatformRulesForProcess(platformRules);
 
-## Platform Rules
-${platformRules}
+  // Build the prompt with aggressive size control — edge function has ~30KB practical limit
+  const MAX_PROMPT_KB = 28;
+  const MAX_PROMPT_CHARS = MAX_PROMPT_KB * 1024;
 
-${processRulesSection}
+  // Priority order: identity, wiring (most actionable), code structure, patterns, FB interfaces, global DBs, platform rules
+  // Platform rules are the biggest section (~25KB) — only include if there's room
+  const coreSections = [
+    identity,
+    "",
+    profileSection,
+    "",
+    processRulesSection,
+    "",
+    wiringSummary ? `## Device Wiring Reference
+Use these exact field names — do NOT invent alternatives.
 
-## Device FB Interfaces
-The following FB interfaces are available for use in process code:
-${deviceFbInterfaces || "(no device FBs generated yet)"}
-
-${globalDbSchemas ? `## Global DB Schemas
-These are the generated global DBs. Field comments explain what drives each field.
-Read device outputs from HmiData. Write device commands to ProcessCommands.
-\`\`\`scl
-${globalDbSchemas}
-\`\`\`` : ""}
-
-${wiringSummary ? `## Device Wiring Reference
-Shows exactly which ProcessCommands fields command each device, and which HmiData fields carry device outputs.
-Use these field names — do NOT invent alternatives.
-
-${wiringSummary}` : ""}
-
-${patternSection}
-
-## Process Code Requirements
+${wiringSummary}` : "",
+    "",
+    patternSection,
+    "",
+    `## Process Code Requirements
 1. Implement each process sequence as an FB (stateful — needs timers and edge detection). Use FC only if purely stateless.
 2. Include interlock checks at the start of each sequence step.
 3. Every process FB must expose VAR_OUTPUT for HMI: currentStep (Int), running (Bool), faulted (Bool), complete (Bool).
@@ -1150,26 +1388,46 @@ ${patternSection}
 ## Code Structure Requirements
 ${codeStructureInstructions}
 
-## IMPORTANT: Scope of This Call
-Do NOT generate OB1 here — only the sequence-specific FB/FC.
-OB1 Main is generated deterministically after all sequences, calling each sequence FB/FC directly.
+## Scope
+Do NOT generate OB1 — only the sequence-specific FB/FC.
 
 ## Output Format — MANDATORY
-Wrap your code in an SCL fenced block with a type+name tag. Replace the placeholder with the ACTUAL sequence name from the user message:
-
 \`\`\`scl [FB:ActualSequenceName]
 FUNCTION_BLOCK ActualSequenceName
 // ...
 END_FUNCTION_BLOCK
 \`\`\`
+- Tag format: \`[FB:Name]\` for FBs, \`[FC:Name]\` for FCs
+- Name in tag MUST match the FUNCTION_BLOCK / FUNCTION declaration
+- Output the \`\`\`scl block directly — no prose or markdown headings`,
+  ];
 
-Rules:
-- Tag format: \`[FB:Name]\` for FBs (stateful, timers, edges), \`[FC:Name]\` for FCs (purely stateless)
-- The name in the tag MUST match the FUNCTION_BLOCK / FUNCTION declaration name
-- The \`[TYPE:Name]\` tag on the opening fence line is REQUIRED — without it the artifact cannot be imported
-- Do NOT wrap in prose, markdown headings, or explanation — output the \`\`\`scl block directly
+  let prompt = coreSections.filter(Boolean).join("\n");
 
-Generate one block per sequence.`;
+  // Add FB interfaces if there's room
+  const fbSection = `\n\n## Device FB Interfaces\n${deviceFbInterfaces || "(none)"}`;
+  if (prompt.length + fbSection.length < MAX_PROMPT_CHARS - 4000) {
+    prompt += fbSection;
+  }
+
+  // Add global DB schemas if there's room
+  if (globalDbSchemas && prompt.length < MAX_PROMPT_CHARS - 4000) {
+    const dbText = globalDbSchemas.length > 2000
+      ? globalDbSchemas.slice(0, 2000) + "\n// ... (truncated)"
+      : globalDbSchemas;
+    prompt += `\n\n## Global DB Schemas\n\`\`\`scl\n${dbText}\n\`\`\``;
+  }
+
+  // Add trimmed platform rules only if there's room
+  if (prompt.length < MAX_PROMPT_CHARS - 2000) {
+    const remaining = MAX_PROMPT_CHARS - prompt.length - 200;
+    const rules = trimmedRules.length > remaining ? trimmedRules.slice(0, remaining) + "\n// ..." : trimmedRules;
+    prompt += `\n\n## Platform Rules (Key Sections)\n${rules}`;
+  }
+
+  console.log(`[process-prompt] Final size: ${(prompt.length / 1024).toFixed(1)}KB (cap: ${MAX_PROMPT_KB}KB)`);
+
+  return prompt;
 }
 
 /**
@@ -1221,12 +1479,26 @@ Generate a complete, compile-ready FB/FC using the code structure pattern define
  *   - io_linking_rules: not relevant
  * To make configurable: add "forge:process_lad" section key to PROMPT_DEFAULTS and use resolveSection().
  */
-export function buildProcessLadPrompt(context: ProcessGenContext): string {
+export function buildProcessLadPrompt(context: ProcessGenContext, promptSections?: Record<string, string>): string {
   const { profile, platformRules, patterns } = context;
-  const profileSection = formatProfile(profile);
+  const profileSection = profile ? formatDesignProfile(profile, "process") : "";
   const patternSection = formatPatterns(patterns ?? []);
+  const identity = resolveSection(promptSections, "forge_arch_process", "identity");
 
-  return `You are generating sequential ladder logic for a process sequence using Siemens TIA Portal LAD format.
+  // Parse structured process rules for step/action pattern
+  let processSchema: ProcessRulesSchema | null = null;
+  try {
+    if (profile?.process_rules && typeof profile.process_rules === "string") {
+      processSchema = parseProcessRules(profile.process_rules);
+    }
+  } catch { /* ignore */ }
+
+  const stepActionRules = buildStepActionRules(processSchema);
+  const seqNotes = processSchema?.sequence_structure?.custom_notes?.trim() ?? "";
+  const freetext = processSchema?.freetext?.trim() ?? "";
+
+  return `${identity}
+You are generating sequential ladder logic for a process sequence using Siemens TIA Portal LAD format.
 
 ${profileSection}
 
@@ -1238,10 +1510,18 @@ ${context.deviceFbInterfaces || "(no device FBs)"}
 
 ${patternSection}
 
+${stepActionRules}
+${seqNotes ? `## Sequence Structure Notes\n${seqNotes}` : ""}
+${freetext ? `## Additional Process Rules\n${freetext}` : ""}
+
 ## Approach
-Use step bits (BOOL static variables, e.g. statStep01, statStep02) and transition rungs.
+${processSchema?.step_action_db?.enabled
+    ? `Use latching circuits for ALL step transitions. NEVER use SET_COIL or RESET_COIL.
+Every step rung is a parallel with two branches: (transition branch) OR (seal branch) → OUTPUT_COIL.
+Map every step to an action bit. Actions drive process outputs — steps do not.`
+    : `Use step bits (BOOL static variables, e.g. statStep01, statStep02) and transition rungs.
 Each step: set step bit when entering, reset when leaving.
-Transitions: contact on previous step + completion condition → set next step.
+Transitions: contact on previous step + completion condition → set next step.`}
 
 ## Output Format
 Return raw JSON only — no markdown fences. Use this EXACT schema:
@@ -1254,21 +1534,221 @@ Return raw JSON only — no markdown fences. Use this EXACT schema:
   "rungs": [
     {
       "id": "rung_1",
-      "title": "Description of what this rung does",
+      "title": "Step 10 — Description",
       "logic": {
         "type": "series",
         "nodes": [
-          { "type": "element", "element": { "id": "e1", "type": "NO_CONTACT", "operand": "statStep01", "dataType": "Bool" } },
-          { "type": "element", "element": { "id": "e2", "type": "NO_CONTACT", "operand": "StartCondition", "dataType": "Bool" } },
-          { "type": "element", "element": { "id": "e3", "type": "SET_COIL", "operand": "statStep02", "dataType": "Bool" } }
+          {
+            "type": "parallel",
+            "branches": [
+              { "type": "series", "nodes": [
+                { "type": "element", "element": { "id": "e1", "type": "NO_CONTACT", "operand": "S[0]", "dataType": "Bool" } },
+                { "type": "element", "element": { "id": "e2", "type": "NO_CONTACT", "operand": "Condition", "dataType": "Bool" } }
+              ]},
+              { "type": "series", "nodes": [
+                { "type": "element", "element": { "id": "e3", "type": "NO_CONTACT", "operand": "S[10]", "dataType": "Bool" } },
+                { "type": "element", "element": { "id": "e4", "type": "NC_CONTACT", "operand": "S[20]", "dataType": "Bool" } }
+              ]}
+            ]
+          },
+          { "type": "element", "element": { "id": "e5", "type": "OUTPUT_COIL", "operand": "S[10]", "dataType": "Bool" } }
         ]
       }
     }
   ]
 }
 
-Valid element types: "NO_CONTACT", "NC_CONTACT", "OUTPUT_COIL", "SET_COIL", "RESET_COIL", "TON", "TOF", "CMP", "MOVE"
-CRITICAL: every rung MUST have a "logic" object with a "nodes" array. Do NOT put "nodes" directly on the rung.`;
+Valid element types: "NO_CONTACT", "NC_CONTACT", "OUTPUT_COIL", "TON", "TOF", "CMP", "MOVE"
+CRITICAL RULES:
+- Every rung MUST have a "logic" object. Use "type": "parallel" with "branches" for step latching rungs.
+- NEVER use SET_COIL or RESET_COIL — use OUTPUT_COIL with latching circuits only.
+- Every parallel branch must be a { "type": "series", "nodes": [...] } object.
+- A coil operand must appear in exactly ONE rung across the entire program — never duplicate.
+- Do NOT include fault detection, fault latching, or fault reset logic — that belongs in a separate Fault FC.
+- Generate ONLY the sequence step/action logic in this block.`;
+}
+
+// ---------------------------------------------------------------------------
+// Fault FC prompt (separate from sequence FB — handles all fault logic)
+// ---------------------------------------------------------------------------
+
+export interface FaultEntry {
+  code: string;
+  tag: string;
+  description: string;
+  source: string;
+}
+
+export function buildFaultFcPrompt(
+  context: ProcessGenContext,
+  sequenceArtifacts: ForgeArtifact[],
+  promptSections?: Record<string, string>,
+  faultEntries?: FaultEntry[],
+): string {
+  const { profile, platformRules, patterns } = context;
+  const profileSection = profile ? formatDesignProfile(profile, "process") : "";
+  const patternSection = formatPatterns(patterns ?? []);
+  const identity = resolveSection(promptSections, "forge_arch_process", "identity");
+
+  // Parse process rules for step/action config
+  let processSchema: ProcessRulesSchema | null = null;
+  try {
+    if (profile?.process_rules && typeof profile.process_rules === "string") {
+      processSchema = parseProcessRules(profile.process_rules);
+    }
+  } catch { /* ignore */ }
+
+  const S = processSchema?.step_action_db?.step_array_name || "S";
+  const seqNotes = processSchema?.sequence_structure?.custom_notes?.trim() ?? "";
+
+  // Build summary of sequences and their step ranges for the fault FC to reference
+  const seqSummary = sequenceArtifacts
+    .filter(a => a.language === "LAD" && (a.type === "FC" || a.type === "FB"))
+    .map(a => {
+      const stepRe = new RegExp(`${S.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\[(\\d+)\\]`, "g");
+      const steps: number[] = [];
+      let match: RegExpExecArray | null;
+      while ((match = stepRe.exec(a.content)) !== null) steps.push(parseInt(match[1], 10));
+      const maxStep = steps.length > 0 ? Math.max(...steps) : 0;
+      return `- ${a.name}: steps ${S}[0..${maxStep}]`;
+    })
+    .join("\n");
+
+  return `${identity}
+You are generating a FAULT HANDLING FC in LAD format. This FC is SEPARATE from the sequence FBs — it handles ALL fault detection, latching, and reset logic for the project.
+
+${profileSection}
+
+## Platform Rules
+${platformRules}
+
+## Device FB Interfaces
+${context.deviceFbInterfaces || "(no device FBs)"}
+
+${patternSection}
+
+## Sequences in this project
+${seqSummary || "(no sequences generated yet)"}
+
+## Fault DB — "DB_Faults"
+A global DB called "DB_Faults" has been created with these fields:
+${(faultEntries ?? []).map(f => `- "DB_Faults".${f.tag} : Bool — ${f.code}: ${f.description}`).join("\n")}
+- "DB_Faults".faultActive : Bool — Any fault latched (OR of all above)
+- "DB_Faults".faultCode : Word — Active fault code
+- "DB_Faults".faultReset : Bool — Operator reset command
+
+ALL fault variables MUST reference "DB_Faults".fieldName — do NOT use global variables or static variables for faults.
+Use EXACTLY the tag names listed above — do NOT invent your own fault field names.
+
+## Fault FC Requirements
+1. **Fault Detection** — Monitor process state for fault conditions:
+   - E-Stop: "DB_Faults".F001 latches when ESTOP_OK drops FALSE during active steps
+   - Motor overload: "DB_Faults".F002 latches on overload trip
+   - Run feedback timeout: "DB_Faults".F003 latches when run timer elapses without confirmation
+   - Stop feedback timeout: "DB_Faults".F004 latches when stop timer elapses (welded contactor)
+
+2. **Fault Latching** — Each fault uses the latching circuit pattern:
+   - (FaultCondition OR "DB_Faults".Fxxx) AND NOT "DB_Faults".faultReset → "DB_Faults".Fxxx
+   - "DB_Faults".faultActive = OR of all individual fault flags
+
+3. **Fault Routing** — When any fault is detected:
+   - The sequence FBs read "DB_Faults".faultActive and halt themselves
+   - The fault FC does NOT write to step DBs — it only manages fault flags
+
+4. **Fault Reset** — Via "DB_Faults".faultReset:
+   - Only clears faults when ESTOP_OK is healthy
+   - Clears all fault latches ("DB_Faults".F001–F004)
+   - Clears "DB_Faults".faultActive
+
+5. **Coil Rules**:
+   - Use OUTPUT_COIL with latching circuits — NEVER SET_COIL or RESET_COIL
+   - Each coil operand appears in exactly ONE rung across the entire FC
+   - ALL fault operands use "DB_Faults".fieldName — never bare variable names
+
+### Fault Latch Rung Pattern (REQUIRED)
+Each fault uses this latching circuit:
+
+\`\`\`
+──┤ FaultCond        ├──┬──
+                        │──( "DB_Faults".F001 )──
+──┤ "DB_Faults".F001 ├──┘
+      AND ──┤/"DB_Faults".faultReset├──
+\`\`\`
+
+In JSON: series[ parallel[ series[NO FaultCondition], series[NO "DB_Faults".F001, NC "DB_Faults".faultReset] ], OUTPUT_COIL "DB_Faults".F001 ]
+- Top branch: fault condition contact(s)
+- Bottom branch: self-seal contact AND NOT reset contact
+- Single OUTPUT_COIL AFTER the parallel — never inside branches
+
+### "DB_Faults".faultActive Rung
+Parallel OR of all fault flags → single OUTPUT_COIL:
+series[ parallel[ NO "DB_Faults".F001, NO "DB_Faults".F002, NO "DB_Faults".F003, NO "DB_Faults".F004 ], OUTPUT_COIL "DB_Faults".faultActive ]
+${seqNotes ? `\n## Sequence Notes\n${seqNotes}` : ""}
+
+## Output Format
+Return raw JSON only — no markdown fences. Use this EXACT schema:
+
+{
+  "name": "FaultHandler",
+  "blockType": "FC",
+  "variables": [...],
+  "rungs": [
+    {
+      "id": "rung_1",
+      "title": "F001: E-Stop fault latch",
+      "logic": {
+        "type": "series",
+        "nodes": [
+          { "type": "parallel", "branches": [
+            { "type": "series", "nodes": [contact_fault_condition] },
+            { "type": "series", "nodes": [contact_self_seal, nc_contact_reset] }
+          ]},
+          { "type": "element", "element": { "id": "e5", "type": "OUTPUT_COIL", "operand": "\"DB_Faults\".F001", "dataType": "Bool" } }
+        ]
+      }
+    }
+  ]
+}
+
+CRITICAL RULES:
+- Use "rungs" (not "networks"). Use "name" (not "blockName").
+- Each parallel branch must be { "type": "series", "nodes": [...] }.
+- ALL fault references use "DB_Faults".fieldName — never bare variable names.
+- Single OUTPUT_COIL after each parallel — never inside branches.
+- Do NOT declare fault variables as FC static/temp — they live in DB_Faults.`;
+}
+
+export function buildFaultFcUserMessage(
+  sequences: Array<{ name: string; description?: string }>,
+  devices: ForgeDeviceEntry[],
+  faultEntries?: FaultEntry[],
+): string {
+  const seqList = sequences.map(s => `- ${s.name}${s.description ? `: ${s.description}` : ""}`).join("\n");
+  const deviceList = devices.map(d => `- ${d.name} (${d.device_type}, tag: ${d.tag})`).join("\n");
+  const faultList = (faultEntries ?? [])
+    .map(f => `- ${f.code}: "DB_Faults".${f.tag} — ${f.description} [from: ${f.source}]`)
+    .join("\n");
+
+  return `Generate the Fault Handling FC for this project.
+
+**Sequences:**
+${seqList}
+
+**Devices:**
+${deviceList}
+
+**Fault entries (derived from matrix — use EXACTLY these "DB_Faults" field names):**
+${faultList || "(no faults derived)"}
+
+For each fault entry, create ONE latching rung:
+  series[ parallel[ series[fault_condition_contacts], series[NO "DB_Faults".tag, NC "DB_Faults".faultReset] ], OUTPUT_COIL "DB_Faults".tag ]
+
+Then create the faultActive rung:
+  series[ parallel[ NO each fault tag... ], OUTPUT_COIL "DB_Faults".faultActive ]
+
+Then create the reset rung.
+
+Output ONLY the raw JSON object. Do NOT output SCL code.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1474,8 +1954,10 @@ const SEQUENCES_SCHEMA = `{
  *   - naming_prefix / db_naming_prefix: could pre-apply naming conventions
  * To make configurable: add "forge:device_linkage" section key to PROMPT_DEFAULTS and use resolveSection().
  */
-export function buildDeviceLinkagePrompt(): string {
-  return `You are a senior Siemens TIA Portal automation engineer generating the device wiring section of a Process Linkage Matrix.
+export function buildDeviceLinkagePrompt(promptSections?: Record<string, string>): string {
+  const identity = resolveSection(promptSections, "forge_pm_device_linkage", "identity");
+
+  return `${identity}
 
 Generate ONLY the deviceLinkage array — which FB each device uses, its instance DB name, how FB parameters wire to IO tags or global data, and interlocks between devices.
 
@@ -1524,8 +2006,10 @@ ${DEVICE_LINKAGE_SCHEMA}`;
  *   - process_rules: could bias step/transition naming conventions
  * To make configurable: add "forge:sequences" section key to PROMPT_DEFAULTS and use resolveSection().
  */
-export function buildSequencesPrompt(): string {
-  return `You are a senior Siemens TIA Portal automation engineer generating the process sequences and global data section of a Process Linkage Matrix.
+export function buildSequencesPrompt(promptSections?: Record<string, string>): string {
+  const identity = resolveSection(promptSections, "forge_pm_sequences", "identity");
+
+  return `${identity}
 
 Generate ONLY the processSequences array and globalData array — state-machine logic with permissives, safety conditions, step rows, and shared data blocks.
 

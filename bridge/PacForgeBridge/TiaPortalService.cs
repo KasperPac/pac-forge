@@ -521,11 +521,23 @@ namespace PacForgeBridge
             PlcExternalSource existing = plcSoftware.ExternalSourceGroup.ExternalSources.Find(sourceName);
             existing?.Delete();
 
-            // Store source content for compile-fix chat
+            // Store source content for compile-fix chat + debug log interface
             try
             {
                 string sourceContent = File.ReadAllText(sclFilePath);
                 LastImportedSources[artifactName] = sourceContent;
+
+                // Debug: log VAR_INPUT section so we can verify what TIA actually receives
+                var varInputMatch = System.Text.RegularExpressions.Regex.Match(
+                    sourceContent, @"VAR_INPUT\s*([\s\S]*?)END_VAR", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (varInputMatch.Success)
+                {
+                    string[] inputLines = varInputMatch.Groups[1].Value.Trim().Split('\n');
+                    string preview = string.Join(", ", inputLines.Length > 5
+                        ? inputLines.Take(5).Select(l => l.Trim()).Where(l => l.Length > 0)
+                        : inputLines.Select(l => l.Trim()).Where(l => l.Length > 0));
+                    Console.WriteLine($"[TIA] {artifactName} VAR_INPUT: {preview}");
+                }
             }
             catch (Exception ex)
             {
@@ -690,6 +702,16 @@ namespace PacForgeBridge
                 // Determine target block group
                 PlcBlockSystemGroup rootGroup = plcSoftware.BlockGroup;
 
+                // Delete existing block if it exists anywhere — ImportOptions.Override only
+                // works within the same group. If the block was previously imported to a
+                // different folder, TIA will reject the new import with "already exists".
+                PlcBlock existingBlock = FindBlockRecursive(rootGroup, blockName);
+                if (existingBlock != null)
+                {
+                    Console.WriteLine($"[LAD] Deleting existing block '{blockName}' before re-import");
+                    existingBlock.Delete();
+                }
+
                 IList<PlcBlock> imported;
                 if (!string.IsNullOrEmpty(destinationFolder))
                 {
@@ -716,10 +738,19 @@ namespace PacForgeBridge
                     Console.WriteLine($"[LAD] Compile {(result.CompileResult.Success ? "succeeded" : "failed")}");
                 }
 
-                result.Success = true;
-                result.Message = compile
-                    ? $"Imported and compiled '{blockName}' ({result.ImportedBlocks.Count} block(s))"
-                    : $"Imported '{blockName}' ({result.ImportedBlocks.Count} block(s))";
+                // If compile was requested, success depends on compile result
+                if (compile && result.CompileResult != null && !result.CompileResult.Success)
+                {
+                    result.Success = false;
+                    result.Message = $"Imported '{blockName}' but compile failed ({result.CompileResult.Errors?.Count ?? 0} errors)";
+                }
+                else
+                {
+                    result.Success = true;
+                    result.Message = compile
+                        ? $"Imported and compiled '{blockName}' ({result.ImportedBlocks.Count} block(s))"
+                        : $"Imported '{blockName}' ({result.ImportedBlocks.Count} block(s))";
+                }
             }
             catch (Exception ex)
             {
@@ -800,6 +831,32 @@ namespace PacForgeBridge
             }
 
             return currentGroup;
+        }
+
+        /// <summary>
+        /// Recursively search for a block by name across all user groups.
+        /// Returns null if not found.
+        /// </summary>
+        private PlcBlock FindBlockRecursive(PlcBlockSystemGroup root, string blockName)
+        {
+            // Check root group
+            PlcBlock found = root.Blocks.Find(blockName);
+            if (found != null) return found;
+
+            // Recurse into user groups
+            return FindBlockInGroups(root.Groups, blockName);
+        }
+
+        private PlcBlock FindBlockInGroups(PlcBlockUserGroupComposition groups, string blockName)
+        {
+            foreach (PlcBlockUserGroup group in groups)
+            {
+                PlcBlock found = group.Blocks.Find(blockName);
+                if (found != null) return found;
+                PlcBlock recursive = FindBlockInGroups(group.Groups, blockName);
+                if (recursive != null) return recursive;
+            }
+            return null;
         }
 
         /// <summary>
@@ -887,11 +944,23 @@ namespace PacForgeBridge
             for (int i = parts.Length - 1; i >= 0; i--)
             {
                 string part = parts[i].Trim();
-                if (!structuralSections.Contains(part) && !string.IsNullOrEmpty(part))
+                if (string.IsNullOrEmpty(part)) continue;
+
+                // Skip exact matches (e.g. "Interface", "Code")
+                if (structuralSections.Contains(part)) continue;
+
+                // Skip numbered structural sections like "Network 1", "Network 2"
+                int spaceIdx = part.LastIndexOf(' ');
+                if (spaceIdx > 0)
                 {
-                    last = part;
-                    break;
+                    string prefix = part.Substring(0, spaceIdx);
+                    string suffix = part.Substring(spaceIdx + 1);
+                    if (structuralSections.Contains(prefix) && int.TryParse(suffix, out _))
+                        continue;
                 }
+
+                last = part;
+                break;
             }
             if (last == null) last = parts[parts.Length - 1].Trim();
 

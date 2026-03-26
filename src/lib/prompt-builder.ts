@@ -1,4 +1,6 @@
-import type { Project, Agent, IoEntry, TagDbDefinition, GenerationMode, PatternCandidate, FbTemplate, DesignProfile, ProcessRuleExample, AgentKnowledgeDoc, ReferenceLibrarySection, RackSlotLayout } from "@/types";
+import type { Project, Agent, IoEntry, TagDbDefinition, GenerationMode, PatternCandidate, FbTemplate, DesignProfile, AgentKnowledgeDoc, ReferenceLibrarySection, RackSlotLayout } from "@/types";
+import type { FolderRulesSchema, GeneralRulesSchema, FbRulesSchema, ProcessRulesSchema, StructuredRule } from "@/types/design-profile";
+import { parseGeneralRules, parseFbRules, parseProcessRules } from "@/lib/design-profile-schemas";
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
 import { getAgentProfile } from "@/lib/agent-profiles";
 import { formatReferenceSections } from "@/lib/reference-lookup";
@@ -157,31 +159,279 @@ function formatAgentRoles(
  *   "fb" = general + folder + fb rules (used by FB generation, future)
  *   "all" = everything (used by PM planning)
  */
+// ── Structured rule renderers ────────────────────────────────────────────────
+
+function renderStructuredRule(rule: StructuredRule): string {
+  if (!rule.enabled) return '';
+  const target = rule.target === 'ALL' ? 'All blocks' : rule.target;
+  const header = `RULE: ${rule.category} — ${target} ${rule.strength} ${rule.statement}.`;
+  if (rule.example?.trim()) {
+    return `${header}\n  Example:\n${rule.example.split('\n').map(l => `    ${l}`).join('\n')}`;
+  }
+  return header;
+}
+
+function renderExtraRules(rules: StructuredRule[]): string {
+  if (!rules?.length) return '';
+  return rules
+    .filter(r => r.enabled)
+    .map(renderStructuredRule)
+    .filter(Boolean)
+    .join('\n');
+}
+
+function renderGeneralRules(schema: GeneralRulesSchema): string {
+  const lines: string[] = [];
+  const n = schema.naming;
+  const sm = schema.state_machine;
+
+  if (n.fb_prefix) {
+    lines.push(`RULE: Naming — FB MUST use the prefix "${n.fb_prefix}" (e.g. ${n.fb_prefix}Motor, ${n.fb_prefix}Sensor). Do NOT generate FBs without this prefix.`);
+  }
+  if (n.fc_prefix) {
+    lines.push(`RULE: Naming — FC MUST use the prefix "${n.fc_prefix}" (e.g. ${n.fc_prefix}Motor, ${n.fc_prefix}Sensor). Do NOT generate FCs without this prefix.`);
+  }
+  if (n.db_prefix) {
+    lines.push(`RULE: Naming — DB MUST use the prefix "${n.db_prefix}" (e.g. ${n.db_prefix}Motor, ${n.db_prefix}Sensors). Do NOT generate DBs without this prefix.`);
+  }
+  if (n.udt_prefix) {
+    lines.push(`RULE: Naming — UDT MUST use the prefix "${n.udt_prefix}" (e.g. ${n.udt_prefix}MotorConfig, ${n.udt_prefix}SensorIO).`);
+  }
+  if (n.instance_db_prefix) {
+    lines.push(`RULE: Naming — Instance DB MUST use the prefix "${n.instance_db_prefix}" (e.g. ${n.instance_db_prefix}Motor1, ${n.instance_db_prefix}Sensor001).`);
+  }
+  if (n.block_name_casing !== 'custom') {
+    lines.push(`RULE: Naming — All block names MUST use ${n.block_name_casing} casing.`);
+  }
+  if (n.param_casing !== 'custom') {
+    lines.push(`RULE: Naming — All formal parameters (VAR_INPUT, VAR_OUTPUT, VAR_IN_OUT) MUST use ${n.param_casing} casing.`);
+  }
+  if (n.static_var_prefix) {
+    lines.push(`RULE: Naming — Static variables MUST use the "${n.static_var_prefix}" prefix (e.g. ${n.static_var_prefix}State, ${n.static_var_prefix}AlarmLatch).`);
+  }
+  if (n.temp_var_prefix) {
+    lines.push(`RULE: Naming — Temporary variables MUST use the "${n.temp_var_prefix}" prefix (e.g. ${n.temp_var_prefix}RunPermit, ${n.temp_var_prefix}Index).`);
+  }
+  if (n.instance_var_prefix) {
+    lines.push(`RULE: Naming — Multi-instance variables (FBs, timers, counters, edge triggers declared in VAR) MUST use the "${n.instance_var_prefix}" prefix (e.g. ${n.instance_var_prefix}StartDelay, ${n.instance_var_prefix}RisingEdge).`);
+  }
+  if (n.custom_notes?.trim()) {
+    lines.push(`\nAdditional naming notes:\n${n.custom_notes}`);
+  }
+
+  lines.push('');
+  lines.push(`RULE: State Machine — FB MUST use CASE-based state machines with step values starting at ${sm.step_start} and incrementing by ${sm.step_increment} (e.g. ${sm.step_start}, ${sm.step_start + sm.step_increment}, ${sm.step_start + sm.step_increment * 2}...). Intermediate steps (e.g. ${sm.step_start + 1}, ${sm.step_start + 2}) MAY be used as branches between main steps.`);
+  lines.push(`RULE: State Machine — FB MUST reserve step ${sm.fault_step} as the FAULT state.`);
+  if (sm.always_has_else) {
+    lines.push(`RULE: State Machine — ALL CASE statements MUST include an ELSE branch. ELSE action: ${sm.else_action}.`);
+  }
+  if (sm.custom_notes?.trim()) {
+    lines.push(`\nAdditional state machine notes:\n${sm.custom_notes}`);
+  }
+
+  const extras = renderExtraRules(schema.extra_rules);
+  if (extras) { lines.push(''); lines.push(extras); }
+
+  if (schema.freetext?.trim()) {
+    lines.push('');
+    lines.push(`Additional general rules:\n${schema.freetext}`);
+  }
+
+  return lines.filter(l => l !== undefined).join('\n');
+}
+
+function renderFbRules(schema: FbRulesSchema): string {
+  const lines: string[] = [];
+  const iface = schema.interface_pattern;
+  const alarm = schema.alarm_handling;
+
+  if (iface.pattern === 'plcopen_enable') {
+    lines.push('RULE: FB Interface — DEVICE_FB MUST use the PLCopen enable pattern: EN (Bool input) controls activation. MUST NOT use rising-edge execute pattern for device FBs.');
+  } else if (iface.pattern === 'plcopen_execute') {
+    lines.push('RULE: FB Interface — DEVICE_FB MUST use the PLCopen execute pattern: rising edge on execute input triggers one-shot command.');
+  }
+  if (iface.include_busy)   lines.push('RULE: FB Interface — DEVICE_FB MUST include a "busy : Bool" VAR_OUTPUT.');
+  if (iface.include_done)   lines.push('RULE: FB Interface — DEVICE_FB MUST include a "done : Bool" VAR_OUTPUT.');
+  if (iface.include_error)  lines.push('RULE: FB Interface — DEVICE_FB MUST include an "error : Bool" VAR_OUTPUT.');
+  if (iface.include_status) {
+    lines.push(`RULE: FB Interface — DEVICE_FB MUST include a "status : Word" VAR_OUTPUT with initial value ${iface.status_initial_value}.`);
+  }
+  if (iface.custom_notes?.trim()) {
+    lines.push(`\nAdditional interface notes:\n${iface.custom_notes}`);
+  }
+
+  lines.push('');
+  if (alarm.latching) {
+    lines.push('RULE: Alarm Handling — FB MUST latch alarms on fault condition. Alarms MUST NOT auto-clear when the fault condition clears.');
+  }
+  if (alarm.reset_via_input) {
+    lines.push(`RULE: Alarm Handling — FB MUST provide a "${alarm.reset_input_name} : Bool" VAR_INPUT for operator alarm reset.`);
+  }
+  if (alarm.custom_notes?.trim()) {
+    lines.push(`\nAdditional alarm notes:\n${alarm.custom_notes}`);
+  }
+
+  const extras = renderExtraRules(schema.extra_rules);
+  if (extras) { lines.push(''); lines.push(extras); }
+
+  if (schema.freetext?.trim()) {
+    lines.push('');
+    lines.push(`Additional FB rules:\n${schema.freetext}`);
+  }
+
+  return lines.join('\n');
+}
+
+function renderProcessRules(schema: ProcessRulesSchema): string {
+  const lines: string[] = [];
+  const sad = schema.step_action_db;
+  const seq = schema.sequence_structure;
+
+  if (sad.enabled) {
+    lines.push(`RULE: Process Structure — PROCESS_FC MUST use the step/action DB pattern. Each process section requires a dedicated DB named using the pattern "${sad.db_name_pattern}".`);
+    lines.push(`RULE: Process Structure — PROCESS_FC MUST store step activation bits in a Bool array named "${sad.step_array_name}" (e.g. DB.${sad.step_array_name}[0], DB.${sad.step_array_name}[1]...).`);
+    lines.push(`RULE: Process Structure — PROCESS_FC MUST store action activation bits in a Bool array named "${sad.action_array_name}" (e.g. DB.${sad.action_array_name}[0], DB.${sad.action_array_name}[1]...).`);
+    if (sad.custom_notes?.trim()) {
+      lines.push(`\nAdditional step/action DB notes:\n${sad.custom_notes}`);
+    }
+  }
+
+  lines.push('');
+  if (seq.safety_inline) {
+    lines.push('RULE: Sequence Structure — PROCESS_FC MUST place safety interlock contacts inline within the step transition rung. MUST NOT use a separate dedicated safety network.');
+  }
+  if (seq.permissives_as_first_rung) {
+    lines.push('RULE: Sequence Structure — PROCESS_FC MUST check all permissive preconditions in the first network before any step transitions.');
+  }
+  if (seq.custom_notes?.trim()) {
+    lines.push(`\nAdditional sequence notes:\n${seq.custom_notes}`);
+  }
+
+  const extras = renderExtraRules(schema.extra_rules);
+  if (extras) { lines.push(''); lines.push(extras); }
+
+  if (schema.freetext?.trim()) {
+    lines.push('');
+    lines.push(`Additional process rules:\n${schema.freetext}`);
+  }
+
+  return lines.join('\n');
+}
+
+function renderFolderRulesFromSchema(schema: FolderRulesSchema): string {
+  const rules: string[] = [];
+
+  if (schema.pattern === 'section_per_area') {
+    rules.push(
+      '- RULE: Each area/section of the plant MUST have its own top-level program block group' +
+      ' (e.g. CONVEYORS, ELEVATORS, DIMENSIONNERS). Do NOT mix sections into a single group.'
+    );
+  }
+
+  if (schema.shared_device_group) {
+    rules.push(
+      `- RULE: ALL device FBs, instance DBs, and call FCs MUST be placed in a single shared` +
+      ` group named "${schema.device_group_name}" at the root level — NOT inside per-section groups.`
+    );
+    rules.push(
+      `- RULE: Inside "${schema.device_group_name}":` +
+      ` FBs go in subfolder "${schema.device_subfolders.fbs}",` +
+      ` DBs go in subfolder "${schema.device_subfolders.dbs}".`
+    );
+    if (schema.device_subfolders.call_fcs_at_root) {
+      rules.push(
+        `- RULE: Call FCs (CALL_MOTOR, CALL_SENSOR, etc.) are placed directly at the root` +
+        ` of "${schema.device_group_name}", NOT inside any subfolder.`
+      );
+    }
+  }
+
+  if (schema.call_fc_rules.one_fc_per_device_type) {
+    rules.push(
+      '- RULE: Generate exactly ONE call FC per device type (e.g. CALL_MOTOR, CALL_SENSOR,' +
+      ' CALL_VALVE). Do NOT combine multiple device types in a single call FC.'
+    );
+  }
+  if (schema.call_fc_rules.one_network_per_instance) {
+    rules.push(
+      '- RULE: Each call FC MUST contain exactly ONE network per device instance.' +
+      ' Each network calls the FB via its instance DB with ALL parameters explicitly wired.'
+    );
+  }
+  if (schema.call_fc_rules.networks_contain_wiring_only) {
+    rules.push(
+      '- RULE: Call FC networks contain ONLY the FB call with parameter wiring.' +
+      ' No logic, no conditions, no branching — parameter wiring only.'
+    );
+  }
+
+  if (schema.section_groups?.length > 0) {
+    rules.push(
+      `- RULE: The following section groups MUST exist at root level:` +
+      ` ${schema.section_groups.map(g => `"${g}"`).join(', ')}.`
+    );
+  }
+
+  if (schema.other_root_groups?.length > 0) {
+    rules.push(
+      `- RULE: The following utility/system groups MUST also exist at root level:` +
+      ` ${schema.other_root_groups.map(g => `"${g}"`).join(', ')}.`
+    );
+  }
+
+  if (schema.custom_notes?.trim()) {
+    rules.push(`\nAdditional folder/structure notes:\n${schema.custom_notes}`);
+  }
+
+  return rules.join('\n');
+}
+
 export function formatDesignProfile(
   profile: DesignProfile,
   context: "general" | "process" | "fb" | "all" = "general",
 ): string {
   const sections: string[] = [];
 
-  // General rules (always included) — use new field, fall back to legacy
-  const generalRules = profile.general_rules?.trim() || profile.rules?.trim() || "";
-  if (generalRules) {
-    sections.push(`### General Code Rules\n\n${generalRules}`);
+  // General rules (always included) — schema-aware rendering
+  const generalSchema = parseGeneralRules(profile.general_rules || profile.rules || '');
+  const generalRendered = renderGeneralRules(generalSchema);
+  if (generalRendered.trim()) {
+    sections.push(`### General Code Rules\n\n${generalRendered}`);
   }
 
-  // Folder rules (always included when present)
+  // Folder rules (always included when present) — supports structured schema or freetext
   if (profile.folder_rules?.trim()) {
-    sections.push(`### Program Folder Structure\n\n${profile.folder_rules}`);
+    let folderSection: string;
+    try {
+      const parsed = JSON.parse(profile.folder_rules);
+      if (parsed?.version === 2) {
+        folderSection = renderFolderRulesFromSchema(parsed as FolderRulesSchema);
+      } else {
+        folderSection = profile.folder_rules;
+      }
+    } catch {
+      // Legacy freetext — use as-is
+      folderSection = profile.folder_rules;
+    }
+    sections.push(`### Program Folder Structure\n\n${folderSection}`);
   }
 
-  // Process rules (only for process/all contexts)
-  if ((context === "process" || context === "all") && profile.process_rules?.length > 0) {
-    sections.push(formatRuleExamples("Process Code Structure", profile.process_rules));
+  // Process rules (only for process/all contexts) — schema-aware rendering
+  if (context === 'process' || context === 'all') {
+    const processSchema = parseProcessRules(profile.process_rules as string);
+    const processRendered = renderProcessRules(processSchema);
+    if (processRendered.trim()) {
+      sections.push(`### Process Code Rules\n\n${processRendered}`);
+    }
   }
 
-  // FB rules (only for fb/all contexts)
-  if ((context === "fb" || context === "all") && profile.fb_rules?.length > 0) {
-    sections.push(formatRuleExamples("Function Block Structure", profile.fb_rules));
+  // FB rules (only for fb/all contexts) — schema-aware rendering
+  if (context === 'fb' || context === 'all') {
+    const fbSchema = parseFbRules(profile.fb_rules as string);
+    const fbRendered = renderFbRules(fbSchema);
+    if (fbRendered.trim()) {
+      sections.push(`### Function Block Rules\n\n${fbRendered}`);
+    }
   }
 
   if (sections.length === 0) return "";
@@ -193,25 +443,6 @@ export function formatDesignProfile(
 ${sections.join("\n\n")}`;
 }
 
-function formatRuleExamples(heading: string, examples: ProcessRuleExample[]): string {
-  const parts = [`### MANDATORY: ${heading}`];
-  parts.push(
-    `**CRITICAL REQUIREMENT:** The customer has defined a specific code structure pattern for ${heading.toLowerCase()}. ` +
-    `You MUST replicate this exact structural pattern in ALL generated code. ` +
-    `Do NOT substitute your own preferred patterns (e.g., do NOT use a CASE integer state machine if the customer pattern uses boolean step arrays). ` +
-    `The structure, naming conventions, array usage, and organization shown below are NON-NEGOTIABLE — follow them precisely.`,
-  );
-  for (const ex of examples) {
-    parts.push(`#### ${ex.label}`);
-    if (ex.analysis?.trim()) {
-      parts.push(`**Mandatory structural pattern (you MUST follow this):**\n${ex.analysis}`);
-    }
-    if (ex.example?.trim()) {
-      parts.push(`**Reference implementation (replicate this structure):**\n\`\`\`scl\n${ex.example}\n\`\`\``);
-    }
-  }
-  return parts.join("\n\n");
-}
 
 export function formatRackLayout(rackLayout: RackSlotLayout[]): string {
   if (rackLayout.length === 0) return "";

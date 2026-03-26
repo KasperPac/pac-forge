@@ -18,8 +18,8 @@ import {
 } from "@/components/ui/dialog";
 import { formatPipelineLog } from "@/lib/pipeline";
 import type { PipelineStepResult } from "@/lib/pipeline";
-import { PROCESS_STAGE_LABELS } from "@/types/process-builder";
-import type { ProcessStage } from "@/types/process-builder";
+import { PROCESS_STAGE_LABELS } from "@/types/forge-matrix";
+import type { ProcessStage } from "@/types/forge-matrix";
 
 // ---------------------------------------------------------------------------
 // Constants

@@ -7,7 +7,7 @@
  *   LINE 2 (10px, muted)       — prose context      "Product at End A"
  *   LINE 3 (11px bold, teal)   — output signal      "InstM01.cmdFwd = TRUE"
  */
-import type { ProcessSequence, SequenceRow } from "@/types/process-builder";
+import type { ProcessSequence, SequenceRow } from "@/types/forge-matrix";
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 const W       = 920;

@@ -1,5 +1,5 @@
-import { PROCESS_STAGE_LABELS } from "@/types/process-builder";
-import type { ProcessBuilderSession } from "@/types/process-builder";
+import { PROCESS_STAGE_LABELS } from "@/types/forge-matrix";
+import type { ProcessBuilderSession } from "@/types/forge-matrix";
 import {
   Dialog,
   DialogContent,
