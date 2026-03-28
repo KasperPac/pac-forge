@@ -39,6 +39,8 @@ export const PROMPT_ROLES = {
   // HMI Agent
   HMI_DESIGNER: "hmi_designer",
   HMI_SVG_GENERATOR: "hmi_svg_generator",
+  // PLCSIM Test
+  PLCSIM_TEST: "plcsim_test",
 } as const;
 
 export type PromptRole = (typeof PROMPT_ROLES)[keyof typeof PROMPT_ROLES];
@@ -73,6 +75,8 @@ export const PROMPT_ROLE_LABELS: Record<PromptRole, string> = {
   // HMI Agent
   hmi_designer: "HMI Screen Designer",
   hmi_svg_generator: "HMI SVG Generator",
+  // PLCSIM Test
+  plcsim_test: "PLCSIM Test Generation",
 };
 
 /** Which section keys each role supports */
@@ -105,6 +109,8 @@ export const ROLE_SECTIONS: Record<PromptRole, string[]> = {
   // HMI Agent
   hmi_designer: ["identity", "instructions"],
   hmi_svg_generator: ["identity", "instructions"],
+  // PLCSIM Test
+  plcsim_test: ["identity", "instructions"],
 };
 
 export const SECTION_LABELS: Record<string, string> = {

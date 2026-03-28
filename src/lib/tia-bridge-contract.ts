@@ -379,3 +379,11 @@ export interface PlcsimReadTagsResponse {
 
 /** POST /tia/plcsim/stop — Shutdown PLCSIM instance */
 export type PlcsimStopResponse = PlcsimStartResponse;
+
+/** POST /tia/plcsim/download — Download compiled project to PLCSIM instance */
+export interface PlcsimDownloadResponse {
+  success: boolean;
+  message: string;
+  warnings?: number;
+  errors?: number;
+}

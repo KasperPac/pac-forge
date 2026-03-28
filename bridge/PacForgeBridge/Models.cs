@@ -490,6 +490,14 @@ namespace PacForgeBridge
         public string XmlContent { get; set; }
     }
 
+    public class DownloadResultDto
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+        public int Warnings { get; set; }
+        public int Errors { get; set; }
+    }
+
     // --- Internal Job State ---
 
     public class JobState

@@ -64,7 +64,7 @@ export interface TestStep {
 }
 
 /** Test case category */
-export type TestCategory = "normal" | "fault" | "permissive" | "interlock" | "reset";
+export type TestCategory = "device_fb" | "normal" | "fault" | "permissive" | "interlock" | "reset";
 
 /** A complete test case */
 export interface PlcsimTestCase {
@@ -99,6 +99,12 @@ export interface TestAssertionResult {
   description: string;
 }
 
+/** Snapshot of all PLC tag values at a point in time (captured on failure) */
+export interface PlcStateSnapshot {
+  capturedAt: string;
+  tags: Array<{ tag: string; value: boolean | number | string | null; dataType: string }>;
+}
+
 /** Result of a single test step */
 export interface TestStepResult {
   stepId: string;
@@ -107,7 +113,12 @@ export interface TestStepResult {
   assertions: TestAssertionResult[];
   durationMs: number;
   errorMessage?: string;
+  /** PLC state snapshot captured when this step fails — all tag values at failure moment */
+  snapshot?: PlcStateSnapshot;
 }
+
+/** How the result was obtained */
+export type TestRunMode = "auto" | "manual";
 
 /** Result of a complete test case execution */
 export interface TestCaseResult {
@@ -115,10 +126,14 @@ export interface TestCaseResult {
   testCaseName: string;
   category: TestCategory;
   status: "pass" | "fail" | "error" | "skipped";
+  /** How this result was obtained */
+  runMode: TestRunMode;
   startedAt: string;
   completedAt: string | null;
   stepResults: TestStepResult[];
   errorMessage: string | null;
+  /** Engineer or auto-generated comment (anomalies, observations) */
+  comment: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -145,6 +160,28 @@ export interface PlcsimTestSuite {
     errors: number;
     skipped: number;
   } | null;
+  /** PM learnings from post-test failure analysis */
+  learnings?: TestLearning[];
+}
+
+/** A learning/finding from post-test analysis by the PM agent */
+export interface TestLearning {
+  id: string;
+  /** Which test case triggered this learning */
+  testCaseId: string;
+  testCaseName: string;
+  /** Severity: bug = code defect, improvement = design suggestion, note = observation */
+  severity: "bug" | "improvement" | "note";
+  /** Short title */
+  title: string;
+  /** Detailed explanation of what went wrong and what to check */
+  description: string;
+  /** Which artifact/block is likely affected */
+  affectedBlock: string | null;
+  /** Suggested fix (human-readable, not auto-applied) */
+  suggestedFix: string | null;
+  /** Has the engineer acknowledged/addressed this learning */
+  acknowledged: boolean;
 }
 
 // ---------------------------------------------------------------------------

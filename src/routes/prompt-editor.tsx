@@ -62,7 +62,7 @@ interface AgentGroup {
 const AGENT_GROUPS: AgentGroup[] = [
   {
     agent: "Project Manager",
-    roles: ["forge_pm_spec_analysis", "forge_pm_qa_review", "forge_pm_device_linkage", "forge_pm_sequences"],
+    roles: ["forge_pm_spec_analysis", "forge_pm_qa_review", "forge_pm_device_linkage", "forge_pm_sequences", "plcsim_test"],
   },
   {
     agent: "Code Architect",
@@ -113,6 +113,7 @@ const ROLE_PREVIEW_AGENTS: Partial<Record<PromptRole, string[]>> = {
   forge_safety_auditor: ["Safety Auditor"],
   hmi_designer: ["HMI Agent"],
   hmi_svg_generator: ["HMI Agent"],
+  plcsim_test: ["Project Manager"],
 };
 
 /** Maps each role to its primary owning agent name. */
@@ -138,6 +139,7 @@ const ROLE_OWNER: Record<PromptRole, string> = {
   forge_safety_auditor: "Safety Auditor",
   hmi_designer: "HMI Agent",
   hmi_svg_generator: "HMI Agent",
+  plcsim_test: "Project Manager",
 };
 
 /** Roles whose assembled prompt includes the shared platform_rules section. */

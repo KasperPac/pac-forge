@@ -302,8 +302,21 @@ namespace PacForgeBridge
                     return;
                 }
 
-                // TODO: POST /tia/plcsim/download — automate download to PLCSIM
-                // For now, user downloads manually from TIA Portal.
+                // Route: POST /tia/plcsim/download — download project to PLCSIM
+                if (method == "POST" && path == "/tia/plcsim/download")
+                {
+                    var result = _tiaService.DownloadToPlcsim();
+                    await WriteJson(res, result.Success ? 200 : 500, result);
+                    return;
+                }
+
+                // Route: POST /tia/plcsim/update-tags — refresh tag list after TIA download
+                if (method == "POST" && path == "/tia/plcsim/update-tags")
+                {
+                    var result = _plcsimService.UpdateTagList();
+                    await WriteJson(res, result.Success ? 200 : 500, result);
+                    return;
+                }
 
                 // Route: POST /tia/plcsim/stop
                 if (method == "POST" && path == "/tia/plcsim/stop")

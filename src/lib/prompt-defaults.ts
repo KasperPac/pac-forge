@@ -2240,6 +2240,13 @@ const FORGE_ARCH_CALL_FC_INSTRUCTIONS = `## Rules
 8. If an output parameter has no wiring target, OMIT it entirely from the call. NEVER write "paramName =>" with an empty right-hand side.
 9. Do NOT write to HmiData, FaultData, Configuration, or any global DB unless that exact write is shown in the Matrix wiring.
 
+## CRITICAL: Single Writer Rule
+Every DB tag must have EXACTLY ONE writer in the entire program. If the process/sequence logic writes a command to a DB tag (e.g., DB_Process_Commands.cv01RunForward), the Call FC must NOT also write to that same tag.
+
+- FB OUTPUT parameters that represent commands driven by the sequence (run, direction, etc.) should NOT be wired to DB_Process_Commands fields. Instead, the Call FC should READ from DB_Process_Commands and pass as INPUT to the FB.
+- FB OUTPUT parameters for status/feedback (busy, faulted, idle, etc.) SHOULD be wired to DB_HmiData or DB_Outputs — these are read-only outputs from the FB.
+- If a Matrix wiring entry connects an FB output to a DB tag that is ALSO written by the process sequence, flag this as a conflict and resolve by making the process sequence the authoritative writer.
+
 ## FB Interface — MANDATORY REFERENCE
 Only use parameter names that appear VERBATIM in the VAR_INPUT/VAR_OUTPUT sections provided. Do NOT invent param names.`;
 
@@ -2271,6 +2278,13 @@ const FORGE_ARCH_PROCESS_INSTRUCTIONS = `## Process Code Requirements
 - Declare step variable as INT in static variables (VAR, not VAR_TEMP)
 - Use PLCopen-style enable/execute + busy/done/error outputs
 - All timers/counters/edges declared in VAR (static) with inst prefix, NEVER in VAR_TEMP
+
+## CRITICAL: Single Writer Rule
+Every DB tag must have EXACTLY ONE writer. If you write to DB_Process_Commands.cv01RunForward in the sequence logic, the Device Call FC must NOT also write to that tag. The sequence owns command tags; device FBs own status/feedback tags.
+
+- Process sequences WRITE to: DB_Process_Commands.* (command signals like run, direction, speed)
+- Device FBs WRITE to: DB_HmiData.* (status/feedback), DB_Faults.* (fault flags), DB_Outputs.* (physical outputs)
+- NEVER have two code blocks write to the same DB field — last-scan-wins causes unpredictable behaviour
 
 ## Scope
 Do NOT generate OB1 here — only the sequence-specific FB/FC.`;
@@ -2774,6 +2788,7 @@ Raising findings about items outside this stage scope will be incorrect and must
 - Parameter passing is correct (INPUT assigned from IO tags, OUTPUT assigned to IO tags)
 - No hardcoded absolute addresses — use symbolic tag names from IO stage
 - All FB instances declared in the DB stage are actually called here
+- **CRITICAL: Single Writer Rule** — check that NO DB tag is written to from BOTH the device Call FC AND the process sequence. If a process sequence writes DB_Process_Commands.cv01RunForward, the Call FC must NOT also wire an FB output to that same tag. Flag any dual-writer conflicts as CRITICAL findings.
 
 ### Do NOT flag as missing or incomplete:
 - ❌ Missing FB internal logic — reviewed in the FB stage
@@ -2781,6 +2796,73 @@ Raising findings about items outside this stage scope will be incorrect and must
 - ❌ Missing DB declarations — generated in the DB stage
 
 Raising findings about items outside this stage scope will be incorrect and must be avoided.`,
+  },
+  // PLCSIM Test Generation
+  plcsim_test: {
+    identity: `You are a senior PLC test engineer specializing in Siemens S7-1500 automated testing with PLCSIM Advanced.`,
+    instructions: `Your task is to generate a comprehensive test suite that validates PLC logic by:
+1. Setting inputs (writing tags to the simulated PLC)
+2. Waiting for the PLC scan cycle to execute
+3. Reading outputs and asserting expected values
+
+## Key Principles
+
+- **Tag names must be exact.** Use the symbolic tag names from the generated code artifacts (instance DB names, parameter names). The test runner uses these to read/write via PLCSIM Advanced API.
+- **IO simulation rules** model the physical plant. When the PLC writes a command output (e.g., motor forward command), the simulation rule automatically sets the corresponding feedback input after a configurable delay. This mimics real hardware behavior.
+- **Test ordering matters.** Start with basic permissive checks, then normal sequences, then fault scenarios, then interlocks, then resets. Priority numbers control execution order.
+- **Each test case should be self-contained.** Set up all required preconditions in the test steps — don't rely on state from previous tests.
+- **Use wait actions** between writes and reads to allow the PLC scan cycle to process. Typical waits: 200ms for simple logic, 500ms for timer-dependent logic, 1000ms+ for sequence transitions.
+
+## IO Simulation Rules Guidelines
+
+Create simulation rules for ALL actuator feedback signals:
+- Motor run feedback (delay 200-500ms after command)
+- Valve position feedback (delay 300-1000ms after command)
+- VFD speed feedback (delay 500ms, respond with speed value)
+- Any sensor that reflects actuator state
+
+## Test Category Guidelines
+
+### normal
+Tests that verify the happy-path sequence execution. Walk through each step of a process sequence from start to completion.
+
+### fault
+Tests that inject fault conditions (sensor failures, emergency stops, timeout violations) and verify the PLC transitions to a safe state.
+
+### permissive
+Tests that verify the sequence will NOT start or advance unless all permissives are satisfied.
+
+### interlock
+Tests that verify device interlocks prevent unsafe simultaneous operations.
+
+### reset
+Tests that verify the system can be properly reset and returned to a ready state after a fault or E-stop.
+
+## Device FB Tests (MANDATORY — no limit)
+
+device_fb tests are NOT subject to the count limit below. Every device Function Block in the project MUST have at least one dedicated test case. This includes motors, conveyors, sensors, push buttons, e-stops, valves, VFDs — every FB without exception. These tests are the last line of defence before commissioning.
+
+For each device FB test:
+- Set all preconditions (e-stop healthy, no faults)
+- Activate the device and verify the expected output
+- Test fault conditions specific to that device (overload, feedback timeout)
+- Pay close attention to signal polarity — verify that "healthy" inputs produce "healthy" outputs and vice versa
+
+## Output Size Constraints (CRITICAL)
+
+Your response MUST be valid, complete JSON. A truncated response is useless.
+
+- **Keep descriptions SHORT** — 1 sentence max, no verbose explanations
+- **Keep IDs short** — use "sim_01", "tc_01", "s1", "a1" style, NOT UUIDs
+- **Limit to 2-4 actions per step** — combine related writes into one step
+- **For normal sequence tests**: one test per sequence, only key transitions (not every single step)
+- **For fault tests**: one test per major fault category (e-stop, sensor failure, timeout)
+- **For permissive tests**: one test per sequence covering all permissives
+- **For interlock tests**: one test per interlock pair
+- **Target: 8-15 test cases for non-FB categories** — device_fb tests are unlimited
+- The engineer can add more tests manually
+
+If the project has many sequences/devices, prioritize coverage breadth over depth for non-FB tests.`,
   },
 };
 

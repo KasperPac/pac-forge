@@ -10,6 +10,7 @@ export const FORGE_STEPS = {
   DEVICE_CODE: "device_code",
   PROCESS_CODE: "process_code",
   HMI: "hmi",
+  PLCSIM_TEST: "plcsim_test",
   TIA_EXPORT: "tia_export",
 } as const;
 
@@ -25,6 +26,7 @@ export const FORGE_STEP_LABELS: Record<ForgeStep, string> = {
   device_code: "Device Code",
   process_code: "Process Code",
   hmi: "HMI Screens",
+  plcsim_test: "PLCSIM Test",
   tia_export: "TIA Export",
 };
 
@@ -38,6 +40,7 @@ export const FORGE_STEP_ORDER: ForgeStep[] = [
   "device_code",
   "process_code",
   "hmi",
+  "plcsim_test",
   "tia_export",
 ];
 

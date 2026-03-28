@@ -45,6 +45,7 @@ const createInitialStepStatuses = (): Record<ForgeStep, ForgeStepStatus> => ({
   device_code: "pending",
   process_code: "pending",
   hmi: "pending",
+  plcsim_test: "pending",
   tia_export: "pending",
 });
 

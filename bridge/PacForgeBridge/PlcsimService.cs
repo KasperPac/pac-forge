@@ -100,11 +100,34 @@ namespace PacForgeBridge
                 }
                 Console.WriteLine("[PLCSIM] Powered on.");
 
+                // Wait for instance to fully initialize (PLCSIM needs 2-5s after PowerOn)
+                Console.WriteLine("[PLCSIM] Waiting for instance to stabilize...");
+                var deadline = DateTime.Now.AddMilliseconds(timeoutMs);
+                string state = "";
+                while (DateTime.Now < deadline)
+                {
+                    state = _runtime.GetOperatingState();
+                    Console.WriteLine($"[PLCSIM] State: {state}");
+                    // STOP or RUN means the instance is ready to accept downloads/commands
+                    if (state == "Stop" || state == "Run")
+                        break;
+                    Thread.Sleep(500);
+                }
+
+                if (state != "Stop" && state != "Run")
+                {
+                    Console.WriteLine($"[PLCSIM] Warning: instance in state '{state}' after timeout — may not be ready for download");
+                }
+                else
+                {
+                    Console.WriteLine($"[PLCSIM] Instance ready (state: {state})");
+                }
+
                 _instanceName = instanceName;
                 _connected = true;
                 result.Success = true;
-                result.Message = $"PLCSIM instance '{instanceName}' started and powered on";
-                result.OperatingState = _runtime.GetOperatingState();
+                result.Message = $"PLCSIM instance '{instanceName}' started and ready (state: {state})";
+                result.OperatingState = state;
             }
             catch (Exception ex)
             {
@@ -159,6 +182,37 @@ namespace PacForgeBridge
                 result.Message = $"Exception: {ex.Message}";
             }
 
+            return result;
+        }
+
+        /// <summary>
+        /// Refresh tag list after TIA download. Must be called before symbolic tag R/W.
+        /// </summary>
+        public PlcsimResult UpdateTagList()
+        {
+            var result = new PlcsimResult();
+            if (!_connected || _runtime == null)
+            {
+                result.Message = "Not connected to PLCSIM instance";
+                return result;
+            }
+
+            try
+            {
+                Console.WriteLine("[PLCSIM] Updating tag list...");
+                if (!_runtime.UpdateTagList())
+                {
+                    result.Message = $"UpdateTagList failed: {_runtime.LastError}";
+                    return result;
+                }
+                Console.WriteLine("[PLCSIM] Tag list updated.");
+                result.Success = true;
+                result.Message = "Tag list updated";
+            }
+            catch (Exception ex)
+            {
+                result.Message = $"Exception: {ex.Message}";
+            }
             return result;
         }
 

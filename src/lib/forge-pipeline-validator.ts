@@ -66,6 +66,14 @@ const AGENT_IDENTITY_MARKERS: Record<string, string[]> = {
     "safety check",
     "safety analysis",
   ],
+
+  // PLCSIM test generation
+  pm_test_generation: [
+    "PLC test engineer",
+    "PLCSIM Advanced",
+    "test suite",
+    "automated testing",
+  ],
   
   // Spec analysis
   spec_analysis: [

@@ -15,7 +15,8 @@ using Siemens.Engineering.SW.Blocks;
 using Siemens.Engineering.SW.ExternalSources;
 using Siemens.Engineering.SW.Tags;
 using Siemens.Engineering.SW.Types;
-// using Siemens.Engineering.Download; // TODO: Add when download-to-PLCSIM is automated
+using Siemens.Engineering.Download;
+using Siemens.Engineering.Connection;
 using Siemens.Engineering.Library;
 using Siemens.Engineering.Library.Types;
 using Siemens.Engineering.Library.MasterCopies;
@@ -497,10 +498,313 @@ namespace PacForgeBridge
             return null;
         }
 
-        // TODO: DownloadToPlcsim() — automate project download to PLCSIM Advanced.
-        // The TIA Openness V18 Download API namespace needs investigation.
-        // For now, the user downloads manually from TIA Portal (Online → Download to Device → PLCSIM).
-        // The PLCSIM instance name must match what was registered via /tia/plcsim/start.
+        /// <summary>
+        /// Find the CPU DeviceItem (the item that has SoftwareContainer with PlcSoftware).
+        /// Needed for Download API, which operates on DeviceItem not PlcSoftware.
+        /// </summary>
+        public DeviceItem GetCpuDeviceItem()
+        {
+            if (_project == null)
+                throw new InvalidOperationException("No project open.");
+
+            foreach (Device device in _project.Devices)
+            {
+                DeviceItem cpu = FindCpuDeviceItem(device.DeviceItems);
+                if (cpu != null) return cpu;
+            }
+
+            throw new InvalidOperationException("No PLC CPU found in project.");
+        }
+
+        private DeviceItem FindCpuDeviceItem(DeviceItemComposition items)
+        {
+            foreach (DeviceItem item in items)
+            {
+                SoftwareContainer container =
+                    ((IEngineeringServiceProvider)item).GetService<SoftwareContainer>();
+                if (container?.Software is PlcSoftware)
+                    return item;
+
+                DeviceItem nested = FindCpuDeviceItem(item.DeviceItems);
+                if (nested != null) return nested;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Download the current project to a PLCSIM Advanced instance.
+        /// Full pipeline: enable simulation support → compile → configure PLCSIM
+        /// softbus connection → download → report results.
+        /// The PLCSIM instance must already be running (started via /tia/plcsim/start).
+        /// </summary>
+        public DownloadResultDto DownloadToPlcsim()
+        {
+            if (_project == null)
+                return new DownloadResultDto { Success = false, Message = "No project open." };
+
+            try
+            {
+                // 1. Get CPU DeviceItem + PlcSoftware
+                DeviceItem cpuDevice = GetCpuDeviceItem();
+                PlcSoftware plcSoftware = GetPlcSoftware();
+                Console.WriteLine($"[TIA] Found CPU: {cpuDevice.Name}");
+
+                // 2. Dump protection/simulation attributes on CPU + PlcSoftware for diagnostics
+                foreach (var target in new (string label, IEngineeringObject obj)[] {
+                    ("CPU DeviceItem", cpuDevice),
+                    ("PlcSoftware", plcSoftware),
+                })
+                {
+                    try
+                    {
+                        Console.WriteLine($"[TIA] {target.label} — protection/simulation attributes:");
+                        foreach (var ai in target.obj.GetAttributeInfos())
+                        {
+                            string lower = ai.Name.ToLower();
+                            if (lower.Contains("simul") || lower.Contains("protect") ||
+                                lower.Contains("access") || lower.Contains("password") ||
+                                lower.Contains("security") || lower.Contains("connect"))
+                            {
+                                try
+                                {
+                                    var val = target.obj.GetAttribute(ai.Name);
+                                    Console.WriteLine($"  {ai.Name} = {val ?? "(null)"}");
+                                }
+                                catch { Console.WriteLine($"  {ai.Name} = (read error)"); }
+                            }
+                        }
+                    }
+                    catch { }
+                }
+                // This must be set BEFORE compiling — blocks compiled without it can't be simulated
+                try
+                {
+                    // Try on PlcSoftware first (V18 typical location)
+                    plcSoftware.SetAttribute("SupportSimulationDuringBlockCompilation", true);
+                    Console.WriteLine("[TIA] Simulation support enabled on PlcSoftware.");
+                }
+                catch
+                {
+                    try
+                    {
+                        // Try on the CPU DeviceItem
+                        cpuDevice.SetAttribute("SupportSimulationDuringBlockCompilation", true);
+                        Console.WriteLine("[TIA] Simulation support enabled on CPU DeviceItem.");
+                    }
+                    catch
+                    {
+                        try
+                        {
+                            // Try on the parent Device
+                            var parentDevice = cpuDevice.Parent as Device;
+                            if (parentDevice == null)
+                                parentDevice = cpuDevice.Parent?.Parent as Device;
+                            if (parentDevice != null)
+                            {
+                                parentDevice.SetAttribute("SupportSimulationDuringBlockCompilation", true);
+                                Console.WriteLine("[TIA] Simulation support enabled on Device.");
+                            }
+                        }
+                        catch (Exception ex3)
+                        {
+                            Console.WriteLine($"[TIA] WARNING: Could not set simulation flag automatically: {ex3.Message}");
+                            Console.WriteLine("[TIA] Please enable it manually: Project tree → PLC → Properties → Protection & Security → Support simulation during block compilation");
+                        }
+                    }
+                }
+
+                // 3. Compile hardware + software (recompile with simulation flag)
+                var compilable = plcSoftware.GetService<ICompilable>();
+                if (compilable != null)
+                {
+                    Console.WriteLine("[TIA] Compiling before download...");
+                    CompilerResult compileResult = compilable.Compile();
+                    Console.WriteLine($"[TIA] Compile result: {compileResult.State} ({compileResult.WarningCount} warnings, {compileResult.ErrorCount} errors)");
+                    if (compileResult.State == CompilerResultState.Error)
+                    {
+                        return new DownloadResultDto
+                        {
+                            Success = false,
+                            Message = $"Compilation failed with {compileResult.ErrorCount} errors — fix before downloading.",
+                        };
+                    }
+                }
+
+                // 4. Get DownloadProvider
+                DownloadProvider downloadProvider = cpuDevice.GetService<DownloadProvider>();
+                if (downloadProvider == null)
+                {
+                    return new DownloadResultDto
+                    {
+                        Success = false,
+                        Message = "CPU does not support Download API (DownloadProvider service unavailable).",
+                    };
+                }
+
+                // 5. Configure for PLCSIM Softbus connection
+                ConnectionConfiguration connConfig = downloadProvider.Configuration;
+
+                // Dump all available attributes for diagnostics
+                Console.WriteLine("[TIA] ConnectionConfiguration attributes:");
+                try
+                {
+                    var attrInfos = connConfig.GetAttributeInfos();
+                    foreach (var ai in attrInfos)
+                    {
+                        try
+                        {
+                            var val = connConfig.GetAttribute(ai.Name);
+                            Console.WriteLine($"  {ai.Name} = {val ?? "(null)"}");
+                        }
+                        catch
+                        {
+                            Console.WriteLine($"  {ai.Name} = (read error)");
+                        }
+                    }
+                }
+                catch (Exception attrEx)
+                {
+                    Console.WriteLine($"  (could not enumerate attributes: {attrEx.Message})");
+                }
+
+                // Navigate: Modes → PN/IE → PLCSIM PC Interface
+                ConfigurationMode pnMode = null;
+                foreach (ConfigurationMode mode in connConfig.Modes)
+                {
+                    Console.WriteLine($"[TIA] Mode: {mode.Name}");
+                    if (mode.Name.Contains("PN/IE"))
+                        pnMode = mode;
+                }
+
+                if (pnMode == null)
+                    return new DownloadResultDto { Success = false, Message = "PN/IE mode not found." };
+
+                ConfigurationPcInterface plcsimInterface = null;
+                foreach (ConfigurationPcInterface iface in pnMode.PcInterfaces)
+                {
+                    Console.WriteLine($"[TIA] PC Interface: '{iface.Name}' (Number={iface.Number})");
+                    if (iface.Name.Contains("PLCSIM"))
+                        plcsimInterface = iface;
+                }
+
+                if (plcsimInterface == null)
+                    return new DownloadResultDto { Success = false, Message = "PLCSIM PC interface not found." };
+
+                // Dump PLCSIM interface details
+                Console.WriteLine($"[TIA] PLCSIM interface: '{plcsimInterface.Name}' Number={plcsimInterface.Number}");
+                Console.WriteLine($"[TIA]   TargetInterfaces: {plcsimInterface.TargetInterfaces.Count}");
+                foreach (ConfigurationTargetInterface ti in plcsimInterface.TargetInterfaces)
+                {
+                    Console.WriteLine($"[TIA]     Target: '{ti.Name}'");
+                    Console.WriteLine($"[TIA]       Addresses: {ti.Addresses.Count}");
+                    foreach (ConfigurationAddress a in ti.Addresses)
+                        Console.WriteLine($"[TIA]         Addr: '{a.Name}' = {a.Address}");
+                }
+                Console.WriteLine($"[TIA]   Subnets: {plcsimInterface.Subnets.Count}");
+                foreach (ConfigurationSubnet sn in plcsimInterface.Subnets)
+                {
+                    Console.WriteLine($"[TIA]     Subnet: '{sn.Name}'");
+                    foreach (ConfigurationAddress a in sn.Addresses)
+                        Console.WriteLine($"[TIA]       Addr: '{a.Name}' = {a.Address}");
+                }
+                Console.WriteLine($"[TIA]   Direct Addresses: {plcsimInterface.Addresses.Count}");
+                foreach (ConfigurationAddress a in plcsimInterface.Addresses)
+                    Console.WriteLine($"[TIA]     Addr: '{a.Name}' = {a.Address}");
+
+                // ── Try approach A: ApplyConfiguration with the PLCSIM interface,
+                //    then download using the first TargetInterface
+                ConfigurationTargetInterface targetIface = null;
+                foreach (ConfigurationTargetInterface ti in plcsimInterface.TargetInterfaces)
+                {
+                    if (targetIface == null) targetIface = ti;
+                }
+
+                if (targetIface == null)
+                    return new DownloadResultDto { Success = false, Message = "No PLC target on PLCSIM interface." };
+
+                // Try to find a ConfigurationAddress on the target (implements IConfiguration)
+                IConfiguration downloadConfig = targetIface; // default: use TargetInterface
+
+                // If the target has addresses, prefer an address (more specific routing)
+                foreach (ConfigurationAddress addr in targetIface.Addresses)
+                {
+                    Console.WriteLine($"[TIA] Using target address: '{addr.Name}' = {addr.Address}");
+                    downloadConfig = addr;
+                    break;
+                }
+
+                Console.WriteLine($"[TIA] Download config type: {downloadConfig.GetType().Name}");
+
+                // 6. Execute download
+                Console.WriteLine("[TIA] Starting download to PLCSIM...");
+                Siemens.Engineering.Download.DownloadResult downloadResult = downloadProvider.Download(
+                    downloadConfig,
+                    delegate(Siemens.Engineering.Download.Configurations.DownloadConfiguration preConfig)
+                    {
+                        Console.WriteLine($"[TIA] Pre-download prompt: {preConfig.Message}");
+                        // Handle known pre-download prompts by accepting them
+                        // Common prompts: "Stop modules", "Overwrite existing data", etc.
+                    },
+                    delegate(Siemens.Engineering.Download.Configurations.DownloadConfiguration postConfig)
+                    {
+                        Console.WriteLine($"[TIA] Post-download prompt: {postConfig.Message}");
+                    },
+                    Siemens.Engineering.Download.DownloadOptions.Software
+                );
+
+                // 7. Report results
+                int warnCount = downloadResult.WarningCount;
+                int errCount = downloadResult.ErrorCount;
+                var dlState = downloadResult.State;
+
+                Console.WriteLine($"[TIA] Download result: {dlState} ({warnCount} warnings, {errCount} errors)");
+
+                // Log individual messages for debugging
+                foreach (Siemens.Engineering.Download.DownloadResultMessage msg in downloadResult.Messages)
+                {
+                    Console.WriteLine($"[TIA]   [{msg.State}] {msg.Message}");
+                }
+
+                bool success = dlState != Siemens.Engineering.Download.DownloadResultState.Error;
+                return new DownloadResultDto
+                {
+                    Success = success,
+                    Message = success
+                        ? $"Download complete ({warnCount} warnings)"
+                        : $"Download failed with {errCount} errors",
+                    Warnings = warnCount,
+                    Errors = errCount,
+                };
+            }
+            catch (Siemens.Engineering.EngineeringException ex)
+            {
+                // Log full exception chain for Openness errors
+                Console.WriteLine($"[TIA] Download EngineeringException:");
+                Exception inner = ex;
+                while (inner != null)
+                {
+                    Console.WriteLine($"[TIA]   {inner.GetType().Name}: {inner.Message}");
+                    inner = inner.InnerException;
+                }
+                return new DownloadResultDto
+                {
+                    Success = false,
+                    Message = $"Download failed: {ex.Message}" +
+                        (ex.InnerException != null ? $" → {ex.InnerException.Message}" : ""),
+                };
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TIA] Download error: {ex.GetType().Name}: {ex.Message}");
+                if (ex.InnerException != null)
+                    Console.WriteLine($"[TIA]   Inner: {ex.InnerException.Message}");
+                return new DownloadResultDto
+                {
+                    Success = false,
+                    Message = $"Download failed: {ex.Message}",
+                };
+            }
+        }
 
         /// <summary>
         /// Import a single SCL artifact via the external source method.

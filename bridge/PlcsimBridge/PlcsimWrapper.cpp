@@ -172,6 +172,20 @@ namespace PlcsimBridge {
         return OperatingStateToString(_instance->GetOperatingState());
     }
 
+    bool PlcsimRuntime::UpdateTagList() {
+        if (_instance == nullptr) {
+            SetError("No instance registered");
+            return false;
+        }
+
+        ERuntimeErrorCode result = _instance->UpdateTagList();
+        if (result != SREC_OK) {
+            SetError(result);
+            return false;
+        }
+        return true;
+    }
+
     // ── Tag Read ────────────────────────────────────────────────────────
 
     TagReadResult^ PlcsimRuntime::ReadBool(String^ tagName) {

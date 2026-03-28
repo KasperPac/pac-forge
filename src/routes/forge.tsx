@@ -22,6 +22,7 @@ import { ForgeDeviceCode } from "@/components/forge/steps/forge-device-code";
 import { ForgeProcessCode } from "@/components/forge/steps/forge-process-code";
 import { ForgeHmi } from "@/components/forge/steps/forge-hmi";
 import { ForgeTiaExport } from "@/components/forge/steps/forge-tia-export";
+import { ForgePlcsimTest } from "@/components/forge/steps/forge-plcsim-test";
 import { TiaProvisionDialog } from "@/components/forge/tia-provision-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +42,7 @@ import { useForgeStore } from "@/stores/forge-store";
 import { FORGE_STEP_LABELS, FORGE_STEP_ORDER } from "@/types/forge";
 import type { ForgeStep, ForgeArtifact, ForgeHardwareConfig, ForgeIoEntry, ForgeDeviceEntry, SpecAnalysis, TiaForgeExportResult, QaMessage } from "@/types/forge";
 import type { ProcessLinkageMatrix } from "@/types/forge-matrix";
+import type { PlcsimTestSuite } from "@/types/plcsim-test";
 import {
   useActiveForgeSession,
   useCreateForgeSession,
@@ -240,6 +242,10 @@ export default function ForgePage() {
     await saveSession({ hmi_artifacts: artifacts });
   }
 
+  async function handleTestSuiteUpdate(suite: PlcsimTestSuite) {
+    await saveSession({ plcsim_test_suite: suite });
+  }
+
   async function handleExportComplete(result: TiaForgeExportResult) {
     await saveSession({ tia_export_result: result, current_step: "tia_export" });
     completeStep("tia_export");
@@ -393,6 +399,16 @@ export default function ForgePage() {
             profile={profileOrDefault}
             onArtifactsUpdate={handleHmiArtifactsUpdate}
             onComplete={() => completeStep("hmi")}
+          />
+        );
+
+      case "plcsim_test":
+        return (
+          <ForgePlcsimTest
+            session={session}
+            profile={profileOrDefault}
+            onTestSuiteUpdate={handleTestSuiteUpdate}
+            onComplete={() => completeStep("plcsim_test")}
           />
         );
 

@@ -75,6 +75,9 @@ namespace PlcsimBridge {
         /// <summary>Get current operating state.</summary>
         String^ GetOperatingState();
 
+        /// <summary>Refresh the tag list after a TIA download. Must be called before symbolic tag access.</summary>
+        bool UpdateTagList();
+
         /// <summary>Read a Bool tag by symbolic name.</summary>
         TagReadResult^ ReadBool(String^ tagName);
 
