@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { callNonStreaming } from "@/hooks/use-generation";
+import { callStreamingCollect, callNonStreaming } from "@/hooks/use-generation";
 import { validateAndCall } from "@/lib/forge-pipeline-validator";
 import {
   buildForgeRewritePrompt,
@@ -105,16 +105,24 @@ export function useForgeRewrite() {
         const agentType = "code_architect_scl";
 
         const { content } = await validateAndCall(
-          callNonStreaming,
+          callStreamingCollect,
           systemPrompt,
           [{ role: "user", content: userMessage }],
           controller.signal,
-          8192,
+          16384,
           agentType,
           !!profile,
         );
 
         const rewritten = parseRewrittenArtifacts(content, artifacts);
+
+        // Log rewrite results
+        const changedCount = rewritten.filter((r, i) => r.content !== artifacts[i]?.content).length;
+        console.log(`[forge-rewrite] Rewrite complete: ${changedCount}/${artifacts.length} artifacts changed`);
+        if (changedCount === 0) {
+          console.warn("[forge-rewrite] No artifacts were changed — the agent may not have understood the findings or returned incorrect block format");
+          console.log("[forge-rewrite] Response preview:", content.slice(0, 500));
+        }
 
         // Kick off pattern analysis for each changed artifact (fire-and-forget).
         // TODO (FIX 7): Once the review/rewrite pipeline is fully implemented end-to-end,

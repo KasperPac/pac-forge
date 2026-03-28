@@ -28,8 +28,13 @@ import { ForgeSubPipeline } from "@/components/forge/forge-sub-pipeline";
 import type { SubPipelineStage } from "@/components/forge/forge-sub-pipeline";
 import { useForgeDeviceGenerate } from "@/hooks/use-forge-device-generate";
 import type { DeviceGenLogEntry } from "@/hooks/use-forge-device-generate";
+import { useForgeReview } from "@/hooks/use-forge-review";
+import { useForgeRewrite } from "@/hooks/use-forge-rewrite";
 import { useForgeIoValidate } from "@/hooks/use-forge-io-validate";
 import { useForgeCompileCheck, saveCompileFixPattern } from "@/hooks/use-forge-compile-check";
+import { ReviewStepPanel } from "@/components/forge/forge-review-step-panel";
+import { toTrackedFindings } from "@/lib/forge-review-helpers";
+import type { TrackedFinding, ReviewStepStatus } from "@/lib/forge-review-helpers";
 import type { CompileFixProposal } from "@/hooks/use-forge-compile-check";
 import { ForgeCompileReview } from "@/components/forge/forge-compile-review";
 import { useCreatePatternCandidate } from "@/hooks/use-patterns";
@@ -116,8 +121,10 @@ function GenerationLog({ entries }: { entries: DeviceGenLogEntry[] }) {
 }
 
 const INITIAL_STAGES: SubPipelineStage[] = [
-  { label: "Generate Call Code", status: "pending" },
-  { label: "Validate IO", status: "pending" },
+  { label: "Generate", status: "pending" },
+  { label: "Standards", status: "pending" },
+  { label: "IO Check", status: "pending" },
+  { label: "Safety", status: "pending" },
   { label: "Approve", status: "pending" },
   { label: "Upload", status: "pending" },
   { label: "Compile", status: "pending" },
@@ -135,9 +142,21 @@ export function ForgeDeviceCode({
   const [editable, setEditable] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [stages, setStages] = useState<SubPipelineStage[]>(INITIAL_STAGES);
-  const [ioValidationSummary, setIoValidationSummary] = useState<string | null>(null);
-  const [ioFindings, setIoFindings] = useState<ReviewFinding[]>([]);
-  const [ioFindingsOpen, setIoFindingsOpen] = useState(false);
+  // Review step state — Standards, IO, Safety
+  const [standardsStatus, setStandardsStatus] = useState<ReviewStepStatus>("idle");
+  const [standardsFindings, setStandardsFindings] = useState<TrackedFinding[]>([]);
+  const [standardsRound, setStandardsRound] = useState(0);
+  const [standardsError, setStandardsError] = useState<string | null>(null);
+
+  const [ioStatus, setIoStatus] = useState<ReviewStepStatus>("idle");
+  const [ioTrackedFindings, setIoTrackedFindings] = useState<TrackedFinding[]>([]);
+  const [ioRound, setIoRound] = useState(0);
+  const [ioError, setIoError] = useState<string | null>(null);
+
+  // Legacy IO state (used by handleGenerateAll reset)
+  const [, setIoValidationSummary] = useState<string | null>(null);
+  const [, setIoFindings] = useState<ReviewFinding[]>([]);
+  const [, setIoFindingsOpen] = useState(false);
   const [compileErrors, setCompileErrors] = useState<string[]>([]);
   const [, setCompileWarnings] = useState<string[]>([]);
   const [pipelineError, setPipelineError] = useState<string | null>(null);
@@ -160,6 +179,8 @@ export function ForgeDeviceCode({
   const [savedToLibrary, setSavedToLibrary] = useState<Set<string>>(new Set());
 
   const { generateCallCode, loading: genLoading, progress, error: genError, log: genLog } = useForgeDeviceGenerate();
+  const { review: runStandardsReview, loading: reviewLoading } = useForgeReview();
+  const { rewrite: runRewrite, loading: rewriteLoading } = useForgeRewrite();
   const { validateIo, loading: ioValidateLoading } = useForgeIoValidate();
   const {
     uploadAndCompile,
@@ -171,7 +192,7 @@ export function ForgeDeviceCode({
   const { data: agents } = useAgents();
   const createPattern = useCreatePatternCandidate();
 
-  const loading = genLoading || ioValidateLoading || compileLoading;
+  const loading = genLoading || reviewLoading || rewriteLoading || ioValidateLoading || compileLoading;
   const selected = artifacts.find(a => a.id === selectedId) ?? null;
   const selectedPre = preRewriteArtifacts?.find(a => a.id === selectedId) ?? null;
   const showDiffToggle = !!selectedPre && changedIds.has(selectedId ?? "");
@@ -229,6 +250,8 @@ export function ForgeDeviceCode({
     setSavedToLibrary(prev => { const next = new Set(prev); ids.forEach(id => next.add(id)); return next; });
   }
 
+  // ---- Generation (step 1 only — review steps are user-driven) ----
+
   async function handleGenerateAll() {
     setStages(INITIAL_STAGES.map(s => ({ ...s, status: "pending" })));
     setIoValidationSummary(null);
@@ -243,45 +266,57 @@ export function ForgeDeviceCode({
     setChangesOpen(false);
     setSelectedForLibrary(new Set());
     setSavedToLibrary(new Set());
+    // Reset review states
+    setStandardsStatus("idle");
+    setStandardsFindings([]);
+    setStandardsRound(0);
+    setStandardsError(null);
+    setIoStatus("idle");
+    setIoTrackedFindings([]);
+    setIoRound(0);
+    setIoError(null);
 
     try {
-      // 2. Generate call code using pre-generated FB artifacts from device_fb step
-      setStageStatus("Generate Call Code", "running");
-      setCurrentStepLabel("Generating call code…");
+      setStageStatus("Generate", "running");
+      setCurrentStepLabel("Validating FB artifacts…");
       const existingFbArtifacts = (session.device_artifacts as ForgeArtifact[])?.filter(a => a.stage === "device_fb") ?? [];
+
+      // Pre-generation validation: check each FB artifact actually contains an FB definition
+      const missingFbs: string[] = [];
+      for (const art of existingFbArtifacts) {
+        if (art.type === "FB") {
+          const hasFbDef = /FUNCTION_BLOCK\s+["']?\w+["']?/i.test(art.content);
+          if (!hasFbDef) {
+            missingFbs.push(`${art.name} — artifact is type FB but content has no FUNCTION_BLOCK definition (may contain only a UDT)`);
+          }
+        }
+      }
+      if (missingFbs.length > 0) {
+        throw new Error(
+          `Cannot generate call code — ${missingFbs.length} FB artifact(s) are incomplete:\n\n` +
+          missingFbs.map(m => `• ${m}`).join("\n") +
+          "\n\nGo back to the Device FBs step and regenerate the missing FBs."
+        );
+      }
+
+      setCurrentStepLabel("Generating call code…");
       const generated = await generateCallCode(session, profile, existingFbArtifacts, patterns);
       setArtifacts(generated);
       onArtifactsUpdate(generated);
       if (generated.length > 0) setSelectedId(generated[0].id);
-      setStageStatus("Generate Call Code", "completed", `${generated.length} artifacts`);
+      setStageStatus("Generate", "completed", `${generated.length} artifacts`);
 
-      // 2. IO Validation
-      const ioValidatorAgent = agents?.find(a => a.display_name === "IO Validator");
-      const ioList = session.io_list as ForgeIoEntry[];
-      const deviceList = session.device_list as ForgeDeviceEntry[];
-
-      if (!ioValidatorAgent?.is_enabled) {
-        setStageStatus("Validate IO", "skipped");
-      } else if (!ioList?.length) {
-        setStageStatus("Validate IO", "skipped");
+      // Auto-start standards review if agent is enabled (default to enabled if agents not loaded)
+      const standardsAgent = agents?.find(a => a.display_name === "PLC Standards Enforcer");
+      const standardsEnabled = standardsAgent ? standardsAgent.is_enabled : true;
+      if (standardsEnabled) {
+        setStandardsStatus("idle");
+        setStageStatus("Standards", "pending");
       } else {
-        setStageStatus("Validate IO", "running");
-        setCurrentStepLabel("IO Validator checking signal mappings…");
-        const ioResult = await validateIo(generated, ioList, deviceList, profile);
-        const issueFindings = ioResult.findings.filter(f => f.severity === "CRITICAL" || f.severity === "WARNING");
-        if (ioResult.hasCritical || ioResult.hasWarning) {
-          setStageStatus("Validate IO", "completed", `${issueFindings.length} issues`);
-          setIoValidationSummary(`IO Validation: ${issueFindings.length} issue(s) found — review before approving.`);
-          setIoFindings(ioResult.findings);
-          setIoFindingsOpen(true);
-        } else {
-          setStageStatus("Validate IO", "completed", "clean");
-          setIoValidationSummary("IO Validation passed — all IO signals correctly mapped.");
-          setIoFindings([]);
-        }
+        setStandardsStatus("skipped");
+        setStageStatus("Standards", "skipped");
       }
 
-      setStageStatus("Approve", "pending");
       setCurrentStepLabel(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -289,6 +324,225 @@ export function ForgeDeviceCode({
       setCurrentStepLabel(null);
       setStages(prev => prev.map(s => s.status === "running" ? { ...s, status: "failed", detail: msg } : s));
     }
+  }
+
+  // ---- Standards Review step ----
+
+  async function handleStandardsRun() {
+    setStandardsStatus("reviewing");
+    setStandardsError(null);
+    setStageStatus("Standards", "running");
+    try {
+      const result = await runStandardsReview(artifacts, "fc_ob", profile);
+      const round = standardsRound + 1;
+      setStandardsRound(round);
+      const tracked = toTrackedFindings(result.findings, round, round > 1 ? standardsFindings : undefined);
+      setStandardsFindings(tracked);
+      if (tracked.length === 0) {
+        setStandardsStatus("clean");
+        setStageStatus("Standards", "completed", "clean");
+      } else {
+        setStandardsStatus("findings");
+        const issues = tracked.filter(f => f.severity === "CRITICAL" || f.severity === "WARNING").length;
+        setStageStatus("Standards", "completed", `${issues} issues`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setStandardsError(msg);
+      setStandardsStatus("findings");
+      setStageStatus("Standards", "failed", msg.slice(0, 40));
+    }
+  }
+
+  async function handleStandardsFix() {
+    const selected = standardsFindings.filter(f => f.selected);
+    if (selected.length === 0) return;
+    setStandardsStatus("rewriting");
+    setStageStatus("Standards", "running");
+    setPreRewriteArtifacts(artifacts);
+
+    try {
+      let currentArtifacts = [...artifacts];
+
+      // Fix one finding at a time — focused, reliable rewrites
+      for (let i = 0; i < selected.length; i++) {
+        const finding = selected[i];
+        setCurrentStepLabel(`Fixing ${i + 1}/${selected.length}: ${finding.artifactName}…`);
+
+        // Only send the affected artifact — keeps the rewrite focused and fast
+        const affected = currentArtifacts.filter(a => a.name === finding.artifactName);
+        if (affected.length === 0) continue;
+        const rewritten = await runRewrite(affected, [finding], profile);
+
+        // Merge changes back
+        for (const rw of rewritten) {
+          const idx = currentArtifacts.findIndex(a => a.id === rw.id);
+          if (idx >= 0 && currentArtifacts[idx].content !== rw.content) {
+            currentArtifacts[idx] = rw;
+            setChangedIds(prev => new Set([...prev, rw.id]));
+          }
+        }
+      }
+
+      setArtifacts(currentArtifacts);
+      onArtifactsUpdate(currentArtifacts);
+      setCurrentStepLabel("Re-reviewing…");
+
+      // Re-review automatically
+      setStandardsStatus("re-reviewing");
+      const result = await runStandardsReview(currentArtifacts, "fc_ob", profile);
+      const round = standardsRound + 1;
+      setStandardsRound(round);
+      const tracked = toTrackedFindings(result.findings, round, standardsFindings);
+      setStandardsFindings(tracked);
+      if (tracked.length === 0) {
+        setStandardsStatus("clean");
+        setStageStatus("Standards", "completed", "clean");
+      } else {
+        const unresolvedCount = tracked.filter(f => f.unresolved).length;
+        const issues = tracked.filter(f => f.severity === "CRITICAL" || f.severity === "WARNING").length;
+        setStandardsStatus("findings");
+        setStageStatus("Standards", "completed", `${issues} issues${unresolvedCount > 0 ? ` (${unresolvedCount} unresolved)` : ""}`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setStandardsError(msg);
+      setStandardsStatus("findings");
+      setStageStatus("Standards", "failed", msg.slice(0, 40));
+    } finally {
+      setCurrentStepLabel(null);
+    }
+  }
+
+  function handleStandardsAccept() {
+    setStandardsStatus("accepted");
+    setStageStatus("Standards", "completed", "accepted");
+    // Enable IO validation step
+    const ioAgent = agents?.find(a => a.display_name === "IO Validator");
+    if (ioAgent?.is_enabled) {
+      setIoStatus("idle");
+      setStageStatus("IO Check", "pending");
+    } else {
+      setIoStatus("skipped");
+      setStageStatus("IO Check", "skipped");
+      setStageStatus("Approve", "pending");
+    }
+  }
+
+  function handleStandardsSkip() {
+    setStandardsStatus("skipped");
+    setStageStatus("Standards", "skipped");
+    handleStandardsAccept();
+  }
+
+  // ---- IO Validation step ----
+
+  async function handleIoRun() {
+    setIoStatus("reviewing");
+    setIoError(null);
+    setStageStatus("IO Check", "running");
+    try {
+      const ioList = session.io_list as ForgeIoEntry[];
+      const deviceList = session.device_list as ForgeDeviceEntry[];
+      const result = await validateIo(artifacts, ioList, deviceList, profile);
+      const round = ioRound + 1;
+      setIoRound(round);
+      const tracked = toTrackedFindings(result.findings, round, round > 1 ? ioTrackedFindings : undefined);
+      setIoTrackedFindings(tracked);
+
+      // Also update legacy display
+      setIoFindings(result.findings);
+      if (tracked.length === 0) {
+        setIoStatus("clean");
+        setStageStatus("IO Check", "completed", "clean");
+        setIoValidationSummary("IO Validation passed.");
+      } else {
+        setIoStatus("findings");
+        const issues = tracked.filter(f => f.severity === "CRITICAL" || f.severity === "WARNING").length;
+        setStageStatus("IO Check", "completed", `${issues} issues`);
+        setIoValidationSummary(`IO Validation: ${issues} issue(s) found.`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setIoError(msg);
+      setIoStatus("findings");
+      setStageStatus("IO Check", "failed", msg.slice(0, 40));
+    }
+  }
+
+  async function handleIoFix() {
+    const selected = ioTrackedFindings.filter(f => f.selected);
+    if (selected.length === 0) return;
+    setIoStatus("rewriting");
+    setStageStatus("IO Check", "running");
+    setPreRewriteArtifacts(artifacts);
+
+    try {
+      let currentArtifacts = [...artifacts];
+
+      for (let i = 0; i < selected.length; i++) {
+        const finding = selected[i];
+        setCurrentStepLabel(`Fixing IO ${i + 1}/${selected.length}: ${finding.artifactName}…`);
+
+        const affected = currentArtifacts.filter(a => a.name === finding.artifactName);
+        if (affected.length === 0) continue;
+        const rewritten = await runRewrite(affected, [finding], profile);
+
+        for (const rw of rewritten) {
+          const idx = currentArtifacts.findIndex(a => a.id === rw.id);
+          if (idx >= 0 && currentArtifacts[idx].content !== rw.content) {
+            currentArtifacts[idx] = rw;
+            setChangedIds(prev => new Set([...prev, rw.id]));
+          }
+        }
+      }
+
+      setArtifacts(currentArtifacts);
+      onArtifactsUpdate(currentArtifacts);
+      setCurrentStepLabel("Re-validating IO…");
+
+      // Re-validate
+      setIoStatus("re-reviewing");
+      const ioList = session.io_list as ForgeIoEntry[];
+      const deviceList = session.device_list as ForgeDeviceEntry[];
+      const result = await validateIo(currentArtifacts, ioList, deviceList, profile);
+      const round = ioRound + 1;
+      setIoRound(round);
+      const tracked = toTrackedFindings(result.findings, round, ioTrackedFindings);
+      setIoTrackedFindings(tracked);
+      setIoFindings(result.findings);
+
+      if (tracked.length === 0) {
+        setIoStatus("clean");
+        setStageStatus("IO Check", "completed", "clean");
+      } else {
+        const unresolvedCount = tracked.filter(f => f.unresolved).length;
+        const issues = tracked.filter(f => f.severity === "CRITICAL" || f.severity === "WARNING").length;
+        setIoStatus("findings");
+        setStageStatus("IO Check", "completed", `${issues} issues${unresolvedCount > 0 ? ` (${unresolvedCount} unresolved)` : ""}`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setIoError(msg);
+      setIoStatus("findings");
+      setStageStatus("IO Check", "failed", msg.slice(0, 40));
+    } finally {
+      setCurrentStepLabel(null);
+    }
+  }
+
+  function handleIoAccept() {
+    setIoStatus("accepted");
+    setStageStatus("IO Check", "completed", "accepted");
+    // Safety audit step — not yet implemented as an AI agent
+    setStageStatus("Safety", "skipped");
+    setStageStatus("Approve", "pending");
+  }
+
+  function handleIoSkip() {
+    setIoStatus("skipped");
+    setStageStatus("IO Check", "skipped");
+    handleIoAccept();
   }
 
   async function handleUploadAndCompile() {
@@ -648,43 +902,56 @@ export function ForgeDeviceCode({
           </div>
         )}
 
-        {ioValidationSummary && (
-          <div className={`rounded border text-xs ${ioValidationSummary.includes("passed") ? "border-green-600/30 bg-green-500/5" : "border-red-600/30 bg-red-500/5"}`}>
-            <button
-              type="button"
-              onClick={() => ioFindings.length > 0 && setIoFindingsOpen(v => !v)}
-              className={`flex w-full items-center gap-2 px-3 py-2 text-left ${ioValidationSummary.includes("passed") ? "text-green-400" : "text-red-400"} ${ioFindings.length > 0 ? "cursor-pointer hover:bg-muted/10" : "cursor-default"}`}
-            >
-              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-              <span className="flex-1">{ioValidationSummary}</span>
-              {ioFindings.length > 0 && (
-                ioFindingsOpen
-                  ? <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-                  : <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
-              )}
-            </button>
-            {ioFindingsOpen && ioFindings.length > 0 && (
-              <div className="border-t border-border/30 px-3 py-2 space-y-1">
-                {ioFindings.map((f, i) => (
-                  <div key={i} className="flex items-start gap-2 font-mono text-[11px]">
-                    <Badge
-                      variant="outline"
-                      className={`shrink-0 px-1 py-0 text-[9px] ${
-                        f.severity === "CRITICAL"
-                          ? "border-red-500/50 text-red-400"
-                          : f.severity === "WARNING"
-                            ? "border-amber-500/50 text-amber-400"
-                            : "border-blue-500/50 text-blue-400"
-                      }`}
-                    >
-                      {f.severity}
-                    </Badge>
-                    <span className="shrink-0 text-muted-foreground">{f.artifactName}</span>
-                    <span className="text-foreground/80">{f.message}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+        {/* Review pipeline — Standards → IO → Safety */}
+        {artifacts.length > 0 && (
+          <div className="space-y-2">
+            <ReviewStepPanel
+              title="Standards Review"
+              accentColor="blue"
+              status={standardsStatus}
+              findings={standardsFindings}
+              loading={reviewLoading || rewriteLoading}
+              error={standardsError}
+              onRunReview={handleStandardsRun}
+              onToggleFinding={(id) => setStandardsFindings(prev => prev.map(f => f.id === id ? { ...f, selected: !f.selected } : f))}
+              onSelectAll={(selected) => setStandardsFindings(prev => prev.map(f => ({ ...f, selected })))}
+              onFixSelected={handleStandardsFix}
+              onAccept={handleStandardsAccept}
+              onSkip={handleStandardsSkip}
+              enabled={agents?.find(a => a.display_name === "PLC Standards Enforcer")?.is_enabled ?? true}
+            />
+
+            <ReviewStepPanel
+              title="IO Validation"
+              accentColor="amber"
+              status={ioStatus}
+              findings={ioTrackedFindings}
+              loading={ioValidateLoading || rewriteLoading}
+              error={ioError}
+              onRunReview={handleIoRun}
+              onToggleFinding={(id) => setIoTrackedFindings(prev => prev.map(f => f.id === id ? { ...f, selected: !f.selected } : f))}
+              onSelectAll={(selected) => setIoTrackedFindings(prev => prev.map(f => ({ ...f, selected })))}
+              onFixSelected={handleIoFix}
+              onAccept={handleIoAccept}
+              onSkip={handleIoSkip}
+              enabled={(agents?.find(a => a.display_name === "IO Validator")?.is_enabled ?? true) && (standardsStatus === "accepted" || standardsStatus === "skipped" || standardsStatus === "clean")}
+            />
+
+            <ReviewStepPanel
+              title="Safety Audit"
+              accentColor="red"
+              status={"skipped"}
+              findings={[]}
+              loading={false}
+              error={null}
+              onRunReview={() => {}}
+              onToggleFinding={() => {}}
+              onSelectAll={() => {}}
+              onFixSelected={() => {}}
+              onAccept={() => { setStageStatus("Safety", "skipped"); setStageStatus("Approve", "pending"); }}
+              onSkip={() => { setStageStatus("Safety", "skipped"); setStageStatus("Approve", "pending"); }}
+              enabled={false}
+            />
           </div>
         )}
 
