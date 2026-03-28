@@ -48,6 +48,8 @@ export interface FbTemplate {
   library_name: string | null;
   /** When false, PM ignores this template entirely (per-library bulk toggle) */
   is_enabled: boolean;
+  /** Full manufacturer documentation — wiring, parameters, behaviour, status codes */
+  documentation: string | null;
   created_by: string | null;
   updated_at: string;
   created_at: string;
@@ -55,12 +57,13 @@ export interface FbTemplate {
   profile_ids?: string[];
 }
 
-export type FbTemplateCreate = Omit<FbTemplate, "id" | "created_at" | "updated_at" | "created_by" | "blocks" | "profile_ids" | "version" | "ai_summary" | "diagram_chart" | "diagram_generated_at" | "flow_diagram_json" | "flow_diagram_generated_at" | "source" | "library_name" | "is_enabled"> & {
+export type FbTemplateCreate = Omit<FbTemplate, "id" | "created_at" | "updated_at" | "created_by" | "blocks" | "profile_ids" | "version" | "ai_summary" | "diagram_chart" | "diagram_generated_at" | "flow_diagram_json" | "flow_diagram_generated_at" | "source" | "library_name" | "is_enabled" | "documentation"> & {
   blocks: Array<{ block_name: string; block_type: FbBlockType; scl_code: string; sort_order: number }>;
   profile_ids?: string[];
   source?: FbTemplateSource;
   library_name?: string | null;
   is_enabled?: boolean;
+  documentation?: string | null;
 };
 
 export type FbTemplateUpdate = Partial<FbTemplateCreate>;

@@ -105,6 +105,7 @@ interface FormState {
   device_category: string;
   plc_brand: string;
   description: string;
+  documentation: string;
   tags: string[];
   blocks: BlockFormEntry[];
   profile_ids: string[];
@@ -123,6 +124,7 @@ function emptyForm(): FormState {
     device_category: "",
     plc_brand: "SIEMENS_TIA",
     description: "",
+    documentation: "",
     tags: [],
     blocks: [{ ...EMPTY_BLOCK }],
     profile_ids: [],
@@ -178,6 +180,7 @@ export default function FbLibraryPage() {
       device_category: template.device_category,
       plc_brand: template.plc_brand,
       description: template.description ?? "",
+      documentation: template.documentation ?? "",
       tags: template.tags,
       blocks:
         template.blocks && template.blocks.length > 0
@@ -207,6 +210,7 @@ export default function FbLibraryPage() {
       device_category: form.device_category,
       plc_brand: form.plc_brand,
       description: form.description || null,
+      documentation: form.documentation || null,
       tags,
       blocks: form.blocks.map((b, i) => ({
         block_name: b.block_name,
@@ -649,6 +653,16 @@ export default function FbLibraryPage() {
                   placeholder="What does this template do?"
                   className="min-h-[48px] resize-none font-mono text-sm"
                   rows={2}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="font-mono text-xs text-muted-foreground">Documentation (manufacturer/library docs)</label>
+                <Textarea
+                  value={form.documentation}
+                  onChange={(e) => setForm((f) => ({ ...f, documentation: e.target.value }))}
+                  placeholder="Paste manufacturer documentation here — wiring instructions, parameter descriptions, behaviour, status codes. This is injected verbatim into generation prompts."
+                  className="min-h-[80px] resize-y font-mono text-xs"
+                  rows={4}
                 />
               </div>
               <div className="space-y-1">

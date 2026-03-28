@@ -469,7 +469,10 @@ export function formatFbTemplates(templates: FbTemplate[]): string {
     const blockSections = blocks.map(
       (b) => `#### ${b.block_name} (${b.block_type})\n\`\`\`scl\n${b.scl_code}\n\`\`\``
     );
-    return `${header}\n${desc}${blockSections.join("\n\n")}`;
+    const docSection = t.documentation
+      ? `\n\n#### Manufacturer Documentation\n${t.documentation}`
+      : "";
+    return `${header}\n${desc}${blockSections.join("\n\n")}${docSection}`;
   });
   return `## FB Library Templates (USE THESE — Template Code is Locked)
 
