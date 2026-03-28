@@ -16,6 +16,8 @@ import {
   GitBranch,
   ChevronDown,
   Maximize2,
+  FileText,
+  Download,
 } from "lucide-react";
 import { CategoryIcon } from "@/components/fb-category-icons";
 import Editor from "@monaco-editor/react";
@@ -78,6 +80,8 @@ import { splitSclBlocks } from "@/lib/scl-block-parser";
 import { callNonStreaming } from "@/hooks/use-generation";
 import { registerSclLanguage, SCL_LANGUAGE_ID } from "@/lib/monaco-scl";
 import { useUiStore } from "@/stores/ui-store";
+import { useFbLibraryImport } from "@/hooks/use-fb-library-import";
+import { useFbDocImport } from "@/hooks/use-fb-doc-import";
 import type {
   FbTemplate,
   FbTemplateCreate,
@@ -147,6 +151,14 @@ export default function FbLibraryPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [generatingDesc, setGeneratingDesc] = useState(false);
   const resolvedTheme = useUiStore((s) => s.resolvedTheme);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importProjectPath, setImportProjectPath] = useState("");
+  const [importLibraryName, setImportLibraryName] = useState("");
+  const [importCategory, setImportCategory] = useState("");
+  const { importLibrary, loading: tiaImportLoading, progress: tiaImportProgress, error: tiaImportError } = useFbLibraryImport();
+  const [importDocFile, setImportDocFile] = useState<File | null>(null);
+  const { importDocumentation, loading: docImportLoading, progress: docImportProgress } = useFbDocImport();
+  const { toast } = useToast();
 
   const { data: templates, isLoading } = useFbTemplates(activeCategory ?? undefined);
   const { data: allTemplates } = useFbTemplates(); // for library list (unfiltered)
@@ -439,11 +451,166 @@ export default function FbLibraryPage() {
             Templates can include FBs, UDTs, DBs, and more.
           </p>
         </div>
-        <Button size="sm" onClick={openCreate} className="mt-4 gap-1.5">
-          <Plus className="h-3.5 w-3.5" />
-          New Template
-        </Button>
+        <div className="flex items-center gap-2 mt-4">
+          <Button size="sm" variant="outline" onClick={() => setImportDialogOpen(true)} className="gap-1.5">
+            <Download className="h-3.5 w-3.5" />
+            Import Library
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            disabled={docImportLoading}
+            onClick={() => {
+              const input = document.createElement("input");
+              input.type = "file";
+              input.accept = ".pdf,.txt";
+              input.onchange = async (e) => {
+                const file = (e.target as HTMLInputElement).files?.[0];
+                if (!file) return;
+                try {
+                  const result = await importDocumentation(file);
+                  toast({
+                    title: "Documentation imported",
+                    description: `${result.matched} sections matched to templates, ${result.unmatched} unmatched.`,
+                  });
+                } catch (err) {
+                  toast({
+                    title: "Import failed",
+                    description: err instanceof Error ? err.message : String(err),
+                    variant: "destructive",
+                  });
+                }
+              };
+              input.click();
+            }}
+          >
+            {docImportLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+            Import Docs PDF
+          </Button>
+          <Button size="sm" onClick={openCreate} className="gap-1.5">
+            <Plus className="h-3.5 w-3.5" />
+            New Template
+          </Button>
+        </div>
       </div>
+
+      {/* Import progress banner */}
+      {(tiaImportLoading || docImportLoading) && (
+        <div className="flex items-center gap-3 rounded-md border border-primary/30 bg-primary/5 px-4 py-2.5">
+          <Loader2 className="h-4 w-4 animate-spin text-primary" />
+          <div className="text-sm">
+            {tiaImportProgress?.phase ?? docImportProgress?.phase ?? "Importing..."}
+            {(tiaImportProgress?.total ?? 0) > 0 && (
+              <span className="ml-2 text-muted-foreground">
+                ({tiaImportProgress?.current}/{tiaImportProgress?.total})
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Library Import Dialog */}
+      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Import from TIA Global Library</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1">
+              <label className="font-mono text-xs text-muted-foreground">Global Library Path (.zal18 / .al18)</label>
+              <Input
+                value={importProjectPath}
+                onChange={(e) => setImportProjectPath(e.target.value)}
+                placeholder="C:\...\Siemens Open Library V5.0.zal18"
+                className="font-mono text-sm"
+              />
+              <p className="text-xs text-muted-foreground/60">
+                The .zal file from the library download. TIA Portal must be open.
+              </p>
+            </div>
+            <div className="space-y-1">
+              <label className="font-mono text-xs text-muted-foreground">Library Name</label>
+              <Input
+                value={importLibraryName}
+                onChange={(e) => setImportLibraryName(e.target.value)}
+                placeholder="Siemens Open Library V5.0"
+                className="font-mono text-sm"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="font-mono text-xs text-muted-foreground">Default Device Category</label>
+              <Select value={importCategory} onValueChange={setImportCategory}>
+                <SelectTrigger className="font-mono text-sm">
+                  <SelectValue placeholder="Select category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories?.map((c) => (
+                    <SelectItem key={c.name} value={c.name}>{c.display_name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="font-mono text-xs text-muted-foreground">Documentation PDF (optional)</label>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
+                  onClick={() => {
+                    const input = document.createElement("input");
+                    input.type = "file";
+                    input.accept = ".pdf,.txt";
+                    input.onchange = (e) => {
+                      const file = (e.target as HTMLInputElement).files?.[0];
+                      if (file) setImportDocFile(file);
+                    };
+                    input.click();
+                  }}
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  {importDocFile ? "Change" : "Upload PDF"}
+                </Button>
+                {importDocFile && (
+                  <span className="text-xs text-muted-foreground truncate max-w-[200px]">
+                    {importDocFile.name}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground/60">
+                The library manual PDF. AI will split it per-FB and attach to each template automatically.
+              </p>
+            </div>
+            {tiaImportError && (
+              <div className="text-sm text-destructive">{tiaImportError}</div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setImportDialogOpen(false)}>Cancel</Button>
+            <Button
+              onClick={async () => {
+                try {
+                  const res = await importLibrary(importProjectPath, importLibraryName, importCategory, importDocFile);
+                  toast({
+                    title: "Import complete",
+                    description: `${res.imported} templates imported. Docs: ${res.docsMatched} matched, ${res.docsUnmatched} unmatched.`,
+                  });
+                  setImportDialogOpen(false);
+                  setImportDocFile(null);
+                } catch {
+                  // Error in tiaImportError
+                }
+              }}
+              disabled={tiaImportLoading || !importProjectPath || !importLibraryName || !importCategory}
+              className="gap-1.5"
+            >
+              {tiaImportLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+              Import
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Separator />
 
