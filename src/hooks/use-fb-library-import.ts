@@ -12,7 +12,9 @@
 import { useState, useCallback } from "react";
 import { DEFAULT_BRIDGE_CONFIG } from "@/lib/tia-bridge-contract";
 import { useCreateFbTemplate, useUpdateFbTemplate } from "@/hooks/use-fb-templates";
-import { extractBlockName, inferBlockType } from "@/lib/scl-block-parser";
+import { useFbDeviceCategories, useCreateFbDeviceCategory } from "@/hooks/use-fb-categories";
+import { parseLibraryExport } from "@/lib/simatic-xml-interface-parser";
+import type { ParsedLibraryBlock } from "@/lib/simatic-xml-interface-parser";
 import { extractTextFromPdf } from "@/lib/document-extractor";
 import { callStreamingCollect } from "@/hooks/use-generation";
 import type { FbBlockType } from "@/types/fb-template";
@@ -33,14 +35,6 @@ export interface ImportResult {
   docsMatched: number;
   docsUnmatched: number;
   errors: string[];
-}
-
-interface ExportedBlock {
-  name: string;
-  language: string;
-  source: string;
-  blockType: FbBlockType | null;
-  declaredName: string;
 }
 
 interface LibraryItem {
@@ -90,6 +84,27 @@ Rules:
 
 const BASE = DEFAULT_BRIDGE_CONFIG.baseUrl;
 
+/**
+ * Auto-detect device category from FB name using Open Library naming conventions.
+ * Falls back to the user-provided default category.
+ */
+function detectCategory(fbName: string, defaultCategory: string): string {
+  const lower = fbName.toLowerCase();
+  if (lower.includes("vfd") || lower.includes("drive") || lower.includes("simocode") || lower.includes("unidrive") || lower.includes("danfoss")) return "vfd";
+  if (lower.includes("motor") || lower.includes("starter") || lower.includes("reversing")) return "motor";
+  if (lower.includes("valve") || lower.includes("solenoid") || lower.includes("hydraulic")) return "valve";
+  if (lower.includes("io_analog") || lower.includes("analoginput") || lower.includes("analogoutput")) return "analog_io";
+  if (lower.includes("io_digital") || lower.includes("digitalinput") || lower.includes("digitaloutput")) return "digital_io";
+  if (lower.includes("io_")) return "io";
+  if (lower.includes("pid") || lower.includes("integration") || lower.includes("totaliz")) return "process_control";
+  if (lower.includes("alarm") || lower.includes("interlock") || lower.includes("permissive")) return "safety";
+  if (lower.includes("sequen") || lower.includes("mode") || lower.includes("system")) return "system";
+  if (lower.includes("siwarex") || lower.includes("flowmeter") || lower.includes("profidrive")) return "instrument";
+  if (lower.includes("tank") || lower.includes("level") || lower.includes("fifo")) return "process_control";
+  if (lower.includes("pulse") || lower.includes("pwm") || lower.includes("output")) return "io";
+  return defaultCategory;
+}
+
 async function bridgePost<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
@@ -101,24 +116,24 @@ async function bridgePost<T>(path: string, body?: unknown): Promise<T> {
 }
 
 /**
- * Group exported blocks into templates.
+ * Group parsed library blocks into templates.
  * Each FB becomes a template. UDTs with matching prefix get attached as companion blocks.
  */
-function groupBlocksIntoTemplates(blocks: ExportedBlock[]): Map<string, ExportedBlock[]> {
-  const templates = new Map<string, ExportedBlock[]>();
+function groupBlocksIntoTemplates(blocks: ParsedLibraryBlock[]): Map<string, ParsedLibraryBlock[]> {
+  const templates = new Map<string, ParsedLibraryBlock[]>();
 
   // First: FBs as template anchors
   for (const block of blocks) {
-    if (block.blockType === "FB") {
-      templates.set(block.declaredName, [block]);
+    if (block.type === "FB") {
+      templates.set(block.name, [block]);
     }
   }
 
   // Second: match UDTs/FCs/DBs to their parent FB
   for (const block of blocks) {
-    if (block.blockType === "FB") continue;
+    if (block.type === "FB") continue;
 
-    const baseName = block.declaredName
+    const baseName = block.name
       .replace(/^udt/i, "")
       .replace(/^type/i, "")
       .replace(/^ERROR_/i, "");
@@ -126,15 +141,15 @@ function groupBlocksIntoTemplates(blocks: ExportedBlock[]): Map<string, Exported
     let matched = false;
     for (const [fbName, group] of templates) {
       const fbBase = fbName.replace(/^fb/i, "");
-      if (baseName === fbBase || block.declaredName.includes(fbBase) || fbName.includes(baseName)) {
+      if (baseName === fbBase || block.name.includes(fbBase) || fbName.includes(baseName)) {
         group.push(block);
         matched = true;
         break;
       }
     }
 
-    if (!matched && block.blockType) {
-      templates.set(block.declaredName, [block]);
+    if (!matched) {
+      templates.set(block.name, [block]);
     }
   }
 
@@ -151,6 +166,8 @@ export function useFbLibraryImport() {
   const [error, setError] = useState<string | null>(null);
   const createTemplate = useCreateFbTemplate();
   const updateTemplate = useUpdateFbTemplate();
+  const { data: existingCategories } = useFbDeviceCategories();
+  const createCategory = useCreateFbDeviceCategory();
 
   const importLibrary = useCallback(
     async (
@@ -188,14 +205,10 @@ export function useFbLibraryImport() {
         if (!exported.success) throw new Error(`Export failed: ${exported.message}`);
         console.log(`[fb-import] Exported ${Object.keys(exported.items).length} items`);
 
-        // 4. Parse exported blocks
-        const blocks: ExportedBlock[] = [];
-        for (const [name, source] of Object.entries(exported.items)) {
-          if (!source || source.length < 10) { result.skipped++; continue; }
-          const declaredName = extractBlockName(source) ?? name;
-          const blockType = inferBlockType(source) as FbBlockType | null;
-          blocks.push({ name, language: "SCL", source, blockType, declaredName });
-        }
+        // 4. Parse exported XML blocks to extract interfaces
+        setProgress({ phase: "Parsing block interfaces...", current: 0, total: 0 });
+        const blocks = parseLibraryExport(exported.items);
+        console.log(`[fb-import] Parsed ${blocks.length} blocks from XML (${blocks.filter(b => b.type === "FB").length} FBs, ${blocks.filter(b => b.type === "UDT").length} UDTs)`);
 
         // 5. Group into templates
         const templateGroups = groupBlocksIntoTemplates(blocks);
@@ -282,7 +295,42 @@ export function useFbLibraryImport() {
         }
         const generalDocText = generalDocs.length > 0 ? "\n\n---\n" + generalDocs.join("\n\n") : "";
 
-        // 7. Create FB templates with blocks + documentation
+        // 7. Auto-create device categories that don't exist yet
+        const existingCatNames = new Set((existingCategories ?? []).map((c) => c.name));
+        const neededCategories = new Set<string>();
+        for (const [templateName] of templateGroups) {
+          const cat = detectCategory(templateName, deviceCategory);
+          if (!existingCatNames.has(cat)) neededCategories.add(cat);
+        }
+        if (neededCategories.size > 0) {
+          setProgress({ phase: `Creating ${neededCategories.size} new categories...`, current: 0, total: 0 });
+          const CATEGORY_LABELS: Record<string, string> = {
+            vfd: "VFD / Drive",
+            motor: "Motor",
+            valve: "Valve",
+            analog_io: "Analog IO",
+            digital_io: "Digital IO",
+            io: "IO",
+            process_control: "Process Control",
+            safety: "Safety / Interlock",
+            system: "System / Mode",
+            instrument: "Instrument",
+          };
+          for (const cat of neededCategories) {
+            try {
+              await createCategory.mutateAsync({
+                name: cat,
+                display_name: CATEGORY_LABELS[cat] ?? cat.charAt(0).toUpperCase() + cat.slice(1).replace(/_/g, " "),
+              });
+              existingCatNames.add(cat);
+              console.log(`[fb-import] Created category: ${cat}`);
+            } catch (err) {
+              console.warn(`[fb-import] Failed to create category ${cat}:`, err);
+            }
+          }
+        }
+
+        // 8. Create FB templates with blocks + documentation
         const total = templateGroups.size;
         let current = 0;
 
@@ -291,7 +339,7 @@ export function useFbLibraryImport() {
           setProgress({ phase: `Creating ${templateName}...`, current, total });
 
           try {
-            const mainFb = templateBlocks.find((b) => b.blockType === "FB");
+            const mainFb = templateBlocks.find((b) => b.type === "FB");
 
             // Match per-FB documentation by name (case-insensitive, fuzzy)
             let doc: string | null = null;
@@ -314,30 +362,38 @@ export function useFbLibraryImport() {
               doc = generalDocText;
             }
 
+            const autoCategory = detectCategory(templateName, deviceCategory);
+            console.log(`[fb-import] ${current}/${total} Creating: ${templateName} (${autoCategory}, ${templateBlocks.length} blocks, doc: ${doc ? doc.length + " chars" : "none"})`);
             await createTemplate.mutateAsync({
               name: templateName,
-              device_category: deviceCategory,
+              device_category: autoCategory,
               plc_brand: "SIEMENS_TIA",
-              description: mainFb ? `${templateName} from ${libraryName}` : `${templateBlocks[0]?.blockType ?? "Block"} from ${libraryName}`,
+              description: mainFb ? `${templateName} from ${libraryName}` : `${templateBlocks[0]?.type ?? "Block"} from ${libraryName}`,
               documentation: doc,
               tags: [libraryName.toLowerCase().replace(/\s+/g, "-")],
               blocks: templateBlocks.map((b, i) => ({
-                block_name: b.declaredName,
-                block_type: (b.blockType ?? "FB") as FbBlockType,
-                scl_code: b.source,
+                block_name: b.name,
+                block_type: (b.type === "Unknown" ? "FB" : b.type) as FbBlockType,
+                scl_code: b.interfaceScl,
                 sort_order: i,
               })),
               source: "library" as const,
               library_name: libraryName,
             });
             result.imported++;
+            console.log(`[fb-import] ✓ ${templateName} created`);
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
+            console.error(`[fb-import] ✗ ${templateName} FAILED: ${msg}`);
             result.errors.push(`${templateName}: ${msg}`);
           }
         }
 
         setProgress(null);
+        console.log(`[fb-import] DONE: ${result.imported} imported, ${result.skipped} skipped, ${result.docsMatched} docs matched, ${result.errors.length} errors`);
+        if (result.errors.length > 0) {
+          console.warn("[fb-import] Errors:", result.errors.slice(0, 10));
+        }
         return result;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -347,7 +403,7 @@ export function useFbLibraryImport() {
         setLoading(false);
       }
     },
-    [createTemplate, updateTemplate],
+    [createTemplate, updateTemplate, existingCategories, createCategory],
   );
 
   return { importLibrary, loading, progress, error };

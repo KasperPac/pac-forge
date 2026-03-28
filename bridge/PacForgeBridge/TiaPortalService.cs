@@ -2804,27 +2804,54 @@ END_ORGANIZATION_BLOCK
             {
                 // Check if this library is already open in TIA Portal
                 var fileInfo = new FileInfo(libraryPath);
+                Console.WriteLine($"[TIA] Looking for library: {fileInfo.FullName}");
+                Console.WriteLine($"[TIA] Open libraries: {_tiaPortal.GlobalLibraries.Count}");
+
+                // Extract the expected library name from the filename (strip extension + "Open Library V18 " prefix variations)
+                string expectedName = Path.GetFileNameWithoutExtension(libraryPath);
+
                 foreach (var openLib in _tiaPortal.GlobalLibraries)
                 {
                     try
                     {
-                        if (openLib.Path != null &&
-                            string.Equals(openLib.Path.FullName, fileInfo.FullName, StringComparison.OrdinalIgnoreCase))
+                        var openPath = openLib.Path?.FullName ?? "(no path)";
+                        Console.WriteLine($"[TIA]   Open lib: '{openLib.Name}' at '{openPath}'");
+
+                        // Match by: exact path, filename, or library name
+                        bool pathMatch = openLib.Path != null && (
+                            string.Equals(openLib.Path.FullName, fileInfo.FullName, StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(openLib.Path.Name, fileInfo.Name, StringComparison.OrdinalIgnoreCase));
+                        bool nameMatch = string.Equals(openLib.Name, expectedName, StringComparison.OrdinalIgnoreCase);
+
+                        if (pathMatch || nameMatch)
                         {
                             library = openLib;
-                            Console.WriteLine($"[TIA] Library already open: {openLib.Name}");
+                            Console.WriteLine($"[TIA] Library already open: {openLib.Name} (matched by {(pathMatch ? "path" : "name")})");
                             break;
                         }
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[TIA]   Error checking open lib: {ex.Message}");
+                    }
                 }
 
-                // If not already open, open it ourselves
+                // If not already open, try to open it
                 if (library == null)
                 {
-                    library = _tiaPortal.GlobalLibraries.Open(fileInfo, OpenMode.ReadOnly);
-                    weOpened = true;
-                    Console.WriteLine($"[TIA] Library opened: {library.Name}");
+                    try
+                    {
+                        library = _tiaPortal.GlobalLibraries.Open(fileInfo, OpenMode.ReadOnly);
+                        weOpened = true;
+                        Console.WriteLine($"[TIA] Library opened: {library.Name}");
+                    }
+                    catch
+                    {
+                        // If ReadOnly fails, try ReadWrite
+                        library = _tiaPortal.GlobalLibraries.Open(fileInfo, OpenMode.ReadWrite);
+                        weOpened = true;
+                        Console.WriteLine($"[TIA] Library opened (read-write): {library.Name}");
+                    }
                 }
 
                 result.LibraryName = library.Name;
@@ -2944,16 +2971,21 @@ END_ORGANIZATION_BLOCK
             GlobalLibrary library = null;
             try
             {
-                // Check if already open
+                // Check if already open (match by path, filename, or library name)
                 var fileInfo = new FileInfo(libraryPath);
+                string expectedName = Path.GetFileNameWithoutExtension(libraryPath);
                 foreach (var openLib in _tiaPortal.GlobalLibraries)
                 {
                     try
                     {
-                        if (openLib.Path != null &&
-                            string.Equals(openLib.Path.FullName, fileInfo.FullName, StringComparison.OrdinalIgnoreCase))
+                        bool pathMatch = openLib.Path != null && (
+                            string.Equals(openLib.Path.FullName, fileInfo.FullName, StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(openLib.Path.Name, fileInfo.Name, StringComparison.OrdinalIgnoreCase));
+                        bool nameMatch = string.Equals(openLib.Name, expectedName, StringComparison.OrdinalIgnoreCase);
+                        if (pathMatch || nameMatch)
                         {
                             library = openLib;
+                            Console.WriteLine($"[TIA] Export: using already-open library '{openLib.Name}'");
                             break;
                         }
                     }
