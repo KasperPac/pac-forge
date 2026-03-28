@@ -156,7 +156,7 @@ export default function FbLibraryPage() {
   const [importLibraryName, setImportLibraryName] = useState("");
   const [importCategory, setImportCategory] = useState("");
   const { importLibrary, loading: tiaImportLoading, progress: tiaImportProgress, error: tiaImportError } = useFbLibraryImport();
-  const [importDocFile, setImportDocFile] = useState<File | null>(null);
+  const [importDocFiles, setImportDocFiles] = useState<File[]>([]);
   const { importDocumentation, loading: docImportLoading, progress: docImportProgress } = useFbDocImport();
   const { toast } = useToast();
 
@@ -552,7 +552,7 @@ export default function FbLibraryPage() {
               </Select>
             </div>
             <div className="space-y-1">
-              <label className="font-mono text-xs text-muted-foreground">Documentation PDF (optional)</label>
+              <label className="font-mono text-xs text-muted-foreground">Documentation PDFs (optional — multi-select)</label>
               <div className="flex items-center gap-2">
                 <Button
                   size="sm"
@@ -562,24 +562,27 @@ export default function FbLibraryPage() {
                     const input = document.createElement("input");
                     input.type = "file";
                     input.accept = ".pdf,.txt";
+                    input.multiple = true;
                     input.onchange = (e) => {
-                      const file = (e.target as HTMLInputElement).files?.[0];
-                      if (file) setImportDocFile(file);
+                      const files = Array.from((e.target as HTMLInputElement).files ?? []);
+                      if (files.length > 0) setImportDocFiles(files);
                     };
                     input.click();
                   }}
                 >
                   <FileText className="h-3.5 w-3.5" />
-                  {importDocFile ? "Change" : "Upload PDF"}
+                  {importDocFiles.length > 0 ? `${importDocFiles.length} files` : "Upload PDFs"}
                 </Button>
-                {importDocFile && (
-                  <span className="text-xs text-muted-foreground truncate max-w-[200px]">
-                    {importDocFile.name}
-                  </span>
+                {importDocFiles.length > 0 && (
+                  <div className="flex flex-col text-xs text-muted-foreground">
+                    {importDocFiles.map((f) => (
+                      <span key={f.name} className="truncate max-w-[250px]">{f.name}</span>
+                    ))}
+                  </div>
                 )}
               </div>
               <p className="text-xs text-muted-foreground/60">
-                The library manual PDF. AI will split it per-FB and attach to each template automatically.
+                Upload all library documentation PDFs. The key one is "Detailed Block Overview" — AI splits it per-FB. General docs (architecture, setup) are attached as library-wide reference.
               </p>
             </div>
             {tiaImportError && (
@@ -591,13 +594,13 @@ export default function FbLibraryPage() {
             <Button
               onClick={async () => {
                 try {
-                  const res = await importLibrary(importProjectPath, importLibraryName, importCategory, importDocFile);
+                  const res = await importLibrary(importProjectPath, importLibraryName, importCategory, importDocFiles.length > 0 ? importDocFiles : undefined);
                   toast({
                     title: "Import complete",
                     description: `${res.imported} templates imported. Docs: ${res.docsMatched} matched, ${res.docsUnmatched} unmatched.`,
                   });
                   setImportDialogOpen(false);
-                  setImportDocFile(null);
+                  setImportDocFiles([]);
                 } catch {
                   // Error in tiaImportError
                 }

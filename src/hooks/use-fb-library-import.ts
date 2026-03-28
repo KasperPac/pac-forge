@@ -157,7 +157,7 @@ export function useFbLibraryImport() {
       libraryPath: string,
       libraryName: string,
       deviceCategory: string,
-      docFile?: File | null,
+      docFiles?: File[],
     ): Promise<ImportResult> => {
       setLoading(true);
       setError(null);
@@ -200,53 +200,87 @@ export function useFbLibraryImport() {
         // 5. Group into templates
         const templateGroups = groupBlocksIntoTemplates(blocks);
 
-        // 6. Extract documentation from PDF (if provided)
-        let docSections: Map<string, string> = new Map();
-        if (docFile) {
-          setProgress({ phase: "Extracting PDF documentation...", current: 0, total: 0 });
-          let pdfText: string;
-          if (docFile.name.endsWith(".pdf")) {
-            pdfText = await extractTextFromPdf(docFile);
-          } else {
-            pdfText = await docFile.text();
-          }
+        // 6. Extract documentation from PDFs (if provided)
+        const docSections: Map<string, string> = new Map();
+        if (docFiles && docFiles.length > 0) {
+          for (let fi = 0; fi < docFiles.length; fi++) {
+            const docFile = docFiles[fi];
+            setProgress({ phase: `Reading ${docFile.name}...`, current: fi + 1, total: docFiles.length });
 
-          if (pdfText.length > 100) {
-            // Split into chunks and process with AI
-            const CHUNK_SIZE = 50000;
-            const chunks: string[] = [];
-            for (let i = 0; i < pdfText.length; i += CHUNK_SIZE) {
-              chunks.push(pdfText.slice(i, i + CHUNK_SIZE));
+            let pdfText: string;
+            try {
+              if (docFile.name.endsWith(".pdf")) {
+                pdfText = await extractTextFromPdf(docFile);
+              } else {
+                pdfText = await docFile.text();
+              }
+            } catch (err) {
+              console.warn(`[fb-import] Failed to extract text from ${docFile.name}:`, err);
+              continue;
             }
 
-            for (let i = 0; i < chunks.length; i++) {
-              setProgress({ phase: `Splitting docs (chunk ${i + 1}/${chunks.length})...`, current: i + 1, total: chunks.length });
-              const abort = new AbortController();
-              try {
-                const { content } = await callStreamingCollect(
-                  DOC_SPLIT_PROMPT,
-                  [{ role: "user", content: chunks[i] }],
-                  abort.signal,
-                  32768,
-                );
-                const cleaned = content.trim()
-                  .replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/, "").trim();
-                const parsed = JSON.parse(cleaned);
-                if (Array.isArray(parsed)) {
-                  for (const s of parsed) {
-                    if (s.fbName && s.content) {
-                      const existing = docSections.get(s.fbName);
-                      docSections.set(s.fbName, existing ? existing + "\n\n" + s.content : s.content);
+            if (pdfText.length < 100) {
+              console.warn(`[fb-import] ${docFile.name}: too little text (${pdfText.length} chars), skipping`);
+              continue;
+            }
+
+            console.log(`[fb-import] ${docFile.name}: ${pdfText.length} chars extracted`);
+
+            // Determine if this is a per-FB doc (Block Overview, Example Config)
+            // or a general library doc (Architecture, Setup, etc.)
+            const isPerFbDoc = /block overview|example.*config|detailed/i.test(docFile.name);
+
+            if (isPerFbDoc) {
+              // Split per-FB using AI
+              const CHUNK_SIZE = 50000;
+              const chunks: string[] = [];
+              for (let i = 0; i < pdfText.length; i += CHUNK_SIZE) {
+                chunks.push(pdfText.slice(i, i + CHUNK_SIZE));
+              }
+
+              for (let i = 0; i < chunks.length; i++) {
+                setProgress({ phase: `Splitting ${docFile.name} (chunk ${i + 1}/${chunks.length})...`, current: i + 1, total: chunks.length });
+                const abort = new AbortController();
+                try {
+                  const { content } = await callStreamingCollect(
+                    DOC_SPLIT_PROMPT,
+                    [{ role: "user", content: chunks[i] }],
+                    abort.signal,
+                    32768,
+                  );
+                  const cleaned = content.trim()
+                    .replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/, "").trim();
+                  const parsed = JSON.parse(cleaned);
+                  if (Array.isArray(parsed)) {
+                    for (const s of parsed) {
+                      if (s.fbName && s.content) {
+                        const existing = docSections.get(s.fbName);
+                        docSections.set(s.fbName, existing ? existing + "\n\n" + s.content : s.content);
+                      }
                     }
                   }
+                } catch {
+                  console.warn(`[fb-import] Doc chunk ${i + 1} parse failed`);
                 }
-              } catch {
-                console.warn(`[fb-import] Doc chunk ${i + 1} parse failed`);
               }
+            } else {
+              // General library doc — attach to all templates as shared reference
+              // Store under a special key that we'll merge into each template's docs
+              const key = `GENERAL:${docFile.name.replace(/\.pdf$/i, "")}`;
+              docSections.set(key, pdfText.slice(0, 10000)); // Truncate general docs to avoid massive prompts
             }
-            console.log(`[fb-import] Split docs into ${docSections.size} sections`);
+          }
+          console.log(`[fb-import] Total doc sections: ${docSections.size}`);
+        }
+
+        // Collect general docs (to append to each template)
+        const generalDocs: string[] = [];
+        for (const [key, content] of docSections) {
+          if (key.startsWith("GENERAL:")) {
+            generalDocs.push(`## ${key.replace("GENERAL:", "")}\n${content}`);
           }
         }
+        const generalDocText = generalDocs.length > 0 ? "\n\n---\n" + generalDocs.join("\n\n") : "";
 
         // 7. Create FB templates with blocks + documentation
         const total = templateGroups.size;
@@ -259,9 +293,10 @@ export function useFbLibraryImport() {
           try {
             const mainFb = templateBlocks.find((b) => b.blockType === "FB");
 
-            // Match documentation by name (case-insensitive, fuzzy)
+            // Match per-FB documentation by name (case-insensitive, fuzzy)
             let doc: string | null = null;
             for (const [docName, docContent] of docSections) {
+              if (docName.startsWith("GENERAL:")) continue;
               const tLower = templateName.toLowerCase();
               const dLower = docName.toLowerCase();
               if (tLower === dLower || tLower.includes(dLower) || dLower.includes(tLower)) {
@@ -270,7 +305,14 @@ export function useFbLibraryImport() {
                 break;
               }
             }
-            if (!doc) result.docsUnmatched++;
+            if (!doc && docSections.size > 0) result.docsUnmatched++;
+
+            // Append general library docs to each template's documentation
+            if (doc) {
+              doc += generalDocText;
+            } else if (generalDocText) {
+              doc = generalDocText;
+            }
 
             await createTemplate.mutateAsync({
               name: templateName,
