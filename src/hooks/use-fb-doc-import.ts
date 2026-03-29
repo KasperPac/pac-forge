@@ -10,9 +10,11 @@ import { useState, useCallback } from "react";
 import { extractTextFromPdf } from "@/lib/document-extractor";
 import { callStreamingCollect } from "@/hooks/use-generation";
 import { useUpdateFbTemplate, useFbTemplates } from "@/hooks/use-fb-templates";
+import { useFbDeviceCategories, useCreateFbDeviceCategory } from "@/hooks/use-fb-categories";
 
 interface DocSection {
   fbName: string;
+  category: string | null;
   content: string;
   matched: boolean;
   templateId: string | null;
@@ -33,7 +35,9 @@ interface DocImportResult {
 
 const SPLIT_PROMPT = `You are a technical documentation parser. You will receive the full text of a PLC library manual that documents multiple Function Blocks.
 
-Your task is to split the document into individual per-FB sections. Each FB typically has:
+Your task is to split the document into individual per-FB sections AND identify the device category for each FB.
+
+Each FB typically has:
 - A heading with the FB name (e.g., "fbVFD_Analog", "fbValve_Solenoid", "fbIO_AnalogInput")
 - Parameter tables (inputs, outputs, in/out)
 - Description of behaviour, states, status codes
@@ -43,17 +47,29 @@ Your task is to split the document into individual per-FB sections. Each FB typi
 Return a JSON array where each element is:
 {
   "fbName": "exact FB name as it appears in the document",
+  "category": "one of: motor, vfd, valve, analog_io, digital_io, io, process_control, safety, system, instrument, modbus, general",
   "content": "the full documentation text for this FB — preserve all details, tables, parameter descriptions"
 }
 
-Rules:
+Category rules:
+- motor: motor starters, reversing motors, soft starters, DOL starters
+- vfd: variable frequency drives, G120, MicroMaster, Danfoss, Emerson
+- valve: solenoid valves, analog valves, hydraulic valves
+- analog_io: analog inputs with scaling, analog outputs
+- digital_io: digital inputs/outputs with overrides
+- io: general IO blocks that don't fit above
+- process_control: PID, sequencers, totalizers, integration, tank level, FIFO
+- safety: interlocks, permissives, alarm interfaces
+- system: mode control, system control
+- instrument: load cells, flow meters, specialized sensors
+- modbus: Modbus communication blocks, station blocks
+- general: utility blocks, helper functions
+
+Other rules:
 - Include ALL text for each FB — do not summarize or shorten
-- The fbName must match the FB naming convention (usually starts with "fb" prefix)
-- Include introductory/overview sections under fbName "OVERVIEW"
-- Include any appendices or reference tables under fbName "REFERENCE"
-- If a section covers multiple FBs, duplicate it under each relevant FB name
+- The fbName must match the FB naming convention (usually starts with "fb" or "udt" prefix)
+- Include introductory/overview sections under fbName "OVERVIEW" with category "general"
 - Preserve formatting: bullet points, numbered lists, parameter names
-- Do NOT include page headers/footers or table of contents entries
 
 Return ONLY the JSON array, no markdown fencing.`;
 
@@ -63,6 +79,8 @@ export function useFbDocImport() {
   const [error, setError] = useState<string | null>(null);
   const { data: templates } = useFbTemplates();
   const updateTemplate = useUpdateFbTemplate();
+  const { data: existingCategories } = useFbDeviceCategories();
+  const createCategory = useCreateFbDeviceCategory();
 
   const importDocumentation = useCallback(
     async (file: File): Promise<DocImportResult> => {
@@ -97,7 +115,7 @@ export function useFbDocImport() {
         setProgress({ phase: "AI splitting into per-FB sections...", current: 0, total: chunks.length });
 
         // 3. Process each chunk through AI
-        const allSections: Array<{ fbName: string; content: string }> = [];
+        const allSections: Array<{ fbName: string; category: string | null; content: string }> = [];
         const abort = new AbortController();
 
         for (let i = 0; i < chunks.length; i++) {
@@ -123,12 +141,12 @@ export function useFbDocImport() {
             if (Array.isArray(parsed)) {
               for (const section of parsed) {
                 if (section.fbName && section.content) {
-                  // Merge with existing section for same FB (from multiple chunks)
                   const existing = allSections.find((s) => s.fbName === section.fbName);
                   if (existing) {
                     existing.content += "\n\n" + section.content;
+                    if (section.category && !existing.category) existing.category = section.category;
                   } else {
-                    allSections.push({ fbName: section.fbName, content: section.content });
+                    allSections.push({ fbName: section.fbName, category: section.category ?? null, content: section.content });
                   }
                 }
               }
@@ -147,6 +165,7 @@ export function useFbDocImport() {
           if (section.fbName === "OVERVIEW" || section.fbName === "REFERENCE") {
             result.push({
               fbName: section.fbName,
+              category: section.category,
               content: section.content,
               matched: false,
               templateId: null,
@@ -163,13 +182,38 @@ export function useFbDocImport() {
 
           result.push({
             fbName: section.fbName,
+            category: section.category,
             content: section.content,
             matched: !!template,
             templateId: template?.id ?? null,
           });
         }
 
-        // 5. Auto-attach matched sections to templates
+        // 5. Auto-create any new categories from doc sections
+        const existingCatNames = new Set((existingCategories ?? []).map((c) => c.name));
+        const CATEGORY_LABELS: Record<string, string> = {
+          motor: "Motor", vfd: "VFD / Drive", valve: "Valve",
+          analog_io: "Analog IO", digital_io: "Digital IO", io: "IO",
+          process_control: "Process Control", safety: "Safety / Interlock",
+          system: "System / Mode", instrument: "Instrument", modbus: "Modbus",
+          general: "General",
+        };
+        const neededCats = new Set(
+          result.filter((s) => s.category && !existingCatNames.has(s.category)).map((s) => s.category!),
+        );
+        for (const cat of neededCats) {
+          try {
+            await createCategory.mutateAsync({
+              name: cat,
+              display_name: CATEGORY_LABELS[cat] ?? cat.charAt(0).toUpperCase() + cat.slice(1).replace(/_/g, " "),
+            });
+            console.log(`[fb-doc-import] Created category: ${cat}`);
+          } catch {
+            // May already exist
+          }
+        }
+
+        // 6. Auto-attach matched sections to templates + update categories
         const matched = result.filter((s) => s.matched && s.templateId);
         setProgress({ phase: "Attaching documentation to templates...", current: 0, total: matched.length });
 
@@ -178,12 +222,19 @@ export function useFbDocImport() {
           setProgress({ phase: `Attaching ${section.fbName}...`, current: i + 1, total: matched.length });
 
           try {
+            const updates: Record<string, unknown> = { documentation: section.content };
+            // Also update category if the AI detected one
+            if (section.category && section.category !== "general") {
+              updates.device_category = section.category;
+              console.log(`[fb-doc-import] ${section.fbName} → category: ${section.category}`);
+            }
             await updateTemplate.mutateAsync({
               id: section.templateId!,
-              updates: { documentation: section.content },
+              updates,
             });
+            console.log(`[fb-doc-import] ✓ ${section.fbName} updated`);
           } catch (err) {
-            console.warn(`[fb-doc-import] Failed to attach docs to ${section.fbName}:`, err);
+            console.warn(`[fb-doc-import] ✗ Failed to update ${section.fbName}:`, err);
           }
         }
 
