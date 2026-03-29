@@ -28,7 +28,10 @@ export function useGenerateFbSummary() {
         .map((b) => `// ${b.block_type}: ${b.block_name}\n${b.scl_code}`)
         .join("\n\n");
 
-      if (!code) return null;
+      // Use documentation if available (especially for library items with LAD code)
+      const doc = template.documentation ? `\n\nManufacturer Documentation:\n${template.documentation.slice(0, 5000)}` : "";
+
+      if (!code && !doc) return null;
 
       setLoadingId(template.id);
       try {
@@ -38,7 +41,7 @@ export function useGenerateFbSummary() {
           [
             {
               role: "user",
-              content: `Template: "${template.name}" | Category: ${template.device_category} | Tags: ${template.tags.join(", ") || "none"}\n\nSCL Code:\n${code}`,
+              content: `Template: "${template.name}" | Category: ${template.device_category} | Tags: ${template.tags.join(", ") || "none"}\n\n${code ? `SCL Code:\n${code}` : "(LAD library block — no SCL source)"}${doc}`,
             },
           ],
           abort.signal,
