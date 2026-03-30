@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import {
   Plus,
   Trash2,
@@ -18,6 +18,8 @@ import {
   Maximize2,
   FileText,
   Download,
+  Search,
+  ChevronDown as ChevronDownIcon,
 } from "lucide-react";
 import { CategoryIcon } from "@/components/fb-category-icons";
 import Editor from "@monaco-editor/react";
@@ -166,6 +168,29 @@ export default function FbLibraryPage() {
 
   const { data: templates, isLoading } = useFbTemplates(activeCategory ?? undefined);
   const { data: allTemplates } = useFbTemplates(); // for library list (unfiltered)
+
+  // Search + filter
+  const filteredTemplates = useMemo(() => {
+    let list = templates ?? [];
+    if (sourceFilter !== "all") {
+      list = list.filter((t) => sourceFilter === "library" ? t.source === "library" : t.source !== "library");
+    }
+    if (langFilter !== "all") {
+      list = list.filter((t) => (t.blocks ?? []).some((b) => b.programming_language === langFilter));
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter((t) =>
+        t.name.toLowerCase().includes(q) ||
+        t.device_category.toLowerCase().includes(q) ||
+        (t.ai_summary ?? "").toLowerCase().includes(q) ||
+        (t.description ?? "").toLowerCase().includes(q) ||
+        t.tags.some((tag) => tag.toLowerCase().includes(q)) ||
+        (t.blocks ?? []).some((b) => b.block_name.toLowerCase().includes(q))
+      );
+    }
+    return list;
+  }, [templates, searchQuery, sourceFilter, langFilter]);
   const { data: categories, isLoading: catsLoading } = useFbDeviceCategories();
   const { data: profiles } = useDesignProfiles();
   const createTemplate = useCreateFbTemplate();
@@ -413,6 +438,9 @@ export default function FbLibraryPage() {
   const { generate: generateSummary, loadingId: summaryLoadingId } = useGenerateFbSummary();
   const { generate: generateFlow, loadingId: flowLoadingId } = useGenerateFbFlow();
   const [bulkSummaryLoading, setBulkSummaryLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<"all" | "library" | "custom">("all");
+  const [langFilter, setLangFilter] = useState<"all" | "SCL" | "LAD">("all");
 
   const missingSummaryCount = (allTemplates ?? []).filter((t) => !t.ai_summary && (t.blocks?.length ?? 0) > 0).length;
 
@@ -793,22 +821,58 @@ export default function FbLibraryPage() {
         </div>
       )}
 
-      {/* Template grid */}
+      {/* Search + filters */}
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search templates..."
+            className="h-8 pl-8 font-mono text-xs"
+          />
+        </div>
+        <Select value={sourceFilter} onValueChange={(v) => setSourceFilter(v as "all" | "library" | "custom")}>
+          <SelectTrigger className="h-8 w-28 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All sources</SelectItem>
+            <SelectItem value="library">Library</SelectItem>
+            <SelectItem value="custom">Custom</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={langFilter} onValueChange={(v) => setLangFilter(v as "all" | "SCL" | "LAD")}>
+          <SelectTrigger className="h-8 w-24 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All langs</SelectItem>
+            <SelectItem value="SCL">SCL</SelectItem>
+            <SelectItem value="LAD">LAD</SelectItem>
+          </SelectContent>
+        </Select>
+        <span className="font-mono text-[10px] text-muted-foreground whitespace-nowrap">
+          {filteredTemplates.length} / {templates?.length ?? 0}
+        </span>
+      </div>
+
+      {/* Template list */}
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
-      ) : templates?.length === 0 ? (
+      ) : filteredTemplates.length === 0 ? (
         <div className="rounded-md border border-dashed px-4 py-12 text-center">
           <div className="font-mono text-sm text-muted-foreground">
-            {activeCategory
+            {searchQuery ? "No templates match your search." : activeCategory
               ? "No templates in this category yet."
               : "No templates yet. Create one to get started."}
           </div>
         </div>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {templates?.map((template) => (
+        <div className="space-y-1">
+          {filteredTemplates.map((template) => (
             <TemplateCard
               key={template.id}
               template={template}
@@ -1175,7 +1239,7 @@ export default function FbLibraryPage() {
   );
 }
 
-// --- Template Card ---
+// --- Template Card (compact expandable) ---
 
 function TemplateCard({
   template,
@@ -1196,128 +1260,64 @@ function TemplateCard({
   onGenerateFlow: (t: FbTemplate) => Promise<FbFlowDiagram[] | null>;
   flowLoading: boolean;
 }) {
-  const [diagramOpen, setDiagramOpen] = useState(false);
-  const [diagramFullscreen, setDiagramFullscreen] = useState(false);
-  const [ladOpen, setLadOpen] = useState(false);
-  const [ladFullscreen, setLadFullscreen] = useState(false);
-  const [zoom, setZoom] = useState(1);
-  const [localFlowDiagrams, setLocalFlowDiagrams] = useState<FbFlowDiagram[] | null>(null);
-  const { toast } = useToast();
-  const { importBlockXml, loading: xmlImportLoading } = useFbBlockXmlImport();
-
-  const hasScl = (template.blocks ?? []).some((b) => b.scl_code.trim());
-  const ladBlock = (template.blocks ?? []).find((b) => b.block_xml && b.programming_language === "LAD");
-  const hasLad = !!ladBlock;
-  const isLibrary = template.source === "library";
-
-  async function handleImportXml() {
-    try {
-      const result = await importBlockXml(template);
-      if (result.updated > 0) {
-        toast({ title: "Block XML imported", description: `${result.updated} block(s) updated with LAD/FBD logic` });
-      } else {
-        toast({ title: "No blocks imported", description: result.errors.join("; "), variant: "destructive" });
-      }
-    } catch (err) {
-      toast({ title: "Import failed", description: err instanceof Error ? err.message : String(err), variant: "destructive" });
-    }
-  }
-
-  // Use stored JSON if available, otherwise use locally generated result
-  const storedDiagrams = template.flow_diagram_json
-    ? parseFlowDiagramJson(template.flow_diagram_json)
-    : null;
-  const flowDiagrams: FbFlowDiagram[] = storedDiagrams ?? localFlowDiagrams ?? [];
-
-  async function handleGenerateFlow() {
-    try {
-      const result = await onGenerateFlow(template);
-      if (result) {
-        setLocalFlowDiagrams(result);
-        if (!diagramOpen) setDiagramOpen(true);
-      } else {
-        toast({ title: "Flow generation failed", description: "Check browser console for details.", variant: "destructive" });
-      }
-    } catch (err) {
-      toast({ title: "Flow generation error", description: err instanceof Error ? err.message : String(err), variant: "destructive" });
-    }
-  }
+  const [expanded, setExpanded] = useState(false);
   const blocks = template.blocks ?? [];
-  const previewBlock = blocks[0];
-  const previewLines = previewBlock?.scl_code.split("\n").slice(0, 5) ?? [];
-  const hasMore = (previewBlock?.scl_code.split("\n").length ?? 0) > 5;
+  const ladBlock = blocks.find((b) => b.block_xml && b.programming_language === "LAD");
+  const hasLad = !!ladBlock;
+
+  // Extract first line of AI summary for compact view
+  const summaryPreview = template.ai_summary?.split("\n").find((l) => l.trim() && !l.startsWith("##") && !l.startsWith("SECTION"))?.trim() ?? null;
 
   return (
-    <Card className={`group flex flex-col p-4 transition-colors hover:bg-accent/30 ${!template.is_enabled ? "opacity-50" : ""}`}>
-      <div className="flex items-start justify-between">
-        <div className="min-w-0 flex-1 flex items-start gap-2.5">
-          <CategoryIcon category={template.device_category} className="mt-0.5 h-7 w-7 shrink-0 text-muted-foreground" />
-          <div className="min-w-0">
-            <h3 className="truncate font-mono text-sm font-semibold">{template.name}</h3>
-            {template.description && (
-              <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                {template.description}
-              </p>
-            )}
-            {template.ai_summary && (
-              <p className="mt-1 line-clamp-3 text-xs text-violet-400/80">
-                <Sparkles className="mr-0.5 inline h-2.5 w-2.5" />
-                {template.ai_summary}
-              </p>
-            )}
-          </div>
-        </div>
-        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 w-7 p-0"
-            onClick={() => onGenerateSummary(template)}
-            disabled={summaryLoading || !(template.blocks && template.blocks.length > 0)}
-            title={template.ai_summary ? "Regenerate AI summary" : "Generate AI summary"}
-          >
-            {summaryLoading ? (
-              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-            ) : (
-              <Sparkles className={`h-3 w-3 ${template.ai_summary ? "text-violet-400" : "text-muted-foreground"}`} />
-            )}
+    <div className={`rounded border border-border/40 transition-colors hover:border-border/80 ${!template.is_enabled ? "opacity-50" : ""}`}>
+      {/* Compact header row */}
+      <div
+        className="flex cursor-pointer items-center gap-2 px-3 py-2"
+        onClick={() => setExpanded((e) => !e)}
+      >
+        <ChevronDownIcon className={`h-3 w-3 shrink-0 text-muted-foreground transition-transform ${expanded ? "rotate-0" : "-rotate-90"}`} />
+        <CategoryIcon category={template.device_category} className="h-5 w-5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 truncate font-mono text-xs font-semibold">{template.name}</span>
+
+        {/* Inline badges */}
+        <Badge variant="secondary" className="shrink-0 font-mono text-[10px] px-1.5 py-0">
+          {template.device_category}
+        </Badge>
+        {template.source === "library" && (
+          <Badge variant="outline" className="shrink-0 font-mono text-[10px] px-1 py-0 border-amber-500/40 text-amber-400">
+            lib
+          </Badge>
+        )}
+        {blocks.some((b) => b.programming_language && b.programming_language !== "SCL") && (
+          <Badge variant="outline" className="shrink-0 font-mono text-[10px] px-1 py-0 border-green-500/40 text-green-400">
+            {blocks.find((b) => b.programming_language !== "SCL")?.programming_language}
+          </Badge>
+        )}
+        <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+          {blocks.length} block{blocks.length !== 1 ? "s" : ""}
+        </span>
+
+        {/* Summary preview (one line) */}
+        {summaryPreview && !expanded && (
+          <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground/70">
+            {summaryPreview}
+          </span>
+        )}
+
+        {/* Actions (always visible, right side) */}
+        <div className="ml-auto flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+          <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => onGenerateSummary(template)} disabled={summaryLoading} title="Generate AI summary">
+            {summaryLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className={`h-3 w-3 ${template.ai_summary ? "text-violet-400" : "text-muted-foreground"}`} />}
           </Button>
-          {isLibrary && !hasLad && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 w-7 p-0"
-              onClick={handleImportXml}
-              disabled={xmlImportLoading}
-              title="Import block XML from TIA Portal"
-            >
-              {xmlImportLoading ? (
-                <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-              ) : (
-                <Download className="h-3 w-3 text-muted-foreground" />
-              )}
-            </Button>
-          )}
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 w-7 p-0"
-            onClick={() => onViewHistory(template.id)}
-            title="Version history"
-          >
-            <History className="h-3 w-3 text-muted-foreground" />
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 w-7 p-0"
-            onClick={() => onEdit(template)}
-          >
+          <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => onEdit(template)} title="Edit">
             <Pencil className="h-3 w-3 text-muted-foreground" />
+          </Button>
+          <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => onViewHistory(template.id)} title="History">
+            <History className="h-3 w-3 text-muted-foreground" />
           </Button>
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button size="sm" variant="ghost" className="h-7 w-7 p-0">
+              <Button size="sm" variant="ghost" className="h-6 w-6 p-0" title="Delete">
                 <Trash2 className="h-3 w-3 text-muted-foreground" />
               </Button>
             </AlertDialogTrigger>
@@ -1325,219 +1325,79 @@ function TemplateCard({
               <AlertDialogHeader>
                 <AlertDialogTitle>Delete template?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This will permanently delete &quot;{template.name}&quot;. This action cannot be undone.
+                  This will permanently delete &quot;{template.name}&quot;.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={() => onDelete(template.id)}
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                >
-                  Delete
-                </AlertDialogAction>
+                <AlertDialogAction onClick={() => onDelete(template.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
         </div>
       </div>
 
-      <div className="mt-2 flex flex-wrap gap-1">
-        <Badge variant="secondary" className="font-mono text-xs">
-          {template.device_category}
-        </Badge>
-        <Badge variant="outline" className="font-mono text-xs">
-          v{template.version}
-        </Badge>
-        <Badge variant="outline" className="font-mono text-xs">
-          {blocks.length} block{blocks.length !== 1 ? "s" : ""}
-        </Badge>
-        {template.source === "library" && (
-          <Badge variant="outline" className="font-mono text-[10px] border-amber-500/40 text-amber-400">
-            {template.library_name ?? "library"}
-          </Badge>
-        )}
-        {template.source === "standard" && (
-          <Badge variant="outline" className="font-mono text-[10px] border-sky-500/40 text-sky-400">
-            standard
-          </Badge>
-        )}
-        {template.tags.slice(0, 2).map((tag) => (
-          <Badge key={tag} variant="outline" className="font-mono text-xs">
-            <Tag className="mr-0.5 h-2.5 w-2.5" />
-            {tag}
-          </Badge>
-        ))}
-      </div>
-
-      {/* Block type chips */}
-      {blocks.length > 0 && (
-        <div className="mt-1.5 flex flex-wrap gap-0.5">
-          {blocks.map((b) => (
-            <span
-              key={b.id}
-              className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
-            >
-              {b.block_type}: {b.block_name}
-              {b.programming_language && b.programming_language !== "SCL" && (
-                <span className="ml-1 text-green-400/70">[{b.programming_language}]</span>
-              )}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* Code preview */}
-      {previewLines.length > 0 && (
-        <div className="mt-2 overflow-hidden rounded border bg-muted/50 px-2 py-1.5">
-          <pre className="font-mono text-xs leading-relaxed text-muted-foreground">
-            {previewLines.join("\n")}
-            {hasMore && "\n..."}
-          </pre>
-        </div>
-      )}
-
-      {/* Signal flow diagram collapsible */}
-      {hasScl && (
-        <div className="mt-2 border-t border-border/40 pt-2">
-          <div className="flex items-center gap-1">
-            <button
-              className="flex flex-1 items-center gap-1 font-mono text-xs text-blue-400/80 hover:text-blue-400"
-              onClick={() => setDiagramOpen((o) => !o)}
-            >
-              <GitBranch className="h-3 w-3 shrink-0" />
-              Signal Flow
-              {template.flow_diagram_generated_at && (
-                <span className="ml-1 text-[10px] text-muted-foreground">
-                  {new Date(template.flow_diagram_generated_at).toLocaleDateString()}
-                </span>
-              )}
-              <ChevronDown className={`ml-auto h-3 w-3 transition-transform ${diagramOpen ? "rotate-180" : ""}`} />
-            </button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-5 w-5 p-0"
-              title={flowDiagrams.length > 0 ? "Regenerate signal flow" : "Generate signal flow with AI"}
-              onClick={handleGenerateFlow}
-              disabled={flowLoading}
-            >
-              {flowLoading
-                ? <Loader2 className="h-2.5 w-2.5 animate-spin text-blue-400" />
-                : <Sparkles className={`h-2.5 w-2.5 ${flowDiagrams.length > 0 ? "text-blue-400" : "text-muted-foreground"}`} />
-              }
-            </Button>
-          </div>
-          {diagramOpen && (
-            <div className="relative mt-2 overflow-x-auto rounded border border-border/50 bg-muted/30">
-              <Button
-                size="sm"
-                variant="ghost"
-                className="absolute right-1 top-1 z-10 h-6 w-6 p-0 opacity-60 hover:opacity-100"
-                title="Fullscreen"
-                onClick={() => setDiagramFullscreen(true)}
-              >
-                <Maximize2 className="h-3 w-3" />
-              </Button>
-              {flowDiagrams.length > 0
-                ? <FbFlowRenderer diagrams={flowDiagrams} />
-                : (
-                  <p className="px-3 py-4 text-center font-mono text-xs text-muted-foreground">
-                    Click <Sparkles className="inline h-2.5 w-2.5" /> to generate AI signal flow
-                  </p>
-                )
-              }
+      {/* Expanded details */}
+      {expanded && (
+        <div className="border-t border-border/30 px-3 py-2 space-y-2">
+          {/* AI Summary */}
+          {template.ai_summary && (
+            <div className="rounded bg-muted/30 px-2.5 py-2">
+              <pre className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-muted-foreground">
+                {template.ai_summary}
+              </pre>
             </div>
           )}
-        </div>
-      )}
 
-      {/* Ladder Logic viewer collapsible */}
-      {hasLad && ladBlock && (
-        <div className="mt-2 border-t border-border/40 pt-2">
-          <button
-            className="flex w-full items-center gap-1 font-mono text-xs text-green-400/80 hover:text-green-400"
-            onClick={() => setLadOpen((o) => !o)}
-          >
-            <Layers className="h-3 w-3 shrink-0" />
-            Ladder Logic
-            <Badge variant="outline" className="ml-1 font-mono text-[10px]">
-              {ladBlock.programming_language}
-            </Badge>
-            <ChevronDown className={`ml-auto h-3 w-3 transition-transform ${ladOpen ? "rotate-180" : ""}`} />
-          </button>
-          {ladOpen && (
-            <div className="relative mt-2 rounded border border-border/50 bg-muted/30">
-              <Button
-                size="sm"
-                variant="ghost"
-                className="absolute right-1 top-1 z-10 h-6 w-6 p-0 opacity-60 hover:opacity-100"
-                title="Fullscreen"
-                onClick={() => setLadFullscreen(true)}
-              >
-                <Maximize2 className="h-3 w-3" />
-              </Button>
-              <div className="h-[300px]">
-                <LadViewer xml={ladBlock.block_xml!} className="h-full" />
-              </div>
-            </div>
+          {/* Tags + metadata */}
+          <div className="flex flex-wrap gap-1">
+            <Badge variant="outline" className="font-mono text-[10px]">v{template.version}</Badge>
+            {template.source === "library" && template.library_name && (
+              <Badge variant="outline" className="font-mono text-[10px] border-amber-500/40 text-amber-400">
+                {template.library_name}
+              </Badge>
+            )}
+            {template.tags.map((tag) => (
+              <Badge key={tag} variant="outline" className="font-mono text-[10px]">
+                <Tag className="mr-0.5 h-2.5 w-2.5" />{tag}
+              </Badge>
+            ))}
+            {template.documentation && (
+              <Badge variant="outline" className="font-mono text-[10px] border-blue-500/40 text-blue-400">
+                <FileText className="mr-0.5 h-2.5 w-2.5" />docs
+              </Badge>
+            )}
+            {hasLad && (
+              <Badge variant="outline" className="font-mono text-[10px] border-green-500/40 text-green-400">
+                <Layers className="mr-0.5 h-2.5 w-2.5" />LAD logic
+              </Badge>
+            )}
+          </div>
+
+          {/* Block chips */}
+          <div className="flex flex-wrap gap-0.5">
+            {blocks.map((b) => (
+              <span key={b.id} className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                {b.block_type}: {b.block_name}
+                {b.programming_language && b.programming_language !== "SCL" && (
+                  <span className="ml-1 text-green-400/70">[{b.programming_language}]</span>
+                )}
+              </span>
+            ))}
+          </div>
+
+          {/* Description */}
+          {template.description && (
+            <p className="text-xs text-muted-foreground">{template.description}</p>
           )}
+
+          <div className="flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
+            <Clock className="h-2.5 w-2.5" />
+            {new Date(template.updated_at).toLocaleDateString()}
+          </div>
         </div>
       )}
-
-      {/* Fullscreen LAD dialog */}
-      {hasLad && ladBlock && (
-        <Dialog open={ladFullscreen} onOpenChange={setLadFullscreen}>
-          <DialogContent className="flex h-[95vh] max-w-[95vw] flex-col gap-0 p-0 overflow-hidden">
-            <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-2">
-              <div className="flex items-center gap-2">
-                <Layers className="h-4 w-4 text-green-400" />
-                <span className="font-mono text-sm font-semibold">{template.name} — Ladder Logic</span>
-              </div>
-              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setLadFullscreen(false)}>
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-            <div className="flex-1 overflow-hidden">
-              <LadViewer xml={ladBlock.block_xml!} className="h-full" />
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
-
-      {/* Fullscreen signal flow dialog */}
-      <Dialog open={diagramFullscreen} onOpenChange={(o) => { setDiagramFullscreen(o); if (!o) setZoom(1); }}>
-        <DialogContent className="flex h-[95vh] max-w-[95vw] flex-col gap-0 p-0 overflow-hidden">
-          <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-2">
-            <div className="flex items-center gap-2">
-              <GitBranch className="h-4 w-4 text-blue-400" />
-              <span className="font-mono text-sm font-semibold">{template.name} — Signal Flow</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <Button size="sm" variant="ghost" className="h-7 px-2 font-mono text-xs" onClick={() => setZoom((z) => Math.max(0.25, +(z - 0.25).toFixed(2)))} title="Zoom out">−</Button>
-              <button className="min-w-[3rem] text-center font-mono text-xs text-muted-foreground hover:text-foreground" onClick={() => setZoom(1)} title="Reset zoom">{Math.round(zoom * 100)}%</button>
-              <Button size="sm" variant="ghost" className="h-7 px-2 font-mono text-xs" onClick={() => setZoom((z) => Math.min(4, +(z + 0.25).toFixed(2)))} title="Zoom in">+</Button>
-              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 ml-2" onClick={() => setDiagramFullscreen(false)}>
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-          <div className="flex-1 overflow-auto">
-            <div style={{ transform: `scale(${zoom})`, transformOrigin: "top left", transition: "transform 0.15s ease" }}>
-              {flowDiagrams.length > 0
-                ? <FbFlowRenderer diagrams={flowDiagrams} />
-                : <p className="px-6 py-8 font-mono text-xs text-muted-foreground">No signal flow generated yet — click the sparkle button on the card</p>
-              }
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <div className="mt-2 flex items-center gap-1 font-mono text-xs text-muted-foreground">
-        <Clock className="h-3 w-3" />
-        {new Date(template.updated_at).toLocaleDateString()}
-      </div>
-    </Card>
+    </div>
   );
 }
 
