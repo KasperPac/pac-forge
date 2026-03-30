@@ -65,6 +65,7 @@ import {
 import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 import { useFbTemplates } from "@/hooks/use-fb-templates";
 import { FbFavouritesEditor } from "@/components/forge/fb-favourites-editor";
+import { IoFbAssignmentsEditor } from "@/components/forge/io-fb-assignments-editor";
 import { resolveSection } from "@/lib/prompt-defaults";
 import { detectConflicts } from "@/lib/conflict-detector";
 import type { KnowledgeConflict } from "@/lib/conflict-detector";
@@ -363,7 +364,10 @@ export default function ProfileDetailPage() {
           )}
 
           {tab === "favourites" && profile && (
-            <FbFavouritesEditor profile={profile} templates={allFbTemplates ?? []} />
+            <div className="space-y-6">
+              <FbFavouritesEditor profile={profile} templates={allFbTemplates ?? []} />
+              <IoFbAssignmentsEditor profile={profile} templates={allFbTemplates ?? []} />
+            </div>
           )}
         </div>
       </ScrollArea>

@@ -175,6 +175,13 @@ export interface DesignProfile {
    * e.g. { "Motor DOL": "uuid...", "Solenoid Valve 2-pos": "uuid..." }
    */
   fb_favourites: Record<string, string>;
+  /**
+   * Map of IO signal type (DI/DQ/AI/AQ) → template_id for IO handling FBs.
+   * When set, every physical IO signal gets wrapped through the assigned IO FB
+   * for scaling, filtering, HMI binding, manual override, and mode control.
+   * e.g. { "DI": "uuid-of-fbIO_DigitalInput", "AQ": "uuid-of-fbIO_AnalogOutput" }
+   */
+  io_fb_assignments: Record<string, string>;
   created_by: string | null;
   updated_at: string;
   created_at: string;

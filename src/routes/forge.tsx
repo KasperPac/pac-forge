@@ -272,6 +272,7 @@ export default function ForgePage() {
     naming_prefix: "",
     db_naming_prefix: "",
     fb_favourites: {} as Record<string, string>,
+    io_fb_assignments: {} as Record<string, string>,
     created_by: null,
     updated_at: "",
     created_at: "",
