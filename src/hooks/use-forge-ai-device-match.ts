@@ -21,6 +21,9 @@ Match criteria:
 - Does the template handle the right kind of IO (discrete, analog, mixed)?
 - Is the template designed specifically for this device category?
 
+Preference: prefer templates with Source "library" over "custom" when both would work —
+library templates have tested LAD code and matched HMI faceplates.
+
 Confidence:
 - "exact": Template is clearly the right choice for this device (purpose + IO match well)
 - "probable": Template could work with some adaptation by the AI
