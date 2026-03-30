@@ -1158,6 +1158,14 @@ export default function FbLibraryPage() {
                 />
               </div>
             </div>
+
+            {/* Variable table (parsed from all blocks' SCL interface) */}
+            {form.blocks.some((b) => b.scl_code.trim()) && (
+              <div className="space-y-1">
+                <label className="font-mono text-xs text-muted-foreground">Interface Variables</label>
+                <VariableTable blocks={form.blocks} />
+              </div>
+            )}
           </div>
 
           <DialogFooter className="flex-col items-end gap-1.5 sm:flex-col">

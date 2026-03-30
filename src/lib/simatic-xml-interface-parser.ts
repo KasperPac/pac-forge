@@ -50,21 +50,34 @@ function detectBlockType(xml: string): { name: string; type: ParsedLibraryBlock[
 
 /**
  * Parse a <Member> element into an SCL variable declaration line.
+ * Extracts name and datatype from the opening <Member> tag attributes,
+ * comment from nested MultiLanguageText, and start value from StartValue.
  */
 function parseMember(memberXml: string): string {
-  const nameMatch = memberXml.match(/Name="([^"]+)"/);
-  const datatypeMatch = memberXml.match(/Datatype="([^"]+)"/);
-  if (!nameMatch || !datatypeMatch) return "";
+  // Match attributes from the opening <Member ...> tag only (not nested elements)
+  const openTagMatch = memberXml.match(/<Member\s+([^>]*?)(?:\/>|>)/);
+  if (!openTagMatch) return "";
+
+  const attrs = openTagMatch[1];
+  const nameMatch = attrs.match(/Name="([^"]+)"/);
+  const datatypeMatch = attrs.match(/Datatype="([^"]+)"/);
+  if (!nameMatch) return "";
 
   const name = nameMatch[1];
-  let datatype = datatypeMatch[1];
+  let datatype = datatypeMatch?.[1] ?? "Variant";
 
   // Clean up datatype: remove quotes around UDT references
   datatype = datatype.replace(/^"(.*)"$/, '"$1"');
 
-  // Check for comment
-  const commentMatch = memberXml.match(/<Comment[\s\S]*?<MultiLanguageText[^>]*>(.*?)<\/MultiLanguageText>/);
-  const comment = commentMatch ? ` // ${commentMatch[1]}` : "";
+  // Check for comment (prefer en-US, fall back to first MultiLanguageText)
+  let comment = "";
+  const enComment = memberXml.match(/<MultiLanguageText\s+Lang="en-US">(.*?)<\/MultiLanguageText>/);
+  if (enComment) {
+    comment = ` // ${enComment[1]}`;
+  } else {
+    const anyComment = memberXml.match(/<MultiLanguageText[^>]*>(.*?)<\/MultiLanguageText>/);
+    if (anyComment?.[1]) comment = ` // ${anyComment[1]}`;
+  }
 
   // Check for start value
   const startValMatch = memberXml.match(/<StartValue>(.*?)<\/StartValue>/);
@@ -77,7 +90,7 @@ function parseMember(memberXml: string): string {
  * Parse a <Section> element (Input, Output, InOut, Static, Temp, Return, Constant)
  * into SCL VAR declarations.
  */
-function parseSection(sectionXml: string, sectionName: string): string {
+function parseSection(sectionContent: string, sectionName: string): string {
   const varKeyword: Record<string, string> = {
     Input: "VAR_INPUT",
     Output: "VAR_OUTPUT",
@@ -90,19 +103,38 @@ function parseSection(sectionXml: string, sectionName: string): string {
 
   const keyword = varKeyword[sectionName] ?? `VAR // ${sectionName}`;
 
-  // Extract all <Member> elements (non-greedy, top-level only)
-  const memberRegex = /<Member\b[^>]*(?:\/>|>[\s\S]*?<\/Member>)/g;
-  const members: string[] = [];
-  let memberMatch: RegExpExecArray | null;
+  // Use DOMParser to reliably extract top-level <Member> elements
+  // (nested Members inside UDT struct defs would otherwise confuse regex)
+  try {
+    const doc = new DOMParser().parseFromString(`<root>${sectionContent}</root>`, "application/xml");
+    const memberEls = Array.from(doc.documentElement.children).filter(
+      (el) => el.tagName === "Member",
+    );
+    if (memberEls.length === 0) return "";
 
-  while ((memberMatch = memberRegex.exec(sectionXml)) !== null) {
-    const line = parseMember(memberMatch[0]);
-    if (line) members.push(line);
+    const members: string[] = [];
+    for (const el of memberEls) {
+      // Serialize back to string for parseMember (which extracts attrs + comments)
+      const serializer = new XMLSerializer();
+      const memberXml = serializer.serializeToString(el);
+      const line = parseMember(memberXml);
+      if (line) members.push(line);
+    }
+
+    if (members.length === 0) return "";
+    return `  ${keyword}\n${members.join("\n")}\n  END_VAR`;
+  } catch {
+    // Fallback to regex if DOMParser fails
+    const memberRegex = /<Member\b[^>]*(?:\/>|>[\s\S]*?<\/Member>)/g;
+    const members: string[] = [];
+    let memberMatch: RegExpExecArray | null;
+    while ((memberMatch = memberRegex.exec(sectionContent)) !== null) {
+      const line = parseMember(memberMatch[0]);
+      if (line) members.push(line);
+    }
+    if (members.length === 0) return "";
+    return `  ${keyword}\n${members.join("\n")}\n  END_VAR`;
   }
-
-  if (members.length === 0) return "";
-
-  return `  ${keyword}\n${members.join("\n")}\n  END_VAR`;
 }
 
 /**
@@ -128,8 +160,8 @@ export function parseSimaticXmlInterface(xml: string): ParsedLibraryBlock | null
     programmingLanguage = "FBD";
   }
 
-  // Extract <Interface> element
-  const interfaceMatch = xml.match(/<Interface>[\s\S]*?<Sections>([\s\S]*?)<\/Sections>[\s\S]*?<\/Interface>/);
+  // Extract <Interface> element — Sections tag may have xmlns attribute, Interface may have attributes
+  const interfaceMatch = xml.match(/<Interface[^>]*>[\s\S]*?<Sections[^>]*>([\s\S]*)<\/Sections>/);
   if (!interfaceMatch) {
     // For UDTs, the structure might be directly in the XML
     // Return a minimal declaration
@@ -144,13 +176,19 @@ export function parseSimaticXmlInterface(xml: string): ParsedLibraryBlock | null
 
   const sectionsXml = interfaceMatch[1];
 
-  // Parse each section
-  const sectionRegex = /<Section\s+Name="(\w+)">([\s\S]*?)<\/Section>/g;
+  // Parse each section using DOMParser for reliable nested XML handling
+  const sectionParser = new DOMParser();
+  const sectionsDoc = sectionParser.parseFromString(
+    `<root>${sectionsXml}</root>`,
+    "application/xml",
+  );
   const sections: string[] = [];
-  let sectionMatch: RegExpExecArray | null;
 
-  while ((sectionMatch = sectionRegex.exec(sectionsXml)) !== null) {
-    const [, sectionName, sectionContent] = sectionMatch;
+  for (const sectionEl of Array.from(sectionsDoc.documentElement.children)) {
+    if (sectionEl.tagName !== "Section") continue;
+    const sectionName = sectionEl.getAttribute("Name") ?? "";
+    // Re-serialize section content back to string for the regex-based parseMember
+    const sectionContent = sectionEl.innerHTML;
     const parsed = parseSection(sectionContent, sectionName);
     if (parsed) sections.push(parsed);
   }
