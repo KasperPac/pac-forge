@@ -168,6 +168,9 @@ export default function FbLibraryPage() {
 
   const { data: templates, isLoading } = useFbTemplates(activeCategory ?? undefined);
   const { data: allTemplates } = useFbTemplates(); // for library list (unfiltered)
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<"all" | "library" | "custom">("all");
+  const [langFilter, setLangFilter] = useState<"all" | "SCL" | "LAD">("all");
 
   // Search + filter
   const filteredTemplates = useMemo(() => {
@@ -438,9 +441,7 @@ export default function FbLibraryPage() {
   const { generate: generateSummary, loadingId: summaryLoadingId } = useGenerateFbSummary();
   const { generate: generateFlow, loadingId: flowLoadingId } = useGenerateFbFlow();
   const [bulkSummaryLoading, setBulkSummaryLoading] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [sourceFilter, setSourceFilter] = useState<"all" | "library" | "custom">("all");
-  const [langFilter, setLangFilter] = useState<"all" | "SCL" | "LAD">("all");
+  // search/filter state moved above filteredTemplates useMemo
 
   const missingSummaryCount = (allTemplates ?? []).filter((t) => !t.ai_summary && (t.blocks?.length ?? 0) > 0).length;
 
