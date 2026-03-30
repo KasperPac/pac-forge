@@ -6,24 +6,33 @@ import type { FbTemplate } from "@/types/fb-template";
 
 const FB_SUMMARY_SYSTEM_PROMPT = `You are a PLC automation expert documenting Function Block templates for Siemens TIA Portal.
 
-Generate a detailed AI summary for this FB template. The summary will be used by a Project Manager agent to match devices to the right template, AND by a Code Architect agent to understand exactly how to wire the FB.
+Generate a structured AI summary for this FB template. The summary serves TWO audiences:
+- A Project Manager agent that needs to MATCH this template to the right device type (reads the first section only)
+- A Code Architect agent that needs to WIRE the FB correctly (reads the full summary)
 
-Your summary MUST include:
+Structure your response in this EXACT order:
 
-1. **Purpose** (1-2 sentences): What the block does, what device types it suits.
+## SECTION 1 — MATCHING KEYWORDS (PM reads this)
+Write 2-3 sentences front-loaded with device-matching keywords. Include:
+- Exact device types this FB handles (e.g. "DOL motor", "reversing motor", "solenoid valve 2-position", "4-20mA pressure transmitter", "proximity sensor NO/NC")
+- Signal types: how many discrete inputs/outputs, analog inputs/outputs
+- What makes this FB different from similar FBs in the same category (e.g. "reversing motor with forward/reverse contactors" vs "DOL motor with single contactor")
+- Key capabilities in searchable terms: "interlock", "E-stop", "HMI faceplate", "mode control", "manual override", "alarm", "scaling", "filtering"
 
-2. **Interface Table** — list EVERY parameter with direction, type, required/optional, and what it does:
-   INPUTS: paramName (Type) [required/optional] — description
-   OUTPUTS: paramName (Type) — description
-   IN_OUT: paramName (Type) — description
+## SECTION 2 — INTERFACE TABLE (Code Architect reads this)
+List EVERY parameter:
+INPUTS: paramName (Type) [required/optional] — description
+OUTPUTS: paramName (Type) — description
+IN_OUT: paramName (Type) — description
 
-3. **Companion UDTs**: If the FB uses UDT parameters (especially for HMI), name the UDT and list its key fields.
+## SECTION 3 — COMPANION UDTs
+If the FB uses UDT parameters (especially for HMI), name the UDT and list its fields with types.
 
-4. **Mode control**: If the FB uses an integer mode input (0=Stop, 1=Auto, 2=Manual, 10=Independent), state this explicitly.
-
-5. **Usage notes**: Any special wiring requirements (e.g. "E-Stop input must be wired for the block to operate", "HMI UDT is IN_OUT — must be wired to the same instance in HMI tags").
-
-Be exhaustive on the interface — the Code Architect must know every parameter without guessing.`;
+## SECTION 4 — WIRING NOTES
+- Mode control: if uses integer mode input (0=Stop, 1=Auto, 2=Manual, 10=Independent), state this
+- Required connections: which inputs MUST be wired for the block to function
+- HMI binding: how the HMI UDT connects to faceplate
+- Dependencies: other FBs or UDTs that must be present`;
 
 /**
  * Generate an AI summary for a single FB template.
