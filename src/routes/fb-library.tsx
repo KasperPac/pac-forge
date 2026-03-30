@@ -1350,6 +1350,9 @@ function TemplateCard({
             </div>
           )}
 
+          {/* Variable table — parsed from SCL interface */}
+          <VariableTable blocks={blocks} />
+
           {/* Tags + metadata */}
           <div className="flex flex-wrap gap-1">
             <Badge variant="outline" className="font-mono text-[10px]">v{template.version}</Badge>
@@ -1398,6 +1401,104 @@ function TemplateCard({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// --- Variable Table (parsed from SCL interface) ---
+
+interface ParsedVar {
+  name: string;
+  type: string;
+  section: string;
+  comment: string;
+}
+
+function parseVarsFromScl(scl: string): ParsedVar[] {
+  const vars: ParsedVar[] = [];
+  const blockRe = /VAR_(INPUT|OUTPUT|IN_OUT|TEMP)\b([\s\S]*?)END_VAR/gi;
+  let block: RegExpExecArray | null;
+  while ((block = blockRe.exec(scl)) !== null) {
+    const section = block[1].replace("_", " ");
+    const body = block[2];
+    const declRe = /^\s+(\w+)\s*:\s*([^;]+);?\s*(?:\/\/\s*(.*))?$/gm;
+    let decl: RegExpExecArray | null;
+    while ((decl = declRe.exec(body)) !== null) {
+      vars.push({
+        name: decl[1],
+        type: decl[2].trim(),
+        section,
+        comment: decl[3]?.trim() ?? "",
+      });
+    }
+  }
+  // Also parse plain VAR section (static vars)
+  const staticRe = /\bVAR\b(?!\s*_)([\s\S]*?)END_VAR/gi;
+  let staticBlock: RegExpExecArray | null;
+  while ((staticBlock = staticRe.exec(scl)) !== null) {
+    const body = staticBlock[1];
+    const declRe = /^\s+(\w+)\s*:\s*([^;]+);?\s*(?:\/\/\s*(.*))?$/gm;
+    let decl: RegExpExecArray | null;
+    while ((decl = declRe.exec(body)) !== null) {
+      vars.push({
+        name: decl[1],
+        type: decl[2].trim(),
+        section: "STATIC",
+        comment: decl[3]?.trim() ?? "",
+      });
+    }
+  }
+  return vars;
+}
+
+const SECTION_COLORS: Record<string, string> = {
+  INPUT: "text-blue-400/70",
+  OUTPUT: "text-green-400/70",
+  "IN OUT": "text-cyan-400/70",
+  STATIC: "text-muted-foreground/50",
+  TEMP: "text-muted-foreground/40",
+};
+
+function VariableTable({ blocks }: { blocks: Array<{ block_name: string; block_type: string; scl_code: string }> }) {
+  const allVars = blocks.flatMap((b) => {
+    const vars = parseVarsFromScl(b.scl_code);
+    return vars.map((v) => ({ ...v, blockName: b.block_name, blockType: b.block_type }));
+  });
+
+  if (allVars.length === 0) return null;
+
+  // Group by section
+  const sections = ["INPUT", "OUTPUT", "IN OUT", "STATIC", "TEMP"];
+  const grouped = sections
+    .map((s) => ({ section: s, vars: allVars.filter((v) => v.section === s) }))
+    .filter((g) => g.vars.length > 0);
+
+  return (
+    <div className="rounded border border-border/40 overflow-hidden">
+      <table className="w-full text-[11px]">
+        <thead>
+          <tr className="border-b border-border/30 bg-muted/30">
+            <th className="px-2 py-1 text-left font-mono text-[10px] uppercase text-muted-foreground">Direction</th>
+            <th className="px-2 py-1 text-left font-mono text-[10px] uppercase text-muted-foreground">Name</th>
+            <th className="px-2 py-1 text-left font-mono text-[10px] uppercase text-muted-foreground">Type</th>
+            <th className="px-2 py-1 text-left font-mono text-[10px] uppercase text-muted-foreground">Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          {grouped.map((g) =>
+            g.vars.map((v, i) => (
+              <tr key={`${g.section}-${v.name}-${i}`} className="border-b border-border/10 hover:bg-muted/20">
+                <td className={`px-2 py-0.5 font-mono ${SECTION_COLORS[g.section] ?? "text-muted-foreground"}`}>
+                  {i === 0 ? g.section : ""}
+                </td>
+                <td className="px-2 py-0.5 font-mono text-foreground">{v.name}</td>
+                <td className="px-2 py-0.5 font-mono text-muted-foreground">{v.type}</td>
+                <td className="px-2 py-0.5 text-muted-foreground">{v.comment}</td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }
