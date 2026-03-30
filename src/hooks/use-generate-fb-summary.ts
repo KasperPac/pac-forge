@@ -80,7 +80,10 @@ export function useGenerateFbSummary() {
       setLoadingId(template.id);
       try {
         const summary = await generateFbSummaryText(template);
-        if (!summary) return null;
+        if (!summary) {
+          console.warn(`[fb-summary] No content to summarize for "${template.name}" — blocks: ${template.blocks?.length ?? 0}, docs: ${template.documentation ? template.documentation.length + " chars" : "none"}`);
+          return null;
+        }
 
         const { error } = await supabase
           .from("fb_templates")
@@ -91,6 +94,9 @@ export function useGenerateFbSummary() {
 
         queryClient.invalidateQueries({ queryKey: ["fb-templates"] });
         return summary;
+      } catch (err) {
+        console.error(`[fb-summary] Generation failed for "${template.name}":`, err);
+        return null;
       } finally {
         setLoadingId(null);
       }
