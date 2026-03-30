@@ -39,6 +39,7 @@ export function useForgeAiDeviceMatch() {
     async (
       devices: ForgeDeviceEntry[],
       templates: FbTemplate[],
+      favourites: Record<string, string> = {},
     ): Promise<DeviceFbMatch[]> => {
       if (templates.length === 0) {
         return devices.map((device) => ({
@@ -49,10 +50,33 @@ export function useForgeAiDeviceMatch() {
         }));
       }
 
+      // Resolve favourites immediately — don't send these to AI
+      const favouriteMatches: DeviceFbMatch[] = [];
+      const devicesToMatch: ForgeDeviceEntry[] = [];
+
+      for (const device of devices) {
+        const favId = favourites[device.device_type];
+        if (favId) {
+          const template = templates.find((t) => t.id === favId) ?? null;
+          if (template) {
+            favouriteMatches.push({
+              device,
+              template,
+              confidence: "exact",
+              reason: `Matched via profile favourite: "${template.name}".`,
+            });
+            continue;
+          }
+        }
+        devicesToMatch.push(device);
+      }
+
+      if (devicesToMatch.length === 0) return favouriteMatches;
+
       // If no templates have AI summaries or documentation, fall back to heuristic
       const hasContext = templates.some((t) => t.ai_summary || t.documentation);
       if (!hasContext) {
-        return matchDevicesToTemplates(devices, templates);
+        return [...favouriteMatches, ...matchDevicesToTemplates(devicesToMatch, templates, favourites)];
       }
 
       setLoading(true);
@@ -66,7 +90,7 @@ export function useForgeAiDeviceMatch() {
           })
           .join("\n\n---\n\n");
 
-        const deviceList = devices
+        const deviceList = devicesToMatch
           .map(
             (d) =>
               `ID: ${d.id}\nType: ${d.device_type}\nName: ${d.name}\nDescription: ${d.description}\nIO signals: ${(d.io_signals ?? []).map((s) => `${s.signal_type}:${s.tag_name}`).join(", ") || "none"}`,
@@ -78,7 +102,7 @@ export function useForgeAiDeviceMatch() {
           [
             {
               role: "user",
-              content: `TEMPLATES (${templates.length}):\n\n${templateList}\n\n\nDEVICES (${devices.length}):\n\n${deviceList}`,
+              content: `TEMPLATES (${templates.length}):\n\n${templateList}\n\n\nDEVICES (${devicesToMatch.length}):\n\n${deviceList}`,
             },
           ],
           new AbortController().signal,
@@ -96,7 +120,7 @@ export function useForgeAiDeviceMatch() {
           reason: string;
         }> = JSON.parse(jsonMatch[0]);
 
-        return devices.map((device): DeviceFbMatch => {
+        const aiResults = devicesToMatch.map((device): DeviceFbMatch => {
           const a = assignments.find((x) => x.device_id === device.id);
           if (!a) {
             return {
@@ -116,9 +140,10 @@ export function useForgeAiDeviceMatch() {
             reason: a.reason,
           };
         });
+        return [...favouriteMatches, ...aiResults];
       } catch (err) {
         console.warn("AI device matching failed, falling back to heuristic:", err);
-        return matchDevicesToTemplates(devices, templates);
+        return [...favouriteMatches, ...matchDevicesToTemplates(devicesToMatch, templates, favourites)];
       } finally {
         setLoading(false);
       }

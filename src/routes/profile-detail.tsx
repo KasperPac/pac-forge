@@ -10,6 +10,7 @@ import {
   Blocks,
   AlertTriangle,
   Cable,
+  Star,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,11 +63,13 @@ import {
   useUpdateDesignProfile,
 } from "@/hooks/use-design-profiles";
 import { useActivePromptSections } from "@/hooks/use-prompt-sections";
+import { useFbTemplates } from "@/hooks/use-fb-templates";
+import { FbFavouritesEditor } from "@/components/forge/fb-favourites-editor";
 import { resolveSection } from "@/lib/prompt-defaults";
 import { detectConflicts } from "@/lib/conflict-detector";
 import type { KnowledgeConflict } from "@/lib/conflict-detector";
 
-type Tab = "general" | "folders" | "io_linking" | "process" | "fb";
+type Tab = "general" | "folders" | "io_linking" | "process" | "fb" | "favourites";
 
 const TABS: { key: Tab; label: string; icon: typeof FileText }[] = [
   { key: "general", label: "General", icon: FileText },
@@ -74,6 +77,7 @@ const TABS: { key: Tab; label: string; icon: typeof FileText }[] = [
   { key: "io_linking", label: "IO Linking", icon: Cable },
   { key: "process", label: "Process", icon: Workflow },
   { key: "fb", label: "FB", icon: Blocks },
+  { key: "favourites", label: "FB Favourites", icon: Star },
 ];
 
 const DEFAULT_FOLDER_SCHEMA: FolderRulesSchema = {
@@ -164,6 +168,7 @@ export default function ProfileDetailPage() {
   const { data: profile, isLoading } = useDesignProfile(id);
   const updateProfile = useUpdateDesignProfile();
   const { data: promptSections } = useActivePromptSections();
+  const { data: allFbTemplates } = useFbTemplates();
 
   const [tab, setTab] = useState<Tab>("general");
   const [dirty, setDirty] = useState(false);
@@ -355,6 +360,10 @@ export default function ProfileDetailPage() {
               schema={fbSchema}
               onSchemaChange={(v) => { setFbSchema(v); markDirty(); }}
             />
+          )}
+
+          {tab === "favourites" && profile && (
+            <FbFavouritesEditor profile={profile} templates={allFbTemplates ?? []} />
           )}
         </div>
       </ScrollArea>

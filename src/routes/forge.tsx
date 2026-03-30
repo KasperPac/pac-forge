@@ -271,6 +271,7 @@ export default function ForgePage() {
     hmi_theme: "default",
     naming_prefix: "",
     db_naming_prefix: "",
+    fb_favourites: {} as Record<string, string>,
     created_by: null,
     updated_at: "",
     created_at: "",
@@ -340,6 +341,7 @@ export default function ForgePage() {
             savedIoList={session.io_list?.length ? session.io_list : undefined}
             savedHardware={session.hardware_config ?? undefined}
             fbTemplates={fbTemplates}
+            fbFavourites={profileOrDefault.fb_favourites ?? {}}
             deviceFbLanguage={profileOrDefault.device_fb_language}
             provisionStatus={provisionStatus}
             onComplete={handleHardwareIoComplete}

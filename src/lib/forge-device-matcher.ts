@@ -307,23 +307,51 @@ function reasonFor(score: TemplateScore, device: ForgeDeviceEntry, confidence: s
 export function rankTemplatesForDevice(
   device: ForgeDeviceEntry,
   templates: FbTemplate[],
+  favourites: Record<string, string> = {},
 ): TemplateScore[] {
-  return templates
+  const scored = templates
     .map((t) => scoreTemplate(device, t))
     .sort((a, b) => b.combined - a.combined);
+
+  // Move the favourite to the top if one exists
+  const favId = favourites[device.device_type];
+  if (favId) {
+    const favIdx = scored.findIndex((s) => s.template.id === favId);
+    if (favIdx > 0) {
+      const [fav] = scored.splice(favIdx, 1);
+      scored.unshift(fav);
+    }
+  }
+  return scored;
 }
 
 export function matchDevicesToTemplates(
   devices: ForgeDeviceEntry[],
   templates: FbTemplate[],
+  favourites: Record<string, string> = {},
 ): DeviceFbMatch[] {
   return devices.map((device): DeviceFbMatch => {
+    // --- Favourite check (highest priority — skip scoring entirely) ---
+    const favouriteId = favourites[device.device_type];
+    if (favouriteId) {
+      const template = templates.find((t) => t.id === favouriteId) ?? null;
+      if (template) {
+        return {
+          device,
+          template,
+          confidence: "exact",
+          reason: `"${device.device_type}" matched via profile favourite: "${template.name}".`,
+        };
+      }
+      // Favourite ID set but template not found (deleted?) — fall through to scoring
+    }
+
     if (templates.length === 0) {
       return { device, template: null, confidence: "none", reason: "No templates in library." };
     }
 
-    // Score all templates for this device
-    const scores: TemplateScore[] = templates.map(t => scoreTemplate(device, t));
+    // --- Existing scoring path ---
+    const scores: TemplateScore[] = templates.map((t) => scoreTemplate(device, t));
     scores.sort((a, b) => b.combined - a.combined);
 
     const best = scores[0];

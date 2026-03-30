@@ -168,6 +168,13 @@ export interface DesignProfile {
   naming_prefix: string;
   /** DB naming prefix for customer, e.g. "DB_CK_" (migration 025) */
   db_naming_prefix: string;
+  /**
+   * Map of device_type → template_id for preferred FB templates.
+   * When set for a device type, the matcher uses this template directly
+   * without running heuristic scoring.
+   * e.g. { "Motor DOL": "uuid...", "Solenoid Valve 2-pos": "uuid..." }
+   */
+  fb_favourites: Record<string, string>;
   created_by: string | null;
   updated_at: string;
   created_at: string;

@@ -215,6 +215,8 @@ export interface ForgeHardwareIoProps {
   /** Previously saved hardware config from session. */
   savedHardware?: ForgeHardwareConfig;
   fbTemplates: FbTemplate[];
+  /** FB favourites map from design profile (device_type → template_id) */
+  fbFavourites?: Record<string, string>;
   deviceFbLanguage?: "SCL" | "LAD";
   /** Status of TIA project provisioning (runs after confirm) */
   provisionStatus?: { phase: string; created?: boolean; message?: string; warnings?: string[] };
@@ -253,6 +255,7 @@ export function ForgeHardwareIo({
   savedIoList,
   savedHardware,
   fbTemplates,
+  fbFavourites = {},
   deviceFbLanguage = "SCL",
   provisionStatus,
   onComplete,
@@ -287,7 +290,7 @@ export function ForgeHardwareIo({
     }
     // Fresh extraction from spec — run matcher to get initial confidence
     const raw = specAnalysis ? devicesFromAnalysis(specAnalysis) : [];
-    const matches = matchDevicesToTemplates(raw, fbTemplates);
+    const matches = matchDevicesToTemplates(raw, fbTemplates, fbFavourites);
     return applyMatchesToDevices(raw, matches);
   });
 
@@ -304,7 +307,7 @@ export function ForgeHardwareIo({
   const { match: aiMatch, loading: aiMatchLoading } = useForgeAiDeviceMatch();
 
   const handleAiMatch = useCallback(async () => {
-    const aiMatches = await aiMatch(devices, fbTemplates);
+    const aiMatches = await aiMatch(devices, fbTemplates, fbFavourites);
     setDevices(applyMatchesToDevices(devices, aiMatches));
   }, [devices, fbTemplates, aiMatch]);
 
@@ -316,7 +319,7 @@ export function ForgeHardwareIo({
     setDevices((prev) => {
       if (prev.length > 0) return prev; // already have data (saved or derived)
       const raw = devicesFromAnalysis(specAnalysis);
-      const matches = matchDevicesToTemplates(raw, fbTemplates);
+      const matches = matchDevicesToTemplates(raw, fbTemplates, fbFavourites);
       return applyMatchesToDevices(raw, matches);
     });
 
@@ -335,7 +338,7 @@ export function ForgeHardwareIo({
   useEffect(() => {
     if (fbTemplates.length > 0) {
       setDevices((prev) => {
-        const matches = matchDevicesToTemplates(prev, fbTemplates);
+        const matches = matchDevicesToTemplates(prev, fbTemplates, fbFavourites);
         return applyMatchesToDevices(prev, matches);
       });
     }
@@ -462,7 +465,7 @@ export function ForgeHardwareIo({
 
     setDevices((prev) => {
       const updated = [...prev, ...newDevices];
-      const matches = matchDevicesToTemplates(updated, fbTemplates);
+      const matches = matchDevicesToTemplates(updated, fbTemplates, fbFavourites);
       return applyMatchesToDevices(updated, matches);
     });
     setIoList((prev) => [...prev, ...newIo]);
@@ -715,7 +718,7 @@ export function ForgeHardwareIo({
     }));
     setDevices((prev) => {
       const combined = [...prev, ...newDevices];
-      const matches = matchDevicesToTemplates(combined, fbTemplates);
+      const matches = matchDevicesToTemplates(combined, fbTemplates, fbFavourites);
       return applyMatchesToDevices(combined, matches);
     });
     setDismissedSuggestions((prev) => {
@@ -1026,6 +1029,7 @@ export function ForgeHardwareIo({
                             <FbTemplateSelector
                               device={d}
                               templates={fbTemplates}
+                              favourites={fbFavourites}
                               value={d.fb_template_id ?? "__ai__"}
                               onValueChange={(v) => updateDeviceTemplate(d.id, v)}
                             />
@@ -1187,15 +1191,19 @@ export function ForgeHardwareIo({
 function FbTemplateSelector({
   device,
   templates,
+  favourites = {},
   value,
   onValueChange,
 }: {
   device: ForgeDeviceEntry;
   templates: FbTemplate[];
+  favourites?: Record<string, string>;
   value: string;
   onValueChange: (v: string) => void;
 }) {
-  const ranked = useMemo(() => rankTemplatesForDevice(device, templates), [device, templates]);
+  const ranked = useMemo(() => rankTemplatesForDevice(device, templates, favourites), [device, templates, favourites]);
+
+  const favId = favourites[device.device_type];
 
   // Split into groups: recommended (score >= 0.3), library, custom
   const recommended = ranked.filter((r) => r.combined >= 0.3);
@@ -1232,6 +1240,7 @@ function FbTemplateSelector({
             {recommended.map((r) => (
               <SelectItem key={r.template.id} value={r.template.id}>
                 <div className="flex items-center gap-1.5">
+                  {r.template.id === favId && <span className="text-amber-400">★</span>}
                   <span>{r.template.name}</span>
                   <span className="text-[10px] text-green-400/60">{Math.round(r.combined * 100)}%</span>
                   {r.template.source === "library" && (
