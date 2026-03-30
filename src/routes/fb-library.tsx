@@ -802,12 +802,12 @@ export default function FbLibraryPage() {
         </button>
       </div>
 
-      {/* Imported libraries — enable/disable toggles */}
+      {/* Imported libraries — enable/disable toggles + delete */}
       {libraries.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-md border border-border/50 bg-muted/20 px-3 py-2">
           <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Libraries</span>
           {libraries.map(([name, { count, enabled }]) => (
-            <label key={name} className="flex cursor-pointer items-center gap-1.5">
+            <div key={name} className="flex items-center gap-1.5">
               <Switch
                 checked={enabled}
                 onCheckedChange={(val) => setLibraryEnabled.mutate({ libraryName: name, enabled: val })}
@@ -817,7 +817,39 @@ export default function FbLibraryPage() {
                 {name}
               </span>
               <span className="font-mono text-[10px] text-muted-foreground">({count})</span>
-            </label>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <button className="ml-0.5 rounded p-0.5 text-muted-foreground hover:bg-destructive/20 hover:text-destructive" title={`Delete all ${count} templates from ${name}`}>
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete entire library?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete all {count} templates from &quot;{name}&quot;. This cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      onClick={async () => {
+                        const ids = (allTemplates ?? [])
+                          .filter((t) => t.source === "library" && t.library_name === name)
+                          .map((t) => t.id);
+                        for (const id of ids) {
+                          deleteTemplate.mutate(id);
+                        }
+                        toast({ title: "Library deleted", description: `${ids.length} templates removed from "${name}".` });
+                      }}
+                    >
+                      Delete {count} templates
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
           ))}
         </div>
       )}
