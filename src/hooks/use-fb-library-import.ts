@@ -229,37 +229,38 @@ function groupBlocksIntoTemplates(blocks: ParsedLibraryBlock[]): Map<string, Par
     }
   }
 
-  // Second: match non-FB blocks to their parent FB
+  // Second: match non-FB blocks to ALL parent FBs that reference them.
+  // A UDT like udtHMI_MotorControl is used by multiple motor FBs —
+  // it should appear as a block in EACH of those templates.
   for (const block of blocks) {
     if (block.type === "FB") continue;
 
-    let matched = false;
+    let matchCount = 0;
     const blockStems = extractDeviceStems(block.name);
 
     // Strategy 1: Check if any FB's interface SCL references this block by name
+    // Add to ALL matching FBs, not just the first
     for (const fb of fbBlocks) {
       if (fbReferencesBlock(fb, block.name)) {
         templates.get(fb.name)!.push(block);
-        matched = true;
-        break;
+        matchCount++;
       }
     }
-    if (matched) continue;
+    if (matchCount > 0) continue; // Interface reference is the strongest signal — skip weaker strategies
 
-    // Strategy 2: Device type stem overlap
+    // Strategy 2: Device type stem overlap (add to first match only — stem matching is less precise)
     for (const [fbName, group] of templates) {
       const fbStems = extractDeviceStems(fbName);
-      // Check if any stem from the block matches any stem from the FB
       const overlap = blockStems.some((bs) =>
         fbStems.some((fs) => bs === fs || (bs.length >= 5 && fs.includes(bs)) || (fs.length >= 5 && bs.includes(fs)))
       );
       if (overlap) {
         group.push(block);
-        matched = true;
+        matchCount++;
         break;
       }
     }
-    if (matched) continue;
+    if (matchCount > 0) continue;
 
     // Strategy 3: Direct containment (legacy fallback)
     for (const [fbName, group] of templates) {
@@ -267,13 +268,13 @@ function groupBlocksIntoTemplates(blocks: ParsedLibraryBlock[]): Map<string, Par
       const blockBase = block.name.replace(/^(udt|type|error)/i, "").toLowerCase();
       if (fbBase.includes(blockBase) || blockBase.includes(fbBase)) {
         group.push(block);
-        matched = true;
+        matchCount++;
         break;
       }
     }
 
     // No match — create standalone template
-    if (!matched) {
+    if (matchCount === 0) {
       templates.set(block.name, [block]);
     }
   }
