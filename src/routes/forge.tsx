@@ -49,7 +49,7 @@ import {
   useUpdateForgeSession,
 } from "@/hooks/use-forge-session";
 import { useDesignProfile } from "@/hooks/use-design-profiles";
-import { useFbTemplates } from "@/hooks/use-fb-templates";
+import { useFbTemplatesForSession } from "@/hooks/use-fb-templates";
 import type { FbTemplate } from "@/types/fb-template";
 import { useActivePatterns } from "@/hooks/use-patterns";
 import { useProject } from "@/hooks/use-projects";
@@ -102,7 +102,7 @@ export default function ForgePage() {
 
   // Dependencies
   const { data: profile } = useDesignProfile(session?.design_profile_id ?? undefined);
-  const { data: fbTemplates = [], refetch: refetchFbTemplates } = useFbTemplates();
+  const { data: fbTemplates = [], refetch: refetchFbTemplates } = useFbTemplatesForSession(session?.design_profile_id ?? undefined);
   const fetchFreshTemplates = async (): Promise<FbTemplate[]> => {
     const result = await refetchFbTemplates();
     return result.data ?? fbTemplates;

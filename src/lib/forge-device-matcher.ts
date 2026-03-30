@@ -164,6 +164,21 @@ function toCanonical(s: string): string | null {
 }
 
 /**
+ * Tokenise a template name by stripping fb/fc/udt prefix and splitting on
+ * underscores and CamelCase boundaries.
+ * "fbMotor_Reversing" → ["motor", "reversing"]
+ * "fbVFD_GSeries" → ["vfd", "g", "series"]
+ */
+function tokeniseTemplateName(name: string): string[] {
+  const stripped = name.replace(/^(fb|fc|udt)/i, "");
+  return stripped
+    .split("_")
+    .flatMap(part => part.split(/(?<=[a-z])(?=[A-Z])/))
+    .map(t => t.toLowerCase())
+    .filter(t => t.length >= 2);
+}
+
+/**
  * Name affinity score 0–1:
  *   1.0 = direct/synonym exact match
  *   0.6 = substring containment
@@ -198,6 +213,17 @@ function nameAffinity(deviceType: string, template: FbTemplate): number {
   });
   if (tagMatch) return 0.3;
 
+  // Token overlap — handles library FB naming conventions (fb prefix, CamelCase, underscores)
+  const templateTokens = tokeniseTemplateName(template.name);
+  const deviceTokens = deviceType.toLowerCase().split(/[\s_\-/]+/).filter(w => w.length >= 2);
+  if (templateTokens.length > 0 && deviceTokens.length > 0) {
+    const overlap = deviceTokens.filter(w => templateTokens.includes(w));
+    if (overlap.length > 0) {
+      const ratio = overlap.length / deviceTokens.length;
+      return Math.min(0.55, 0.3 + ratio * 0.25);
+    }
+  }
+
   return 0.0;
 }
 
@@ -217,7 +243,10 @@ export interface TemplateScore {
  * Check if the AI summary mentions keywords related to this device type.
  */
 function summaryAffinity(deviceType: string, template: FbTemplate): number {
-  const summary = template.ai_summary?.toLowerCase() ?? "";
+  // Fall back to first 500 chars of documentation when ai_summary is missing
+  const summary = (template.ai_summary
+    ?? template.documentation?.slice(0, 500)
+    ?? "").toLowerCase();
   if (!summary) return 0;
 
   const deviceWords = deviceType.toLowerCase().split(/[\s_\-/]+/).filter((w) => w.length >= 3);
@@ -236,11 +265,13 @@ export function scoreTemplate(device: ForgeDeviceEntry, template: FbTemplate): T
   // Interface is primary (40%), name (30%), summary (30%)
   // But if template has no SCL blocks yet, fall back to name + summary
   const hasScl = (template.blocks?.length ?? 0) > 0;
+  // Library templates have tested code + matched HMI faceplates — prefer them
+  const sourceBoost = template.source === "library" ? 0.08 : 0;
   const combined = hasScl
-    ? 0.4 * iScore + 0.3 * nScore + 0.3 * sScore
-    : 0.5 * nScore + 0.5 * sScore;
+    ? Math.min(1.0, 0.4 * iScore + 0.3 * nScore + 0.3 * sScore + sourceBoost)
+    : Math.min(1.0, 0.5 * nScore + 0.5 * sScore + sourceBoost);
 
-  return { template, iScore, nScore, combined };
+  return { template, iScore, nScore, sScore, combined };
 }
 
 function confidenceFromScore(score: TemplateScore): "exact" | "probable" | "none" {

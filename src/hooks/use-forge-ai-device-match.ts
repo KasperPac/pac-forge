@@ -46,19 +46,21 @@ export function useForgeAiDeviceMatch() {
         }));
       }
 
-      // If no templates have AI summaries, fall back to heuristic
-      const hasSummaries = templates.some((t) => t.ai_summary);
-      if (!hasSummaries) {
+      // If no templates have AI summaries or documentation, fall back to heuristic
+      const hasContext = templates.some((t) => t.ai_summary || t.documentation);
+      if (!hasContext) {
         return matchDevicesToTemplates(devices, templates);
       }
 
       setLoading(true);
       try {
         const templateList = templates
-          .map(
-            (t) =>
-              `ID: ${t.id}\nName: ${t.name}\nCategory: ${t.device_category}\nSummary: ${t.ai_summary ?? "(no summary — match by name/category only)"}`,
-          )
+          .map((t) => {
+            const summary = t.ai_summary
+              ?? (t.documentation ? t.documentation.slice(0, 300).replace(/\s+/g, " ").trim() + "…" : null)
+              ?? "(no summary)";
+            return `ID: ${t.id}\nName: ${t.name}\nCategory: ${t.device_category}\nSource: ${t.source}\nSummary: ${summary}`;
+          })
           .join("\n\n---\n\n");
 
         const deviceList = devices
