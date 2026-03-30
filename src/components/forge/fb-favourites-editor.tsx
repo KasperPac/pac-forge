@@ -51,15 +51,12 @@ export function FbFavouritesEditor({
   // Merge known types with any custom types from templates
   const allDeviceTypes = useMemo(() => {
     const types = new Set(KNOWN_DEVICE_TYPES);
-    for (const t of templates) {
-      if (t.device_category) types.add(t.device_category);
-    }
-    // Also include any types already in favourites
+    // Include any types the user has already pinned (so they remain visible)
     for (const dt of Object.keys(localFavs)) {
       types.add(dt);
     }
     return [...types].sort();
-  }, [templates, localFavs]);
+  }, [localFavs]);
 
   // Group templates by source for the dropdown
   const libraryTemplates = templates.filter((t) => t.source === "library").sort((a, b) => a.name.localeCompare(b.name));
