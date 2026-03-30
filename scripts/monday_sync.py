@@ -689,6 +689,12 @@ def sync_tasks():
             t["monday_item_id"] = item_id
             updated = True
         else:
+            # Only update this item if it was explicitly changed in this sync.
+            # The _dirty flag is set by task_create.py / task_update.py on the
+            # specific task being modified.  All other existing items are skipped
+            # to avoid overwriting manual board changes (e.g. "Done" status).
+            if not t.get("_dirty"):
+                continue
             update_item(token, board_id, item_id, column_values)
 
         overview_name = f"{repo_name} - {title}"
@@ -712,10 +718,15 @@ def sync_tasks():
                 )
                 t["overview_item_id"] = overview_item_id
                 updated = True
-            else:
+            elif t.get("_dirty") or not item_id:
+                # Only update overview for dirty (explicitly changed) tasks
                 update_item(token, overview_board_id, overview_item_id, overview_values)
         except (Exception, SystemExit) as e:
             print(f"Warning: Overview sync failed for '{title}': {e}", file=sys.stderr)
+
+        # Clean up dirty flag after both board + overview syncs
+        if t.pop("_dirty", None):
+            updated = True
 
     if updated:
         save_json(tasks_path, tasks_data)

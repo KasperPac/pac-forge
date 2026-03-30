@@ -19,6 +19,7 @@ import type { ProcessRulesSchema } from "@/types/design-profile";
 import { parseProcessRules } from "@/lib/design-profile-schemas";
 import { formatDesignProfile } from "@/lib/prompt-builder";
 import { resolveSection } from "@/lib/prompt-defaults";
+import { buildWiringContext } from "@/lib/wiring-context";
 
 // ---------------------------------------------------------------------------
 // Step/Action DB pattern rules (injected when profile enables this pattern)
@@ -102,7 +103,9 @@ const SPEC_ANALYSIS_SCHEMA = `{
         {
           "tag_name": "string (full PLC tag name)",
           "signal_type": "DI | DQ | AI | AQ",
-          "description": "string (signal description)"
+          "description": "string (signal description)",
+          "signal_behaviour": "momentary | maintained | continuous | pulsed (how the physical signal behaves: momentary=push button/spring return, maintained=selector switch/toggle, continuous=sensor always on/off, pulsed=encoder/flow meter)",
+          "contact_type": "NO | NC (normally open or normally closed wiring — for DI signals)"
         }
       ]
     }
@@ -1373,6 +1376,8 @@ export function buildProcessSclPrompt(context: ProcessGenContext, promptSections
 Use these exact field names — do NOT invent alternatives.
 
 ${wiringSummary}` : "",
+    // Full signal path map — shows IO addresses, cross-device references, interlocks
+    buildWiringContext(linkageMatrix, context.ioEntries ?? []),
     "",
     patternSection,
     "",

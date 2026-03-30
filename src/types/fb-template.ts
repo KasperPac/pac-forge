@@ -17,12 +17,18 @@ export interface FbDeviceCategory {
   created_at: string;
 }
 
+export type FbBlockLanguage = "SCL" | "LAD" | "FBD" | "STL" | "GRAPH";
+
 export interface FbTemplateBlock {
   id: string;
   template_id: string;
   block_name: string;
   block_type: FbBlockType;
   scl_code: string;
+  /** Raw SimaticML XML exported from TIA Portal (for LAD/FBD blocks) */
+  block_xml: string | null;
+  /** Programming language: SCL, LAD, FBD, STL, GRAPH */
+  programming_language: FbBlockLanguage;
   sort_order: number;
   created_at: string;
 }
@@ -58,7 +64,7 @@ export interface FbTemplate {
 }
 
 export type FbTemplateCreate = Omit<FbTemplate, "id" | "created_at" | "updated_at" | "created_by" | "blocks" | "profile_ids" | "version" | "ai_summary" | "diagram_chart" | "diagram_generated_at" | "flow_diagram_json" | "flow_diagram_generated_at" | "source" | "library_name" | "is_enabled" | "documentation"> & {
-  blocks: Array<{ block_name: string; block_type: FbBlockType; scl_code: string; sort_order: number }>;
+  blocks: Array<{ block_name: string; block_type: FbBlockType; scl_code: string; sort_order: number; block_xml?: string | null; programming_language?: FbBlockLanguage }>;
   profile_ids?: string[];
   source?: FbTemplateSource;
   library_name?: string | null;
@@ -72,7 +78,7 @@ export interface FbTemplateVersion {
   id: string;
   template_id: string;
   version: number;
-  blocks: Array<{ block_name: string; block_type: string; scl_code: string; sort_order: number }>;
+  blocks: Array<{ block_name: string; block_type: string; scl_code: string; sort_order: number; block_xml?: string | null; programming_language?: string }>;
   description: string | null;
   tags: string[];
   notes: string | null;

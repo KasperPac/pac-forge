@@ -226,6 +226,148 @@ function HeaterIcon(props: IconProps) {
   );
 }
 
+/** Analog IO — signal with arrow and wave */
+function AnalogIoIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      {/* Module body */}
+      <rect x="6" y="4" width="28" height="32" rx="3" stroke="currentColor" strokeWidth="1.5" />
+      {/* Analog wave */}
+      <path d="M11 20 Q15 10, 20 20 Q25 30, 29 20" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      {/* Terminal dots */}
+      <circle cx="12" cy="10" r="1.5" fill="currentColor" opacity="0.5" />
+      <circle cx="18" cy="10" r="1.5" fill="currentColor" opacity="0.5" />
+      <circle cx="24" cy="10" r="1.5" fill="currentColor" opacity="0.5" />
+      <circle cx="30" cy="10" r="1.5" fill="currentColor" opacity="0.5" />
+      {/* AI label */}
+      <text x="20" y="33" textAnchor="middle" fill="currentColor" fontSize="6" fontFamily="monospace" fontWeight="bold" opacity="0.5">AI</text>
+    </svg>
+  );
+}
+
+/** Digital IO — module with on/off indicators */
+function DigitalIoIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      {/* Module body */}
+      <rect x="6" y="4" width="28" height="32" rx="3" stroke="currentColor" strokeWidth="1.5" />
+      {/* LED indicators */}
+      <circle cx="14" cy="12" r="2" fill="currentColor" opacity="0.6" />
+      <circle cx="22" cy="12" r="2" stroke="currentColor" strokeWidth="1" opacity="0.3" />
+      <circle cx="30" cy="12" r="2" fill="currentColor" opacity="0.6" />
+      {/* Binary label */}
+      <text x="20" y="24" textAnchor="middle" fill="currentColor" fontSize="8" fontFamily="monospace" fontWeight="bold" opacity="0.4">1 0 1</text>
+      {/* DI label */}
+      <text x="20" y="33" textAnchor="middle" fill="currentColor" fontSize="6" fontFamily="monospace" fontWeight="bold" opacity="0.5">DI</text>
+    </svg>
+  );
+}
+
+/** Generic IO — module with terminals */
+function IoIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      {/* Module body */}
+      <rect x="6" y="4" width="28" height="32" rx="3" stroke="currentColor" strokeWidth="1.5" />
+      {/* Input arrow */}
+      <path d="M2 15 L10 15 L10 12 L16 17 L10 22 L10 19 L2 19" fill="currentColor" fillOpacity="0.2" stroke="currentColor" strokeWidth="1" />
+      {/* Output arrow */}
+      <path d="M38 21 L30 21 L30 18 L24 23 L30 28 L30 25 L38 25" fill="currentColor" fillOpacity="0.2" stroke="currentColor" strokeWidth="1" />
+      {/* IO label */}
+      <text x="20" y="14" textAnchor="middle" fill="currentColor" fontSize="7" fontFamily="monospace" fontWeight="bold" opacity="0.5">IO</text>
+    </svg>
+  );
+}
+
+/** Process Control — PID controller symbol */
+function ProcessControlIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      {/* Controller box */}
+      <rect x="6" y="6" width="28" height="28" rx="3" stroke="currentColor" strokeWidth="1.5" />
+      {/* Setpoint line */}
+      <line x1="10" y1="16" x2="34" y2="16" stroke="currentColor" strokeWidth="1" strokeDasharray="3 2" opacity="0.4" />
+      {/* PV response curve */}
+      <path d="M10 28 Q14 28, 16 22 Q18 14, 22 16 Q26 18, 28 16 Q30 15, 34 16" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      {/* PID label */}
+      <text x="20" y="12" textAnchor="middle" fill="currentColor" fontSize="6" fontFamily="monospace" fontWeight="bold" opacity="0.5">PID</text>
+    </svg>
+  );
+}
+
+/** Safety / Interlock — shield with checkmark */
+function SafetyIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      {/* Shield outline */}
+      <path d="M20 3 L34 10 L34 22 Q34 32, 20 37 Q6 32, 6 22 L6 10 Z" stroke="currentColor" strokeWidth="1.5" fill="currentColor" fillOpacity="0.08" />
+      {/* Checkmark */}
+      <path d="M14 20 L18 24 L26 14" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** System / Mode — gear with play/stop */
+function SystemIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      {/* Outer gear */}
+      <path
+        d="M20 4 L22 8 L26 6 L26 10 L30 10 L28 14 L32 16 L28 18 L30 22 L26 22 L26 26 L22 24 L20 28 L18 24 L14 26 L14 22 L10 22 L12 18 L8 16 L12 14 L10 10 L14 10 L14 6 L18 8 Z"
+        stroke="currentColor" strokeWidth="1.5" fill="currentColor" fillOpacity="0.1" strokeLinejoin="round"
+      />
+      {/* Center circle */}
+      <circle cx="20" cy="16" r="5" stroke="currentColor" strokeWidth="1.5" />
+      {/* Play triangle */}
+      <polygon points="18,13 18,19 23,16" fill="currentColor" opacity="0.5" />
+      {/* Mode label */}
+      <text x="20" y="37" textAnchor="middle" fill="currentColor" fontSize="6" fontFamily="monospace" fontWeight="bold" opacity="0.5">SYS</text>
+    </svg>
+  );
+}
+
+/** Instrument — gauge/meter symbol */
+function InstrumentIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      {/* Gauge circle */}
+      <circle cx="20" cy="18" r="14" stroke="currentColor" strokeWidth="1.5" />
+      {/* Scale arc */}
+      <path d="M10 24 A14 14 0 0 1 30 24" stroke="currentColor" strokeWidth="1" opacity="0.3" fill="none" />
+      {/* Needle */}
+      <line x1="20" y1="18" x2="28" y2="10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      {/* Center dot */}
+      <circle cx="20" cy="18" r="2" fill="currentColor" opacity="0.5" />
+      {/* Scale marks */}
+      <line x1="10" y1="18" x2="12" y2="18" stroke="currentColor" strokeWidth="1" opacity="0.4" />
+      <line x1="20" y1="6" x2="20" y2="8" stroke="currentColor" strokeWidth="1" opacity="0.4" />
+      <line x1="30" y1="18" x2="28" y2="18" stroke="currentColor" strokeWidth="1" opacity="0.4" />
+      {/* Connection */}
+      <line x1="20" y1="32" x2="20" y2="38" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+/** Servo — motor with encoder */
+function ServoIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      {/* Motor body */}
+      <circle cx="16" cy="20" r="12" stroke="currentColor" strokeWidth="1.5" />
+      <text x="16" y="24" textAnchor="middle" fill="currentColor" fontSize="10" fontWeight="bold" fontFamily="monospace" opacity="0.6">S</text>
+      {/* Shaft */}
+      <line x1="28" y1="20" x2="34" y2="20" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+      {/* Encoder lines on motor */}
+      <line x1="16" y1="8" x2="16" y2="11" stroke="currentColor" strokeWidth="1" opacity="0.3" />
+      <line x1="8" y1="14" x2="10" y2="16" stroke="currentColor" strokeWidth="1" opacity="0.3" />
+      <line x1="22" y1="14" x2="24" y2="16" stroke="currentColor" strokeWidth="1" opacity="0.3" />
+      {/* Feedback arrow */}
+      <path d="M34 14 Q38 14, 38 18 L38 22 Q38 26, 34 26" stroke="currentColor" strokeWidth="1" opacity="0.4" fill="none" />
+      <path d="M36 25 L34 26 L36 27" stroke="currentColor" strokeWidth="1" opacity="0.4" />
+    </svg>
+  );
+}
+
 /** Analyzer — flask/probe symbol */
 function AnalyzerIcon(props: IconProps) {
   return (
@@ -263,14 +405,89 @@ const CATEGORY_ICON_MAP: Record<string, React.ComponentType<IconProps>> = {
   Solenoid: SolenoidIcon,
   Heater: HeaterIcon,
   Analyzer: AnalyzerIcon,
+  AnalogIO: AnalogIoIcon,
+  DigitalIO: DigitalIoIcon,
+  IO: IoIcon,
+  ProcessControl: ProcessControlIcon,
+  Safety: SafetyIcon,
+  System: SystemIcon,
+  Instrument: InstrumentIcon,
+  Servo: ServoIcon,
+  Conveyor: ConveyorIcon,
 };
+
+/**
+ * Normalize a category name to a map key.
+ * Handles: lowercase, underscores, plural, spaces, hyphens.
+ * e.g. "motor" → "Motor", "Motors" → "Motor", "analog_io" → "AnalogIO",
+ * "VFD / Drive" → "VFD", "process_control" → "ProcessControl"
+ */
+const ALIAS_MAP: Record<string, string> = {
+  motor: "Motor",
+  motors: "Motor",
+  sensor: "Sensor",
+  sensors: "Sensor",
+  valve: "Valve",
+  valves: "Valve",
+  pushbutton: "Pushbutton",
+  pushbuttons: "Pushbutton",
+  lighttower: "LightTower",
+  vfd: "VFD",
+  vfds: "VFD",
+  drive: "VFD",
+  drives: "VFD",
+  conveyorsection: "ConveyorSection",
+  conveyor: "Conveyor",
+  conveyors: "Conveyor",
+  zpasection: "ZPASection",
+  zpa: "ZPASection",
+  custom: "Custom",
+  solenoid: "Solenoid",
+  solenoids: "Solenoid",
+  heater: "Heater",
+  heaters: "Heater",
+  analyzer: "Analyzer",
+  analyzers: "Analyzer",
+  analogio: "AnalogIO",
+  analog_io: "AnalogIO",
+  digitalio: "DigitalIO",
+  digital_io: "DigitalIO",
+  io: "IO",
+  processcontrol: "ProcessControl",
+  process_control: "ProcessControl",
+  safety: "Safety",
+  interlock: "Safety",
+  system: "System",
+  instrument: "Instrument",
+  instruments: "Instrument",
+  servo: "Servo",
+  servos: "Servo",
+};
+
+function resolveIconKey(categoryName: string): string {
+  // Try direct match first
+  if (CATEGORY_ICON_MAP[categoryName]) return categoryName;
+
+  // Normalize: lowercase, strip spaces/hyphens/underscores for alias lookup
+  const normalized = categoryName.toLowerCase().replace(/[\s\-/]+/g, "").replace(/_/g, "_");
+
+  // Try alias (with underscores preserved for analog_io etc.)
+  const aliasKey = ALIAS_MAP[normalized] ?? ALIAS_MAP[categoryName.toLowerCase().replace(/[\s\-/]+/g, "")];
+  if (aliasKey) return aliasKey;
+
+  // Try underscore variant
+  const underscoreKey = ALIAS_MAP[categoryName.toLowerCase()];
+  if (underscoreKey) return underscoreKey;
+
+  return "Custom";
+}
 
 /**
  * Get the icon component for a device category.
  * Falls back to CustomIcon for unknown categories.
  */
 export function getCategoryIcon(categoryName: string): React.ComponentType<IconProps> {
-  return CATEGORY_ICON_MAP[categoryName] ?? CustomIcon;
+  return CATEGORY_ICON_MAP[resolveIconKey(categoryName)] ?? CustomIcon;
 }
 
 /**

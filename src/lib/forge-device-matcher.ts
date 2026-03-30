@@ -143,6 +143,15 @@ const DEVICE_TYPE_SYNONYMS: Record<string, string[]> = {
                            "estop device", "emergency stop device", "mushroom head stop", "mushroom stop"],
   "stack light":          ["signal tower", "indicator light", "tower light", "signal light", "beacon"],
   "conveyor":             ["conveyor dol", "belt conveyor", "conveyor belt"],
+  "digital input":        ["di", "digital input", "digital sensor", "limit switch", "level switch",
+                           "float switch", "pressure switch", "flow switch"],
+  "digital output":       ["do", "dq", "digital output", "solenoid", "pilot light", "indicator",
+                           "horn", "siren", "relay output", "contactor"],
+  "analog input":         ["ai", "analog input", "analog sensor", "transmitter", "4-20ma input",
+                           "rtd", "thermocouple", "pressure transmitter", "level transmitter",
+                           "flow transmitter", "temperature sensor", "load cell"],
+  "analog output":        ["ao", "aq", "analog output", "4-20ma output", "control valve",
+                           "proportional valve", "variable speed", "dimmer"],
 };
 
 function toCanonical(s: string): string | null {
@@ -196,24 +205,40 @@ function nameAffinity(deviceType: string, template: FbTemplate): number {
 // Combined scoring and matching
 // ---------------------------------------------------------------------------
 
-interface TemplateScore {
+export interface TemplateScore {
   template: FbTemplate;
   iScore: number;   // interface coverage 0–1
   nScore: number;   // name affinity 0–1
+  sScore: number;   // summary keyword match 0–1
   combined: number; // weighted combination
 }
 
-function scoreTemplate(device: ForgeDeviceEntry, template: FbTemplate): TemplateScore {
+/**
+ * Check if the AI summary mentions keywords related to this device type.
+ */
+function summaryAffinity(deviceType: string, template: FbTemplate): number {
+  const summary = template.ai_summary?.toLowerCase() ?? "";
+  if (!summary) return 0;
+
+  const deviceWords = deviceType.toLowerCase().split(/[\s_\-/]+/).filter((w) => w.length >= 3);
+  if (deviceWords.length === 0) return 0;
+
+  const matches = deviceWords.filter((w) => summary.includes(w));
+  return matches.length / deviceWords.length;
+}
+
+export function scoreTemplate(device: ForgeDeviceEntry, template: FbTemplate): TemplateScore {
   const iface = templateInterface(template);
   const iScore = interfaceScore(device, iface);
   const nScore = nameAffinity(device.device_type, template);
+  const sScore = summaryAffinity(device.device_type, template);
 
-  // Interface is primary (60%), name is secondary (40%)
-  // But if template has no SCL blocks yet, fall back to name-only
+  // Interface is primary (40%), name (30%), summary (30%)
+  // But if template has no SCL blocks yet, fall back to name + summary
   const hasScl = (template.blocks?.length ?? 0) > 0;
   const combined = hasScl
-    ? 0.6 * iScore + 0.4 * nScore
-    : nScore;
+    ? 0.4 * iScore + 0.3 * nScore + 0.3 * sScore
+    : 0.5 * nScore + 0.5 * sScore;
 
   return { template, iScore, nScore, combined };
 }
@@ -243,6 +268,19 @@ function reasonFor(score: TemplateScore, device: ForgeDeviceEntry, confidence: s
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+/**
+ * Score and rank ALL templates for a given device, sorted by combined score descending.
+ * Used by the FB template selector to show compatible options.
+ */
+export function rankTemplatesForDevice(
+  device: ForgeDeviceEntry,
+  templates: FbTemplate[],
+): TemplateScore[] {
+  return templates
+    .map((t) => scoreTemplate(device, t))
+    .sort((a, b) => b.combined - a.combined);
+}
 
 export function matchDevicesToTemplates(
   devices: ForgeDeviceEntry[],

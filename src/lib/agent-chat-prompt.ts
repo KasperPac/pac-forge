@@ -3,6 +3,7 @@ import type { AgentKnowledgeDoc, Artifact } from "@/types";
 import type { PipelineStepResult } from "@/lib/pipeline";
 import type { TiaCompileResult, CompileFixMessage } from "@/stores/tia-console-store";
 import type { ForgeSession } from "@/types/forge";
+import { buildWiringContext } from "@/lib/wiring-context";
 
 /** Hard cap for total system prompt size (chars). Edge Function has ~100K limit. */
 const MAX_PROMPT_CHARS = 60_000;
@@ -175,8 +176,10 @@ export function buildAgentChatPrompt(
     }
 
     if (fs.linkage_matrix) {
-      sections.push("", "### Linkage Matrix");
-      sections.push(truncate(JSON.stringify(fs.linkage_matrix, null, 2), MAX_STEP_CHARS));
+      const wiringMap = buildWiringContext(fs.linkage_matrix, fs.io_list ?? []);
+      if (wiringMap) {
+        sections.push("", wiringMap);
+      }
     }
 
     sections.push("");

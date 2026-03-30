@@ -464,15 +464,16 @@ export function formatFbTemplates(templates: FbTemplate[]): string {
   const sections = templates.map((t) => {
     const header = `### ${t.name} [${t.device_category}] (ID: ${t.id})`;
     const desc = t.description ? `${t.description}\n` : "";
+    const summary = t.ai_summary ? `**Summary:** ${t.ai_summary}\n` : "";
     const blocks = t.blocks ?? [];
-    if (blocks.length === 0) return `${header}\n${desc}(no blocks defined)`;
+    if (blocks.length === 0) return `${header}\n${desc}${summary}(no blocks defined)`;
     const blockSections = blocks.map(
       (b) => `#### ${b.block_name} (${b.block_type})\n\`\`\`scl\n${b.scl_code}\n\`\`\``
     );
     const docSection = t.documentation
       ? `\n\n#### Manufacturer Documentation\n${t.documentation}`
       : "";
-    return `${header}\n${desc}${blockSections.join("\n\n")}${docSection}`;
+    return `${header}\n${desc}${summary}${blockSections.join("\n\n")}${docSection}`;
   });
   return `## FB Library Templates (USE THESE — Template Code is Locked)
 
@@ -491,6 +492,13 @@ The following are company-standard, pre-approved FB templates. When a template m
    \`\`\`
 4. **CREATE multiple instances** if the project has multiple devices of the same type.
 5. **Generate additional FBs from scratch** only for device types that have NO matching template.
+
+**TEMPLATE RELATIONSHIPS — multiple FBs per device:**
+Multiple templates often work together for a single physical device. For example:
+- A VFD-driven motor uses BOTH a VFD FB (drive communication, speed reference, fault codes) AND a Motor FB (start/stop sequencing, interlocks, status)
+- An analog sensor uses an IO FB (scaling, filtering, fault detection) whose output feeds into process control FBs (PID, totalizer, level monitor)
+- Companion UDTs included with a template define the HMI data structure — always emit them alongside the FB
+When multiple templates are selected, wire their outputs/inputs together in the calling code so data flows correctly between related FBs.
 
 **TEMPLATE CODE IS LOCKED — what you must NOT change:**
 - Internal logic, state machine structure, or control flow

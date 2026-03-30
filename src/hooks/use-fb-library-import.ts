@@ -18,6 +18,8 @@ import type { ParsedLibraryBlock } from "@/lib/simatic-xml-interface-parser";
 import { extractTextFromPdf } from "@/lib/document-extractor";
 import { callStreamingCollect } from "@/hooks/use-generation";
 import type { FbBlockType } from "@/types/fb-template";
+import { generateFbSummaryText } from "@/hooks/use-generate-fb-summary";
+import { supabase } from "@/lib/supabase";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -64,7 +66,7 @@ interface LibraryExport {
 
 const DOC_SPLIT_PROMPT = `You are a technical documentation parser. Split this PLC library manual text into per-FB sections.
 
-Each FB typically has a heading (e.g., "fbVFD_Analog", "fbValve_Solenoid") followed by parameter tables, behaviour description, status codes, wiring examples.
+Each FB typically has a heading (e.g., "fbVFD_Analog", "fbValve_Solenoid") followed by parameter tables, behaviour description, status codes, wiring examples, and configuration steps.
 
 Return a JSON array:
 [
@@ -72,10 +74,14 @@ Return a JSON array:
 ]
 
 Rules:
-- Include ALL text for each FB — do not summarize
+- Include ALL text for each FB — do not summarize or truncate
 - The fbName must match the FB naming convention (usually "fb" prefix or "udt" prefix)
 - General/overview sections: use fbName "OVERVIEW"
-- Preserve formatting, parameter names, tables
+- Preserve formatting, parameter names, parameter tables (Input/Output/InOut with types and descriptions)
+- PRESERVE dependency information: which UDTs the FB uses, which other FBs it works with, required companion blocks
+- PRESERVE configuration/wiring examples: instance DB naming, HMI tag mapping, VB scripts, mode control wiring
+- PRESERVE status code tables, error code lists, HMI faceplate interface descriptions
+- If a section describes how to configure/wire a specific FB (even in a general doc), include it under that FB's name
 - Return ONLY the JSON array, no markdown fencing`;
 
 // ---------------------------------------------------------------------------
@@ -85,24 +91,78 @@ Rules:
 const BASE = DEFAULT_BRIDGE_CONFIG.baseUrl;
 
 /**
- * Auto-detect device category from FB name using Open Library naming conventions.
- * Falls back to the user-provided default category.
+ * Keyword → canonical category key mapping.
+ * detectCategory returns the canonical key, then matchExistingCategory resolves
+ * it to an existing DB category name (case-insensitive, singular/plural).
  */
-function detectCategory(fbName: string, defaultCategory: string): string {
+const CATEGORY_KEYWORDS: Array<{ keywords: string[]; category: string }> = [
+  { keywords: ["vfd", "drive", "simocode", "unidrive", "danfoss", "profidrive"], category: "vfd" },
+  { keywords: ["motor", "starter", "reversing", "airlock"], category: "motor" },
+  { keywords: ["valve", "solenoid", "hydraulic"], category: "valve" },
+  { keywords: ["io_analog", "analoginput", "analogoutput"], category: "analog_io" },
+  { keywords: ["io_digital", "digitalinput", "digitaloutput"], category: "digital_io" },
+  { keywords: ["io_"], category: "io" },
+  { keywords: ["pid", "integration", "totaliz", "tank", "level", "fifo", "hopper", "flowmeter", "running_avg", "rate"], category: "process_control" },
+  { keywords: ["alarm", "interlock", "permissive"], category: "safety" },
+  { keywords: ["sequen", "mode", "system"], category: "system" },
+  { keywords: ["siwarex", "loadcell", "calibration"], category: "instrument" },
+  { keywords: ["pulse", "pwm"], category: "io" },
+  { keywords: ["servo"], category: "servo" },
+  { keywords: ["conveyor", "feed"], category: "conveyor" },
+];
+
+/**
+ * Match a canonical category key against existing DB categories.
+ * Tries: exact match, then case-insensitive, then singular/plural fuzzy match.
+ */
+function matchExistingCategory(canonicalKey: string, existingNames: string[]): string | null {
+  // Exact match
+  if (existingNames.includes(canonicalKey)) return canonicalKey;
+
+  const keyLower = canonicalKey.toLowerCase().replace(/_/g, "");
+
+  for (const name of existingNames) {
+    const nameLower = name.toLowerCase().replace(/[_\s-]/g, "");
+
+    // Case-insensitive exact
+    if (nameLower === keyLower) return name;
+
+    // Singular/plural: "motor" matches "Motors", "vfd" matches "VFDs"
+    if (nameLower === keyLower + "s" || nameLower + "s" === keyLower) return name;
+
+    // One contains the other
+    if (nameLower.includes(keyLower) || keyLower.includes(nameLower)) return name;
+  }
+
+  return null;
+}
+
+/**
+ * Auto-detect device category from FB name using Open Library naming conventions.
+ * Matches against existing DB categories first (fuzzy), then returns a canonical key
+ * that will be created if it doesn't exist.
+ */
+function detectCategory(fbName: string, defaultCategory: string, existingCategoryNames?: string[]): string {
   const lower = fbName.toLowerCase();
-  if (lower.includes("vfd") || lower.includes("drive") || lower.includes("simocode") || lower.includes("unidrive") || lower.includes("danfoss")) return "vfd";
-  if (lower.includes("motor") || lower.includes("starter") || lower.includes("reversing")) return "motor";
-  if (lower.includes("valve") || lower.includes("solenoid") || lower.includes("hydraulic")) return "valve";
-  if (lower.includes("io_analog") || lower.includes("analoginput") || lower.includes("analogoutput")) return "analog_io";
-  if (lower.includes("io_digital") || lower.includes("digitalinput") || lower.includes("digitaloutput")) return "digital_io";
-  if (lower.includes("io_")) return "io";
-  if (lower.includes("pid") || lower.includes("integration") || lower.includes("totaliz")) return "process_control";
-  if (lower.includes("alarm") || lower.includes("interlock") || lower.includes("permissive")) return "safety";
-  if (lower.includes("sequen") || lower.includes("mode") || lower.includes("system")) return "system";
-  if (lower.includes("siwarex") || lower.includes("flowmeter") || lower.includes("profidrive")) return "instrument";
-  if (lower.includes("tank") || lower.includes("level") || lower.includes("fifo")) return "process_control";
-  if (lower.includes("pulse") || lower.includes("pwm") || lower.includes("output")) return "io";
-  return defaultCategory;
+
+  // Find canonical category key from FB name keywords
+  let canonicalKey: string | null = null;
+  for (const { keywords, category } of CATEGORY_KEYWORDS) {
+    if (keywords.some((kw) => lower.includes(kw))) {
+      canonicalKey = category;
+      break;
+    }
+  }
+
+  if (!canonicalKey) return defaultCategory;
+
+  // Try to match against existing DB categories
+  if (existingCategoryNames && existingCategoryNames.length > 0) {
+    const match = matchExistingCategory(canonicalKey, existingCategoryNames);
+    if (match) return match;
+  }
+
+  return canonicalKey;
 }
 
 async function bridgePost<T>(path: string, body?: unknown): Promise<T> {
@@ -116,38 +176,103 @@ async function bridgePost<T>(path: string, body?: unknown): Promise<T> {
 }
 
 /**
+ * Extract the device type stem from a block name.
+ * Open Library naming: fbIO_DigitalOutput → "DigitalOutput"
+ *                      udtHMI_DigitalOutput → "DigitalOutput"
+ *                      udtError_VFD → "VFD"
+ *                      fbVFD_GSeries → "GSeries" (but also "VFD")
+ * Returns an array of candidate stems for fuzzy matching.
+ */
+function extractDeviceStems(name: string): string[] {
+  // Strip common prefixes
+  const stripped = name
+    .replace(/^(fb|fc|udt|type|error)_?/i, "")
+    .replace(/^HMI_?/i, "");
+
+  const stems: string[] = [stripped.toLowerCase()];
+
+  // Split on underscore — each part is a potential match key
+  const parts = stripped.split("_");
+  for (const p of parts) {
+    if (p.length >= 3) stems.push(p.toLowerCase());
+  }
+
+  // Also add the full name without just the prefix for direct containment checks
+  const noPrefix = name.replace(/^(fb|fc|udt|type)/i, "");
+  stems.push(noPrefix.toLowerCase());
+
+  return [...new Set(stems)];
+}
+
+/**
+ * Check if a UDT is referenced in an FB's interface (VAR_IN_OUT or VAR sections).
+ * E.g., if fbIO_DigitalOutput has `HMI_IO_DigitalOutput : udtHMI_DigitalOutput` in its interface.
+ */
+function fbReferencesBlock(fbBlock: ParsedLibraryBlock, otherName: string): boolean {
+  return fbBlock.interfaceScl.toLowerCase().includes(otherName.toLowerCase());
+}
+
+/**
  * Group parsed library blocks into templates.
- * Each FB becomes a template. UDTs with matching prefix get attached as companion blocks.
+ * Each FB becomes a template. UDTs/FCs/DBs get attached to their parent FB
+ * using multi-strategy matching: interface references, device type stems, documentation.
  */
 function groupBlocksIntoTemplates(blocks: ParsedLibraryBlock[]): Map<string, ParsedLibraryBlock[]> {
   const templates = new Map<string, ParsedLibraryBlock[]>();
 
   // First: FBs as template anchors
+  const fbBlocks: ParsedLibraryBlock[] = [];
   for (const block of blocks) {
     if (block.type === "FB") {
       templates.set(block.name, [block]);
+      fbBlocks.push(block);
     }
   }
 
-  // Second: match UDTs/FCs/DBs to their parent FB
+  // Second: match non-FB blocks to their parent FB
   for (const block of blocks) {
     if (block.type === "FB") continue;
 
-    const baseName = block.name
-      .replace(/^udt/i, "")
-      .replace(/^type/i, "")
-      .replace(/^ERROR_/i, "");
-
     let matched = false;
+    const blockStems = extractDeviceStems(block.name);
+
+    // Strategy 1: Check if any FB's interface SCL references this block by name
+    for (const fb of fbBlocks) {
+      if (fbReferencesBlock(fb, block.name)) {
+        templates.get(fb.name)!.push(block);
+        matched = true;
+        break;
+      }
+    }
+    if (matched) continue;
+
+    // Strategy 2: Device type stem overlap
     for (const [fbName, group] of templates) {
-      const fbBase = fbName.replace(/^fb/i, "");
-      if (baseName === fbBase || block.name.includes(fbBase) || fbName.includes(baseName)) {
+      const fbStems = extractDeviceStems(fbName);
+      // Check if any stem from the block matches any stem from the FB
+      const overlap = blockStems.some((bs) =>
+        fbStems.some((fs) => bs === fs || (bs.length >= 5 && fs.includes(bs)) || (fs.length >= 5 && bs.includes(fs)))
+      );
+      if (overlap) {
+        group.push(block);
+        matched = true;
+        break;
+      }
+    }
+    if (matched) continue;
+
+    // Strategy 3: Direct containment (legacy fallback)
+    for (const [fbName, group] of templates) {
+      const fbBase = fbName.replace(/^fb/i, "").toLowerCase();
+      const blockBase = block.name.replace(/^(udt|type|error)/i, "").toLowerCase();
+      if (fbBase.includes(blockBase) || blockBase.includes(fbBase)) {
         group.push(block);
         matched = true;
         break;
       }
     }
 
+    // No match — create standalone template
     if (!matched) {
       templates.set(block.name, [block]);
     }
@@ -213,6 +338,32 @@ export function useFbLibraryImport() {
         // 5. Group into templates
         const templateGroups = groupBlocksIntoTemplates(blocks);
 
+        // 5b. Filter out supplementary/example/undocumented blocks
+        // These are 3rd-party Modbus drivers, example programs, etc. that
+        // don't have documentation and aren't standard library FBs.
+        const SKIP_PATTERNS = [
+          /^example\b/i,
+          /^sample\b/i,
+          /^test\b/i,
+          /^demo\b/i,
+        ];
+        // Blocks that don't match any known category and aren't core Open Library FBs
+        // are likely supplementary. The core FBs follow naming: fb{Category}_{Type}, udt{...}, fc{...}
+        const CORE_PREFIX = /^(fb|fc|udt|type)/i;
+        let skippedCount = 0;
+        for (const [name] of templateGroups) {
+          const shouldSkip = SKIP_PATTERNS.some((p) => p.test(name))
+            || (!CORE_PREFIX.test(name) && detectCategory(name, "__none__") === "__none__");
+          if (shouldSkip) {
+            templateGroups.delete(name);
+            skippedCount++;
+          }
+        }
+        if (skippedCount > 0) {
+          console.log(`[fb-import] Skipped ${skippedCount} supplementary/example blocks`);
+          result.skipped = skippedCount;
+        }
+
         // 6. Extract documentation from PDFs (if provided)
         const docSections: Map<string, string> = new Map();
         if (docFiles && docFiles.length > 0) {
@@ -239,9 +390,11 @@ export function useFbLibraryImport() {
 
             console.log(`[fb-import] ${docFile.name}: ${pdfText.length} chars extracted`);
 
-            // Determine if this is a per-FB doc (Block Overview, Example Config)
-            // or a general library doc (Architecture, Setup, etc.)
-            const isPerFbDoc = /block overview|example.*config|detailed/i.test(docFile.name);
+            // Determine if this is a per-FB doc (has sections for individual FBs)
+            // or a general library doc (architecture, setup, alarm generation, etc.)
+            // Per-FB docs: Block Overview, Example Config, Detailed descriptions — anything with per-device sections
+            const isPerFbDoc = /block overview|example.*config|detailed|function block|device.*description/i.test(docFile.name)
+              || /\bfb[A-Z]/i.test(pdfText.slice(0, 5000)); // Also detect if content has fbXxx patterns early on
 
             if (isPerFbDoc) {
               // Split per-FB using AI
@@ -277,10 +430,12 @@ export function useFbLibraryImport() {
                 }
               }
             } else {
-              // General library doc — attach to all templates as shared reference
-              // Store under a special key that we'll merge into each template's docs
+              // General library doc (Architecture, Alarm Generation, etc.)
+              // These contain library-wide info: modes, naming, UDT structure, alarm config
+              // Store under a special key — will be appended to each template's docs
               const key = `GENERAL:${docFile.name.replace(/\.pdf$/i, "")}`;
-              docSections.set(key, pdfText.slice(0, 10000)); // Truncate general docs to avoid massive prompts
+              // Keep up to 30KB per general doc — these have important reference info
+              docSections.set(key, pdfText.slice(0, 30000));
             }
           }
           console.log(`[fb-import] Total doc sections: ${docSections.size}`);
@@ -297,9 +452,10 @@ export function useFbLibraryImport() {
 
         // 7. Auto-create device categories that don't exist yet
         const existingCatNames = new Set((existingCategories ?? []).map((c) => c.name));
+        const existingCatList = Array.from(existingCatNames);
         const neededCategories = new Set<string>();
         for (const [templateName] of templateGroups) {
-          const cat = detectCategory(templateName, deviceCategory);
+          const cat = detectCategory(templateName, deviceCategory, existingCatList);
           if (!existingCatNames.has(cat)) neededCategories.add(cat);
         }
         if (neededCategories.size > 0) {
@@ -362,7 +518,7 @@ export function useFbLibraryImport() {
               doc = generalDocText;
             }
 
-            const autoCategory = detectCategory(templateName, deviceCategory);
+            const autoCategory = detectCategory(templateName, deviceCategory, existingCatList);
             console.log(`[fb-import] ${current}/${total} Creating: ${templateName} (${autoCategory}, ${templateBlocks.length} blocks, doc: ${doc ? doc.length + " chars" : "none"})`);
             await createTemplate.mutateAsync({
               name: templateName,
@@ -376,6 +532,8 @@ export function useFbLibraryImport() {
                 block_type: (b.type === "Unknown" ? "FB" : b.type) as FbBlockType,
                 scl_code: b.interfaceScl,
                 sort_order: i,
+                block_xml: b.rawXml || null,
+                programming_language: (b.programmingLanguage || "SCL") as "SCL" | "LAD" | "FBD" | "STL" | "GRAPH",
               })),
               source: "library" as const,
               library_name: libraryName,
@@ -386,6 +544,59 @@ export function useFbLibraryImport() {
             const msg = err instanceof Error ? err.message : String(err);
             console.error(`[fb-import] ✗ ${templateName} FAILED: ${msg}`);
             result.errors.push(`${templateName}: ${msg}`);
+          }
+        }
+
+        // 9. Generate AI summaries for all imported templates
+        if (result.imported > 0) {
+          setProgress({ phase: "Generating AI summaries...", current: 0, total: result.imported });
+
+          // Re-fetch created templates to get their IDs
+          const { data: createdTemplates } = await supabase
+            .from("fb_templates")
+            .select("id, name, device_category, tags, documentation, ai_summary")
+            .eq("source", "library")
+            .eq("library_name", libraryName)
+            .is("ai_summary", null);
+
+          if (createdTemplates && createdTemplates.length > 0) {
+            // Also fetch their blocks for the summary prompt
+            const ids = createdTemplates.map((t) => t.id);
+            const { data: allBlocks } = await supabase
+              .from("fb_template_blocks")
+              .select("template_id, block_type, block_name, scl_code")
+              .in("template_id", ids);
+
+            const blocksByTemplate = new Map<string, Array<{ block_type: string; block_name: string; scl_code: string }>>();
+            for (const b of allBlocks ?? []) {
+              const list = blocksByTemplate.get(b.template_id) ?? [];
+              list.push(b);
+              blocksByTemplate.set(b.template_id, list);
+            }
+
+            let summaryCount = 0;
+            for (const t of createdTemplates) {
+              summaryCount++;
+              setProgress({ phase: `AI summary: ${t.name}...`, current: summaryCount, total: createdTemplates.length });
+              try {
+                const summary = await generateFbSummaryText({
+                  name: t.name,
+                  device_category: t.device_category,
+                  tags: t.tags ?? [],
+                  blocks: blocksByTemplate.get(t.id) ?? [],
+                  documentation: t.documentation,
+                });
+                if (summary) {
+                  await supabase
+                    .from("fb_templates")
+                    .update({ ai_summary: summary })
+                    .eq("id", t.id);
+                }
+              } catch (err) {
+                console.warn(`[fb-import] Summary failed for ${t.name}:`, err);
+              }
+            }
+            console.log(`[fb-import] Generated ${summaryCount} AI summaries`);
           }
         }
 

@@ -139,6 +139,12 @@ export interface ForgeArtifact {
 
 export type IoSignalType = "DI" | "DQ" | "AI" | "AQ";
 
+/** How the physical signal behaves over time */
+export type SignalBehaviour = "momentary" | "maintained" | "continuous" | "pulsed";
+
+/** Contact/switch wiring type */
+export type ContactType = "NO" | "NC";
+
 export interface ForgeIoEntry {
   address: string;
   tag_name: string;
@@ -149,6 +155,12 @@ export interface ForgeIoEntry {
   slot: number;
   /** Device this IO point belongs to (from spec extraction) */
   device_id?: string;
+  /** How the signal behaves: momentary (push button), maintained (selector switch), continuous (sensor), pulsed (encoder) */
+  signal_behaviour?: SignalBehaviour;
+  /** Contact wiring type: NO (normally open) or NC (normally closed) */
+  contact_type?: ContactType;
+  /** Whether this signal should be processed on rising/falling edge */
+  edge_trigger?: "rising" | "falling" | "both" | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -159,6 +171,8 @@ export interface ForgeDeviceIoSignal {
   tag_name: string;
   signal_type: IoSignalType;
   description: string;
+  signal_behaviour?: SignalBehaviour;
+  contact_type?: ContactType;
 }
 
 export interface ForgeDeviceEntry {

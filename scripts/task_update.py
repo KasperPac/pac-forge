@@ -60,6 +60,8 @@ def update_task(args):
     if args.group is not None:
         task["group"] = args.group
 
+    # Mark this specific task as dirty so sync only pushes it
+    task["_dirty"] = True
     save_tasks(tasks_path, data)
     monday_sync.sync_tasks()
 

@@ -139,6 +139,8 @@ export function useCreateFbTemplate() {
           block_type: b.block_type,
           scl_code: b.scl_code,
           sort_order: b.sort_order ?? i,
+          ...(b.block_xml != null && { block_xml: b.block_xml }),
+          ...(b.programming_language != null && { programming_language: b.programming_language }),
         }));
         const { error: bErr } = await supabase
           .from("fb_template_blocks")
@@ -200,7 +202,7 @@ export function useUpdateFbTemplate() {
       // Snapshot current blocks to version history
       const { data: currentBlocks } = await supabase
         .from("fb_template_blocks")
-        .select("block_name, block_type, scl_code, sort_order")
+        .select("block_name, block_type, scl_code, sort_order, block_xml, programming_language")
         .eq("template_id", id)
         .order("sort_order");
 
@@ -243,6 +245,8 @@ export function useUpdateFbTemplate() {
             block_type: b.block_type,
             scl_code: b.scl_code,
             sort_order: b.sort_order ?? i,
+            ...(b.block_xml != null && { block_xml: b.block_xml }),
+            ...(b.programming_language != null && { programming_language: b.programming_language }),
           }));
           const { error: bErr } = await supabase
             .from("fb_template_blocks")
@@ -372,7 +376,7 @@ export function useRevertFbTemplateVersion() {
 
       const { data: currentBlocks } = await supabase
         .from("fb_template_blocks")
-        .select("block_name, block_type, scl_code, sort_order")
+        .select("block_name, block_type, scl_code, sort_order, block_xml, programming_language")
         .eq("template_id", templateId)
         .order("sort_order");
 
@@ -395,6 +399,8 @@ export function useRevertFbTemplateVersion() {
           block_type: b.block_type,
           scl_code: b.scl_code,
           sort_order: b.sort_order ?? i,
+          ...(b.block_xml != null && { block_xml: b.block_xml }),
+          ...(b.programming_language != null && { programming_language: b.programming_language }),
         }));
         const { error: bErr } = await supabase
           .from("fb_template_blocks")

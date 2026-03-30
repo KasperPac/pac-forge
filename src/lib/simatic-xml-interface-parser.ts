@@ -13,6 +13,10 @@ export interface ParsedLibraryBlock {
   type: "FB" | "FC" | "UDT" | "DB" | "OB" | "Unknown";
   /** Pseudo-SCL interface declaration (no implementation body) */
   interfaceScl: string;
+  /** Raw SimaticML XML (for storing with the template) */
+  rawXml: string;
+  /** Programming language detected from XML (LAD, SCL, FBD, STL, GRAPH) */
+  programmingLanguage: string;
 }
 
 /**
@@ -109,6 +113,21 @@ export function parseSimaticXmlInterface(xml: string): ParsedLibraryBlock | null
   const { name, type } = detectBlockType(xml);
   if (type === "Unknown" && !xml.includes("<Interface>")) return null;
 
+  // Detect programming language — check both block-level and compile-unit-level tags.
+  // Also check for FlgNet (LAD/FBD network source) as a fallback indicator.
+  const langMatch = xml.match(/<ProgrammingLanguage>(.*?)<\/ProgrammingLanguage>/);
+  let programmingLanguage = langMatch?.[1] ?? "SCL";
+  // If no explicit language tag but has FlgNet (network source), it's LAD or FBD
+  if (!langMatch && xml.includes("<FlgNet")) {
+    programmingLanguage = "LAD";
+  }
+  // If language says "LAD" or "FBD" anywhere in the compile units, trust that
+  if (programmingLanguage === "SCL" && xml.includes(">LAD<")) {
+    programmingLanguage = "LAD";
+  } else if (programmingLanguage === "SCL" && xml.includes(">FBD<")) {
+    programmingLanguage = "FBD";
+  }
+
   // Extract <Interface> element
   const interfaceMatch = xml.match(/<Interface>[\s\S]*?<Sections>([\s\S]*?)<\/Sections>[\s\S]*?<\/Interface>/);
   if (!interfaceMatch) {
@@ -118,6 +137,8 @@ export function parseSimaticXmlInterface(xml: string): ParsedLibraryBlock | null
       name,
       type,
       interfaceScl: `// ${type} "${name}" — interface could not be extracted from XML\n// Refer to documentation for parameter details.`,
+      rawXml: xml,
+      programmingLanguage,
     };
   }
 
@@ -152,7 +173,7 @@ export function parseSimaticXmlInterface(xml: string): ParsedLibraryBlock | null
     `${endKeyword}`,
   ].join("\n");
 
-  return { name, type, interfaceScl };
+  return { name, type, interfaceScl, rawXml: xml, programmingLanguage };
 }
 
 /**

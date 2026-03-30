@@ -78,8 +78,11 @@ import { useDesignProfiles } from "@/hooks/use-design-profiles";
 import { useExportFromTia } from "@/hooks/use-export-from-tia";
 import { splitSclBlocks } from "@/lib/scl-block-parser";
 import { callNonStreaming } from "@/hooks/use-generation";
+import { DEFAULT_BRIDGE_CONFIG } from "@/lib/tia-bridge-contract";
 import { registerSclLanguage, SCL_LANGUAGE_ID } from "@/lib/monaco-scl";
 import { useUiStore } from "@/stores/ui-store";
+import { LadViewer } from "@/components/fb-library/lad-viewer";
+import { useFbBlockXmlImport } from "@/hooks/use-fb-block-xml-import";
 import { useFbLibraryImport } from "@/hooks/use-fb-library-import";
 import { useFbDocImport } from "@/hooks/use-fb-doc-import";
 import type {
@@ -151,6 +154,7 @@ export default function FbLibraryPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [generatingDesc, setGeneratingDesc] = useState(false);
   const resolvedTheme = useUiStore((s) => s.resolvedTheme);
+  const bridgeBaseUrl = DEFAULT_BRIDGE_CONFIG.baseUrl;
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importProjectPath, setImportProjectPath] = useState("");
   const [importLibraryName, setImportLibraryName] = useState("");
@@ -408,6 +412,26 @@ export default function FbLibraryPage() {
 
   const { generate: generateSummary, loadingId: summaryLoadingId } = useGenerateFbSummary();
   const { generate: generateFlow, loadingId: flowLoadingId } = useGenerateFbFlow();
+  const [bulkSummaryLoading, setBulkSummaryLoading] = useState(false);
+
+  const missingSummaryCount = (allTemplates ?? []).filter((t) => !t.ai_summary && (t.blocks?.length ?? 0) > 0).length;
+
+  async function handleBulkGenerateSummaries() {
+    const missing = (allTemplates ?? []).filter((t) => !t.ai_summary && (t.blocks?.length ?? 0) > 0);
+    if (missing.length === 0) return;
+    setBulkSummaryLoading(true);
+    let done = 0;
+    for (const t of missing) {
+      try {
+        await generateSummary(t);
+        done++;
+      } catch (err) {
+        console.warn(`[bulk-summary] Failed for ${t.name}:`, err);
+      }
+    }
+    setBulkSummaryLoading(false);
+    toast({ title: "Summaries generated", description: `${done} of ${missing.length} templates updated.` });
+  }
 
   const isSaving = createTemplate.isPending || updateTemplate.isPending;
   const hasBlocks = form.blocks.some((b) => b.scl_code.trim() !== "");
@@ -452,6 +476,18 @@ export default function FbLibraryPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 mt-4">
+          {missingSummaryCount > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleBulkGenerateSummaries}
+              disabled={bulkSummaryLoading}
+              className="gap-1.5"
+            >
+              {bulkSummaryLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              Generate Summaries ({missingSummaryCount})
+            </Button>
+          )}
           <Button size="sm" variant="outline" onClick={() => setImportDialogOpen(true)} className="gap-1.5">
             <Download className="h-3.5 w-3.5" />
             Import Library
@@ -519,12 +555,48 @@ export default function FbLibraryPage() {
           <div className="space-y-4 py-2">
             <div className="space-y-1">
               <label className="font-mono text-xs text-muted-foreground">Global Library Path (.zal18 / .al18)</label>
-              <Input
-                value={importProjectPath}
-                onChange={(e) => setImportProjectPath(e.target.value)}
-                placeholder="C:\...\Siemens Open Library V5.0.zal18"
-                className="font-mono text-sm"
-              />
+              <div className="flex gap-1.5">
+                <Input
+                  value={importProjectPath}
+                  onChange={(e) => setImportProjectPath(e.target.value)}
+                  placeholder="C:\...\Siemens Open Library V5.0.zal18"
+                  className="flex-1 font-mono text-sm"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0 gap-1.5"
+                  onClick={async () => {
+                    try {
+                      const res = await fetch(`${bridgeBaseUrl}/tia/browse-file`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          title: "Select TIA Global Library",
+                          filter: "TIA Libraries (*.zal18;*.al18;*.zal17;*.zal19;*.zal20)|*.zal18;*.al18;*.zal17;*.zal19;*.zal20|All Files (*.*)|*.*",
+                          initial_directory: importProjectPath ? importProjectPath.replace(/[/\\][^/\\]+$/, "") : "",
+                        }),
+                      });
+                      if (res.ok) {
+                        const data = await res.json();
+                        if (data.success && data.file_path) {
+                          setImportProjectPath(data.file_path);
+                          // Auto-fill library name from file name if empty
+                          if (!importLibraryName && data.file_name) {
+                            const name = data.file_name.replace(/\.(zal|al)\d+$/i, "").trim();
+                            setImportLibraryName(name);
+                          }
+                        }
+                      }
+                    } catch (err) {
+                      console.warn("Browse failed (bridge may not be running):", err);
+                    }
+                  }}
+                >
+                  <FolderInput className="h-3.5 w-3.5" />
+                  Browse
+                </Button>
+              </div>
               <p className="text-xs text-muted-foreground/60">
                 The .zal file from the library download. TIA Portal must be open.
               </p>
@@ -1126,11 +1198,30 @@ function TemplateCard({
 }) {
   const [diagramOpen, setDiagramOpen] = useState(false);
   const [diagramFullscreen, setDiagramFullscreen] = useState(false);
+  const [ladOpen, setLadOpen] = useState(false);
+  const [ladFullscreen, setLadFullscreen] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [localFlowDiagrams, setLocalFlowDiagrams] = useState<FbFlowDiagram[] | null>(null);
   const { toast } = useToast();
+  const { importBlockXml, loading: xmlImportLoading } = useFbBlockXmlImport();
 
   const hasScl = (template.blocks ?? []).some((b) => b.scl_code.trim());
+  const ladBlock = (template.blocks ?? []).find((b) => b.block_xml && b.programming_language === "LAD");
+  const hasLad = !!ladBlock;
+  const isLibrary = template.source === "library";
+
+  async function handleImportXml() {
+    try {
+      const result = await importBlockXml(template);
+      if (result.updated > 0) {
+        toast({ title: "Block XML imported", description: `${result.updated} block(s) updated with LAD/FBD logic` });
+      } else {
+        toast({ title: "No blocks imported", description: result.errors.join("; "), variant: "destructive" });
+      }
+    } catch (err) {
+      toast({ title: "Import failed", description: err instanceof Error ? err.message : String(err), variant: "destructive" });
+    }
+  }
 
   // Use stored JSON if available, otherwise use locally generated result
   const storedDiagrams = template.flow_diagram_json
@@ -1191,6 +1282,22 @@ function TemplateCard({
               <Sparkles className={`h-3 w-3 ${template.ai_summary ? "text-violet-400" : "text-muted-foreground"}`} />
             )}
           </Button>
+          {isLibrary && !hasLad && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 w-7 p-0"
+              onClick={handleImportXml}
+              disabled={xmlImportLoading}
+              title="Import block XML from TIA Portal"
+            >
+              {xmlImportLoading ? (
+                <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+              ) : (
+                <Download className="h-3 w-3 text-muted-foreground" />
+              )}
+            </Button>
+          )}
           <Button
             size="sm"
             variant="ghost"
@@ -1272,6 +1379,9 @@ function TemplateCard({
               className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
             >
               {b.block_type}: {b.block_name}
+              {b.programming_language && b.programming_language !== "SCL" && (
+                <span className="ml-1 text-green-400/70">[{b.programming_language}]</span>
+              )}
             </span>
           ))}
         </div>
@@ -1340,6 +1450,59 @@ function TemplateCard({
             </div>
           )}
         </div>
+      )}
+
+      {/* Ladder Logic viewer collapsible */}
+      {hasLad && ladBlock && (
+        <div className="mt-2 border-t border-border/40 pt-2">
+          <button
+            className="flex w-full items-center gap-1 font-mono text-xs text-green-400/80 hover:text-green-400"
+            onClick={() => setLadOpen((o) => !o)}
+          >
+            <Layers className="h-3 w-3 shrink-0" />
+            Ladder Logic
+            <Badge variant="outline" className="ml-1 font-mono text-[10px]">
+              {ladBlock.programming_language}
+            </Badge>
+            <ChevronDown className={`ml-auto h-3 w-3 transition-transform ${ladOpen ? "rotate-180" : ""}`} />
+          </button>
+          {ladOpen && (
+            <div className="relative mt-2 rounded border border-border/50 bg-muted/30">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="absolute right-1 top-1 z-10 h-6 w-6 p-0 opacity-60 hover:opacity-100"
+                title="Fullscreen"
+                onClick={() => setLadFullscreen(true)}
+              >
+                <Maximize2 className="h-3 w-3" />
+              </Button>
+              <div className="h-[300px]">
+                <LadViewer xml={ladBlock.block_xml!} className="h-full" />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Fullscreen LAD dialog */}
+      {hasLad && ladBlock && (
+        <Dialog open={ladFullscreen} onOpenChange={setLadFullscreen}>
+          <DialogContent className="flex h-[95vh] max-w-[95vw] flex-col gap-0 p-0 overflow-hidden">
+            <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-2">
+              <div className="flex items-center gap-2">
+                <Layers className="h-4 w-4 text-green-400" />
+                <span className="font-mono text-sm font-semibold">{template.name} — Ladder Logic</span>
+              </div>
+              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setLadFullscreen(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <LadViewer xml={ladBlock.block_xml!} className="h-full" />
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* Fullscreen signal flow dialog */}

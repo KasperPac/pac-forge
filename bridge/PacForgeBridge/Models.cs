@@ -545,4 +545,20 @@ namespace PacForgeBridge
             };
         }
     }
+
+    // --- File Browse ---
+
+    public class BrowseFileRequest
+    {
+        public string Title { get; set; }
+        public string Filter { get; set; }
+        public string InitialDirectory { get; set; }
+    }
+
+    public class BrowseFileResponse
+    {
+        public bool Success { get; set; }
+        public string FilePath { get; set; }
+        public string FileName { get; set; }
+    }
 }

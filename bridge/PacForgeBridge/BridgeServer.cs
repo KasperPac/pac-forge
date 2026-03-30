@@ -92,6 +92,13 @@ namespace PacForgeBridge
                 string path = req.Url.AbsolutePath.TrimEnd('/');
                 string method = req.HttpMethod;
 
+                // Route: POST /tia/browse-file
+                if (method == "POST" && path == "/tia/browse-file")
+                {
+                    await HandleBrowseFile(req, res);
+                    return;
+                }
+
                 // Route: GET /tia/status
                 if (method == "GET" && path == "/tia/status")
                 {
@@ -380,6 +387,69 @@ namespace PacForgeBridge
         }
 
         // --- Route Handlers ---
+
+        private async Task HandleBrowseFile(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            string body = await ReadBody(req);
+            var request = Json.Deserialize<BrowseFileRequest>(body);
+
+            string selectedPath = null;
+            // OpenFileDialog must run on an STA thread with a topmost owner form
+            // so the dialog appears in front of the browser.
+            // Application.Run() ensures proper message pump cleanup.
+            var thread = new System.Threading.Thread(() =>
+            {
+                System.Windows.Forms.Application.EnableVisualStyles();
+                var owner = new System.Windows.Forms.Form
+                {
+                    TopMost = true,
+                    ShowInTaskbar = false,
+                    FormBorderStyle = System.Windows.Forms.FormBorderStyle.None,
+                    Size = new System.Drawing.Size(1, 1),
+                    StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen,
+                    Opacity = 0,
+                };
+                owner.Load += (s, e) =>
+                {
+                    var dialog = new System.Windows.Forms.OpenFileDialog();
+                    dialog.Title = request?.Title ?? "Select File";
+                    dialog.Filter = request?.Filter ?? "All Files (*.*)|*.*";
+                    if (!string.IsNullOrEmpty(request?.InitialDirectory) && System.IO.Directory.Exists(request.InitialDirectory))
+                    {
+                        dialog.InitialDirectory = request.InitialDirectory;
+                    }
+                    if (dialog.ShowDialog(owner) == System.Windows.Forms.DialogResult.OK)
+                    {
+                        selectedPath = dialog.FileName;
+                    }
+                    dialog.Dispose();
+                    owner.Close();
+                };
+                System.Windows.Forms.Application.Run(owner);
+            });
+            thread.SetApartmentState(System.Threading.ApartmentState.STA);
+            thread.Start();
+            thread.Join();
+
+            if (selectedPath != null)
+            {
+                await WriteJson(res, 200, new BrowseFileResponse
+                {
+                    Success = true,
+                    FilePath = selectedPath,
+                    FileName = System.IO.Path.GetFileName(selectedPath),
+                });
+            }
+            else
+            {
+                await WriteJson(res, 200, new BrowseFileResponse
+                {
+                    Success = false,
+                    FilePath = "",
+                    FileName = "",
+                });
+            }
+        }
 
         private async Task HandleGetStatus(HttpListenerResponse res)
         {

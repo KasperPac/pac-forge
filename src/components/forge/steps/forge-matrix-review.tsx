@@ -19,6 +19,7 @@ import {
   PanelRightOpen,
   Wrench,
   BookMarked,
+  Cable,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +30,7 @@ import { useForgeMatrixGenerate } from "@/hooks/use-forge-matrix-generate";
 import { useForgeMatrixValidate } from "@/hooks/use-forge-matrix-validate";
 import { useCreatePatternCandidate } from "@/hooks/use-patterns";
 import { cn } from "@/lib/utils";
+import { buildWiringContext } from "@/lib/wiring-context";
 import type { ForgeSession, ForgeArtifact } from "@/types/forge";
 import type { FbTemplate } from "@/types/fb-template";
 import type {
@@ -453,7 +455,7 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const { generate, loading, error } = useForgeMatrixGenerate();
 
-  const [activeTab, setActiveTab] = useState<"devices" | "sequences">("devices");
+  const [activeTab, setActiveTab] = useState<"devices" | "sequences" | "wiring">("devices");
   const [selectedSeqId, setSelectedSeqId] = useState<string | undefined>(undefined);
   const { validate, applySelectedFixes, loading: validating, applying: applyingFixes, result: validationResult, clear: clearValidation } = useForgeMatrixValidate();
   const createPattern = useCreatePatternCandidate();
@@ -797,6 +799,19 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
                 <GitBranch className="h-3 w-3" />
                 Sequences ({matrix.processSequences.length})
               </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("wiring")}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 pb-2 font-mono text-[10px] uppercase tracking-wider transition-colors",
+                  activeTab === "wiring"
+                    ? "border-b-2 border-primary text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Cable className="h-3 w-3" />
+                Wiring Map
+              </button>
             </div>
 
             <ScrollArea className="flex-1">
@@ -825,6 +840,10 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
                       </div>
                     )}
                   </>
+                )}
+
+                {activeTab === "wiring" && (
+                  <WiringMapPanel matrix={matrix} ioList={session.io_list} />
                 )}
               </div>
             </ScrollArea>
@@ -947,6 +966,91 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// ── Wiring Map Panel ─────────────────────────────────────────────────────────
+
+function WiringMapPanel({
+  matrix,
+  ioList,
+}: {
+  matrix: ProcessLinkageMatrix;
+  ioList: ForgeSession["io_list"];
+}) {
+  const wiringText = buildWiringContext(matrix, ioList ?? []);
+
+  if (!wiringText) {
+    return (
+      <div className="py-6 text-center font-mono text-xs text-muted-foreground">
+        No wiring data available — generate the matrix first.
+      </div>
+    );
+  }
+
+  // Parse the markdown-like text into styled sections
+  return (
+    <div className="space-y-3">
+      {wiringText.split("\n### ").map((section, i) => {
+        if (i === 0) {
+          // Header section (## Project Wiring Map + intro text)
+          const lines = section.split("\n").filter((l) => !l.startsWith("## "));
+          return (
+            <div key="header" className="rounded border border-border/40 bg-muted/20 px-3 py-2">
+              <p className="font-mono text-[10px] text-muted-foreground leading-relaxed">
+                {lines.filter(Boolean).join(" ")}
+              </p>
+            </div>
+          );
+        }
+
+        const lines = section.split("\n");
+        const title = lines[0]?.trim() ?? "";
+        const body = lines.slice(1);
+
+        // Detect global data section
+        const isGlobalData = title === "Global Data Blocks";
+
+        return (
+          <div key={title || i} className="rounded border border-border/40 bg-card/50 p-3">
+            <h4 className={cn(
+              "font-mono text-xs font-semibold",
+              isGlobalData ? "text-amber-400/80" : "text-foreground",
+            )}>
+              {title}
+            </h4>
+            <div className="mt-1.5 space-y-0.5">
+              {body.map((line, j) => {
+                const trimmed = line.trimStart();
+                if (!trimmed) return null;
+
+                // Color-code by line type
+                let lineClass = "text-muted-foreground";
+                if (trimmed.startsWith("FB:") || trimmed.startsWith("INPUTS:") || trimmed.startsWith("OUTPUTS:") || trimmed.startsWith("INTERLOCKS:")) {
+                  lineClass = "text-muted-foreground font-semibold mt-1";
+                } else if (trimmed.includes("←") && trimmed.includes("%")) {
+                  lineClass = "text-blue-400/80"; // IO-traced input
+                } else if (trimmed.includes("←") && trimmed.includes("from ")) {
+                  lineClass = "text-cyan-400/70"; // Cross-device input
+                } else if (trimmed.includes("→") && trimmed.includes("%")) {
+                  lineClass = "text-green-400/80"; // IO-traced output
+                } else if (trimmed.includes("→") && trimmed.includes("drives ")) {
+                  lineClass = "text-emerald-400/70"; // Cross-device output
+                } else if (trimmed.startsWith("Requires:") || trimmed.startsWith("Blocks:") || trimmed.startsWith("Follows:")) {
+                  lineClass = "text-amber-400/70"; // Interlocks
+                }
+
+                return (
+                  <pre key={j} className={cn("font-mono text-[11px] leading-relaxed whitespace-pre-wrap", lineClass)}>
+                    {line}
+                  </pre>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -150,6 +150,50 @@ export interface ExportSourcesResponse {
   warnings: string[];
 }
 
+// --- File Browse ---
+
+/**
+ * POST /tia/browse-file
+ * Open a native Windows file dialog and return the selected path.
+ */
+export interface BrowseFileRequest {
+  /** Dialog title */
+  title?: string;
+  /** File filter (Windows format, e.g. "TIA Libraries (*.zal18;*.al18)|*.zal18;*.al18|All Files (*.*)|*.*") */
+  filter?: string;
+  /** Initial directory to open the dialog in */
+  initial_directory?: string;
+}
+
+export interface BrowseFileResponse {
+  success: boolean;
+  /** Full path of selected file, or empty if cancelled */
+  file_path: string;
+  /** File name only */
+  file_name: string;
+}
+
+// --- Block XML Export ---
+
+/**
+ * POST /tia/export-block-xml
+ * Export a single block's raw SimaticML XML from the open TIA Portal project.
+ */
+export interface ExportBlockXmlRequest {
+  /** Name of the block to export (must exist in open TIA project) */
+  block_name: string;
+  /** Optional sub-folder path within Program blocks (e.g. "Pac-LAD") */
+  folder?: string;
+}
+
+export interface ExportBlockXmlResponse {
+  success: boolean;
+  message: string;
+  block_name: string;
+  /** Raw SimaticML XML content of the exported block */
+  xml_content: string;
+}
+
 // --- Library Endpoints ---
 
 /**

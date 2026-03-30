@@ -14,8 +14,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { HardwareConfigEditor } from "@/components/hardware-config-editor";
 import { IoListEditor } from "@/components/io-list-editor";
-import { matchDevicesToTemplates, applyMatchesToDevices, suggestMissingDevices } from "@/lib/forge-device-matcher";
-import type { MissingDeviceSuggestion } from "@/lib/forge-device-matcher";
+import { matchDevicesToTemplates, applyMatchesToDevices, suggestMissingDevices, rankTemplatesForDevice } from "@/lib/forge-device-matcher";
+import type { MissingDeviceSuggestion, TemplateScore } from "@/lib/forge-device-matcher";
 import { useForgeAiDeviceMatch } from "@/hooks/use-forge-ai-device-match";
 import { DEVICE_TYPE_IO_DEFAULTS, DEVICE_TYPES } from "@/lib/device-type-io-defaults";
 import { getCompatibleModules, getModuleByMlfb } from "@/lib/module-catalog";
@@ -558,13 +558,13 @@ export function ForgeHardwareIo({
       // One row per physical address. Auto-assign device signals in order.
 
       // Collect all device signals bucketed by type
-      const byType: Record<"DI" | "DQ" | "AI" | "AQ", Array<{ tag_name: string; description: string; device_id: string }>> = {
+      const byType: Record<"DI" | "DQ" | "AI" | "AQ", Array<{ tag_name: string; description: string; device_id: string; signal_behaviour?: string; contact_type?: string }>> = {
         DI: [], DQ: [], AI: [], AQ: [],
       };
       for (const device of devices) {
         for (const sig of device.io_signals ?? []) {
           const t = sig.signal_type.toUpperCase() as "DI" | "DQ" | "AI" | "AQ";
-          if (t in byType) byType[t].push({ tag_name: sig.tag_name, description: sig.description, device_id: device.id });
+          if (t in byType) byType[t].push({ tag_name: sig.tag_name, description: sig.description, device_id: device.id, signal_behaviour: sig.signal_behaviour, contact_type: sig.contact_type });
         }
       }
 
@@ -581,6 +581,8 @@ export function ForgeHardwareIo({
           module: pt.module,
           slot: pt.slot,
           device_id: sig?.device_id,
+          ...(sig?.signal_behaviour && { signal_behaviour: sig.signal_behaviour as ForgeIoEntry["signal_behaviour"] }),
+          ...(sig?.contact_type && { contact_type: sig.contact_type as ForgeIoEntry["contact_type"] }),
         };
       });
 
@@ -608,6 +610,8 @@ export function ForgeHardwareIo({
           module: "",
           slot: 0,
           device_id: device.id,
+          ...(sig.signal_behaviour && { signal_behaviour: sig.signal_behaviour }),
+          ...(sig.contact_type && { contact_type: sig.contact_type }),
         };
         switch (sigType) {
           case "DI": diSignals.push(entry); break;
@@ -1019,22 +1023,12 @@ export function ForgeHardwareIo({
                           <td className="px-2 py-1.5 text-xs">{d.device_type}</td>
                           <td className="px-2 py-1.5 text-xs text-muted-foreground">{d.subsystem}</td>
                           <td className="px-2 py-1.5">
-                            <Select
+                            <FbTemplateSelector
+                              device={d}
+                              templates={fbTemplates}
                               value={d.fb_template_id ?? "__ai__"}
                               onValueChange={(v) => updateDeviceTemplate(d.id, v)}
-                            >
-                              <SelectTrigger className="h-7 w-44 text-xs">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="__ai__">AI Generate</SelectItem>
-                                {fbTemplates.map((t) => (
-                                  <SelectItem key={t.id} value={t.id}>
-                                    {t.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            />
                           </td>
                           <td className="px-2 py-1.5">
                             <Select
@@ -1183,5 +1177,98 @@ export function ForgeHardwareIo({
         <ChevronRight className="ml-2 h-4 w-4" />
       </Button>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// FB Template Selector — grouped dropdown with compatibility scoring
+// ---------------------------------------------------------------------------
+
+function FbTemplateSelector({
+  device,
+  templates,
+  value,
+  onValueChange,
+}: {
+  device: ForgeDeviceEntry;
+  templates: FbTemplate[];
+  value: string;
+  onValueChange: (v: string) => void;
+}) {
+  const ranked = useMemo(() => rankTemplatesForDevice(device, templates), [device, templates]);
+
+  // Split into groups: recommended (score >= 0.3), library, custom
+  const recommended = ranked.filter((r) => r.combined >= 0.3);
+  const recommendedIds = new Set(recommended.map((r) => r.template.id));
+
+  const libraryOther = templates
+    .filter((t) => t.source === "library" && !recommendedIds.has(t.id))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const customOther = templates
+    .filter((t) => t.source !== "library" && !recommendedIds.has(t.id))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  // Find selected template name for display
+  const selectedName = value === "__ai__"
+    ? "AI Generate"
+    : templates.find((t) => t.id === value)?.name ?? "Unknown";
+
+  return (
+    <Select value={value} onValueChange={onValueChange}>
+      <SelectTrigger className="h-7 w-52 text-xs">
+        <SelectValue>{selectedName}</SelectValue>
+      </SelectTrigger>
+      <SelectContent className="max-h-[400px]">
+        <SelectItem value="__ai__">
+          <span className="text-muted-foreground">AI Generate (no template)</span>
+        </SelectItem>
+
+        {recommended.length > 0 && (
+          <>
+            <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-green-400/70">
+              Recommended ({recommended.length})
+            </div>
+            {recommended.map((r) => (
+              <SelectItem key={r.template.id} value={r.template.id}>
+                <div className="flex items-center gap-1.5">
+                  <span>{r.template.name}</span>
+                  <span className="text-[10px] text-green-400/60">{Math.round(r.combined * 100)}%</span>
+                  {r.template.source === "library" && (
+                    <span className="text-[10px] text-amber-400/60">lib</span>
+                  )}
+                </div>
+              </SelectItem>
+            ))}
+          </>
+        )}
+
+        {libraryOther.length > 0 && (
+          <>
+            <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-amber-400/70">
+              Library ({libraryOther.length})
+            </div>
+            {libraryOther.map((t) => (
+              <SelectItem key={t.id} value={t.id}>
+                {t.name}
+              </SelectItem>
+            ))}
+          </>
+        )}
+
+        {customOther.length > 0 && (
+          <>
+            <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Custom ({customOther.length})
+            </div>
+            {customOther.map((t) => (
+              <SelectItem key={t.id} value={t.id}>
+                {t.name}
+              </SelectItem>
+            ))}
+          </>
+        )}
+      </SelectContent>
+    </Select>
   );
 }
