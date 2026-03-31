@@ -27,7 +27,8 @@ import type { ForgeSession, ForgeArtifact, ForgeDeviceEntry, ForgeIoEntry } from
 import type { DesignProfile } from "@/types/design-profile";
 import type { FbTemplate } from "@/types/fb-template";
 import type { PatternCandidate } from "@/types";
-import type { ProcessLinkageMatrix } from "@/types/forge-matrix";
+import type { ProcessLinkageMatrix, LinkageDevice } from "@/types/forge-matrix";
+import { getRelevantReferenceSections, formatReferenceSections } from "@/lib/reference-lookup";
 import { extractBlockName } from "@/lib/scl-block-parser";
 import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 
@@ -81,14 +82,21 @@ function reconcileUdtReferences(
   function bestMatch(typeName: string): string | null {
     if (udtSet.has(typeName)) return typeName; // exact match — nothing to do
     const s = stem(typeName);
-    // Find UDT whose stem is contained in the query stem or vice versa
-    // Levenshtein threshold scales with stem length to avoid false positives on
-    // longer compound names (e.g. "motorconfig" should NOT match "estopconfig").
+    // Find UDT whose stem matches. Rules:
+    // 1. Exact stem match (case-insensitive, "type" prefix stripped)
+    // 2. Levenshtein distance ≤ threshold (typo correction only)
+    // 3. Substring match ONLY if the shorter stem is at least 60% of the longer
+    //    (prevents "estop" matching "pushbuttonconfig")
     const candidates = udtStems.filter(u => {
-      if (u.stem.includes(s) || s.includes(u.stem)) return true;
+      if (u.stem === s) return true; // exact stem match
       const dist = levenshtein(u.stem, s);
       const threshold = Math.max(1, Math.floor(Math.min(u.stem.length, s.length) / 5));
-      return dist <= threshold;
+      if (dist <= threshold) return true;
+      // Substring match with length guard — short stems shouldn't match long unrelated ones
+      const shorter = Math.min(u.stem.length, s.length);
+      const longer = Math.max(u.stem.length, s.length);
+      if (shorter / longer >= 0.6 && (u.stem.includes(s) || s.includes(u.stem))) return true;
+      return false;
     });
     if (candidates.length === 1) return candidates[0].name;
     // If multiple candidates, pick shortest-stem distance
@@ -226,20 +234,22 @@ function backfillGlobalDbFields(
 
   function parseDbFields(content: string): Map<string, string> {
     const fields = new Map<string, string>(); // fieldName → currentType
-    const re = /^\s{4}(\w+)\s*:\s*"?([\w.]+)"?\s*;/gm;
+    // Match field declarations with optional := default values and // comments
+    const re = /^\s{2,}(\w+)\s*:\s*"?([\w.]+)"?(?:\s*:=[^;]*)?;/gm;
     let m: RegExpExecArray | null;
     while ((m = re.exec(content)) !== null) fields.set(m[1], m[2]);
     return fields;
   }
 
-  // Build paramName → SCL data type from all FB VAR_INPUT/VAR_OUTPUT sections
+  // Build paramName → SCL data type from all FB sections (VAR_INPUT, VAR_OUTPUT, VAR_IN_OUT, VAR/static)
   const fbParamTypes = new Map<string, string>(); // paramName → dataType
   for (const a of artifacts) {
     if (a.type !== "FB" || a.language !== "SCL") continue;
-    const varRe = /(VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT)([\s\S]*?)END_VAR/gi;
+    // Match all VAR sections including static VAR (for UDT outputs like ERROR_Motor)
+    const varRe = /(VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR\b)([\s\S]*?)END_VAR/gi;
     let vm: RegExpExecArray | null;
     while ((vm = varRe.exec(a.content)) !== null) {
-      const fieldRe = /^\s+(\w+)\s*:\s*"?([\w.]+)"?\s*;/gm;
+      const fieldRe = /^\s+(\w+)\s*:\s*"?([\w.]+)"?/gm;
       let fm: RegExpExecArray | null;
       while ((fm = fieldRe.exec(vm[2])) !== null) {
         if (!fbParamTypes.has(fm[1])) fbParamTypes.set(fm[1], fm[2]);
@@ -379,7 +389,7 @@ function backfillGlobalDbFields(
     let correctedCount = 0;
 
     // UDT types (starting with "type" or containing uppercase after first char) need quotes in SCL
-    const needsQuotes = (t: string) => /^type/i.test(t) || /^[A-Z]/.test(t) && !/^(Bool|Int|DInt|Real|LReal|Word|DWord|Byte|String|WString|Time|LTime|Date|USInt|UInt|UDInt|SInt|LInt|ULInt|Char|WChar|Array)$/i.test(t);
+    const needsQuotes = (t: string) => /^(type|udt)/i.test(t) || /^[A-Z]/.test(t) && !/^(Bool|Int|DInt|Real|LReal|Word|DWord|Byte|String|WString|Time|LTime|Date|USInt|UInt|UDInt|SInt|LInt|ULInt|Char|WChar|Array)$/i.test(t);
     const formatType = (t: string) => needsQuotes(t) ? `"${t}"` : t;
 
     for (const [fieldName, { dataType, authoritative }] of refs) {
@@ -533,6 +543,41 @@ function deduplicateFbCallParams(
 }
 
 /**
+ * Remove duplicate field declarations within DB artifacts.
+ * AI may generate the same field twice (once with defaults, once without).
+ * Keeps the first occurrence (which typically has comments/defaults).
+ */
+function deduplicateDbFields(
+  artifacts: ForgeArtifact[],
+  log: (level: DeviceGenLogLevel, msg: string) => void,
+): ForgeArtifact[] {
+  return artifacts.map(a => {
+    if (a.type !== "DB") return a;
+    const lines = a.content.split("\n");
+    const newLines: string[] = [];
+    const seenFields = new Set<string>();
+    let changed = false;
+
+    for (const line of lines) {
+      // Match field declaration: "    fieldName : Type"
+      const fieldMatch = line.match(/^\s+(\w+)\s*:/);
+      if (fieldMatch) {
+        const fieldName = fieldMatch[1].toLowerCase();
+        if (seenFields.has(fieldName)) {
+          log("fix", `Duplicate field "${fieldMatch[1]}" removed from ${a.name}`);
+          changed = true;
+          continue;
+        }
+        seenFields.add(fieldName);
+      }
+      newLines.push(line);
+    }
+
+    return changed ? { ...a, content: newLines.join("\n") } : a;
+  });
+}
+
+/**
  * For each "InstXxx".fieldName reference in FCs, check whether fieldName exists in
  * the FB's VAR_OUTPUT or VAR_IN_OUT section. If not, find the closest matching output
  * by Levenshtein distance and replace, or log a warning with available options.
@@ -653,11 +698,12 @@ function backfillGlobalDbFieldsFromWiring(
 ): ForgeArtifact[] {
   if (!matrix?.deviceLinkage) return artifacts;
 
-  // Identify global DB artifacts (not Inputs/Outputs/instance DBs)
+  // Identify global DB artifacts (not Inputs/instance DBs)
+  // Outputs DB IS included — device FB outputs (e.g., motor CMD signals) must be backfilled.
   const inputsName = `${dbPrefix}Inputs`;
   const outputsName = `${dbPrefix}Outputs`;
   const globalDbs = artifacts.filter(
-    a => a.type === "DB" && !a.name.startsWith(instDbPrefix) && a.name !== inputsName && a.name !== outputsName,
+    a => a.type === "DB" && !a.name.startsWith(instDbPrefix) && a.name !== inputsName,
   );
   if (globalDbs.length === 0) return artifacts;
 
@@ -669,11 +715,11 @@ function backfillGlobalDbFieldsFromWiring(
     if (name.startsWith("DB_")) globalDbNameMap.set(name.slice(3).toLowerCase(), name);
   }
 
-  // Build FB param types from all FB artifacts
+  // Build FB param types from all FB artifacts (including static VAR for UDT outputs like ERROR_Motor)
   const fbParamTypes = new Map<string, string>(); // paramName → dataType
   for (const a of [...fbArtifacts, ...artifacts.filter(a => a.type === "FB")]) {
     if (a.language !== "SCL") continue;
-    const varRe = /(VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT)([\s\S]*?)END_VAR/gi;
+    const varRe = /(VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR\b)([\s\S]*?)END_VAR/gi;
     let vm: RegExpExecArray | null;
     while ((vm = varRe.exec(a.content)) !== null) {
       const fieldRe = /^\s+(\w+)\s*:\s*"?([\w.]+)"?/gm;
@@ -693,8 +739,30 @@ function backfillGlobalDbFieldsFromWiring(
     return fields;
   }
 
+  // Normalize a field name for semantic deduplication.
+  // Strips common abbreviation differences: cmd↔command, fwd↔forward, rev↔reverse
+  function normalizeFieldName(name: string): string {
+    return name.toLowerCase()
+      .replace(/command/g, "cmd")
+      .replace(/forward/g, "fwd")
+      .replace(/reverse/g, "rev")
+      .replace(/reset/g, "rst")
+      .replace(/error/g, "err")
+      .replace(/_/g, "");
+  }
+
+  // Check if a semantically equivalent field already exists
+  function hasSimilarField(existing: Set<string>, candidate: string): string | null {
+    const normCandidate = normalizeFieldName(candidate);
+    for (const field of existing) {
+      if (normalizeFieldName(field) === normCandidate) return field;
+    }
+    return null;
+  }
+
   // Collect all wiring references to global DBs
-  const dbFieldsToAdd = new Map<string, Map<string, string>>(); // dbName → fieldName → dataType
+  // Stores paramName alongside dataType so we can look up FB interface types by the original param name
+  const dbFieldsToAdd = new Map<string, Map<string, { dataType: string; paramName: string }>>(); // dbName → fieldName → { dataType, paramName }
 
   for (const device of matrix.deviceLinkage) {
     for (const wire of device.wiring) {
@@ -720,25 +788,48 @@ function backfillGlobalDbFieldsFromWiring(
         if (looksLikeInstDb) continue; // instance DB cross-reference, not a global DB
       }
 
-      // Determine data type: from wire.dataType, from FB param, or from name heuristic
+      // Determine data type: from wire.dataType, from FB param, from UDT match, or from name heuristic.
+      // Priority: (1) explicit wire dataType, (2) FB interface declaration, (3) UDT artifact match, (4) name heuristic.
       let dataType = wire.dataType;
       if (!dataType || dataType === "Variant") {
+        // Try exact param name from FB interface
         dataType = fbParamTypes.get(wire.paramName) ?? undefined;
       }
+      if (!dataType || dataType === "Variant") {
+        // Try the field name itself (sometimes matrix field name matches FB param name)
+        dataType = fbParamTypes.get(fieldName) ?? undefined;
+      }
+      if (!dataType || dataType === "Variant") {
+        // Try matching paramName against UDT artifact names.
+        // e.g., paramName "ERROR_Motor" → UDT artifact "udtError_Motor"
+        // e.g., paramName "HMI_MotorControl" → UDT artifact "udtHMI_MotorControl"
+        const paramLower = wire.paramName.toLowerCase().replace(/_/g, "");
+        for (const a of [...fbArtifacts, ...artifacts]) {
+          if (a.type !== "UDT") continue;
+          const udtLower = a.name.toLowerCase().replace(/^type|^udt/i, "").replace(/_/g, "");
+          if (udtLower === paramLower || paramLower === udtLower) {
+            dataType = a.name;
+            break;
+          }
+        }
+      }
+      if (dataType && !/^(Bool|Int|Real|Time|DInt|LInt|SInt|USInt|UInt|UDInt|Word|DWord|LWord|Byte|Char|LReal|LTime|S5Time|Date|TimeOfDay|DateTime|String)$/i.test(dataType)) {
+        // dataType is a UDT name — keep it as-is (will be quoted in SCL declaration)
+      }
       if (!dataType) {
-        // Name-based heuristics
+        // Name-based heuristics — conservative, prefer Int/Word over Bool for ambiguous names
         const lower = fieldName.toLowerCase();
-        if (lower.includes("status")) dataType = "Int";
-        else if (lower.includes("fault") || lower.includes("error") || lower.includes("run") || lower.includes("stop") || lower.includes("busy") || lower.includes("idle") || lower.includes("active") || lower.includes("faulted") || lower.includes("enable") || lower.includes("forced") || lower.includes("hold") || lower.includes("direction") || lower.includes("running") || lower.includes("sensor")) dataType = "Bool";
-        else if (lower.includes("mode") || lower.includes("count")) dataType = "Int";
-        else if (lower.includes("speed") || lower.includes("temp") || lower.includes("level") || lower.includes("value")) dataType = "Real";
-        else if (lower.includes("dly") || lower.includes("delay") || lower.includes("time")) dataType = "Time";
-        else dataType = "Bool"; // safe default for HMI tags
+        if (lower.includes("status") || lower.includes("state") || lower.includes("step")) dataType = "Int";
+        else if (lower.includes("direction") || lower.includes("mode") || lower.includes("count") || lower.includes("code")) dataType = "Int";
+        else if (lower.includes("speed") || lower.includes("temp") || lower.includes("level") || lower.includes("value") || lower.includes("setpoint")) dataType = "Real";
+        else if (lower.includes("dly") || lower.includes("delay") || lower.includes("time") || lower.includes("duration") || lower.includes("timeout")) dataType = "Time";
+        else if (lower.includes("fault") || lower.includes("run") || lower.includes("stop") || lower.includes("busy") || lower.includes("idle") || lower.includes("active") || lower.includes("faulted") || lower.includes("enable") || lower.includes("forced") || lower.includes("hold") || lower.includes("running") || lower.includes("sensor") || lower.includes("pressed") || lower.includes("ok") || lower.includes("error") || lower.includes("reset") || lower.includes("cmd")) dataType = "Bool";
+        else dataType = "Bool"; // safe default
       }
 
       if (!dbFieldsToAdd.has(resolvedDbName)) dbFieldsToAdd.set(resolvedDbName, new Map());
       if (!dbFieldsToAdd.get(resolvedDbName)!.has(fieldName)) {
-        dbFieldsToAdd.get(resolvedDbName)!.set(fieldName, dataType);
+        dbFieldsToAdd.get(resolvedDbName)!.set(fieldName, { dataType, paramName: wire.paramName });
       }
     }
   }
@@ -753,12 +844,36 @@ function backfillGlobalDbFieldsFromWiring(
     const existing = parseDbFields(a.content);
     const toAdd: string[] = [];
     // UDT types need quotes in SCL declarations
-    const needsQ = (t: string) => /^type/i.test(t) || /^[A-Z]/.test(t) && !/^(Bool|Int|DInt|Real|LReal|Word|DWord|Byte|String|WString|Time|LTime|Date|USInt|UInt|UDInt|SInt|LInt|ULInt|Char|WChar|Array)$/i.test(t);
-    for (const [fieldName, dataType] of fieldsMap) {
-      if (!existing.has(fieldName)) {
-        const formatted = needsQ(dataType) ? `"${dataType}"` : dataType;
-        toAdd.push(`    ${fieldName} : ${formatted};`);
+    const needsQ = (t: string) => /^(type|udt)/i.test(t) || /^[A-Z]/.test(t) && !/^(Bool|Int|DInt|Real|LReal|Word|DWord|Byte|String|WString|Time|LTime|Date|USInt|UInt|UDInt|SInt|LInt|ULInt|Char|WChar|Array)$/i.test(t);
+    for (const [fieldName, { dataType, paramName }] of fieldsMap) {
+      if (existing.has(fieldName)) continue; // exact match exists
+      const similar = hasSimilarField(existing, fieldName);
+      if (similar) {
+        log("fix", `Skipping duplicate field "${fieldName}" in ${a.name} — semantically equivalent to existing "${similar}"`);
+        continue;
       }
+      // Final type resolution: if heuristic gave Bool but FB interface says UDT, prefer FB interface.
+      // Look up by paramName (the FB's actual parameter name, not the DB field name).
+      let resolvedType = dataType;
+      if (resolvedType === "Bool" && paramName) {
+        const fbType = fbParamTypes.get(paramName);
+        if (fbType && fbType !== "Bool") {
+          log("fix", `Type override for "${fieldName}": Bool → ${fbType} (from FB param "${paramName}")`);
+          resolvedType = fbType;
+        }
+      }
+      const formatted = needsQ(resolvedType) ? `"${resolvedType}"` : resolvedType;
+      // Add sensible defaults for Configuration DB Time fields
+      let defaultVal = "";
+      if (resolvedType === "Time" && (a.name.toLowerCase().includes("config") || a.name.toLowerCase().includes("configuration"))) {
+        const lower = fieldName.toLowerCase();
+        if (lower.includes("timeout") || lower.includes("feedback")) defaultVal = " := T#5s";
+        else if (lower.includes("reset") || lower.includes("hold")) defaultVal = " := T#3s";
+        else if (lower.includes("delay") || lower.includes("dly")) defaultVal = " := T#500ms";
+        else defaultVal = " := T#5s"; // safe default for unrecognized Time fields
+      }
+      toAdd.push(`    ${fieldName} : ${formatted}${defaultVal};`);
+      existing.add(fieldName); // prevent adding same field twice from different devices
     }
 
     if (toAdd.length === 0) return a;
@@ -900,6 +1015,12 @@ function buildNormalizedMatrixWiring(
     const resolvedDb = canonicalDb ?? dbPart;
     if (canonicalDb && canonicalDb !== dbPart) {
       log("fix", `Wiring connectedTo DB normalized: "${dbPart}" → "${canonicalDb}"`);
+    }
+
+    // Warn about direct instance DB access — inter-device signals should
+    // flow through global DBs (HmiData, ProcessCommands) not instance DBs.
+    if (canonicalDb) {
+      log("warn", `Direct instance DB access: "${connectedTo}" — consider routing through a global DB instead`);
     }
 
     // Remap field name against the referenced device's FB interface
@@ -1597,6 +1718,16 @@ export function useForgeDeviceGenerate() {
 
           const fbInterfaceText = deviceTypeFbInterfaces.get(deviceType) ?? "";
 
+          // Look up relevant reference library sections for this device type
+          let refSectionsText = "";
+          try {
+            const refContext = `Device type: ${deviceType}\nFB: ${deviceTypeFbNames.get(deviceType) ?? fcName}\n${fbInterfaceText.slice(0, 2000)}`;
+            const refSections = await getRelevantReferenceSections(
+              refContext, "generation_request", "SIEMENS_TIA", abort.signal, 10,
+            );
+            refSectionsText = formatReferenceSections(refSections, callFcLang === "LAD" ? "LAD" : "SCL");
+          } catch { /* reference lookup is best-effort */ }
+
           const context: DeviceCallFcContext = {
             fcName,
             deviceType,
@@ -1612,6 +1743,7 @@ export function useForgeDeviceGenerate() {
             platformRules: PLATFORM_RULES,
             patterns,
             matrixWiring,
+            referenceSections: refSectionsText || undefined,
           };
 
           // Only use deterministic generation if EVERY instance has wiring entries in the
@@ -1733,7 +1865,8 @@ export function useForgeDeviceGenerate() {
         const fixedRefs = fixFcInstanceDbReferences(normalized, appendLog, instDbPrefix);
         const fixedFields = fixFbInstanceFieldRefs(fixedRefs, appendLog, instDbPrefix);
         const deduped2 = deduplicateFbCallParams(fixedFields, appendLog);
-        const reconciled = reconcileUdtReferences(deduped2, appendLog);
+        const deduped3 = deduplicateDbFields(deduped2, appendLog);
+        const reconciled = reconcileUdtReferences(deduped3, appendLog);
         return backfillGlobalDbFields(reconciled, appendLog, instDbPrefix);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -2093,6 +2226,17 @@ export function useForgeDeviceGenerate() {
 
           const fbIfaceText = deviceTypeFbInterfaces.get(deviceType) ?? "";
 
+          // Look up relevant reference library sections for this device type
+          let refSectionsText2 = "";
+          try {
+            const refContext2 = `Device type: ${deviceType}\nFB: ${deviceTypeFbNames.get(deviceType) ?? fcName}\n${fbIfaceText.slice(0, 2000)}`;
+            const callFcLang2 = profile.device_call_fc_language ?? "SCL";
+            const refSections2 = await getRelevantReferenceSections(
+              refContext2, "generation_request", "SIEMENS_TIA", abort.signal, 10,
+            );
+            refSectionsText2 = formatReferenceSections(refSections2, callFcLang2 === "LAD" ? "LAD" : "SCL");
+          } catch { /* reference lookup is best-effort */ }
+
           const context: DeviceCallFcContext = {
             fcName,
             deviceType,
@@ -2108,6 +2252,7 @@ export function useForgeDeviceGenerate() {
             platformRules: PLATFORM_RULES,
             patterns,
             matrixWiring,
+            referenceSections: refSectionsText2 || undefined,
           };
 
           const allInstancesWired = instanceDbNames.every(name =>
@@ -2219,7 +2364,8 @@ export function useForgeDeviceGenerate() {
         const fixedRefs = fixFcInstanceDbReferences(normalized, appendLog, instDbPrefix);
         const fixedFields = fixFbInstanceFieldRefs(fixedRefs, appendLog, instDbPrefix);
         const deduped2 = deduplicateFbCallParams(fixedFields, appendLog);
-        const reconciled = reconcileUdtReferences(deduped2, appendLog);
+        const deduped3 = deduplicateDbFields(deduped2, appendLog);
+        const reconciled = reconcileUdtReferences(deduped3, appendLog);
         return backfillGlobalDbFields(reconciled, appendLog, instDbPrefix);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

@@ -1,0 +1,207 @@
+%%{ init: { 'theme': 'dark', 'themeVariables': { 'primaryColor': '#1e293b', 'primaryTextColor': '#e2e8f0', 'lineColor': '#475569', 'secondaryColor': '#0f172a', 'fontSize': '13px' }, 'flowchart': { 'nodeSpacing': 30, 'rankSpacing': 40, 'curve': 'basis' } } }%%
+flowchart TB
+    %% ════════════════════════════════════════════════════════════
+    %% KNOWLEDGE SOURCES (persistent — available to all steps)
+    %% ════════════════════════════════════════════════════════════
+    subgraph KB["Persistent Knowledge (DB + Files)"]
+        direction LR
+        K_REF["📚 Reference Library\nSiemens manuals, PDFs\n(two-pass AI lookup)"]
+        K_FBT["🔧 FB Templates\nLibrary FBs from TIA import\n(full SCL + interface)"]
+        K_PLT["📋 Platform Rules\nSCL/LAD coding standards\n(static file)"]
+        K_PRF["⚙️ Design Profile\nNaming, folders, IO rules,\nFB favourites, process rules"]
+        K_PAT["🔄 Correction Patterns\nApproved compile-fix\nWRONG → CORRECT pairs"]
+        K_AKD["🧠 Agent Knowledge\nTaught docs per agent\n(PM, Architect, etc.)"]
+        K_PRS["✏️ Prompt Sections\nEditable prompt text\n(identity, instructions)"]
+    end
+
+    %% ════════════════════════════════════════════════════════════
+    %% STEP 1 — FUNCTIONAL SPEC
+    %% ════════════════════════════════════════════════════════════
+    subgraph S1["Step 1 — Functional Spec Upload"]
+        direction LR
+        S1_IN["📄 .docx/.pdf upload"]
+        S1_AGENT["🤖 PM Agent\n(AI — spec parser)"]
+        S1_OUT["💾 SpecAnalysis JSON\ndevices, sequences,\nalarms, interlocks,\nPLC type, HMI type"]
+    end
+    S1_IN --> S1_AGENT --> S1_OUT
+
+    %% ════════════════════════════════════════════════════════════
+    %% STEP 2 — Q&A REVIEW
+    %% ════════════════════════════════════════════════════════════
+    subgraph S2["Step 2 — Q&A Review"]
+        direction LR
+        S2_IN["SpecAnalysis\n+ gap detection"]
+        S2_AGENT["🤖 PM Agent\n(AI — gap analysis)"]
+        S2_OUT["💾 Updated SpecAnalysis\ngaps filled from\nuser answers"]
+    end
+    S1_OUT --> S2_IN
+    S2_IN --> S2_AGENT --> S2_OUT
+
+    %% ════════════════════════════════════════════════════════════
+    %% STEP 3 — PROJECT SETUP
+    %% ════════════════════════════════════════════════════════════
+    subgraph S3["Step 3 — Project Setup"]
+        direction LR
+        S3_IN["User input:\nproject name, client,\ndesign profile, languages,\nTIA version, CPU"]
+        S3_OUT["💾 Session config\nprofile linked,\nlanguages set,\nTIA path derived"]
+    end
+    S2_OUT --> S3_IN
+    S3_IN --> S3_OUT
+
+    %% ════════════════════════════════════════════════════════════
+    %% STEP 4 — HARDWARE & IO
+    %% ════════════════════════════════════════════════════════════
+    subgraph S4["Step 4 — Hardware & IO"]
+        direction LR
+        S4_IN["SpecAnalysis devices\n+ IO list (CSV/auto)"]
+        S4_AGENT["🤖 PM Agent\n(AI — device matcher)\n+ FB Favourites lookup"]
+        S4_OUT["💾 Device list\nwith FB template matches,\nIO list with addresses"]
+    end
+    S3_OUT --> S4_IN
+    K_FBT -.-> S4_AGENT
+    K_PRF -.->|"FB Favourites\n(pinned templates)"| S4_AGENT
+    S4_IN --> S4_AGENT --> S4_OUT
+
+    %% ════════════════════════════════════════════════════════════
+    %% STEP 5 — DEVICE FBs
+    %% ════════════════════════════════════════════════════════════
+    subgraph S5["Step 5 — Device FBs"]
+        direction LR
+        S5_IN["Device list\n+ matched templates"]
+        S5_PROC["⚡ Deterministic\nCopy library FB blocks\n+ generate instance DBs\n(NO AI for library FBs)"]
+        S5_AI["🤖 Code Architect\n(AI — custom FBs only\nfor unmatched devices)"]
+        S5_OUT["💾 FB artifacts\nFBs, UDTs, instance DBs\n(library = exact copy,\ncustom = AI generated)"]
+    end
+    S4_OUT --> S5_IN
+    K_FBT -.->|"full SCL code"| S5_PROC
+    K_PLT -.-> S5_AI
+    K_PRF -.-> S5_AI
+    S5_IN --> S5_PROC --> S5_OUT
+    S5_IN --> S5_AI --> S5_OUT
+
+    %% ════════════════════════════════════════════════════════════
+    %% STEP 6 — MATRIX REVIEW
+    %% ════════════════════════════════════════════════════════════
+    subgraph S6["Step 6 — Matrix Review (Process Linkage Matrix)"]
+        direction LR
+        S6_IN["Device list + IO list\n+ SpecAnalysis\n+ FB interfaces"]
+        S6_AGENT["🤖 PM Agent\n(AI — TWO parallel calls)\n\n1. Device Linkage:\n   wiring, interlocks,\n   global DBs\n\n2. Process Sequences:\n   steps, permissives,\n   safety conditions"]
+        S6_OUT["💾 Process Linkage Matrix\ndeviceLinkage[],\nglobalData[],\nprocessSequences[],\nnotes"]
+    end
+    S5_OUT --> S6_IN
+    K_REF -.->|"two-pass\nAI lookup"| S6_AGENT
+    K_PLT -.-> S6_AGENT
+    K_PRF -.-> S6_AGENT
+    K_PAT -.-> S6_AGENT
+    K_AKD -.-> S6_AGENT
+    K_PRS -.-> S6_AGENT
+    K_FBT -.->|"interfaces only"| S6_AGENT
+    S6_IN --> S6_AGENT --> S6_OUT
+
+    %% ════════════════════════════════════════════════════════════
+    %% VALIDATION (sub-step of Step 6)
+    %% ════════════════════════════════════════════════════════════
+    subgraph S6V["Step 6 — Validation"]
+        direction LR
+        S6V_AGENT["🤖 PM Agent\n(AI — structural check)\n+ deterministic T# fixes"]
+        S6V_OUT["Issues list\n(errors, warnings)\n+ auto-fixed matrix"]
+    end
+    S6_OUT --> S6V_AGENT --> S6V_OUT
+    S6V_OUT -->|"fixes applied"| S6_OUT
+
+    %% ════════════════════════════════════════════════════════════
+    %% STEP 7 — DEVICE CODE
+    %% ════════════════════════════════════════════════════════════
+    subgraph S7["Step 7 — Device Code Generation"]
+        direction LR
+        S7_IN["Matrix wiring\n+ FB interfaces\n+ IO list"]
+        S7_DET["⚡ Deterministic generators\n\n• DB_Inputs (from IO list)\n• DB_Outputs (from IO list)\n• Global DBs (from matrix)\n• IoLinking FC (IO↔DB)\n• Device Call FCs (matrix wiring)\n  — polarity fix (eStop)\n  — VAR_IN_OUT auto-wire\n  — type resolution from FB"]
+        S7_AI["🤖 Code Architect\n(AI — only when\ndeterministic fails\nor custom FBs needed)"]
+        S7_POST["⚡ Post-processing\n\n• Normalize inst DB names\n• Deduplicate DB fields\n• Deduplicate call params\n• Reconcile UDT names\n• Backfill missing DB fields\n  (type from FB interface)"]
+        S7_OUT["💾 Device artifacts\nDBs, FCs (SCL+LAD),\nall wired per matrix"]
+    end
+    S6_OUT --> S7_IN
+    K_REF -.->|"per device type"| S7_DET
+    K_PLT -.-> S7_AI
+    K_PRF -.-> S7_AI
+    K_PAT -.-> S7_AI
+    K_AKD -.-> S7_AI
+    K_PRS -.-> S7_AI
+    S7_IN --> S7_DET --> S7_POST --> S7_OUT
+    S7_IN --> S7_AI --> S7_POST
+
+    %% ════════════════════════════════════════════════════════════
+    %% STANDARDS REVIEW (sub-step of Step 7)
+    %% ════════════════════════════════════════════════════════════
+    subgraph S7R["Step 7 — Standards Review"]
+        direction LR
+        S7R_AGENT["🤖 Standards Reviewer\n(AI — checks all artifacts\nagainst platform rules)"]
+        S7R_OUT["Findings\n(critical, warning, info)\n+ optional rewrite"]
+    end
+    S7_OUT --> S7R_AGENT --> S7R_OUT
+    K_PLT -.-> S7R_AGENT
+    K_PRF -.-> S7R_AGENT
+    S7R_OUT -->|"rewrite fixes"| S7_OUT
+
+    %% ════════════════════════════════════════════════════════════
+    %% STEP 8 — PROCESS CODE
+    %% ════════════════════════════════════════════════════════════
+    subgraph S8["Step 8 — Process Code Generation"]
+        direction LR
+        S8_IN["Matrix sequences\n+ device artifacts\n+ global DB schemas\n+ fault spec"]
+        S8_AGENT["🤖 Code Architect\n(AI — one call per sequence)\n\nGenerates:\n• Sequence FBs/FCs\n• Fault FC\n• OB1 Main\n(SCL or LAD per profile)"]
+        S8_OUT["💾 Process artifacts\nSequence blocks,\nFault handling,\nOB1 call chain"]
+    end
+    S7_OUT --> S8_IN
+    S6_OUT -->|"sequences"| S8_IN
+    K_REF -.->|"per sequence"| S8_AGENT
+    K_PLT -.-> S8_AGENT
+    K_PRF -.->|"process_rules"| S8_AGENT
+    K_PAT -.-> S8_AGENT
+    K_AKD -.-> S8_AGENT
+    K_PRS -.-> S8_AGENT
+    S8_IN --> S8_AGENT --> S8_OUT
+
+    %% ════════════════════════════════════════════════════════════
+    %% STEP 9-11 — REMAINING STEPS
+    %% ════════════════════════════════════════════════════════════
+    subgraph S9["Step 9 — HMI Screens"]
+        S9_AGENT["🤖 HMI Agent\n(AI — screen generation)"]
+    end
+    subgraph S10["Step 10 — PLCSIM Test"]
+        S10_AGENT["🔌 TIA Bridge\n(compile + simulate)"]
+    end
+    subgraph S11["Step 11 — TIA Export"]
+        S11_AGENT["⚡ Deterministic\nJSZip bundle + manifest"]
+    end
+    S8_OUT --> S9_AGENT --> S10_AGENT --> S11_AGENT
+
+    %% ════════════════════════════════════════════════════════════
+    %% LEGEND
+    %% ════════════════════════════════════════════════════════════
+    subgraph LEGEND["Legend"]
+        direction LR
+        L1["⚡ Deterministic\n(no AI, exact logic)"]
+        L2["🤖 AI Agent\n(Claude API call)"]
+        L3["💾 Saved to DB\n(persists in session)"]
+        L4["📚 Knowledge lookup\n(fetched per request)"]
+    end
+
+    %% ════════════════════════════════════════════════════════════
+    %% STYLING
+    %% ════════════════════════════════════════════════════════════
+    classDef kb fill:#1e3a5f,stroke:#3b82f6,color:#e2e8f0
+    classDef step fill:#1a1a2e,stroke:#475569,color:#e2e8f0
+    classDef agent fill:#312e81,stroke:#818cf8,color:#e2e8f0
+    classDef det fill:#064e3b,stroke:#10b981,color:#e2e8f0
+    classDef output fill:#78350f,stroke:#f59e0b,color:#e2e8f0
+    classDef review fill:#4c1d95,stroke:#a78bfa,color:#e2e8f0
+    classDef input fill:#1e293b,stroke:#64748b,color:#e2e8f0
+    classDef legend fill:#0f172a,stroke:#334155,color:#94a3b8
+
+    class K_REF,K_FBT,K_PLT,K_PRF,K_PAT,K_AKD,K_PRS kb
+    class S1_AGENT,S2_AGENT,S4_AGENT,S6_AGENT,S6V_AGENT,S7_AI,S7R_AGENT,S8_AGENT,S9_AGENT agent
+    class S5_PROC,S7_DET,S7_POST,S10_AGENT,S11_AGENT det
+    class S1_OUT,S2_OUT,S3_OUT,S4_OUT,S5_OUT,S6_OUT,S7_OUT,S8_OUT,S6V_OUT,S7R_OUT output
+    class S1_IN,S2_IN,S3_IN,S4_IN,S5_IN,S6_IN,S7_IN,S8_IN input
+    class L1,L2,L3,L4 legend

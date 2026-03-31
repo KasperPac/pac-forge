@@ -137,7 +137,23 @@ ${instructions}
 ## CRITICAL: Cross-Artifact Consistency
 When you rename a parameter or variable in an FB interface (VAR_INPUT/VAR_OUTPUT/VAR_IN_OUT), you MUST also rename every call site that uses that parameter across ALL other artifacts.
 Example: if you rename _SensorDlyOnOff to sensorDlyOnOff in the FB, you must find every "_SensorDlyOnOff :=" and "_SensorDlyOnOff =>" in all Device Call FCs and update them to match.
-Failure to do this will cause compile errors even though the review findings appear fixed.
+
+## CRITICAL: DB Schema Must Match All References
+When a finding says to wire a parameter to a global DB field (e.g., \`error => "DB_HmiData".m01Error\`), you MUST:
+1. Add the wire to the call FC
+2. **Also check** that the target DB declares that field with the correct type
+3. If the field is missing from the DB, **add it** with the correct type from the FB interface
+4. If the field exists but with the wrong type (e.g., Bool instead of UDT), **fix the type**
+
+This applies to ALL global DBs: DB_HmiData, DB_ProcessCommands, DB_Configuration, DB_FaultData, DB_ProcessState, DB_Outputs.
+Failure to update the DB schema when adding new wires will cause "undeclared variable" compile errors.
+
+## DB Architecture Rules
+- DB_HmiData: WRITE-ONLY for HMI display. Device call FCs write status to it. NO PLC logic ever reads from it.
+- DB_ProcessCommands: Sequence → device commands. Written by process code, read by device call FCs.
+- DB_ProcessState: Internal state. Written/read by process code.
+- DB_FaultData: Fault latches. Written by devices/process, read by process/sequences.
+- Siemens Open Library FBs have HMI UDTs as VAR_IN_OUT — the HMI faceplate reads the instance DB directly.
 
 ## Response Format
 ## Rewrite Summary

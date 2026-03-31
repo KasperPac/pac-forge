@@ -44,7 +44,7 @@ import { cn } from "@/lib/utils";
 import type { ForgeSession, ForgeArtifact, ForgeIoEntry, ForgeDeviceEntry } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
 import type { FbTemplate } from "@/types/fb-template";
-import type { PatternCandidate } from "@/types";
+import type { PatternCandidate, AgentKnowledgeDoc } from "@/types";
 import type { ReviewFinding } from "@/lib/forge-review-parser";
 
 export interface ForgeDeviceCodeProps {
@@ -52,6 +52,7 @@ export interface ForgeDeviceCodeProps {
   profile: DesignProfile;
   fbTemplates: FbTemplate[];
   patterns: PatternCandidate[];
+  agentKnowledgeDocs?: AgentKnowledgeDoc[];
   onArtifactsUpdate: (artifacts: ForgeArtifact[]) => void;
   onBeforeGenerate?: () => Promise<FbTemplate[]>;
   onComplete: () => void;

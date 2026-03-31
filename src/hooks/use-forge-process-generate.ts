@@ -25,7 +25,9 @@ import type {
 import type { DesignProfile } from "@/types/design-profile";
 import type { PatternCandidate } from "@/types";
 import type { ProcessLinkageMatrix, ProcessSequence, SequenceRow } from "@/types/forge-matrix";
+import type { AgentKnowledgeDoc } from "@/types";
 import { useActivePromptSections } from "@/hooks/use-prompt-sections";
+import { getRelevantReferenceSections, formatReferenceSections } from "@/lib/reference-lookup";
 
 const PROCESS_GEN_MAX_TOKENS = 16384;
 
@@ -420,6 +422,7 @@ export function useForgeProcessGenerate() {
       faultSpec?: FaultEntry[],
       stepActionDbName?: string,
       filteredTags?: string,
+      agentKnowledgeDocs?: AgentKnowledgeDoc[],
     ): Promise<ForgeArtifact[]> => {
       const abort = new AbortController();
       // Session language (wizard project setup) overrides profile default
@@ -440,7 +443,22 @@ export function useForgeProcessGenerate() {
         .map(a => a.content)
         .join("\n\n");
 
-      console.log(`[forge-process] Context sizes: platformRules=${(PLATFORM_RULES.length/1024).toFixed(1)}KB, fbInterfaces=${(fbInterfaces.length/1024).toFixed(1)}KB, globalDbSchemas=${(globalDbSchemas.length/1024).toFixed(1)}KB, patterns=${patterns.length} items, profile.general_rules=${((profile.general_rules ?? "").length/1024).toFixed(1)}KB, profile.process_rules=${(JSON.stringify(profile.process_rules ?? "").length/1024).toFixed(1)}KB`);
+      // Reference library lookup — context from sequence description + device types
+      let refSectionsText = "";
+      try {
+        const seqDesc = `Process sequence: ${sequence.name}\n${(sequence.steps ?? []).map(s => s.action).join("\n")}`;
+        const refSections = await getRelevantReferenceSections(
+          seqDesc, "generation_request", "SIEMENS_TIA", abort.signal, 15,
+        );
+        refSectionsText = formatReferenceSections(refSections, isLad ? "LAD" : "SCL");
+      } catch { /* reference lookup is best-effort */ }
+
+      // Format agent knowledge docs
+      const knowledgeText = agentKnowledgeDocs?.length
+        ? agentKnowledgeDocs.map(d => `### ${d.title}\n${d.content}`).join("\n\n---\n\n")
+        : "";
+
+      console.log(`[forge-process] Context sizes: platformRules=${(PLATFORM_RULES.length/1024).toFixed(1)}KB, fbInterfaces=${(fbInterfaces.length/1024).toFixed(1)}KB, globalDbSchemas=${(globalDbSchemas.length/1024).toFixed(1)}KB, patterns=${patterns.length} items, profile.general_rules=${((profile.general_rules ?? "").length/1024).toFixed(1)}KB, profile.process_rules=${(JSON.stringify(profile.process_rules ?? "").length/1024).toFixed(1)}KB, refSections=${(refSectionsText.length/1024).toFixed(1)}KB, agentKnowledge=${(knowledgeText.length/1024).toFixed(1)}KB`);
 
       const context: ProcessGenContext = {
         profile,
@@ -451,6 +469,8 @@ export function useForgeProcessGenerate() {
         linkageMatrix: matrix ?? undefined,
         globalDbSchemas: globalDbSchemas || undefined,
         dbNameMap: buildDbNameMap(deviceArtifacts),
+        referenceSections: refSectionsText || undefined,
+        agentKnowledgeDocs: knowledgeText || undefined,
       };
 
       let systemPrompt: string;

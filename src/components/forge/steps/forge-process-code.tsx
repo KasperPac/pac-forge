@@ -20,12 +20,13 @@ import { useForgeRewrite } from "@/hooks/use-forge-rewrite";
 import { useForgeCompileCheck } from "@/hooks/use-forge-compile-check";
 import type { ForgeSession, ForgeArtifact, SpecAnalysis, SpecAnalysisProcessSequence } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
-import type { PatternCandidate } from "@/types";
+import type { PatternCandidate, AgentKnowledgeDoc } from "@/types";
 
 export interface ForgeProcessCodeProps {
   session: ForgeSession;
   profile: DesignProfile;
   patterns: PatternCandidate[];
+  agentKnowledgeDocs?: AgentKnowledgeDoc[];
   onArtifactsUpdate: (artifacts: ForgeArtifact[]) => void;
   onComplete: () => void;
 }

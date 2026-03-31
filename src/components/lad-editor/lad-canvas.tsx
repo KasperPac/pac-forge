@@ -83,12 +83,12 @@ export function LadCanvas({ program, selectedId, onSelectElement }: LadCanvasPro
 
       <svg
         ref={svgRef}
-        width={totalW * zoom + Math.abs(pan.x) + 200}
-        height={totalH * zoom + Math.abs(pan.y) + 200}
+        width={totalW * zoom + Math.max(0, pan.x) + 200}
+        height={totalH * zoom + Math.max(0, pan.y) + 200}
         className="min-h-full min-w-full"
         onClick={handleBgClick}
       >
-        <g transform={`translate(${pan.x + 20}, ${pan.y + 20}) scale(${zoom})`}>
+        <g transform={`translate(${Math.max(20, pan.x + 20)}, ${Math.max(20, pan.y + 20)}) scale(${zoom})`}>
           {layout.rungs.map((rung) => {
             const rungBottom = rung.y + rung.height;
             const rightEdge = totalW - RAIL_RIGHT;

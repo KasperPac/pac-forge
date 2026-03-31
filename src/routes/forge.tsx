@@ -52,6 +52,7 @@ import { useDesignProfile } from "@/hooks/use-design-profiles";
 import { useFbTemplatesForSession } from "@/hooks/use-fb-templates";
 import type { FbTemplate } from "@/types/fb-template";
 import { useActivePatterns } from "@/hooks/use-patterns";
+import { useAllAgentKnowledgeDocs } from "@/hooks/use-agent-knowledge";
 import { useProject } from "@/hooks/use-projects";
 import { useForgeProvision } from "@/hooks/use-forge-provision";
 import { useToast } from "@/hooks/use-toast";
@@ -108,6 +109,11 @@ export default function ForgePage() {
     return result.data ?? fbTemplates;
   };
   const { data: patterns = [] } = useActivePatterns("SIEMENS_TIA");
+  const { data: allKnowledgeDocs = [] } = useAllAgentKnowledgeDocs();
+  // Filter knowledge docs by project's PLC brand for forge agents
+  const agentKnowledgeDocs = allKnowledgeDocs.filter(
+    d => !d.plc_brand || d.plc_brand === "SIEMENS_TIA",
+  );
 
   // Hydrate store from DB session on load
   const hydrated = useForgeStore(s => s.hydrated);
@@ -367,6 +373,9 @@ export default function ForgePage() {
           <ForgeMatrixReview
             session={session}
             fbTemplates={fbTemplates}
+            profile={profile ?? undefined}
+            patterns={patterns}
+            agentKnowledgeDocs={agentKnowledgeDocs}
             onComplete={handleMatrixComplete}
           />
         );
@@ -378,6 +387,7 @@ export default function ForgePage() {
             profile={profileOrDefault}
             fbTemplates={fbTemplates}
             patterns={patterns}
+            agentKnowledgeDocs={agentKnowledgeDocs}
             onArtifactsUpdate={handleDeviceArtifactsUpdate}
             onBeforeGenerate={fetchFreshTemplates}
             onComplete={() => completeStep("device_code")}
@@ -390,6 +400,7 @@ export default function ForgePage() {
             session={session}
             profile={profileOrDefault}
             patterns={patterns}
+            agentKnowledgeDocs={agentKnowledgeDocs}
             onArtifactsUpdate={handleProcessArtifactsUpdate}
             onComplete={() => completeStep("process_code")}
           />

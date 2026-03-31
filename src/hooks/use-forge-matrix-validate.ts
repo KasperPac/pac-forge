@@ -82,6 +82,7 @@ Check the Process Linkage Matrix for:
 3. Interlocks referencing devices not in the device list
 4. Device names inconsistent between deviceLinkage and processSequences
 5. Missing permissives or safety conditions for hazardous sequences
+6. Variable name mismatches between processSequences and globalData field names
 
 Output this exact JSON structure and nothing else:
 {"verdict":"ok","issues":[],"suggestions":[]}
@@ -97,7 +98,14 @@ Rules:
 - correctSnippet: the exact corrected value (keep short, max 40 chars)
 - description: max 15 words
 - suggestedFix: max 10 words
-- DO NOT output any text outside the JSON object`;
+- DO NOT output any text outside the JSON object
+
+Exceptions — do NOT flag these as issues:
+- FB inputs wired to FALSE/TRUE constants for unused optional features (e.g. jamSensor=FALSE when no jam sensor exists) — this is valid, not an error
+- Stop buttons (PB_STOP) are NOT start permissives — they are runtime stop commands handled by monitor steps, not preconditions
+- Bidirectional device wiring (A commands B, B feeds back to A) is normal, NOT a circular dependency
+- Interlocks referencing motor devices from pushbutton context (e.g. PB_STOP.longHold triggers M01 reset) — this is valid if the interlock description explains the relationship
+- Same IO tag wired to multiple FB inputs (e.g. single run feedback to both forward and reverse signal inputs) — flag as "info" only, not warning or error`;
 
 // ---------------------------------------------------------------------------
 // Apply-fixes prompt — Claude rewrites the matrix
@@ -255,6 +263,7 @@ export function useForgeMatrixValidate() {
         `${i + 1}. Field: ${iss.field}\n   Problem: ${iss.description}\n   Fix: ${iss.suggestedFix}\n   Change: "${iss.wrongSnippet}" → "${iss.correctSnippet}"`
       ).join("\n\n");
 
+      // Use 32768 tokens — full matrix JSON can easily exceed 8192 for non-trivial projects
       const { content } = await callNonStreaming(
         APPLY_SYSTEM_PROMPT,
         [{
@@ -262,10 +271,21 @@ export function useForgeMatrixValidate() {
           content: `Apply these ${selectedIssues.length} fix(es) to the matrix:\n\n${issueList}\n\nMatrix JSON:\n${JSON.stringify(matrix, null, 2)}`,
         }],
         ctrl.signal,
-        8192,
+        32768,
       );
 
       const cleaned = content.trim().replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/, "").trim();
+
+      // Detect JSON truncation (response hit max_tokens before completing)
+      try {
+        JSON.parse(cleaned);
+      } catch {
+        throw new Error(
+          `Validation fix response was truncated — the matrix is too large for a single fix call. ` +
+          `Try selecting fewer issues to fix at once.`
+        );
+      }
+
       const corrected = JSON.parse(cleaned) as ProcessLinkageMatrix;
       return { ...corrected, lastReviewedAt: new Date().toISOString() };
     } finally {

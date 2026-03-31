@@ -482,10 +482,13 @@ export function getDeviceCallOrder(deviceType: string): number {
  *
  * HARDCODED — not configurable via Prompts page.
  */
-export function generateGlobalDb(dbName: string, fields: Array<{ fieldName: string; dataType: string; description?: string }>): string {
+export function generateGlobalDb(dbName: string, fields: Array<{ fieldName: string; dataType: string; description?: string; defaultValue?: string }>): string {
   const fieldLines = fields
     .filter(f => f.fieldName && f.fieldName.trim().length > 0)
-    .map(f => `    ${f.fieldName} : ${f.dataType || "Bool"};${f.description ? `  // ${f.description}` : ""}`)
+    .map(f => {
+      const init = f.defaultValue ? ` := ${f.defaultValue}` : "";
+      return `    ${f.fieldName} : ${f.dataType || "Bool"}${init};${f.description ? `  // ${f.description}` : ""}`;
+    })
     .join("\n");
 
   return [
@@ -675,6 +678,8 @@ export interface DeviceCallFcContext {
     instanceDbName: string;
     wiring: FbWire[];
   }>;
+  /** Reference library sections relevant to this device type (from two-pass AI lookup) */
+  referenceSections?: string;
 }
 
 /**
@@ -691,10 +696,11 @@ export interface DeviceCallFcContext {
  * To make configurable: add "forge:device_call_fc" section key to PROMPT_DEFAULTS and use resolveSection().
  */
 export function buildDeviceCallFcPrompt(context: DeviceCallFcContext, promptSections?: Record<string, string>): string {
-  const { profile, platformRules, patterns, fcName, deviceType, devices, instanceDbNames, fbInterfaceSection, inputsDbFields, outputsDbFields, inputsDbName, outputsDbName, matrixWiring } = context;
+  const { profile, platformRules, patterns, fcName, deviceType, devices, instanceDbNames, fbInterfaceSection, inputsDbFields, outputsDbFields, inputsDbName, outputsDbName, matrixWiring, referenceSections } = context;
 
   const profileSection = profile ? formatDesignProfile(profile, "general") : "";
   const patternSection = formatPatterns(patterns ?? []);
+  const referenceSection = referenceSections ? `\n## Reference Documentation\n${referenceSections}\n` : "";
 
   const deviceList = devices
     .map((d, i) => `  ${i + 1}. "${instanceDbNames[i] ?? `Inst${d.name.replace(/[^A-Za-z0-9]/g, "")}`}" — ${d.name} (${d.tag}): ${d.description}`)
@@ -773,7 +779,7 @@ ${profileSection}
 ${platformRules}
 
 ${patternSection}
-
+${referenceSection}
 ## Your Task
 Generate a single FC called "${fcName}" that calls ALL instances of the "${deviceType}" FB.
 
@@ -787,9 +793,22 @@ Generate a single FC called "${fcName}" that calls ALL instances of the "${devic
     : "Inter-device signals (e.g. sensor output feeding conveyor input) use instance DB field access: \"InstSensor1\".outputField."}
 6. Use named association for all FB calls: "InstDBName"(param1 := source, param2 := source, ...).
 7. Do NOT wire IO tags directly — always go through the "${inputsDbName}"/"${outputsDbName}" DBs.
-8. ⛔ If an output parameter has no wiring target, OMIT it entirely from the call. NEVER write "paramName =>" with an empty or missing right-hand side — this is a compile error. Only include output parameters that have a confirmed destination.
-${hasMatrix ? `9. Do NOT change, reorder, or omit any wire from the Matrix wiring. Do NOT add wires not listed unless they are mandatory FB parameters with no matrix entry.
-10. ⛔ Do NOT write to HmiData, FaultData, Configuration, or any global DB unless that exact write is shown in the Matrix wiring above. Those DBs have a fixed, pre-generated schema — invented fields will cause compile errors. FB outputs are accessible via instance DB field reads only (e.g., "InstPE01".status). Do NOT add comment lines suggesting HmiData writes.` : ""}
+8. ⛔ VAR_OUTPUT: If an output parameter has no wiring target, OMIT it — TIA stores it in the instance DB automatically. NEVER write "paramName =>" with an empty right-hand side.
+    ⛔ VAR_IN_OUT: These are MANDATORY — always wire them. If no matrix entry exists, wire to the instance DB field: \`paramName := "InstDBName".paramName\`. Siemens Open Library HMI UDTs (e.g. HMI_MotorControl) are VAR_IN_OUT — the HMI faceplate reads/writes the instance DB field directly.
+${hasMatrix ? `9. Follow the Matrix wiring exactly. Do NOT add wires not listed unless they are mandatory FB parameters with no matrix entry. Exception: safety signal polarity — see rule 11.
+10. ⛔ Do NOT write to HmiData unless that exact write is shown in the Matrix wiring. HmiData is for HMI DISPLAY ONLY — never read from it in PLC logic. Inter-device signals must flow through ProcessCommands, ProcessState, FaultData, or DeviceStatus DBs.
+11. ## Safety Signal Polarity Convention
+    - Signals named "safetyOk", "systemOk": TRUE = safe/healthy, FALSE = fault/danger
+    - FB inputs named "eStop", "emergency", "bInEstop": TRUE = STOP/danger, FALSE = safe
+    - When wiring safetyOk → eStop, ALWAYS negate: \`eStop := NOT source\`
+    - When wiring safetyOk → bInEstop (Siemens Open Library), ALWAYS negate: \`bInEstop := NOT source\`
+12. ## DB Architecture Rules
+    - DB_HmiData: WRITE-ONLY for HMI display. Device call FCs write status to it. NO PLC logic ever reads from it.
+    - DB_ProcessCommands: Sequence → device commands. Written by process code, read by device call FCs.
+    - DB_ProcessState: Internal state tracking. Written/read by process code only.
+    - DB_FaultData: Fault latches. Written by device FBs/process, read by process/sequences.
+    - DB_Inputs/DB_Outputs: Physical IO. DB_Inputs written by IoLinking, DB_Outputs read by IoLinking.
+    - Siemens Open Library FBs have built-in HMI UDTs (VAR_IN_OUT like HMI_MotorControl) — the HMI faceplate reads/writes the instance DB directly, NOT through DB_HmiData.` : ""}
 
 ## FB Interface — MANDATORY REFERENCE
 ⛔ HARD RULE: Only use parameter names that appear VERBATIM in the VAR_INPUT/VAR_OUTPUT sections below. Do NOT invent param names. Do NOT use param names from a different device type's FB.
@@ -822,10 +841,11 @@ ${outputFieldsList}
  * Generates a LadProgram JSON where each network calls one FB instance.
  */
 export function buildDeviceCallFcLadPrompt(context: DeviceCallFcContext): string {
-  const { profile, platformRules, patterns, fcName, deviceType, devices, instanceDbNames, fbInterfaceSection, inputsDbFields, outputsDbFields, inputsDbName, outputsDbName, matrixWiring } = context;
+  const { profile, platformRules, patterns, fcName, deviceType, devices, instanceDbNames, fbInterfaceSection, inputsDbFields, outputsDbFields, inputsDbName, outputsDbName, matrixWiring, referenceSections } = context;
 
   const profileSection = profile ? formatDesignProfile(profile, "general") : "";
   const patternSection = formatPatterns(patterns ?? []);
+  const referenceSection = referenceSections ? `\n## Reference Documentation\n${referenceSections}\n` : "";
 
   const deviceList = devices
     .map((d, i) => `  ${i + 1}. "${instanceDbNames[i] ?? `Inst${d.name.replace(/[^A-Za-z0-9]/g, "")}`}" — ${d.name} (${d.tag}): ${d.description}`)
@@ -875,7 +895,7 @@ ${profileSection}
 ${platformRules}
 
 ${patternSection}
-
+${referenceSection}
 ## Your Task
 Generate a single FC called "${fcName}" in LAD (Ladder Logic) that calls ALL instances of the "${deviceType}" FB.
 Each rung contains ONE FB_CALL element that calls the FB instance with all parameters wired.
@@ -959,6 +979,60 @@ export function buildDeviceCallFcUserMessage(context: DeviceCallFcContext): stri
 }
 
 /**
+ * Extract VAR_IN_OUT parameter names from an FB interface section.
+ * VAR_IN_OUT params are MANDATORY in TIA Portal — omitting them from a call
+ * is a compile error. Returns param names with their declared types.
+ */
+function extractVarInOutParams(fbInterfaceSection: string): Array<{ name: string; dataType: string }> {
+  const params: Array<{ name: string; dataType: string }> = [];
+  const sectionRe = /VAR_IN_OUT([\s\S]*?)END_VAR/gi;
+  let sectionMatch: RegExpExecArray | null;
+  while ((sectionMatch = sectionRe.exec(fbInterfaceSection)) !== null) {
+    const body = sectionMatch[1];
+    const paramRe = /^\s+(\w+)\s*:\s*([^;]+)/gm;
+    let paramMatch: RegExpExecArray | null;
+    while ((paramMatch = paramRe.exec(body)) !== null) {
+      params.push({ name: paramMatch[1], dataType: paramMatch[2].trim() });
+    }
+  }
+  return params;
+}
+
+/**
+ * Extract VAR_OUTPUT parameter names from an FB interface section.
+ * Returns param names with their declared types.
+ */
+function extractVarOutputParams(fbInterfaceSection: string): Array<{ name: string; dataType: string }> {
+  const params: Array<{ name: string; dataType: string }> = [];
+  const sectionRe = /VAR_OUTPUT([\s\S]*?)END_VAR/gi;
+  let sectionMatch: RegExpExecArray | null;
+  while ((sectionMatch = sectionRe.exec(fbInterfaceSection)) !== null) {
+    const body = sectionMatch[1];
+    const paramRe = /^\s+(\w+)\s*:\s*([^;]+)/gm;
+    let paramMatch: RegExpExecArray | null;
+    while ((paramMatch = paramRe.exec(body)) !== null) {
+      params.push({ name: paramMatch[1], dataType: paramMatch[2].trim() });
+    }
+  }
+  return params;
+}
+
+/**
+ * Detect safety signal polarity mismatches and return whether the source
+ * value needs to be negated. E-stop/emergency inputs are active-high
+ * (TRUE = danger), but safety feedback signals like safetyOk are active-low
+ * (TRUE = healthy). Wiring safetyOk directly to eStop inverts the safety logic.
+ */
+function needsPolarityInversion(paramName: string, connectedTo: string): boolean {
+  const param = paramName.toLowerCase();
+  const source = connectedTo.toLowerCase();
+  // eStop/emergency input params wired to safetyOk/systemOk sources need NOT
+  const isEStopParam = param.includes("estop") || param.includes("emergency");
+  const isSafetySource = source.includes("safetyok") || source.includes("systemok") || source.includes("safety_ok");
+  return isEStopParam && isSafetySource;
+}
+
+/**
  * Generate a Device Call FC deterministically from matrix wiring — no AI needed.
  *
  * When the matrix has wiring entries for all devices of this type, we can produce
@@ -969,18 +1043,26 @@ export function buildDeviceCallFcUserMessage(context: DeviceCallFcContext): stri
  * Falls back to null if the matrix has no wiring for this device type (AI path used).
  */
 export function generateDeviceCallFc(context: DeviceCallFcContext): string | null {
-  const { fcName, matrixWiring, inputsDbName, outputsDbName } = context;
+  const { fcName, matrixWiring, inputsDbName, outputsDbName, fbInterfaceSection } = context;
   if (matrixWiring.length === 0) return null;
+
+  // Extract mandatory VAR_IN_OUT and VAR_OUTPUT params from FB interface
+  const varInOutParams = extractVarInOutParams(fbInterfaceSection);
+  const varOutputParams = extractVarOutputParams(fbInterfaceSection);
 
   const callBlocks: string[] = [];
 
   for (const device of matrixWiring) {
     const inputLines: string[] = [];
     const outputLines: string[] = [];
+    const inoutLines: string[] = [];
+    const wiredParams = new Set<string>(); // track which params have matrix wiring
 
     for (const w of device.wiring) {
       // Skip wires with no connectedTo — can't build a valid SCL expression
       if (!w.connectedTo?.trim()) continue;
+
+      wiredParams.add(w.paramName.toLowerCase());
 
       let source: string;
       if (w.wireType === "io") {
@@ -1011,13 +1093,34 @@ export function generateDeviceCallFc(context: DeviceCallFcContext): string | nul
       if (!source.trim()) continue;
 
       if (w.direction === "in") {
-        inputLines.push(`        ${w.paramName} := ${source}`);
+        // Invert safety signals: safetyOk (TRUE=safe) must be negated
+        // when wired to eStop inputs (TRUE=danger)
+        const invert = needsPolarityInversion(w.paramName, w.connectedTo ?? "");
+        const expr = invert ? `NOT ${source}` : source;
+        inputLines.push(`        ${w.paramName} := ${expr}`);
       } else {
         outputLines.push(`        ${w.paramName} => ${source}`);
       }
     }
 
-    const allLines = [...inputLines, ...outputLines];
+    // VAR_IN_OUT params are MANDATORY — wire to instance DB field if no matrix entry
+    // (Siemens Open Library HMI UDTs like HMI_MotorControl live on the instance DB)
+    for (const p of varInOutParams) {
+      if (!wiredParams.has(p.name.toLowerCase())) {
+        inoutLines.push(`        ${p.name} := "${device.instanceDbName}".${p.name}`);
+      }
+    }
+
+    // VAR_OUTPUT params missing from matrix — wire to instance DB to avoid
+    // "unwired output" compile warnings (output values remain accessible via inst DB)
+    for (const p of varOutputParams) {
+      if (!wiredParams.has(p.name.toLowerCase())) {
+        // Don't add explicit wiring for unwired outputs — TIA Portal
+        // stores them in the instance DB automatically. Only VAR_IN_OUT is mandatory.
+      }
+    }
+
+    const allLines = [...inputLines, ...inoutLines, ...outputLines];
     if (allLines.length > 0) {
       callBlocks.push(`    "${device.instanceDbName}"(\n${allLines.join(",\n")}\n    );`);
     } else {
@@ -1059,7 +1162,12 @@ export function generateDeviceCallFcLad(context: DeviceCallFcContext): string | 
     paramDataTypes.set(ptMatch[1].toLowerCase(), ptMatch[2]);
   }
 
+  // Extract mandatory VAR_IN_OUT params from FB interface
+  const varInOutParams = extractVarInOutParams(fbInterfaceSection);
+
   const rungs = matrixWiring.map((device, idx) => {
+    const wiredParams = new Set(device.wiring.filter(w => w.connectedTo?.trim()).map(w => w.paramName.toLowerCase()));
+
     const callParams = device.wiring
       .filter(w => w.connectedTo?.trim())
       .map(w => {
@@ -1074,17 +1182,34 @@ export function generateDeviceCallFcLad(context: DeviceCallFcContext): string | 
         } else {
           value = w.connectedTo ?? "";
         }
+        // Invert safety signals: safetyOk (TRUE=safe) must be negated
+        // when wired to eStop inputs (TRUE=danger)
+        const invert = w.direction === "in" && needsPolarityInversion(w.paramName, w.connectedTo ?? "");
+        const finalValue = invert ? `NOT ${value}` : value;
         return {
           name: w.paramName,
           direction: w.direction as "in" | "out" | "inout",
-          value,
+          value: finalValue,
           dataType: w.dataType ?? paramDataTypes.get(w.paramName.toLowerCase()) ?? "Variant",
         };
       });
 
+    // Add mandatory VAR_IN_OUT params not in matrix wiring
+    // (e.g., Siemens Open Library HMI UDTs — wired to instance DB field)
+    for (const p of varInOutParams) {
+      if (!wiredParams.has(p.name.toLowerCase())) {
+        callParams.push({
+          name: p.name,
+          direction: "inout",
+          value: `"${device.instanceDbName}".${p.name}`,
+          dataType: p.dataType,
+        });
+      }
+    }
+
     return {
       id: `rung_${idx + 1}`,
-      title: `Call ${device.instanceDbName}`,
+      title: `Call ${device.instanceDbName} — ${device.deviceName} (${fbName})`,
       logic: {
         type: "series",
         nodes: [
@@ -1245,6 +1370,10 @@ export interface ProcessGenContext {
   globalDbSchemas?: string;
   /** Maps wiring DB names (may lack prefix) → actual artifact/import names */
   dbNameMap?: Map<string, string>;
+  /** Reference library sections relevant to this process sequence */
+  referenceSections?: string;
+  /** Agent knowledge docs (Code Architect learnings) */
+  agentKnowledgeDocs?: string;
 }
 
 /**
@@ -1514,7 +1643,8 @@ ${platformRules}
 ${context.deviceFbInterfaces || "(no device FBs)"}
 
 ${patternSection}
-
+${context.referenceSections ? `\n## Reference Documentation\n${context.referenceSections}\n` : ""}
+${context.agentKnowledgeDocs ? `\n## Agent Knowledge\n${context.agentKnowledgeDocs}\n` : ""}
 ${stepActionRules}
 ${seqNotes ? `## Sequence Structure Notes\n${seqNotes}` : ""}
 ${freetext ? `## Additional Process Rules\n${freetext}` : ""}
@@ -1631,7 +1761,8 @@ ${platformRules}
 ${context.deviceFbInterfaces || "(no device FBs)"}
 
 ${patternSection}
-
+${context.referenceSections ? `\n## Reference Documentation\n${context.referenceSections}\n` : ""}
+${context.agentKnowledgeDocs ? `\n## Agent Knowledge\n${context.agentKnowledgeDocs}\n` : ""}
 ## Sequences in this project
 ${seqSummary || "(no sequences generated yet)"}
 
@@ -1857,7 +1988,28 @@ const MATRIX_RULES_COMMON = `## Rules
   - RIGHT (sequence-driven): \`{ "paramName": "run", "wireType": "global", "connectedTo": "ProcessCommands.cv01Run" }\`
   - RIGHT (direct reset, not sequence-driven): \`{ "paramName": "reset", "wireType": "fb", "connectedTo": "InstPbReset.pressed" }\`
   Physical sensor/feedback signals (detection, limits, overload, fault feedback) MAY always wire directly to IO tags.
-- **HmiData** contains only status/feedback fields written by device FBs or process code for the HMI to read. Do NOT put command or control fields in HmiData.
+- **HmiData is DISPLAY-ONLY** — contains status/feedback fields written by device FBs or process code. The ONLY consumer is the HMI runtime. Do NOT put command or control fields in HmiData. Do NOT wire device FB inputs FROM HmiData — use ProcessCommands, ProcessState, or FaultData for inter-device signals.
+- **CRITICAL — Inter-device signals must flow through global DBs, NOT instance DBs:**
+  - WRONG: \`{ "paramName": "eStop", "wireType": "fb", "connectedTo": "InstESTOP.safetyOk" }\` — direct instance DB access
+  - RIGHT: \`{ "paramName": "eStop", "wireType": "global", "connectedTo": "ProcessState.eStopSafetyOk" }\` — through a global DB
+  - The EStopCall FC writes \`safetyOk => "ProcessState".eStopSafetyOk\`, and downstream FCs read from ProcessState.
+  - Exception: Siemens Open Library FB VAR_IN_OUT params (HMI UDTs) are accessed on the instance DB by the HMI faceplate — but PLC code never reads these.
+- **CRITICAL — Output wires MUST use physical IO tag names from the IO list:**
+  - Output direction wires targeting the Outputs DB must use the EXACT tag name from the confirmed IO list.
+  - WRONG: \`{ "paramName": "bOutCommandForward", "direction": "out", "wireType": "io", "connectedTo": "M01_CMD" }\` — invented name
+  - RIGHT: \`{ "paramName": "bOutCommandForward", "direction": "out", "wireType": "io", "connectedTo": "M01_CMD_FWD" }\` — matches IO list
+  - Check the IO list DQ/AQ entries for the exact tag names to use.
+- **CRITICAL — Type mismatches between process logic and FB parameters:**
+  If the process logic uses a different type than the FB parameter expects (e.g., process uses Int for direction 0/1/2, but FB expects Bool), this is acceptable — but you MUST:
+  1. Declare the globalData field with the process-logic type (Int)
+  2. Add a note in the matrix \`notes\` field: "cv01Direction (Int) must be converted to Bool before writing to ControlConveyor.direction — process code or device call FC must handle conversion"
+  3. The conversion happens in the process code or device call FC, NOT in the matrix wiring
+  Do NOT silently wire an Int to a Bool — it will cause a compile error. Flag it for downstream handling.
+- **CRITICAL — Device hierarchy: sequences command PARENT devices, never child devices directly:**
+  - If a conveyor (CV01) contains a motor (M01), the sequence sets ProcessCommands.cv01Run — the conveyor FB internally commands the motor via its runForward/runReverse outputs. The sequence NEVER writes ProcessCommands.m01CmdFwd directly.
+  - WRONG: sequence sets ProcessCommands.m01CmdFwd = TRUE (bypasses conveyor logic)
+  - RIGHT: sequence sets ProcessCommands.cv01Run = TRUE, ProcessCommands.cv01Direction = 1 (conveyor FB handles M01)
+  - This ensures the parent device's safety logic, interlocks, and state machine are always in the path.
 - **Timer presets MUST use TIA TIME literal format: T#5s, T#30s, T#500ms, T#2m — NEVER raw millisecond integers like 5000 or 30000**
 - Step descriptions and condition descriptions that reference timer delays must say "T#5s timer" not "5000ms" or "5s (5000ms)"
 - All IDs must be unique strings (use numeric suffix, e.g. "w1", "i1", "s1")`;
@@ -1905,7 +2057,8 @@ const SEQUENCES_SCHEMA = `{
           "id": "string (unique)",
           "fieldName": "string",
           "dataType": "string",
-          "description": "string"
+          "description": "string",
+          "defaultValue": "string | null (e.g. T#5s, 0, FALSE — only for Configuration DB fields)"
         }
       ]
     }
@@ -1959,11 +2112,23 @@ const SEQUENCES_SCHEMA = `{
  *   - naming_prefix / db_naming_prefix: could pre-apply naming conventions
  * To make configurable: add "forge:device_linkage" section key to PROMPT_DEFAULTS and use resolveSection().
  */
-export function buildDeviceLinkagePrompt(promptSections?: Record<string, string>): string {
+export function buildDeviceLinkagePrompt(
+  promptSections?: Record<string, string>,
+  platformRules?: string,
+  profileRules?: string,
+  patternSection?: string,
+  referenceSections?: string,
+  agentKnowledge?: string,
+): string {
   const identity = resolveSection(promptSections, "forge_pm_device_linkage", "identity");
+  const platformBlock = platformRules ? `\n## Platform Rules (coding standards)\n${platformRules}\n` : "";
+  const profileBlock = profileRules ? `\n## Design Profile Rules\n${profileRules}\n` : "";
+  const patternBlock = patternSection || "";
+  const referenceBlock = referenceSections ? `\n## Reference Documentation\n${referenceSections}\n` : "";
+  const knowledgeBlock = agentKnowledge ? `\n## Agent Knowledge\n${agentKnowledge}\n` : "";
 
   return `${identity}
-
+${platformBlock}${profileBlock}${patternBlock}${referenceBlock}${knowledgeBlock}
 Generate ONLY the deviceLinkage array — which FB each device uses, its instance DB name, how FB parameters wire to IO tags or global data, and interlocks between devices.
 
 ${MATRIX_RULES_COMMON}
@@ -2011,11 +2176,23 @@ ${DEVICE_LINKAGE_SCHEMA}`;
  *   - process_rules: could bias step/transition naming conventions
  * To make configurable: add "forge:sequences" section key to PROMPT_DEFAULTS and use resolveSection().
  */
-export function buildSequencesPrompt(promptSections?: Record<string, string>): string {
+export function buildSequencesPrompt(
+  promptSections?: Record<string, string>,
+  platformRules?: string,
+  profileRules?: string,
+  patternSection?: string,
+  referenceSections?: string,
+  agentKnowledge?: string,
+): string {
   const identity = resolveSection(promptSections, "forge_pm_sequences", "identity");
+  const platformBlock = platformRules ? `\n## Platform Rules (coding standards)\n${platformRules}\n` : "";
+  const profileBlock = profileRules ? `\n## Design Profile Rules\n${profileRules}\n` : "";
+  const patternBlock = patternSection || "";
+  const referenceBlock = referenceSections ? `\n## Reference Documentation\n${referenceSections}\n` : "";
+  const knowledgeBlock = agentKnowledge ? `\n## Agent Knowledge\n${agentKnowledge}\n` : "";
 
   return `${identity}
-
+${platformBlock}${profileBlock}${patternBlock}${referenceBlock}${knowledgeBlock}
 Generate ONLY the processSequences array and globalData array — state-machine logic with permissives, safety conditions, step rows, and shared data blocks.
 
 ${MATRIX_RULES_COMMON}

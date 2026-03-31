@@ -20,32 +20,83 @@ export interface ParsedLibraryBlock {
 }
 
 /**
+ * Extract the block name from an <AttributeList> section, skipping any
+ * nested <Prefix><Name>...</Name></Prefix> which contains the namespace
+ * prefix (e.g. "p"), not the actual block name.
+ */
+function extractNameFromAttributeList(attrListXml: string): string | null {
+  // Strip <Prefix>...</Prefix> so its <Name> child doesn't match
+  const stripped = attrListXml.replace(/<Prefix>[\s\S]*?<\/Prefix>/g, "");
+  const m = stripped.match(/<Name>(.*?)<\/Name>/);
+  return m ? m[1] : null;
+}
+
+/**
  * Extract block name and type from SimaticML XML.
+ * Two strategies: (1) extract full <AttributeList> content and strip <Prefix>,
+ * (2) fallback to old regex skipping past <Prefix> inline if (1) fails.
  */
 function detectBlockType(xml: string): { name: string; type: ParsedLibraryBlock["type"] } {
-  // Try SW.Blocks.FB
-  let match = xml.match(/<SW\.Blocks\.FB[^>]*>[\s\S]*?<AttributeList>[\s\S]*?<Name>(.*?)<\/Name>/);
-  if (match) return { name: match[1], type: "FB" };
+  const blockPatterns: Array<{ tag: string; type: ParsedLibraryBlock["type"] }> = [
+    { tag: "SW\\.Blocks\\.FB", type: "FB" },
+    { tag: "SW\\.Blocks\\.FC", type: "FC" },
+    { tag: "SW\\.Blocks\\.GlobalDB", type: "DB" },
+    { tag: "SW\\.Types\\.PlcStruct", type: "UDT" },
+    { tag: "SW\\.Blocks\\.OB", type: "OB" },
+  ];
 
-  // Try SW.Blocks.FC
-  match = xml.match(/<SW\.Blocks\.FC[^>]*>[\s\S]*?<AttributeList>[\s\S]*?<Name>(.*?)<\/Name>/);
-  if (match) return { name: match[1], type: "FC" };
+  // Strategy 1: Find a known block type tag and extract Name from its AttributeList
+  for (const { tag, type } of blockPatterns) {
+    // Check if this block type exists in the XML at all
+    const tagPresent = xml.match(new RegExp(`<${tag}[^>]*>`));
+    if (!tagPresent) continue;
 
-  // Try SW.Blocks.GlobalDB
-  match = xml.match(/<SW\.Blocks\.GlobalDB[^>]*>[\s\S]*?<AttributeList>[\s\S]*?<Name>(.*?)<\/Name>/);
-  if (match) return { name: match[1], type: "DB" };
+    // Try to find Name in the block's AttributeList (strip Prefix first)
+    const fullAttrMatch = xml.match(new RegExp(`<${tag}[^>]*>[\\s\\S]*?<AttributeList>([\\s\\S]*?)</AttributeList>`));
+    if (fullAttrMatch) {
+      const name = extractNameFromAttributeList(fullAttrMatch[1]);
+      if (name) return { name, type };
+    }
 
-  // Try SW.Types.PlcStruct (UDT)
-  match = xml.match(/<SW\.Types\.PlcStruct[^>]*>[\s\S]*?<AttributeList>[\s\S]*?<Name>(.*?)<\/Name>/);
-  if (match) return { name: match[1], type: "UDT" };
+    // Try Name directly after AttributeList (skip Prefix)
+    const directMatch = xml.match(new RegExp(
+      `<${tag}[^>]*>[\\s\\S]*?<AttributeList>` +
+      `(?:[\\s\\S]*?<Prefix>[\\s\\S]*?</Prefix>)?` +
+      `[\\s\\S]*?<Name>(.*?)</Name>`
+    ));
+    if (directMatch) return { name: directMatch[1], type };
 
-  // Try SW.Blocks.OB
-  match = xml.match(/<SW\.Blocks\.OB[^>]*>[\s\S]*?<AttributeList>[\s\S]*?<Name>(.*?)<\/Name>/);
-  if (match) return { name: match[1], type: "OB" };
+    // Block type found but no Name in its section — return type with Unknown name.
+    // The caller (parseLibraryExport) will use the library path as the name.
+    return { name: "Unknown", type };
+  }
 
-  // Fallback: any Name in AttributeList
-  match = xml.match(/<AttributeList>[\s\S]*?<Name>(.*?)<\/Name>/);
-  return { name: match?.[1] ?? "Unknown", type: "Unknown" };
+  // Strategy 2: check for CodeBlockLibraryTypeVersion wrapper (library exports)
+  // The actual block type is nested inside — detect it and return
+  if (xml.includes("CodeBlockLibraryTypeVersion") || xml.includes("LibraryTypeVersion")) {
+    for (const { tag, type } of blockPatterns) {
+      if (xml.match(new RegExp(`<${tag}[^>]*>`))) {
+        // Name may be anywhere — try all AttributeList sections
+        const allAttrs = [...xml.matchAll(/<AttributeList>([\s\S]*?)<\/AttributeList>/g)];
+        for (const attr of allAttrs) {
+          const name = extractNameFromAttributeList(attr[1]);
+          if (name && name.length > 1) return { name, type };
+        }
+        return { name: "Unknown", type };
+      }
+    }
+    // UDT library versions use SW.Types
+    if (xml.includes("SW.Types.PlcStruct")) return { name: "Unknown", type: "UDT" };
+  }
+
+  // Final fallback: any AttributeList with a Name
+  const fallback = xml.match(/<AttributeList>([\s\S]*?)<\/AttributeList>/);
+  if (fallback) {
+    const name = extractNameFromAttributeList(fallback[1]);
+    if (name) return { name, type: "Unknown" };
+  }
+
+  return { name: "Unknown", type: "Unknown" };
 }
 
 /**
@@ -222,7 +273,7 @@ export function parseLibraryExport(
 ): ParsedLibraryBlock[] {
   const blocks: ParsedLibraryBlock[] = [];
 
-  for (const [, content] of Object.entries(items)) {
+  for (const [path, content] of Object.entries(items)) {
     // Skip master copy listings
     if (content.startsWith("[MasterCopy]")) continue;
     // Skip empty/tiny content
@@ -232,6 +283,13 @@ export function parseLibraryExport(
 
     const parsed = parseSimaticXmlInterface(content);
     if (parsed) {
+      // Library exports may not have <Name> in the XML — the block name comes
+      // from the library path (e.g., "Open Library V18/Devices/fbMotor_Reversing").
+      // Use the path-derived name if the XML parser returned "Unknown".
+      if (parsed.name === "Unknown" && path) {
+        const pathName = path.split("/").pop();
+        if (pathName) parsed.name = pathName;
+      }
       blocks.push(parsed);
     }
   }

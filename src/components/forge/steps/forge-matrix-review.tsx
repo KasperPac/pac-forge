@@ -33,6 +33,8 @@ import { cn } from "@/lib/utils";
 import { buildWiringContext } from "@/lib/wiring-context";
 import type { ForgeSession, ForgeArtifact } from "@/types/forge";
 import type { FbTemplate } from "@/types/fb-template";
+import type { DesignProfile } from "@/types/design-profile";
+import type { PatternCandidate, AgentKnowledgeDoc } from "@/types";
 import type {
   ProcessLinkageMatrix,
   LinkageDevice,
@@ -46,6 +48,9 @@ import type {
 export interface ForgeMatrixReviewProps {
   session: ForgeSession;
   fbTemplates?: FbTemplate[];
+  profile?: DesignProfile;
+  patterns?: PatternCandidate[];
+  agentKnowledgeDocs?: AgentKnowledgeDoc[];
   onComplete: (matrix: ProcessLinkageMatrix) => void | Promise<void>;
 }
 
@@ -444,7 +449,7 @@ function SequenceCard({ seq }: { seq: ProcessSequence }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMatrixReviewProps) {
+export function ForgeMatrixReview({ session, fbTemplates, profile, patterns, agentKnowledgeDocs, onComplete }: ForgeMatrixReviewProps) {
   const [matrix, setMatrix] = useState<ProcessLinkageMatrix | null>(
     session.linkage_matrix,
   );
@@ -460,6 +465,7 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
   const { validate, applySelectedFixes, loading: validating, applying: applyingFixes, result: validationResult, clear: clearValidation } = useForgeMatrixValidate();
   const createPattern = useCreatePatternCandidate();
   const [selectedIssueIds, setSelectedIssueIds] = useState<Set<string>>(new Set());
+  const [dismissedIssueIds, setDismissedIssueIds] = useState<Set<string>>(new Set());
   const [savedToLibrary, setSavedToLibrary] = useState<Set<string>>(new Set());
   const [applyError, setApplyError] = useState<string | null>(null);
 
@@ -481,6 +487,9 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
         session.spec_analysis,
         fbTemplates,
         deviceFbArtifacts,
+        profile,
+        patterns,
+        agentKnowledgeDocs,
       );
       setMatrix(result);
     } catch {
@@ -600,7 +609,7 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
 
         {/* Error */}
         {(error ?? completeError) && (
-          <div className="flex items-center gap-2 rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          <div className="flex items-center gap-2 rounded border border-red-500/30 bg-red-950/40 px-3 py-2 text-xs text-red-300">
             <AlertCircle className="h-3.5 w-3.5 shrink-0" />
             {error ?? completeError}
           </div>
@@ -612,7 +621,7 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
             "rounded border px-3 py-2 text-xs space-y-2",
             validationResult.verdict === "ok" && "border-green-500/30 bg-green-500/10 text-green-400",
             validationResult.verdict === "warnings" && "border-amber-500/30 bg-amber-500/10 text-amber-400",
-            validationResult.verdict === "errors" && "border-destructive/30 bg-destructive/10 text-destructive",
+            validationResult.verdict === "errors" && "border-red-500/30 bg-red-950/40 text-red-300",
           )}>
             {/* Header */}
             <div className="flex items-center justify-between">
@@ -637,25 +646,41 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
             </div>
 
             {/* Per-issue checkboxes */}
-            {validationResult.fixableIssues.length > 0 && (
+            {validationResult.fixableIssues.length > 0 && (() => {
+              const activeIssues = validationResult.fixableIssues.filter(i => !dismissedIssueIds.has(i.id));
+              const dismissedCount = validationResult.fixableIssues.length - activeIssues.length;
+              return (
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
-                  <span className="font-mono text-[10px] opacity-70 uppercase tracking-wider">Issues ({validationResult.fixableIssues.length})</span>
-                  <button
-                    type="button"
-                    className="font-mono text-[10px] opacity-60 hover:opacity-100 transition-opacity"
-                    onClick={() => {
-                      const allIds = new Set(validationResult.fixableIssues.map(i => i.id));
-                      setSelectedIssueIds(prev => prev.size === allIds.size ? new Set() : allIds);
-                    }}
-                  >
-                    {selectedIssueIds.size === validationResult.fixableIssues.length ? "Deselect all" : "Select all"}
-                  </button>
+                  <span className="font-mono text-[10px] opacity-70 uppercase tracking-wider">
+                    Issues ({activeIssues.length}){dismissedCount > 0 ? ` · ${dismissedCount} dismissed` : ""}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {dismissedCount > 0 && (
+                      <button
+                        type="button"
+                        className="font-mono text-[10px] opacity-40 hover:opacity-80 transition-opacity"
+                        onClick={() => setDismissedIssueIds(new Set())}
+                      >
+                        Show dismissed
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="font-mono text-[10px] opacity-60 hover:opacity-100 transition-opacity"
+                      onClick={() => {
+                        const allIds = new Set(activeIssues.map(i => i.id));
+                        setSelectedIssueIds(prev => prev.size === allIds.size ? new Set() : allIds);
+                      }}
+                    >
+                      {selectedIssueIds.size === activeIssues.length ? "Deselect all" : "Select all"}
+                    </button>
+                  </div>
                 </div>
-                {validationResult.fixableIssues.map(issue => (
+                {activeIssues.map(issue => (
                   <label
                     key={issue.id}
-                    className="flex items-start gap-2 cursor-pointer rounded px-2 py-1.5 hover:bg-white/5 transition-colors"
+                    className="flex items-start gap-2 cursor-pointer rounded px-2 py-1.5 hover:bg-white/5 transition-colors group"
                   >
                     <input
                       type="checkbox"
@@ -669,15 +694,27 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
                         });
                       }}
                     />
-                    <div className="min-w-0 space-y-0.5">
+                    <div className="min-w-0 space-y-0.5 flex-1">
                       <div className="flex items-center gap-1.5">
                         <span className={cn(
                           "font-mono text-[9px] uppercase tracking-wider px-1 rounded",
-                          issue.severity === "error" ? "bg-destructive/20" : "bg-amber-500/20",
+                          issue.severity === "error" ? "bg-red-500/20 text-red-300" : "bg-amber-500/20 text-amber-300",
                         )}>
                           {issue.severity}
                         </span>
                         <span className="opacity-60 font-mono text-[10px]">{issue.field}</span>
+                        <button
+                          type="button"
+                          className="ml-auto font-mono text-[9px] opacity-0 group-hover:opacity-50 hover:!opacity-100 transition-opacity"
+                          onClick={e => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setDismissedIssueIds(prev => new Set([...prev, issue.id]));
+                            setSelectedIssueIds(prev => { const next = new Set(prev); next.delete(issue.id); return next; });
+                          }}
+                        >
+                          dismiss
+                        </button>
                       </div>
                       <div>{issue.description}</div>
                       <div className="opacity-70">→ {issue.suggestedFix}</div>
@@ -685,7 +722,7 @@ export function ForgeMatrixReview({ session, fbTemplates, onComplete }: ForgeMat
                   </label>
                 ))}
               </div>
-            )}
+              ); })()}
 
             {/* Apply selected button */}
             {selectedIssueIds.size > 0 && matrix && (
