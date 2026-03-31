@@ -134,6 +134,7 @@ const INITIAL_STAGES: SubPipelineStage[] = [
 export function ForgeDeviceCode({
   session,
   profile,
+  fbTemplates,
   patterns,
   onArtifactsUpdate,
   onComplete,
@@ -556,6 +557,19 @@ export function ForgeDeviceCode({
       return;
     }
 
+    // Resolve library_block at upload time using template source
+    const libraryTemplateIds = new Set(
+      fbTemplates.filter(t => t.source === "library").map(t => t.id),
+    );
+    const resolvedArtifacts = approved.map(a => {
+      if (a.library_block) return a;
+      if (a.type === "DB") return a; // Instance DBs always need importing
+      if (a.fb_template_id && libraryTemplateIds.has(a.fb_template_id)) {
+        return { ...a, library_block: true };
+      }
+      return a;
+    });
+
     // Reset compile review state
     setShowCompileReview(false);
     setCompileProposals([]);
@@ -566,8 +580,21 @@ export function ForgeDeviceCode({
     setStageStatus("Upload", "running");
 
     try {
+      // Phase 0: Copy library blocks from global library into project
+      const libraryArtifacts = resolvedArtifacts.filter(a => a.library_block);
+      if (libraryArtifacts.length > 0) {
+        const dropboxRoot = localStorage.getItem("pac-forge-dropbox-root") ?? "";
+        if (dropboxRoot) {
+          const { copyLibraryBlocksToProject } = await import("@/lib/forge-library-copy");
+          const libResult = await copyLibraryBlocksToProject(dropboxRoot, libraryArtifacts, fbTemplates);
+          if (libResult.warnings.length > 0) {
+            setCompileWarnings(prev => [...prev, ...libResult.warnings]);
+          }
+        }
+      }
+
       // Phase 1: Upload & compile (no auto-fix)
-      const result = await uploadAndCompile(approved, tiaProjectPath);
+      const result = await uploadAndCompile(resolvedArtifacts, tiaProjectPath);
 
       if (result.success) {
         setStageStatus("Upload", "completed");

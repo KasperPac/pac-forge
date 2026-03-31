@@ -3022,6 +3022,236 @@ END_ORGANIZATION_BLOCK
             return result;
         }
 
+        /// <summary>
+        /// Copy master copies and/or library types from a global library into the open project.
+        /// Master copies are pasted into the PLC block group; types into the PLC type group.
+        /// Blocks that already exist in the project are skipped (logged as SkippedBlocks).
+        /// </summary>
+        public LibraryCopyToProjectResponse CopyLibraryItemsToProject(
+            string libraryPath, List<string> masterCopyPaths, List<string> typePaths)
+        {
+            // Connect if not already — this endpoint runs before the job executor connects
+            if (!IsConnected)
+                Connect();
+
+            // libraryPath may be a folder — find the .al* file inside it
+            string resolvedLibPath = libraryPath;
+            if (Directory.Exists(libraryPath))
+            {
+                var alFiles = Directory.GetFiles(libraryPath, "*.al*");
+                if (alFiles.Length > 0)
+                {
+                    resolvedLibPath = alFiles[0];
+                    Console.WriteLine($"[TIA] Resolved library folder to file: {resolvedLibPath}");
+                }
+                else
+                {
+                    throw new FileNotFoundException($"No .al* library file found in folder: {libraryPath}");
+                }
+            }
+            else if (!File.Exists(libraryPath))
+            {
+                throw new FileNotFoundException($"Library path not found: {libraryPath}");
+            }
+
+            var result = new LibraryCopyToProjectResponse { Success = true };
+            bool weOpened = false;
+            GlobalLibrary library = null;
+
+            try
+            {
+                // --- Open library (reuse if already open) ---
+                var fileInfo = new FileInfo(resolvedLibPath);
+                string expectedName = Path.GetFileNameWithoutExtension(resolvedLibPath);
+                foreach (var openLib in _tiaPortal.GlobalLibraries)
+                {
+                    try
+                    {
+                        bool pathMatch = openLib.Path != null && (
+                            string.Equals(openLib.Path.FullName, fileInfo.FullName, StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(openLib.Path.Name, fileInfo.Name, StringComparison.OrdinalIgnoreCase));
+                        bool nameMatch = string.Equals(openLib.Name, expectedName, StringComparison.OrdinalIgnoreCase);
+                        if (pathMatch || nameMatch)
+                        {
+                            library = openLib;
+                            Console.WriteLine($"[TIA] Copy: using already-open library '{openLib.Name}'");
+                            break;
+                        }
+                    }
+                    catch { }
+                }
+                if (library == null)
+                {
+                    library = _tiaPortal.GlobalLibraries.Open(fileInfo, OpenMode.ReadOnly);
+                    weOpened = true;
+                    Console.WriteLine($"[TIA] Copy: opened library '{library.Name}'");
+                }
+
+                // --- Get PLC software from current project ---
+                Connect();
+                var plcSoftware = GetPlcSoftware();
+                if (plcSoftware == null)
+                    throw new InvalidOperationException("No PLC device found in the project.");
+
+                var blockGroup = plcSoftware.BlockGroup;
+                var typeGroup = plcSoftware.TypeGroup;
+
+                // Log what's available in the type folder
+                Console.WriteLine($"[TIA] Library type folder: {library.TypeFolder.Types.Count} types, {library.TypeFolder.Folders.Count} subfolders");
+                foreach (var tf in library.TypeFolder.Folders)
+                {
+                    Console.WriteLine($"[TIA]   Type subfolder: '{tf.Name}' ({tf.Types.Count} types, {tf.Folders.Count} subfolders)");
+                }
+
+                // --- Try types first (individual FBs live here as versioned library types) ---
+                // If master copy paths were requested, also search the type folder by name
+                var wantedNames = new HashSet<string>(masterCopyPaths, StringComparer.OrdinalIgnoreCase);
+                foreach (var tp in typePaths) wantedNames.Add(tp);
+
+                if (wantedNames.Count > 0)
+                {
+                    // Search types (this is where individual FBs like fbMotor_Reversing live)
+                    CopyLibraryTypesToProject(library.TypeFolder, "", typeGroup, wantedNames, result);
+
+                    // Also try master copies as fallback
+                    CopyMasterCopiesToProject(library.MasterCopyFolder, "", blockGroup, wantedNames, result);
+                }
+
+                result.Message = $"Copied {result.CopiedBlocks.Count} block(s), " +
+                    $"skipped {result.SkippedBlocks.Count}, " +
+                    $"{result.Warnings.Count} warning(s)";
+                Console.WriteLine($"[TIA] {result.Message}");
+            }
+            catch (Exception ex)
+            {
+                result.Success = false;
+                result.Message = ex.Message;
+                result.Errors.Add(ex.Message);
+                Console.WriteLine($"[TIA] Copy failed: {ex.Message}");
+            }
+            finally
+            {
+                if (weOpened && library != null)
+                {
+                    try { ((UserGlobalLibrary)library).Close(); } catch { }
+                }
+            }
+
+            return result;
+        }
+
+        private void CopyMasterCopiesToProject(MasterCopyFolder folder, string path,
+            PlcBlockSystemGroup targetGroup, HashSet<string> wantedPaths, LibraryCopyToProjectResponse result)
+        {
+            Console.WriteLine($"[TIA]   Scanning folder: '{(string.IsNullOrEmpty(path) ? "(root)" : path)}' — {folder.MasterCopies.Count} master copies, {folder.Folders.Count} subfolders");
+
+            foreach (var masterCopy in folder.MasterCopies)
+            {
+                string fullPath = string.IsNullOrEmpty(path) ? masterCopy.Name : path + "/" + masterCopy.Name;
+                Console.WriteLine($"[TIA]     Found: '{masterCopy.Name}' (fullPath='{fullPath}')");
+
+                // Match by full path OR by just the name (case-insensitive)
+                bool match = wantedPaths.Any(w =>
+                    string.Equals(w, fullPath, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(w, masterCopy.Name, StringComparison.OrdinalIgnoreCase));
+                if (!match) continue;
+
+                try
+                {
+                    Console.WriteLine($"[TIA]   Creating block from master copy: {fullPath}");
+                    // CreateFrom brings the block + all dependencies automatically
+                    PlcBlock created = targetGroup.Blocks.CreateFrom(masterCopy);
+                    string blockName = created?.Name ?? masterCopy.Name;
+                    result.CopiedBlocks.Add(blockName);
+                    Console.WriteLine($"[TIA]     Created: {blockName}");
+                }
+                catch (Exception ex)
+                {
+                    result.Warnings.Add($"{fullPath}: {ex.Message}");
+                    Console.WriteLine($"[TIA]     Warning: {fullPath}: {ex.Message}");
+                }
+            }
+
+            foreach (var subFolder in folder.Folders)
+            {
+                string subPath = string.IsNullOrEmpty(path) ? subFolder.Name : path + "/" + subFolder.Name;
+                CopyMasterCopiesToProject(subFolder, subPath, targetGroup, wantedPaths, result);
+            }
+        }
+
+        private void CopyLibraryTypesToProject(LibraryTypeFolder folder, string path,
+            PlcTypeGroup targetGroup, HashSet<string> wantedPaths, LibraryCopyToProjectResponse result)
+        {
+            Console.WriteLine($"[TIA]   Scanning type folder: '{(string.IsNullOrEmpty(path) ? "(root)" : path)}' — {folder.Types.Count} types, {folder.Folders.Count} subfolders");
+
+            foreach (var typeItem in folder.Types)
+            {
+                string fullPath = string.IsNullOrEmpty(path) ? typeItem.Name : path + "/" + typeItem.Name;
+
+                // Match by full path OR by just the name (case-insensitive)
+                if (!wantedPaths.Contains(fullPath) && !wantedPaths.Contains(typeItem.Name))
+                    continue;
+
+                try
+                {
+                    Console.WriteLine($"[TIA]   Copying library type: {fullPath}");
+                    var versions = typeItem.Versions;
+                    if (versions.Count > 0)
+                    {
+                        var latestVersion = versions[versions.Count - 1];
+                        Console.WriteLine($"[TIA]     Version: {latestVersion.VersionNumber}, Type: {latestVersion.GetType().Name}");
+
+                        var plcSoftware = GetPlcSoftware();
+
+                        // Use CreateFrom directly — no export+import needed.
+                        // Dependencies are auto-synced to the project library.
+                        if (latestVersion is CodeBlockLibraryTypeVersion blockVersion)
+                        {
+                            // FB/FC library type → create in PlcBlockComposition
+                            PlcBlock newBlock = plcSoftware.BlockGroup.Blocks.CreateFrom(blockVersion);
+                            result.CopiedBlocks.Add(newBlock.Name);
+                            Console.WriteLine($"[TIA]     Created block: {newBlock.Name}");
+                        }
+                        else if (latestVersion is PlcTypeLibraryTypeVersion plcTypeVersion)
+                        {
+                            // UDT library type → create in PlcTypeComposition
+                            PlcType newType = plcSoftware.TypeGroup.Types.CreateFrom(plcTypeVersion);
+                            result.CopiedBlocks.Add(newType.Name);
+                            Console.WriteLine($"[TIA]     Created type: {newType.Name}");
+                        }
+                        else
+                        {
+                            result.Warnings.Add($"{fullPath}: unsupported version type '{latestVersion.GetType().Name}'");
+                        }
+                    }
+                    else
+                    {
+                        result.Warnings.Add($"Type '{fullPath}' has no versions.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    string msg = ex.Message;
+                    if (msg.Contains("already exists") || msg.Contains("bereits vorhanden"))
+                    {
+                        result.SkippedBlocks.Add(fullPath);
+                        Console.WriteLine($"[TIA]     Skipped (already exists): {fullPath}");
+                    }
+                    else
+                    {
+                        result.Warnings.Add($"{fullPath}: {msg}");
+                        Console.WriteLine($"[TIA]     Warning: {fullPath}: {msg}");
+                    }
+                }
+            }
+
+            foreach (var subFolder in folder.Folders)
+            {
+                string subPath = string.IsNullOrEmpty(path) ? subFolder.Name : path + "/" + subFolder.Name;
+                CopyLibraryTypesToProject(subFolder, subPath, targetGroup, wantedPaths, result);
+            }
+        }
+
         private void ExportTypesFromFolder(LibraryTypeFolder folder, string path,
             string tempDir, HashSet<string> wantedPaths, bool exportAll, LibraryExportResponse result)
         {

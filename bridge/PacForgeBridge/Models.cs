@@ -444,6 +444,28 @@ namespace PacForgeBridge
         public List<string> Warnings { get; set; } = new List<string>();
     }
 
+    // --- Library Copy-to-Project ---
+
+    public class LibraryCopyToProjectRequest
+    {
+        /// <summary>Path to the global library file (.al18 etc.)</summary>
+        public string LibraryPath { get; set; }
+        /// <summary>List of master copy paths to copy into the project (e.g. "04 Electrical Drives/fbMotor_Reversing")</summary>
+        public List<string> MasterCopyPaths { get; set; } = new List<string>();
+        /// <summary>List of library type paths to copy into the project (e.g. "04 Electrical Drives/udtHMI_MotorControl")</summary>
+        public List<string> TypePaths { get; set; } = new List<string>();
+    }
+
+    public class LibraryCopyToProjectResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+        public List<string> CopiedBlocks { get; set; } = new List<string>();
+        public List<string> SkippedBlocks { get; set; } = new List<string>();
+        public List<string> Warnings { get; set; } = new List<string>();
+        public List<string> Errors { get; set; } = new List<string>();
+    }
+
     // --- LAD Import ---
 
     public class ImportLadRequest

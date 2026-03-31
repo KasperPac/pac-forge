@@ -19,7 +19,8 @@ import type { TiaManifest } from "@/types";
 export async function buildSclBundle(artifacts: ForgeArtifact[]): Promise<string> {
   const zip = new JSZip();
   for (const a of artifacts) {
-    if (a.language === "SCL") {
+    // Skip library blocks — they already exist in TIA project from the global library
+    if (a.language === "SCL" && !a.library_block) {
       zip.file(`${a.name}.scl`, a.content);
     }
   }
@@ -129,7 +130,7 @@ export function buildForgeManifest(
     created_by_user_id: "",
     generation_session_id: "",
     artifacts: sorted
-      .filter((a) => a.language === "SCL")
+      .filter((a) => a.language === "SCL" && !a.library_block)
       .map((a) => ({
         name: a.name,
         type: a.type,

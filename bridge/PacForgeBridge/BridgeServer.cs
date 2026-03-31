@@ -279,6 +279,13 @@ namespace PacForgeBridge
                     return;
                 }
 
+                // Route: POST /tia/library/copy-to-project — Copy library blocks into the open project
+                if (method == "POST" && path == "/tia/library/copy-to-project")
+                {
+                    await HandleLibraryCopyToProject(req, res);
+                    return;
+                }
+
                 // Route: GET /tia/ws — WebSocket upgrade
                 if (path == "/tia/ws" && req.IsWebSocketRequest)
                 {
@@ -1176,6 +1183,44 @@ namespace PacForgeBridge
             {
                 Console.WriteLine($"[TIA] Library export failed: {ex.Message}");
                 await WriteJson(res, 500, new LibraryExportResponse
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+        }
+
+        private async Task HandleLibraryCopyToProject(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            try
+            {
+                string body = await ReadBody(req);
+                var request = Json.Deserialize<LibraryCopyToProjectRequest>(body);
+
+                if (request == null || string.IsNullOrEmpty(request.LibraryPath))
+                {
+                    await WriteJson(res, 400, new LibraryCopyToProjectResponse
+                    {
+                        Success = false,
+                        Message = "Missing library_path"
+                    });
+                    return;
+                }
+
+                Console.WriteLine($"[TIA] Copying from library to project: {request.LibraryPath} " +
+                    $"({request.MasterCopyPaths?.Count ?? 0} master copies, {request.TypePaths?.Count ?? 0} types)");
+
+                var result = _tiaService.CopyLibraryItemsToProject(
+                    request.LibraryPath,
+                    request.MasterCopyPaths ?? new List<string>(),
+                    request.TypePaths ?? new List<string>());
+
+                await WriteJson(res, 200, result);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TIA] Library copy-to-project failed: {ex.Message}");
+                await WriteJson(res, 500, new LibraryCopyToProjectResponse
                 {
                     Success = false,
                     Message = ex.Message

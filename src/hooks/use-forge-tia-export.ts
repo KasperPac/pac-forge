@@ -1,17 +1,22 @@
 import { useState, useCallback } from "react";
 import { DEFAULT_BRIDGE_CONFIG } from "@/lib/tia-bridge-contract";
-import type { ImportLadRequest, ImportLadResponse, ImportHmiRequest, ImportHmiResponse } from "@/lib/tia-bridge-contract";
+import type {
+  ImportLadRequest, ImportLadResponse,
+  ImportHmiRequest, ImportHmiResponse,
+} from "@/lib/tia-bridge-contract";
 import {
   buildSclBundle,
   buildForgeManifest,
   buildLadXmlForArtifact,
   buildHmiXmlForArtifact,
 } from "@/lib/forge-export";
+import { copyLibraryBlocksToProject } from "@/lib/forge-library-copy";
 import type { ForgeSession, ForgeArtifact, TiaForgeExportResult } from "@/types/forge";
+import type { FbTemplate } from "@/types/fb-template";
 
 const BRIDGE_BASE = DEFAULT_BRIDGE_CONFIG.baseUrl;
 
-export type ForgeExportPhase = "idle" | "scl" | "lad" | "hmi" | "compile" | "done" | "failed";
+export type ForgeExportPhase = "idle" | "library" | "scl" | "lad" | "hmi" | "compile" | "done" | "failed";
 
 export interface ForgeTiaExportProgress {
   phase: ForgeExportPhase;
@@ -126,7 +131,11 @@ export function useForgeTiaExport() {
   const [error, setError] = useState<string | null>(null);
 
   const exportAll = useCallback(
-    async (session: ForgeSession, tiaProjectPath: string): Promise<TiaForgeExportResult> => {
+    async (
+      session: ForgeSession,
+      tiaProjectPath: string,
+      opts?: { dropboxRoot?: string; fbTemplates?: FbTemplate[] },
+    ): Promise<TiaForgeExportResult> => {
       setLoading(true);
       setError(null);
 
@@ -136,7 +145,23 @@ export function useForgeTiaExport() {
       ];
 
       const approvedArtifacts = allArtifacts.filter((a) => a.approved);
-      const sclArtifacts = approvedArtifacts.filter((a) => a.language === "SCL");
+
+      // Resolve library_block at export time by cross-referencing template source.
+      // This handles artifacts created before the library_block flag was added.
+      const libraryTemplateIds = new Set(
+        (opts?.fbTemplates ?? [])
+          .filter(t => t.source === "library")
+          .map(t => t.id),
+      );
+      function isLibraryBlock(a: ForgeArtifact): boolean {
+        if (a.library_block) return true;
+        // Instance DBs always need importing even for library templates
+        if (a.type === "DB") return false;
+        return !!a.fb_template_id && libraryTemplateIds.has(a.fb_template_id);
+      }
+
+      const libraryArtifacts = approvedArtifacts.filter(isLibraryBlock);
+      const sclArtifacts = approvedArtifacts.filter((a) => a.language === "SCL" && !isLibraryBlock(a));
       const ladArtifacts = approvedArtifacts.filter((a) => a.language === "LAD" && a.stage !== "hmi");
       const hmiArtifacts = session.hmi_artifacts.filter((a) => a.approved);
 
@@ -151,6 +176,18 @@ export function useForgeTiaExport() {
       };
 
       try {
+        // 0. Copy library blocks from global library into project
+        if (libraryArtifacts.length > 0 && opts?.dropboxRoot && opts?.fbTemplates) {
+          setProgress({ phase: "library", current: 0, total: libraryArtifacts.length });
+          const libResult = await copyLibraryBlocksToProject(
+            opts.dropboxRoot, libraryArtifacts, opts.fbTemplates,
+          );
+          result.compile_warnings.push(
+            ...libResult.warnings,
+            ...libResult.skipped.map(s => `Library: skipped (already exists): ${s}`),
+          );
+        }
+
         // 1. SCL import + compile
         if (sclArtifacts.length > 0) {
           setProgress({ phase: "scl", current: 0, total: sclArtifacts.length });

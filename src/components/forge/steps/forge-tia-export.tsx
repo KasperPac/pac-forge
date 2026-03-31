@@ -7,6 +7,7 @@ import {
   PlugZap,
   AlertCircle,
   RefreshCw,
+  FolderOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +18,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useBridgeStatus } from "@/hooks/use-tia-jobs";
 import { useForgeTiaExport } from "@/hooks/use-forge-tia-export";
+import { useFbTemplates } from "@/hooks/use-fb-templates";
+import { useUiStore } from "@/stores/ui-store";
 import type { ForgeSession, TiaForgeExportResult } from "@/types/forge";
 
 export interface ForgeTiaExportProps {
@@ -27,6 +30,8 @@ export interface ForgeTiaExportProps {
 export function ForgeTiaExport({ session, onComplete }: ForgeTiaExportProps) {
   const { data: bridgeStatus } = useBridgeStatus();
   const { exportAll, loading, progress, error } = useForgeTiaExport();
+  const { data: fbTemplates = [] } = useFbTemplates();
+  const { dropboxRoot, setDropboxRoot } = useUiStore();
   const [tiaPath, setTiaPath] = useState(session.tia_project_path ?? "");
   const [result, setResult] = useState<TiaForgeExportResult | null>(
     session.tia_export_result ?? null,
@@ -35,8 +40,21 @@ export function ForgeTiaExport({ session, onComplete }: ForgeTiaExportProps) {
   const approvedDevice = session.device_artifacts.filter(a => a.approved);
   const approvedProcess = session.process_artifacts.filter(a => a.approved);
   const approvedHmi = session.hmi_artifacts.filter(a => a.approved);
-  const approvedScl = [...approvedDevice, ...approvedProcess].filter(a => a.language === "SCL");
-  const approvedLad = [...approvedDevice, ...approvedProcess].filter(a => a.language === "LAD");
+  const allApproved = [...approvedDevice, ...approvedProcess];
+
+  // Resolve library blocks at display time using template source
+  const libraryTemplateIds = new Set(
+    fbTemplates.filter(t => t.source === "library").map(t => t.id),
+  );
+  function isLibBlock(a: typeof allApproved[number]): boolean {
+    if (a.library_block) return true;
+    if (a.type === "DB") return false;
+    return !!a.fb_template_id && libraryTemplateIds.has(a.fb_template_id);
+  }
+
+  const approvedLibrary = allApproved.filter(isLibBlock);
+  const approvedScl = allApproved.filter(a => a.language === "SCL" && !isLibBlock(a));
+  const approvedLad = allApproved.filter(a => a.language === "LAD");
 
   const bridgeOnline = bridgeStatus?.bridgeOnline ?? false;
   const canExport = bridgeOnline && tiaPath.trim().length > 0 && !loading;
@@ -52,6 +70,7 @@ export function ForgeTiaExport({ session, onComplete }: ForgeTiaExportProps) {
 
   const phaseLabel: Record<string, string> = {
     idle: "Ready",
+    library: "Copying library blocks…",
     scl: "Importing SCL blocks…",
     lad: "Importing LAD blocks…",
     hmi: "Importing HMI screens…",
@@ -63,7 +82,10 @@ export function ForgeTiaExport({ session, onComplete }: ForgeTiaExportProps) {
   async function handleExport() {
     try {
       const sessionWithPath = { ...session, tia_project_path: tiaPath };
-      const exportResult = await exportAll(sessionWithPath, tiaPath);
+      const exportResult = await exportAll(sessionWithPath, tiaPath, {
+        dropboxRoot: dropboxRoot || undefined,
+        fbTemplates,
+      });
       setResult(exportResult);
       onComplete(exportResult);
     } catch {
@@ -120,7 +142,8 @@ export function ForgeTiaExport({ session, onComplete }: ForgeTiaExportProps) {
             </CardHeader>
             <CardContent className="space-y-1.5 pb-4">
               {[
-                { label: "SCL blocks", count: approvedScl.length },
+                { label: "Library blocks (copy from lib)", count: approvedLibrary.length },
+                { label: "SCL blocks (import)", count: approvedScl.length },
                 { label: "LAD blocks", count: approvedLad.length },
                 { label: "HMI screens", count: approvedHmi.length },
               ].map(({ label, count }) => (
@@ -136,18 +159,35 @@ export function ForgeTiaExport({ session, onComplete }: ForgeTiaExportProps) {
         </div>
       )}
 
-      {/* TIA project path */}
+      {/* Paths */}
       {!result && (
-        <div className="space-y-1.5">
-          <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
-            TIA Portal Project Path
-          </Label>
-          <Input
-            value={tiaPath}
-            onChange={e => setTiaPath(e.target.value)}
-            placeholder="C:\TIA_Projects\MyProject\MyProject.ap18"
-            className="font-mono text-xs"
-          />
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+              <FolderOpen className="mr-1 inline h-3 w-3" />
+              Dropbox Root
+            </Label>
+            <Input
+              value={dropboxRoot}
+              onChange={e => setDropboxRoot(e.target.value)}
+              placeholder="C:\Users\you\Pac Technologies Dropbox"
+              className="font-mono text-xs"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Saved per machine — used for library paths
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+              TIA Portal Project Path
+            </Label>
+            <Input
+              value={tiaPath}
+              onChange={e => setTiaPath(e.target.value)}
+              placeholder="C:\TIA_Projects\MyProject\MyProject.ap18"
+              className="font-mono text-xs"
+            />
+          </div>
         </div>
       )}
 

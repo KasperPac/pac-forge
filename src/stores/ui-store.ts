@@ -5,6 +5,7 @@ type ThemePreference = "light" | "dark" | "system";
 type ResolvedTheme = "light" | "dark";
 
 const THEME_KEY = "pac-forge-theme";
+const DROPBOX_ROOT_KEY = "pac-forge-dropbox-root";
 
 function getSystemTheme(): ResolvedTheme {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
@@ -30,6 +31,8 @@ interface UiState {
   bottomPanelTab: BottomPanelTab;
   theme: ThemePreference;
   resolvedTheme: ResolvedTheme;
+  /** Machine-local Dropbox root folder (e.g. "C:\Users\kaspe\Pac Technologies Dropbox") */
+  dropboxRoot: string;
 
   toggleSidebar: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
@@ -37,6 +40,7 @@ interface UiState {
   setBottomPanelTab: (tab: BottomPanelTab) => void;
   setTheme: (theme: ThemePreference) => void;
   cycleTheme: () => void;
+  setDropboxRoot: (path: string) => void;
 }
 
 const initialTheme = loadThemePreference();
@@ -60,6 +64,7 @@ export const useUiStore = create<UiState>((set, get) => {
     bottomPanelTab: "compile",
     theme: initialTheme,
     resolvedTheme: initialResolved,
+    dropboxRoot: localStorage.getItem(DROPBOX_ROOT_KEY) ?? "",
 
     toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
     setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
@@ -78,6 +83,11 @@ export const useUiStore = create<UiState>((set, get) => {
       const { theme } = get();
       const next = order[(order.indexOf(theme) + 1) % order.length];
       get().setTheme(next);
+    },
+
+    setDropboxRoot: (path) => {
+      localStorage.setItem(DROPBOX_ROOT_KEY, path);
+      set({ dropboxRoot: path });
     },
   };
 });

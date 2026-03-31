@@ -127,6 +127,12 @@ export interface ForgeArtifact {
   xml_content?: string;
   approved: boolean;
   fb_template_id?: string;
+  /**
+   * True when this artifact is a block that already exists in the TIA Portal
+   * project library (imported from a global library). These are excluded from
+   * SCL export — they should be copied from the library instead.
+   */
+  library_block?: boolean;
   stage: ForgeArtifactStage;
   destination_folder: string;
   dependencies: string[];

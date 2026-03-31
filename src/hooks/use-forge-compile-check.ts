@@ -65,7 +65,8 @@ async function uploadSclArtifacts(
   artifacts: ForgeArtifact[],
   tiaProjectPath: string,
 ): Promise<{ success: boolean; errors: string[]; warnings: string[] }> {
-  const sclArtifacts = artifacts.filter((a) => a.language === "SCL");
+  // Skip library blocks — they already exist in TIA from the global library
+  const sclArtifacts = artifacts.filter((a) => a.language === "SCL" && !a.library_block);
   if (sclArtifacts.length === 0) return { success: true, errors: [], warnings: [] };
 
   const manifest = buildForgeManifest(sclArtifacts, tiaProjectPath);

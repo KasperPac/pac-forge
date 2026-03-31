@@ -557,7 +557,7 @@ export default function ForgePage() {
       )}
 
       {/* Step content */}
-      <div className="min-h-0 flex-1 rounded-md border border-border/70 bg-card/70 p-5">
+      <div className="rounded-md border border-border/70 bg-card/70 p-5">
         {sessionLoading ? (
           <div className="flex h-full items-center justify-center gap-2 text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin" />
@@ -573,7 +573,7 @@ export default function ForgePage() {
       </div>
 
       {/* Footer nav */}
-      <Card className="border-border/70 bg-card/80">
+      <Card className="shrink-0 border-border/70 bg-card/80">
         <CardContent className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-2">
             <Button

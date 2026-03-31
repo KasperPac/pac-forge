@@ -7,6 +7,7 @@ import { useGitHubConnection } from "@/hooks/use-github";
 import { getRedirectUri } from "@/lib/dropbox-oauth";
 import { useToast } from "@/hooks/use-toast";
 import { GitHubConnectDialog } from "@/components/github-connect-dialog";
+import { useUiStore } from "@/stores/ui-store";
 import type { AgentChatEntry } from "@/hooks/use-user-activity";
 import type { AuditLogEntry } from "@/types/tia";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -32,6 +33,7 @@ import {
   CloudOff,
   Cloud,
   Github,
+  FolderOpen,
 } from "lucide-react";
 
 function getInitials(displayName: string | undefined, email: string | undefined): string {
@@ -194,6 +196,7 @@ export default function ProfilePage() {
   const dropboxExchange = useDropboxExchangeCode();
   const { toast } = useToast();
 
+  const { dropboxRoot, setDropboxRoot } = useUiStore();
   const [editName, setEditName] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [dropboxExchangeError, setDropboxExchangeError] = useState("");
@@ -399,6 +402,23 @@ export default function ProfilePage() {
               )}
             </div>
           </div>
+          <Separator className="my-4" />
+          <div className="space-y-1">
+            <Label className="font-mono text-xs flex items-center gap-1.5">
+              <FolderOpen className="h-3 w-3" />
+              Dropbox Root Folder
+            </Label>
+            <Input
+              className="font-mono text-sm"
+              value={dropboxRoot}
+              onChange={(e) => setDropboxRoot(e.target.value)}
+              placeholder="C:\Users\you\Pac Technologies Dropbox"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Machine-local path to your Dropbox sync folder. Used for TIA library and project paths.
+            </p>
+          </div>
+
           {updateProfile.isError && (
             <div className="mt-3 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {updateProfile.error?.message ?? "Failed to update profile"}

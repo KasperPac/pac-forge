@@ -237,6 +237,27 @@ export interface LibraryExportResponse {
   warnings: string[];
 }
 
+/**
+ * POST /tia/library/copy-to-project
+ * Copy master copies and/or library types from a global library into the open project.
+ */
+export interface LibraryCopyToProjectRequest {
+  library_path: string;
+  /** Master copy paths to paste into PLC block group (e.g. "04 Electrical Drives/fbMotor_Reversing") */
+  master_copy_paths?: string[];
+  /** Library type paths to import into PLC type group (e.g. "04 Electrical Drives/udtHMI_MotorControl") */
+  type_paths?: string[];
+}
+
+export interface LibraryCopyToProjectResponse {
+  success: boolean;
+  message: string;
+  copied_blocks: string[];
+  skipped_blocks: string[];
+  warnings: string[];
+  errors: string[];
+}
+
 // --- HMI Import Endpoints ---
 
 /**

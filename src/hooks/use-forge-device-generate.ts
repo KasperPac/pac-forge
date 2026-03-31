@@ -1093,6 +1093,8 @@ function copyTemplateAsArtifacts(
       content: block.scl_code,
       approved: false,
       fb_template_id: template.id,
+      // Library-sourced FBs/UDTs/FCs already exist in TIA project — skip SCL import
+      library_block: template.source === "library",
       stage: "device",
       destination_folder:
         block.block_type === "UDT" ? "Types"
