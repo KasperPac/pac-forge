@@ -2062,6 +2062,20 @@ const DEVICE_LINKAGE_SCHEMA = `{
         }
       ]
     }
+  ],
+  "configUdts": [
+    {
+      "name": "string (UDT name, e.g. typeConveyorConfig)",
+      "description": "string (what this config struct is for)",
+      "fields": [
+        {
+          "fieldName": "string (e.g. timeoutDuration)",
+          "dataType": "string (Time, Bool, Int, Real, Word)",
+          "defaultValue": "string | null (e.g. T#5s, 0, FALSE)",
+          "description": "string"
+        }
+      ]
+    }
   ]
 }`;
 
@@ -2153,7 +2167,10 @@ Generate ONLY the deviceLinkage array — which FB each device uses, its instanc
 ${MATRIX_RULES_COMMON}
 - Interlocks must reference devices that exist in the device list
 - Use EXACT parameter names from the FB Template Interfaces provided
-- If an FB has a configuration/settings parameter of a UDT type (e.g. \`config : typeMotorConfig\`), wire it as: \`{ "wireType": "global", "connectedTo": "Configuration.<instanceName>Config" }\`. Include the Configuration DB in globalData with matching fields. NEVER wire a struct param as \`constant: TRUE\`.
+- If an FB has a configuration/settings parameter of a UDT type (e.g. \`config : typeMotorConfig\`), wire it as: \`{ "wireType": "global", "connectedTo": "Configuration.<instanceName>Config" }\`. NEVER wire a struct param as \`constant: TRUE\`.
+- When wiring individual FB params to config subfields (e.g. \`ClearDly\` → \`Configuration.pe01Config.clearDelay\`), you MUST define the config UDT in the \`configUdts\` array with ALL the subfields you reference. Each configUdt entry defines a TYPE that will be generated as a UDT artifact.
+- If the FB already has a typed config param (e.g. \`config : "typeEStopConfig"\`), the UDT is already defined by the library — do NOT add it to configUdts.
+- Only add to configUdts when YOU are inventing the config structure (grouping individual FB params into a config UDT for cleaner architecture).
 
 ## ProcessCommands DB (REQUIRED when any operator command inputs exist)
 If any device FB has operator command inputs (run, stop, start, enable, direction, reset, mode), you MUST include a "ProcessCommands" DB in the globalData array with one field per command input.

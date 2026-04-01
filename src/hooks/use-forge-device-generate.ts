@@ -1676,6 +1676,36 @@ export function useForgeDeviceGenerate() {
       const totalSteps = devices.length + 3 + matrixGlobalDbs.length + uniqueDeviceTypes.length;
       setProgress({ current: 0, total: totalSteps, currentDevice: "" });
 
+      // --- Step 0: Create config UDT artifacts from matrix definitions ---
+      const configUdts = matrix?.configUdts ?? [];
+      for (const udt of configUdts) {
+        const fieldLines = udt.fields
+          .map(f => {
+            const defaultVal = f.defaultValue ? ` := ${f.defaultValue}` : "";
+            return `      ${f.fieldName} : ${f.dataType}${defaultVal};   // ${f.description}`;
+          })
+          .join("\n");
+        const udtContent = `TYPE "${udt.name}"
+VERSION : 0.1
+   STRUCT
+${fieldLines}
+   END_STRUCT;
+END_TYPE`;
+        allArtifacts.push({
+          id: crypto.randomUUID(),
+          name: udt.name,
+          type: "UDT",
+          language: "SCL",
+          content: udtContent,
+          approved: false,
+          stage: "device",
+          destination_folder: "",
+          dependencies: [],
+          compile_after_import: true,
+        });
+        appendLog("info", `Config UDT "${udt.name}" created from matrix definition (${udt.fields.length} fields)`);
+      }
+
       try {
         // --- Step 1: Generate FBs + instance DBs per device ---
         for (let i = 0; i < devices.length; i++) {

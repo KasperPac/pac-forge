@@ -125,16 +125,16 @@ function extractJsonFromContent(content: string): string | null {
   return null;
 }
 
-function parseDeviceLinkage(content: string): Pick<ProcessLinkageMatrix, "deviceLinkage"> {
+function parseDeviceLinkage(content: string): Pick<ProcessLinkageMatrix, "deviceLinkage" | "configUdts"> {
   const tagged = extractTaggedBlock(content, "DEVICE_LINKAGE");
   if (tagged) {
-    const result = tryParseJson<Pick<ProcessLinkageMatrix, "deviceLinkage">>(tagged);
+    const result = tryParseJson<Pick<ProcessLinkageMatrix, "deviceLinkage" | "configUdts">>(tagged);
     if (result?.deviceLinkage) return result;
     throw new Error(`Device linkage JSON is invalid: ${tagged.slice(0, 200)}…`);
   }
   const raw = extractJsonFromContent(content);
   if (raw) {
-    const result = tryParseJson<Pick<ProcessLinkageMatrix, "deviceLinkage">>(raw);
+    const result = tryParseJson<Pick<ProcessLinkageMatrix, "deviceLinkage" | "configUdts">>(raw);
     if (result?.deviceLinkage) return result;
   }
   throw new Error(`Could not parse device linkage. Last 300: ${content.slice(-300)}`);
@@ -268,7 +268,7 @@ export function useForgeMatrixGenerate() {
           ),
         ]);
 
-        const { deviceLinkage } = parseDeviceLinkage(deviceContent);
+        const { deviceLinkage, configUdts } = parseDeviceLinkage(deviceContent);
         const { processSequences, globalData, notes, generatedAt } = parseSequences(sequenceContent);
 
         // Reconcile sequence field names against device linkage wiring
@@ -280,11 +280,16 @@ export function useForgeMatrixGenerate() {
         );
         const fixedSequences = fixOrphanSteps(reconciledSequences);
 
+        if (configUdts?.length) {
+          console.log(`[forge:matrix] ${configUdts.length} config UDT(s) defined: ${configUdts.map(u => u.name).join(", ")}`);
+        }
+
         return {
           version: 1,
           deviceLinkage,
           globalData: globalData ?? [],
           processSequences: fixedSequences,
+          configUdts: configUdts ?? [],
           notes: notes ?? "",
           generatedAt: generatedAt ?? new Date().toISOString(),
           lastReviewedAt: null,

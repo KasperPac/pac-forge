@@ -114,11 +114,25 @@ export interface FbRecommendation {
 
 export type MatrixReviewStatus = "draft" | "user_edited" | "pm_validated";
 
+/** Config UDT definition from matrix generation — defines fields for configuration structs */
+export interface ConfigUdtDefinition {
+  name: string;
+  description: string;
+  fields: Array<{
+    fieldName: string;
+    dataType: string;
+    defaultValue?: string | null;
+    description: string;
+  }>;
+}
+
 export interface ProcessLinkageMatrix {
   version: number;
   deviceLinkage: LinkageDevice[];
   globalData: LinkageGlobalData[];
   processSequences: ProcessSequence[];
+  /** Config UDT definitions generated alongside device linkage wiring */
+  configUdts?: ConfigUdtDefinition[];
   /** @deprecated Use processSequences instead — kept for backward compat */
   processSteps?: ProcessStep[];
   notes: string;
