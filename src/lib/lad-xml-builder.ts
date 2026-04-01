@@ -525,18 +525,47 @@ ${paramDecls}
           parts.push({ uid: accessUid, isAccess: true, xml: buildAccessNode(accessUid, value) });
         }
 
-        const wireUid = counter.next();
-        // Negated inputs use Negated="true" on the NameCon (NC contact in LAD)
-        const negAttr = param.negated ? ' Negated="true"' : "";
-        if (param.direction === "in" || param.direction === "inout") {
+        if (param.negated && (param.direction === "in" || param.direction === "inout")) {
+          // Negated input: insert an NC (normally closed) Contact between Access and FB call input
+          // SimaticML uses <Part Name="Contact"><Negated Name="operand" /></Part>
+          // Wire: Access → Contact.operand, Contact.out → FB.paramName
+          const ncPartUid = counter.next();
+          parts.push({
+            uid: ncPartUid,
+            isAccess: false,
+            xml: `          <Part Name="Contact" UId="${ncPartUid}">
+              <Negated Name="operand" />
+            </Part>`,
+          });
+          // Wire: Access → NC Contact operand
+          const wire1Uid = counter.next();
+          wires.push({
+            uid: wire1Uid,
+            xml: `          <Wire UId="${wire1Uid}">
+            <IdentCon UId="${accessUid}" />
+            <NameCon UId="${ncPartUid}" Name="operand" />
+          </Wire>`,
+          });
+          // Wire: NC Contact out → FB.param
+          const wire2Uid = counter.next();
+          wires.push({
+            uid: wire2Uid,
+            xml: `          <Wire UId="${wire2Uid}">
+            <NameCon UId="${ncPartUid}" Name="out" />
+            <NameCon UId="${partUid}" Name="${esc(param.name)}" />
+          </Wire>`,
+          });
+        } else if (param.direction === "in" || param.direction === "inout") {
+          const wireUid = counter.next();
           wires.push({
             uid: wireUid,
             xml: `          <Wire UId="${wireUid}">
             <IdentCon UId="${accessUid}" />
-            <NameCon UId="${partUid}" Name="${esc(param.name)}"${negAttr} />
+            <NameCon UId="${partUid}" Name="${esc(param.name)}" />
           </Wire>`,
           });
         } else {
+          const wireUid = counter.next();
           wires.push({
             uid: wireUid,
             xml: `          <Wire UId="${wireUid}">
