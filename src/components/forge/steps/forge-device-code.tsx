@@ -599,13 +599,31 @@ export function ForgeDeviceCode({
     try {
       // Phase 0: Copy library blocks from global library into project
       const libraryArtifacts = resolvedArtifacts.filter(a => a.library_block);
+      console.log(`[forge] Phase 0: ${libraryArtifacts.length} library artifact(s) to copy:`, libraryArtifacts.map(a => a.name));
       if (libraryArtifacts.length > 0) {
         const dropboxRoot = localStorage.getItem("pac-forge-dropbox-root") ?? "";
-        if (dropboxRoot) {
+        if (!dropboxRoot) {
+          const errMsg = `Library blocks found (${libraryArtifacts.map(a => a.name).join(", ")}) but Dropbox root path is not set. Go to your Profile page and set the Dropbox root path, or these blocks will be imported as SCL instead of copied from the TIA library.`;
+          console.error(`[forge] ${errMsg}`);
+          setCompileWarnings(prev => [...prev, errMsg]);
+        } else {
+          console.log(`[forge] Copying library blocks from: ${dropboxRoot}`);
           const { copyLibraryBlocksToProject } = await import("@/lib/forge-library-copy");
           const libResult = await copyLibraryBlocksToProject(dropboxRoot, libraryArtifacts, fbTemplates);
+          console.log(`[forge] Library copy result:`, libResult);
           if (libResult.warnings.length > 0) {
             setCompileWarnings(prev => [...prev, ...libResult.warnings]);
+          }
+        }
+      } else {
+        // Check if there SHOULD be library artifacts — templates with source="library" exist but no artifacts tagged
+        const libraryTemplateCount = fbTemplates.filter(t => t.source === "library").length;
+        if (libraryTemplateCount > 0) {
+          const untagged = resolvedArtifacts.filter(a =>
+            a.type !== "DB" && a.fb_template_id && libraryTemplateIds.has(a.fb_template_id) && !a.library_block
+          );
+          if (untagged.length > 0) {
+            console.warn(`[forge] WARNING: ${untagged.length} artifact(s) matched library templates but are NOT tagged as library_block:`, untagged.map(a => `${a.name} (template: ${a.fb_template_id})`));
           }
         }
       }
