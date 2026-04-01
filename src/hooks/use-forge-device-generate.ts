@@ -2239,6 +2239,41 @@ END_TYPE`;
       const matrixGlobalDbs = matrix?.globalData ?? [];
       const allArtifacts: ForgeArtifact[] = [];
 
+      // --- Step 0: Create config UDT artifacts from matrix definitions ---
+      const configUdts = matrix?.configUdts ?? [];
+      for (const udt of configUdts) {
+        // Skip if this UDT already exists in the FB artifacts (e.g. from library)
+        if (fbArtifacts.some(a => a.type === "UDT" && a.name === udt.name)) {
+          appendLog("info", `Config UDT "${udt.name}" already exists in FB artifacts — skipping`);
+          continue;
+        }
+        const fieldLines = udt.fields
+          .map(f => {
+            const defaultVal = f.defaultValue ? ` := ${f.defaultValue}` : "";
+            return `      ${f.fieldName} : ${f.dataType}${defaultVal};   // ${f.description}`;
+          })
+          .join("\n");
+        const udtContent = `TYPE "${udt.name}"
+VERSION : 0.1
+   STRUCT
+${fieldLines}
+   END_STRUCT;
+END_TYPE`;
+        allArtifacts.push({
+          id: crypto.randomUUID(),
+          name: udt.name,
+          type: "UDT",
+          language: "SCL",
+          content: udtContent,
+          approved: false,
+          stage: "device",
+          destination_folder: "",
+          dependencies: [],
+          compile_after_import: true,
+        });
+        appendLog("info", `Config UDT "${udt.name}" created from matrix (${udt.fields.length} fields: ${udt.fields.map(f => f.fieldName).join(", ")})`);
+      }
+
       // Resolve naming prefixes from profile
       const dbPrefix = resolveDbPrefix(profile);
       const instDbPrefix = resolveInstDbPrefix(profile);
