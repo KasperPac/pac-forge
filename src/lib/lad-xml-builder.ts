@@ -115,6 +115,8 @@ interface ChainResult {
   /** UID of the last element's rung-flow "out" pin */
   outUid: number;
   outPin: string;
+  /** Additional elements that need powerrail connection (e.g. NC Contacts for negated FB params) */
+  extraPowerrailTargets?: Array<{ uid: number; pin: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -501,6 +503,9 @@ ${paramDecls}
           </Call>`;
     parts.push({ uid: partUid, isAccess: false, xml: callXml });
 
+    // Track NC Contact UIDs for negated params — they need powerrail fan connections
+    const ncContactUids: number[] = [];
+
     // Wire each parameter — connected params get Access + IdentCon, unconnected get OpenCon
     for (const param of params) {
       const value = param.value?.trim();
@@ -526,17 +531,21 @@ ${paramDecls}
         }
 
         if (param.negated && (param.direction === "in" || param.direction === "inout")) {
-          // Negated input: insert an NC (normally closed) Contact between Access and FB call input
-          // SimaticML uses <Part Name="Contact"><Negated Name="operand" /></Part>
-          // Wire: Access → Contact.operand, Contact.out → FB.paramName
+          // Negated input: NC (normally closed) Contact wired inline.
+          // Pattern from TIA V18 export:
+          //   Powerrail → Contact.in (added to powerrail fan)
+          //   Access → Contact.operand
+          //   Contact.out → FB.paramName
           const ncPartUid = counter.next();
           parts.push({
             uid: ncPartUid,
             isAccess: false,
             xml: `          <Part Name="Contact" UId="${ncPartUid}">
-              <Negated Name="operand" />
-            </Part>`,
+            <Negated Name="operand" />
+          </Part>`,
           });
+          // Track this NC Contact for powerrail fan (collected after loop)
+          ncContactUids.push(ncPartUid);
           // Wire: Access → NC Contact operand
           const wire1Uid = counter.next();
           wires.push({
@@ -598,7 +607,11 @@ ${paramDecls}
       }
     }
 
-    return { inUid: partUid, inPin: "en", outUid: partUid, outPin: "eno" };
+    return {
+      inUid: partUid, inPin: "en", outUid: partUid, outPin: "eno",
+      // NC Contact UIDs need powerrail connection (their "in" pin)
+      extraPowerrailTargets: ncContactUids.map(uid => ({ uid, pin: "in" })),
+    };
   }
 
   // Fallback
@@ -707,9 +720,11 @@ function processNode2(
 ): ChainResult2 {
   if (node.type === "element") {
     const r = processElement(node.element, counter, parts, wires);
+    // Include any extra powerrail targets from NC Contacts in FB calls
+    const extraTargets = (r as { extraPowerrailTargets?: Array<{ uid: number; pin: string }> }).extraPowerrailTargets ?? [];
     return {
       ...r,
-      powerrailTargets: [{ uid: r.inUid, pin: r.inPin }],
+      powerrailTargets: [{ uid: r.inUid, pin: r.inPin }, ...extraTargets],
     };
   }
   return processParallel2(node, counter, parts, wires);
