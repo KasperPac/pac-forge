@@ -756,6 +756,10 @@ function backfillGlobalDbFieldsFromWiring(
 ): ForgeArtifact[] {
   if (!matrix?.deviceLinkage) return artifacts;
 
+  // Collect UDT subfield references from dotted wiring (e.g. cv01Config.timeoutDuration)
+  // Used to enrich stub UDTs with real fields later
+  const udtSubfieldsFromWiring = new Map<string, Map<string, string>>(); // parentField → subField → type
+
   // Identify global DB artifacts (not Inputs/instance DBs)
   // Outputs DB IS included — device FB outputs (e.g., motor CMD signals) must be backfilled.
   const inputsName = `${dbPrefix}Inputs`;
@@ -836,8 +840,24 @@ function backfillGlobalDbFieldsFromWiring(
       if (!fieldName) continue;
 
       // If fieldName contains a dot (e.g. "cv01Config.timeoutDuration"), it's a UDT subfield
-      // reference — only use the top-level field name for backfill (the UDT parent is already declared)
-      if (fieldName.includes(".")) continue;
+      // reference — collect it for stub UDT enrichment, then skip DB backfill
+      if (fieldName.includes(".")) {
+        const subParts = fieldName.split(".");
+        const parentField = subParts[0]; // e.g. "cv01Config"
+        const subField = subParts.slice(1).join("."); // e.g. "timeoutDuration"
+        if (subField && !subField.includes(".")) {
+          // Infer type from subfield name
+          let subType = "Bool";
+          const lower = subField.toLowerCase();
+          if (/time|duration|timeout|delay|dly/i.test(lower)) subType = "Time";
+          else if (/count|code|mode|state|step/i.test(lower)) subType = "Int";
+          else if (/speed|temp|level|setpoint|value/i.test(lower)) subType = "Real";
+          // Store for later: parentField's UDT type → subField needs this field
+          if (!udtSubfieldsFromWiring.has(parentField)) udtSubfieldsFromWiring.set(parentField, new Map());
+          udtSubfieldsFromWiring.get(parentField)!.set(subField, subType);
+        }
+        continue;
+      }
 
       // Resolve DB name (try exact, then without DB_ prefix, case-insensitive)
       const resolvedDbName = globalDbNameMap.get(rawDbName.toLowerCase());
@@ -896,9 +916,13 @@ function backfillGlobalDbFieldsFromWiring(
     }
   }
 
-  if (dbFieldsToAdd.size === 0) return artifacts;
+  if (dbFieldsToAdd.size === 0 && udtSubfieldsFromWiring.size === 0) return artifacts;
+  if (dbFieldsToAdd.size === 0) {
+    // No DB fields to add, but we may have UDT subfields — skip to enrichment below
+    // (fall through with unmodified artifacts)
+  }
 
-  return artifacts.map(a => {
+  const result: ForgeArtifact[] = dbFieldsToAdd.size > 0 ? artifacts.map(a => {
     if (a.type !== "DB") return a;
     const fieldsMap = dbFieldsToAdd.get(a.name);
     if (!fieldsMap || fieldsMap.size === 0) return a;
@@ -959,7 +983,54 @@ function backfillGlobalDbFieldsFromWiring(
 
     log("fix", `${a.name} DB: added ${toAdd.length} field(s) from matrix wiring [${toAdd.map(f => f.trim().split(" ")[0]).join(", ")}]`);
     return { ...a, content: newContent };
-  });
+  }) : [...artifacts];
+
+  // Enrich stub UDTs with real fields extracted from matrix wiring subfield references.
+  // e.g. DB_Configuration.cv01Config.timeoutDuration → typeConveyorConfig needs timeoutDuration : Time
+  if (udtSubfieldsFromWiring.size > 0) {
+    // Build a map: parentFieldName → UDT type name (from DB artifacts)
+    const fieldToUdtType = new Map<string, string>();
+    for (const a of result) {
+      if (a.type !== "DB") continue;
+      // Match "fieldName : typeXxx" or 'fieldName : "typeXxx"'
+      const fieldTypeRe = /^\s+(\w+)\s*:\s*"?(type\w+)"?\s*;/gmi;
+      let m: RegExpExecArray | null;
+      while ((m = fieldTypeRe.exec(a.content)) !== null) {
+        fieldToUdtType.set(m[1]!, m[2]!);
+      }
+    }
+
+    // For each UDT artifact that's a stub, add fields from wiring subfield references
+    return result.map(a => {
+      if (a.type !== "UDT") return a;
+      if (!a.content.includes("placeholder : Bool")) return a; // not a stub
+
+      // Find which parent fields reference this UDT type
+      const allSubfields = new Map<string, string>();
+      for (const [parentField, udtType] of fieldToUdtType) {
+        if (udtType.toLowerCase() !== a.name.toLowerCase()) continue;
+        const subfields = udtSubfieldsFromWiring.get(parentField);
+        if (subfields) {
+          for (const [sf, st] of subfields) allSubfields.set(sf, st);
+        }
+      }
+
+      if (allSubfields.size === 0) return a;
+
+      // Replace placeholder with real fields
+      const fieldLines = [...allSubfields.entries()]
+        .map(([name, type]) => `      ${name} : ${type};`)
+        .join("\n");
+      const newContent = a.content.replace(
+        /\s*placeholder : Bool;\s*\/\/.*$/m,
+        "\n" + fieldLines,
+      );
+      log("fix", `Stub UDT "${a.name}" enriched with ${allSubfields.size} field(s) from wiring: [${[...allSubfields.keys()].join(", ")}]`);
+      return { ...a, content: newContent };
+    });
+  }
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------
