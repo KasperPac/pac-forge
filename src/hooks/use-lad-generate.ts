@@ -7,6 +7,7 @@ import { useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { buildLadSystemPrompt } from "@/lib/lad-prompt-builder";
 import { getRelevantReferenceSections } from "@/lib/reference-lookup";
+import { fetchInstructionsForPrompt, ALL_CATEGORIES } from "@/hooks/use-instructions";
 import type { LadProgram } from "@/types/lad";
 import type { AgentKnowledgeDoc, DesignProfile } from "@/types";
 
@@ -70,9 +71,20 @@ export function useLadGenerate(options?: UseLadGenerateOptions): UseLadGenerateR
         // Non-fatal — proceed without reference sections
       }
 
+      // Fetch instruction library for LAD generation
+      let instructions;
+      try {
+        instructions = await fetchInstructionsForPrompt("LAD", ALL_CATEGORIES);
+        if (instructions.length > 0) {
+          console.log(`LAD instruction library: ${instructions.length} instruction(s) loaded`);
+        }
+      } catch {
+        // Non-fatal — proceed with hardcoded fallback in prompt
+      }
+
       const { data, error: fnError } = await supabase.functions.invoke("generate", {
         body: {
-          system_prompt: buildLadSystemPrompt(agentKnowledgeDocs, referenceSections, designProfile),
+          system_prompt: buildLadSystemPrompt(agentKnowledgeDocs, referenceSections, designProfile, instructions),
           messages: [{ role: "user", content: prompt }],
           max_tokens: 8192,
         },
@@ -117,9 +129,17 @@ export function useLadGenerate(options?: UseLadGenerateOptions): UseLadGenerateR
           }
         }
 
+        // Fetch instruction library for LAD generation
+        let instructions;
+        try {
+          instructions = await fetchInstructionsForPrompt("LAD", ALL_CATEGORIES);
+        } catch {
+          // Non-fatal
+        }
+
         const { data, error: fnError } = await supabase.functions.invoke("generate", {
           body: {
-            system_prompt: buildLadSystemPrompt(agentKnowledgeDocs, referenceSections, designProfile),
+            system_prompt: buildLadSystemPrompt(agentKnowledgeDocs, referenceSections, designProfile, instructions),
             messages: [
               {
                 role: "user",

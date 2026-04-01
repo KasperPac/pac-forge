@@ -23,10 +23,11 @@ import type {
   SpecAnalysisProcessSequence,
 } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
-import type { PatternCandidate } from "@/types";
+import type { PatternCandidate, Instruction } from "@/types";
 import type { ProcessLinkageMatrix, ProcessSequence, SequenceRow } from "@/types/forge-matrix";
 import type { AgentKnowledgeDoc } from "@/types";
 import { useActivePromptSections } from "@/hooks/use-prompt-sections";
+import { fetchInstructionsForPrompt, PROCESS_CODE_CATEGORIES } from "@/hooks/use-instructions";
 import { getRelevantReferenceSections, formatReferenceSections } from "@/lib/reference-lookup";
 
 const PROCESS_GEN_MAX_TOKENS = 16384;
@@ -427,6 +428,13 @@ export function useForgeProcessGenerate() {
       const abort = new AbortController();
       // Session language (wizard project setup) overrides profile default
       const isLad = (session.process_code_language ?? profile.process_code_language) === "LAD";
+
+      // Fetch instruction library for LAD generation (non-fatal)
+      let ladInstructions: Instruction[] | undefined;
+      if (isLad) {
+        try { ladInstructions = await fetchInstructionsForPrompt("LAD", PROCESS_CODE_CATEGORIES); } catch { /* non-fatal */ }
+      }
+
       const devices = (session.device_list as ForgeDeviceEntry[]) ?? [];
       const deviceArtifacts = (session.device_artifacts as ForgeArtifact[]) ?? [];
       const fbInterfaces = extractFbInterfaces(deviceArtifacts);
@@ -471,6 +479,7 @@ export function useForgeProcessGenerate() {
         dbNameMap: buildDbNameMap(deviceArtifacts),
         referenceSections: refSectionsText || undefined,
         agentKnowledgeDocs: knowledgeText || undefined,
+        instructions: ladInstructions,
       };
 
       let systemPrompt: string;

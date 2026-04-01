@@ -13,11 +13,11 @@ import type {
   SpecAnalysisProcessSequence,
 } from "@/types/forge";
 import type { FbTemplate } from "@/types/fb-template";
-import type { PatternCandidate } from "@/types";
+import type { PatternCandidate, Instruction } from "@/types";
 import type { ProcessLinkageMatrix, FbWire } from "@/types/forge-matrix";
 import type { ProcessRulesSchema } from "@/types/design-profile";
 import { parseProcessRules } from "@/lib/design-profile-schemas";
-import { formatDesignProfile } from "@/lib/prompt-builder";
+import { formatDesignProfile, formatInstructions } from "@/lib/prompt-builder";
 import { resolveSection } from "@/lib/prompt-defaults";
 import { buildWiringContext } from "@/lib/wiring-context";
 
@@ -257,6 +257,8 @@ export interface DeviceGenContext {
   inputsDbName?: string;
   /** Prefixed Outputs DB name (e.g. "DB_Outputs") */
   outputsDbName?: string;
+  /** Instruction library — injected into LAD prompts */
+  instructions?: Instruction[];
 }
 
 /**
@@ -380,9 +382,12 @@ export function buildDeviceLadPrompt(
   _device: ForgeDeviceEntry,
   context: DeviceGenContext,
 ): string {
-  const { profile, platformRules, patterns } = context;
+  const { profile, platformRules, patterns, instructions } = context;
   const profileSection = profile ? formatDesignProfile(profile, "fb") : "";
   const patternSection = formatPatterns(patterns ?? []);
+  const instructionSection = instructions && instructions.length > 0
+    ? `\n${formatInstructions(instructions)}\n`
+    : "";
 
   return `You are a Siemens TIA Portal LAD (Ladder Logic) programmer generating ladder rungs for a single device.
 
@@ -392,7 +397,7 @@ ${profileSection}
 ${platformRules}
 
 ${patternSection}
-
+${instructionSection}
 ## Output Format
 Return raw JSON only — no markdown fences. Use this EXACT schema:
 
@@ -680,6 +685,8 @@ export interface DeviceCallFcContext {
   }>;
   /** Reference library sections relevant to this device type (from two-pass AI lookup) */
   referenceSections?: string;
+  /** Instruction library — injected into LAD prompts */
+  instructions?: Instruction[];
 }
 
 /**
@@ -858,11 +865,14 @@ ${outputFieldsList}
  * Generates a LadProgram JSON where each network calls one FB instance.
  */
 export function buildDeviceCallFcLadPrompt(context: DeviceCallFcContext): string {
-  const { profile, platformRules, patterns, fcName, deviceType, devices, instanceDbNames, fbInterfaceSection, inputsDbFields, outputsDbFields, inputsDbName, outputsDbName, matrixWiring, referenceSections } = context;
+  const { profile, platformRules, patterns, fcName, deviceType, devices, instanceDbNames, fbInterfaceSection, inputsDbFields, outputsDbFields, inputsDbName, outputsDbName, matrixWiring, referenceSections, instructions } = context;
 
   const profileSection = profile ? formatDesignProfile(profile, "general") : "";
   const patternSection = formatPatterns(patterns ?? []);
   const referenceSection = referenceSections ? `\n## Reference Documentation\n${referenceSections}\n` : "";
+  const instructionSection = instructions && instructions.length > 0
+    ? `\n${formatInstructions(instructions)}\n`
+    : "";
 
   const deviceList = devices
     .map((d, i) => `  ${i + 1}. "${instanceDbNames[i] ?? `Inst${d.name.replace(/[^A-Za-z0-9]/g, "")}`}" — ${d.name} (${d.tag}): ${d.description}`)
@@ -912,7 +922,7 @@ ${profileSection}
 ${platformRules}
 
 ${patternSection}
-${referenceSection}
+${referenceSection}${instructionSection}
 ## Your Task
 Generate a single FC called "${fcName}" in LAD (Ladder Logic) that calls ALL instances of the "${deviceType}" FB.
 Each rung contains ONE FB_CALL element that calls the FB instance with all parameters wired.
@@ -1282,11 +1292,14 @@ export function buildIoLinkingLadPrompt(
   context: DeviceGenContext,
   promptSections?: Record<string, string>,
 ): string {
-  const { profile, platformRules, patterns, inputsDbName: inDb, outputsDbName: outDb } = context;
+  const { profile, platformRules, patterns, inputsDbName: inDb, outputsDbName: outDb, instructions } = context;
   const iDbName = inDb || "Inputs";
   const oDbName = outDb || "Outputs";
   const profileSection = profile ? formatDesignProfile(profile, "general") : "";
   const patternSection = formatPatterns(patterns ?? []);
+  const instructionSection = instructions && instructions.length > 0
+    ? `\n${formatInstructions(instructions)}\n`
+    : "";
   const ioLinkingRulesSection =
     profile?.io_linking_rules?.trim()
       ? `## IO Linking Rules (from Design Profile)\n${profile.io_linking_rules}`
@@ -1315,7 +1328,7 @@ ${platformRules}
 ${ioLinkingRulesSection}
 
 ${patternSection}
-
+${instructionSection}
 ## Devices
 ${deviceNames}
 
@@ -1393,6 +1406,8 @@ export interface ProcessGenContext {
   referenceSections?: string;
   /** Agent knowledge docs (Code Architect learnings) */
   agentKnowledgeDocs?: string;
+  /** Instruction library — injected into LAD prompts */
+  instructions?: Instruction[];
 }
 
 /**
@@ -1633,9 +1648,12 @@ Generate a complete, compile-ready FB/FC using the code structure pattern define
  * To make configurable: add "forge:process_lad" section key to PROMPT_DEFAULTS and use resolveSection().
  */
 export function buildProcessLadPrompt(context: ProcessGenContext, promptSections?: Record<string, string>): string {
-  const { profile, platformRules, patterns } = context;
+  const { profile, platformRules, patterns, instructions } = context;
   const profileSection = profile ? formatDesignProfile(profile, "process") : "";
   const patternSection = formatPatterns(patterns ?? []);
+  const instructionSection = instructions && instructions.length > 0
+    ? `\n${formatInstructions(instructions)}\n`
+    : "";
   const identity = resolveSection(promptSections, "forge_arch_process", "identity");
 
   // Parse structured process rules for step/action pattern
@@ -1663,7 +1681,7 @@ ${context.deviceFbInterfaces || "(no device FBs)"}
 
 ${patternSection}
 ${context.referenceSections ? `\n## Reference Documentation\n${context.referenceSections}\n` : ""}
-${context.agentKnowledgeDocs ? `\n## Agent Knowledge\n${context.agentKnowledgeDocs}\n` : ""}
+${context.agentKnowledgeDocs ? `\n## Agent Knowledge\n${context.agentKnowledgeDocs}\n` : ""}${instructionSection}
 ${stepActionRules}
 ${seqNotes ? `## Sequence Structure Notes\n${seqNotes}` : ""}
 ${freetext ? `## Additional Process Rules\n${freetext}` : ""}

@@ -32,6 +32,7 @@ const ForgePage = lazy(() => import("@/routes/forge"));
 const MigratePage = lazy(() => import("@/routes/migrate"));
 const LibraryImportPage = lazy(() => import("@/routes/library-import"));
 const ClientsPage = lazy(() => import("@/routes/clients"));
+const InstructionLibraryPage = lazy(() => import("@/routes/instruction-library"));
 
 function LazyRoute({ children }: { children: React.ReactNode }) {
   return (
@@ -68,6 +69,7 @@ const router = createBrowserRouter([
           { path: "tia-console", element: <LazyRoute><TiaConsolePage /></LazyRoute> },
           { path: "fb-library", element: <LazyRoute><FbLibraryPage /></LazyRoute> },
           { path: "library-import", element: <LazyRoute><LibraryImportPage /></LazyRoute> },
+          { path: "instructions", element: <LazyRoute><InstructionLibraryPage /></LazyRoute> },
           { path: "profiles", element: <LazyRoute><ProfilesPage /></LazyRoute> },
           { path: "profiles/:id", element: <LazyRoute><ProfileDetailPage /></LazyRoute> },
           { path: "knowledge", element: <LazyRoute><KnowledgePage /></LazyRoute> },

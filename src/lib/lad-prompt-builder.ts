@@ -3,9 +3,9 @@
  * The AI generates a LadProgram JSON spec from natural language or image input.
  */
 
-import type { AgentKnowledgeDoc, ReferenceLibrarySection, DesignProfile } from "@/types";
+import type { AgentKnowledgeDoc, ReferenceLibrarySection, DesignProfile, Instruction } from "@/types";
 import { formatReferenceSections } from "@/lib/reference-lookup";
-import { formatDesignProfile } from "@/lib/prompt-builder";
+import { formatDesignProfile, formatInstructions } from "@/lib/prompt-builder";
 
 function formatKnowledgeDocs(docs: AgentKnowledgeDoc[]): string {
   if (docs.length === 0) return "";
@@ -17,6 +17,7 @@ export function buildLadSystemPrompt(
   agentKnowledgeDocs?: AgentKnowledgeDoc[],
   referenceSections?: ReferenceLibrarySection[],
   designProfile?: DesignProfile,
+  instructions?: Instruction[],
 ): string {
   const knowledgeBlock = agentKnowledgeDocs && agentKnowledgeDocs.length > 0
     ? `\n\n${formatKnowledgeDocs(agentKnowledgeDocs)}`
@@ -26,6 +27,9 @@ export function buildLadSystemPrompt(
     : "";
   const profileBlock = designProfile
     ? `\n\n${formatDesignProfile(designProfile, "fb")}`
+    : "";
+  const instructionsBlock = instructions && instructions.length > 0
+    ? `\n\n${formatInstructions(instructions)}`
     : "";
 
   return `You are the Code Architect — a Siemens PLC programming specialist for Pac Technologies.
@@ -99,6 +103,8 @@ type LadElementType =
   | "MATH"           // Math operation (ADD/SUB/MUL/DIV)
   | "MOVE"           // Move value
 \`\`\`
+
+${instructionsBlock}
 
 ## TIA Portal LAD Rules (MANDATORY — violations cause import failure)
 

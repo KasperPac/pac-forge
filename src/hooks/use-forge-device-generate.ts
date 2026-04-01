@@ -26,8 +26,9 @@ import { parseGeneralRules, parseFolderRules, resolveDestinationFolder } from "@
 import type { ForgeSession, ForgeArtifact, ForgeDeviceEntry, ForgeIoEntry } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
 import type { FbTemplate } from "@/types/fb-template";
-import type { PatternCandidate } from "@/types";
+import type { PatternCandidate, Instruction } from "@/types";
 import type { ProcessLinkageMatrix, LinkageDevice } from "@/types/forge-matrix";
+import { fetchInstructionsForPrompt, DEVICE_FB_CATEGORIES } from "@/hooks/use-instructions";
 import { getRelevantReferenceSections, formatReferenceSections } from "@/lib/reference-lookup";
 import { extractBlockName } from "@/lib/scl-block-parser";
 import { useActivePromptSections } from "@/hooks/use-prompt-sections";
@@ -1527,6 +1528,7 @@ export function useForgeDeviceGenerate() {
       patterns: PatternCandidate[],
       log: (level: DeviceGenLogLevel, msg: string) => void,
       additionalInstructions?: string,
+      instructions?: Instruction[],
     ): Promise<ForgeArtifact[]> => {
       const abort = new AbortController();
       const effectiveLang = device.language_override ?? profile.device_fb_language;
@@ -1549,6 +1551,7 @@ export function useForgeDeviceGenerate() {
         profile,
         platformRules: PLATFORM_RULES,
         patterns,
+        instructions,
         fbTemplate: null, // no template — pure AI generation, don't confuse AI with wrong template
       };
 
@@ -1639,6 +1642,17 @@ export function useForgeDeviceGenerate() {
       setLoading(true);
       setError(null);
       clearLog();
+
+      // Fetch instruction library for LAD generation (non-fatal)
+      let ladInstructions: Instruction[] | undefined;
+      try {
+        ladInstructions = await fetchInstructionsForPrompt("LAD", DEVICE_FB_CATEGORIES);
+        if (ladInstructions.length > 0) {
+          appendLog("info", `Instruction library: ${ladInstructions.length} LAD instruction(s) loaded`);
+        }
+      } catch {
+        // Non-fatal
+      }
 
       const devices = session.device_list as ForgeDeviceEntry[];
       const ioList = session.io_list as ForgeIoEntry[];
@@ -1752,7 +1766,7 @@ END_TYPE`;
               }
             }
           } else {
-            deviceArtifacts = await generateSingle(device, session, profile, fbTemplates, patterns, appendLog);
+            deviceArtifacts = await generateSingle(device, session, profile, fbTemplates, patterns, appendLog, undefined, ladInstructions);
             // Apply profile folder rules to AI-generated artifacts
             for (const a of deviceArtifacts) {
               if (a.type === "FB") a.destination_folder = fbFolder;
@@ -1878,7 +1892,7 @@ END_TYPE`;
           if (ioLang === "LAD") {
             // LAD IoLinking still uses AI
             const abort = new AbortController();
-            const context: DeviceGenContext = { profile, platformRules: PLATFORM_RULES, patterns, inputsDbName, outputsDbName };
+            const context: DeviceGenContext = { profile, platformRules: PLATFORM_RULES, patterns, inputsDbName, outputsDbName, instructions: ladInstructions };
             const ladPrompt = buildIoLinkingLadPrompt(devices, ioList, context, promptSections);
             const { content } = await validateAndCall(
               callNonStreaming,
@@ -1993,6 +2007,7 @@ END_TYPE`;
             patterns,
             matrixWiring,
             referenceSections: refSectionsText || undefined,
+            instructions: ladInstructions,
           };
 
           // Only use deterministic generation if EVERY instance has wiring entries in the
@@ -2142,6 +2157,10 @@ END_TYPE`;
       setError(null);
       clearLog();
 
+      // Fetch instruction library for LAD generation (non-fatal)
+      let ladInstructions: Instruction[] | undefined;
+      try { ladInstructions = await fetchInstructionsForPrompt("LAD", DEVICE_FB_CATEGORIES); } catch { /* non-fatal */ }
+
       const devices = session.device_list as ForgeDeviceEntry[];
       const allArtifacts: ForgeArtifact[] = [];
       const copiedTemplateBlockNames = new Set<string>();
@@ -2189,7 +2208,7 @@ END_TYPE`;
               }
             }
           } else {
-            deviceArtifacts = await generateSingle(device, session, profile, fbTemplates, patterns, appendLog);
+            deviceArtifacts = await generateSingle(device, session, profile, fbTemplates, patterns, appendLog, undefined, ladInstructions);
             // Apply profile folder rules to AI-generated artifacts
             for (const a of deviceArtifacts) {
               if (a.type === "FB") a.destination_folder = fbFolder;
@@ -2232,6 +2251,10 @@ END_TYPE`;
       setLoading(true);
       setError(null);
       clearLog();
+
+      // Fetch instruction library for LAD generation (non-fatal)
+      let ladInstructions: Instruction[] | undefined;
+      try { ladInstructions = await fetchInstructionsForPrompt("LAD", DEVICE_FB_CATEGORIES); } catch { /* non-fatal */ }
 
       const devices = session.device_list as ForgeDeviceEntry[];
       const ioList = session.io_list as ForgeIoEntry[];
@@ -2427,7 +2450,7 @@ END_TYPE`;
           const ioLang = profile.io_linking_language ?? "SCL";
           if (ioLang === "LAD") {
             const abort = new AbortController();
-            const context: DeviceGenContext = { profile, platformRules: PLATFORM_RULES, patterns, inputsDbName, outputsDbName };
+            const context: DeviceGenContext = { profile, platformRules: PLATFORM_RULES, patterns, inputsDbName, outputsDbName, instructions: ladInstructions };
             const ladPrompt = buildIoLinkingLadPrompt(devices, ioList, context, promptSections);
             const { content } = await validateAndCall(
               callNonStreaming,
@@ -2537,6 +2560,7 @@ END_TYPE`;
             patterns,
             matrixWiring,
             referenceSections: refSectionsText2 || undefined,
+            instructions: ladInstructions,
           };
 
           const allInstancesWired = instanceDbNames.every(name =>

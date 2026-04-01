@@ -17,3 +17,4 @@ export * from "./conflict-dismissal";
 export * from "./forge-matrix";
 export * from "./migrate";
 export * from "./client";
+export * from "./instruction";

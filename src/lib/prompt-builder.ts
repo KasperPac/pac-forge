@@ -1,4 +1,6 @@
-import type { Project, Agent, IoEntry, TagDbDefinition, GenerationMode, PatternCandidate, FbTemplate, DesignProfile, AgentKnowledgeDoc, ReferenceLibrarySection, RackSlotLayout } from "@/types";
+import type { Project, Agent, IoEntry, TagDbDefinition, GenerationMode, PatternCandidate, FbTemplate, DesignProfile, AgentKnowledgeDoc, ReferenceLibrarySection, RackSlotLayout, Instruction } from "@/types";
+import { INSTRUCTION_CATEGORIES } from "@/types/instruction";
+import type { InstructionCategory } from "@/types/instruction";
 import type { FolderRulesSchema, GeneralRulesSchema, FbRulesSchema, ProcessRulesSchema, StructuredRule } from "@/types/design-profile";
 import { parseGeneralRules, parseFbRules, parseProcessRules } from "@/lib/design-profile-schemas";
 import { resolveSection, interpolateAgent } from "@/lib/prompt-defaults";
@@ -511,6 +513,52 @@ When multiple templates are selected, wire their outputs/inputs together in the 
 - If the user's requirements conflict with a template's interface, use the template as-is and note the limitation
 
 ${sections.join("\n\n")}`;
+}
+
+export function formatInstructions(instructions: Instruction[]): string {
+  if (instructions.length === 0) return "";
+
+  // Group by category
+  const byCategory = new Map<string, Instruction[]>();
+  for (const inst of instructions) {
+    const arr = byCategory.get(inst.category) ?? [];
+    arr.push(inst);
+    byCategory.set(inst.category, arr);
+  }
+
+  const categoryBlocks: string[] = [];
+  for (const [cat, items] of byCategory) {
+    const catLabel = INSTRUCTION_CATEGORIES[cat as InstructionCategory] ?? cat;
+    const entries = items.map((inst) => {
+      const pins = (inst.pins ?? [])
+        .map(
+          (p) =>
+            `    - \`${p.pin_name}\` (${p.direction}, ${p.data_type}${p.is_rung_flow ? ", rung flow" : ""})${p.description ? " — " + p.description : ""}`,
+        )
+        .join("\n");
+      const opsLine =
+        inst.operators && inst.operators.length > 0
+          ? `\n  Operators: ${inst.operators.join(", ")}${inst.operator_part_names ? ` → Part Names: ${JSON.stringify(inst.operator_part_names)}` : ""}`
+          : "";
+      const instanceNote = inst.has_instance
+        ? "\n  Requires: static instance variable (instanceDb)"
+        : "";
+      const outputNote = inst.is_output
+        ? "\n  Position: must be the LAST element in the rung"
+        : "";
+      return `### ${inst.name} (element_type: \`${inst.element_type}\`, Part: \`${inst.simatic_part_name}\`)
+  ${inst.description ?? ""}${opsLine}${instanceNote}${outputNote}
+  Pins:
+${pins}`;
+    });
+    categoryBlocks.push(`## ${catLabel}\n\n${entries.join("\n\n")}`);
+  }
+
+  return `## Available LAD Instructions Reference
+
+Use these instruction definitions when generating LadElement JSON. The \`element_type\` value goes in the JSON \`type\` field. Pin names are the exact SimaticML XML pin names used during import.
+
+${categoryBlocks.join("\n\n")}`;
 }
 
 export function formatPatterns(patterns: PatternCandidate[]): string {

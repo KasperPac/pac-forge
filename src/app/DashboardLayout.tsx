@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router";
-import { FolderOpen, Bot, Terminal, BookOpen, GraduationCap, Layers, SlidersHorizontal, FileText, Library, LogOut, User, Sun, Moon, Monitor, ChevronRight, MessageSquare, Blocks, PanelLeftClose, PanelLeftOpen, GitBranchPlus, Wand2, ArrowRightLeft, BookPlus, Building2 } from "lucide-react";
+import { FolderOpen, Bot, Terminal, BookOpen, GraduationCap, Layers, SlidersHorizontal, FileText, Library, LogOut, User, Sun, Moon, Monitor, ChevronRight, MessageSquare, Blocks, PanelLeftClose, PanelLeftOpen, GitBranchPlus, Wand2, ArrowRightLeft, BookPlus, Building2, Cpu } from "lucide-react";
 import { AgentChatFab } from "@/components/agent-chat/agent-chat-fab";
 import pacLogo from "@/../media/logos/PacTechnologiesEdit_White.png";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -59,6 +59,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: "/profiles", label: "Profiles", icon: SlidersHorizontal },
       { to: "/fb-library", label: "FB Library", icon: Layers },
       { to: "/library-import", label: "Library Import", icon: BookPlus },
+      { to: "/instructions", label: "Instructions", icon: Cpu },
       { to: "/agents", label: "Agents", icon: Bot },
     ],
   },
