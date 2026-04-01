@@ -135,6 +135,8 @@ export interface FbWire {
   connectedTo: string;
   wireType: "fb" | "io" | "global" | "constant";
   dataType?: string;
+  /** Auto-generated notes (e.g. TYPE_CONVERSION: Int→Bool) */
+  notes?: string;
 }
 
 export interface LinkageDevice {

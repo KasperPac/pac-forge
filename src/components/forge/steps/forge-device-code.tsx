@@ -33,7 +33,7 @@ import { useForgeRewrite } from "@/hooks/use-forge-rewrite";
 import { useForgeIoValidate } from "@/hooks/use-forge-io-validate";
 import { useForgeCompileCheck, saveCompileFixPattern } from "@/hooks/use-forge-compile-check";
 import { ReviewStepPanel } from "@/components/forge/forge-review-step-panel";
-import { toTrackedFindings } from "@/lib/forge-review-helpers";
+import { toTrackedFindings, derivedDbFindings } from "@/lib/forge-review-helpers";
 import type { TrackedFinding, ReviewStepStatus } from "@/lib/forge-review-helpers";
 import type { CompileFixProposal } from "@/hooks/use-forge-compile-check";
 import { ForgeCompileReview } from "@/components/forge/forge-compile-review";
@@ -336,9 +336,14 @@ export function ForgeDeviceCode({
     setStageStatus("Standards", "running");
     try {
       const result = await runStandardsReview(artifacts, "fc_ob", profile);
+      // Auto-generate derived DB findings for cross-artifact consistency (BUG-11)
+      const artifactNames = artifacts.map(a => a.name);
+      const derived = derivedDbFindings(result.findings, artifactNames);
+      const allFindings = [...result.findings, ...derived];
+
       const round = standardsRound + 1;
       setStandardsRound(round);
-      const tracked = toTrackedFindings(result.findings, round, round > 1 ? standardsFindings : undefined);
+      const tracked = toTrackedFindings(allFindings, round, round > 1 ? standardsFindings : undefined);
       setStandardsFindings(tracked);
       if (tracked.length === 0) {
         setStandardsStatus("clean");
@@ -371,8 +376,16 @@ export function ForgeDeviceCode({
         const finding = selected[i];
         setCurrentStepLabel(`Fixing ${i + 1}/${selected.length}: ${finding.artifactName}…`);
 
-        // Only send the affected artifact — keeps the rewrite focused and fast
-        const affected = currentArtifacts.filter(a => a.name === finding.artifactName);
+        // For DB schema findings (including auto-derived), send ALL artifacts
+        // so the rewriter can see both the FC that references the field and
+        // the DB that needs the field added (BUG-11 cross-artifact fix).
+        const isDbSchemaFinding = finding.message.includes("AUTO-DERIVED") ||
+          finding.artifactName.startsWith("DB_") ||
+          finding.message.toLowerCase().includes("db schema") ||
+          finding.message.toLowerCase().includes("undeclared variable");
+        const affected = isDbSchemaFinding
+          ? currentArtifacts // Send all artifacts for cross-artifact consistency
+          : currentArtifacts.filter(a => a.name === finding.artifactName);
         if (affected.length === 0) continue;
         const rewritten = await runRewrite(affected, [finding], profile);
 
@@ -393,9 +406,13 @@ export function ForgeDeviceCode({
       // Re-review automatically
       setStandardsStatus("re-reviewing");
       const result = await runStandardsReview(currentArtifacts, "fc_ob", profile);
+      // Auto-generate derived DB findings for re-review too (BUG-11)
+      const reReviewArtifactNames = currentArtifacts.map(a => a.name);
+      const reReviewDerived = derivedDbFindings(result.findings, reReviewArtifactNames);
+      const reReviewAllFindings = [...result.findings, ...reReviewDerived];
       const round = standardsRound + 1;
       setStandardsRound(round);
-      const tracked = toTrackedFindings(result.findings, round, standardsFindings);
+      const tracked = toTrackedFindings(reReviewAllFindings, round, standardsFindings);
       setStandardsFindings(tracked);
       if (tracked.length === 0) {
         setStandardsStatus("clean");

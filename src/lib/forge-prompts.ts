@@ -810,6 +810,23 @@ ${hasMatrix ? `9. Follow the Matrix wiring exactly. Do NOT add wires not listed 
     - DB_Inputs/DB_Outputs: Physical IO. DB_Inputs written by IoLinking, DB_Outputs read by IoLinking.
     - Siemens Open Library FBs have built-in HMI UDTs (VAR_IN_OUT like HMI_MotorControl) — the HMI faceplate reads/writes the instance DB directly, NOT through DB_HmiData.` : ""}
 
+## Type Conversion Rules
+If a wire's notes contain "TYPE_CONVERSION: X→Y", the source signal type (X) differs from
+the FB parameter type (Y). You MUST add inline conversion logic BEFORE the FB call:
+- **Int→Bool**: Use comparison: \`tempBool := (intSource <> 0);\` or specific value check
+- **Bool→Int**: Use conditional: \`tempInt := SEL(G := boolSource, IN0 := 0, IN1 := 1);\`
+- **Int→Word**: Use type cast: \`tempWord := INT_TO_WORD(intSource);\`
+- **Word→Int**: Use type cast: \`tempInt := WORD_TO_INT(wordSource);\`
+Declare conversion temps in VAR_TEMP. NEVER silently wire mismatched types.
+
+## Computed/Derived Signals
+Some signals are NOT direct IO or DB fields — they are computed from other signals:
+- XOR patterns (e.g. sensorXorOk): \`tempXor := sensor1 XOR sensor2;\`
+- Inverted signals (e.g. overloadOk from overloadFault): \`tempOk := NOT faultSignal;\`
+- Combined status (e.g. allSensorsOk): \`tempOk := sensor1 AND sensor2 AND sensor3;\`
+If a wiring source doesn't exist as a DB field or IO tag, check if it can be computed
+from available signals. Generate the computation BEFORE the FB call in VAR_TEMP.
+
 ## FB Interface — MANDATORY REFERENCE
 ⛔ HARD RULE: Only use parameter names that appear VERBATIM in the VAR_INPUT/VAR_OUTPUT sections below. Do NOT invent param names. Do NOT use param names from a different device type's FB.
 ${fbInterfaceSection || "(no FB interface available — infer from device type and IO signals)"}

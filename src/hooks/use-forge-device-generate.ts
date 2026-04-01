@@ -107,7 +107,9 @@ function reconcileUdtReferences(
     return null;
   }
 
-  return artifacts.map(a => {
+  const stubUdtsNeeded = new Set<string>();
+
+  const reconciled = artifacts.map(a => {
     if (a.type !== "DB") return a;
     // Find all ": typeXxx" references in the DB content
     let content = a.content;
@@ -120,23 +122,44 @@ function reconcileUdtReferences(
         log("fix", `UDT name corrected in ${a.name}: "${ref}" → "${fix}"`);
         content = content.replaceAll(ref, fix);
       } else if (!fix) {
-        // Remove lines referencing this phantom UDT — better to drop the field
-        // than leave a broken type reference that prevents compilation.
-        const escaped = ref.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const removedContent = content.replace(
-          new RegExp(`^[^\\S\\n]*\\w+\\s*:\\s*${escaped}\\s*;[^\\n]*\\n?`, "gm"),
-          "",
-        );
-        if (removedContent !== content) {
-          log("fix", `Phantom UDT field "${ref}" removed from ${a.name} — no matching UDT artifact exists`);
-          content = removedContent;
-        } else {
-          log("warn", `UDT "${ref}" in ${a.name} has no matching UDT artifact — will cause compile error`);
+        // BUG-19: Generate a stub UDT instead of dropping the field.
+        // Missing UDTs (e.g. typeEStopConfig for ControlEStop FB) should be
+        // auto-generated with placeholder fields so the code compiles.
+        log("warn", `UDT "${ref}" in ${a.name} has no matching UDT artifact — stub will be generated`);
+        // Mark for stub generation (handled after the map)
+        if (!stubUdtsNeeded.has(ref)) {
+          stubUdtsNeeded.add(ref);
         }
       }
     }
     return content !== a.content ? { ...a, content } : a;
   });
+
+  // Generate stub UDTs for any missing references (BUG-19)
+  for (const udtName of stubUdtsNeeded) {
+    log("fix", `Generating stub UDT "${udtName}" — referenced by DB artifacts but not in library`);
+    const stubContent = `TYPE "${udtName}"
+VERSION : 0.1
+   STRUCT
+      // Auto-generated stub — populate with actual fields from TIA Portal
+      placeholder : Bool;   // Remove after importing real UDT from library
+   END_STRUCT;
+END_TYPE`;
+    reconciled.push({
+      id: crypto.randomUUID(),
+      name: udtName,
+      type: "UDT",
+      language: "SCL",
+      content: stubContent,
+      approved: false,
+      stage: "device",
+      destination_folder: "",
+      dependencies: [],
+      compile_after_import: true,
+    });
+  }
+
+  return reconciled;
 }
 
 /**
@@ -777,6 +800,10 @@ function backfillGlobalDbFieldsFromWiring(
       const fieldName = connectedTo.slice(dotIdx + 1);
       if (!fieldName) continue;
 
+      // If fieldName contains a dot (e.g. "cv01Config.timeoutDuration"), it's a UDT subfield
+      // reference — only use the top-level field name for backfill (the UDT parent is already declared)
+      if (fieldName.includes(".")) continue;
+
       // Resolve DB name (try exact, then without DB_ prefix, case-insensitive)
       const resolvedDbName = globalDbNameMap.get(rawDbName.toLowerCase());
       if (!resolvedDbName) continue;
@@ -846,6 +873,15 @@ function backfillGlobalDbFieldsFromWiring(
     // UDT types need quotes in SCL declarations
     const needsQ = (t: string) => /^(type|udt)/i.test(t) || /^[A-Z]/.test(t) && !/^(Bool|Int|DInt|Real|LReal|Word|DWord|Byte|String|WString|Time|LTime|Date|USInt|UInt|UDInt|SInt|LInt|ULInt|Char|WChar|Array)$/i.test(t);
     for (const [fieldName, { dataType, paramName }] of fieldsMap) {
+      // Skip dotted subfields (e.g. "cv01Config.timeoutDuration") — these are UDT member
+      // references, not top-level DB fields. The parent UDT field is already declared.
+      if (fieldName.includes(".")) {
+        const parent = fieldName.split(".")[0];
+        if (existing.has(parent)) {
+          log("fix", `Skipping UDT subfield "${fieldName}" in ${a.name} — parent "${parent}" already declared as UDT`);
+          continue;
+        }
+      }
       if (existing.has(fieldName)) continue; // exact match exists
       const similar = hasSimilarField(existing, fieldName);
       if (similar) {
@@ -949,6 +985,17 @@ function buildNormalizedMatrixWiring(
     return params;
   }
 
+  // --- FB param type extraction from interface text (BUG-21) ---
+  function extractFbParamTypes(interfaceText: string): Map<string, string> {
+    const types = new Map<string, string>(); // lowercase param name → declared type
+    const re = /^\s+(\w+)\s*:\s*("?[\w.]+"?)/gm;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(interfaceText)) !== null) {
+      types.set(m[1].toLowerCase(), m[2].replace(/"/g, ""));
+    }
+    return types;
+  }
+
   // --- Param name remap logic ---
   function remapName(matrixName: string, actualParams: Map<string, string>): string {
     if (actualParams.size === 0) return matrixName;
@@ -1017,13 +1064,53 @@ function buildNormalizedMatrixWiring(
       log("fix", `Wiring connectedTo DB normalized: "${dbPart}" → "${canonicalDb}"`);
     }
 
-    // Warn about direct instance DB access — inter-device signals should
-    // flow through global DBs (HmiData, ProcessCommands) not instance DBs.
+    // Auto-resolve instance DB access to global DB routing.
+    // Inter-device signals MUST flow through global DBs (HmiData, ProcessCommands),
+    // not direct instance DB access — fragile coupling to instance DB internals.
+    if (canonicalDb && globalDbNameMap) {
+      // Remap field name against the referenced device's FB interface first
+      const fbParams = instDbToFbParams.get(resolvedDb);
+      const resolvedField = fbParams ? remapName(fieldPart, fbParams) : fieldPart;
+
+      // Determine which global DB this should route through based on the field semantics
+      const fieldLower = resolvedField.toLowerCase();
+      let targetDb: string | undefined;
+      if (fieldLower.includes("cmd") || fieldLower.includes("command") ||
+          fieldLower.includes("start") || fieldLower.includes("stop") ||
+          fieldLower.includes("reset") || fieldLower.includes("enable")) {
+        targetDb = globalDbNameMap.get("processcommands") ?? globalDbNameMap.get("db_processcommands");
+      } else if (fieldLower.includes("error") || fieldLower.includes("fault") ||
+                 fieldLower.includes("alarm")) {
+        targetDb = globalDbNameMap.get("faultdata") ?? globalDbNameMap.get("db_faultdata");
+      } else if (fieldLower.includes("config") || fieldLower.includes("timeout") ||
+                 fieldLower.includes("delay") || fieldLower.includes("preset")) {
+        targetDb = globalDbNameMap.get("configuration") ?? globalDbNameMap.get("db_configuration");
+      }
+      // Default to HmiData for status/feedback/display signals
+      if (!targetDb) {
+        targetDb = globalDbNameMap.get("hmidata") ?? globalDbNameMap.get("db_hmidata");
+      }
+
+      if (targetDb) {
+        // Build a device-prefixed field name to avoid collisions across devices
+        // e.g. InstMotor01.running → DB_HmiData.motor01Running
+        const deviceName = resolvedDb.replace(new RegExp(`^${instDbPrefix}`, "i"), "");
+        const globalField = deviceName.charAt(0).toLowerCase() + deviceName.slice(1) +
+          resolvedField.charAt(0).toUpperCase() + resolvedField.slice(1);
+        log("fix", `Instance DB access auto-resolved: "${connectedTo}" → "${targetDb}.${globalField}" (global DB routing enforced)`);
+        return `${targetDb}.${globalField}`;
+      }
+
+      // Fallback: can't resolve to global DB, warn but keep
+      log("warn", `Direct instance DB access: "${connectedTo}" — no suitable global DB found for auto-resolution`);
+      const resolvedFieldFallback = fbParams ? remapName(fieldPart, fbParams) : fieldPart;
+      return `${resolvedDb}.${resolvedFieldFallback}`;
+    }
+
+    // No global DB map available or not an instance DB — just remap field names
     if (canonicalDb) {
       log("warn", `Direct instance DB access: "${connectedTo}" — consider routing through a global DB instead`);
     }
-
-    // Remap field name against the referenced device's FB interface
     const fbParams = instDbToFbParams.get(resolvedDb);
     const resolvedField = fbParams ? remapName(fieldPart, fbParams) : fieldPart;
     if (resolvedField !== fieldPart) {
@@ -1036,6 +1123,7 @@ function buildNormalizedMatrixWiring(
   // --- Current device type's FB params for paramName remapping ---
   const fbInterfaceText = deviceTypeFbInterfaces.get(deviceType) ?? "";
   const actualFbParams = extractFbParams(fbInterfaceText);
+  const actualFbParamTypes = extractFbParamTypes(fbInterfaceText);
 
   // --- Build normalized wiring ---
   return matrix.deviceLinkage
@@ -1061,6 +1149,29 @@ function buildNormalizedMatrixWiring(
             connectedTo = normalizeIoTag(connectedTo);
           } else if (w.wireType === "fb" || w.wireType === "global") {
             connectedTo = normalizeConnectedTo(connectedTo, w.wireType);
+          }
+
+          // BUG-21: Type mismatch detection — flag when wire dataType doesn't match FB param type
+          const fbParamType = actualFbParamTypes.get(remappedParam.toLowerCase());
+          const wireType = w.dataType;
+          if (fbParamType && wireType && wireType !== "Variant") {
+            const fbLower = fbParamType.toLowerCase();
+            const wireLower = wireType.toLowerCase();
+            // Check for genuine type mismatches (not just casing differences)
+            if (fbLower !== wireLower &&
+                // Int↔Bool is a common mismatch (e.g. direction Int vs forward Bool)
+                ((fbLower === "bool" && (wireLower === "int" || wireLower === "word" || wireLower === "dint")) ||
+                 (wireLower === "bool" && (fbLower === "int" || fbLower === "word" || fbLower === "dint")) ||
+                 // UDT vs basic type mismatch
+                 (fbLower.startsWith("udt") && !wireLower.startsWith("udt")) ||
+                 (wireLower.startsWith("udt") && !fbLower.startsWith("udt")))) {
+              log("warn", `Type mismatch: ${d.name}.${remappedParam} — wire type "${wireType}" vs FB param type "${fbParamType}". Conversion needed in call FC.`);
+              // Add conversion note to the wire so the code generator can handle it
+              const notes = w.notes
+                ? `${w.notes}; TYPE_CONVERSION: ${wireType}→${fbParamType}`
+                : `TYPE_CONVERSION: ${wireType}→${fbParamType}`;
+              return { ...w, paramName: remappedParam, connectedTo, notes };
+            }
           }
 
           return { ...w, paramName: remappedParam, connectedTo };
