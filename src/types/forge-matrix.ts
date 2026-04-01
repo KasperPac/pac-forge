@@ -151,6 +151,8 @@ export interface FbWire {
   dataType?: string;
   /** Auto-generated notes (e.g. TYPE_CONVERSION: Int→Bool) */
   notes?: string;
+  /** When TYPE_CONVERSION is needed, this is the rewired source from DB_Converted */
+  convertedSource?: string;
 }
 
 export interface LinkageDevice {

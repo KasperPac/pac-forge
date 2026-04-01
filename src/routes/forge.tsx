@@ -196,6 +196,7 @@ export default function ForgePage() {
         device_call_fc_language: setup.device_call_fc_language,
         io_linking_language: setup.io_linking_language,
         process_code_language: setup.process_code_language,
+        conversion_fc_language: setup.conversion_fc_language,
         current_step: "hardware_io",
       });
       completeStep("project_setup");
@@ -274,6 +275,7 @@ export default function ForgePage() {
     device_call_fc_language: "SCL" as const,
     io_linking_language: "SCL" as const,
     process_code_language: "SCL" as const,
+    conversion_fc_language: "SCL" as const,
     hmi_theme: "default",
     naming_prefix: "",
     db_naming_prefix: "",
@@ -288,6 +290,7 @@ export default function ForgePage() {
     ...(session?.device_call_fc_language ? { device_call_fc_language: session.device_call_fc_language } : {}),
     ...(session?.io_linking_language ? { io_linking_language: session.io_linking_language } : {}),
     ...(session?.process_code_language ? { process_code_language: session.process_code_language } : {}),
+    ...(session?.conversion_fc_language ? { conversion_fc_language: session.conversion_fc_language } : {}),
   };
 
   function renderStep() {
@@ -337,6 +340,7 @@ export default function ForgePage() {
             initialDeviceCallFcLanguage={session.device_call_fc_language ?? undefined}
             initialIoLinkingLanguage={session.io_linking_language ?? undefined}
             initialProcessCodeLanguage={session.process_code_language ?? undefined}
+            initialConversionFcLanguage={session.conversion_fc_language ?? undefined}
           />
         );
 

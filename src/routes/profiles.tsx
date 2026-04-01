@@ -75,6 +75,7 @@ export default function ProfilesPage() {
         device_call_fc_language: "SCL" as const,
         io_linking_language: "SCL" as const,
         process_code_language: "SCL" as const,
+        conversion_fc_language: "SCL" as const,
         hmi_theme: "default",
         naming_prefix: "",
         db_naming_prefix: "",

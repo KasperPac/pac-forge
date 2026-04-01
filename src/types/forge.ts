@@ -94,6 +94,7 @@ export interface ForgeSession {
   device_call_fc_language: "SCL" | "LAD" | null;
   io_linking_language: "SCL" | "LAD" | null;
   process_code_language: "SCL" | "LAD" | null;
+  conversion_fc_language: "SCL" | "LAD" | null;
 
   /** PLCSIM test suite — test cases, simulation rules, and results */
   plcsim_test_suite: import("./plcsim-test").PlcsimTestSuite | null;

@@ -30,6 +30,7 @@ import type { PatternCandidate, Instruction } from "@/types";
 import type { ProcessLinkageMatrix, LinkageDevice } from "@/types/forge-matrix";
 import { fetchInstructionsForPrompt, DEVICE_FB_CATEGORIES } from "@/hooks/use-instructions";
 import { getRelevantReferenceSections, formatReferenceSections } from "@/lib/reference-lookup";
+import { extractConversions, generateDbConverted, generateFcTypeConvertScl, generateFcTypeConvertLad, rewireConvertedSources } from "@/lib/forge-type-convert";
 import { extractBlockName } from "@/lib/scl-block-parser";
 import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 
@@ -1880,6 +1881,80 @@ END_TYPE`;
         allArtifacts.length = 0;
         allArtifacts.push(...backfilledArtifacts);
 
+        // --- Step 3c: Type Conversion FC + DB (deterministic) ---
+        // Pre-build ALL normalized matrix wirings to extract conversion requirements
+        const allMatrixWirings: Array<{ deviceName: string; instanceDbName: string; wiring: import("@/types/forge-matrix").FbWire[] }> = [];
+        const globalDbMap0 = new Map<string, string>();
+        for (const a of allArtifacts) {
+          if (a.type !== "DB" || a.name.startsWith(instDbPrefix) || a.name === inputsDbName || a.name === outputsDbName) continue;
+          globalDbMap0.set(a.name.toLowerCase(), a.name);
+          if (a.name.startsWith("DB_")) globalDbMap0.set(a.name.slice(3).toLowerCase(), a.name);
+        }
+        for (const deviceType of uniqueDeviceTypes) {
+          const groupDevices = devices.filter(d => d.device_type === deviceType);
+          const wiring = buildNormalizedMatrixWiring(
+            matrix, deviceType, groupDevices, instDbPrefix, ioList ?? [], deviceTypeFbInterfaces, () => {}, globalDbMap0,
+          );
+          allMatrixWirings.push(...wiring);
+        }
+
+        const conversions = extractConversions(allMatrixWirings);
+        const convertedDbName = `${dbPrefix}Converted`;
+        const convertFcName = fcPrefix ? `${fcPrefix}TypeConvert` : "FC_TypeConvert";
+        const conversionFcLang = profile.conversion_fc_language ?? "SCL";
+
+        // Always generate DB_Converted (empty if no conversions)
+        allArtifacts.push({
+          id: `convert_db_${Date.now()}`,
+          name: convertedDbName,
+          type: "DB",
+          language: "SCL",
+          content: generateDbConverted(conversions, convertedDbName),
+          approved: false,
+          stage: "device_fb",
+          destination_folder: globalDbFolder,
+          dependencies: [],
+          compile_after_import: true,
+        });
+
+        // Always generate FC_TypeConvert (empty if no conversions)
+        if (conversionFcLang === "LAD" && conversions.length > 0) {
+          const ladJson = generateFcTypeConvertLad(conversions, convertFcName, convertedDbName);
+          allArtifacts.push({
+            id: `convert_fc_${Date.now()}`,
+            name: convertFcName,
+            type: "FC",
+            language: "LAD",
+            content: JSON.stringify(ladJson, null, 2),
+            approved: false,
+            stage: "device_fb",
+            destination_folder: callFcFolder,
+            dependencies: [convertedDbName],
+            compile_after_import: true,
+          });
+        } else {
+          allArtifacts.push({
+            id: `convert_fc_${Date.now()}`,
+            name: convertFcName,
+            type: "FC",
+            language: "SCL",
+            content: generateFcTypeConvertScl(conversions, convertFcName, convertedDbName),
+            approved: false,
+            stage: "device_fb",
+            destination_folder: callFcFolder,
+            dependencies: [convertedDbName],
+            compile_after_import: true,
+          });
+        }
+
+        if (conversions.length > 0) {
+          appendLog("info", `TypeConvert: ${conversions.length} conversion(s) → ${convertFcName} (${conversionFcLang}) + ${convertedDbName}`);
+          // Rewire ALL pre-built wirings so device call FCs reference DB_Converted
+          rewireConvertedSources(allMatrixWirings, conversions, convertedDbName);
+        } else {
+          appendLog("info", `TypeConvert: no conversions needed (empty ${convertFcName} + ${convertedDbName})`);
+        }
+
         // --- Step 4: IoLinking FC (deterministic SCL, or LAD via AI) ---
         const ioLinkingFcName = fcPrefix ? `${fcPrefix}IoLinking` : "IoLinking";
         setProgress({
@@ -1966,18 +2041,9 @@ END_TYPE`;
           const outputsDbFields = relevantOutputs.map((io) => io.tag_name);
           appendLog("info", `${fcName}: calling instances [${instanceDbNames.join(", ")}], inputs [${inputsDbFields.join(", ") || "none"}], outputs [${outputsDbFields.join(", ") || "none"}]`);
 
-          // Build global DB name map for wiring normalization (HmiData → DB_HmiData etc.)
-          const globalDbMap = new Map<string, string>();
-          for (const a of allArtifacts) {
-            if (a.type !== "DB" || a.name.startsWith(instDbPrefix) || a.name === inputsDbName || a.name === outputsDbName) continue;
-            globalDbMap.set(a.name.toLowerCase(), a.name);
-            if (a.name.startsWith("DB_")) globalDbMap.set(a.name.slice(3).toLowerCase(), a.name);
-          }
-
-          // Build normalized wiring with all fixes applied
-          const matrixWiring = buildNormalizedMatrixWiring(
-            matrix, deviceType, devices, instDbPrefix, ioList ?? [], deviceTypeFbInterfaces, appendLog, globalDbMap,
-          );
+          // Use pre-built rewired wiring (includes TYPE_CONVERSION → convertedSource rewiring)
+          const instanceDbSet = new Set(instanceDbNames.map(n => n.toLowerCase()));
+          const matrixWiring = allMatrixWirings.filter(w => instanceDbSet.has(w.instanceDbName.toLowerCase()));
 
           const fbInterfaceText = deviceTypeFbInterfaces.get(deviceType) ?? "";
 
@@ -2439,6 +2505,76 @@ END_TYPE`;
         allArtifacts.length = 0;
         allArtifacts.push(...backfilledArtifacts2);
 
+        // --- Step 3c: Type Conversion FC + DB (deterministic) ---
+        const allMatrixWirings2: Array<{ deviceName: string; instanceDbName: string; wiring: import("@/types/forge-matrix").FbWire[] }> = [];
+        const globalDbMap0b = new Map<string, string>();
+        for (const a of [...fbArtifacts, ...allArtifacts]) {
+          if (a.type !== "DB" || a.name.startsWith(instDbPrefix) || a.name === inputsDbName || a.name === outputsDbName) continue;
+          globalDbMap0b.set(a.name.toLowerCase(), a.name);
+          if (a.name.startsWith("DB_")) globalDbMap0b.set(a.name.slice(3).toLowerCase(), a.name);
+        }
+        for (const deviceType of uniqueDeviceTypes) {
+          const groupDevices = devices.filter(d => d.device_type === deviceType);
+          const wiring = buildNormalizedMatrixWiring(
+            matrix, deviceType, groupDevices, instDbPrefix, ioList ?? [], deviceTypeFbInterfaces, () => {}, globalDbMap0b,
+          );
+          allMatrixWirings2.push(...wiring);
+        }
+
+        const conversions2 = extractConversions(allMatrixWirings2);
+        const convertedDbName = `${dbPrefix}Converted`;
+        const convertFcName = fcPrefix ? `${fcPrefix}TypeConvert` : "FC_TypeConvert";
+        const conversionFcLang = profile.conversion_fc_language ?? "SCL";
+
+        allArtifacts.push({
+          id: `convert_db_${Date.now()}`,
+          name: convertedDbName,
+          type: "DB",
+          language: "SCL",
+          content: generateDbConverted(conversions2, convertedDbName),
+          approved: false,
+          stage: "device",
+          destination_folder: globalDbFolder,
+          dependencies: [],
+          compile_after_import: true,
+        });
+
+        if (conversionFcLang === "LAD" && conversions2.length > 0) {
+          const ladJson = generateFcTypeConvertLad(conversions2, convertFcName, convertedDbName);
+          allArtifacts.push({
+            id: `convert_fc_${Date.now()}`,
+            name: convertFcName,
+            type: "FC",
+            language: "LAD",
+            content: JSON.stringify(ladJson, null, 2),
+            approved: false,
+            stage: "device",
+            destination_folder: callFcFolder,
+            dependencies: [convertedDbName],
+            compile_after_import: true,
+          });
+        } else {
+          allArtifacts.push({
+            id: `convert_fc_${Date.now()}`,
+            name: convertFcName,
+            type: "FC",
+            language: "SCL",
+            content: generateFcTypeConvertScl(conversions2, convertFcName, convertedDbName),
+            approved: false,
+            stage: "device",
+            destination_folder: callFcFolder,
+            dependencies: [convertedDbName],
+            compile_after_import: true,
+          });
+        }
+
+        if (conversions2.length > 0) {
+          appendLog("info", `TypeConvert: ${conversions2.length} conversion(s) → ${convertFcName} (${conversionFcLang}) + ${convertedDbName}`);
+          rewireConvertedSources(allMatrixWirings2, conversions2, convertedDbName);
+        } else {
+          appendLog("info", `TypeConvert: no conversions needed (empty ${convertFcName} + ${convertedDbName})`);
+        }
+
         // --- Step 4: IoLinking FC (deterministic SCL, or LAD via AI) ---
         const ioLinkingFcName = fcPrefix ? `${fcPrefix}IoLinking` : "IoLinking";
         setProgress({
@@ -2518,18 +2654,9 @@ END_TYPE`;
           const outputsDbFields = relevantOutputs.map((io) => io.tag_name);
           appendLog("info", `${fcName}: calling instances [${instanceDbNames.join(", ")}], inputs [${inputsDbFields.join(", ") || "none"}], outputs [${outputsDbFields.join(", ") || "none"}]`);
 
-          // Build global DB name map for wiring normalization (HmiData → DB_HmiData etc.)
-          const globalDbMap2 = new Map<string, string>();
-          for (const a of allArtifacts) {
-            if (a.type !== "DB" || a.name.startsWith(instDbPrefix) || a.name === inputsDbName || a.name === outputsDbName) continue;
-            globalDbMap2.set(a.name.toLowerCase(), a.name);
-            if (a.name.startsWith("DB_")) globalDbMap2.set(a.name.slice(3).toLowerCase(), a.name);
-          }
-
-          // Build normalized wiring with all fixes applied
-          const matrixWiring = buildNormalizedMatrixWiring(
-            matrix, deviceType, devices, instDbPrefix, ioList ?? [], deviceTypeFbInterfaces, appendLog, globalDbMap2,
-          );
+          // Use pre-built rewired wiring (includes TYPE_CONVERSION → convertedSource rewiring)
+          const instanceDbSet2 = new Set(instanceDbNames.map(n => n.toLowerCase()));
+          const matrixWiring = allMatrixWirings2.filter(w => instanceDbSet2.has(w.instanceDbName.toLowerCase()));
 
           const fbIfaceText = deviceTypeFbInterfaces.get(deviceType) ?? "";
 

@@ -162,6 +162,8 @@ export interface DesignProfile {
   io_linking_language: "SCL" | "LAD";
   /** Language used for process/sequence code (migration 025) */
   process_code_language: "SCL" | "LAD";
+  /** Language used for the type conversion FC (migration 048) */
+  conversion_fc_language: "SCL" | "LAD";
   /** HMI screen theme identifier (migration 025) */
   hmi_theme: string;
   /** FB/FC naming prefix for customer, e.g. "FB_CK_" (migration 025) */

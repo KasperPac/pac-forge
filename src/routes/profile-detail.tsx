@@ -455,12 +455,13 @@ function GeneralTab({
           <p className="text-xs text-muted-foreground mb-3">
             These are used as defaults in the project wizard. Engineers can still override per session.
           </p>
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-5 gap-3">
             {([
               { field: 'device_fb_language' as const, label: 'Device FB language' },
               { field: 'device_call_fc_language' as const, label: 'Call FC language' },
               { field: 'io_linking_language' as const, label: 'IO linking FC language' },
               { field: 'process_code_language' as const, label: 'Process code language' },
+              { field: 'conversion_fc_language' as const, label: 'Conversion FC language' },
             ]).map(({ field, label }) => (
               <div key={field} className="space-y-1">
                 <Label className="text-xs text-muted-foreground">{label}</Label>

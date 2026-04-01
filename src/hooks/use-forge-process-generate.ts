@@ -1025,7 +1025,8 @@ END_DATA_BLOCK`;
           .filter((a) => a.type === "FC" || a.type === "FB")
           .map((a) => a.name.replace(/\s+/g, "_"));
 
-        const ob1Code = generateOb1Main(deviceCallFcNames, sequenceFcNames, ioLinkingFcName);
+        const typeConvertFcName = fcPrefix ? `${fcPrefix}TypeConvert` : "FC_TypeConvert";
+        const ob1Code = generateOb1Main(deviceCallFcNames, sequenceFcNames, ioLinkingFcName, typeConvertFcName);
         allArtifacts.push({
           id: crypto.randomUUID(),
           name: "Main",

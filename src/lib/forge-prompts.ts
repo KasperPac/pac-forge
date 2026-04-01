@@ -626,7 +626,12 @@ export function generateIoLinkingFc(
  *
  * HARDCODED — not configurable via Prompts page.
  */
-export function generateOb1Main(deviceCallFcNames: string[], sequenceFcNames: string[] = [], ioLinkingFcName = "IoLinking"): string {
+export function generateOb1Main(
+  deviceCallFcNames: string[],
+  sequenceFcNames: string[] = [],
+  ioLinkingFcName = "IoLinking",
+  typeConvertFcName?: string,
+): string {
   const fcCalls = deviceCallFcNames.map((name) => `  "${name}"();`).join("\n");
   const seqCalls = sequenceFcNames.map((name) => `  "${name}"();`).join("\n");
   return [
@@ -639,6 +644,7 @@ export function generateOb1Main(deviceCallFcNames: string[], sequenceFcNames: st
     `  END_VAR`,
     `BEGIN`,
     `  "${ioLinkingFcName}"();`,
+    ...(typeConvertFcName ? [`  "${typeConvertFcName}"();`] : []),
     fcCalls,
     ...(seqCalls ? [seqCalls] : []),
     `END_ORGANIZATION_BLOCK`,
@@ -1091,8 +1097,11 @@ export function generateDeviceCallFc(context: DeviceCallFcContext): string | nul
 
       wiredParams.add(w.paramName.toLowerCase());
 
+      // If this wire has been rewired through DB_Converted, use that directly
       let source: string;
-      if (w.wireType === "io") {
+      if (w.convertedSource) {
+        source = w.convertedSource;
+      } else if (w.wireType === "io") {
         source = w.direction === "in"
           ? `"${inputsDbName}".${w.connectedTo}`
           : `"${outputsDbName}".${w.connectedTo}`;
@@ -1199,7 +1208,9 @@ export function generateDeviceCallFcLad(context: DeviceCallFcContext): string | 
       .filter(w => w.connectedTo?.trim())
       .map(w => {
         let value: string;
-        if (w.wireType === "io") {
+        if (w.convertedSource) {
+          value = w.convertedSource;
+        } else if (w.wireType === "io") {
           value = w.direction === "in"
             ? `"${inputsDbName}".${w.connectedTo}`
             : `"${outputsDbName}".${w.connectedTo}`;
