@@ -526,12 +526,14 @@ ${paramDecls}
         }
 
         const wireUid = counter.next();
+        // Negated inputs use Negated="true" on the NameCon (NC contact in LAD)
+        const negAttr = param.negated ? ' Negated="true"' : "";
         if (param.direction === "in" || param.direction === "inout") {
           wires.push({
             uid: wireUid,
             xml: `          <Wire UId="${wireUid}">
             <IdentCon UId="${accessUid}" />
-            <NameCon UId="${partUid}" Name="${esc(param.name)}" />
+            <NameCon UId="${partUid}" Name="${esc(param.name)}"${negAttr} />
           </Wire>`,
           });
         } else {

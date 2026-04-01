@@ -67,6 +67,8 @@ export interface FbCallParam {
   value: string;
   /** Data type (e.g. "Bool", "Int", "Real", "Time", "Word") */
   dataType?: string;
+  /** If true, the input uses NC (normally closed) contact for negation in LAD */
+  negated?: boolean;
 }
 
 // ---------------------------------------------------------------------------

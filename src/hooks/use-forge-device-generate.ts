@@ -136,13 +136,48 @@ function reconcileUdtReferences(
   });
 
   // Generate stub UDTs for any missing references (BUG-19)
+  // Extract real fields by scanning FB code for #paramName.fieldName access patterns
   for (const udtName of stubUdtsNeeded) {
-    log("fix", `Generating stub UDT "${udtName}" — referenced by DB artifacts but not in library`);
+    // Find which FB parameters use this UDT type, then scan the FB code for field accesses
+    const fields = new Map<string, string>(); // fieldName → dataType
+    for (const a of artifacts) {
+      if (a.type !== "FB") continue;
+      // Check if this FB declares a param with this UDT type
+      const paramRe = new RegExp(`(\\w+)\\s*:\\s*"?${udtName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"?`, "gi");
+      let paramMatch: RegExpExecArray | null;
+      while ((paramMatch = paramRe.exec(a.content)) !== null) {
+        const paramName = paramMatch[1];
+        // Now scan the FB code for #paramName.fieldName accesses
+        const accessRe = new RegExp(`#${paramName}\\.(\\w+)`, "gi");
+        let accessMatch: RegExpExecArray | null;
+        while ((accessMatch = accessRe.exec(a.content)) !== null) {
+          const fieldName = accessMatch[1];
+          if (!fields.has(fieldName)) {
+            // Infer type from context — check if assigned to a Time, Int, Bool, etc.
+            const contextRe = new RegExp(`#${paramName}\\.${fieldName}\\b[^;]*`, "i");
+            const ctx = contextRe.exec(a.content)?.[0] ?? "";
+            let fieldType = "Bool"; // default
+            if (/time|duration|timeout|delay|dly/i.test(fieldName)) fieldType = "Time";
+            else if (/count|code|mode|state|step/i.test(fieldName)) fieldType = "Int";
+            else if (/speed|temp|level|setpoint|value/i.test(fieldName)) fieldType = "Real";
+            // Check for Time literal comparisons/assignments in context
+            else if (/T#/i.test(ctx)) fieldType = "Time";
+            fields.set(fieldName, fieldType);
+          }
+        }
+      }
+    }
+
+    // Build stub with real fields (or placeholder if none found)
+    const fieldLines = fields.size > 0
+      ? [...fields.entries()].map(([name, type]) => `      ${name} : ${type};`).join("\n")
+      : "      placeholder : Bool;   // No fields could be inferred — populate manually";
+
+    log("fix", `Generating stub UDT "${udtName}" with ${fields.size} inferred field(s): [${[...fields.keys()].join(", ")}]`);
     const stubContent = `TYPE "${udtName}"
 VERSION : 0.1
    STRUCT
-      // Auto-generated stub — populate with actual fields from TIA Portal
-      placeholder : Bool;   // Remove after importing real UDT from library
+${fieldLines}
    END_STRUCT;
 END_TYPE`;
     reconciled.push({

@@ -1201,12 +1201,13 @@ export function generateDeviceCallFcLad(context: DeviceCallFcContext): string | 
         }
         // Invert safety signals: safetyOk (TRUE=safe) must be negated
         // when wired to eStop inputs (TRUE=danger)
+        // In LAD, negation uses NC (normally closed) contact — NOT prefix in tag name is invalid
         const invert = w.direction === "in" && needsPolarityInversion(w.paramName, w.connectedTo ?? "");
-        const finalValue = invert ? `NOT ${value}` : value;
         return {
           name: w.paramName,
           direction: w.direction as "in" | "out" | "inout",
-          value: finalValue,
+          value,
+          negated: invert,
           dataType: w.dataType ?? paramDataTypes.get(w.paramName.toLowerCase()) ?? "Variant",
         };
       });
@@ -1219,6 +1220,7 @@ export function generateDeviceCallFcLad(context: DeviceCallFcContext): string | 
           name: p.name,
           direction: "inout",
           value: `"${device.instanceDbName}".${p.name}`,
+          negated: false,
           dataType: p.dataType,
         });
       }
