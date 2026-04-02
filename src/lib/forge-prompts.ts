@@ -1094,12 +1094,27 @@ function needsPolarityInversion(paramName: string, connectedTo: string): boolean
  * Falls back to null if the matrix has no wiring for this device type (AI path used).
  */
 export function generateDeviceCallFc(context: DeviceCallFcContext): string | null {
-  const { fcName, matrixWiring, inputsDbName, outputsDbName, fbInterfaceSection } = context;
+  const { fcName, matrixWiring, inputsDbName, outputsDbName, fbInterfaceSection, instanceDbNames } = context;
   if (matrixWiring.length === 0) return null;
+
+  // Derive HMI DB name and instance DB prefix from naming convention
+  const dbPrefix = inputsDbName.replace(/Inputs$/, "");
+  const hmiDbName = `${dbPrefix}HmiData`;
+  const instDbPrefix = instanceDbNames.length > 0
+    ? instanceDbNames[0].replace(/[A-Z][a-z].*$/, "")  // "InstCV01" → "Inst"
+    : "Inst";
 
   // Extract mandatory VAR_IN_OUT and VAR_OUTPUT params from FB interface
   const varInOutParams = extractVarInOutParams(fbInterfaceSection);
   const varOutputParams = extractVarOutputParams(fbInterfaceSection);
+
+  // Build param type map for UDT filtering
+  const fbParamTypeMap = new Map<string, string>();
+  const typeRe = /^\s+(\w+)\s*:\s*("?[\w.]+"?)/gm;
+  let typeMatch: RegExpExecArray | null;
+  while ((typeMatch = typeRe.exec(fbInterfaceSection)) !== null) {
+    fbParamTypeMap.set(typeMatch[1].toLowerCase(), typeMatch[2].replace(/"/g, ""));
+  }
 
   const callBlocks: string[] = [];
 
@@ -1112,6 +1127,10 @@ export function generateDeviceCallFc(context: DeviceCallFcContext): string | nul
     for (const w of device.wiring) {
       // Skip wires with no connectedTo — can't build a valid SCL expression
       if (!w.connectedTo?.trim()) continue;
+
+      // Skip wires where the FB param is a UDT/struct — can't wire UDT to elementary DB fields
+      const paramType = fbParamTypeMap.get(w.paramName.toLowerCase());
+      if (paramType && !isElementaryType(paramType)) continue;
 
       wiredParams.add(w.paramName.toLowerCase());
 
@@ -1157,13 +1176,19 @@ export function generateDeviceCallFc(context: DeviceCallFcContext): string | nul
       }
     }
 
-    // VAR_IN_OUT params are MANDATORY — wire to instance DB field if no matrix entry.
-    // EXCEPTION: UDT/struct types cannot be globally accessed on instance DBs (TIA error 604:4542).
-    // These are HMI UDTs like HMI_MotorControl that live on the instance DB and are accessed
-    // directly by HMI faceplates — they don't need external wiring.
+    // VAR_IN_OUT params are MANDATORY — wire to appropriate target if no matrix entry.
+    // UDT/struct types cannot be globally accessed on instance DBs (TIA error 604:4542).
+    // Wire UDT params to a matching field in HmiData DB instead.
+    // Elementary types wire to the instance DB field directly.
     for (const p of varInOutParams) {
-      if (!wiredParams.has(p.name.toLowerCase()) && isElementaryType(p.dataType)) {
+      if (wiredParams.has(p.name.toLowerCase())) continue;
+      if (isElementaryType(p.dataType)) {
         inoutLines.push(`        ${p.name} := "${device.instanceDbName}".${p.name}`);
+      } else {
+        // UDT VAR_IN_OUT — wire to HmiData DB field: e.g. "DB_HmiData".m01HmiMotorControl
+        const instTag = device.instanceDbName.replace(instDbPrefix, "").toLowerCase();
+        const fieldName = `${instTag}${p.name}`;
+        inoutLines.push(`        ${p.name} := "${hmiDbName}".${fieldName}`);
       }
     }
 
@@ -1202,8 +1227,15 @@ export function generateDeviceCallFc(context: DeviceCallFcContext): string | nul
  * Returns null if matrixWiring is empty (nothing to generate).
  */
 export function generateDeviceCallFcLad(context: DeviceCallFcContext): string | null {
-  const { fcName, fbName: contextFbName, matrixWiring, inputsDbName, outputsDbName, fbInterfaceSection } = context;
+  const { fcName, fbName: contextFbName, matrixWiring, inputsDbName, outputsDbName, fbInterfaceSection, instanceDbNames } = context;
   if (matrixWiring.length === 0) return null;
+
+  // Derive HMI DB name and instance DB prefix from naming convention
+  const dbPrefix = inputsDbName.replace(/Inputs$/, "");
+  const hmiDbName = `${dbPrefix}HmiData`;
+  const instDbPrefix = instanceDbNames.length > 0
+    ? instanceDbNames[0].replace(/[A-Z][a-z].*$/, "")
+    : "Inst";
 
   // FB name MUST come from the actual generated artifact — no guessing or inventing.
   // Fallback chain: explicit fbName > interface section header > error-safe default.
@@ -1226,6 +1258,14 @@ export function generateDeviceCallFcLad(context: DeviceCallFcContext): string | 
 
     const callParams = device.wiring
       .filter(w => w.connectedTo?.trim())
+      .filter(w => {
+        // Skip wires where the FB param is a UDT/struct type but the target is an elementary DB field.
+        // UDT outputs (like ERROR_Motor : udtError_Motor) can't be wired to Bool fields.
+        // They stay on the instance DB and are accessed via HMI faceplates.
+        const fbType = paramDataTypes.get(w.paramName.toLowerCase());
+        if (fbType && !isElementaryType(fbType)) return false;
+        return true;
+      })
       .map(w => {
         let value: string;
         if (w.convertedSource) {
@@ -1254,14 +1294,26 @@ export function generateDeviceCallFcLad(context: DeviceCallFcContext): string | 
       });
 
     // Add mandatory VAR_IN_OUT params not in matrix wiring.
-    // EXCEPTION: UDT/struct types cannot be globally accessed on instance DBs (TIA error 604:4542).
-    // These are HMI UDTs like HMI_MotorControl that live on the instance DB — skip them.
+    // UDT/struct types cannot be globally accessed on instance DBs (TIA error 604:4542).
+    // Wire UDT params to a matching field in HmiData DB instead.
     for (const p of varInOutParams) {
-      if (!wiredParams.has(p.name.toLowerCase()) && isElementaryType(p.dataType)) {
+      if (wiredParams.has(p.name.toLowerCase())) continue;
+      if (isElementaryType(p.dataType)) {
         callParams.push({
           name: p.name,
           direction: "inout",
           value: `"${device.instanceDbName}".${p.name}`,
+          negated: false,
+          dataType: p.dataType,
+        });
+      } else {
+        // UDT VAR_IN_OUT — wire to HmiData DB field
+        const instTag = device.instanceDbName.replace(instDbPrefix, "").toLowerCase();
+        const fieldName = `${instTag}${p.name}`;
+        callParams.push({
+          name: p.name,
+          direction: "inout",
+          value: `"${hmiDbName}".${fieldName}`,
           negated: false,
           dataType: p.dataType,
         });
