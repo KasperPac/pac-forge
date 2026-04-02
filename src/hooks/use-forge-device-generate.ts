@@ -2280,6 +2280,48 @@ END_TYPE`;
           }
         }
 
+        // Merge unprefixed library DBs into their prefixed counterparts
+        // e.g., library "HmiData" fields → pipeline "DB_HmiData", then drop "HmiData"
+        if (dbPrefix) {
+          const MERGE_DB_NAMES = new Set(["hmidata", "configuration", "faultdata", "processcommands", "processstate"]);
+          const toRemove = new Set<string>();
+          for (const a of allArtifacts) {
+            if (a.type !== "DB") continue;
+            const lower = a.name.toLowerCase();
+            if (!MERGE_DB_NAMES.has(lower)) continue;
+            if (a.name.startsWith(dbPrefix)) continue; // already prefixed
+            // Find the prefixed counterpart
+            const prefixed = allArtifacts.find(b => b.type === "DB" && b.name === `${dbPrefix}${a.name}`);
+            if (!prefixed) continue;
+            // Merge: extract fields from library DB and add missing ones to prefixed DB
+            const libFieldRe = /^\s{2,}(\w+)\s*:\s*[^;]+;/gm;
+            const existingFields = new Set<string>();
+            let em: RegExpExecArray | null;
+            const existRe = /^\s{2,}(\w+)\s*:\s*[^;]+;/gm;
+            while ((em = existRe.exec(prefixed.content)) !== null) existingFields.add(em[1].toLowerCase());
+            const newFields: string[] = [];
+            while ((em = libFieldRe.exec(a.content)) !== null) {
+              if (!existingFields.has(em[1].toLowerCase())) {
+                newFields.push(em[0]);
+              }
+            }
+            if (newFields.length > 0) {
+              prefixed.content = prefixed.content.replace(
+                /(\s*END_VAR)/,
+                `\n${newFields.join("\n")}$1`,
+              );
+              appendLog("fix", `Merged ${newFields.length} field(s) from library "${a.name}" into "${prefixed.name}"`);
+            }
+            toRemove.add(`DB:${a.name}`);
+          }
+          // Remove the unprefixed duplicates
+          for (let i = allArtifacts.length - 1; i >= 0; i--) {
+            if (toRemove.has(`${allArtifacts[i].type}:${allArtifacts[i].name}`)) {
+              allArtifacts.splice(i, 1);
+            }
+          }
+        }
+
         // Deduplicate by type+name — AI device generation may emit global DBs
         // (Configuration, HmiData) that duplicate the matrix-generated ones. Keep
         // the last occurrence so matrix DBs (added in step 3b) win over AI ones.
@@ -2883,6 +2925,39 @@ END_TYPE`;
               appendLog("info", `${fcName}: generated ${fcArtifacts.map(a => a.name).join(", ")}`);
             }
             allArtifacts.push(...fcArtifacts);
+          }
+        }
+
+        // Merge unprefixed library DBs into prefixed counterparts
+        if (dbPrefix) {
+          const MERGE_DB_NAMES2 = new Set(["hmidata", "configuration", "faultdata", "processcommands", "processstate"]);
+          const combined0 = [...fbArtifacts, ...allArtifacts];
+          const toRemove2 = new Set<string>();
+          for (const a of combined0) {
+            if (a.type !== "DB" || !MERGE_DB_NAMES2.has(a.name.toLowerCase()) || a.name.startsWith(dbPrefix)) continue;
+            const prefixed = combined0.find(b => b.type === "DB" && b.name === `${dbPrefix}${a.name}`);
+            if (!prefixed) continue;
+            const existRe2 = /^\s{2,}(\w+)\s*:\s*[^;]+;/gm;
+            const existingFields2 = new Set<string>();
+            let em2: RegExpExecArray | null;
+            while ((em2 = existRe2.exec(prefixed.content)) !== null) existingFields2.add(em2[1].toLowerCase());
+            const libRe2 = /^\s{2,}(\w+)\s*:\s*[^;]+;/gm;
+            const newFields2: string[] = [];
+            while ((em2 = libRe2.exec(a.content)) !== null) {
+              if (!existingFields2.has(em2[1].toLowerCase())) newFields2.push(em2[0]);
+            }
+            if (newFields2.length > 0) {
+              prefixed.content = prefixed.content.replace(/(\s*END_VAR)/, `\n${newFields2.join("\n")}$1`);
+              appendLog("fix", `Merged ${newFields2.length} field(s) from library "${a.name}" into "${prefixed.name}"`);
+            }
+            toRemove2.add(`DB:${a.name}`);
+          }
+          // Remove unprefixed from both arrays
+          for (let i = fbArtifacts.length - 1; i >= 0; i--) {
+            if (toRemove2.has(`${fbArtifacts[i].type}:${fbArtifacts[i].name}`)) fbArtifacts.splice(i, 1);
+          }
+          for (let i = allArtifacts.length - 1; i >= 0; i--) {
+            if (toRemove2.has(`${allArtifacts[i].type}:${allArtifacts[i].name}`)) allArtifacts.splice(i, 1);
           }
         }
 
