@@ -1477,14 +1477,9 @@ function normalizeLadElementTypes(program: Record<string, unknown>): void {
     NORMALLY_CLOSED: "NC_CONTACT",
     COIL: "OUTPUT_COIL",
     OUTPUT: "OUTPUT_COIL",
-    // Edge detection — AI invents these but they don't exist as LAD element types.
-    // Map to NO_CONTACT — the operand should reference a static R_TRIG/F_TRIG instance's Q output.
-    P_TRIG: "NO_CONTACT",
-    N_TRIG: "NC_CONTACT",
-    R_TRIG: "NO_CONTACT",
-    F_TRIG: "NC_CONTACT",
-    RISING_EDGE: "NO_CONTACT",
-    FALLING_EDGE: "NC_CONTACT",
+    // Edge detection aliases — normalize to canonical names
+    RISING_EDGE: "R_TRIG",
+    FALLING_EDGE: "F_TRIG",
     // Timer aliases
     TIMER_ON: "TON",
     TIMER_OFF: "TOF",
