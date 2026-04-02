@@ -452,7 +452,11 @@ function backfillGlobalDbFields(
 
     // UDT types (starting with "type" or containing uppercase after first char) need quotes in SCL
     const needsQuotes = (t: string) => /^(type|udt)/i.test(t) || /^[A-Z]/.test(t) && !/^(Bool|Int|DInt|Real|LReal|Word|DWord|Byte|String|WString|Time|LTime|Date|USInt|UInt|UDInt|SInt|LInt|ULInt|Char|WChar|Array)$/i.test(t);
-    const formatType = (t: string) => needsQuotes(t) ? `"${t}"` : t;
+    const formatType = (t: string) => {
+      // Strip existing quotes first to avoid double-quoting
+      const clean = t.replace(/^"+|"+$/g, "");
+      return needsQuotes(clean) ? `"${clean}"` : clean;
+    };
 
     for (const [fieldName, { dataType, authoritative }] of refs) {
       const currentType = existing.get(fieldName);
