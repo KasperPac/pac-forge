@@ -1242,19 +1242,28 @@ export function generateDeviceCallFcLad(context: DeviceCallFcContext): string | 
   const headerMatch = fbInterfaceSection.match(/###\s+(\S+)/);
   const fbName = contextFbName ?? headerMatch?.[1] ?? fcName;
 
-  // Extract parameter data types from the FB interface
+  // Extract parameter data types from the FB interface (handles quoted UDT types like "udtHMI_MotorControl")
   const paramDataTypes = new Map<string, string>();
-  const paramTypeRe = /^\s+(\w+)\s*:\s*(\w+)/gm;
+  const paramTypeRe = /^\s+(\w+)\s*:\s*("?[\w.]+"?)/gm;
   let ptMatch: RegExpExecArray | null;
   while ((ptMatch = paramTypeRe.exec(fbInterfaceSection)) !== null) {
-    paramDataTypes.set(ptMatch[1].toLowerCase(), ptMatch[2]);
+    paramDataTypes.set(ptMatch[1].toLowerCase(), ptMatch[2].replace(/"/g, ""));
   }
 
   // Extract mandatory VAR_IN_OUT params from FB interface
   const varInOutParams = extractVarInOutParams(fbInterfaceSection);
 
   const rungs = matrixWiring.map((device, idx) => {
-    const wiredParams = new Set(device.wiring.filter(w => w.connectedTo?.trim()).map(w => w.paramName.toLowerCase()));
+    // Track wired params — exclude UDT-typed params since they get filtered from callParams
+    const wiredParams = new Set(
+      device.wiring
+        .filter(w => w.connectedTo?.trim())
+        .filter(w => {
+          const fbType = paramDataTypes.get(w.paramName.toLowerCase());
+          return !(fbType && !isElementaryType(fbType));
+        })
+        .map(w => w.paramName.toLowerCase()),
+    );
 
     const callParams = device.wiring
       .filter(w => w.connectedTo?.trim())
