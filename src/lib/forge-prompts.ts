@@ -1012,6 +1012,24 @@ export function buildDeviceCallFcUserMessage(context: DeviceCallFcContext): stri
 }
 
 /**
+ * Check if a data type is elementary (can be globally accessed on an instance DB).
+ * UDT/struct types in VAR_IN_OUT CANNOT be wired from outside — TIA error 604:4542.
+ */
+const ELEMENTARY_TYPES = new Set([
+  "bool", "byte", "word", "dword", "lword",
+  "sint", "int", "dint", "lint", "usint", "uint", "udint", "ulint",
+  "real", "lreal",
+  "time", "ltime", "s5time", "date", "time_of_day", "tod", "dt", "ltod", "ldt",
+  "char", "wchar", "string", "wstring",
+]);
+
+function isElementaryType(dataType: string): boolean {
+  // Remove quotes and check
+  const clean = dataType.replace(/"/g, "").toLowerCase();
+  return ELEMENTARY_TYPES.has(clean);
+}
+
+/**
  * Extract VAR_IN_OUT parameter names from an FB interface section.
  * VAR_IN_OUT params are MANDATORY in TIA Portal — omitting them from a call
  * is a compile error. Returns param names with their declared types.
@@ -1139,10 +1157,12 @@ export function generateDeviceCallFc(context: DeviceCallFcContext): string | nul
       }
     }
 
-    // VAR_IN_OUT params are MANDATORY — wire to instance DB field if no matrix entry
-    // (Siemens Open Library HMI UDTs like HMI_MotorControl live on the instance DB)
+    // VAR_IN_OUT params are MANDATORY — wire to instance DB field if no matrix entry.
+    // EXCEPTION: UDT/struct types cannot be globally accessed on instance DBs (TIA error 604:4542).
+    // These are HMI UDTs like HMI_MotorControl that live on the instance DB and are accessed
+    // directly by HMI faceplates — they don't need external wiring.
     for (const p of varInOutParams) {
-      if (!wiredParams.has(p.name.toLowerCase())) {
+      if (!wiredParams.has(p.name.toLowerCase()) && isElementaryType(p.dataType)) {
         inoutLines.push(`        ${p.name} := "${device.instanceDbName}".${p.name}`);
       }
     }
@@ -1233,10 +1253,11 @@ export function generateDeviceCallFcLad(context: DeviceCallFcContext): string | 
         };
       });
 
-    // Add mandatory VAR_IN_OUT params not in matrix wiring
-    // (e.g., Siemens Open Library HMI UDTs — wired to instance DB field)
+    // Add mandatory VAR_IN_OUT params not in matrix wiring.
+    // EXCEPTION: UDT/struct types cannot be globally accessed on instance DBs (TIA error 604:4542).
+    // These are HMI UDTs like HMI_MotorControl that live on the instance DB — skip them.
     for (const p of varInOutParams) {
-      if (!wiredParams.has(p.name.toLowerCase())) {
+      if (!wiredParams.has(p.name.toLowerCase()) && isElementaryType(p.dataType)) {
         callParams.push({
           name: p.name,
           direction: "inout",
