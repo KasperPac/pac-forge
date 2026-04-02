@@ -295,6 +295,41 @@ function normalizeLadJson(obj: any): any {
     result.id = `par_${crypto.randomUUID().slice(0, 8)}`;
   }
 
+  // Normalize element types — map AI hallucinations to valid LadElementType values
+  if (result.type === "element" && result.element?.type) {
+    const LAD_TYPE_MAP: Record<string, string> = {
+      CONTACT: "NO_CONTACT",
+      NO_CONTACT_NORMALLY_OPEN: "NO_CONTACT",
+      NORMALLY_OPEN: "NO_CONTACT",
+      NC_CONTACT_NORMALLY_CLOSED: "NC_CONTACT",
+      NORMALLY_CLOSED: "NC_CONTACT",
+      COIL: "OUTPUT_COIL",
+      OUTPUT: "OUTPUT_COIL",
+      P_TRIG: "NO_CONTACT",
+      N_TRIG: "NC_CONTACT",
+      R_TRIG: "NO_CONTACT",
+      F_TRIG: "NC_CONTACT",
+      RISING_EDGE: "NO_CONTACT",
+      FALLING_EDGE: "NC_CONTACT",
+      TIMER_ON: "TON",
+      TIMER_OFF: "TOF",
+      COUNT_UP: "CTU",
+      COUNT_DOWN: "CTD",
+      COMPARE: "CMP",
+      EQ: "CMP",
+      NE: "CMP",
+      GT: "CMP",
+      LT: "CMP",
+      GE: "CMP",
+      LE: "CMP",
+    };
+    const mapped = LAD_TYPE_MAP[result.element.type];
+    if (mapped) {
+      console.warn(`[forge-process] Normalized LAD element type: ${result.element.type} → ${mapped}`);
+      result.element.type = mapped;
+    }
+  }
+
   // Recurse into all object properties
   for (const key of Object.keys(result)) {
     if (typeof result[key] === "object" && result[key] !== null) {

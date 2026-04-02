@@ -1469,6 +1469,7 @@ function parseSclArtifacts(
 /** Normalize informal element type names that AI sometimes generates to canonical LadElementType values. */
 function normalizeLadElementTypes(program: Record<string, unknown>): void {
   const typeMap: Record<string, string> = {
+    // Common AI aliases for standard types
     CONTACT: "NO_CONTACT",
     NO_CONTACT_NORMALLY_OPEN: "NO_CONTACT",
     NORMALLY_OPEN: "NO_CONTACT",
@@ -1476,6 +1477,28 @@ function normalizeLadElementTypes(program: Record<string, unknown>): void {
     NORMALLY_CLOSED: "NC_CONTACT",
     COIL: "OUTPUT_COIL",
     OUTPUT: "OUTPUT_COIL",
+    // Edge detection — AI invents these but they don't exist as LAD element types.
+    // Map to NO_CONTACT — the operand should reference a static R_TRIG/F_TRIG instance's Q output.
+    P_TRIG: "NO_CONTACT",
+    N_TRIG: "NC_CONTACT",
+    R_TRIG: "NO_CONTACT",
+    F_TRIG: "NC_CONTACT",
+    RISING_EDGE: "NO_CONTACT",
+    FALLING_EDGE: "NC_CONTACT",
+    // Timer aliases
+    TIMER_ON: "TON",
+    TIMER_OFF: "TOF",
+    // Counter aliases
+    COUNT_UP: "CTU",
+    COUNT_DOWN: "CTD",
+    // Compare aliases
+    COMPARE: "CMP",
+    EQ: "CMP",
+    NE: "CMP",
+    GT: "CMP",
+    LT: "CMP",
+    GE: "CMP",
+    LE: "CMP",
   };
   const rungs = program.rungs as Array<Record<string, unknown>> | undefined;
   if (!Array.isArray(rungs)) return;
@@ -2195,6 +2218,8 @@ END_TYPE`;
             platformRules: PLATFORM_RULES,
             patterns,
             matrixWiring,
+            facePlatesDbName,
+            facePlatesDbContent: facePlatesContent,
             referenceSections: refSectionsText || undefined,
             instructions: ladInstructions,
           };
@@ -2478,6 +2503,7 @@ END_TYPE`;
       session: ForgeSession,
       profile: DesignProfile,
       fbArtifacts: ForgeArtifact[],
+      fbTemplates: FbTemplate[],
       patterns: PatternCandidate[],
     ): Promise<ForgeArtifact[]> => {
       setLoading(true);
@@ -2568,6 +2594,28 @@ END_TYPE`;
             );
           }
 
+          // 3. Fall back to the matched library template FB when the saved
+          // device_fb artifacts are missing or incomplete for this session.
+          if (!deviceFb && device.fb_template_id) {
+            const template = fbTemplates.find(t => t.id === device.fb_template_id);
+            const templateFb = template?.blocks?.find(b => b.block_type === "FB" && !!b.scl_code?.trim());
+            if (templateFb?.scl_code) {
+              deviceFb = {
+                id: `template-fallback-${template.id}`,
+                name: extractBlockName(templateFb.scl_code) ?? templateFb.block_name,
+                type: "FB",
+                language: "SCL",
+                content: templateFb.scl_code,
+                approved: true,
+                fb_template_id: template.id,
+                stage: "device_fb",
+                destination_folder: "",
+                dependencies: [],
+                compile_after_import: false,
+              };
+            }
+          }
+
           if (deviceFb) {
             const interfaceRe =
               /(VAR_INPUT[\s\S]*?END_VAR|VAR_OUTPUT[\s\S]*?END_VAR|VAR_IN_OUT[\s\S]*?END_VAR)/gi;
@@ -2586,7 +2634,7 @@ END_TYPE`;
         }
       }
 
-      const totalSteps = 3 + matrixGlobalDbs.length + uniqueDeviceTypes.length;
+      const totalSteps = 4 + matrixGlobalDbs.length + uniqueDeviceTypes.length;
       setProgress({ current: 0, total: totalSteps, currentDevice: "" });
 
       try {
@@ -2744,10 +2792,59 @@ END_TYPE`;
         // --- Step 4: IoLinking FC (deterministic SCL, or LAD via AI) ---
         const ioLinkingFcName = fcPrefix ? `${fcPrefix}IoLinking` : "IoLinking";
         setProgress({
-          current: 3 + matrixGlobalDbs.length,
+          current: 4 + matrixGlobalDbs.length,
           total: totalSteps,
           currentDevice: `${ioLinkingFcName} FC`,
         });
+
+        const facePlatesDbName = `${dbPrefix}FacePlates`;
+        const facePlateFields: string[] = [];
+        for (const deviceType of uniqueDeviceTypes) {
+          const fbIface = deviceTypeFbInterfaces.get(deviceType) ?? "";
+          const inOutParams = extractVarInOutParams(fbIface);
+          const hmiParams = inOutParams.filter(p => !isElementaryType(p.dataType) && /hmi/i.test(p.dataType));
+          if (hmiParams.length === 0) continue;
+
+          const groupDevices = devices.filter(d => d.device_type === deviceType);
+          for (const device of groupDevices) {
+            const instTag = device.name.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+            for (const p of hmiParams) {
+              const fieldName = `${instTag}${p.name}`;
+              const cleanType = p.dataType.replace(/^"+|"+$/g, "");
+              facePlateFields.push(`    ${fieldName} : "${cleanType}";  // ${device.name}`);
+            }
+          }
+        }
+
+        const facePlatesContent = [
+          `DATA_BLOCK "${facePlatesDbName}"`,
+          `{ S7_Optimized_Access := 'TRUE' }`,
+          `VERSION : 0.1`,
+          `NON_RETAIN`,
+          `  VAR`,
+          facePlateFields.length > 0 ? facePlateFields.join("\n") : "    // No HMI faceplate UDTs",
+          `  END_VAR`,
+          `BEGIN`,
+          `END_DATA_BLOCK`,
+        ].join("\n");
+
+        allArtifacts.push({
+          id: `faceplates_db_${Date.now()}`,
+          name: facePlatesDbName,
+          type: "DB",
+          language: "SCL",
+          content: facePlatesContent,
+          approved: false,
+          stage: "device",
+          destination_folder: globalDbFolder,
+          dependencies: [],
+          compile_after_import: true,
+        });
+
+        if (facePlateFields.length > 0) {
+          appendLog("info", `${facePlatesDbName}: ${facePlateFields.length} HMI faceplate UDT field(s)`);
+        }
+
         if (ioList?.length > 0) {
           const ioLang = profile.io_linking_language ?? "SCL";
           if (ioLang === "LAD") {
@@ -2789,7 +2886,7 @@ END_TYPE`;
           const deviceType = uniqueDeviceTypes[i];
           const fcName = deviceTypeToFcName(deviceType, fcPrefix || undefined);
           setProgress({
-            current: 3 + matrixGlobalDbs.length + i + 1,
+            current: 4 + matrixGlobalDbs.length + i + 1,
             total: totalSteps,
             currentDevice: `${fcName} FC`,
           });
@@ -2852,6 +2949,8 @@ END_TYPE`;
             platformRules: PLATFORM_RULES,
             patterns,
             matrixWiring,
+            facePlatesDbName,
+            facePlatesDbContent: facePlatesContent,
             referenceSections: refSectionsText2 || undefined,
             instructions: ladInstructions,
           };

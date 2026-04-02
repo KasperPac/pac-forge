@@ -554,9 +554,16 @@ ${pins}`;
     categoryBlocks.push(`## ${catLabel}\n\n${entries.join("\n\n")}`);
   }
 
+  // Build the allowed element_type list for the hard constraint
+  const allowedTypes = instructions.map((i) => `"${i.element_type}"`).join(", ");
+
   return `## Available LAD Instructions Reference
 
-Use these instruction definitions when generating LadElement JSON. The \`element_type\` value goes in the JSON \`type\` field. Pin names are the exact SimaticML XML pin names used during import.
+⛔ HARD CONSTRAINT: You may ONLY use element_type values from this list: ${allowedTypes}
+Any element_type not in this list DOES NOT EXIST in the system and will cause an import failure.
+If you need functionality not covered by these instructions (e.g., edge detection, flip-flops), implement it using the available instructions (contacts, coils, timers) with static variables.
+
+The \`element_type\` value goes in the JSON \`type\` field. Pin names are the exact SimaticML XML pin names used during import.
 
 ${categoryBlocks.join("\n\n")}`;
 }
