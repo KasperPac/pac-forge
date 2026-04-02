@@ -1064,6 +1064,8 @@ function buildNormalizedMatrixWiring(
   deviceTypeFbInterfaces: Map<string, string>,
   log: (level: DeviceGenLogLevel, msg: string) => void,
   globalDbNameMap?: Map<string, string>, // referenced name (lowercase) → actual artifact name
+  /** Generated artifacts — used to resolve actual source signal types for TYPE_CONVERSION detection */
+  artifacts?: ForgeArtifact[],
 ): NormalizedWiringEntry[] {
   if (!matrix?.deviceLinkage) return [];
 
@@ -1117,6 +1119,46 @@ function buildNormalizedMatrixWiring(
     const stripped = lower.replace(/^(i_|o_|io_)/, "");
     if (stripped !== lower && actualParams.has(stripped)) return actualParams.get(stripped)!;
     return matrixName;
+  }
+
+  // --- Source type resolver: look up actual data type from DB artifact content ---
+  // Parses "fieldName : Type;" declarations from generated DB SCL code
+  const sourceTypeCache = new Map<string, string>(); // "DBName.fieldName" → type
+  if (artifacts) {
+    for (const a of artifacts) {
+      if (a.type !== "DB" || a.language !== "SCL") continue;
+      const fieldRe = /^\s+(\w+)\s*:\s*(\w+)/gm;
+      let fm: RegExpExecArray | null;
+      while ((fm = fieldRe.exec(a.content)) !== null) {
+        sourceTypeCache.set(`${a.name}.${fm[1]}`.toLowerCase(), fm[2]);
+      }
+    }
+  }
+
+  function resolveSourceType(connectedTo: string, wireType: string): string | undefined {
+    if (wireType !== "global" && wireType !== "fb") return undefined;
+    // connectedTo might be "ProcessCommands.cv01Direction" or already "DB_ProcessCommands.cv01Direction"
+    const lower = connectedTo.toLowerCase();
+    // Direct lookup
+    const direct = sourceTypeCache.get(lower);
+    if (direct) return direct;
+    // Try with DB_ prefix
+    const dotIdx = lower.indexOf(".");
+    if (dotIdx > 0) {
+      const db = lower.slice(0, dotIdx);
+      const field = lower.slice(dotIdx + 1);
+      const withPrefix = sourceTypeCache.get(`db_${db}.${field}`);
+      if (withPrefix) return withPrefix;
+      // Try resolving via globalDbNameMap
+      if (globalDbNameMap) {
+        const resolved = globalDbNameMap.get(db);
+        if (resolved) {
+          const mapped = sourceTypeCache.get(`${resolved.toLowerCase()}.${field}`);
+          if (mapped) return mapped;
+        }
+      }
+    }
+    return undefined;
   }
 
   // --- Build canonical instance DB name map (ALL devices, ALL matrix entries) ---
@@ -1259,9 +1301,11 @@ function buildNormalizedMatrixWiring(
             connectedTo = normalizeConnectedTo(connectedTo, w.wireType);
           }
 
-          // BUG-21: Type mismatch detection — flag when wire dataType doesn't match FB param type
+          // BUG-21: Type mismatch detection — flag when source signal type doesn't match FB param type
           const fbParamType = actualFbParamTypes.get(remappedParam.toLowerCase());
-          const wireType = w.dataType;
+          // Resolve actual source type: prefer DB artifact lookup, fallback to wire.dataType
+          const resolvedSourceType = resolveSourceType(connectedTo, w.wireType) ?? w.dataType;
+          const wireType = resolvedSourceType;
           if (fbParamType && wireType && wireType !== "Variant") {
             const fbLower = fbParamType.toLowerCase();
             const wireLower = wireType.toLowerCase();
@@ -1273,7 +1317,7 @@ function buildNormalizedMatrixWiring(
                  // UDT vs basic type mismatch
                  (fbLower.startsWith("udt") && !wireLower.startsWith("udt")) ||
                  (wireLower.startsWith("udt") && !fbLower.startsWith("udt")))) {
-              log("warn", `Type mismatch: ${d.name}.${remappedParam} — wire type "${wireType}" vs FB param type "${fbParamType}". Conversion needed in call FC.`);
+              log("warn", `Type mismatch: ${d.name}.${remappedParam} — source type "${wireType}" (from ${connectedTo}) vs FB param type "${fbParamType}". Conversion needed.`);
               // Add conversion note to the wire so the code generator can handle it
               const notes = w.notes
                 ? `${w.notes}; TYPE_CONVERSION: ${wireType}→${fbParamType}`
@@ -1893,7 +1937,7 @@ END_TYPE`;
         for (const deviceType of uniqueDeviceTypes) {
           const groupDevices = devices.filter(d => d.device_type === deviceType);
           const wiring = buildNormalizedMatrixWiring(
-            matrix, deviceType, groupDevices, instDbPrefix, ioList ?? [], deviceTypeFbInterfaces, () => {}, globalDbMap0,
+            matrix, deviceType, groupDevices, instDbPrefix, ioList ?? [], deviceTypeFbInterfaces, appendLog, globalDbMap0, allArtifacts,
           );
           allMatrixWirings.push(...wiring);
         }
@@ -2516,7 +2560,7 @@ END_TYPE`;
         for (const deviceType of uniqueDeviceTypes) {
           const groupDevices = devices.filter(d => d.device_type === deviceType);
           const wiring = buildNormalizedMatrixWiring(
-            matrix, deviceType, groupDevices, instDbPrefix, ioList ?? [], deviceTypeFbInterfaces, () => {}, globalDbMap0b,
+            matrix, deviceType, groupDevices, instDbPrefix, ioList ?? [], deviceTypeFbInterfaces, appendLog, globalDbMap0b, [...fbArtifacts, ...allArtifacts],
           );
           allMatrixWirings2.push(...wiring);
         }
