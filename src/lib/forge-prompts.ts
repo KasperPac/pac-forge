@@ -1099,7 +1099,7 @@ export function generateDeviceCallFc(context: DeviceCallFcContext): string | nul
 
   // Derive HMI DB name and instance DB prefix from naming convention
   const dbPrefix = inputsDbName.replace(/Inputs$/, "");
-  const hmiDbName = `${dbPrefix}HmiData`;
+
   const instDbPrefix = instanceDbNames.length > 0
     ? instanceDbNames[0].replace(/[A-Z][a-z].*$/, "")  // "InstCV01" → "Inst"
     : "Inst";
@@ -1185,10 +1185,14 @@ export function generateDeviceCallFc(context: DeviceCallFcContext): string | nul
       if (isElementaryType(p.dataType)) {
         inoutLines.push(`        ${p.name} := "${device.instanceDbName}".${p.name}`);
       } else {
-        // UDT VAR_IN_OUT — wire to HmiData DB field: e.g. "DB_HmiData".m01HmiMotorControl
-        const instTag = device.instanceDbName.replace(instDbPrefix, "").toLowerCase();
-        const fieldName = `${instTag}${p.name}`;
-        inoutLines.push(`        ${p.name} := "${hmiDbName}".${fieldName}`);
+        // HMI UDT VAR_IN_OUT — wire to DB_FacePlates
+        // Non-HMI UDT VAR_IN_OUT — skip (stays on instance DB)
+        if (/hmi/i.test(p.dataType)) {
+          const facePlatesDbName = `${dbPrefix}FacePlates`;
+          const instTag = device.instanceDbName.replace(instDbPrefix, "").toLowerCase();
+          const fieldName = `${instTag}${p.name}`;
+          inoutLines.push(`        ${p.name} := "${facePlatesDbName}".${fieldName}`);
+        }
       }
     }
 
@@ -1232,7 +1236,7 @@ export function generateDeviceCallFcLad(context: DeviceCallFcContext): string | 
 
   // Derive HMI DB name and instance DB prefix from naming convention
   const dbPrefix = inputsDbName.replace(/Inputs$/, "");
-  const hmiDbName = `${dbPrefix}HmiData`;
+
   const instDbPrefix = instanceDbNames.length > 0
     ? instanceDbNames[0].replace(/[A-Z][a-z].*$/, "")
     : "Inst";
@@ -1316,16 +1320,20 @@ export function generateDeviceCallFcLad(context: DeviceCallFcContext): string | 
           dataType: p.dataType,
         });
       } else {
-        // UDT VAR_IN_OUT — wire to HmiData DB field
-        const instTag = device.instanceDbName.replace(instDbPrefix, "").toLowerCase();
-        const fieldName = `${instTag}${p.name}`;
-        callParams.push({
-          name: p.name,
-          direction: "inout",
-          value: `"${hmiDbName}".${fieldName}`,
-          negated: false,
-          dataType: p.dataType,
-        });
+        // HMI UDT VAR_IN_OUT — wire to DB_FacePlates
+        // Non-HMI UDT VAR_IN_OUT — skip (stays on instance DB)
+        if (/hmi/i.test(p.dataType)) {
+          const facePlatesDbName = `${dbPrefix}FacePlates`;
+          const instTag = device.instanceDbName.replace(instDbPrefix, "").toLowerCase();
+          const fieldName = `${instTag}${p.name}`;
+          callParams.push({
+            name: p.name,
+            direction: "inout",
+            value: `"${facePlatesDbName}".${fieldName}`,
+            negated: false,
+            dataType: p.dataType,
+          });
+        }
       }
     }
 

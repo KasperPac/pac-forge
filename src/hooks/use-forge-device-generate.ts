@@ -2027,38 +2027,55 @@ END_TYPE`;
           appendLog("info", `TypeConvert: no conversions needed (empty ${convertFcName} + ${convertedDbName})`);
         }
 
-        // --- Step 3d: Add UDT fields to DB_HmiData for VAR_IN_OUT UDT params ---
-        // UDT VAR_IN_OUT params (e.g., HMI_MotorControl) are wired to DB_HmiData fields
-        // in the call FCs. We must add these fields with the correct UDT type.
-        const hmiDbName = `${dbPrefix}HmiData`;
-        const hmiDbArtifact = allArtifacts.find(a => a.type === "DB" && (a.name === hmiDbName || a.name === "HmiData"));
-        if (hmiDbArtifact) {
-          const udtFieldsToAdd: string[] = [];
-          for (const deviceType of uniqueDeviceTypes) {
-            const fbIface = deviceTypeFbInterfaces.get(deviceType) ?? "";
-            const inOutParams = extractVarInOutParams(fbIface);
-            const udtParams = inOutParams.filter(p => !isElementaryType(p.dataType));
-            if (udtParams.length === 0) continue;
+        // --- Step 3d: Create DB_FacePlates for HMI VAR_IN_OUT UDT params ---
+        const facePlatesDbName = `${dbPrefix}FacePlates`;
+        const facePlateFields: string[] = [];
+        for (const deviceType of uniqueDeviceTypes) {
+          const fbIface = deviceTypeFbInterfaces.get(deviceType) ?? "";
+          const inOutParams = extractVarInOutParams(fbIface);
+          // Only HMI UDTs — type name contains "HMI" (case-insensitive)
+          const hmiParams = inOutParams.filter(p => !isElementaryType(p.dataType) && /hmi/i.test(p.dataType));
+          if (hmiParams.length === 0) continue;
 
-            const groupDevices = devices.filter(d => d.device_type === deviceType);
-            for (const device of groupDevices) {
-              const instTag = device.name.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
-              for (const p of udtParams) {
-                const fieldName = `${instTag}${p.name}`;
-                const quotedType = p.dataType.startsWith('"') ? p.dataType : `"${p.dataType}"`;
-                udtFieldsToAdd.push(`    ${fieldName} : ${quotedType};  // VAR_IN_OUT UDT for ${device.name}`);
-              }
+          const groupDevices = devices.filter(d => d.device_type === deviceType);
+          for (const device of groupDevices) {
+            const instTag = device.name.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+            for (const p of hmiParams) {
+              const fieldName = `${instTag}${p.name}`;
+              const cleanType = p.dataType.replace(/^"+|"+$/g, "");
+              facePlateFields.push(`    ${fieldName} : "${cleanType}";  // ${device.name}`);
             }
           }
+        }
 
-          if (udtFieldsToAdd.length > 0) {
-            // Insert UDT fields before END_VAR in the HmiData DB content
-            hmiDbArtifact.content = hmiDbArtifact.content.replace(
-              /(\s*END_VAR)/,
-              `\n${udtFieldsToAdd.join("\n")}$1`,
-            );
-            appendLog("info", `${hmiDbName}: added ${udtFieldsToAdd.length} UDT field(s) for VAR_IN_OUT params`);
-          }
+        // Always create DB_FacePlates (empty if no HMI UDTs)
+        const facePlatesContent = [
+          `DATA_BLOCK "${facePlatesDbName}"`,
+          `{ S7_Optimized_Access := 'TRUE' }`,
+          `VERSION : 0.1`,
+          `NON_RETAIN`,
+          `  VAR`,
+          facePlateFields.length > 0 ? facePlateFields.join("\n") : "    // No HMI faceplate UDTs",
+          `  END_VAR`,
+          `BEGIN`,
+          `END_DATA_BLOCK`,
+        ].join("\n");
+
+        allArtifacts.push({
+          id: `faceplates_db_${Date.now()}`,
+          name: facePlatesDbName,
+          type: "DB",
+          language: "SCL",
+          content: facePlatesContent,
+          approved: false,
+          stage: "device_fb",
+          destination_folder: globalDbFolder,
+          dependencies: [],
+          compile_after_import: true,
+        });
+
+        if (facePlateFields.length > 0) {
+          appendLog("info", `${facePlatesDbName}: ${facePlateFields.length} HMI faceplate UDT field(s)`);
         }
 
         // --- Step 4: IoLinking FC (deterministic SCL, or LAD via AI) ---
