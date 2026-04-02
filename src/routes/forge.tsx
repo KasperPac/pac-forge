@@ -238,7 +238,13 @@ export default function ForgePage() {
   }
 
   async function handleDeviceArtifactsUpdate(artifacts: ForgeArtifact[]) {
-    await saveSession({ device_artifacts: artifacts });
+    const incomingStages = new Set(artifacts.map(a => a.stage));
+    const existingArtifacts = (session.device_artifacts as ForgeArtifact[] | undefined) ?? [];
+    const mergedArtifacts = [
+      ...existingArtifacts.filter(a => !incomingStages.has(a.stage)),
+      ...artifacts,
+    ];
+    await saveSession({ device_artifacts: mergedArtifacts });
   }
 
   async function handleProcessArtifactsUpdate(artifacts: ForgeArtifact[]) {
