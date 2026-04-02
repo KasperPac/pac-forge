@@ -459,6 +459,11 @@ function backfillGlobalDbFields(
     };
 
     for (const [fieldName, { dataType, authoritative }] of refs) {
+      // Skip UDT/struct types — these are handled explicitly by Step 3d (VAR_IN_OUT UDT injection).
+      // The backfill can't reliably format UDT type names from parsed LAD JSON strings.
+      const cleanType = dataType.replace(/^"+|"+$/g, "");
+      if (!isElementaryType(cleanType)) continue;
+
       const currentType = existing.get(fieldName);
       if (currentType === undefined) {
         // Field missing — add it (quote UDT types)
