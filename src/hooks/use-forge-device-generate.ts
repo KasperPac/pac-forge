@@ -1342,20 +1342,37 @@ function copyTemplateAsArtifacts(
   device: ForgeDeviceEntry,
   template: FbTemplate,
   instDbPrefix = "Inst",
+  dbPrefix = "DB_",
 ): ForgeArtifact[] {
   const artifacts: ForgeArtifact[] = [];
+
+  // Known global DB names that should get the project's dbPrefix applied
+  const GLOBAL_DB_NAMES = new Set(["hmidata", "configuration", "faultdata", "processcommands", "processstate"]);
 
   for (const block of (template.blocks ?? []).sort((a, b) => a.sort_order - b.sort_order)) {
     // Use the declared name from inside the SCL (e.g., FUNCTION_BLOCK "ControlMotor"),
     // NOT block_name from the DB which may differ (e.g., "ControlMotor_DOL").
     // TIA Portal imports under the declared name, so all references must match.
-    const declaredName = extractBlockName(block.scl_code) ?? block.block_name;
+    let declaredName = extractBlockName(block.scl_code) ?? block.block_name;
+    let content = block.scl_code;
+
+    // Apply dbPrefix to known global DB names from library templates
+    // e.g., "HmiData" → "DB_HmiData", "Configuration" → "DB_Configuration"
+    if (block.block_type === "DB" && GLOBAL_DB_NAMES.has(declaredName.toLowerCase()) && dbPrefix && !declaredName.startsWith(dbPrefix)) {
+      const prefixedName = `${dbPrefix}${declaredName}`;
+      content = content.replace(
+        new RegExp(`DATA_BLOCK\\s+"${declaredName}"`),
+        `DATA_BLOCK "${prefixedName}"`,
+      );
+      declaredName = prefixedName;
+    }
+
     artifacts.push({
       id: crypto.randomUUID(),
       name: declaredName,
       type: block.block_type as ForgeArtifact["type"],
       language: "SCL",
-      content: block.scl_code,
+      content,
       approved: false,
       fb_template_id: template.id,
       // Library-sourced FBs/UDTs/FCs already exist in TIA project — skip SCL import
@@ -1788,7 +1805,7 @@ END_TYPE`;
 
           let deviceArtifacts: ForgeArtifact[];
           if (useTemplate && matchedTemplate) {
-            deviceArtifacts = copyTemplateAsArtifacts(device, matchedTemplate, instDbPrefix);
+            deviceArtifacts = copyTemplateAsArtifacts(device, matchedTemplate, instDbPrefix, dbPrefix);
             // Apply profile folder rules to all template artifacts
             for (const a of deviceArtifacts) {
               if (a.type === "FB" || a.type === "FC") a.destination_folder = fbFolder;
@@ -2311,6 +2328,7 @@ END_TYPE`;
       const allArtifacts: ForgeArtifact[] = [];
       const copiedTemplateBlockNames = new Set<string>();
       const instDbPrefix = resolveInstDbPrefix(profile);
+      const dbPrefix = resolveDbPrefix(profile);
 
       // Resolve folder structure from profile
       const folders = parseFolderRules(profile.folder_rules);
@@ -2338,7 +2356,7 @@ END_TYPE`;
 
           let deviceArtifacts: ForgeArtifact[];
           if (useTemplate && matchedTemplate) {
-            deviceArtifacts = copyTemplateAsArtifacts(device, matchedTemplate, instDbPrefix);
+            deviceArtifacts = copyTemplateAsArtifacts(device, matchedTemplate, instDbPrefix, dbPrefix);
             // Apply profile folder rules
             for (const a of deviceArtifacts) {
               if (a.type === "FB" || a.type === "FC") a.destination_folder = fbFolder;
