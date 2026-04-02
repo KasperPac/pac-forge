@@ -2022,7 +2022,7 @@ END_TYPE`;
         // UDT VAR_IN_OUT params (e.g., HMI_MotorControl) are wired to DB_HmiData fields
         // in the call FCs. We must add these fields with the correct UDT type.
         const hmiDbName = `${dbPrefix}HmiData`;
-        const hmiDbArtifact = allArtifacts.find(a => a.type === "DB" && a.name === hmiDbName);
+        const hmiDbArtifact = allArtifacts.find(a => a.type === "DB" && (a.name === hmiDbName || a.name === "HmiData"));
         if (hmiDbArtifact) {
           const udtFieldsToAdd: string[] = [];
           for (const deviceType of uniqueDeviceTypes) {
