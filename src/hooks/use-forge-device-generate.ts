@@ -20,6 +20,8 @@ import {
   getDeviceCallOrder,
   type DeviceGenContext,
   type DeviceCallFcContext,
+  extractVarInOutParams,
+  isElementaryType,
 } from "@/lib/forge-prompts";
 import { PLATFORM_RULES } from "@/lib/platform-rules";
 import { parseGeneralRules, parseFolderRules, resolveDestinationFolder } from "@/lib/design-profile-schemas";
@@ -1997,6 +1999,40 @@ END_TYPE`;
           rewireConvertedSources(allMatrixWirings, conversions, convertedDbName);
         } else {
           appendLog("info", `TypeConvert: no conversions needed (empty ${convertFcName} + ${convertedDbName})`);
+        }
+
+        // --- Step 3d: Add UDT fields to DB_HmiData for VAR_IN_OUT UDT params ---
+        // UDT VAR_IN_OUT params (e.g., HMI_MotorControl) are wired to DB_HmiData fields
+        // in the call FCs. We must add these fields with the correct UDT type.
+        const hmiDbName = `${dbPrefix}HmiData`;
+        const hmiDbArtifact = allArtifacts.find(a => a.type === "DB" && a.name === hmiDbName);
+        if (hmiDbArtifact) {
+          const udtFieldsToAdd: string[] = [];
+          for (const deviceType of uniqueDeviceTypes) {
+            const fbIface = deviceTypeFbInterfaces.get(deviceType) ?? "";
+            const inOutParams = extractVarInOutParams(fbIface);
+            const udtParams = inOutParams.filter(p => !isElementaryType(p.dataType));
+            if (udtParams.length === 0) continue;
+
+            const groupDevices = devices.filter(d => d.device_type === deviceType);
+            for (const device of groupDevices) {
+              const instTag = device.name.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+              for (const p of udtParams) {
+                const fieldName = `${instTag}${p.name}`;
+                const quotedType = p.dataType.startsWith('"') ? p.dataType : `"${p.dataType}"`;
+                udtFieldsToAdd.push(`    ${fieldName} : ${quotedType};  // VAR_IN_OUT UDT for ${device.name}`);
+              }
+            }
+          }
+
+          if (udtFieldsToAdd.length > 0) {
+            // Insert UDT fields before END_VAR in the HmiData DB content
+            hmiDbArtifact.content = hmiDbArtifact.content.replace(
+              /(\s*END_VAR)/,
+              `\n${udtFieldsToAdd.join("\n")}$1`,
+            );
+            appendLog("info", `${hmiDbName}: added ${udtFieldsToAdd.length} UDT field(s) for VAR_IN_OUT params`);
+          }
         }
 
         // --- Step 4: IoLinking FC (deterministic SCL, or LAD via AI) ---

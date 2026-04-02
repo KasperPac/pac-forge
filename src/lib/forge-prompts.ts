@@ -1023,7 +1023,7 @@ const ELEMENTARY_TYPES = new Set([
   "char", "wchar", "string", "wstring",
 ]);
 
-function isElementaryType(dataType: string): boolean {
+export function isElementaryType(dataType: string): boolean {
   // Remove quotes and check
   const clean = dataType.replace(/"/g, "").toLowerCase();
   return ELEMENTARY_TYPES.has(clean);
@@ -1034,7 +1034,7 @@ function isElementaryType(dataType: string): boolean {
  * VAR_IN_OUT params are MANDATORY in TIA Portal — omitting them from a call
  * is a compile error. Returns param names with their declared types.
  */
-function extractVarInOutParams(fbInterfaceSection: string): Array<{ name: string; dataType: string }> {
+export function extractVarInOutParams(fbInterfaceSection: string): Array<{ name: string; dataType: string }> {
   const params: Array<{ name: string; dataType: string }> = [];
   const sectionRe = /VAR_IN_OUT([\s\S]*?)END_VAR/gi;
   let sectionMatch: RegExpExecArray | null;
