@@ -7,13 +7,13 @@ import {
   buildSequencesUserMessage,
 } from "@/lib/forge-prompts";
 import { formatDesignProfile, formatPatterns } from "@/lib/prompt-builder";
-import { PLATFORM_RULES } from "@/lib/platform-rules";
+import { loadPlatformRules } from "@/lib/platform-rules";
 import type { ForgeDeviceEntry, ForgeIoEntry, ForgeArtifact, SpecAnalysis } from "@/types/forge";
 import type { FbTemplate } from "@/types/fb-template";
 import type { DesignProfile } from "@/types/design-profile";
 import type { PatternCandidate } from "@/types";
 import type { AgentKnowledgeDoc } from "@/types";
-import type { ProcessLinkageMatrix, ProcessSequence, LinkageGlobalData, LinkageDevice } from "@/types/forge-matrix";
+import type { ProcessLinkageMatrix, ProcessSequence, LinkageGlobalData, LinkageDevice, FaultMatrixEntry } from "@/types/forge-matrix";
 import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 import { getRelevantReferenceSections, formatReferenceSections } from "@/lib/reference-lookup";
 
@@ -91,11 +91,26 @@ function reconcileSequenceFieldNames(
       ...s,
       description: fixFieldRef(s.description),
     })),
-    rows: (seq.rows ?? seq.steps ?? []).map(r => ({
-      ...r,
-      condition: fixFieldRef(r.condition ?? ""),
-      action: fixFieldRef(r.action ?? ""),
-      output: r.output ? fixFieldRef(r.output) : r.output,
+    rows: seq.rows?.map((row) => ({
+      ...row,
+      condition: fixFieldRef(row.condition),
+      action: fixFieldRef(row.action),
+      output: row.output ? fixFieldRef(row.output) : row.output,
+    })),
+    steps: seq.steps?.map((step) => ({
+      ...step,
+      actions: (step.actions ?? []).map((action) => ({
+        ...action,
+        description: fixFieldRef(action.description),
+      })),
+      transition: step.transition ? {
+        ...step.transition,
+        conditions: step.transition.conditions.map((condition) => ({
+          ...condition,
+          description: fixFieldRef(condition.description),
+        })),
+      } : step.transition,
+      completionCriteria: step.completionCriteria ? fixFieldRef(step.completionCriteria) : step.completionCriteria,
     })),
   }));
 }
@@ -200,6 +215,86 @@ function fixOrphanSteps(sequences: ProcessSequence[]): ProcessSequence[] {
   });
 }
 
+function slugToTag(value: string): string {
+  const cleaned = value.replace(/[^A-Za-z0-9]+/g, " ").trim();
+  const parts = cleaned.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "faultGeneric";
+  return `fault${parts.map((part) => part[0].toUpperCase() + part.slice(1)).join("")}`;
+}
+
+function deriveFaultCondition(
+  description: string,
+  polarity: boolean,
+): string {
+  const trimmed = description.trim();
+  if (/^(?:"[^"]+"(?:\.[A-Za-z_][A-Za-z0-9_]*)*|[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)(?:\[[0-9]+\])?$/i.test(trimmed)) {
+    return polarity ? trimmed : `NOT ${trimmed}`;
+  }
+  const match = trimmed.match(/"[^"]+"(?:\.[A-Za-z_][A-Za-z0-9_]*)*|[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*(?:\[[0-9]+\])?/);
+  if (match) {
+    return polarity ? match[0] : `NOT ${match[0]}`;
+  }
+  return polarity ? trimmed : `NOT (${trimmed})`;
+}
+
+function deriveFaultMatrix(sequences: ProcessSequence[]): FaultMatrixEntry[] {
+  const entries = new Map<string, FaultMatrixEntry>();
+  let code = 1;
+
+  const upsert = (
+    tagSeed: string,
+    description: string,
+    condition: string,
+    source: string,
+    sequenceName: string,
+  ) => {
+    const tag = slugToTag(tagSeed);
+    const existing = entries.get(tag);
+    if (existing) {
+      if (!existing.affectsSequences.includes(sequenceName)) {
+        existing.affectsSequences.push(sequenceName);
+      }
+      return;
+    }
+    entries.set(tag, {
+      id: crypto.randomUUID(),
+      code: `F${String(code++).padStart(3, "0")}`,
+      tag,
+      description,
+      condition,
+      resetCondition: `"DB_Faults".faultReset`,
+      source,
+      severity: "fault",
+      affectsSequences: [sequenceName],
+    });
+  };
+
+  for (const sequence of sequences) {
+    for (const safety of sequence.safetyConditions ?? []) {
+      upsert(
+        safety.deviceName ?? safety.description,
+        safety.description,
+        deriveFaultCondition(safety.description, safety.polarity),
+        "safety_condition",
+        sequence.name,
+      );
+    }
+    for (const row of sequence.rows ?? []) {
+      if (row.type === "fault_exit" || row.next === "FAULT") {
+        upsert(
+          row.action || row.condition,
+          row.action || row.condition,
+          row.condition,
+          "fault_exit",
+          sequence.name,
+        );
+      }
+    }
+  }
+
+  return [...entries.values()];
+}
+
 /**
  * Hook to generate a ProcessLinkageMatrix from session data.
  * Runs two parallel AI calls (device linkage + sequences/global data) and merges results.
@@ -248,7 +343,7 @@ export function useForgeMatrixGenerate() {
         const [deviceContent, sequenceContent] = await Promise.all([
           streamFromEdgeFunction(
             {
-              system_prompt: buildDeviceLinkagePrompt(promptSections, PLATFORM_RULES, profileRules, patternSection, refSectionsText, knowledgeText),
+              system_prompt: buildDeviceLinkagePrompt(promptSections, loadPlatformRules("matrix"), profileRules, patternSection, refSectionsText, knowledgeText),
               messages: [{ role: "user", content: buildDeviceLinkageUserMessage(devices, ioList, fbTemplates, generatedFbArtifacts) }],
               stream: true,
             },
@@ -258,7 +353,7 @@ export function useForgeMatrixGenerate() {
           ),
           streamFromEdgeFunction(
             {
-              system_prompt: buildSequencesPrompt(promptSections, PLATFORM_RULES, profileRules, patternSection, refSectionsText, knowledgeText),
+              system_prompt: buildSequencesPrompt(promptSections, loadPlatformRules("matrix"), profileRules, patternSection, refSectionsText, knowledgeText),
               messages: [{ role: "user", content: buildSequencesUserMessage(devices, specAnalysis) }],
               stream: true,
             },
@@ -289,6 +384,7 @@ export function useForgeMatrixGenerate() {
           deviceLinkage,
           globalData: globalData ?? [],
           processSequences: fixedSequences,
+          faultMatrix: deriveFaultMatrix(fixedSequences),
           configUdts: configUdts ?? [],
           notes: notes ?? "",
           generatedAt: generatedAt ?? new Date().toISOString(),

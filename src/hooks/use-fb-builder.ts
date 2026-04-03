@@ -307,6 +307,7 @@ export function useFbBuilder() {
         // --- Review → Rewrite loop ---
         if (reviewers.length > 0 && generator && !abort.signal.aborted) {
           const loopResult = await executeReviewRewriteLoop({
+            sessionId: input.sessionId,
             reviewers,
             generator,
             currentArtifacts,

@@ -13,9 +13,6 @@ import {
   X,
   FolderInput,
   Sparkles,
-  GitBranch,
-  ChevronDown,
-  Maximize2,
   FileText,
   Download,
   Search,
@@ -23,7 +20,6 @@ import {
 } from "lucide-react";
 import { CategoryIcon } from "@/components/fb-category-icons";
 import Editor from "@monaco-editor/react";
-import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -67,10 +63,8 @@ import {
 } from "@/hooks/use-fb-templates";
 import { Switch } from "@/components/ui/switch";
 import { useGenerateFbSummary } from "@/hooks/use-generate-fb-summary";
+import { useGenerateFbDocumentation } from "@/hooks/use-generate-fb-documentation";
 import { useToast } from "@/hooks/use-toast";
-import { useGenerateFbFlow, parseFlowDiagramJson } from "@/hooks/use-fb-flow-generate";
-import { FbFlowRenderer } from "@/components/forge/fb-flow-renderer";
-import type { FbFlowDiagram } from "@/lib/fb-flow-diagram";
 import {
   useFbDeviceCategories,
   useCreateFbDeviceCategory,
@@ -83,8 +77,6 @@ import { callNonStreaming } from "@/hooks/use-generation";
 import { DEFAULT_BRIDGE_CONFIG } from "@/lib/tia-bridge-contract";
 import { registerSclLanguage, SCL_LANGUAGE_ID } from "@/lib/monaco-scl";
 import { useUiStore } from "@/stores/ui-store";
-import { LadViewer } from "@/components/fb-library/lad-viewer";
-import { useFbBlockXmlImport } from "@/hooks/use-fb-block-xml-import";
 import { useFbLibraryImport } from "@/hooks/use-fb-library-import";
 import { useFbDocImport } from "@/hooks/use-fb-doc-import";
 import type {
@@ -439,7 +431,7 @@ export default function FbLibraryPage() {
   }
 
   const { generate: generateSummary, loadingId: summaryLoadingId } = useGenerateFbSummary();
-  const { generate: generateFlow, loadingId: flowLoadingId } = useGenerateFbFlow();
+  const { generate: generateDocumentation, loadingId: documentationLoadingId } = useGenerateFbDocumentation();
   const [bulkSummaryLoading, setBulkSummaryLoading] = useState(false);
   // search/filter state moved above filteredTemplates useMemo
 
@@ -916,9 +908,9 @@ export default function FbLibraryPage() {
                 setHistoryOpen(true);
               }}
               onGenerateSummary={generateSummary}
+              onGenerateDocumentation={generateDocumentation}
               summaryLoading={summaryLoadingId === template.id}
-              onGenerateFlow={generateFlow}
-              flowLoading={flowLoadingId === template.id}
+              documentationLoading={documentationLoadingId === template.id}
             />
           ))}
         </div>
@@ -1288,18 +1280,18 @@ function TemplateCard({
   onDelete,
   onViewHistory,
   onGenerateSummary,
+  onGenerateDocumentation,
   summaryLoading,
-  onGenerateFlow,
-  flowLoading,
+  documentationLoading,
 }: {
   template: FbTemplate;
   onEdit: (t: FbTemplate) => void;
   onDelete: (id: string) => void;
   onViewHistory: (id: string) => void;
   onGenerateSummary: (t: FbTemplate) => void;
+  onGenerateDocumentation: (t: FbTemplate) => void;
   summaryLoading: boolean;
-  onGenerateFlow: (t: FbTemplate) => Promise<FbFlowDiagram[] | null>;
-  flowLoading: boolean;
+  documentationLoading: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const blocks = template.blocks ?? [];
@@ -1349,6 +1341,16 @@ function TemplateCard({
         <div className="ml-auto flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
           <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => onGenerateSummary(template)} disabled={summaryLoading} title="Generate AI summary">
             {summaryLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className={`h-3 w-3 ${template.ai_summary ? "text-violet-400" : "text-muted-foreground"}`} />}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 w-6 p-0"
+            onClick={() => onGenerateDocumentation(template)}
+            disabled={documentationLoading}
+            title="Generate full documentation"
+          >
+            {documentationLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className={`h-3 w-3 ${template.documentation ? "text-blue-400" : "text-muted-foreground"}`} />}
           </Button>
           <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => onEdit(template)} title="Edit">
             <Pencil className="h-3 w-3 text-muted-foreground" />

@@ -9,6 +9,7 @@ import type {
   ForgeDeviceEntry,
   ForgeIoEntry,
   ForgeArtifact,
+  ForgeSession,
   SpecAnalysis,
   SpecAnalysisProcessSequence,
 } from "@/types/forge";
@@ -572,6 +573,22 @@ export function generateOutputsDb(ioList: ForgeIoEntry[], dbName = "Outputs"): s
   ].join("\n");
 }
 
+export interface IoLinkingWrapperBinding {
+  ioTagName: string;
+  signalType: ForgeIoEntry["signal_type"];
+  instanceDbName: string;
+  fbName: string;
+  inputParam: string;
+  outputParam: string;
+}
+
+export interface IoDirectInstanceBinding {
+  ioTagName: string;
+  signalType: ForgeIoEntry["signal_type"];
+  instanceDbName: string;
+  deviceParamName: string;
+}
+
 /**
  * Generate the IoLinking FC deterministically from the IO list.
  * Physical input tags → Inputs DB fields.
@@ -586,33 +603,78 @@ export function generateIoLinkingFc(
   inputsDbName = "Inputs",
   outputsDbName = "Outputs",
   fcName = "IoLinking",
+  wrapperBindings: IoLinkingWrapperBinding[] = [],
+  directBindings: IoDirectInstanceBinding[] = [],
+  mode: "buffered_db" | "direct_instance_db" = "buffered_db",
 ): string {
   const inputs = ioList.filter((io) => io.signal_type === "DI" || io.signal_type === "AI");
   const outputs = ioList.filter((io) => io.signal_type === "DQ" || io.signal_type === "AQ");
+  const wrapperByTag = new Map(
+    wrapperBindings.map((binding) => [binding.ioTagName.toLowerCase(), binding]),
+  );
+  const directBindingByTag = new Map(
+    directBindings.map((binding) => [binding.ioTagName.toLowerCase(), binding]),
+  );
+  const useDirectMode = mode === "direct_instance_db";
 
   const inputLines = inputs
     .map((io) => {
       const name = safeTagName(io);
-      return `  "${inputsDbName}".${name} := "${name}";`;
+      const wrapper = wrapperByTag.get(io.tag_name.toLowerCase());
+      const directBinding = directBindingByTag.get(io.tag_name.toLowerCase());
+      if (!wrapper) {
+        if (useDirectMode && directBinding) return `  "${directBinding.instanceDbName}".${directBinding.deviceParamName} := "${name}";`;
+        return `  "${inputsDbName}".${name} := "${name}";`;
+      }
+      const target = useDirectMode && directBinding
+        ? `"${directBinding.instanceDbName}".${directBinding.deviceParamName}`
+        : `"${inputsDbName}".${name}`;
+      return [
+        `  "${wrapper.instanceDbName}"(`,
+        `    ${wrapper.inputParam} := "${name}",`,
+        `    ${wrapper.outputParam} => ${target}`,
+        `  );`,
+      ].join("\n");
     })
     .join("\n");
   const outputLines = outputs
     .map((io) => {
       const name = safeTagName(io);
-      return `  "${name}" := "${outputsDbName}".${name};`;
+      const wrapper = wrapperByTag.get(io.tag_name.toLowerCase());
+      const directBinding = directBindingByTag.get(io.tag_name.toLowerCase());
+      if (!wrapper) {
+        if (useDirectMode && directBinding) return `  "${name}" := "${directBinding.instanceDbName}".${directBinding.deviceParamName};`;
+        return `  "${name}" := "${outputsDbName}".${name};`;
+      }
+      const source = useDirectMode && directBinding
+        ? `"${directBinding.instanceDbName}".${directBinding.deviceParamName}`
+        : `"${outputsDbName}".${name}`;
+      return [
+        `  "${wrapper.instanceDbName}"(`,
+        `    ${wrapper.inputParam} := ${source},`,
+        `    ${wrapper.outputParam} => "${name}"`,
+        `  );`,
+      ].join("\n");
     })
     .join("\n");
+
+  const inputRegionLabel = useDirectMode
+    ? "Map Physical Inputs to Device Instance DBs / IO Wrappers"
+    : `Map Physical Inputs to ${inputsDbName} DB`;
+  const outputRegionLabel = useDirectMode
+    ? "Map Device Instance DBs / IO Wrappers to Physical Outputs"
+    : `Map ${outputsDbName} DB to Physical Outputs`;
 
   return [
     `FUNCTION "${fcName}" : Void`,
     `{ S7_Optimized_Access := 'TRUE' }`,
     `VERSION : 0.1`,
     `BEGIN`,
-    `  REGION Map Physical Inputs to ${inputsDbName} DB`,
+    `  REGION ${inputRegionLabel}`,
     inputLines || "  // (no input signals)",
     `  END_REGION`,
     ``,
-    `  REGION Map ${outputsDbName} DB to Physical Outputs`,
+    `  REGION ${outputRegionLabel}`,
     outputLines || "  // (no output signals)",
     `  END_REGION`,
     `END_FUNCTION`,
@@ -676,6 +738,8 @@ export interface DeviceCallFcContext {
   inputsDbName: string;
   /** Name of the Outputs global DB, e.g. "Outputs" */
   outputsDbName: string;
+  /** IO architecture mode controls whether IoLinking owns physical IO directly. */
+  ioLinkingMode?: "buffered_db" | "direct_instance_db";
   profile?: DesignProfile;
   platformRules: string;
   patterns?: PatternCandidate[];
@@ -691,8 +755,42 @@ export interface DeviceCallFcContext {
   }>;
   /** Reference library sections relevant to this device type (from two-pass AI lookup) */
   referenceSections?: string;
+  /** Exact generated faceplate DB symbol and content, used for deterministic field lookup */
+  facePlatesDbName?: string;
+  facePlatesDbContent?: string;
   /** Instruction library — injected into LAD prompts */
   instructions?: Instruction[];
+}
+
+function findFacePlateFieldName(
+  facePlatesDbContent: string | undefined,
+  deviceName: string,
+  paramName: string,
+): string | null {
+  if (!facePlatesDbContent) return null;
+
+  const fields: Array<{ name: string; comment: string }> = [];
+  const fieldRe = /^\s*(\w+)\s*:\s*("?[^";]+"?)\s*;\s*(?:(?:\/\/)\s*(.*))?$/gm;
+  let match: RegExpExecArray | null;
+  while ((match = fieldRe.exec(facePlatesDbContent)) !== null) {
+    fields.push({ name: match[1], comment: (match[3] ?? "").trim() });
+  }
+
+  const wantedDevice = deviceName.trim().toLowerCase();
+  const wantedParam = paramName.trim().toLowerCase();
+
+  const exact = fields.find(f =>
+    f.comment.toLowerCase() === wantedDevice && f.name.toLowerCase().endsWith(wantedParam),
+  );
+  if (exact) return exact.name;
+
+  const commentMatches = fields.filter(f => f.comment.toLowerCase() === wantedDevice);
+  if (commentMatches.length === 1) return commentMatches[0].name;
+
+  const suffixMatches = fields.filter(f => f.name.toLowerCase().endsWith(wantedParam));
+  if (suffixMatches.length === 1) return suffixMatches[0].name;
+
+  return null;
 }
 
 /**
@@ -709,7 +807,7 @@ export interface DeviceCallFcContext {
  * To make configurable: add "forge:device_call_fc" section key to PROMPT_DEFAULTS and use resolveSection().
  */
 export function buildDeviceCallFcPrompt(context: DeviceCallFcContext, promptSections?: Record<string, string>): string {
-  const { profile, platformRules, patterns, fcName, deviceType, devices, instanceDbNames, fbInterfaceSection, inputsDbFields, outputsDbFields, inputsDbName, outputsDbName, matrixWiring, referenceSections } = context;
+  const { profile, platformRules, patterns, fcName, deviceType, devices, instanceDbNames, fbInterfaceSection, inputsDbFields, outputsDbFields, inputsDbName, outputsDbName, ioLinkingMode, matrixWiring, referenceSections } = context;
 
   const profileSection = profile ? formatDesignProfile(profile, "general") : "";
   const patternSection = formatPatterns(patterns ?? []);
@@ -726,6 +824,7 @@ export function buildDeviceCallFcPrompt(context: DeviceCallFcContext, promptSect
   const outputFieldsList = outputsDbFields.length > 0
     ? outputsDbFields.map((f) => `  - "${outputsDbName}".${f}`).join("\n")
     : "  (none)";
+  const directIoMode = ioLinkingMode === "direct_instance_db";
 
   // Format engineer-confirmed matrix wiring as the primary wiring reference
   const matrixWiringSection = matrixWiring.length > 0
@@ -735,7 +834,9 @@ export function buildDeviceCallFcPrompt(context: DeviceCallFcContext, promptSect
           .map(w => {
             let source: string;
             if (w.wireType === "io") {
-              source = `"${inputsDbName}".${w.connectedTo}`;
+              source = directIoMode
+                ? `(* direct via IoLinking *) "${device.instanceDbName}".${w.paramName}`
+                : `"${inputsDbName}".${w.connectedTo}`;
             } else if (w.wireType === "fb") {
               const parts = w.connectedTo.split(".");
               source = parts.length >= 2 ? `"${parts[0]}".${parts.slice(1).join(".")}` : w.connectedTo;
@@ -764,7 +865,9 @@ export function buildDeviceCallFcPrompt(context: DeviceCallFcContext, promptSect
           .map(w => {
             let target: string;
             if (w.wireType === "io") {
-              target = `"${outputsDbName}".${w.connectedTo}`;
+              target = directIoMode
+                ? `(* direct via IoLinking *) "${device.instanceDbName}".${w.paramName}`
+                : `"${outputsDbName}".${w.connectedTo}`;
             } else if (w.wireType === "global") {
               const parts = w.connectedTo.split(".");
               target = parts.length >= 2 ? `"${parts[0]}".${parts.slice(1).join(".")}` : w.connectedTo;
@@ -781,6 +884,9 @@ export function buildDeviceCallFcPrompt(context: DeviceCallFcContext, promptSect
     : "";
 
   const hasMatrix = matrixWiring.length > 0;
+  const ioSourceRule = directIoMode
+    ? "Physical IO is already mapped by IoLinking directly into instance DB fields or IO wrapper FBs. Do NOT rewire physical IO through DB_Inputs / DB_Outputs in this FC."
+    : `Physical inputs come from the "${inputsDbName}" DB (pre-populated by IoLinking FC), and physical outputs go to the "${outputsDbName}" DB (IoLinking FC will copy them to hardware).`;
 
   const identity = resolveSection(promptSections, "forge_arch_call_fc", "identity");
 
@@ -799,13 +905,13 @@ Generate a single FC called "${fcName}" that calls ALL instances of the "${devic
 ## Rules
 1. Call EVERY instance DB listed below — no skipped instances.
 2. Wire EVERY VAR_INPUT parameter of the FB — no unwired inputs.
-3. Physical inputs come from the "${inputsDbName}" DB (pre-populated by IoLinking FC).
-4. Physical outputs go to the "${outputsDbName}" DB (IoLinking FC will copy to hardware).
+3. ${ioSourceRule}
+4. ${directIoMode ? "When a matrix wire is type io, OMIT that IO association from the FB call unless it is represented through another DB or instance-field source. IoLinking already owns the hardware-facing path." : `Use "${inputsDbName}" for input-side IO and "${outputsDbName}" for output-side IO.`}
 5. ${hasMatrix
     ? "Inter-device signals MUST match the Matrix wiring below. Do NOT guess or infer connections — the engineer has confirmed the exact wiring. If the matrix says endSensorForward connects to InstPE01._SensorDlyOnOff, write exactly: endSensorForward := \"InstPE01\"._SensorDlyOnOff"
     : "Inter-device signals (e.g. sensor output feeding conveyor input) use instance DB field access: \"InstSensor1\".outputField."}
 6. Use named association for all FB calls: "InstDBName"(param1 := source, param2 := source, ...).
-7. Do NOT wire IO tags directly — always go through the "${inputsDbName}"/"${outputsDbName}" DBs.
+7. ${directIoMode ? "Do NOT wire physical IO tags directly in the Device Call FC. Direct hardware mapping belongs in IoLinking." : `Do NOT wire IO tags directly — always go through the "${inputsDbName}"/"${outputsDbName}" DBs.`}
 8. ⛔ VAR_OUTPUT: If an output parameter has no wiring target, OMIT it — TIA stores it in the instance DB automatically. NEVER write "paramName =>" with an empty right-hand side.
     ⛔ VAR_IN_OUT: These are MANDATORY — always wire them. If no matrix entry exists, wire to the instance DB field: \`paramName := "InstDBName".paramName\`. Siemens Open Library HMI UDTs (e.g. HMI_MotorControl) are VAR_IN_OUT — the HMI faceplate reads/writes the instance DB field directly.
 ${hasMatrix ? `9. Follow the Matrix wiring exactly. Do NOT add wires not listed unless they are mandatory FB parameters with no matrix entry. Exception: safety signal polarity — see rule 11.
@@ -820,7 +926,7 @@ ${hasMatrix ? `9. Follow the Matrix wiring exactly. Do NOT add wires not listed 
     - DB_ProcessCommands: Sequence → device commands. Written by process code, read by device call FCs.
     - DB_ProcessState: Internal state tracking. Written/read by process code only.
     - DB_FaultData: Fault latches. Written by device FBs/process, read by process/sequences.
-    - DB_Inputs/DB_Outputs: Physical IO. DB_Inputs written by IoLinking, DB_Outputs read by IoLinking.
+    - DB_Inputs/DB_Outputs: Physical IO buffers when the profile uses buffered IO mode. In direct IO mode, IoLinking writes physical IO straight to instance DB fields or IO wrappers instead.
     - Siemens Open Library FBs have built-in HMI UDTs (VAR_IN_OUT like HMI_MotorControl) — the HMI faceplate reads/writes the instance DB directly, NOT through DB_HmiData.` : ""}
 
 ## Type Conversion Rules
@@ -871,7 +977,7 @@ ${outputFieldsList}
  * Generates a LadProgram JSON where each network calls one FB instance.
  */
 export function buildDeviceCallFcLadPrompt(context: DeviceCallFcContext): string {
-  const { profile, platformRules, patterns, fcName, deviceType, devices, instanceDbNames, fbInterfaceSection, inputsDbFields, outputsDbFields, inputsDbName, outputsDbName, matrixWiring, referenceSections, instructions } = context;
+  const { profile, platformRules, patterns, fcName, deviceType, devices, instanceDbNames, fbInterfaceSection, inputsDbFields, outputsDbFields, inputsDbName, outputsDbName, ioLinkingMode, matrixWiring, referenceSections, instructions } = context;
 
   const profileSection = profile ? formatDesignProfile(profile, "general") : "";
   const patternSection = formatPatterns(patterns ?? []);
@@ -900,7 +1006,9 @@ export function buildDeviceCallFcLadPrompt(context: DeviceCallFcContext): string
             const dir = w.direction === "in" ? "←" : "→";
             let target: string;
             if (w.wireType === "io") {
-              target = w.direction === "in" ? `"${inputsDbName}".${w.connectedTo}` : `"${outputsDbName}".${w.connectedTo}`;
+              target = directIoMode
+                ? `direct via IoLinking -> "${device.instanceDbName}".${w.paramName}`
+                : w.direction === "in" ? `"${inputsDbName}".${w.connectedTo}` : `"${outputsDbName}".${w.connectedTo}`;
             } else if (w.wireType === "fb" || w.wireType === "global") {
               const parts = w.connectedTo.split(".");
               target = parts.length >= 2 ? `"${parts[0]}".${parts.slice(1).join(".")}` : w.connectedTo;
@@ -915,6 +1023,7 @@ export function buildDeviceCallFcLadPrompt(context: DeviceCallFcContext): string
     : "";
 
   const hasMatrix = matrixWiring.length > 0;
+  const directIoMode = ioLinkingMode === "direct_instance_db";
 
   // Use the exact FB name from the generated artifact — NEVER invent or guess
   const headerMatch = fbInterfaceSection.match(/###\s+(\S+)/);
@@ -937,7 +1046,7 @@ Each rung contains ONE FB_CALL element that calls the FB instance with all param
 1. ONE rung per FB instance — each rung has exactly ONE FB_CALL element.
 2. The FB_CALL element calls the FB via its instance DB.
 3. Wire EVERY VAR_INPUT and VAR_OUTPUT parameter in the callParams array.
-4. ${hasMatrix ? "Use EXACT connections from the Matrix wiring below." : `Wire inputs from "${inputsDbName}" DB, outputs to "${outputsDbName}" DB.`}
+4. ${hasMatrix ? "Use EXACT connections from the Matrix wiring below." : directIoMode ? "IoLinking already maps physical IO directly to instance DB fields or IO wrappers. Do NOT recreate the hardware-facing mapping in this FC." : `Wire inputs from "${inputsDbName}" DB, outputs to "${outputsDbName}" DB.`}
 5. Each callParam has: name (param name), direction ("in" or "out" or "inout"), value (the connected tag), dataType.
 6. For input params: value is the source tag (e.g. "${inputsDbName}.startButton").
 7. For output params: value is the destination tag (e.g. "HmiData.cv01Status").
@@ -1023,9 +1132,20 @@ const ELEMENTARY_TYPES = new Set([
   "char", "wchar", "string", "wstring",
 ]);
 
+function decodeBasicHtmlEntities(value: string): string {
+  return value
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#34;/gi, "\"")
+    .replace(/&apos;/gi, "'")
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&amp;/gi, "&");
+}
+
 export function isElementaryType(dataType: string): boolean {
   // Remove quotes and check
-  const clean = dataType.replace(/"/g, "").toLowerCase();
+  const clean = decodeBasicHtmlEntities(dataType).replace(/"/g, "").toLowerCase();
   return ELEMENTARY_TYPES.has(clean);
 }
 
@@ -1036,14 +1156,15 @@ export function isElementaryType(dataType: string): boolean {
  */
 export function extractVarInOutParams(fbInterfaceSection: string): Array<{ name: string; dataType: string }> {
   const params: Array<{ name: string; dataType: string }> = [];
+  const normalized = decodeBasicHtmlEntities(fbInterfaceSection);
   const sectionRe = /VAR_IN_OUT([\s\S]*?)END_VAR/gi;
   let sectionMatch: RegExpExecArray | null;
-  while ((sectionMatch = sectionRe.exec(fbInterfaceSection)) !== null) {
+  while ((sectionMatch = sectionRe.exec(normalized)) !== null) {
     const body = sectionMatch[1];
     const paramRe = /^\s+(\w+)\s*:\s*([^;]+)/gm;
     let paramMatch: RegExpExecArray | null;
     while ((paramMatch = paramRe.exec(body)) !== null) {
-      params.push({ name: paramMatch[1], dataType: paramMatch[2].trim() });
+      params.push({ name: paramMatch[1], dataType: decodeBasicHtmlEntities(paramMatch[2].trim()) });
     }
   }
   return params;
@@ -1094,8 +1215,9 @@ function needsPolarityInversion(paramName: string, connectedTo: string): boolean
  * Falls back to null if the matrix has no wiring for this device type (AI path used).
  */
 export function generateDeviceCallFc(context: DeviceCallFcContext): string | null {
-  const { fcName, matrixWiring, inputsDbName, outputsDbName, fbInterfaceSection, instanceDbNames } = context;
+  const { fcName, matrixWiring, inputsDbName, outputsDbName, ioLinkingMode, fbInterfaceSection, instanceDbNames, facePlatesDbName, facePlatesDbContent } = context;
   if (matrixWiring.length === 0) return null;
+  const directIoMode = ioLinkingMode === "direct_instance_db";
 
   // Derive HMI DB name and instance DB prefix from naming convention
   const dbPrefix = inputsDbName.replace(/Inputs$/, "");
@@ -1103,6 +1225,7 @@ export function generateDeviceCallFc(context: DeviceCallFcContext): string | nul
   const instDbPrefix = instanceDbNames.length > 0
     ? instanceDbNames[0].replace(/[A-Z][a-z].*$/, "")  // "InstCV01" → "Inst"
     : "Inst";
+  void instDbPrefix;
 
   // Extract mandatory VAR_IN_OUT and VAR_OUTPUT params from FB interface
   const varInOutParams = extractVarInOutParams(fbInterfaceSection);
@@ -1139,6 +1262,7 @@ export function generateDeviceCallFc(context: DeviceCallFcContext): string | nul
       if (w.convertedSource) {
         source = w.convertedSource;
       } else if (w.wireType === "io") {
+        if (directIoMode) continue;
         source = w.direction === "in"
           ? `"${inputsDbName}".${w.connectedTo}`
           : `"${outputsDbName}".${w.connectedTo}`;
@@ -1188,10 +1312,11 @@ export function generateDeviceCallFc(context: DeviceCallFcContext): string | nul
         // HMI UDT VAR_IN_OUT — wire to DB_FacePlates
         // Non-HMI UDT VAR_IN_OUT — skip (stays on instance DB)
         if (/hmi/i.test(p.dataType)) {
-          const facePlatesDbName = `${dbPrefix}FacePlates`;
-          const instTag = device.instanceDbName.replace(instDbPrefix, "").toLowerCase();
-          const fieldName = `${instTag}${p.name}`;
-          inoutLines.push(`        ${p.name} := "${facePlatesDbName}".${fieldName}`);
+          const resolvedFacePlatesDbName = facePlatesDbName ?? `${dbPrefix}FacePlates`;
+          const fieldName = findFacePlateFieldName(facePlatesDbContent, device.deviceName, p.name);
+          if (fieldName) {
+            inoutLines.push(`        ${p.name} := "${resolvedFacePlatesDbName}".${fieldName}`);
+          }
         }
       }
     }
@@ -1231,8 +1356,9 @@ export function generateDeviceCallFc(context: DeviceCallFcContext): string | nul
  * Returns null if matrixWiring is empty (nothing to generate).
  */
 export function generateDeviceCallFcLad(context: DeviceCallFcContext): string | null {
-  const { fcName, fbName: contextFbName, matrixWiring, inputsDbName, outputsDbName, fbInterfaceSection, instanceDbNames } = context;
+  const { fcName, fbName: contextFbName, matrixWiring, inputsDbName, outputsDbName, ioLinkingMode, fbInterfaceSection, instanceDbNames, facePlatesDbName, facePlatesDbContent } = context;
   if (matrixWiring.length === 0) return null;
+  const directIoMode = ioLinkingMode === "direct_instance_db";
 
   // Derive HMI DB name and instance DB prefix from naming convention
   const dbPrefix = inputsDbName.replace(/Inputs$/, "");
@@ -1240,6 +1366,7 @@ export function generateDeviceCallFcLad(context: DeviceCallFcContext): string | 
   const instDbPrefix = instanceDbNames.length > 0
     ? instanceDbNames[0].replace(/[A-Z][a-z].*$/, "")
     : "Inst";
+  void instDbPrefix;
 
   // FB name MUST come from the actual generated artifact — no guessing or inventing.
   // Fallback chain: explicit fbName > interface section header > error-safe default.
@@ -1284,6 +1411,7 @@ export function generateDeviceCallFcLad(context: DeviceCallFcContext): string | 
         if (w.convertedSource) {
           value = w.convertedSource;
         } else if (w.wireType === "io") {
+          if (directIoMode) return null;
           value = w.direction === "in"
             ? `"${inputsDbName}".${w.connectedTo}`
             : `"${outputsDbName}".${w.connectedTo}`;
@@ -1304,7 +1432,8 @@ export function generateDeviceCallFcLad(context: DeviceCallFcContext): string | 
           negated: invert,
           dataType: w.dataType ?? paramDataTypes.get(w.paramName.toLowerCase()) ?? "Variant",
         };
-      });
+      })
+      .filter((param): param is NonNullable<typeof param> => param !== null);
 
     // Add mandatory VAR_IN_OUT params not in matrix wiring.
     // UDT/struct types cannot be globally accessed on instance DBs (TIA error 604:4542).
@@ -1323,16 +1452,17 @@ export function generateDeviceCallFcLad(context: DeviceCallFcContext): string | 
         // HMI UDT VAR_IN_OUT — wire to DB_FacePlates
         // Non-HMI UDT VAR_IN_OUT — skip (stays on instance DB)
         if (/hmi/i.test(p.dataType)) {
-          const facePlatesDbName = `${dbPrefix}FacePlates`;
-          const instTag = device.instanceDbName.replace(instDbPrefix, "").toLowerCase();
-          const fieldName = `${instTag}${p.name}`;
-          callParams.push({
-            name: p.name,
-            direction: "inout",
-            value: `"${facePlatesDbName}".${fieldName}`,
-            negated: false,
-            dataType: p.dataType,
-          });
+          const resolvedFacePlatesDbName = facePlatesDbName ?? `${dbPrefix}FacePlates`;
+          const fieldName = findFacePlateFieldName(facePlatesDbContent, device.deviceName, p.name);
+          if (fieldName) {
+            callParams.push({
+              name: p.name,
+              direction: "inout",
+              value: `"${resolvedFacePlatesDbName}".${fieldName}`,
+              negated: false,
+              dataType: p.dataType,
+            });
+          }
         }
       }
     }
@@ -1756,6 +1886,18 @@ export function buildProcessLadPrompt(context: ProcessGenContext, promptSections
     ? `\n${formatInstructions(instructions)}\n`
     : "";
   const identity = resolveSection(promptSections, "forge_arch_process", "identity");
+  const validDbNames = Array.from(new Set([
+    ...(context.dbNameMap ? [...context.dbNameMap.values()] : []),
+    ...((context.globalDbSchemas?.match(/DATA_BLOCK\s+"([^"]+)"/g) ?? [])
+      .map((entry) => entry.match(/"([^"]+)"/)?.[1])
+      .filter((name): name is string => !!name)),
+  ])).sort();
+  const dbNameSection = validDbNames.length > 0
+    ? `## Valid DB Names\nThese are the ONLY valid DB symbols for this sequence. Use them exactly as written and do not invent alternatives.\n${validDbNames.map((name) => `- "${name}"`).join("\n")}`
+    : "";
+  const globalDbSection = context.globalDbSchemas
+    ? `## Global DB Schemas\n\`\`\`scl\n${context.globalDbSchemas.length > 2500 ? `${context.globalDbSchemas.slice(0, 2500)}\n// ... (truncated)` : context.globalDbSchemas}\n\`\`\``
+    : "";
 
   // Parse structured process rules for step/action pattern
   let processSchema: ProcessRulesSchema | null = null;
@@ -1791,10 +1933,16 @@ ${freetext ? `## Additional Process Rules\n${freetext}` : ""}
 ${processSchema?.step_action_db?.enabled
     ? `Use latching circuits for ALL step transitions. NEVER use SET_COIL or RESET_COIL.
 Every step rung is a parallel with two branches: (transition branch) OR (seal branch) → OUTPUT_COIL.
-Map every step to an action bit. Actions drive process outputs — steps do not.`
+Map every step to an action bit. Actions drive process outputs — steps do not.
+Generate bootstrap logic first, then step rungs in ascending numeric order, then action/derived-condition rungs in ascending numeric order.`
     : `Use step bits (BOOL static variables, e.g. statStep01, statStep02) and transition rungs.
 Each step: set step bit when entering, reset when leaving.
-Transitions: contact on previous step + completion condition → set next step.`}
+Transitions: contact on previous step + completion condition → set next step.
+Generate bootstrap/init logic first, then step logic in ascending numeric order, then outputs.`}
+
+${dbNameSection}
+
+${globalDbSection}
 
 ## Output Format
 Return raw JSON only — no markdown fences. Use this EXACT schema:
@@ -1837,6 +1985,10 @@ CRITICAL RULES:
 - NEVER use SET_COIL or RESET_COIL — use OUTPUT_COIL with latching circuits only.
 - Every parallel branch must be a { "type": "series", "nodes": [...] } object.
 - A coil operand must appear in exactly ONE rung across the entire program — never duplicate.
+- Every OUTPUT_COIL must have at least one condition contact or compare node before it. Never emit an unconditional coil.
+- If edge detection is required, use supported instruction-library element types only. Do NOT invent ad-hoc types or alias them to contacts.
+- Derived conditions must be generated as contact/compare logic feeding a named coil. Never create placeholder or empty transition branches.
+- Use ONLY the DB names listed in "Valid DB Names". For faults, use "DB_FaultData" — never "DB_Faults".
 - Do NOT include fault detection, fault latching, or fault reset logic — that belongs in a separate Fault FC.
 - Generate ONLY the sequence step/action logic in this block.`;
 }
@@ -2040,50 +2192,110 @@ Output ONLY the raw JSON object. Do NOT output SCL code.`;
  *   - db_naming_prefix: could apply to HMI tag DB names
  * To make configurable: add "forge:hmi" section key to PROMPT_DEFAULTS and use resolveSection().
  */
-export function buildHmiPrompt(_devices: ForgeDeviceEntry[], theme: string): string {
-  return `You are generating WinCC Unified HMI screen specifications for a Siemens TIA Portal project.
+export function buildHmiPrompt(session: ForgeSession, theme: string): string {
+  const projectName = session.spec_analysis?.project_name ?? "Unnamed Project";
+  const subsystems = session.spec_analysis?.subsystems ?? [];
+  const sequences = session.spec_analysis?.process_sequences ?? [];
+  const hasIoChecklistData = session.io_list.length > 0;
 
-## Theme: ${theme}
+  const subsystemSection = subsystems.length > 0
+    ? subsystems.map((subsystem) => `- ${subsystem.name}: ${subsystem.description}`).join("\n")
+    : "- No explicit subsystems supplied";
+  const sequenceSection = sequences.length > 0
+    ? sequences.map((sequence) => {
+      const stepSummary = sequence.steps
+        .slice(0, 5)
+        .map((step) => `${step.step_number}. ${step.action}`)
+        .join(" | ");
+      return `- ${sequence.name} (${sequence.subsystem}): ${stepSummary}`;
+    }).join("\n")
+    : "- No explicit process sequences supplied";
 
-## HmiScreenSpec JSON Schema
-Return an array of HmiScreenSpec objects. Each object:
-{
-  "name": "string (screen name)",
-  "width": 1920,
-  "height": 1080,
-  "elements": [
-    {
-      "id": "string",
-      "type": "text_field" | "io_field" | "button" | "indicator_light" | "rectangle" | "ellipse" | "image" | "bar_graph" | "trend_view",
-      "x": number,
-      "y": number,
-      "width": number,
-      "height": number,
-      "text"?: "string",
-      "tag"?: "string (PLC tag path)",
-      "background_color"?: "#RRGGBB",
-      "foreground_color"?: "#RRGGBB",
-      "visible_animation"?: { "tag": "string", "condition": "GT 0" | "EQ 1" | "EQ 0" }
-    }
-  ]
-}
+  return `You are rebuilding the Forge HMI Builder for Siemens WinCC Unified Comfort Panels in TIA Portal.
 
-## Design Guidelines
-- Dark background (#1A1A2E or #0D1117), bright accent colors for status
-- Motors: green indicator (running), red (fault), grey (stopped)
-- Valves: green (open), red (closed/fault)
-- Sensors: blue indicator (active)
-- Layout: device name label + status indicator pairs, arranged in a grid
-- Screen size: 1920x1080
+Target runtime:
+- WinCC Unified Comfort Panels (MTP700 to MTP2200)
+- Screen canvas: 1920x1080 landscape
+- Template framework: Siemens HMI Template Suite
+- Theme variant: ${theme}
+- Project: ${projectName}
 
-## Output Format
-Return the JSON array of HmiScreenSpec objects inside \`\`\`json fences. No explanation.`;
+You do NOT produce generic Comfort-era screens. You produce a WinCC Unified screen suite that feels like a cohesive operator application built on a shared shell/template system.
+
+## Required Output Contract
+Return a JSON array of HmiScreenSpec objects. Every screen MUST include:
+- id
+- name
+- width = 1920
+- height = 1080
+- backgroundColor
+- elements
+- targetPlatform = "wincc_unified_comfort"
+- templateSuite = "siemens_hmi_template_suite"
+- screenRole
+
+Optional but strongly preferred fields when applicable:
+- screenNumber
+- templateName
+- subsystem
+- deviceType
+- deviceNames
+- checklistItems
+
+## Required Screen Suite
+Create a coherent HMI suite with these screen roles:
+1. One template shell / navigation host screen.
+   - screenRole: "template_shell"
+   - Must provide top-level navigation affordances for overview, subsystem checklists, alarms, and device-detail access.
+2. One plant overview screen.
+   - screenRole: "overview"
+   - Show the full line / cell status at a glance with grouped equipment zones.
+3. One subsystem checklist screen per subsystem when subsystem data exists.
+   - screenRole: "subsystem_checklist"
+   - Include checklistItems for operator pre-start / permissive checks.
+4. One detail / faceplate screen per unique device type.
+   - screenRole: "device_faceplate"
+   - Reuse a consistent panel layout pattern, not a completely different design for every type.
+5. One alarm summary screen if alarms or faults are implied by the process.
+   - screenRole: "alarm_summary"
+
+## Screen Suite Rules
+- Use Siemens HMI Template Suite conventions: persistent shell/header, clear navigation zones, content area, and alarm/status banner space.
+- Prefer neutral operator-focused colors with status accents, not decorative gradients or marketing UI.
+- The overview screen should emphasize plant state, navigation, and abnormal-condition visibility.
+- Checklist screens should be operationally useful: startup checks, permissives, IO readiness, safety readiness, reset requirements.
+- Device faceplate screens should assume Unified-friendly layouts with command cluster, feedback cluster, permissives/interlocks, alarms/faults, and key analog values/trends where relevant.
+- Where Siemens Open Library device FBs imply HMI UDTs / faceplates, align the screen content with those instance-DB-driven device interfaces instead of inventing unrelated tags.
+- Use BUTTON, TEXT, IO_FIELD, FACEPLATE, SCREEN_WINDOW, ALARM_VIEW, TREND_VIEW, GRAPHIC_VIEW, BAR, SWITCH, and related supported element types from HmiScreenSpec.
+- Use navigateTo and/or events for navigation buttons so the suite is actually traversable.
+- Keep element names deterministic and readable.
+- Do not emit placeholder lorem ipsum text.
+
+## Project Context
+### Subsystems
+${subsystemSection}
+
+### Process Sequences
+${sequenceSection}
+
+### IO Checklist Guidance
+${hasIoChecklistData
+    ? "Use the IO list and device IO to create meaningful subsystem checklistItems for field readiness, permissives, confirmations, and operator checks."
+    : "No IO list is available, so derive checklist items from device descriptions and process sequences."}
+
+## Output Quality Bar
+- Every screen must look intentional and belong to the same suite.
+- Do not return only one overview screen.
+- Do not return only anonymous faceplates.
+- Do not use the old minimal schema from the legacy builder.
+- Return raw JSON only. No markdown fences.`;
 }
 
 /**
  * User message for HMI generation.
  */
-export function buildHmiUserMessage(devices: ForgeDeviceEntry[]): string {
+export function buildHmiUserMessage(session: ForgeSession): string {
+  const devices = session.device_list;
   const deviceList = devices
     .map(
       (d) =>
@@ -2091,13 +2303,54 @@ export function buildHmiUserMessage(devices: ForgeDeviceEntry[]): string {
     )
     .join("\n");
 
-  return `Generate HMI screens for these devices:
+  const ioBySubsystem = new Map<string, ForgeIoEntry[]>();
+  for (const io of session.io_list) {
+    const device = session.device_list.find((candidate) =>
+      candidate.io_signals.some((signal) => signal.tag_name === io.tag_name),
+    );
+    const subsystem = device?.subsystem ?? "General";
+    const list = ioBySubsystem.get(subsystem) ?? [];
+    list.push(io);
+    ioBySubsystem.set(subsystem, list);
+  }
+  const ioSection = ioBySubsystem.size > 0
+    ? [...ioBySubsystem.entries()]
+      .map(([subsystem, ioEntries]) => `  - ${subsystem}: ${ioEntries.slice(0, 8).map((io) => `${io.tag_name} (${io.signal_type})`).join(", ")}`)
+      .join("\n")
+    : "  - No IO list supplied";
 
-${deviceList}
+  const subsystemList = session.spec_analysis?.subsystems?.map((subsystem) => `  - ${subsystem.name}: ${subsystem.description}`).join("\n")
+    ?? "  - No subsystem summary supplied";
+  const sequenceList = session.spec_analysis?.process_sequences?.map((sequence) =>
+    `  - ${sequence.name} (${sequence.subsystem}): ${sequence.steps.map((step) => `${step.step_number}:${step.action}`).join(", ")}`
+  ).join("\n") ?? "  - No sequences supplied";
 
-Create:
-1. An overview screen showing all devices with status indicators
-2. A faceplate screen for each unique device type (motor, valve, sensor)
+  return `Generate the WinCC Unified HMI Builder output for this project.
+
+Project:
+  - ${session.spec_analysis?.project_name ?? "Unnamed Project"}
+
+Subsystems:
+${subsystemList}
+
+Devices:
+${deviceList || "  - No devices supplied"}
+
+IO by subsystem:
+${ioSection}
+
+Process sequences:
+${sequenceList}
+
+Create a full screen suite:
+1. Template shell / navigation host
+2. Plant overview
+3. Subsystem checklist screens
+4. Device-type detail / faceplate screens
+5. Alarm summary screen when applicable
+
+Checklist screens should include real operator checks, not generic placeholders.
+Device detail screens should reflect the likely command/status/fault structure of each device type.
 
 Return the HmiScreenSpec JSON array now.`;
 }

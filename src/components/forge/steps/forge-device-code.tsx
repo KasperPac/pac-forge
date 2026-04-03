@@ -40,6 +40,7 @@ import { ForgeCompileReview } from "@/components/forge/forge-compile-review";
 import { useCreatePatternCandidate } from "@/hooks/use-patterns";
 import { useAgents } from "@/hooks/use-agents";
 import { computeDiff, extractFocusedSnippets } from "@/lib/diff-engine";
+import { useUiStore } from "@/stores/ui-store";
 import { cn } from "@/lib/utils";
 import type { ForgeSession, ForgeArtifact, ForgeIoEntry, ForgeDeviceEntry } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
@@ -193,6 +194,7 @@ export function ForgeDeviceCode({
   } = useForgeCompileCheck();
   const { data: agents } = useAgents();
   const createPattern = useCreatePatternCandidate();
+  const dropboxRoot = useUiStore((state) => state.dropboxRoot);
 
   const loading = genLoading || reviewLoading || rewriteLoading || ioValidateLoading || compileLoading;
   const selected = artifacts.find(a => a.id === selectedId) ?? null;
@@ -302,7 +304,7 @@ export function ForgeDeviceCode({
       }
 
       setCurrentStepLabel("Generating call code…");
-      const generated = await generateCallCode(session, profile, existingFbArtifacts, patterns);
+      const generated = await generateCallCode(session, profile, existingFbArtifacts, fbTemplates, patterns);
       setArtifacts(generated);
       onArtifactsUpdate(generated);
       if (generated.length > 0) setSelectedId(generated[0].id);
@@ -601,7 +603,6 @@ export function ForgeDeviceCode({
       const libraryArtifacts = resolvedArtifacts.filter(a => a.library_block);
       console.log(`[forge] Phase 0: ${libraryArtifacts.length} library artifact(s) to copy:`, libraryArtifacts.map(a => a.name));
       if (libraryArtifacts.length > 0) {
-        const dropboxRoot = localStorage.getItem("pac-forge-dropbox-root") ?? "";
         if (!dropboxRoot) {
           const errMsg = `Library blocks found (${libraryArtifacts.map(a => a.name).join(", ")}) but Dropbox root path is not set. Go to your Profile page and set the Dropbox root path, or these blocks will be imported as SCL instead of copied from the TIA library.`;
           console.error(`[forge] ${errMsg}`);

@@ -42,6 +42,25 @@ function parseScreenSpec(content: string | undefined): HmiScreenSpec | null {
   }
 }
 
+function screenRoleLabel(role: HmiScreenSpec["screenRole"] | undefined): string {
+  switch (role) {
+    case "template_shell":
+      return "Template Shell";
+    case "overview":
+      return "Overview";
+    case "device_faceplate":
+      return "Device Faceplate";
+    case "subsystem_checklist":
+      return "Subsystem Checklist";
+    case "alarm_summary":
+      return "Alarm Summary";
+    case "popup":
+      return "Popup";
+    default:
+      return "Screen";
+  }
+}
+
 export function ForgeHmi({
   session,
   profile,
@@ -154,7 +173,7 @@ export function ForgeHmi({
                 <div className="flex flex-col items-center gap-3 px-3 py-8 text-center">
                   <Monitor className="h-8 w-8 text-muted-foreground/40" />
                   <p className="text-xs text-muted-foreground">
-                    Click "Generate HMI Screens" to create overview and faceplate screens.
+                    Generate the WinCC Unified screen suite to create the template shell, overview, subsystem checklists, and device faceplates.
                   </p>
                 </div>
               ) : (
@@ -186,6 +205,11 @@ export function ForgeHmi({
                       >
                         <Monitor className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
                         <span className="truncate font-mono">{artifact.name}</span>
+                        {parseScreenSpec(artifact.content)?.screenRole && (
+                          <Badge variant="secondary" className="ml-auto hidden text-[9px] uppercase tracking-wide md:inline-flex">
+                            {screenRoleLabel(parseScreenSpec(artifact.content)?.screenRole)}
+                          </Badge>
+                        )}
                       </button>
                     </div>
                   ))}
@@ -203,12 +227,19 @@ export function ForgeHmi({
               <span className="font-mono text-[11px] text-muted-foreground">
                 {selected ? `${selected.name} - HmiScreenSpec JSON` : "Select a screen"}
               </span>
-              {selectedScreen && (
-                <Badge variant="outline" className="gap-1 font-mono text-[10px]">
-                  <Eye className="h-3 w-3" />
-                  {selectedScreen.elements.length} elements
-                </Badge>
-              )}
+              <div className="flex items-center gap-2">
+                {selectedScreen?.screenRole && (
+                  <Badge variant="secondary" className="font-mono text-[10px]">
+                    {screenRoleLabel(selectedScreen.screenRole)}
+                  </Badge>
+                )}
+                {selectedScreen && (
+                  <Badge variant="outline" className="gap-1 font-mono text-[10px]">
+                    <Eye className="h-3 w-3" />
+                    {selectedScreen.elements.length} elements
+                  </Badge>
+                )}
+              </div>
             </div>
             <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(300px,0.85fr)_minmax(0,1.15fr)]">
               <div className="flex min-h-[260px] flex-col border-b border-border/60 bg-background/40 lg:min-h-0 lg:border-b-0 lg:border-r">
@@ -219,37 +250,68 @@ export function ForgeHmi({
                 </div>
                 <div className="flex min-h-0 flex-1 items-center justify-center p-4">
                   {selectedScreen ? (
-                    <div
-                      className="relative w-full max-w-[420px] overflow-hidden rounded-md border border-border/70 bg-slate-950 shadow-inner"
-                      style={{
-                        aspectRatio: `${selectedScreen.width || 1920} / ${selectedScreen.height || 1080}`,
-                        backgroundColor: selectedScreen.backgroundColor || "#0f172a",
-                      }}
-                    >
-                      {selectedScreen.elements.slice(0, 24).map((element) => (
-                        <div
-                          key={element.id}
-                          className="absolute overflow-hidden rounded-[2px] border text-[8px]"
-                          style={{
-                            left: `${(element.x / Math.max(selectedScreen.width, 1)) * 100}%`,
-                            top: `${(element.y / Math.max(selectedScreen.height, 1)) * 100}%`,
-                            width: `${(element.width / Math.max(selectedScreen.width, 1)) * 100}%`,
-                            height: `${(element.height / Math.max(selectedScreen.height, 1)) * 100}%`,
-                            backgroundColor: element.style.backgroundColor ?? "rgba(30,41,59,0.85)",
-                            borderColor: element.style.borderColor ?? "rgba(148,163,184,0.6)",
-                            borderWidth: Math.max(element.style.borderWidth ?? 1, 1),
-                            color: element.style.textColor ?? "#e2e8f0",
-                            borderRadius: element.style.borderRadius ?? 2,
-                            opacity: element.style.opacity ?? 1,
-                            zIndex: element.zIndex,
-                          }}
-                          title={`${element.name} (${element.type})`}
-                        >
-                          <div className="truncate px-1 py-0.5 font-mono leading-tight">
-                            {element.text || element.name}
+                    <div className="w-full max-w-[460px] space-y-3">
+                      <div
+                        className="relative w-full overflow-hidden rounded-md border border-border/70 bg-slate-950 shadow-inner"
+                        style={{
+                          aspectRatio: `${selectedScreen.width || 1920} / ${selectedScreen.height || 1080}`,
+                          backgroundColor: selectedScreen.backgroundColor || "#0f172a",
+                        }}
+                      >
+                        {selectedScreen.elements.slice(0, 24).map((element) => (
+                          <div
+                            key={element.id}
+                            className="absolute overflow-hidden rounded-[2px] border text-[8px]"
+                            style={{
+                              left: `${(element.x / Math.max(selectedScreen.width, 1)) * 100}%`,
+                              top: `${(element.y / Math.max(selectedScreen.height, 1)) * 100}%`,
+                              width: `${(element.width / Math.max(selectedScreen.width, 1)) * 100}%`,
+                              height: `${(element.height / Math.max(selectedScreen.height, 1)) * 100}%`,
+                              backgroundColor: element.style.backgroundColor ?? "rgba(30,41,59,0.85)",
+                              borderColor: element.style.borderColor ?? "rgba(148,163,184,0.6)",
+                              borderWidth: Math.max(element.style.borderWidth ?? 1, 1),
+                              color: element.style.textColor ?? "#e2e8f0",
+                              borderRadius: element.style.borderRadius ?? 2,
+                              opacity: element.style.opacity ?? 1,
+                              zIndex: element.zIndex,
+                            }}
+                            title={`${element.name} (${element.type})`}
+                          >
+                            <div className="truncate px-1 py-0.5 font-mono leading-tight">
+                              {element.text || element.name}
+                            </div>
                           </div>
+                        ))}
+                      </div>
+                      <div className="grid gap-2 rounded-md border border-border/60 bg-background/60 p-3 text-[11px] font-mono text-muted-foreground md:grid-cols-2">
+                        <div>
+                          <span className="text-foreground">Platform:</span> {selectedScreen.targetPlatform ?? "wincc_unified_comfort"}
                         </div>
-                      ))}
+                        <div>
+                          <span className="text-foreground">Suite:</span> {selectedScreen.templateSuite ?? "siemens_hmi_template_suite"}
+                        </div>
+                        <div>
+                          <span className="text-foreground">Role:</span> {screenRoleLabel(selectedScreen.screenRole)}
+                        </div>
+                        <div>
+                          <span className="text-foreground">Screen #:</span> {selectedScreen.screenNumber ?? "n/a"}
+                        </div>
+                        {selectedScreen.subsystem && (
+                          <div>
+                            <span className="text-foreground">Subsystem:</span> {selectedScreen.subsystem}
+                          </div>
+                        )}
+                        {selectedScreen.deviceType && (
+                          <div>
+                            <span className="text-foreground">Device Type:</span> {selectedScreen.deviceType}
+                          </div>
+                        )}
+                        {selectedScreen.checklistItems && selectedScreen.checklistItems.length > 0 && (
+                          <div className="md:col-span-2">
+                            <span className="text-foreground">Checklist:</span> {selectedScreen.checklistItems.length} item(s)
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ) : (
                     <div className="max-w-xs text-center text-xs text-muted-foreground">
@@ -301,7 +363,7 @@ export function ForgeHmi({
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={handleGenerate} disabled={loading} className="gap-2">
             {genLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            Generate HMI Screens
+            Generate Unified HMI Suite
           </Button>
           {artifacts.length > 0 ? (
             <>

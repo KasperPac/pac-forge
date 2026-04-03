@@ -14,7 +14,7 @@ import {
   buildHmiXmlForArtifact,
 } from "@/lib/forge-export";
 import { DEFAULT_BRIDGE_CONFIG } from "@/lib/tia-bridge-contract";
-import { PLATFORM_RULES } from "@/lib/platform-rules";
+import { loadPlatformRules } from "@/lib/platform-rules";
 import { supabase } from "@/lib/supabase";
 import type { ForgeArtifact } from "@/types/forge";
 import type { ImportLadRequest, ImportHmiRequest } from "@/lib/tia-bridge-contract";
@@ -411,7 +411,7 @@ export function useForgeCompileCheck() {
           if (artifact.language === "SCL") {
             // SCL artifacts get AI fix proposals
             const controller = new AbortController();
-            const systemPrompt = buildForgeCompileFixPrompt(PLATFORM_RULES, patterns, promptSections);
+            const systemPrompt = buildForgeCompileFixPrompt(loadPlatformRules("compile_fix"), patterns, promptSections);
             const hasInterfaceError = artifactErrors.some(e =>
               /formal parameter|invalid.*parameter|parameter.*invalid/i.test(e)
             );
@@ -608,7 +608,7 @@ export function useForgeCompileCheck() {
             if (artifactErrors.length === 0) continue;
 
             const controller = new AbortController();
-            const systemPrompt = buildForgeCompileFixPrompt(PLATFORM_RULES, patterns, promptSections);
+            const systemPrompt = buildForgeCompileFixPrompt(loadPlatformRules("compile_fix"), patterns, promptSections);
             const hasInterfaceError = artifactErrors.some(e =>
               /formal parameter|invalid.*parameter|parameter.*invalid/i.test(e)
             );

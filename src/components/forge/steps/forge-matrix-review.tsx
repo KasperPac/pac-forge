@@ -36,6 +36,7 @@ import type { FbTemplate } from "@/types/fb-template";
 import type { DesignProfile } from "@/types/design-profile";
 import type { PatternCandidate, AgentKnowledgeDoc } from "@/types";
 import type {
+  FaultMatrixEntry,
   ProcessLinkageMatrix,
   LinkageDevice,
   ProcessSequence,
@@ -447,6 +448,58 @@ function SequenceCard({ seq }: { seq: ProcessSequence }) {
   );
 }
 
+function FaultCard({ fault }: { fault: FaultMatrixEntry }) {
+  return (
+    <div className="rounded border border-border/60 bg-background/40 p-3 space-y-2">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="font-mono text-[9px] shrink-0">
+              {fault.code}
+            </Badge>
+            <span className="truncate text-sm font-medium">{fault.description}</span>
+          </div>
+          <div className="mt-1 font-mono text-[10px] text-muted-foreground">
+            Tag: {fault.tag} · Source: {fault.source}
+          </div>
+        </div>
+        <Badge variant="outline" className="font-mono text-[9px] shrink-0">
+          {fault.severity}
+        </Badge>
+      </div>
+
+      <div className="grid gap-2 text-xs md:grid-cols-2">
+        <div className="rounded border border-border/40 bg-background/30 p-2">
+          <div className="mb-1 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
+            Condition
+          </div>
+          <div className="font-mono text-[11px] text-foreground break-words">
+            {fault.condition}
+          </div>
+        </div>
+        <div className="rounded border border-border/40 bg-background/30 p-2">
+          <div className="mb-1 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
+            Reset
+          </div>
+          <div className="font-mono text-[11px] text-foreground break-words">
+            {fault.resetCondition ?? "Manual reset only"}
+          </div>
+        </div>
+      </div>
+
+      {fault.affectsSequences.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {fault.affectsSequences.map((sequenceName) => (
+            <Badge key={sequenceName} variant="outline" className="font-mono text-[9px]">
+              {sequenceName}
+            </Badge>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function ForgeMatrixReview({ session, fbTemplates, profile, patterns, agentKnowledgeDocs, onComplete }: ForgeMatrixReviewProps) {
@@ -460,7 +513,7 @@ export function ForgeMatrixReview({ session, fbTemplates, profile, patterns, age
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const { generate, loading, error } = useForgeMatrixGenerate();
 
-  const [activeTab, setActiveTab] = useState<"devices" | "sequences" | "wiring">("devices");
+  const [activeTab, setActiveTab] = useState<"devices" | "sequences" | "faults" | "wiring">("devices");
   const [selectedSeqId, setSelectedSeqId] = useState<string | undefined>(undefined);
   const { validate, applySelectedFixes, loading: validating, applying: applyingFixes, result: validationResult, clear: clearValidation } = useForgeMatrixValidate();
   const createPattern = useCreatePatternCandidate();
@@ -849,6 +902,19 @@ export function ForgeMatrixReview({ session, fbTemplates, profile, patterns, age
                 <Cable className="h-3 w-3" />
                 Wiring Map
               </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("faults")}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 pb-2 font-mono text-[10px] uppercase tracking-wider transition-colors",
+                  activeTab === "faults"
+                    ? "border-b-2 border-primary text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Shield className="h-3 w-3" />
+                Faults ({matrix.faultMatrix?.length ?? 0})
+              </button>
             </div>
 
             <ScrollArea className="flex-1">
@@ -881,6 +947,19 @@ export function ForgeMatrixReview({ session, fbTemplates, profile, patterns, age
 
                 {activeTab === "wiring" && (
                   <WiringMapPanel matrix={matrix} ioList={session.io_list} />
+                )}
+
+                {activeTab === "faults" && (
+                  <>
+                    {(matrix.faultMatrix ?? []).map((fault) => (
+                      <FaultCard key={fault.id} fault={fault} />
+                    ))}
+                    {(matrix.faultMatrix?.length ?? 0) === 0 && (
+                      <div className="py-6 text-center font-mono text-xs text-muted-foreground">
+                        No faults in matrix
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </ScrollArea>

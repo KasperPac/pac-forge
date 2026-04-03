@@ -41,6 +41,8 @@ export async function extractRelevantTopics(
     systemPrompt,
     [{ role: "user", content: userMessage }],
     signal,
+    undefined,
+    { pipeline_step: "reference_lookup" },
   );
 
   // Parse JSON array from response (handle markdown code fences)

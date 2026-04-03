@@ -160,6 +160,12 @@ export interface DesignProfile {
   device_call_fc_language: "SCL" | "LAD";
   /** Language used for the IO linking FC (migration 027) */
   io_linking_language: "SCL" | "LAD";
+  /**
+   * IO architecture mode:
+   * - buffered_db: physical IO is copied through DB_Inputs/DB_Outputs
+   * - direct_instance_db: IoLinking writes physical IO straight to instance DB fields
+   */
+  io_linking_mode: "buffered_db" | "direct_instance_db";
   /** Language used for process/sequence code (migration 025) */
   process_code_language: "SCL" | "LAD";
   /** Language used for the type conversion FC (migration 048) */

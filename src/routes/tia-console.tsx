@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useKnowledgeConflicts } from "@/hooks/use-knowledge-conflicts";
 import { KnowledgeConflictBanner } from "@/components/knowledge-conflict-banner";
@@ -77,6 +77,7 @@ import type { TiaCompileResult } from "@/stores/tia-console-store";
 import JSZip from "jszip";
 import type { DemoProgram } from "@/lib/demo-programs";
 import type { TiaJob } from "@/types";
+import type { BridgeEvent } from "@/lib/tia-bridge-contract";
 
 interface TiaActionResponse {
   success: boolean;
@@ -111,6 +112,135 @@ const STATUS_STYLES: Record<string, { className: string; label: string }> = {
   FAILED: { className: "bg-red-500/10 text-red-400 border-red-500/30", label: "Failed" },
   CANCELLED: { className: "bg-neutral-500/10 text-neutral-400 border-neutral-500/30", label: "Cancelled" },
 };
+
+interface BridgeConsoleEntry {
+  id: string;
+  timestamp: string;
+  level: "info" | "warn" | "error" | "success";
+  message: string;
+}
+
+function formatBridgeEvent(event: BridgeEvent): BridgeConsoleEntry {
+  const base = {
+    id: `${event.timestamp}-${event.type}-${event.job_id ?? "bridge"}`,
+    timestamp: event.timestamp,
+    level: "info" as const,
+    message: `${event.type}`,
+  };
+
+  switch (event.type) {
+    case "job_started":
+      return { ...base, message: `Job ${event.job_id} started` };
+    case "job_progress":
+      return {
+        ...base,
+        message: `${String(event.data.current_step ?? "Running")} (${Math.round(Number(event.data.progress ?? 0))}%)`,
+      };
+    case "artifact_imported":
+      return {
+        ...base,
+        level: event.data.success ? "success" : "error",
+        message: `${String(event.data.artifact_name ?? "Artifact")} ${event.data.success ? "imported" : `failed: ${String(event.data.error ?? "unknown error")}`}`,
+      };
+    case "compile_started":
+      return { ...base, message: "Compile started" };
+    case "compile_error":
+      return {
+        ...base,
+        level: event.data.severity === "WARNING" ? "warn" : "error",
+        message: `${String(event.data.artifact_name ?? "artifact")}${event.data.line ? `:${event.data.line}` : ""} - ${String(event.data.error_text ?? "compile message")}`,
+      };
+    case "compile_completed":
+      return { ...base, level: "success", message: "Compile completed" };
+    case "job_completed":
+      return { ...base, level: "success", message: `Job ${event.job_id} completed` };
+    case "job_failed":
+      return { ...base, level: "error", message: `Job ${event.job_id} failed` };
+    case "bridge_status":
+      return {
+        ...base,
+        message: `Bridge ${event.data.connected ? "connected" : "disconnected"}${event.data.tia_project_open ? " - project open" : ""}`,
+      };
+    case "provision_progress":
+      return {
+        ...base,
+        message: `${String(event.data.phase ?? "Provisioning")} ${event.data.message ? `- ${String(event.data.message)}` : ""}`.trim(),
+      };
+    default:
+      return base;
+  }
+}
+
+function BridgeConsolePanel({
+  entries,
+  open,
+  onToggle,
+  onClear,
+}: {
+  entries: BridgeConsoleEntry[];
+  open: boolean;
+  onToggle: () => void;
+  onClear: () => void;
+}) {
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex items-center gap-2 border-b px-3 py-2">
+        <button
+          type="button"
+          className="flex flex-1 items-center gap-2 text-left"
+          onClick={onToggle}
+        >
+          {open ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
+          <Terminal className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+            Bridge Console
+          </span>
+          <Badge variant="outline" className="font-mono text-[10px]">
+            {entries.length} events
+          </Badge>
+        </button>
+        <Button variant="ghost" size="sm" className="h-6 px-2 font-mono text-[10px]" onClick={onClear}>
+          Clear
+        </Button>
+      </div>
+      {open && (
+        <ScrollArea className="h-52">
+          <div className="space-y-1 p-3">
+            {entries.length === 0 ? (
+              <div className="font-mono text-xs text-muted-foreground">
+                Waiting for bridge events...
+              </div>
+            ) : (
+              entries.map((entry) => (
+                <div key={entry.id} className="flex gap-3 font-mono text-xs">
+                  <span className="shrink-0 text-muted-foreground/60">
+                    {new Date(entry.timestamp).toLocaleTimeString()}
+                  </span>
+                  <span
+                    className={`shrink-0 uppercase ${
+                      entry.level === "error"
+                        ? "text-red-400"
+                        : entry.level === "warn"
+                        ? "text-amber-400"
+                        : entry.level === "success"
+                        ? "text-green-400"
+                        : "text-blue-400"
+                    }`}
+                  >
+                    {entry.level}
+                  </span>
+                  <span className="min-w-0 flex-1 break-words text-muted-foreground">
+                    {entry.message}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </ScrollArea>
+      )}
+    </Card>
+  );
+}
 
 // --- Bridge action hooks ---
 
@@ -332,8 +462,11 @@ export default function TiaConsolePage() {
   // For features needing the bridge (WS, compile results, etc.)
   const isConnected = bridgeOnline;
 
+  const [bridgeConsoleOpen, setBridgeConsoleOpen] = useState(true);
+  const [bridgeConsoleEntries, setBridgeConsoleEntries] = useState<BridgeConsoleEntry[]>([]);
+
   // WebSocket for real-time job progress
-  const { progress: wsProgress, currentStep: wsCurrentStep } = useTiaBridgeWs({
+  const { lastEvent, progress: wsProgress, currentStep: wsCurrentStep } = useTiaBridgeWs({
     enabled: isConnected,
     jobId: activeJobId,
     onEvent: (event) => {
@@ -354,6 +487,12 @@ export default function TiaConsolePage() {
       }
     },
   });
+
+  useEffect(() => {
+    if (!lastEvent) return;
+    const entry = formatBridgeEvent(lastEvent);
+    setBridgeConsoleEntries((prev) => [...prev, entry].slice(-200));
+  }, [lastEvent]);
 
   // Lift compile result to page level so both CompileResultsCard and CompileFixChat can use it
   const { data: fetchedCompileResult, isLoading: compileLoading, isFetching: compileFetching } =
@@ -877,6 +1016,13 @@ export default function TiaConsolePage() {
           </div>
         </Card>
       )}
+
+      <BridgeConsolePanel
+        entries={bridgeConsoleEntries}
+        open={bridgeConsoleOpen}
+        onToggle={() => setBridgeConsoleOpen((open) => !open)}
+        onClear={() => setBridgeConsoleEntries([])}
+      />
 
       {/* Demo + Custom project in 2 columns */}
       <div className="grid gap-3 lg:grid-cols-2">

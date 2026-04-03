@@ -10,6 +10,7 @@ export interface Profile {
   display_name: string;
   role: UserRole;
   avatar_url: string | null;
+  dropbox_root_path?: string | null;
   github_access_token?: string | null;
   github_username?: string | null;
   created_at: string;
@@ -18,6 +19,7 @@ export interface Profile {
 export interface ProfileUpdate {
   display_name?: string;
   avatar_url?: string | null;
+  dropbox_root_path?: string | null;
   github_access_token?: string | null;
   github_username?: string | null;
 }

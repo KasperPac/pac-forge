@@ -131,6 +131,7 @@ export interface ProcessLinkageMatrix {
   deviceLinkage: LinkageDevice[];
   globalData: LinkageGlobalData[];
   processSequences: ProcessSequence[];
+  faultMatrix?: FaultMatrixEntry[];
   /** Config UDT definitions generated alongside device linkage wiring */
   configUdts?: ConfigUdtDefinition[];
   /** @deprecated Use processSequences instead — kept for backward compat */
@@ -235,6 +236,18 @@ export interface SafetyCondition {
   description: string;
   deviceName: string | null;
   polarity: boolean;
+}
+
+export interface FaultMatrixEntry {
+  id: string;
+  code: string;
+  tag: string;
+  description: string;
+  condition: string;
+  resetCondition: string;
+  source: string;
+  severity: "fault" | "warning";
+  affectsSequences: string[];
 }
 
 // ---------------------------------------------------------------------------

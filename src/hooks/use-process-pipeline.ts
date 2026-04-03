@@ -6,7 +6,7 @@ import {
   streamFromEdgeFunction,
   saveArtifactsAndTurns,
 } from "@/hooks/use-generation";
-import type { GenerateInput } from "@/hooks/use-generation";
+import type { GenerateInput, PromptLayerMeta } from "@/hooks/use-generation";
 import { executeReviewRewriteLoop } from "@/lib/review-rewrite-loop";
 import { parseArtifacts } from "@/lib/artifact-parser";
 import type { ParsedArtifact } from "@/lib/artifact-parser";
@@ -204,6 +204,13 @@ export function useProcessPipeline() {
             store.getState().updatePipelineStep(stepId, { status: "running" });
 
             const startTime = Date.now();
+            const fbPlMeta: PromptLayerMeta = {
+              agent_role: "code_architect",
+              pipeline_step: `generate_fb_${deviceType}`,
+              session_id: sessionId,
+              project_id: project.id,
+              generation_mode: "PROCESS_CODE",
+            };
             const fullContent = await streamFromEdgeFunction(
               {
                 system_prompt: systemPrompt,
@@ -216,6 +223,8 @@ export function useProcessPipeline() {
                 const current = store.getState().streamingContent;
                 store.setState({ streamingContent: (current ?? "") + chunk });
               },
+              undefined,
+              fbPlMeta,
             );
             store.getState().clearStreaming();
 
@@ -252,6 +261,13 @@ export function useProcessPipeline() {
           store.getState().updatePipelineStep(generator.id, { status: "running" });
 
           const startTime = Date.now();
+          const stagePlMeta: PromptLayerMeta = {
+            agent_role: "code_architect",
+            pipeline_step: `generate_${stage}`,
+            session_id: sessionId,
+            project_id: project.id,
+            generation_mode: "PROCESS_CODE",
+          };
           const fullContent = await streamFromEdgeFunction(
             {
               system_prompt: systemPrompt,
@@ -264,6 +280,8 @@ export function useProcessPipeline() {
               const current = store.getState().streamingContent;
               store.setState({ streamingContent: (current ?? "") + chunk });
             },
+            undefined,
+            stagePlMeta,
           );
           store.getState().clearStreaming();
 
@@ -341,6 +359,7 @@ export function useProcessPipeline() {
           !abort.signal.aborted
         ) {
           const loopResult = await executeReviewRewriteLoop({
+            sessionId: input.sessionId,
             reviewers,
             generator,
             currentArtifacts: allParsedArtifacts,

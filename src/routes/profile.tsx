@@ -4,6 +4,8 @@ import { useProfile, useUpdateProfile, useUploadAvatar } from "@/hooks/use-profi
 import { useUserAuditLog, useUserAgentChats } from "@/hooks/use-user-activity";
 import { useDropboxConnection, useDropboxConnect, useDropboxDisconnect, useDropboxExchangeCode } from "@/hooks/use-dropbox";
 import { useGitHubConnection } from "@/hooks/use-github";
+import { useFbTemplates } from "@/hooks/use-fb-templates";
+import { buildLibraryFolder, buildProjectPlcFolder } from "@/lib/dropbox-paths";
 import { getRedirectUri } from "@/lib/dropbox-oauth";
 import { useToast } from "@/hooks/use-toast";
 import { GitHubConnectDialog } from "@/components/github-connect-dialog";
@@ -191,6 +193,7 @@ export default function ProfilePage() {
   const { data: agentChats, isLoading: chatsLoading } = useUserAgentChats();
   const { data: dropboxConn, isLoading: dropboxLoading } = useDropboxConnection();
   const { connection: githubConnection, isLoading: githubLoading } = useGitHubConnection();
+  const { data: fbTemplates = [] } = useFbTemplates();
   const dropboxConnect = useDropboxConnect();
   const dropboxDisconnect = useDropboxDisconnect();
   const dropboxExchange = useDropboxExchangeCode();
@@ -199,6 +202,7 @@ export default function ProfilePage() {
   const { dropboxRoot, setDropboxRoot } = useUiStore();
   const [editName, setEditName] = useState("");
   const [isEditing, setIsEditing] = useState(false);
+  const [dropboxRootDraft, setDropboxRootDraft] = useState("");
   const [dropboxExchangeError, setDropboxExchangeError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const exchangeProcessedRef = useRef(false);
@@ -244,7 +248,31 @@ export default function ProfilePage() {
     });
   }, [processPendingExchange]);
 
+  useEffect(() => {
+    const persistedRoot = profile?.dropbox_root_path ?? "";
+    setDropboxRoot(persistedRoot);
+    setDropboxRootDraft(persistedRoot);
+  }, [profile?.dropbox_root_path, setDropboxRoot]);
+
   const initials = getInitials(profile?.display_name, user?.email ?? undefined);
+  const importedLibraries = Array.from(
+    fbTemplates
+      .filter((template) => template.source === "library" && template.library_name)
+      .reduce((map, template) => {
+        const key = template.library_name!;
+        const existing = map.get(key) ?? { name: key, enabledCount: 0, templateCount: 0 };
+        existing.templateCount += 1;
+        if (template.is_enabled) existing.enabledCount += 1;
+        map.set(key, existing);
+        return map;
+      }, new Map<string, { name: string; enabledCount: number; templateCount: number }>()),
+  )
+    .map(([, value]) => value)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const sampleProjectFolder = dropboxRoot
+    ? buildProjectPlcFolder(dropboxRoot, "Client Name", "Project Code - Description")
+    : "";
+  const dropboxRootDirty = dropboxRootDraft !== (profile?.dropbox_root_path ?? "");
 
   function handleStartEdit() {
     setEditName(profile?.display_name ?? "");
@@ -255,6 +283,15 @@ export default function ProfilePage() {
     if (!editName.trim()) return;
     await updateProfile.mutateAsync({ display_name: editName.trim() });
     setIsEditing(false);
+  }
+
+  async function handleSaveDropboxRoot() {
+    await updateProfile.mutateAsync({ dropbox_root_path: dropboxRootDraft.trim() || null });
+    setDropboxRoot(dropboxRootDraft.trim());
+    toast({
+      title: "Dropbox root saved",
+      description: "Library and project path derivation will use this profile setting.",
+    });
   }
 
   async function handleAvatarUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -408,14 +445,23 @@ export default function ProfilePage() {
               <FolderOpen className="h-3 w-3" />
               Dropbox Root Folder
             </Label>
-            <Input
-              className="font-mono text-sm"
-              value={dropboxRoot}
-              onChange={(e) => setDropboxRoot(e.target.value)}
-              placeholder="C:\Users\you\Pac Technologies Dropbox"
-            />
+            <div className="flex gap-2">
+              <Input
+                className="font-mono text-sm"
+                value={dropboxRootDraft}
+                onChange={(e) => setDropboxRootDraft(e.target.value)}
+                placeholder="C:\Users\you\Pac Technologies Dropbox"
+              />
+              <Button
+                size="sm"
+                onClick={() => void handleSaveDropboxRoot()}
+                disabled={updateProfile.isPending || !dropboxRootDirty}
+              >
+                {updateProfile.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
+              </Button>
+            </div>
             <p className="text-[10px] text-muted-foreground">
-              Machine-local path to your Dropbox sync folder. Used for TIA library and project paths.
+              Stored on your profile and synced into the local UI store for wizard library and TIA project paths.
             </p>
           </div>
 
@@ -429,6 +475,66 @@ export default function ProfilePage() {
               {uploadAvatar.error?.message ?? "Failed to upload avatar"}
             </div>
           )}
+        </Card>
+
+        <Card className="p-5 lg:col-span-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Libraries
+          </h2>
+          <div className="mt-4 space-y-4">
+            <div className="rounded-md border p-3">
+              <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+                TIA Project Folder Derivation
+              </div>
+              <div className="mt-2 space-y-1 text-sm">
+                <div className="text-muted-foreground">
+                  Derived as <span className="font-mono">Dropbox Root + Pac\Jobs\&lt;Client Name&gt;\&lt;Project Code&gt;\50 PLC</span>
+                </div>
+                <div className="rounded-md bg-muted/40 px-3 py-2 font-mono text-xs">
+                  {sampleProjectFolder || "Save a Dropbox root above to preview the derived PLC folder path."}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-md border">
+              <div className="border-b px-3 py-2 font-mono text-xs uppercase tracking-wider text-muted-foreground">
+                Imported TIA Libraries
+              </div>
+              {importedLibraries.length === 0 ? (
+                <div className="px-3 py-6 text-sm text-muted-foreground">
+                  No imported TIA libraries found yet.
+                </div>
+              ) : (
+                <div className="divide-y">
+                  {importedLibraries.map((library) => (
+                    <div key={library.name} className="px-3 py-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-sm font-medium">{library.name}</span>
+                        <Badge variant="outline" className="font-mono text-[10px]">
+                          {library.templateCount} templates
+                        </Badge>
+                        <Badge
+                          variant="outline"
+                          className={`font-mono text-[10px] ${
+                            library.enabledCount > 0
+                              ? "border-green-500/30 bg-green-500/10 text-green-400"
+                              : "border-zinc-500/30 bg-zinc-500/10 text-zinc-400"
+                          }`}
+                        >
+                          {library.enabledCount > 0 ? "Enabled" : "Disabled"}
+                        </Badge>
+                      </div>
+                      <div className="mt-2 rounded-md bg-muted/40 px-3 py-2 font-mono text-xs text-muted-foreground">
+                        {dropboxRoot
+                          ? buildLibraryFolder(dropboxRoot, library.name)
+                          : "Save a Dropbox root above to derive this library path."}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </Card>
 
         <Card className="p-5 lg:col-span-2">

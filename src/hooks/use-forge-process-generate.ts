@@ -5,15 +5,13 @@ import {
   buildProcessSclPrompt,
   buildProcessSclUserMessage,
   buildProcessLadPrompt,
-  buildFaultFcPrompt,
-  buildFaultFcUserMessage,
   generateOb1Main,
   deviceTypeToFcName,
   getDeviceCallOrder,
   type ProcessGenContext,
   type FaultEntry,
 } from "@/lib/forge-prompts";
-import { PLATFORM_RULES } from "@/lib/platform-rules";
+import { loadPlatformRules } from "@/lib/platform-rules";
 import { parseGeneralRules, parseProcessRules } from "@/lib/design-profile-schemas";
 import type {
   ForgeSession,
@@ -29,6 +27,12 @@ import type { AgentKnowledgeDoc } from "@/types";
 import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 import { fetchInstructionsForPrompt, PROCESS_CODE_CATEGORIES } from "@/hooks/use-instructions";
 import { getRelevantReferenceSections, formatReferenceSections } from "@/lib/reference-lookup";
+import {
+  buildDeterministicFaultDb,
+  compileDeterministicFaultArtifact,
+  compileDeterministicProcessArtifact,
+} from "@/lib/forge-process-compiler";
+import { validateLadProgram } from "@/lib/lad-validator";
 
 const PROCESS_GEN_MAX_TOKENS = 16384;
 
@@ -211,10 +215,10 @@ function buildFilteredTagDictionary(
   // Fault DB (always project-wide)
   if (faultEntries.length > 0) {
     for (const f of faultEntries) {
-      lines.push(`"DB_Faults".${f.tag}:Bool`);
+      lines.push(`"DB_FaultData".${f.tag}:Bool`);
     }
-    lines.push(`"DB_Faults".faultActive:Bool`);
-    lines.push(`"DB_Faults".faultReset:Bool`);
+    lines.push(`"DB_FaultData".faultActive:Bool`);
+    lines.push(`"DB_FaultData".faultReset:Bool`);
   }
 
   if (lines.length === 0) return "";
@@ -459,6 +463,23 @@ export function useForgeProcessGenerate() {
       const abort = new AbortController();
       // Session language (wizard project setup) overrides profile default
       const isLad = (session.process_code_language ?? profile.process_code_language) === "LAD";
+      let processSchema = null;
+      try {
+        if (profile.process_rules && typeof profile.process_rules === "string") {
+          processSchema = parseProcessRules(profile.process_rules);
+        }
+      } catch { /* ignore */ }
+
+      if (matrixSequence?.rows?.length && processSchema?.step_action_db?.enabled && stepActionDbName) {
+        return [compileDeterministicProcessArtifact({
+          sequence: matrixSequence,
+          blockName: matrixSequence.name,
+          dbName: stepActionDbName,
+          stepArrayName: processSchema.step_action_db.step_array_name || "S",
+          actionArrayName: processSchema.step_action_db.action_array_name || "A",
+          language: isLad ? "LAD" : "SCL",
+        })];
+      }
 
       // Fetch instruction library for LAD generation (non-fatal)
       let ladInstructions: Instruction[] | undefined;
@@ -470,6 +491,16 @@ export function useForgeProcessGenerate() {
       const deviceArtifacts = (session.device_artifacts as ForgeArtifact[]) ?? [];
       const fbInterfaces = extractFbInterfaces(deviceArtifacts);
       const matrix = session.linkage_matrix as ProcessLinkageMatrix | null;
+      const validDbNames = new Set(
+        deviceArtifacts
+          .filter((artifact) => artifact.type === "DB")
+          .map((artifact) => {
+            const declMatch = artifact.content.match(/DATA_BLOCK\s+"([^"]+)"/i);
+            return declMatch?.[1] ?? artifact.name;
+          }),
+      );
+      if (stepActionDbName) validDbNames.add(stepActionDbName);
+      if ((faultSpec?.length ?? 0) > 0) validDbNames.add("DB_FaultData");
 
       const globalDbArtifacts = deviceArtifacts
         .filter(a => a.type === "DB" && !a.name.startsWith(parseGeneralRules(profile.general_rules).naming.instance_db_prefix || "Inst") && a.name !== "Inputs" && a.name !== "Outputs");
@@ -497,11 +528,12 @@ export function useForgeProcessGenerate() {
         ? agentKnowledgeDocs.map(d => `### ${d.title}\n${d.content}`).join("\n\n---\n\n")
         : "";
 
-      console.log(`[forge-process] Context sizes: platformRules=${(PLATFORM_RULES.length/1024).toFixed(1)}KB, fbInterfaces=${(fbInterfaces.length/1024).toFixed(1)}KB, globalDbSchemas=${(globalDbSchemas.length/1024).toFixed(1)}KB, patterns=${patterns.length} items, profile.general_rules=${((profile.general_rules ?? "").length/1024).toFixed(1)}KB, profile.process_rules=${(JSON.stringify(profile.process_rules ?? "").length/1024).toFixed(1)}KB, refSections=${(refSectionsText.length/1024).toFixed(1)}KB, agentKnowledge=${(knowledgeText.length/1024).toFixed(1)}KB`);
+      const processRules = loadPlatformRules("forge_process");
+      console.log(`[forge-process] Context sizes: platformRules=${(processRules.length/1024).toFixed(1)}KB, fbInterfaces=${(fbInterfaces.length/1024).toFixed(1)}KB, globalDbSchemas=${(globalDbSchemas.length/1024).toFixed(1)}KB, patterns=${patterns.length} items, profile.general_rules=${((profile.general_rules ?? "").length/1024).toFixed(1)}KB, profile.process_rules=${(JSON.stringify(profile.process_rules ?? "").length/1024).toFixed(1)}KB, refSections=${(refSectionsText.length/1024).toFixed(1)}KB, agentKnowledge=${(knowledgeText.length/1024).toFixed(1)}KB`);
 
       const context: ProcessGenContext = {
         profile,
-        platformRules: PLATFORM_RULES,
+        platformRules: loadPlatformRules("forge_process"),
         patterns,
         deviceFbInterfaces: fbInterfaces,
         specAnalysis: session.spec_analysis as SpecAnalysis | undefined,
@@ -523,7 +555,7 @@ export function useForgeProcessGenerate() {
             ? buildStepsSectionFromRows(matrixSequence.rows)
             : (matrixSequence.steps ?? []).map(s => `Step ${s.stepNumber}: ${(s.actions ?? []).map(a => a.description).join(", ")}`).join("\n");
           const faultDbRef = (faultSpec ?? []).length > 0
-            ? `\n\n**Fault handling is in a SEPARATE Fault FC — do NOT include fault detection/latching rungs.**\nThe sequence should read "DB_Faults".faultActive to halt on fault, but NOT write to DB_Faults.\nFault tags: ${(faultSpec ?? []).map((f: FaultEntry) => `"DB_Faults".${f.tag}`).join(", ")}`
+            ? `\n\n**Fault handling is in a SEPARATE Fault FC — do NOT include fault detection/latching rungs.**\nThe sequence should read "DB_FaultData".faultActive to halt on fault, but NOT write to DB_FaultData.\nFault tags: ${(faultSpec ?? []).map((f: FaultEntry) => `"DB_FaultData".${f.tag}`).join(", ")}`
             : "";
           const dbNameRef = stepActionDbName
             ? `\n\n**Step/Action DB name: "${stepActionDbName}"**\nUse EXACTLY this name for all step and action references: "${stepActionDbName}".S[n] and "${stepActionDbName}".A[n].\nDo NOT abbreviate or rename the DB.`
@@ -631,7 +663,20 @@ Output MUST use the tagged fenced block format: \`\`\`scl [FB:${matrixSequence.n
       if (isLad) {
         console.log(`[forge-process] LAD response (first 500 chars):`, content.slice(0, 500));
         const artifact = parseLadArtifact(content, sequence.name);
-        if (artifact) return [artifact];
+        if (artifact) {
+          const parsedProgram = JSON.parse(artifact.content);
+          const validation = validateLadProgram(parsedProgram, {
+            validDbNames: [...validDbNames],
+            allowedElementTypes: (ladInstructions ?? []).map((instruction) => instruction.element_type),
+          });
+          const blockingIssues = validation.issues.filter((issue) => issue.severity === "error");
+          if (blockingIssues.length > 0) {
+            throw new Error(
+              `Generated LAD failed validation:\n${blockingIssues.slice(0, 6).map((issue) => `- ${issue.message}`).join("\n")}`,
+            );
+          }
+          return [artifact];
+        }
         console.warn(`[forge-process] LAD parse failed for ${sequence.name} — response length: ${content.length}`);
         // AI didn't produce valid JSON — fall through to SCL parsing as fallback
       }
@@ -718,6 +763,7 @@ Output MUST use the tagged fenced block format: \`\`\`scl [FB:${matrixSequence.n
       const devices = (session.device_list as ForgeDeviceEntry[]) ?? [];
       const matrix = session.linkage_matrix as ProcessLinkageMatrix | null;
       const matrixSequences = matrix?.processSequences ?? [];
+      const faultMatrix = matrix?.faultMatrix ?? [];
 
       // Matrix sequences are engineer-confirmed (Matrix Review step) — always prefer them.
       // Fall back to spec analysis sequences only if the matrix has none.
@@ -728,11 +774,12 @@ Output MUST use the tagged fenced block format: \`\`\`scl [FB:${matrixSequence.n
       setProgress({ current: 0, total: totalSteps, currentSequence: "" });
 
       const allArtifacts: ForgeArtifact[] = [];
+      console.log(`[forge-process] Loaded ${faultMatrix.length} deterministic faults from linkage matrix`);
+      /*
 
       // Derive fault spec from matrix — clean fault categories, not raw text dumps.
       // Each fault is a distinct failure mode with a short tag name.
-      const derivedFaults: FaultEntry[] = [];
-      {
+      if (false) {
         let fc = 1;
         const add = (tag: string, desc: string, source: string) => {
           if (derivedFaults.some(f => f.tag === tag)) return; // deduplicate
@@ -776,6 +823,7 @@ Output MUST use the tagged fenced block format: \`\`\`scl [FB:${matrixSequence.n
       }
 
       // Parse process rules early — needed to derive DB names before generation
+      */
       let processSchema = null;
       try {
         if (profile.process_rules && typeof profile.process_rules === "string") {
@@ -825,9 +873,9 @@ Output MUST use the tagged fenced block format: \`\`\`scl [FB:${matrixSequence.n
             };
             // Collect device names from matrix rows for this sequence
             const seqDeviceNames = [...new Set((matrixSeq.rows ?? []).flatMap(r => r.devices ?? []))];
-            const seqTags = buildFilteredTagDictionary(devArtifacts, matrix, seqDeviceNames, stepActionDbNames.get(matrixSeq.name), derivedFaults);
+            const seqTags = buildFilteredTagDictionary(devArtifacts, matrix, seqDeviceNames, stepActionDbNames.get(matrixSeq.name), []);
             console.log(`[forge-process] Tags for ${matrixSeq.name}: ${seqDeviceNames.length} devices, ${(seqTags.length / 1024).toFixed(1)}KB`);
-            const artifacts = await generateSequence(seqStub, session, profile, patterns, matrixSeq, derivedFaults, stepActionDbNames.get(matrixSeq.name), seqTags);
+            const artifacts = await generateSequence(seqStub, session, profile, patterns, matrixSeq, [], stepActionDbNames.get(matrixSeq.name), seqTags);
             allArtifacts.push(...artifacts);
           }
         } else {
@@ -840,8 +888,8 @@ Output MUST use the tagged fenced block format: \`\`\`scl [FB:${matrixSequence.n
               currentSequence: seq.name,
             });
             // Fallback path — no device filtering, include all
-            const fallbackTags = buildFilteredTagDictionary(devArtifacts, matrix, [], stepActionDbNames.get(seq.name), derivedFaults);
-            const artifacts = await generateSequence(seq, session, profile, patterns, undefined, derivedFaults, stepActionDbNames.get(seq.name), fallbackTags);
+            const fallbackTags = buildFilteredTagDictionary(devArtifacts, matrix, [], stepActionDbNames.get(seq.name), []);
+            const artifacts = await generateSequence(seq, session, profile, patterns, undefined, [], stepActionDbNames.get(seq.name), fallbackTags);
             allArtifacts.push(...artifacts);
           }
         }
@@ -900,105 +948,21 @@ END_DATA_BLOCK`;
         }
 
         // Step 1c: Generate Fault DB + Fault FC
-        const isLadProject = (session.process_code_language ?? profile.process_code_language) === "LAD";
-        if (isLadProject && processSchema?.step_action_db?.enabled && derivedFaults.length > 0) {
-          // Generate Fault DB from derived spec
-          const faultDbName = "DB_Faults";
-          const faultFieldDecls = derivedFaults
-            .map(f => `    ${f.tag} : Bool;       // ${f.code}: ${f.description} [${f.source}]`)
-            .join("\n");
-
-          const faultDbCode = `DATA_BLOCK "${faultDbName}"
-{ S7_Optimized_Access := 'TRUE' }
-VERSION : 0.1
-
-  VAR
-${faultFieldDecls}
-    faultActive : Bool;     // Any fault is currently latched (OR of all above)
-    faultCode : Word;       // Active fault code
-    faultReset : Bool;      // Operator fault reset command (from HMI/pushbutton)
-  END_VAR
-
-BEGIN
-
-END_DATA_BLOCK`;
-
-          allArtifacts.push({
-            id: crypto.randomUUID(),
-            name: faultDbName,
-            type: "DB",
-            language: "SCL",
-            content: faultDbCode,
-            approved: false,
-            stage: "process",
-            destination_folder: "Program blocks/Forge/Process",
-            dependencies: [],
-            compile_after_import: false,
-          });
-
+        const hasDeterministicFaults = processSchema?.step_action_db?.enabled && faultMatrix.length > 0;
+        if (hasDeterministicFaults) {
           setProgress({
             current: (useMatrixAsPrimary ? matrixSequences.length : specSequences.length) + 1,
-            total: totalSteps + 1, // +1 for fault FC
+            total: totalSteps + 1,
             currentSequence: "Fault Handler",
           });
 
-          const seqArtifacts = allArtifacts.filter(a => a.language === "LAD" && (a.type === "FC" || a.type === "FB"));
-          const devArtifacts = (session.device_artifacts as ForgeArtifact[]) ?? [];
-          const faultContext: ProcessGenContext = {
-            profile,
-            platformRules: PLATFORM_RULES,
-            patterns,
-            deviceFbInterfaces: extractFbInterfaces(devArtifacts),
-            linkageMatrix: matrix ?? undefined,
-          };
-
-          let faultSystemPrompt = buildFaultFcPrompt(faultContext, seqArtifacts, promptSections, derivedFaults);
-          const faultSeqs = (useMatrixAsPrimary ? matrixSequences : specSequences).map(s => ({
-            name: 'name' in s ? s.name : (s as SpecAnalysisProcessSequence).name,
-            description: 'description' in s ? (s as ProcessSequence).description : undefined,
-          }));
-          const faultTags = buildFilteredTagDictionary(devArtifacts, matrix, devices.map(d => d.name), undefined, derivedFaults);
-          const faultUserMessage = buildFaultFcUserMessage(faultSeqs, devices, derivedFaults) + (faultTags ? `\n\n${faultTags}` : "");
-
-          // Apply same prompt cap
-          const MAX_FAULT_CHARS = 40 * 1024;
-          if (faultSystemPrompt.length > MAX_FAULT_CHARS) {
-            const outputIdx = faultSystemPrompt.lastIndexOf("## Output Format");
-            const tail = outputIdx > 0 ? faultSystemPrompt.slice(outputIdx) : "";
-            let head = outputIdx > 0 ? faultSystemPrompt.slice(0, outputIdx) : faultSystemPrompt;
-            for (const section of ["## Platform Rules", "## Device FB Interfaces"]) {
-              if (head.length + tail.length <= MAX_FAULT_CHARS) break;
-              const idx = head.indexOf(section);
-              if (idx > 0) {
-                const next = head.indexOf("\n## ", idx + 20);
-                if (next > 0) head = head.slice(0, idx) + head.slice(next);
-              }
-            }
-            faultSystemPrompt = head.length + tail.length <= MAX_FAULT_CHARS
-              ? head + tail
-              : head.slice(0, MAX_FAULT_CHARS - tail.length - 100) + "\n\n" + tail;
-          }
-
-          try {
-            const { content: faultContent } = await validateAndCall(
-              callStreamingCollect,
-              faultSystemPrompt,
-              [{ role: "user", content: faultUserMessage }],
-              new AbortController().signal,
-              32768,
-              "process_lad",
-              !!profile,
-            );
-
-            const faultArtifact = parseLadArtifact(faultContent, "FaultHandler");
-            if (faultArtifact) {
-              faultArtifact.destination_folder = "Program blocks/Forge/Process";
-              allArtifacts.push(faultArtifact);
-            } else {
-              console.warn("[forge-process] Fault FC generation failed to parse");
-            }
-          } catch (err) {
-            console.error("[forge-process] Fault FC generation error:", err);
+          allArtifacts.push(buildDeterministicFaultDb(faultMatrix));
+          const faultArtifact = compileDeterministicFaultArtifact({
+            faults: faultMatrix,
+            language: session.process_code_language ?? profile.process_code_language ?? "SCL",
+          });
+          if (faultArtifact) {
+            allArtifacts.push(faultArtifact);
           }
         }
 
@@ -1033,8 +997,8 @@ END_DATA_BLOCK`;
 
         // Step 2: Generate OB1 Main (deterministic — no AI call)
         setProgress({
-          current: (useMatrixAsPrimary ? matrixSequences.length : specSequences.length) + 1 + (isLadProject && processSchema?.step_action_db?.enabled ? 1 : 0),
-          total: totalSteps + (isLadProject && processSchema?.step_action_db?.enabled ? 1 : 0),
+          current: (useMatrixAsPrimary ? matrixSequences.length : specSequences.length) + 1 + (hasDeterministicFaults ? 1 : 0),
+          total: totalSteps + (hasDeterministicFaults ? 1 : 0),
           currentSequence: "OB1 Main",
         });
 

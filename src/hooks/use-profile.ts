@@ -26,7 +26,7 @@ export function useProfile() {
 }
 
 /**
- * Update the current user's profile (display_name, avatar_url).
+ * Update the current user's profile fields.
  */
 export function useUpdateProfile() {
   const queryClient = useQueryClient();

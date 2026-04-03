@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { HardwareConfigEditor } from "@/components/hardware-config-editor";
 import { IoListEditor } from "@/components/io-list-editor";
 import { matchDevicesToTemplates, applyMatchesToDevices, suggestMissingDevices, rankTemplatesForDevice } from "@/lib/forge-device-matcher";
-import type { MissingDeviceSuggestion, TemplateScore } from "@/lib/forge-device-matcher";
+import type { MissingDeviceSuggestion } from "@/lib/forge-device-matcher";
 import { useForgeAiDeviceMatch } from "@/hooks/use-forge-ai-device-match";
 import { DEVICE_TYPE_IO_DEFAULTS, DEVICE_TYPES } from "@/lib/device-type-io-defaults";
 import { getCompatibleModules, getModuleByMlfb } from "@/lib/module-catalog";

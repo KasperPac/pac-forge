@@ -6,7 +6,7 @@ import {
   streamFromEdgeFunction,
   processRawResponse,
 } from "@/hooks/use-generation";
-import type { GenerateInput, GenerateResult } from "@/hooks/use-generation";
+import type { GenerateInput, GenerateResult, PromptLayerMeta } from "@/hooks/use-generation";
 import type { ProcessPromptInput } from "@/lib/process-prompt-builder";
 import { getRelevantReferenceSections } from "@/lib/reference-lookup";
 import { CODE_GEN_MAX_TOKENS } from "@/lib/pipeline";
@@ -84,10 +84,19 @@ export function useProcessGenerate() {
       };
 
       try {
+        const processPlMeta: PromptLayerMeta = {
+          agent_role: "code_architect",
+          pipeline_step: "process_generate",
+          session_id: input.sessionId,
+          project_id: project.id,
+          generation_mode: "PROCESS_CODE",
+        };
         const fullContent = await streamFromEdgeFunction(
           fetchBody,
           abort.signal,
           appendStreamChunk,
+          undefined,
+          processPlMeta,
         );
 
         setIsStreaming(false);

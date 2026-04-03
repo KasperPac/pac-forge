@@ -18,6 +18,7 @@ import { parseReviewReport } from "@/lib/review-response-parser";
 import { buildRewritePrompt } from "@/lib/rewrite-prompt-builder";
 import { parseArtifacts } from "@/lib/artifact-parser";
 import { callNonStreaming } from "@/hooks/use-generation";
+import type { PromptLayerMeta } from "@/hooks/use-generation";
 
 export interface ReviewRewriteCallbacks {
   addStep: (step: PipelineStepResult) => void;
@@ -26,6 +27,7 @@ export interface ReviewRewriteCallbacks {
 }
 
 export interface ReviewRewriteInput {
+  sessionId: string;
   reviewers: Agent[];
   generator: Agent;
   currentArtifacts: ParsedArtifact[];
@@ -118,7 +120,17 @@ export async function executeReviewRewriteLoop(
           stage,
         });
 
-        const { content, usage } = await callNonStreaming(systemPrompt, messages, abortSignal);
+      const reviewPlMeta: PromptLayerMeta = {
+          agent_role: "standards_reviewer",
+          pipeline_step: "review",
+          session_id: input.sessionId,
+          project_id: project.id,
+          artifact_type: stage ? `${stage}_code` : "device_code",
+          call_role: "primary",
+          round_index: round,
+          round,
+        };
+        const { content, usage } = await callNonStreaming(systemPrompt, messages, abortSignal, undefined, reviewPlMeta);
         const report = parseReviewReport(content);
 
         reviewReports.push({ reviewerName: reviewer.display_name, report });
@@ -213,7 +225,17 @@ export async function executeReviewRewriteLoop(
         maxRounds: MAX_REVIEW_ROUNDS,
       });
 
-      const { content, usage } = await callNonStreaming(systemPrompt, messages, abortSignal, CODE_GEN_MAX_TOKENS);
+      const rewritePlMeta: PromptLayerMeta = {
+        agent_role: "code_architect",
+        pipeline_step: "rewrite",
+        session_id: input.sessionId,
+        project_id: project.id,
+        artifact_type: stage ? `${stage}_code` : "device_code",
+        call_role: "primary",
+        round_index: round,
+        round,
+      };
+      const { content, usage } = await callNonStreaming(systemPrompt, messages, abortSignal, CODE_GEN_MAX_TOKENS, rewritePlMeta);
       const { artifacts: rewrittenArtifacts, errors } = parseArtifacts(content);
 
       if (rewrittenArtifacts.length > 0) {

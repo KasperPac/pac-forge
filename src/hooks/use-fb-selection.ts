@@ -39,6 +39,8 @@ export function useAiFbSelection() {
           systemPrompt,
           [{ role: "user", content: userMessage }],
           abort.signal,
+          undefined,
+          { agent_role: "project_manager", pipeline_step: "fb_selection" },
         );
         return parseFbSelectionResponse(content);
       } finally {

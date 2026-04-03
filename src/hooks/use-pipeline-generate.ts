@@ -9,7 +9,7 @@ import {
   callNonStreaming,
   saveArtifactsAndTurns,
 } from "@/hooks/use-generation";
-import type { GenerateInput, GenerateResult } from "@/hooks/use-generation";
+import type { GenerateInput, GenerateResult, PromptLayerMeta } from "@/hooks/use-generation";
 import { executeReviewRewriteLoop } from "@/lib/review-rewrite-loop";
 import { buildPlanPrompt, buildSummaryPrompt } from "@/lib/pm-prompt-builder";
 import {
@@ -91,7 +91,13 @@ export function usePipelineGenerate() {
               promptSections,
             });
 
-            const { content, usage } = await callNonStreaming(systemPrompt, messages, abort.signal);
+            const plMeta: PromptLayerMeta = {
+              agent_role: "project_manager",
+              pipeline_step: "plan",
+              session_id: input.sessionId,
+              project_id: project.id,
+            };
+            const { content, usage } = await callNonStreaming(systemPrompt, messages, abort.signal, undefined, plMeta);
 
             store.getState().updatePipelineStep(orchestrator.id, {
               status: "completed",
@@ -163,10 +169,19 @@ export function usePipelineGenerate() {
             max_tokens: CODE_GEN_MAX_TOKENS,
           };
 
+          const genPlMeta: PromptLayerMeta = {
+            agent_role: "code_architect",
+            pipeline_step: "generate",
+            session_id: input.sessionId,
+            project_id: project.id,
+            generation_mode: input.generationMode,
+          };
           const fullContent = await streamFromEdgeFunction(
             fetchBody,
             abort.signal,
             store.getState().appendStreamChunk,
+            undefined,
+            genPlMeta,
           );
 
           store.getState().clearStreaming();
@@ -226,6 +241,7 @@ export function usePipelineGenerate() {
         // --- Steps 2-N: Multi-round review→rewrite loop ---
         if (reviewers.length > 0 && generator && !abort.signal.aborted) {
           const loopResult = await executeReviewRewriteLoop({
+            sessionId: input.sessionId,
             reviewers,
             generator,
             currentArtifacts,
@@ -296,10 +312,18 @@ export function usePipelineGenerate() {
                   promptSections,
                 });
 
+                const patternPlMeta: PromptLayerMeta = {
+                  agent_role: "pattern_librarian",
+                  pipeline_step: "patterns",
+                  session_id: input.sessionId,
+                  project_id: project.id,
+                };
                 const { content, usage } = await callNonStreaming(
                   systemPrompt,
                   promptMessages,
-                  abort.signal
+                  abort.signal,
+                  undefined,
+                  patternPlMeta,
                 );
 
                 aiCorrections = parsePatternLibrarianResponse(content);
@@ -410,7 +434,13 @@ export function usePipelineGenerate() {
               promptSections,
             });
 
-            const { content, usage } = await callNonStreaming(systemPrompt, messages, abort.signal);
+            const summaryPlMeta: PromptLayerMeta = {
+              agent_role: "project_manager",
+              pipeline_step: "summary",
+              session_id: input.sessionId,
+              project_id: project.id,
+            };
+            const { content, usage } = await callNonStreaming(systemPrompt, messages, abort.signal, undefined, summaryPlMeta);
 
             store.getState().updatePipelineStep(summaryStepId, {
               status: "completed",

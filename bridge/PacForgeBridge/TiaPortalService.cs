@@ -3103,18 +3103,86 @@ END_ORGANIZATION_BLOCK
                     Console.WriteLine($"[TIA]   Type subfolder: '{tf.Name}' ({tf.Types.Count} types, {tf.Folders.Count} subfolders)");
                 }
 
-                // --- Try types first (individual FBs live here as versioned library types) ---
-                // If master copy paths were requested, also search the type folder by name
+                // --- Auto-import "Open Library" master copy (tag table) if it exists ---
+                // Required by all Open Library blocks — must be imported before any FBs
+                foreach (var mc in library.MasterCopyFolder.MasterCopies)
+                {
+                    if (string.Equals(mc.Name, "Open Library", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Log what this master copy contains
+                        try
+                        {
+                            var parts = new List<string>();
+                            foreach (var desc in mc.ContentDescriptions)
+                                parts.Add($"{desc.ContentName} ({desc.ContentType.Name})");
+                            Console.WriteLine($"[TIA]   'Open Library' master copy contains: {string.Join(", ", parts)}");
+                        }
+                        catch { }
+
+                        // Try tag table composition first (most likely for "Open Library")
+                        bool imported = false;
+                        try
+                        {
+                            Console.WriteLine($"[TIA]   Auto-importing 'Open Library' as tag table...");
+                            var tagGroup = plcSoftware.TagTableGroup;
+                            PlcTagTable tagTable = tagGroup.TagTables.CreateFrom(mc);
+                            Console.WriteLine($"[TIA]     Created tag table: {tagTable?.Name ?? "(unknown)"}");
+                            result.CopiedBlocks.Add(tagTable?.Name ?? "Open Library (tag table)");
+                            imported = true;
+                        }
+                        catch (Exception ex)
+                        {
+                            string msg = ex.Message;
+                            if (msg.Contains("already exists") || msg.Contains("bereits vorhanden"))
+                            {
+                                Console.WriteLine($"[TIA]     Skipped 'Open Library' tag table (already exists)");
+                                result.SkippedBlocks.Add("Open Library (tag table)");
+                                imported = true;
+                            }
+                            else
+                            {
+                                Console.WriteLine($"[TIA]     Tag table import failed: {msg}");
+                            }
+                        }
+
+                        // Fallback: try as a block
+                        if (!imported)
+                        {
+                            try
+                            {
+                                Console.WriteLine($"[TIA]   Trying 'Open Library' as block...");
+                                PlcBlock tagBlock = blockGroup.Blocks.CreateFrom(mc);
+                                Console.WriteLine($"[TIA]     Created block: {tagBlock?.Name ?? "(unknown)"}");
+                                result.CopiedBlocks.Add(tagBlock?.Name ?? "Open Library");
+                            }
+                            catch (Exception ex2)
+                            {
+                                string msg2 = ex2.Message;
+                                if (msg2.Contains("already exists") || msg2.Contains("bereits vorhanden"))
+                                {
+                                    Console.WriteLine($"[TIA]     Skipped 'Open Library' block (already exists)");
+                                    result.SkippedBlocks.Add("Open Library");
+                                }
+                                else
+                                {
+                                    Console.WriteLine($"[TIA]     Block import also failed: {msg2}");
+                                    result.Warnings.Add($"Open Library master copy: could not import as tag table or block");
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+
+                // --- Copy library types (individual FBs live here as versioned types) ---
                 var wantedNames = new HashSet<string>(masterCopyPaths, StringComparer.OrdinalIgnoreCase);
                 foreach (var tp in typePaths) wantedNames.Add(tp);
+                // Track found names so we can short-circuit once all are found
+                var foundNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
                 if (wantedNames.Count > 0)
                 {
-                    // Search types (this is where individual FBs like fbMotor_Reversing live)
-                    CopyLibraryTypesToProject(library.TypeFolder, "", typeGroup, wantedNames, result);
-
-                    // Also try master copies as fallback
-                    CopyMasterCopiesToProject(library.MasterCopyFolder, "", blockGroup, wantedNames, result);
+                    CopyLibraryTypesToProject(library.TypeFolder, "", typeGroup, wantedNames, foundNames, result);
                 }
 
                 result.Message = $"Copied {result.CopiedBlocks.Count} block(s), " +
@@ -3180,16 +3248,26 @@ END_ORGANIZATION_BLOCK
         }
 
         private void CopyLibraryTypesToProject(LibraryTypeFolder folder, string path,
-            PlcTypeGroup targetGroup, HashSet<string> wantedPaths, LibraryCopyToProjectResponse result)
+            PlcTypeGroup targetGroup, HashSet<string> wantedPaths, HashSet<string> foundNames,
+            LibraryCopyToProjectResponse result)
         {
+            // Short-circuit if all wanted names have been found
+            if (foundNames.Count >= wantedPaths.Count) return;
+
             Console.WriteLine($"[TIA]   Scanning type folder: '{(string.IsNullOrEmpty(path) ? "(root)" : path)}' — {folder.Types.Count} types, {folder.Folders.Count} subfolders");
 
             foreach (var typeItem in folder.Types)
             {
+                if (foundNames.Count >= wantedPaths.Count) break;
+
                 string fullPath = string.IsNullOrEmpty(path) ? typeItem.Name : path + "/" + typeItem.Name;
 
                 // Match by full path OR by just the name (case-insensitive)
                 if (!wantedPaths.Contains(fullPath) && !wantedPaths.Contains(typeItem.Name))
+                    continue;
+
+                // Skip if already found (prevents duplicate matches like "p")
+                if (foundNames.Contains(typeItem.Name))
                     continue;
 
                 try
@@ -3210,6 +3288,7 @@ END_ORGANIZATION_BLOCK
                             // FB/FC library type → create in PlcBlockComposition
                             PlcBlock newBlock = plcSoftware.BlockGroup.Blocks.CreateFrom(blockVersion);
                             result.CopiedBlocks.Add(newBlock.Name);
+                            foundNames.Add(typeItem.Name);
                             Console.WriteLine($"[TIA]     Created block: {newBlock.Name}");
                         }
                         else if (latestVersion is PlcTypeLibraryTypeVersion plcTypeVersion)
@@ -3217,6 +3296,7 @@ END_ORGANIZATION_BLOCK
                             // UDT library type → create in PlcTypeComposition
                             PlcType newType = plcSoftware.TypeGroup.Types.CreateFrom(plcTypeVersion);
                             result.CopiedBlocks.Add(newType.Name);
+                            foundNames.Add(typeItem.Name);
                             Console.WriteLine($"[TIA]     Created type: {newType.Name}");
                         }
                         else
@@ -3247,8 +3327,9 @@ END_ORGANIZATION_BLOCK
 
             foreach (var subFolder in folder.Folders)
             {
+                if (foundNames.Count >= wantedPaths.Count) break;
                 string subPath = string.IsNullOrEmpty(path) ? subFolder.Name : path + "/" + subFolder.Name;
-                CopyLibraryTypesToProject(subFolder, subPath, targetGroup, wantedPaths, result);
+                CopyLibraryTypesToProject(subFolder, subPath, targetGroup, wantedPaths, foundNames, result);
             }
         }
 

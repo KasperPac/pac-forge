@@ -217,6 +217,7 @@ export default function ProfileDetailPage() {
           general_rules: currentGeneralRules,
           folder_rules: currentFolderRules,
           io_linking_rules: currentIoLinkingRules,
+          io_linking_mode: profile.io_linking_mode,
           process_rules: processSchema ? serializeProcessRules(processSchema) : '[]',
           fb_rules: fbSchema ? serializeFbRules(fbSchema) : '[]',
         },
@@ -346,6 +347,10 @@ export default function ProfileDetailPage() {
           )}
           {tab === "io_linking" && (
             <IoLinkingTab
+              mode={profile.io_linking_mode}
+              onModeChange={(value) => {
+                updateProfile.mutate({ id: profile.id, updates: { io_linking_mode: value } });
+              }}
               rules={currentIoLinkingRules}
               onChange={(v) => { setIoLinkingRules(v); markDirty(); }}
             />
@@ -850,9 +855,13 @@ const IO_LINKING_PLACEHOLDER = `# LAD IO Linking Style
 - Rung title = "Assign {tag} → {instance}.{var}"`;
 
 function IoLinkingTab({
+  mode,
+  onModeChange,
   rules,
   onChange,
 }: {
+  mode: "buffered_db" | "direct_instance_db";
+  onModeChange: (value: "buffered_db" | "direct_instance_db") => void;
   rules: string;
   onChange: (v: string) => void;
 }) {
@@ -863,6 +872,23 @@ function IoLinkingTab({
         <p className="mt-0.5 text-xs text-muted-foreground">
           Rules applied specifically to the IO linking FC generation. Use this to define your preferred
           LAD contact/coil style, MOVE box usage, or rung structure conventions.
+        </p>
+      </div>
+      <div className="max-w-sm space-y-1">
+        <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+          IO Architecture Mode
+        </Label>
+        <Select value={mode} onValueChange={(value) => onModeChange(value as "buffered_db" | "direct_instance_db")}>
+          <SelectTrigger className="font-mono text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="buffered_db">Buffered DB_Inputs / DB_Outputs</SelectItem>
+            <SelectItem value="direct_instance_db">Direct to instance DB / IO wrappers</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          Direct mode skips the legacy IO buffer DBs. IoLinking writes physical IO straight to device instance DB fields, or through assigned IO FB wrappers when present.
         </p>
       </div>
       <Textarea

@@ -1,4 +1,4 @@
-/** Element types matching WinCC Comfort screen objects */
+/** Element types matching WinCC Unified screen objects */
 export const HMI_ELEMENT_TYPES = {
   RECTANGLE: "RECTANGLE",
   BUTTON: "BUTTON",
@@ -56,7 +56,7 @@ export const HMI_ELEMENT_LABELS: Record<HmiElementType, string> = {
   SCREEN_WINDOW: "Screen Window",
 };
 
-/** Animation types matching WinCC Comfort dynamic animations */
+/** Animation types matching WinCC Unified dynamic animations */
 export const HMI_ANIMATION_TYPES = {
   VISIBILITY_BIT: "VISIBILITY_BIT",
   VISIBILITY_RANGE: "VISIBILITY_RANGE",
@@ -723,6 +723,20 @@ export interface HmiScreenSpec {
   height: number;
   backgroundColor: string;
   elements: HmiElement[];
+  /** Target runtime family for the generated screen suite */
+  targetPlatform?: "wincc_unified_comfort";
+  /** Navigation/template framework name */
+  templateSuite?: string;
+  /** High-level role in the generated HMI suite */
+  screenRole?: "template_shell" | "overview" | "device_faceplate" | "subsystem_checklist" | "alarm_summary" | "popup";
+  /** Optional subsystem association for checklist / overview screens */
+  subsystem?: string;
+  /** Optional device type association for faceplate/detail screens */
+  deviceType?: string;
+  /** Named equipment shown or controlled on this screen */
+  deviceNames?: string[];
+  /** Optional operator checklist items shown on checklist screens */
+  checklistItems?: Array<{ id: string; label: string; binding?: string; checkedByDefault?: boolean }>;
   /** Screen number for navigation (WinCC screen numbering) */
   screenNumber?: number;
   /** Template/layout name this screen is based on */

@@ -74,11 +74,14 @@ export default function ProfilesPage() {
         device_fb_language: "SCL" as const,
         device_call_fc_language: "SCL" as const,
         io_linking_language: "SCL" as const,
+        io_linking_mode: "buffered_db" as const,
         process_code_language: "SCL" as const,
         conversion_fc_language: "SCL" as const,
         hmi_theme: "default",
         naming_prefix: "",
         db_naming_prefix: "",
+        fb_favourites: {},
+        io_fb_assignments: {},
       },
       {
         onSuccess: (profile) => {

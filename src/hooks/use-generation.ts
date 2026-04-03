@@ -231,8 +231,10 @@ export async function streamFromEdgeFunction(
   signal: AbortSignal,
   onChunk: (text: string) => void,
   maxTokens?: number,
+  plMeta?: PromptLayerMeta,
 ): Promise<string> {
   if (maxTokens) body.max_tokens = maxTokens;
+  if (plMeta) body.promptlayer_metadata = plMeta;
   const token = await getAuthToken();
 
   const response = await fetch(
@@ -306,6 +308,27 @@ export type MessageContent = string | Array<
   | { type: "image"; source: { type: "base64"; media_type: string; data: string } }
 >;
 
+/** Metadata passed to PromptLayer for observability tagging */
+export interface PromptLayerMeta {
+  agent_role?: string;
+  pipeline_step?: string;
+  session_id?: string;
+  project_id?: string;
+  design_profile_id?: string;
+  design_profile_name?: string;
+  generation_mode?: string;
+  plc_language?: string;
+  artifact_type?: string;
+  reference_lookup_used?: boolean;
+  reference_section_count?: number;
+  knowledge_doc_count?: number;
+  prompt_section_keys?: string[];
+  call_role?: "primary" | "supporting";
+  function_name?: string;
+  round_index?: number;
+  round?: number;
+}
+
 /**
  * Makes a streaming call but collects the full response — avoids edge function
  * wall-clock timeout (60s) that kills long non-streaming calls.
@@ -316,6 +339,7 @@ export async function callStreamingCollect(
   messages: Array<{ role: "user" | "assistant"; content: MessageContent }>,
   signal: AbortSignal,
   maxTokens?: number,
+  plMeta?: PromptLayerMeta,
 ): Promise<{ content: string; usage: { input: number; output: number } | null }> {
   const token = await getAuthToken();
 
@@ -325,6 +349,13 @@ export async function callStreamingCollect(
     stream: true,
   };
   if (maxTokens) body.max_tokens = maxTokens;
+  if (plMeta) body.promptlayer_metadata = plMeta;
+  if (plMeta?.project_id && plMeta?.session_id) {
+    body.project_context = {
+      project_id: plMeta.project_id,
+      session_id: plMeta.session_id,
+    };
+  }
 
   const response = await fetch(
     `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate`,
@@ -405,6 +436,7 @@ export async function callNonStreaming(
   messages: Array<{ role: "user" | "assistant"; content: MessageContent }>,
   signal: AbortSignal,
   maxTokens?: number,
+  plMeta?: PromptLayerMeta,
 ): Promise<{ content: string; usage: { input: number; output: number } | null }> {
   const token = await getAuthToken();
 
@@ -414,6 +446,13 @@ export async function callNonStreaming(
     stream: false,
   };
   if (maxTokens) body.max_tokens = maxTokens;
+  if (plMeta) body.promptlayer_metadata = plMeta;
+  if (plMeta?.project_id && plMeta?.session_id) {
+    body.project_context = {
+      project_id: plMeta.project_id,
+      session_id: plMeta.session_id,
+    };
+  }
 
   const response = await fetch(
     `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate`,
@@ -577,10 +616,19 @@ export function useGenerateStream() {
       const { fetchBody } = buildRequestBody(enrichedInput, true, CODE_GEN_MAX_TOKENS);
 
       try {
+        const chatPlMeta: PromptLayerMeta = {
+          agent_role: "code_architect",
+          pipeline_step: "chat_generate",
+          session_id: input.sessionId,
+          project_id: input.project.id,
+          generation_mode: input.generationMode,
+        };
         const fullContent = await streamFromEdgeFunction(
           fetchBody,
           abort.signal,
           appendStreamChunk,
+          undefined,
+          chatPlMeta,
         );
 
         // Stream complete — run post-processing pipeline

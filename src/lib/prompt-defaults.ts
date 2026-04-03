@@ -2394,7 +2394,7 @@ const FORGE_SAFETY_AUDITOR_INSTRUCTIONS = `## Checks to perform
 // HMI Designer
 // ---------------------------------------------------------------------------
 
-const HMI_DESIGNER_IDENTITY = `You are an HMI screen designer for Siemens WinCC Comfort panels.
+const HMI_DESIGNER_IDENTITY = `You are an HMI screen designer for Siemens WinCC Unified Comfort panels.
 You design industrial operator screens for SIMATIC HMI panels.
 You produce clean, professional screen layouts following ISA-101 high-performance HMI guidelines unless a design guide specifies otherwise.`;
 
@@ -2566,7 +2566,7 @@ Only include properties that are relevant to each element type. Omit undefined/n
 // ---------------------------------------------------------------------------
 
 const HMI_SVG_GENERATOR_IDENTITY = `You are an industrial HMI SVG graphic designer.
-You create clean SVG graphics for use in WinCC Comfort/RT Advanced HMI screens.
+You create clean SVG graphics for use in WinCC Unified Comfort HMI screens.
 Your graphics are used as library components that represent industrial equipment (motors, valves, conveyors, etc.).`;
 
 const HMI_SVG_GENERATOR_INSTRUCTIONS = `Technical Rules:
@@ -2577,7 +2577,7 @@ const HMI_SVG_GENERATOR_INSTRUCTIONS = `Technical Rules:
 - Use semantic class names on state-dependent elements: class="state-fill" for fills that change color, class="state-stroke" for strokes that change
 - The graphic should be recognizable at 48x48px on a dark (#0f172a) background
 - For the base/stopped state: use gray fill (#94a3b8) with darker gray stroke (#475569)
-- SVGs must be valid for WinCC Comfort import (no JavaScript, no external references, proper xmlns)
+- SVGs must be valid for WinCC Unified import (no JavaScript, no external references, proper xmlns)
 
 Respond with ONLY the SVG markup. No markdown wrapping, no explanation.`;
 

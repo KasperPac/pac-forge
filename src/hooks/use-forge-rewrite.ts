@@ -7,7 +7,7 @@ import {
   buildForgePatternAnalysisPrompt,
   buildForgePatternAnalysisUserMessage,
 } from "@/lib/forge-agent-prompts";
-import { PLATFORM_RULES } from "@/lib/platform-rules";
+import { loadPlatformRules } from "@/lib/platform-rules";
 import { supabase } from "@/lib/supabase";
 import type { ForgeArtifact } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
@@ -96,7 +96,7 @@ export function useForgeRewrite() {
       setError(null);
 
       try {
-        const platformRules = PLATFORM_RULES;
+        const platformRules = loadPlatformRules("review");
         const profileRules = profile?.general_rules ?? undefined;
         const systemPrompt = buildForgeRewritePrompt(platformRules, profileRules, promptSections);
         const userMessage = buildForgeRewriteUserMessage(findings, artifacts);

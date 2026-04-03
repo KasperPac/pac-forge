@@ -11,7 +11,7 @@ import {
   isCleanReview,
   type ForgeReviewResult,
 } from "@/lib/forge-review-parser";
-import { PLATFORM_RULES } from "@/lib/platform-rules";
+import { loadPlatformRules } from "@/lib/platform-rules";
 import type { ForgeArtifact } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
 import { useActivePromptSections } from "@/hooks/use-prompt-sections";
@@ -33,7 +33,7 @@ export function useForgeReview() {
       setError(null);
 
       try {
-        const platformRules = PLATFORM_RULES;
+        const platformRules = loadPlatformRules("review");
         const profileRules = profile?.general_rules ?? undefined;
         const systemPrompt = buildForgeReviewPrompt(stage, platformRules, profileRules, promptSections);
         const userMessage = buildForgeReviewUserMessage(artifacts);

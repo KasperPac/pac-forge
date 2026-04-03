@@ -239,7 +239,7 @@ export default function ForgePage() {
 
   async function handleDeviceArtifactsUpdate(artifacts: ForgeArtifact[]) {
     const incomingStages = new Set(artifacts.map(a => a.stage));
-    const existingArtifacts = (session.device_artifacts as ForgeArtifact[] | undefined) ?? [];
+    const existingArtifacts = (session?.device_artifacts as ForgeArtifact[] | undefined) ?? [];
     const mergedArtifacts = [
       ...existingArtifacts.filter(a => !incomingStages.has(a.stage)),
       ...artifacts,
@@ -275,6 +275,7 @@ export default function ForgePage() {
     general_rules: "",
     folder_rules: "",
     io_linking_rules: "",
+    io_linking_mode: "buffered_db" as const,
     process_rules: [],
     fb_rules: [],
     device_fb_language: "SCL" as const,

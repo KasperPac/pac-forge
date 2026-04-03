@@ -1,5 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { callNonStreaming } from "@/hooks/use-generation";
+import type { PromptLayerMeta } from "@/hooks/use-generation";
 import { buildPrompt } from "@/lib/prompt-builder";
 import { buildPlanPrompt, buildSummaryPrompt } from "@/lib/pm-prompt-builder";
 import { executeReviewRewriteLoop } from "@/lib/review-rewrite-loop";
@@ -104,6 +105,7 @@ export function useDemoPipeline() {
       } = input;
 
       const project = input.project ?? DEFAULT_PROJECT;
+      const sessionId = crypto.randomUUID();
       const abort = new AbortController();
       const steps: PipelineStepResult[] = [];
 
@@ -160,7 +162,13 @@ export function useDemoPipeline() {
             promptSections,
           });
 
-          const { content, usage } = await callNonStreaming(systemPrompt, messages, abort.signal);
+          const planPlMeta: PromptLayerMeta = {
+            agent_role: "project_manager",
+            pipeline_step: "plan",
+            session_id: sessionId,
+            project_id: project.id,
+          };
+          const { content, usage } = await callNonStreaming(systemPrompt, messages, abort.signal, undefined, planPlMeta);
 
           updateStep(orchestrator.id, {
             status: "completed",
@@ -204,7 +212,14 @@ export function useDemoPipeline() {
           userMessage: description,
         });
 
-        const { content, usage } = await callNonStreaming(systemPrompt, messages, abort.signal, CODE_GEN_MAX_TOKENS);
+        const genPlMeta: PromptLayerMeta = {
+          agent_role: "code_architect",
+          pipeline_step: "generate",
+          session_id: sessionId,
+          project_id: project.id,
+          generation_mode: "PROJECT_LEVEL",
+        };
+        const { content, usage } = await callNonStreaming(systemPrompt, messages, abort.signal, CODE_GEN_MAX_TOKENS, genPlMeta);
 
         const { artifacts: parsed, summary, errors } = parseArtifacts(content);
         currentArtifacts = parsed;
@@ -238,6 +253,7 @@ export function useDemoPipeline() {
       // --- Steps 2-N: Multi-round review→rewrite loop ---
       if (reviewers.length > 0 && generator) {
         const loopResult = await executeReviewRewriteLoop({
+          sessionId,
           reviewers,
           generator,
           currentArtifacts,
@@ -300,10 +316,18 @@ export function useDemoPipeline() {
                 promptSections,
               });
 
+              const patternPlMeta: PromptLayerMeta = {
+                agent_role: "pattern_librarian",
+                pipeline_step: "patterns",
+                session_id: sessionId,
+                project_id: project.id,
+              };
               const { content, usage } = await callNonStreaming(
                 systemPrompt,
                 promptMessages,
                 abort.signal,
+                undefined,
+                patternPlMeta,
               );
 
               aiCorrections = parsePatternLibrarianResponse(content);
@@ -409,7 +433,13 @@ export function useDemoPipeline() {
             promptSections,
           });
 
-          const { content, usage } = await callNonStreaming(systemPrompt, messages, abort.signal);
+          const summaryPlMeta: PromptLayerMeta = {
+            agent_role: "project_manager",
+            pipeline_step: "summary",
+            session_id: sessionId,
+            project_id: project.id,
+          };
+          const { content, usage } = await callNonStreaming(systemPrompt, messages, abort.signal, undefined, summaryPlMeta);
 
           updateStep(summaryStepId, {
             status: "completed",

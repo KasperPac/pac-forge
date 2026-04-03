@@ -31,7 +31,7 @@ interface UiState {
   bottomPanelTab: BottomPanelTab;
   theme: ThemePreference;
   resolvedTheme: ResolvedTheme;
-  /** Machine-local Dropbox root folder (e.g. "C:\Users\kaspe\Pac Technologies Dropbox") */
+  /** Dropbox root folder cached locally and hydrated from the user profile when available. */
   dropboxRoot: string;
 
   toggleSidebar: () => void;

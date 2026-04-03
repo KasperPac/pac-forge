@@ -20,16 +20,18 @@ import {
   getDeviceCallOrder,
   type DeviceGenContext,
   type DeviceCallFcContext,
+  type IoDirectInstanceBinding,
+  type IoLinkingWrapperBinding,
   extractVarInOutParams,
   isElementaryType,
 } from "@/lib/forge-prompts";
-import { PLATFORM_RULES } from "@/lib/platform-rules";
+import { loadPlatformRules } from "@/lib/platform-rules";
 import { parseGeneralRules, parseFolderRules, resolveDestinationFolder } from "@/lib/design-profile-schemas";
 import type { ForgeSession, ForgeArtifact, ForgeDeviceEntry, ForgeIoEntry } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
 import type { FbTemplate } from "@/types/fb-template";
 import type { PatternCandidate, Instruction } from "@/types";
-import type { ProcessLinkageMatrix, LinkageDevice } from "@/types/forge-matrix";
+import type { ProcessLinkageMatrix } from "@/types/forge-matrix";
 import { fetchInstructionsForPrompt, DEVICE_FB_CATEGORIES } from "@/hooks/use-instructions";
 import { getRelevantReferenceSections, formatReferenceSections } from "@/lib/reference-lookup";
 import { extractConversions, generateDbConverted, generateFcTypeConvertScl, generateFcTypeConvertLad, rewireConvertedSources } from "@/lib/forge-type-convert";
@@ -776,7 +778,6 @@ function backfillGlobalDbFieldsFromWiring(
   // Identify global DB artifacts (not Inputs/instance DBs)
   // Outputs DB IS included — device FB outputs (e.g., motor CMD signals) must be backfilled.
   const inputsName = `${dbPrefix}Inputs`;
-  const outputsName = `${dbPrefix}Outputs`;
   const globalDbs = artifacts.filter(
     a => a.type === "DB" && !a.name.startsWith(instDbPrefix) && a.name !== inputsName,
   );
@@ -788,6 +789,32 @@ function backfillGlobalDbFieldsFromWiring(
   for (const name of globalDbNames) {
     globalDbNameMap.set(name.toLowerCase(), name);
     if (name.startsWith("DB_")) globalDbNameMap.set(name.slice(3).toLowerCase(), name);
+  }
+
+  const configUdts = matrix.configUdts ?? [];
+
+  for (const device of matrix.deviceLinkage) {
+    for (const wire of device.wiring) {
+      if (wire.wireType !== "global" && wire.wireType !== "fb") continue;
+      const connectedTo = wire.connectedTo ?? "";
+      const dotIdx = connectedTo.indexOf(".");
+      if (dotIdx === -1) continue;
+      const fieldName = connectedTo.slice(dotIdx + 1);
+      if (!fieldName.includes(".")) continue;
+
+      const [parentField, ...rest] = fieldName.split(".");
+      const subField = rest.join(".");
+      if (!subField || subField.includes(".")) continue;
+
+      let subType = "Bool";
+      const lower = subField.toLowerCase();
+      if (/time|duration|timeout|delay|dly/i.test(lower)) subType = "Time";
+      else if (/count|code|mode|state|step/i.test(lower)) subType = "Int";
+      else if (/speed|temp|level|setpoint|value/i.test(lower)) subType = "Real";
+
+      if (!udtSubfieldsFromWiring.has(parentField)) udtSubfieldsFromWiring.set(parentField, new Map());
+      udtSubfieldsFromWiring.get(parentField)!.set(subField, subType);
+    }
   }
 
   // Build FB param types from all FB artifacts (including static VAR for UDT outputs like ERROR_Motor)
@@ -835,6 +862,44 @@ function backfillGlobalDbFieldsFromWiring(
     return null;
   }
 
+  function resolveMatrixConfigUdt(fieldName: string, deviceType: string): string | null {
+    if (!/config$/i.test(fieldName) || configUdts.length === 0) return null;
+
+    const referencedSubfields = udtSubfieldsFromWiring.get(fieldName);
+    if (referencedSubfields?.size) {
+      const required = new Set(referencedSubfields.keys());
+      const ranked = configUdts
+        .map((udt) => {
+          const available = new Set(udt.fields.map((field) => field.fieldName));
+          let matchCount = 0;
+          for (const key of required) {
+            if (available.has(key)) matchCount++;
+          }
+          return { name: udt.name, matchCount, totalFields: udt.fields.length };
+        })
+        .filter((entry) => entry.matchCount > 0)
+        .sort((a, b) => b.matchCount - a.matchCount || a.totalFields - b.totalFields);
+      if (ranked.length > 0) return ranked[0].name;
+    }
+
+    const normalizedDevice = deviceType.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const rankedByDevice = configUdts
+      .map((udt) => {
+        const normalizedUdt = udt.name
+          .replace(/^type/i, "")
+          .replace(/config$/i, "")
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, "");
+        return {
+          name: udt.name,
+          distance: levenshtein(normalizedDevice, normalizedUdt),
+        };
+      })
+      .sort((a, b) => a.distance - b.distance);
+
+    return rankedByDevice[0]?.name ?? null;
+  }
+
   // Collect all wiring references to global DBs
   // Stores paramName alongside dataType so we can look up FB interface types by the original param name
   const dbFieldsToAdd = new Map<string, Map<string, { dataType: string; paramName: string }>>(); // dbName → fieldName → { dataType, paramName }
@@ -852,23 +917,8 @@ function backfillGlobalDbFieldsFromWiring(
       const fieldName = connectedTo.slice(dotIdx + 1);
       if (!fieldName) continue;
 
-      // If fieldName contains a dot (e.g. "cv01Config.timeoutDuration"), it's a UDT subfield
-      // reference — collect it for stub UDT enrichment, then skip DB backfill
+      // UDT subfield references are collected in a pre-pass above.
       if (fieldName.includes(".")) {
-        const subParts = fieldName.split(".");
-        const parentField = subParts[0]; // e.g. "cv01Config"
-        const subField = subParts.slice(1).join("."); // e.g. "timeoutDuration"
-        if (subField && !subField.includes(".")) {
-          // Infer type from subfield name
-          let subType = "Bool";
-          const lower = subField.toLowerCase();
-          if (/time|duration|timeout|delay|dly/i.test(lower)) subType = "Time";
-          else if (/count|code|mode|state|step/i.test(lower)) subType = "Int";
-          else if (/speed|temp|level|setpoint|value/i.test(lower)) subType = "Real";
-          // Store for later: parentField's UDT type → subField needs this field
-          if (!udtSubfieldsFromWiring.has(parentField)) udtSubfieldsFromWiring.set(parentField, new Map());
-          udtSubfieldsFromWiring.get(parentField)!.set(subField, subType);
-        }
         continue;
       }
 
@@ -893,6 +943,9 @@ function backfillGlobalDbFieldsFromWiring(
       if (!dataType || dataType === "Variant") {
         // Try the field name itself (sometimes matrix field name matches FB param name)
         dataType = fbParamTypes.get(fieldName) ?? undefined;
+      }
+      if (!dataType || dataType === "Variant") {
+        dataType = resolveMatrixConfigUdt(fieldName, device.deviceType) ?? undefined;
       }
       if (!dataType || dataType === "Variant") {
         // Try matching paramName against UDT artifact names.
@@ -1434,6 +1487,158 @@ function copyTemplateAsArtifacts(
   return artifacts;
 }
 
+interface FbCallInterfaceParam {
+  name: string;
+  dataType: string;
+  direction: "in" | "out" | "inout";
+}
+
+function sanitizeIoTag(io: ForgeIoEntry): string {
+  return (io.tag_name || io.address || "io")
+    .replace(/[^A-Za-z0-9_]/g, "_")
+    .replace(/^[0-9]/, "_$&");
+}
+
+function buildIoWrapperPseudoDevice(io: ForgeIoEntry): ForgeDeviceEntry {
+  const signalName = sanitizeIoTag(io);
+  return {
+    id: `io-wrapper-${signalName}`,
+    name: `IO${signalName}`,
+    tag: io.tag_name,
+    device_type: `${io.signal_type} Wrapper`,
+    description: io.description || `${io.signal_type} IO wrapper`,
+    subsystem: "IO",
+    io_signals: [{
+      tag_name: io.tag_name,
+      signal_type: io.signal_type,
+      description: io.description,
+    }],
+    fb_template_id: null,
+    fb_match_confidence: "none",
+    language_override: "SCL",
+    approved: true,
+  };
+}
+
+function extractFbCallInterfaceParams(sclCode: string): FbCallInterfaceParam[] {
+  const params: FbCallInterfaceParam[] = [];
+  const secRe = /(VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT)([\s\S]*?)END_VAR/gi;
+  let secMatch: RegExpExecArray | null;
+  while ((secMatch = secRe.exec(sclCode)) !== null) {
+    const direction = secMatch[1].toUpperCase() === "VAR_INPUT"
+      ? "in"
+      : secMatch[1].toUpperCase() === "VAR_OUTPUT"
+        ? "out"
+        : "inout";
+    const fieldRe = /^\s+(\w+)\s*:\s*"?([\w.]+)"?/gm;
+    let fieldMatch: RegExpExecArray | null;
+    while ((fieldMatch = fieldRe.exec(secMatch[2])) !== null) {
+      params.push({
+        name: fieldMatch[1],
+        dataType: fieldMatch[2].replace(/^"+|"+$/g, ""),
+        direction,
+      });
+    }
+  }
+  return params;
+}
+
+function pickIoWrapperBinding(
+  io: ForgeIoEntry,
+  template: FbTemplate,
+  instDbPrefix: string,
+): IoLinkingWrapperBinding | null {
+  const mainFb = template.blocks?.find((block) => block.block_type === "FB");
+  if (!mainFb) return null;
+
+  const fbName = extractBlockName(mainFb.scl_code) ?? mainFb.block_name;
+  const params = extractFbCallInterfaceParams(mainFb.scl_code);
+  const scalarParams = params.filter((param) => isElementaryType(param.dataType));
+  const inputParams = scalarParams.filter((param) => param.direction === "in" || param.direction === "inout");
+  const outputParams = scalarParams.filter((param) => param.direction === "out" || param.direction === "inout");
+  const signalType = io.signal_type;
+  const signalName = sanitizeIoTag(io);
+  const instanceDbName = `${instDbPrefix}IO${signalName}`;
+
+  const findParam = (
+    candidates: FbCallInterfaceParam[],
+    patterns: RegExp[],
+  ): FbCallInterfaceParam | null => {
+    for (const pattern of patterns) {
+      const match = candidates.find((param) => pattern.test(param.name));
+      if (match) return match;
+    }
+    return candidates[0] ?? null;
+  };
+
+  const inputParam = signalType === "DI" || signalType === "AI"
+    ? findParam(inputParams, [
+      /raw|input|signal|pv|value|channel|process/i,
+      signalType === "DI" ? /di|digital/i : /ai|analog/i,
+    ])
+    : findParam(inputParams, [
+      /cmd|command|setpoint|request|input|pv|value|output/i,
+      signalType === "DQ" ? /dq|digital/i : /aq|analog/i,
+    ]);
+
+  const outputParam = signalType === "DI" || signalType === "AI"
+    ? findParam(outputParams, [
+      /status|state|filtered|value|signal|out|output/i,
+      signalType === "DI" ? /di|digital/i : /ai|analog/i,
+    ])
+    : findParam(outputParams, [
+      /raw|hw|field|signal|q|out|output|value/i,
+      signalType === "DQ" ? /dq|digital/i : /aq|analog/i,
+    ]);
+
+  if (!inputParam || !outputParam) return null;
+
+  return {
+    ioTagName: io.tag_name,
+    signalType,
+    instanceDbName,
+    fbName,
+    inputParam: inputParam.name,
+    outputParam: outputParam.name,
+  };
+}
+
+function buildDirectIoBindings(
+  matrixWiring: NormalizedWiringEntry[],
+  ioList: ForgeIoEntry[],
+  log: (level: DeviceGenLogLevel, msg: string) => void,
+): IoDirectInstanceBinding[] {
+  const ioByTag = new Map(ioList.map((io) => [io.tag_name.toLowerCase(), io]));
+  const bindings = new Map<string, IoDirectInstanceBinding>();
+
+  for (const device of matrixWiring) {
+    for (const wire of device.wiring) {
+      if (wire.wireType !== "io" || !wire.connectedTo?.trim() || wire.convertedSource) continue;
+      const io = ioByTag.get(wire.connectedTo.toLowerCase());
+      if (!io) continue;
+
+      const key = io.tag_name.toLowerCase();
+      const nextBinding: IoDirectInstanceBinding = {
+        ioTagName: io.tag_name,
+        signalType: io.signal_type,
+        instanceDbName: device.instanceDbName,
+        deviceParamName: wire.paramName,
+      };
+      const existing = bindings.get(key);
+      if (
+        existing &&
+        (existing.instanceDbName !== nextBinding.instanceDbName || existing.deviceParamName !== nextBinding.deviceParamName)
+      ) {
+        log("warn", `Direct IO binding conflict for ${io.tag_name}: keeping ${existing.instanceDbName}.${existing.deviceParamName}, skipping ${nextBinding.instanceDbName}.${nextBinding.deviceParamName}`);
+        continue;
+      }
+      bindings.set(key, nextBinding);
+    }
+  }
+
+  return [...bindings.values()];
+}
+
 /** Parse SCL fenced blocks from Claude response and build ForgeArtifacts. */
 function parseSclArtifacts(
   rawContent: string,
@@ -1640,7 +1845,7 @@ export function useForgeDeviceGenerate() {
 
       const context: DeviceGenContext = {
         profile,
-        platformRules: PLATFORM_RULES,
+        platformRules: loadPlatformRules("forge_device"),
         patterns,
         instructions,
         fbTemplate: null, // no template — pure AI generation, don't confuse AI with wrong template
@@ -1753,6 +1958,7 @@ export function useForgeDeviceGenerate() {
       const allArtifacts: ForgeArtifact[] = [];
       // Track template block names already copied — FB/UDT blocks are shared across devices
       const copiedTemplateBlockNames = new Set<string>();
+      const ioWrapperBindings: IoLinkingWrapperBinding[] = [];
       // Track FB interface text and actual FB name per device type for Device Call FC generation
       const deviceTypeFbInterfaces = new Map<string, string>();
       const deviceTypeFbNames = new Map<string, string>();
@@ -1763,6 +1969,8 @@ export function useForgeDeviceGenerate() {
       const fcPrefix = resolveFcPrefix(profile);
       const inputsDbName = dbPrefix + "Inputs";
       const outputsDbName = dbPrefix + "Outputs";
+      const ioLinkingMode = profile.io_linking_mode ?? "buffered_db";
+      const useDirectIoMode = ioLinkingMode === "direct_instance_db";
 
       // Resolve folder structure from profile
       const folders = parseFolderRules(profile.folder_rules);
@@ -1889,13 +2097,51 @@ END_TYPE`;
           }
         }
 
+        const ioAssignments = profile.io_fb_assignments ?? {};
+        for (const io of ioList ?? []) {
+          const templateId = ioAssignments[io.signal_type];
+          if (!templateId) continue;
+          const template = fbTemplates.find((candidate) => candidate.id === templateId);
+          if (!template?.blocks?.length) {
+            appendLog("warn", `IO wrapper for ${io.tag_name}: assigned template missing blocks`);
+            continue;
+          }
+
+          const wrapperBinding = pickIoWrapperBinding(io, template, instDbPrefix);
+          if (!wrapperBinding) {
+            appendLog("warn", `IO wrapper for ${io.tag_name}: could not infer FB call params from "${template.name}" — keeping direct wiring`);
+            continue;
+          }
+
+          ioWrapperBindings.push(wrapperBinding);
+          const wrapperArtifacts = copyTemplateAsArtifacts(buildIoWrapperPseudoDevice(io), template, instDbPrefix, dbPrefix);
+          for (const artifact of wrapperArtifacts) {
+            if (artifact.type === "FB" || artifact.type === "FC") artifact.destination_folder = fbFolder;
+            else if (artifact.type === "DB" && artifact.name.startsWith(instDbPrefix)) artifact.destination_folder = instDbFolder;
+            else if (artifact.type === "DB") artifact.destination_folder = globalDbFolder;
+          }
+
+          for (const artifact of wrapperArtifacts) {
+            if (artifact.type === "DB" && artifact.name.startsWith(instDbPrefix)) {
+              if (!allArtifacts.some((existing) => existing.type === artifact.type && existing.name === artifact.name)) {
+                allArtifacts.push(artifact);
+              }
+            } else if (!copiedTemplateBlockNames.has(artifact.name)) {
+              allArtifacts.push(artifact);
+              copiedTemplateBlockNames.add(artifact.name);
+            }
+          }
+
+          appendLog("info", `IO wrapper ${template.name}: ${io.tag_name} via ${wrapperBinding.instanceDbName} (${wrapperBinding.inputParam} → ${wrapperBinding.outputParam})`);
+        }
+
         // --- Step 2: Inputs DB (deterministic) ---
         setProgress({
           current: devices.length + 1,
           total: totalSteps,
           currentDevice: "Inputs DB",
         });
-        if (ioList?.length > 0) {
+        if (ioList?.length > 0 && !useDirectIoMode) {
           const inputFields = ioList.filter(io => io.signal_type === "DI" || io.signal_type === "AI");
           const inputsDbCode = generateInputsDb(ioList, inputsDbName);
           allArtifacts.push({
@@ -1919,7 +2165,7 @@ END_TYPE`;
           total: totalSteps,
           currentDevice: "Outputs DB",
         });
-        if (ioList?.length > 0) {
+        if (ioList?.length > 0 && !useDirectIoMode) {
           const outputFields = ioList.filter(io => io.signal_type === "DQ" || io.signal_type === "AQ");
           const outputsDbCode = generateOutputsDb(ioList, outputsDbName);
           allArtifacts.push({
@@ -2045,6 +2291,13 @@ END_TYPE`;
           appendLog("info", `TypeConvert: no conversions needed (empty ${convertFcName} + ${convertedDbName})`);
         }
 
+        const directIoBindings = useDirectIoMode
+          ? buildDirectIoBindings(allMatrixWirings, ioList ?? [], appendLog)
+          : [];
+        if (useDirectIoMode && directIoBindings.length > 0) {
+          appendLog("info", `Direct IO mode: ${directIoBindings.length} signal(s) mapped to device instance DB fields`);
+        }
+
         // --- Step 3d: Create DB_FacePlates for HMI VAR_IN_OUT UDT params ---
         const facePlatesDbName = `${dbPrefix}FacePlates`;
         const facePlateFields: string[] = [];
@@ -2105,10 +2358,10 @@ END_TYPE`;
         });
         if (ioList?.length > 0) {
           const ioLang = profile.io_linking_language ?? "SCL";
-          if (ioLang === "LAD") {
+          if (ioLang === "LAD" && !useDirectIoMode) {
             // LAD IoLinking still uses AI
             const abort = new AbortController();
-            const context: DeviceGenContext = { profile, platformRules: PLATFORM_RULES, patterns, inputsDbName, outputsDbName, instructions: ladInstructions };
+            const context: DeviceGenContext = { profile, platformRules: loadPlatformRules("forge_device"), patterns, inputsDbName, outputsDbName, instructions: ladInstructions };
             const ladPrompt = buildIoLinkingLadPrompt(devices, ioList, context, promptSections);
             const { content } = await validateAndCall(
               callNonStreaming,
@@ -2124,7 +2377,18 @@ END_TYPE`;
             if (artifact) allArtifacts.push({ ...artifact, type: "FC" as const });
           } else {
             // SCL IoLinking is fully deterministic
-            const ioLinkingCode = generateIoLinkingFc(ioList, inputsDbName, outputsDbName, ioLinkingFcName);
+            if (ioLang === "LAD" && useDirectIoMode) {
+              appendLog("warn", `${ioLinkingFcName}: direct IO mode currently forces deterministic SCL IoLinking`);
+            }
+            const ioLinkingCode = generateIoLinkingFc(
+              ioList,
+              inputsDbName,
+              outputsDbName,
+              ioLinkingFcName,
+              ioWrapperBindings,
+              directIoBindings,
+              ioLinkingMode,
+            );
             allArtifacts.push({
               id: crypto.randomUUID(),
               name: ioLinkingFcName,
@@ -2189,11 +2453,12 @@ END_TYPE`;
           const fbInterfaceText = deviceTypeFbInterfaces.get(deviceType) ?? "";
 
           // Look up relevant reference library sections for this device type
+          const refAbort = new AbortController();
           let refSectionsText = "";
           try {
             const refContext = `Device type: ${deviceType}\nFB: ${deviceTypeFbNames.get(deviceType) ?? fcName}\n${fbInterfaceText.slice(0, 2000)}`;
             const refSections = await getRelevantReferenceSections(
-              refContext, "generation_request", "SIEMENS_TIA", abort.signal, 10,
+              refContext, "generation_request", "SIEMENS_TIA", refAbort.signal, 10,
             );
             refSectionsText = formatReferenceSections(refSections, callFcLang === "LAD" ? "LAD" : "SCL");
           } catch { /* reference lookup is best-effort */ }
@@ -2209,8 +2474,9 @@ END_TYPE`;
             outputsDbFields,
             inputsDbName,
             outputsDbName,
+            ioLinkingMode,
             profile,
-            platformRules: PLATFORM_RULES,
+            platformRules: loadPlatformRules("forge_device"),
             patterns,
             matrixWiring,
             facePlatesDbName,
@@ -2514,6 +2780,7 @@ END_TYPE`;
       const matrix = session.linkage_matrix as ProcessLinkageMatrix | null;
       const matrixGlobalDbs = matrix?.globalData ?? [];
       const allArtifacts: ForgeArtifact[] = [];
+      const ioWrapperBindings: IoLinkingWrapperBinding[] = [];
 
       // --- Step 0: Create config UDT artifacts from matrix definitions ---
       const configUdts = matrix?.configUdts ?? [];
@@ -2556,9 +2823,13 @@ END_TYPE`;
       const fcPrefix = resolveFcPrefix(profile);
       const inputsDbName = dbPrefix + "Inputs";
       const outputsDbName = dbPrefix + "Outputs";
+      const ioLinkingMode = profile.io_linking_mode ?? "buffered_db";
+      const useDirectIoMode = ioLinkingMode === "direct_instance_db";
 
       // Resolve folder structure from profile
       const folders = parseFolderRules(profile.folder_rules);
+      const fbFolder = resolveDestinationFolder(folders, "device_fb");
+      const instDbFolder = resolveDestinationFolder(folders, "device_instance_db");
       const callFcFolder = resolveDestinationFolder(folders, "device_call_fc");
       const ioLinkingFolder = resolveDestinationFolder(folders, "io_linking");
       const globalDbFolder = resolveDestinationFolder(folders, "global_db");
@@ -2594,7 +2865,7 @@ END_TYPE`;
           if (!deviceFb && device.fb_template_id) {
             const template = fbTemplates.find(t => t.id === device.fb_template_id);
             const templateFb = template?.blocks?.find(b => b.block_type === "FB" && !!b.scl_code?.trim());
-            if (templateFb?.scl_code) {
+            if (template && templateFb?.scl_code) {
               deviceFb = {
                 id: `template-fallback-${template.id}`,
                 name: extractBlockName(templateFb.scl_code) ?? templateFb.block_name,
@@ -2639,7 +2910,7 @@ END_TYPE`;
           total: totalSteps,
           currentDevice: "Inputs DB",
         });
-        if (ioList?.length > 0) {
+        if (ioList?.length > 0 && !useDirectIoMode) {
           const inputFields = ioList.filter(io => io.signal_type === "DI" || io.signal_type === "AI");
           const inputsDbCode = generateInputsDb(ioList, inputsDbName);
           allArtifacts.push({
@@ -2663,7 +2934,7 @@ END_TYPE`;
           total: totalSteps,
           currentDevice: "Outputs DB",
         });
-        if (ioList?.length > 0) {
+        if (ioList?.length > 0 && !useDirectIoMode) {
           const outputFields = ioList.filter(io => io.signal_type === "DQ" || io.signal_type === "AQ");
           const outputsDbCode = generateOutputsDb(ioList, outputsDbName);
           allArtifacts.push({
@@ -2784,6 +3055,49 @@ END_TYPE`;
           appendLog("info", `TypeConvert: no conversions needed (empty ${convertFcName} + ${convertedDbName})`);
         }
 
+        const directIoBindings2 = useDirectIoMode
+          ? buildDirectIoBindings(allMatrixWirings2, ioList ?? [], appendLog)
+          : [];
+        if (useDirectIoMode && directIoBindings2.length > 0) {
+          appendLog("info", `Direct IO mode: ${directIoBindings2.length} signal(s) mapped to device instance DB fields`);
+        }
+
+        const ioAssignments = profile.io_fb_assignments ?? {};
+        for (const io of ioList ?? []) {
+          const templateId = ioAssignments[io.signal_type];
+          if (!templateId) continue;
+          const template = fbTemplates.find((candidate) => candidate.id === templateId);
+          if (!template?.blocks?.length) {
+            appendLog("warn", `IO wrapper for ${io.tag_name}: assigned template missing blocks`);
+            continue;
+          }
+
+          const wrapperBinding = pickIoWrapperBinding(io, template, instDbPrefix);
+          if (!wrapperBinding) {
+            appendLog("warn", `IO wrapper for ${io.tag_name}: could not infer FB call params from "${template.name}" — keeping direct wiring`);
+            continue;
+          }
+
+          ioWrapperBindings.push(wrapperBinding);
+          const wrapperArtifacts = copyTemplateAsArtifacts(buildIoWrapperPseudoDevice(io), template, instDbPrefix, dbPrefix);
+          for (const artifact of wrapperArtifacts) {
+            if (artifact.type === "FB" || artifact.type === "FC") artifact.destination_folder = fbFolder;
+            else if (artifact.type === "DB" && artifact.name.startsWith(instDbPrefix)) artifact.destination_folder = instDbFolder;
+            else if (artifact.type === "DB") artifact.destination_folder = globalDbFolder;
+          }
+          for (const artifact of wrapperArtifacts) {
+            if (artifact.type === "DB" && artifact.name.startsWith(instDbPrefix)) {
+              if (![...fbArtifacts, ...allArtifacts].some((existing) => existing.type === artifact.type && existing.name === artifact.name)) {
+                allArtifacts.push(artifact);
+              }
+            } else if (![...fbArtifacts, ...allArtifacts].some((existing) => existing.type === artifact.type && existing.name === artifact.name)) {
+              allArtifacts.push(artifact);
+            }
+          }
+
+          appendLog("info", `IO wrapper ${template.name}: ${io.tag_name} via ${wrapperBinding.instanceDbName} (${wrapperBinding.inputParam} → ${wrapperBinding.outputParam})`);
+        }
+
         // --- Step 4: IoLinking FC (deterministic SCL, or LAD via AI) ---
         const ioLinkingFcName = fcPrefix ? `${fcPrefix}IoLinking` : "IoLinking";
         setProgress({
@@ -2842,9 +3156,9 @@ END_TYPE`;
 
         if (ioList?.length > 0) {
           const ioLang = profile.io_linking_language ?? "SCL";
-          if (ioLang === "LAD") {
+          if (ioLang === "LAD" && !useDirectIoMode) {
             const abort = new AbortController();
-            const context: DeviceGenContext = { profile, platformRules: PLATFORM_RULES, patterns, inputsDbName, outputsDbName, instructions: ladInstructions };
+            const context: DeviceGenContext = { profile, platformRules: loadPlatformRules("forge_device"), patterns, inputsDbName, outputsDbName, instructions: ladInstructions };
             const ladPrompt = buildIoLinkingLadPrompt(devices, ioList, context, promptSections);
             const { content } = await validateAndCall(
               callNonStreaming,
@@ -2859,7 +3173,18 @@ END_TYPE`;
             if (!artifact) console.warn("[forge] LAD IO linking parse failed:", content.slice(0, 500));
             if (artifact) allArtifacts.push({ ...artifact, type: "FC" as const });
           } else {
-            const ioLinkingCode = generateIoLinkingFc(ioList, inputsDbName, outputsDbName, ioLinkingFcName);
+            if (ioLang === "LAD" && useDirectIoMode) {
+              appendLog("warn", `${ioLinkingFcName}: direct IO mode currently forces deterministic SCL IoLinking`);
+            }
+            const ioLinkingCode = generateIoLinkingFc(
+              ioList,
+              inputsDbName,
+              outputsDbName,
+              ioLinkingFcName,
+              ioWrapperBindings,
+              directIoBindings2,
+              ioLinkingMode,
+            );
             allArtifacts.push({
               id: crypto.randomUUID(),
               name: ioLinkingFcName,
@@ -2919,12 +3244,13 @@ END_TYPE`;
           const fbIfaceText = deviceTypeFbInterfaces.get(deviceType) ?? "";
 
           // Look up relevant reference library sections for this device type
+          const refAbort2 = new AbortController();
           let refSectionsText2 = "";
           try {
             const refContext2 = `Device type: ${deviceType}\nFB: ${deviceTypeFbNames.get(deviceType) ?? fcName}\n${fbIfaceText.slice(0, 2000)}`;
             const callFcLang2 = profile.device_call_fc_language ?? "SCL";
             const refSections2 = await getRelevantReferenceSections(
-              refContext2, "generation_request", "SIEMENS_TIA", abort.signal, 10,
+              refContext2, "generation_request", "SIEMENS_TIA", refAbort2.signal, 10,
             );
             refSectionsText2 = formatReferenceSections(refSections2, callFcLang2 === "LAD" ? "LAD" : "SCL");
           } catch { /* reference lookup is best-effort */ }
@@ -2940,8 +3266,9 @@ END_TYPE`;
             outputsDbFields,
             inputsDbName,
             outputsDbName,
+            ioLinkingMode,
             profile,
-            platformRules: PLATFORM_RULES,
+            platformRules: loadPlatformRules("forge_device"),
             patterns,
             matrixWiring,
             facePlatesDbName,

@@ -348,12 +348,23 @@ type MessageContent = string | Array<
   | { type: "image"; source: { type: "base64"; media_type: string; data: string } }
 >;
 
+// Inlined PromptLayerMeta to avoid cross-layer import
+interface PlMeta {
+  agent_role?: string;
+  pipeline_step?: string;
+  session_id?: string;
+  project_id?: string;
+  generation_mode?: string;
+  round?: number;
+}
+
 // Match the actual callNonStreaming signature from use-generation.ts
 type NonStreamingCallFn = (
   systemPrompt: string,
   messages: Array<{ role: "user" | "assistant"; content: MessageContent }>,
   signal: AbortSignal,
   maxTokens?: number,
+  plMeta?: PlMeta,
 ) => Promise<{ content: string; usage: { input: number; output: number } | null }>;
 
 /**
