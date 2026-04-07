@@ -5,7 +5,6 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
 const PROMPTLAYER_LOG_URL = "https://api.promptlayer.com/log-request";
-const PROMPTLAYER_METADATA_URL = "https://api.promptlayer.com/rest/track-metadata";
 const CLAUDE_MODEL = "claude-sonnet-4-6";
 const DEFAULT_MAX_TOKENS = 8192;
 const MAX_TOKENS_CAP = 32768;
@@ -34,26 +33,6 @@ type MessageContent = string | Array<{
   source?: { type: "base64"; media_type: string; data: string };
 }>;
 
-interface PromptLayerMetadata {
-  agent_role?: string;
-  pipeline_step?: string;
-  session_id?: string;
-  project_id?: string;
-  design_profile_id?: string;
-  design_profile_name?: string;
-  generation_mode?: string;
-  plc_language?: string;
-  artifact_type?: string;
-  reference_lookup_used?: boolean;
-  reference_section_count?: number;
-  knowledge_doc_count?: number;
-  prompt_section_keys?: string[];
-  call_role?: "primary" | "supporting";
-  function_name?: string;
-  round_index?: number;
-  round?: number;
-}
-
 interface GenerateRequest {
   system_prompt: string;
   messages: Array<{ role: "user" | "assistant"; content: MessageContent }>;
@@ -64,333 +43,67 @@ interface GenerateRequest {
   generation_mode?: "FB_PER_DEVICE" | "PROJECT_LEVEL" | "PROCESS_CODE" | "FB_BUILDER" | "MIGRATION";
   stream?: boolean;
   max_tokens?: number;
-  promptlayer_metadata?: PromptLayerMetadata;
+  // deno-lint-ignore no-explicit-any
+  promptlayer_metadata?: Record<string, any>;
 }
 
-interface PromptLayerLogParams {
-  systemPrompt: string;
-  messages: Array<{ role: string; content: unknown }>;
-  responseText: string;
-  model: string;
-  usage: Record<string, number>;
-  requestStartTime: number;
-  requestEndTime: number;
-  metadata?: PromptLayerMetadata;
-  isStream: boolean;
-  projectContext?: GenerateRequest["project_context"];
-}
-
-interface NormalizedPromptLayerContext {
-  functionName: string;
-  tags: string[];
-  metadata: Record<string, string>;
-  sessionId?: string;
-  artifactType?: string;
-  pipelineStep?: string;
-  roundIndex: number;
-  callRole: "primary" | "supporting";
-}
-
-function inferFunctionName(
-  pipelineStep?: string,
-  generationMode?: string,
-): string {
-  if (!pipelineStep) {
-    return generationMode === "PROCESS_CODE"
-      ? "forge.process.generate"
-      : "forge.device_fb.generate";
-  }
-
-  if (pipelineStep === "reference_lookup") return "reference.lookup";
-  if (pipelineStep === "chat" || pipelineStep === "chat_generate") return "pacst.chat";
-  if (pipelineStep === "review") return "forge.review.run";
-  if (pipelineStep === "rewrite") return "forge.rewrite.run";
-  if (pipelineStep === "compile_fix") return "forge.compile_fix.run";
-  if (pipelineStep === "fb_selection") return "forge.fb_selection.run";
-  if (pipelineStep === "patterns") return "forge.patterns.run";
-  if (pipelineStep === "summary") return "forge.summary.run";
-  if (pipelineStep === "plan") return "forge.plan.run";
-  if (pipelineStep === "process_generate") return "forge.process.generate";
-  if (pipelineStep === "matrix_generate") return "forge.matrix.generate";
-  if (pipelineStep.startsWith("generate_fb_")) return "forge.device_fb.generate";
-  if (pipelineStep.startsWith("generate_")) return "forge.process.generate";
-  if (pipelineStep === "generate") {
-    return generationMode === "PROCESS_CODE"
-      ? "forge.process.generate"
-      : "forge.device_fb.generate";
-  }
-
-  return `forge.${pipelineStep}.run`;
-}
-
-function inferArtifactType(
-  pipelineStep?: string,
-  functionName?: string,
-  generationMode?: string,
-): string | undefined {
-  if (pipelineStep === "reference_lookup" || functionName === "reference.lookup") {
-    return "reference_lookup";
-  }
-  if (pipelineStep === "chat" || pipelineStep === "chat_generate" || functionName === "pacst.chat") {
-    return "chat";
-  }
-  if (pipelineStep === "review" || pipelineStep === "rewrite") {
-    return "device_code";
-  }
-  if (pipelineStep === "compile_fix") return "compile_fix";
-  if (pipelineStep === "matrix_generate" || functionName === "forge.matrix.generate") {
-    return "matrix";
-  }
-  if (pipelineStep === "fb_selection" || functionName === "forge.fb_selection.run") {
-    return "fb_selection";
-  }
-  if (functionName === "forge.process.generate" || generationMode === "PROCESS_CODE") {
-    return "process_code";
-  }
-  if (functionName === "forge.device_call_fc.generate") return "call_fc";
-  if (functionName === "forge.device_fb.generate") return "device_fb";
-  if (functionName === "forge.plan.run") return "plan";
-  if (functionName === "forge.summary.run") return "summary";
-  if (functionName === "forge.patterns.run") return "patterns";
-  return undefined;
-}
-
-function inferCallRole(
-  functionName: string,
-  pipelineStep?: string,
-): "primary" | "supporting" {
-  if (
-    functionName === "reference.lookup" ||
-    functionName === "forge.fb_selection.run" ||
-    pipelineStep === "reference_lookup" ||
-    pipelineStep === "fb_selection"
-  ) {
-    return "supporting";
-  }
-  return "primary";
-}
-
-function normalizePromptLayerContext(
-  metadata: PromptLayerMetadata | undefined,
-  projectContext: GenerateRequest["project_context"] | undefined,
-  isStream: boolean,
-): NormalizedPromptLayerContext {
-  const pipelineStep = metadata?.pipeline_step;
-  const sessionId = metadata?.session_id ?? projectContext?.session_id;
-  const projectId = metadata?.project_id ?? projectContext?.project_id;
-  const roundIndex = metadata?.round_index ?? metadata?.round ?? 0;
-  const functionName = metadata?.function_name ?? inferFunctionName(pipelineStep, metadata?.generation_mode);
-  const artifactType = metadata?.artifact_type ?? inferArtifactType(pipelineStep, functionName, metadata?.generation_mode);
-  const callRole = metadata?.call_role ?? inferCallRole(functionName, pipelineStep);
-  const plcLanguage = metadata?.plc_language?.toLowerCase();
-  const tags = new Set<string>();
-
-  if (functionName.startsWith("forge.")) tags.add("forge");
-  if (functionName === "pacst.chat") tags.add("pacst");
-  if (functionName === "reference.lookup") tags.add("reference");
-  tags.add(isStream ? "streaming" : "non_streaming");
-  if (plcLanguage === "scl" || plcLanguage === "lad") tags.add(plcLanguage);
-
-  const normalized: Record<string, string> = {
-    function_name: functionName,
-    pipeline_step: pipelineStep ?? functionName,
-    call_role: callRole,
-    round_index: String(roundIndex),
-  };
-
-  if (metadata?.agent_role) normalized.agent_role = metadata.agent_role;
-  if (sessionId) normalized.session_id = sessionId;
-  if (projectId) normalized.project_id = projectId;
-  if (metadata?.design_profile_id) normalized.design_profile_id = metadata.design_profile_id;
-  if (metadata?.design_profile_name) normalized.design_profile_name = metadata.design_profile_name;
-  if (metadata?.generation_mode) normalized.generation_mode = metadata.generation_mode;
-  if (metadata?.plc_language) normalized.plc_language = metadata.plc_language;
-  if (artifactType) normalized.artifact_type = artifactType;
-  if (typeof metadata?.reference_lookup_used === "boolean") {
-    normalized.reference_lookup_used = String(metadata.reference_lookup_used);
-  }
-  if (typeof metadata?.reference_section_count === "number") {
-    normalized.reference_section_count = String(metadata.reference_section_count);
-  }
-  if (typeof metadata?.knowledge_doc_count === "number") {
-    normalized.knowledge_doc_count = String(metadata.knowledge_doc_count);
-  }
-  if (metadata?.prompt_section_keys?.length) {
-    normalized.prompt_section_keys = metadata.prompt_section_keys.join(",");
-  }
-
-  return {
-    functionName,
-    tags: [...tags],
-    metadata: normalized,
-    sessionId,
-    artifactType,
-    pipelineStep: pipelineStep ?? functionName,
-    roundIndex,
-    callRole,
-  };
-}
-
-/** Convert message content to PromptLayer content block array format */
-function toPromptLayerContent(
-  content: unknown,
-): Array<{ type: string; text: string }> {
-  if (typeof content === "string") {
-    return [{ type: "text", text: content }];
-  }
-  if (!Array.isArray(content)) {
-    return [{ type: "text", text: String(content ?? "") }];
-  }
-
-  return content.map((block) => {
-    if (typeof block === "object" && block) {
-      const typedBlock = block as { type?: string; text?: string; source?: { media_type?: string } };
-      if (typedBlock.type === "text" && typedBlock.text) {
-        return { type: "text", text: typedBlock.text };
-      }
-      if (typedBlock.type === "image") {
-        return { type: "text", text: `[image:${typedBlock.source?.media_type ?? "unknown"}]` };
-      }
-    }
-    return { type: "text", text: String(block) };
-  });
-}
-
-function persistPromptLayerRequest(
-  supabase: ReturnType<typeof createClient>,
-  userId: string,
-  requestId: number,
-  ctx: NormalizedPromptLayerContext,
-) {
-  if (!ctx.sessionId || !ctx.artifactType || !ctx.pipelineStep) return;
-
-  supabase.from("forge_pl_requests").upsert({
-    user_id: userId,
-    session_id: ctx.sessionId,
-    artifact_type: ctx.artifactType,
-    pipeline_step: ctx.pipelineStep,
-    round_index: ctx.roundIndex,
-    function_name: ctx.functionName,
-    call_role: ctx.callRole,
-    pl_request_id: requestId,
-  }, {
-    onConflict: "session_id,artifact_type,pipeline_step,round_index",
-  }).then(({ error }) => {
-    if (error) {
-      console.warn("[PromptLayer] Request persistence failed:", error.message);
-    }
-  });
-}
-
-// Fire-and-forget PromptLayer logging — never blocks the response
+/** Fire-and-forget log to PromptLayer. Errors are swallowed. */
 function logToPromptLayer(
-  params: PromptLayerLogParams,
-  supabase: ReturnType<typeof createClient>,
-  userId: string,
+  systemPrompt: string,
+  // deno-lint-ignore no-explicit-any
+  messages: any[],
+  responseText: string,
+  model: string,
+  // deno-lint-ignore no-explicit-any
+  usage: Record<string, any>,
+  startTime: number,
+  // deno-lint-ignore no-explicit-any
+  metadata?: Record<string, any>,
 ) {
   const plKey = Deno.env.get("PROMPTLAYER_API_KEY");
-  if (!plKey) {
-    console.warn("[PromptLayer] PROMPTLAYER_API_KEY not set — skipping log");
-    return;
+  if (!plKey) return;
+
+  const functionName = metadata?.pipeline_step ?? metadata?.function_name ?? "forge.generate";
+  const metadataEntries: Record<string, string> = {};
+  if (metadata) {
+    for (const [k, v] of Object.entries(metadata)) {
+      if (v !== undefined && v !== null) metadataEntries[k] = String(v);
+    }
   }
-
-  const ctx = normalizePromptLayerContext(
-    params.metadata,
-    params.projectContext,
-    params.isStream,
-  );
-
-  // /log-request format: provider + model + input/output ChatPrompt + ISO timestamps
-  // All message content MUST be arrays of content blocks: [{ type: "text", text: "..." }]
-  const inputMessages: Array<{ role: string; content: Array<{ type: string; text: string }> }> = [
-    {
-      role: "system",
-      content: [{ type: "text", text: params.systemPrompt }],
-    },
-    ...params.messages.map((message) => ({
-      role: message.role,
-      content: typeof message.content === "string"
-        ? [{ type: "text", text: message.content }]
-        : Array.isArray(message.content)
-          ? (message.content as Array<{ type: string; text?: string }>)
-              .filter((b) => b.type === "text" && b.text)
-              .map((b) => ({ type: "text", text: b.text! }))
-          : [{ type: "text", text: String(message.content) }],
-    })),
-  ];
 
   const requestBody = {
     provider: "anthropic",
-    model: params.model,
-    function_name: ctx.functionName,
+    model,
+    function_name: functionName,
     input: {
       type: "chat",
-      messages: inputMessages,
+      messages: [
+        { role: "system", content: [{ type: "text", text: systemPrompt }] },
+        ...messages.map((m: { role: string; content: string }) => ({
+          role: m.role,
+          content: [{ type: "text", text: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }],
+        })),
+      ],
     },
     output: {
       type: "chat",
-      messages: [
-        {
-          role: "assistant",
-          content: [{ type: "text", text: params.responseText }],
-        },
-      ],
+      messages: [{ role: "assistant", content: [{ type: "text", text: responseText }] }],
     },
-    request_start_time: new Date(params.requestStartTime).toISOString(),
-    request_end_time: new Date(params.requestEndTime).toISOString(),
-    parameters: {
-      max_tokens: params.usage.output_tokens ?? DEFAULT_MAX_TOKENS,
-    },
-    tags: ctx.tags,
-    metadata: ctx.metadata,
-    input_tokens: params.usage.input_tokens ?? 0,
-    output_tokens: params.usage.output_tokens ?? 0,
+    request_start_time: new Date(startTime).toISOString(),
+    request_end_time: new Date().toISOString(),
+    input_tokens: usage.input_tokens ?? 0,
+    output_tokens: usage.output_tokens ?? 0,
     status: "SUCCESS",
+    metadata: metadataEntries,
+    tags: [functionName],
   };
 
-  const outputLen = requestBody.output?.messages?.[0]?.content?.[0]?.text?.length ?? 0;
-  console.log(`[PromptLayer] Sending /log-request: fn=${requestBody.function_name}, input_msgs=${inputMessages.length}, output_len=${outputLen}, tags=${requestBody.tags?.join(",")}`);
+  console.log(`[PromptLayer] Logging: fn=${functionName}, output_len=${responseText.length}`);
 
   fetch(PROMPTLAYER_LOG_URL, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-API-KEY": plKey,
-    },
+    headers: { "Content-Type": "application/json", "X-API-KEY": plKey },
     body: JSON.stringify(requestBody),
-  }).then(async (response) => {
-    if (!response.ok) {
-      const detail = await response.text();
-      throw new Error(`HTTP ${response.status}: ${detail}`);
-    }
-
-    const payload = await response.json();
-    const requestId = Number(payload?.request_id);
-    console.log(`[PromptLayer] Logged request ${requestId} (${ctx.functionName})`);
-    if (!Number.isFinite(requestId)) {
-      return;
-    }
-
-    fetch(PROMPTLAYER_METADATA_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-KEY": plKey,
-      },
-      body: JSON.stringify({
-        request_id: requestId,
-        metadata: ctx.metadata,
-      }),
-    }).then(async (metadataResponse) => {
-      if (!metadataResponse.ok) {
-        const detail = await metadataResponse.text();
-        throw new Error(`HTTP ${metadataResponse.status}: ${detail}`);
-      }
-    }).catch((err) => {
-      console.warn("[PromptLayer] Metadata tracking failed:", err.message);
-    });
-
-    persistPromptLayerRequest(supabase, userId, requestId, ctx);
   }).catch((err) => {
     console.warn("[PromptLayer] Log failed:", err.message);
   });
@@ -483,7 +196,8 @@ Deno.serve(async (req) => {
 
     // Also cache the last context message (reference sections + patterns)
     // if it exists, since these are identical across pipeline steps.
-    const cachedMessages = messages.map(
+    // deno-lint-ignore no-explicit-any
+    const cachedMessages = (messages as any[]).map(
       (msg: { role: string; content: string }, i: number) => {
         // Cache the assistant acknowledgment message (end of context block)
         // which is always at index 1 when context messages are present
@@ -503,6 +217,8 @@ Deno.serve(async (req) => {
       }
     );
 
+    const requestStartTime = Date.now();
+
     const claudeBody = {
       model: CLAUDE_MODEL,
       max_tokens: maxTokens,
@@ -511,7 +227,6 @@ Deno.serve(async (req) => {
       stream: stream ?? false,
     };
 
-    const requestStartTime = Date.now();
     const claudeResponse = await fetch(CLAUDE_API_URL, {
       method: "POST",
       headers: {
@@ -534,7 +249,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Streaming response — forward SSE chunks and log to PromptLayer after completion
+    // Streaming response — forward SSE chunks
     if (stream && claudeResponse.body) {
       const encoder = new TextEncoder();
       const readable = new ReadableStream({
@@ -560,9 +275,10 @@ Deno.serve(async (req) => {
           } finally {
             controller.close();
 
-            // Extract response text and usage from buffered SSE events
+            // Extract response text and usage from buffered SSE events for PromptLayer
             let responseText = "";
-            let streamUsage: Record<string, number> = {};
+            // deno-lint-ignore no-explicit-any
+            let streamUsage: Record<string, any> = {};
             for (const line of fullBuffer.split("\n")) {
               if (!line.startsWith("data: ")) continue;
               try {
@@ -579,18 +295,7 @@ Deno.serve(async (req) => {
               } catch { /* skip non-JSON lines */ }
             }
 
-            logToPromptLayer({
-              systemPrompt: body.system_prompt,
-              messages: body.messages,
-              responseText,
-              model: CLAUDE_MODEL,
-              usage: streamUsage,
-              requestStartTime,
-              requestEndTime: Date.now(),
-              metadata: body.promptlayer_metadata,
-              isStream: true,
-              projectContext: body.project_context,
-            }, supabase, user.id);
+            logToPromptLayer(system_prompt, messages, responseText, CLAUDE_MODEL, streamUsage, requestStartTime, body.promptlayer_metadata);
           }
         },
       });
@@ -618,18 +323,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    logToPromptLayer({
-      systemPrompt: body.system_prompt,
-      messages: body.messages,
-      responseText: content,
-      model: result.model ?? CLAUDE_MODEL,
-      usage,
-      requestStartTime,
-      requestEndTime: Date.now(),
-      metadata: body.promptlayer_metadata,
-      isStream: false,
-      projectContext: body.project_context,
-    }, supabase, user.id);
+    logToPromptLayer(system_prompt, messages, content, result.model ?? CLAUDE_MODEL, usage, requestStartTime, body.promptlayer_metadata);
 
     return jsonResponse(
       { content, model: result.model, usage },

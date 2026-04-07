@@ -1120,6 +1120,7 @@ interface NormalizedWiringEntry {
   deviceName: string;
   instanceDbName: string;
   wiring: import("@/types/forge-matrix").FbWire[];
+  statusMirrors?: import("@/types/forge-matrix").StatusMirror[];
 }
 
 /**
@@ -1405,6 +1406,7 @@ function buildNormalizedMatrixWiring(
 
           return { ...w, paramName: remappedParam, connectedTo };
         }),
+        statusMirrors: d.statusMirrors,
       };
     });
 }
@@ -2232,7 +2234,7 @@ END_TYPE`;
 
         // --- Step 3c: Type Conversion FC + DB (deterministic) ---
         // Pre-build ALL normalized matrix wirings to extract conversion requirements
-        const allMatrixWirings: Array<{ deviceName: string; instanceDbName: string; wiring: import("@/types/forge-matrix").FbWire[] }> = [];
+        const allMatrixWirings: NormalizedWiringEntry[] = [];
         const globalDbMap0 = new Map<string, string>();
         for (const a of allArtifacts) {
           if (a.type !== "DB" || a.name.startsWith(instDbPrefix) || a.name === inputsDbName || a.name === outputsDbName) continue;
@@ -2999,7 +3001,7 @@ END_TYPE`;
         allArtifacts.push(...backfilledArtifacts2);
 
         // --- Step 3c: Type Conversion FC + DB (deterministic) ---
-        const allMatrixWirings2: Array<{ deviceName: string; instanceDbName: string; wiring: import("@/types/forge-matrix").FbWire[] }> = [];
+        const allMatrixWirings2: NormalizedWiringEntry[] = [];
         const globalDbMap0b = new Map<string, string>();
         for (const a of [...fbArtifacts, ...allArtifacts]) {
           if (a.type !== "DB" || a.name.startsWith(instDbPrefix) || a.name === inputsDbName || a.name === outputsDbName) continue;

@@ -156,6 +156,28 @@ export interface FbWire {
   convertedSource?: string;
 }
 
+/**
+ * Status mirror: copies an IO tag value or FB output to ProcessState
+ * so process sequences can read operational status without crossing
+ * into instance DBs directly.
+ *
+ * The call FC generator produces an assignment line for each mirror:
+ *   "DB_ProcessState".fan01Running := "FAN1_RUN";            (sourceType: "io")
+ *   "DB_ProcessState".tt01Value := "InstTT01".rOutEngUnitsValue; (sourceType: "fb_output")
+ */
+export interface StatusMirror {
+  /** Source signal — IO tag name or FB output param name */
+  source: string;
+  /** Where the source value lives */
+  sourceType: "io" | "fb_output";
+  /** Target ProcessState field (e.g. "ProcessState.fan01Running") */
+  target: string;
+  /** PLC data type */
+  dataType: string;
+  /** Human-readable description */
+  description: string;
+}
+
 export interface LinkageDevice {
   id: string;
   name: string;
@@ -167,6 +189,8 @@ export interface LinkageDevice {
   fbTemplateId: string | null;
   instanceDbName: string;
   interlocks: LinkageInterlock[];
+  /** Operational status values mirrored to ProcessState for sequence access */
+  statusMirrors?: StatusMirror[];
 }
 
 /** @deprecated Kept for backward compat with existing sessions in DB. */

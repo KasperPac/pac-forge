@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Navigate } from "react-router";
 import { useAuth } from "@/hooks/use-auth";
+import pacForgeLogo from "@/../media/logos/PacForge_transparent.png";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
@@ -44,9 +45,9 @@ export default function LoginPage() {
   return (
     <div className="flex h-screen items-center justify-center bg-background">
       <Card className="w-full max-w-sm p-6">
-        <div className="mb-6">
-          <div className="font-mono text-xs text-muted-foreground">PAC-FORGE</div>
-          <div className="mt-1 text-xl font-semibold tracking-tight">
+        <div className="mb-6 flex flex-col items-center">
+          <img src={pacForgeLogo} alt="PacForge" className="mb-4 h-16 w-auto object-contain" />
+          <div className="text-xl font-semibold tracking-tight">
             {isSignUp ? "Create Account" : "Sign In"}
           </div>
         </div>

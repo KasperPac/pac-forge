@@ -423,7 +423,71 @@ export async function callStreamingCollect(
     }
   }
 
+  // Log to PromptLayer from the frontend (Edge Function streaming logs are unreliable)
+  if (plMeta && fullContent) {
+    logToPromptLayerFromClient(systemPrompt, messages, fullContent, usage, plMeta).catch(() => {});
+  }
+
   return { content: fullContent, usage };
+}
+
+/**
+ * Client-side PromptLayer logging for streaming calls.
+ * The Edge Function's streaming finally block is unreliable (Deno kills the runtime),
+ * so we log from the frontend after collecting the full response.
+ */
+async function logToPromptLayerFromClient(
+  systemPrompt: string,
+  messages: Array<{ role: string; content: MessageContent }>,
+  responseText: string,
+  usage: { input: number; output: number } | null,
+  meta: PromptLayerMeta,
+): Promise<void> {
+  const plKey = import.meta.env.VITE_PROMPTLAYER_API_KEY as string;
+  if (!plKey) return;
+
+  const functionName = meta.pipeline_step ?? meta.agent_role ?? "forge.generate";
+  const metadataEntries: Record<string, string> = {};
+  for (const [k, v] of Object.entries(meta)) {
+    if (v !== undefined && v !== null) metadataEntries[k] = String(v);
+  }
+
+  const body = {
+    provider: "anthropic",
+    model: "claude-sonnet-4-6",
+    function_name: functionName,
+    input: {
+      type: "chat",
+      messages: [
+        { role: "system", content: [{ type: "text", text: systemPrompt }] },
+        ...messages.map((m) => ({
+          role: m.role,
+          content: [{ type: "text", text: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }],
+        })),
+      ],
+    },
+    output: {
+      type: "chat",
+      messages: [{ role: "assistant", content: [{ type: "text", text: responseText }] }],
+    },
+    request_start_time: new Date(Date.now() - (usage?.output ?? 0) * 50).toISOString(), // approximate
+    request_end_time: new Date().toISOString(),
+    input_tokens: usage?.input ?? 0,
+    output_tokens: usage?.output ?? 0,
+    status: "SUCCESS",
+    metadata: metadataEntries,
+    tags: [functionName],
+  };
+
+  try {
+    await fetch("https://api.promptlayer.com/log-request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-KEY": plKey },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    // Best-effort logging
+  }
 }
 
 /**

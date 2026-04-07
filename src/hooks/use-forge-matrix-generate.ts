@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { streamFromEdgeFunction } from "@/hooks/use-generation";
+import { callStreamingCollect } from "@/hooks/use-generation";
 import {
   buildDeviceLinkagePrompt,
   buildDeviceLinkageUserMessage,
@@ -21,28 +21,35 @@ const DEVICE_LINKAGE_MAX_TOKENS = 20000;
 const SEQUENCES_MAX_TOKENS = 28000;
 
 /**
- * Extract all global DB field names from device linkage wiring.
+ * Extract all global DB field names from device linkage wiring AND statusMirrors.
  * Groups by DB name (e.g. ProcessCommands, ProcessState, FaultData).
  * These are the ONLY field names the sequence AI should use.
  */
 function extractWiringFieldNames(deviceLinkage: LinkageDevice[]): Map<string, Set<string>> {
   const dbFields = new Map<string, Set<string>>();
 
+  function addField(path: string) {
+    const dotIdx = path.indexOf(".");
+    if (dotIdx === -1) return;
+    const dbName = path.slice(0, dotIdx);
+    const fieldName = path.slice(dotIdx + 1);
+    // Skip sub-field access (e.g. Configuration.motor1Config.faultDelay)
+    if (fieldName.includes(".")) return;
+    // Skip IO-layer DBs
+    if (/^(Inputs|Outputs|DB_Inputs|DB_Outputs)$/i.test(dbName)) return;
+    if (!dbFields.has(dbName)) dbFields.set(dbName, new Set());
+    dbFields.get(dbName)!.add(fieldName);
+  }
+
   for (const device of deviceLinkage) {
+    // Regular wiring
     for (const wire of device.wiring) {
       if (wire.wireType !== "global" || !wire.connectedTo) continue;
-      const dotIdx = wire.connectedTo.indexOf(".");
-      if (dotIdx === -1) continue;
-
-      const dbName = wire.connectedTo.slice(0, dotIdx);
-      const fieldName = wire.connectedTo.slice(dotIdx + 1);
-      // Skip sub-field access (e.g. Configuration.motor1Config.faultDelay)
-      if (fieldName.includes(".")) continue;
-      // Skip IO-layer DBs
-      if (/^(Inputs|Outputs|DB_Inputs|DB_Outputs)$/i.test(dbName)) continue;
-
-      if (!dbFields.has(dbName)) dbFields.set(dbName, new Set());
-      dbFields.get(dbName)!.add(fieldName);
+      addField(wire.connectedTo);
+    }
+    // Status mirrors → ProcessState fields
+    for (const mirror of device.statusMirrors ?? []) {
+      if (mirror.target) addField(mirror.target);
     }
   }
 
@@ -450,17 +457,14 @@ export function useForgeMatrixGenerate() {
         } catch { /* reference lookup is best-effort */ }
 
         // Step 1: Generate device linkage FIRST — we need the wiring field names
-        const deviceContent = await streamFromEdgeFunction(
-          {
-            system_prompt: buildDeviceLinkagePrompt(promptSections, loadPlatformRules("matrix"), profileRules, patternSection, refSectionsText, knowledgeText),
-            messages: [{ role: "user", content: buildDeviceLinkageUserMessage(devices, ioList, fbTemplates, generatedFbArtifacts) }],
-            stream: true,
-          },
+        const deviceResult = await callStreamingCollect(
+          buildDeviceLinkagePrompt(promptSections, loadPlatformRules("matrix"), profileRules, patternSection, refSectionsText, knowledgeText),
+          [{ role: "user", content: buildDeviceLinkageUserMessage(devices, ioList, fbTemplates, generatedFbArtifacts) }],
           new AbortController().signal,
-          () => {},
           DEVICE_LINKAGE_MAX_TOKENS,
           { pipeline_step: "forge.matrix.device_linkage", artifact_type: "matrix" },
         );
+        const deviceContent = deviceResult.content;
 
         const { deviceLinkage, configUdts } = parseDeviceLinkage(deviceContent);
 
@@ -468,17 +472,15 @@ export function useForgeMatrixGenerate() {
         const wiringFieldNames = extractWiringFieldNames(deviceLinkage);
 
         // Step 2: Generate sequences WITH the wiring field names from step 1
-        const sequenceContent = await streamFromEdgeFunction(
-          {
-            system_prompt: buildSequencesPrompt(promptSections, loadPlatformRules("matrix"), profileRules, patternSection, refSectionsText, knowledgeText),
-            messages: [{ role: "user", content: buildSequencesUserMessage(devices, specAnalysis, wiringFieldNames) }],
-            stream: true,
-          },
+        console.log("[forge:matrix] Wiring field names for sequences:", JSON.stringify(Object.fromEntries([...wiringFieldNames].map(([k, v]) => [k, [...v]]))));
+        const sequenceResult = await callStreamingCollect(
+          buildSequencesPrompt(promptSections, loadPlatformRules("matrix"), profileRules, patternSection, refSectionsText, knowledgeText),
+          [{ role: "user", content: buildSequencesUserMessage(devices, specAnalysis, wiringFieldNames) }],
           new AbortController().signal,
-          () => {},
           SEQUENCES_MAX_TOKENS,
           { pipeline_step: "forge.matrix.sequences", artifact_type: "matrix" },
         );
+        const sequenceContent = sequenceResult.content;
 
         const { processSequences, globalData, notes, generatedAt } = parseSequences(sequenceContent);
 

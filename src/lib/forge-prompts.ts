@@ -15,7 +15,7 @@ import type {
 } from "@/types/forge";
 import type { FbTemplate } from "@/types/fb-template";
 import type { PatternCandidate, Instruction } from "@/types";
-import type { ProcessLinkageMatrix, FbWire } from "@/types/forge-matrix";
+import type { ProcessLinkageMatrix, FbWire, StatusMirror } from "@/types/forge-matrix";
 import type { ProcessRulesSchema } from "@/types/design-profile";
 import { parseProcessRules } from "@/lib/design-profile-schemas";
 import { formatDesignProfile, formatInstructions } from "@/lib/prompt-builder";
@@ -752,6 +752,7 @@ export interface DeviceCallFcContext {
     deviceName: string;
     instanceDbName: string;
     wiring: FbWire[];
+    statusMirrors?: StatusMirror[];
   }>;
   /** Reference library sections relevant to this device type (from two-pass AI lookup) */
   referenceSections?: string;
@@ -1338,12 +1339,38 @@ export function generateDeviceCallFc(context: DeviceCallFcContext): string | nul
     }
   }
 
+  // Build status mirror assignments — copy operational status to ProcessState
+  const mirrorLines: string[] = [];
+  for (const device of matrixWiring) {
+    for (const mirror of device.statusMirrors ?? []) {
+      if (!mirror.target || !mirror.source) continue;
+      const targetParts = mirror.target.split(".");
+      const targetExpr = targetParts.length >= 2
+        ? `"${dbPrefix}${targetParts[0]}".${targetParts.slice(1).join(".")}`
+        : `"${mirror.target}"`;
+
+      let sourceExpr: string;
+      if (mirror.sourceType === "io") {
+        // IO tag — read from Inputs DB (or direct if direct mode)
+        sourceExpr = directIoMode ? `"${mirror.source}"` : `"${inputsDbName}".${mirror.source}`;
+      } else {
+        // FB output — read from instance DB
+        sourceExpr = `"${device.instanceDbName}".${mirror.source}`;
+      }
+      mirrorLines.push(`    ${targetExpr} := ${sourceExpr};`);
+    }
+  }
+
+  const mirrorSection = mirrorLines.length > 0
+    ? `\n\n    // Status mirrors — copy operational status to ProcessState\n${mirrorLines.join("\n")}`
+    : "";
+
   return [
     `FUNCTION "${fcName}" : Void`,
     `{ S7_Optimized_Access := 'TRUE' }`,
     `VERSION : 0.1`,
     `BEGIN`,
-    callBlocks.join("\n\n"),
+    callBlocks.join("\n\n") + mirrorSection,
     `END_FUNCTION`,
   ].join("\n");
 }
@@ -2433,6 +2460,15 @@ const DEVICE_LINKAGE_SCHEMA = `{
           "condition": "string",
           "direction": "requires | blocks | follows"
         }
+      ],
+      "statusMirrors": [
+        {
+          "source": "string — IO tag name (e.g. FAN1_RUN) or FB output param name (e.g. rOutEngUnitsValue)",
+          "sourceType": "io | fb_output",
+          "target": "string — ProcessState field path (e.g. ProcessState.fan01Running)",
+          "dataType": "string (Bool, Real, Int, Word)",
+          "description": "string — what this status value represents"
+        }
       ]
     }
   ],
@@ -2564,6 +2600,35 @@ Example globalData entry:
     { "id": "f3", "fieldName": "m01Enable",      "dataType": "Bool", "description": "Set by MotorSequence step 10 — enables M01 main drive" }
   ]
 }
+\`\`\`
+
+## Status Mirrors (REQUIRED — makes operational status available to process sequences)
+Process sequences need to read device operational status (is motor running? what is the temperature?) but MUST NOT access instance DBs directly. The \`statusMirrors\` array on each device tells the call FC to copy specific values into ProcessState on every scan.
+
+**When to add statusMirrors:**
+- **Motor/Drive**: Mirror the run feedback IO tag → \`ProcessState.{tag}Running\` (sourceType: "io")
+- **Analog input/sensor**: Mirror the engineering value FB output → \`ProcessState.{tag}Value\` (sourceType: "fb_output", source: "rOutEngUnitsValue" or equivalent)
+- **Valve**: Mirror position feedback IO tags → \`ProcessState.{tag}Open\`, \`ProcessState.{tag}Closed\` (sourceType: "io")
+- **Conveyor/subsystem**: Mirror run feedback → \`ProcessState.{tag}Running\` (sourceType: "io" or "fb_output")
+- **Any device whose status is used as a condition in process sequences**
+
+**When NOT to add statusMirrors:**
+- Push buttons — already wired to ProcessState via FB outputs
+- E-Stop — already wired to ProcessState via FB outputs
+- Status words going to HmiData — those stay in HmiData for display
+
+Example:
+\`\`\`json
+"statusMirrors": [
+  { "source": "FAN1_RUN", "sourceType": "io", "target": "ProcessState.fan01Running", "dataType": "Bool", "description": "Fan 1 run feedback — TRUE when contactor confirmed" },
+  { "source": "rOutEngUnitsValue", "sourceType": "fb_output", "target": "ProcessState.tt01Value", "dataType": "Real", "description": "Temperature sensor scaled engineering value" }
+]
+\`\`\`
+
+The call FC generator will produce:
+\`\`\`scl
+"DB_ProcessState".fan01Running := "FAN1_RUN";
+"DB_ProcessState".tt01Value := "InstTT01".rOutEngUnitsValue;
 \`\`\`
 
 ## Output Format
