@@ -522,6 +522,12 @@ function parseOutputAssignment(output: string, typeMap?: OperandTypeMap): { oper
   // Boolean FALSE — skip. With OUTPUT_COIL pattern, outputs are only ON when
   // explicitly driven by an active step. No need to explicitly drive FALSE.
   if (/^FALSE$/i.test(value)) return null;
+  // Bool DB field reference (e.g. "DB_FaultData.anyFaultLatched") — treat as Bool copy,
+  // not MOVE. The value is a signal reference, not a literal.
+  const resolvedType = resolveOperandType(operand, value, typeMap);
+  if (resolvedType === "Bool" && /^[A-Za-z_"']/.test(value) && !value.includes("(")) {
+    return { operand, coilType: "OUTPUT_COIL", dataType: "Bool", value };
+  }
   // Non-boolean assignment — MOVE box, resolve data type from operand
   return { operand, coilType: "OUTPUT_COIL", dataType: resolveOperandType(operand, value, typeMap), value };
 }
@@ -612,30 +618,59 @@ function buildAllOutputRungs(plan: DeterministicPlan): LadRung[] {
     }
   }
 
-  // MOVE rungs — driven by action bits, not step bits
+  // MOVE / Bool-copy rungs — driven by action bits, not step bits
   for (const mv of moveOutputs) {
     const shortName = mv.operand.split(".").pop() ?? mv.operand;
-    rungs.push({
-      id: `rung_move_${shortName}_a${mv.step}`,
-      title: `${shortName} = ${mv.value}`,
-      comment: mv.action,
-      logic: {
-        type: "series",
-        nodes: [
-          buildContactNode("no", buildDbOperand(plan.dbName, plan.actionArrayName, mv.step), `move_${shortName}_a${mv.step}_active`),
-          {
-            type: "element",
-            element: {
-              id: `move_${shortName}_a${mv.step}`,
-              type: "MOVE",
-              operand: mv.value,
-              outputOperand: mv.operand,
-              dataType: resolveOperandType(mv.operand, mv.value, plan.operandTypes),
+    const resolvedType = resolveOperandType(mv.operand, mv.value, plan.operandTypes);
+
+    if (resolvedType === "Bool") {
+      // Bool-to-Bool copy: action bit AND source signal → output coil
+      // MOVE cannot handle Bool in TIA Portal LAD
+      rungs.push({
+        id: `rung_boolcopy_${shortName}_a${mv.step}`,
+        title: `${shortName} = ${mv.value}`,
+        comment: mv.action,
+        logic: {
+          type: "series",
+          nodes: [
+            buildContactNode("no", buildDbOperand(plan.dbName, plan.actionArrayName, mv.step), `boolcopy_${shortName}_a${mv.step}_active`),
+            buildContactNode("no", mv.value, `boolcopy_${shortName}_a${mv.step}_src`),
+            {
+              type: "element",
+              element: {
+                id: `coil_boolcopy_${shortName}_a${mv.step}`,
+                type: "OUTPUT_COIL",
+                operand: mv.operand,
+                dataType: "Bool",
+              },
             },
-          },
-        ],
-      },
-    });
+          ],
+        },
+      });
+    } else {
+      // Non-Bool: use MOVE box
+      rungs.push({
+        id: `rung_move_${shortName}_a${mv.step}`,
+        title: `${shortName} = ${mv.value}`,
+        comment: mv.action,
+        logic: {
+          type: "series",
+          nodes: [
+            buildContactNode("no", buildDbOperand(plan.dbName, plan.actionArrayName, mv.step), `move_${shortName}_a${mv.step}_active`),
+            {
+              type: "element",
+              element: {
+                id: `move_${shortName}_a${mv.step}`,
+                type: "MOVE",
+                operand: mv.value,
+                outputOperand: mv.operand,
+                dataType: resolvedType,
+              },
+            },
+          ],
+        },
+      });
+    }
   }
 
   return rungs;
