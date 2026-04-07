@@ -17,8 +17,8 @@ export interface TestIoAction {
   tag: string;
   /** Expected value (for read) or forced value (for write) */
   value: boolean | number | string;
-  /** Data type: Bool, Int, DInt, Real, Word */
-  dataType: "Bool" | "Int" | "DInt" | "Real" | "Word";
+  /** Data type: Bool, Int, DInt, Real, Word, Time */
+  dataType: "Bool" | "Int" | "DInt" | "Real" | "Word" | "Time";
   /** For "read": tolerance for analog values */
   tolerance?: number;
   /** For "wait": milliseconds to wait */

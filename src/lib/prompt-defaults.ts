@@ -1925,7 +1925,7 @@ const SHARED_REFERENCE_RETRIEVAL = `You are a topic extraction assistant for Sie
 
 Given the provided context, identify the specific SCL language features, Siemens instructions, data types, programming patterns, and standards that are relevant.
 
-Return ONLY a JSON array of topic strings. Each topic should be 1-4 words.
+Return ONLY a JSON array of topic strings inside \`\`\`json fences. Each topic should be 1-4 words.
 Focus on specific, searchable terms like:
 - SCL instructions: "TON timer", "CASE statement", "FOR loop", "R_TRIG edge detection"
 - Data types: "ARRAY declaration", "STRING handling", "UDT STRUCT", "REAL conversion"

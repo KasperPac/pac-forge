@@ -917,8 +917,21 @@ function backfillGlobalDbFieldsFromWiring(
       const fieldName = connectedTo.slice(dotIdx + 1);
       if (!fieldName) continue;
 
-      // UDT subfield references are collected in a pre-pass above.
+      // UDT subfield references (e.g. pe01Config.clearDelay): extract the parent
+      // field and add it as a UDT-typed field rather than skipping entirely.
       if (fieldName.includes(".")) {
+        const parentField = fieldName.split(".")[0];
+        const resolvedDb = globalDbNameMap.get(rawDbName.toLowerCase());
+        if (resolvedDb && parentField) {
+          const udtType = resolveMatrixConfigUdt(parentField, device.deviceType);
+          if (udtType) {
+            if (!dbFieldsToAdd.has(resolvedDb)) dbFieldsToAdd.set(resolvedDb, new Map());
+            if (!dbFieldsToAdd.get(resolvedDb)!.has(parentField)) {
+              dbFieldsToAdd.get(resolvedDb)!.set(parentField, { dataType: udtType, paramName: parentField });
+              log("fix", `Adding UDT parent field "${parentField} : ${udtType}" to ${resolvedDb} (from wiring ${connectedTo})`);
+            }
+          }
+        }
         continue;
       }
 

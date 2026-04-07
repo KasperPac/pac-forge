@@ -42,7 +42,7 @@ When creating new items, check the board first to find the next available number
 ## Rules
 
 1. **NEVER change a Done item back to any other status** — Done is final
-2. **Minimize API calls** — batch updates where possible, one comment per completed subtask, major comments only on parent
+2. **No API Calls** — use the Monday MCP instad of the API
 3. **Keep descriptions concise** — one paragraph max for description, one sentence for comments
 4. **Use Monday MCP tools only** — never use local scripts or direct token-based Monday API calls
 5. **Use GraphQL mutations** via `mcp__monday__all_monday_api` to rename items when needed

@@ -13,12 +13,41 @@ import type { FbTemplate } from "@/types/fb-template";
 import type { DesignProfile } from "@/types/design-profile";
 import type { PatternCandidate } from "@/types";
 import type { AgentKnowledgeDoc } from "@/types";
-import type { ProcessLinkageMatrix, ProcessSequence, LinkageGlobalData, LinkageDevice, FaultMatrixEntry } from "@/types/forge-matrix";
+import type { ProcessLinkageMatrix, ProcessSequence, SequenceRow, LinkageGlobalData, LinkageDevice, FaultMatrixEntry } from "@/types/forge-matrix";
 import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 import { getRelevantReferenceSections, formatReferenceSections } from "@/lib/reference-lookup";
 
 const DEVICE_LINKAGE_MAX_TOKENS = 20000;
 const SEQUENCES_MAX_TOKENS = 28000;
+
+/**
+ * Extract all global DB field names from device linkage wiring.
+ * Groups by DB name (e.g. ProcessCommands, ProcessState, FaultData).
+ * These are the ONLY field names the sequence AI should use.
+ */
+function extractWiringFieldNames(deviceLinkage: LinkageDevice[]): Map<string, Set<string>> {
+  const dbFields = new Map<string, Set<string>>();
+
+  for (const device of deviceLinkage) {
+    for (const wire of device.wiring) {
+      if (wire.wireType !== "global" || !wire.connectedTo) continue;
+      const dotIdx = wire.connectedTo.indexOf(".");
+      if (dotIdx === -1) continue;
+
+      const dbName = wire.connectedTo.slice(0, dotIdx);
+      const fieldName = wire.connectedTo.slice(dotIdx + 1);
+      // Skip sub-field access (e.g. Configuration.motor1Config.faultDelay)
+      if (fieldName.includes(".")) continue;
+      // Skip IO-layer DBs
+      if (/^(Inputs|Outputs|DB_Inputs|DB_Outputs)$/i.test(dbName)) continue;
+
+      if (!dbFields.has(dbName)) dbFields.set(dbName, new Set());
+      dbFields.get(dbName)!.add(fieldName);
+    }
+  }
+
+  return dbFields;
+}
 
 /**
  * Reconcile sequence variable names against device linkage wiring.
@@ -176,6 +205,59 @@ function parseSequences(content: string): Pick<ProcessLinkageMatrix, "processSeq
  * When found, fix the preceding step group's `next` pointers to target the orphan
  * instead of skipping over it.
  */
+/**
+ * Defensive post-processing: if the AI puts OR / || inside a single row's
+ * condition, split that row into separate branch rows (a, b, c …) at the
+ * same step number.  This prevents the deterministic compiler from throwing
+ * "OR conditions must be split into separate matrix rows".
+ */
+function splitOrRows(sequences: ProcessSequence[]): ProcessSequence[] {
+  const OR_RE = /\s+OR\s+|\|\|/i;
+  return sequences.map((seq) => {
+    if (!seq.rows?.length) return seq;
+
+    let changed = false;
+    const out: SequenceRow[] = [];
+
+    for (const row of seq.rows) {
+      if (!OR_RE.test(row.condition)) {
+        out.push(row);
+        continue;
+      }
+
+      changed = true;
+      const parts = row.condition.split(OR_RE).map((s) => s.trim()).filter(Boolean);
+
+      // Check if any other rows at this step already use branch letters
+      const existingBranches = seq.rows
+        .filter((r) => r.step === row.step && r.branch)
+        .map((r) => r.branch!);
+
+      let nextLetter = "a".charCodeAt(0);
+      if (existingBranches.length) {
+        const maxCode = Math.max(...existingBranches.map((b) => b.charCodeAt(0)));
+        nextLetter = maxCode + 1;
+      }
+
+      for (const part of parts) {
+        out.push({
+          ...row,
+          condition: part,
+          branch: String.fromCharCode(nextLetter),
+          type: "branch",
+        });
+        nextLetter++;
+      }
+
+      console.warn(
+        `[forge:matrix] Auto-split OR condition at ${seq.name} step ${row.step}: "${row.condition}" → ${parts.length} branch rows`,
+      );
+    }
+
+    return changed ? { ...seq, rows: out } : seq;
+  });
+}
+
 function fixOrphanSteps(sequences: ProcessSequence[]): ProcessSequence[] {
   return sequences.map((seq) => {
     if (!seq.rows?.length) return seq;
@@ -219,7 +301,9 @@ function slugToTag(value: string): string {
   const cleaned = value.replace(/[^A-Za-z0-9]+/g, " ").trim();
   const parts = cleaned.split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "faultGeneric";
-  return `fault${parts.map((part) => part[0].toUpperCase() + part.slice(1)).join("")}`;
+  // Cap at 4 words to avoid absurd tag names from full-sentence descriptions
+  const capped = parts.slice(0, 4);
+  return `fault${capped.map((part) => part[0].toUpperCase() + part.slice(1)).join("")}`;
 }
 
 function deriveFaultCondition(
@@ -237,62 +321,87 @@ function deriveFaultCondition(
   return polarity ? trimmed : `NOT (${trimmed})`;
 }
 
-function deriveFaultMatrix(sequences: ProcessSequence[]): FaultMatrixEntry[] {
-  const entries = new Map<string, FaultMatrixEntry>();
-  let code = 1;
+/**
+ * Extract fault field names that the AI actually used in sequence conditions
+ * and outputs. These are the canonical names the fault DB must use.
+ * Looks for patterns like DB_FaultData.fieldName in conditions and outputs.
+ */
+function extractFaultFieldsFromSequences(
+  sequences: ProcessSequence[],
+  faultDbName = "DB_FaultData",
+): Map<string, { tag: string; description: string; condition: string; source: string; sequences: string[] }> {
+  const fields = new Map<string, { tag: string; description: string; condition: string; source: string; sequences: string[] }>();
+  // Match DB_FaultData.fieldName or FaultData.fieldName references
+  const dbPatterns = [faultDbName, faultDbName.replace(/^DB_/, ""), "DB_Faults", "Faults"];
+  const fieldRe = new RegExp(
+    `(?:${dbPatterns.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\.([a-zA-Z_][a-zA-Z0-9_]*)`,
+    "g",
+  );
 
-  const upsert = (
-    tagSeed: string,
-    description: string,
-    condition: string,
-    source: string,
-    sequenceName: string,
-  ) => {
-    const tag = slugToTag(tagSeed);
-    const existing = entries.get(tag);
-    if (existing) {
-      if (!existing.affectsSequences.includes(sequenceName)) {
-        existing.affectsSequences.push(sequenceName);
-      }
-      return;
-    }
-    entries.set(tag, {
-      id: crypto.randomUUID(),
-      code: `F${String(code++).padStart(3, "0")}`,
-      tag,
-      description,
-      condition,
-      resetCondition: `"DB_Faults".faultReset`,
-      source,
-      severity: "fault",
-      affectsSequences: [sequenceName],
-    });
-  };
+  // Skip meta fields — these are hardcoded in buildDeterministicFaultDb
+  const metaFields = new Set(["faultActive", "faultCode", "faultReset", "anyFaultLatched"]);
 
-  for (const sequence of sequences) {
-    for (const safety of sequence.safetyConditions ?? []) {
-      upsert(
-        safety.deviceName ?? safety.description,
-        safety.description,
-        deriveFaultCondition(safety.description, safety.polarity),
-        "safety_condition",
-        sequence.name,
-      );
-    }
-    for (const row of sequence.rows ?? []) {
-      if (row.type === "fault_exit" || row.next === "FAULT") {
-        upsert(
-          row.action || row.condition,
-          row.action || row.condition,
-          row.condition,
-          "fault_exit",
-          sequence.name,
-        );
+  for (const seq of sequences) {
+    for (const row of seq.rows ?? []) {
+      const texts = [row.condition, row.output, row.action].filter(Boolean);
+      for (const text of texts) {
+        let m: RegExpExecArray | null;
+        fieldRe.lastIndex = 0;
+        while ((m = fieldRe.exec(text!)) !== null) {
+          const fieldName = m[1];
+          if (metaFields.has(fieldName)) continue;
+          if (!fields.has(fieldName)) {
+            fields.set(fieldName, {
+              tag: fieldName,
+              description: row.action || row.condition,
+              condition: row.condition,
+              source: row.type === "fault_exit" ? "fault_exit" : "sequence_reference",
+              sequences: [seq.name],
+            });
+          } else {
+            const entry = fields.get(fieldName)!;
+            if (!entry.sequences.includes(seq.name)) entry.sequences.push(seq.name);
+          }
+        }
       }
     }
   }
 
-  return [...entries.values()];
+  return fields;
+}
+
+function deriveFaultMatrix(sequences: ProcessSequence[]): FaultMatrixEntry[] {
+  // Primary: extract fault fields the AI actually referenced in sequence logic.
+  // This ensures the fault DB field names match what the sequence FCs use.
+  const aiFields = extractFaultFieldsFromSequences(sequences);
+
+  const entries: FaultMatrixEntry[] = [];
+  let code = 1;
+  const seen = new Set<string>();
+
+  // Add AI-referenced fields first (these are the canonical names)
+  for (const [fieldName, info] of aiFields) {
+    if (seen.has(fieldName)) continue;
+    seen.add(fieldName);
+    entries.push({
+      id: crypto.randomUUID(),
+      code: `F${String(code++).padStart(3, "0")}`,
+      tag: fieldName,
+      description: info.description,
+      condition: deriveFaultCondition(info.condition, true),
+      resetCondition: `"DB_FaultData".faultReset`,
+      source: info.source,
+      severity: "fault",
+      affectsSequences: info.sequences,
+    });
+  }
+
+  // Safety conditions are NOT added as separate faults — they are checked
+  // by permissives (continuous monitoring) and their fault effects are already
+  // captured in the sequence fault_exit rows above. Adding them would create
+  // duplicate faults with prose-derived conditions that don't compile.
+
+  return entries;
 }
 
 /**
@@ -340,30 +449,37 @@ export function useForgeMatrixGenerate() {
           refSectionsText = formatted || undefined;
         } catch { /* reference lookup is best-effort */ }
 
-        const [deviceContent, sequenceContent] = await Promise.all([
-          streamFromEdgeFunction(
-            {
-              system_prompt: buildDeviceLinkagePrompt(promptSections, loadPlatformRules("matrix"), profileRules, patternSection, refSectionsText, knowledgeText),
-              messages: [{ role: "user", content: buildDeviceLinkageUserMessage(devices, ioList, fbTemplates, generatedFbArtifacts) }],
-              stream: true,
-            },
-            new AbortController().signal,
-            () => {},
-            DEVICE_LINKAGE_MAX_TOKENS,
-          ),
-          streamFromEdgeFunction(
-            {
-              system_prompt: buildSequencesPrompt(promptSections, loadPlatformRules("matrix"), profileRules, patternSection, refSectionsText, knowledgeText),
-              messages: [{ role: "user", content: buildSequencesUserMessage(devices, specAnalysis) }],
-              stream: true,
-            },
-            new AbortController().signal,
-            () => {},
-            SEQUENCES_MAX_TOKENS,
-          ),
-        ]);
+        // Step 1: Generate device linkage FIRST — we need the wiring field names
+        const deviceContent = await streamFromEdgeFunction(
+          {
+            system_prompt: buildDeviceLinkagePrompt(promptSections, loadPlatformRules("matrix"), profileRules, patternSection, refSectionsText, knowledgeText),
+            messages: [{ role: "user", content: buildDeviceLinkageUserMessage(devices, ioList, fbTemplates, generatedFbArtifacts) }],
+            stream: true,
+          },
+          new AbortController().signal,
+          () => {},
+          DEVICE_LINKAGE_MAX_TOKENS,
+          { pipeline_step: "forge.matrix.device_linkage", artifact_type: "matrix" },
+        );
 
         const { deviceLinkage, configUdts } = parseDeviceLinkage(deviceContent);
+
+        // Extract wiring field names to feed into sequences prompt
+        const wiringFieldNames = extractWiringFieldNames(deviceLinkage);
+
+        // Step 2: Generate sequences WITH the wiring field names from step 1
+        const sequenceContent = await streamFromEdgeFunction(
+          {
+            system_prompt: buildSequencesPrompt(promptSections, loadPlatformRules("matrix"), profileRules, patternSection, refSectionsText, knowledgeText),
+            messages: [{ role: "user", content: buildSequencesUserMessage(devices, specAnalysis, wiringFieldNames) }],
+            stream: true,
+          },
+          new AbortController().signal,
+          () => {},
+          SEQUENCES_MAX_TOKENS,
+          { pipeline_step: "forge.matrix.sequences", artifact_type: "matrix" },
+        );
+
         const { processSequences, globalData, notes, generatedAt } = parseSequences(sequenceContent);
 
         // Reconcile sequence field names against device linkage wiring
@@ -373,7 +489,7 @@ export function useForgeMatrixGenerate() {
           globalData ?? [],
           deviceLinkage,
         );
-        const fixedSequences = fixOrphanSteps(reconciledSequences);
+        const fixedSequences = splitOrRows(fixOrphanSteps(reconciledSequences));
 
         if (configUdts?.length) {
           console.log(`[forge:matrix] ${configUdts.length} config UDT(s) defined: ${configUdts.map(u => u.name).join(", ")}`);

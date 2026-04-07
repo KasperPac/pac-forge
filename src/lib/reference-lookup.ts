@@ -6,6 +6,7 @@
 import { supabase } from "@/lib/supabase";
 import { callNonStreaming } from "@/hooks/use-generation";
 import { resolveSection } from "@/lib/prompt-defaults";
+import { parseJsonResponse } from "@/lib/json-response";
 import type { ReferenceLibrarySection } from "@/types";
 
 type ContextType = "generation_request" | "generated_code" | "compile_errors";
@@ -45,23 +46,15 @@ export async function extractRelevantTopics(
     { pipeline_step: "reference_lookup" },
   );
 
-  // Parse JSON array from response (handle markdown code fences)
-  const jsonStr = content
-    .replace(/```json\s*/g, "")
-    .replace(/```\s*/g, "")
-    .trim();
+  const parsed = parseJsonResponse<unknown>(content);
+  if (Array.isArray(parsed)) {
+    return parsed.filter((t): t is string => typeof t === "string").slice(0, 15);
+  }
 
-  try {
-    const parsed = JSON.parse(jsonStr);
-    if (Array.isArray(parsed)) {
-      return parsed.filter((t): t is string => typeof t === "string").slice(0, 15);
-    }
-  } catch {
-    // Fallback: extract quoted strings
-    const matches = content.match(/"([^"]+)"/g);
-    if (matches) {
-      return matches.map((m) => m.replace(/"/g, "")).slice(0, 15);
-    }
+  // Fallback: extract quoted strings
+  const matches = content.match(/"([^"]+)"/g);
+  if (matches) {
+    return matches.map((m) => m.replace(/"/g, "")).slice(0, 15);
   }
 
   return [];

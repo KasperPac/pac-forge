@@ -57,6 +57,16 @@ import type {
   TestIoAction,
   TestCategory,
 } from "@/types/plcsim-test";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -140,6 +150,34 @@ function collectAvailableTags(session: ForgeSession): string[] {
   return Array.from(tags).sort();
 }
 
+/**
+ * Detect test actions that override timing configuration for reliable testing.
+ * Returns a list of human-readable descriptions of the overrides.
+ */
+function detectTimingOverrides(testCases: PlcsimTestCase[]): string[] {
+  const overrides: string[] = [];
+  const seen = new Set<string>();
+  for (const tc of testCases) {
+    for (const step of tc.steps) {
+      for (const action of step.actions) {
+        if (action.type !== "write") continue;
+        // Detect Time-type writes to Configuration/Config DBs
+        const tag = action.tag.toLowerCase();
+        if (
+          (tag.includes("config") || tag.includes("delay") || tag.includes("timeout") || tag.includes("duration")) &&
+          (typeof action.value === "string" && /^T#/i.test(action.value))
+        ) {
+          const key = action.tag;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          overrides.push(`${action.tag} \u2192 ${action.value}`);
+        }
+      }
+    }
+  }
+  return overrides;
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -172,6 +210,8 @@ export function ForgePlcsimTest({
   } = usePlcsimRunner();
   const { analyse: analyseFailures, loading: analysisLoading } = usePlcsimTestAnalysis();
   const [pauseOnFailure, setPauseOnFailure] = useState(true);
+  const [timingOverrides, setTimingOverrides] = useState<string[] | null>(null);
+  const pendingRunRef = useRef<(() => void) | null>(null);
 
   const loading = genLoading || execRunning || analysisLoading;
   const error = genError || execError;
@@ -244,7 +284,20 @@ export function ForgePlcsimTest({
 
   async function handleRunAll() {
     if (!suite) return;
-    // Clear previous results before running
+
+    // Check for timing configuration overrides
+    const overrides = detectTimingOverrides(suite.testCases);
+    if (overrides.length > 0) {
+      setTimingOverrides(overrides);
+      pendingRunRef.current = () => executeRunAll();
+      return; // Wait for user to confirm the dialog
+    }
+
+    executeRunAll();
+  }
+
+  async function executeRunAll() {
+    if (!suite) return;
     const clearedSuite: PlcsimTestSuite = { ...suite, results: [], summary: null };
     setSuite(clearedSuite);
     setLiveStepResults(new Map());
@@ -815,6 +868,42 @@ export function ForgePlcsimTest({
           </ResizablePanel>
         </ResizablePanelGroup>
       )}
+      {/* Timing configuration override dialog */}
+      <AlertDialog open={timingOverrides !== null} onOpenChange={(open) => { if (!open) { setTimingOverrides(null); pendingRunRef.current = null; } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Timing Configuration Adjustment</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  To ensure accurate and repeatable test results, the test runner will temporarily
+                  adjust the following timing parameters to allow sufficient measurement windows
+                  between state transitions.
+                </p>
+                <div className="rounded-md border border-border bg-muted/50 p-3 font-mono text-xs space-y-1">
+                  {timingOverrides?.map((o, i) => (
+                    <div key={i}>{o}</div>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  These values will be written to the PLC at the start of each relevant test
+                  and will persist until the project is re-downloaded or the values are manually reset.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => {
+              setTimingOverrides(null);
+              pendingRunRef.current?.();
+              pendingRunRef.current = null;
+            }}>
+              Continue
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -1230,6 +1319,7 @@ function StepCard({ step, stepResult, availableTags, onUpdateAction, onAddAction
                     <SelectItem value="DInt">DInt</SelectItem>
                     <SelectItem value="Real">Real</SelectItem>
                     <SelectItem value="Word">Word</SelectItem>
+                    <SelectItem value="Time">Time</SelectItem>
                   </SelectContent>
                 </Select>
                 <Input

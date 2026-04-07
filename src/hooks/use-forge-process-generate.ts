@@ -29,6 +29,7 @@ import { fetchInstructionsForPrompt, PROCESS_CODE_CATEGORIES } from "@/hooks/use
 import { getRelevantReferenceSections, formatReferenceSections } from "@/lib/reference-lookup";
 import {
   buildDeterministicFaultDb,
+  buildOperandTypeMap,
   compileDeterministicFaultArtifact,
   compileDeterministicProcessArtifact,
 } from "@/lib/forge-process-compiler";
@@ -67,6 +68,104 @@ function extractFbInterfaces(deviceArtifacts: ForgeArtifact[]): string {
     return result.slice(0, 6000) + "\n// ... (truncated — see Device Wiring Reference for field names)";
   }
   return result;
+}
+
+/**
+ * Scan all process FC/FB artifacts for "DbName".fieldName references,
+ * then add any missing fields to the corresponding DB artifacts.
+ * This ensures the DBs have every field that the compiled logic references.
+ */
+/**
+ * Reconcile DB fields: scan process FCs for DB.field references, find missing
+ * fields in the DB artifacts, and add them. If a device DB needs updating,
+ * clone it into the process artifacts array so the updated version gets uploaded.
+ */
+function reconcileProcessDbFields(processArtifacts: ForgeArtifact[], deviceArtifacts: ForgeArtifact[] = []): void {
+  // Build map of DB artifacts from both pools
+  const dbArtifacts = new Map<string, ForgeArtifact>();
+  for (const a of [...processArtifacts, ...deviceArtifacts]) {
+    if (a.type === "DB") {
+      dbArtifacts.set(a.name, a);
+      if (a.name.startsWith("DB_")) dbArtifacts.set(a.name.slice(3), a);
+    }
+  }
+  if (dbArtifacts.size === 0) return;
+
+  // Only scan process FCs/FBs for references
+  const artifacts = processArtifacts;
+
+  // Collect all DB.fieldName references from FC/FB/OB artifacts.
+  // Matches both quoted ("DB_Name".field) and unquoted (DB_Name.field) formats —
+  // the compiler produces quoted, but LAD JSON operands store unquoted.
+  const referencedFields = new Map<string, Set<string>>(); // dbArtifactName → field names
+  const dbFieldRefRe = /"?([A-Za-z_][A-Za-z0-9_]*)"?\.([A-Za-z_]\w*)/g;
+
+  for (const a of artifacts) {
+    if (a.type === "DB") continue;
+    let m: RegExpExecArray | null;
+    dbFieldRefRe.lastIndex = 0;
+    while ((m = dbFieldRefRe.exec(a.content)) !== null) {
+      const dbName = m[1];
+      const fieldName = m[2];
+      // Skip array access patterns (S[0], A[10]) — these are array elements, not fields to add
+      if (/^[SA]$/.test(fieldName)) continue;
+      // Skip non-DB identifiers (FB instance names, keywords, etc.)
+      const dbArtifact = dbArtifacts.get(dbName);
+      if (!dbArtifact) continue;
+      const canonicalName = dbArtifact.name;
+      if (!referencedFields.has(canonicalName)) referencedFields.set(canonicalName, new Set());
+      referencedFields.get(canonicalName)!.add(fieldName);
+    }
+  }
+
+  // For each DB, find missing fields and add them.
+  // If the DB is from deviceArtifacts (not in processArtifacts), clone it into
+  // processArtifacts so the updated version gets uploaded with the process code.
+  for (const [dbName, refFields] of referencedFields) {
+    // Find the DB in any pool
+    let dbArtifact = processArtifacts.find(a => a.type === "DB" && a.name === dbName);
+    let cloned = false;
+    if (!dbArtifact) {
+      // DB is from device artifacts — clone it into process artifacts
+      const deviceDb = deviceArtifacts.find(a => a.type === "DB" && a.name === dbName);
+      if (!deviceDb) continue;
+      dbArtifact = { ...deviceDb, id: crypto.randomUUID(), stage: "process" as const };
+      cloned = true;
+    }
+
+    const existingFields = new Set(parseDbFields(dbArtifact.content).map(f => f.name));
+    const missing = [...refFields].filter(f => !existingFields.has(f));
+    if (missing.length === 0) {
+      // Even if no missing fields, if it was cloned we need to add it so it gets re-uploaded
+      // (the process FCs reference it, so it must be in the upload set)
+      continue;
+    }
+
+    // Infer data types from field names
+    const newFieldLines = missing.map(fieldName => {
+      const lower = fieldName.toLowerCase();
+      let dataType = "Bool";
+      if (/direction|mode|count|code|step|index|number/i.test(lower)) dataType = "Int";
+      else if (/speed|temp|level|setpoint|value|rate/i.test(lower)) dataType = "Real";
+      else if (/dly|delay|time|duration|timeout/i.test(lower)) dataType = "Time";
+      return `    ${fieldName} : ${dataType};`;
+    });
+
+    // Insert before END_VAR
+    const endVarIdx = dbArtifact.content.indexOf("END_VAR");
+    if (endVarIdx === -1) continue;
+
+    dbArtifact.content =
+      dbArtifact.content.slice(0, endVarIdx) +
+      newFieldLines.join("\n") + "\n  " +
+      dbArtifact.content.slice(endVarIdx).trimStart();
+
+    if (cloned) {
+      processArtifacts.push(dbArtifact);
+    }
+
+    console.log(`[forge:process] Reconciled ${dbName}: added ${missing.length} missing field(s) [${missing.join(", ")}]${cloned ? " (cloned from device artifacts)" : ""}`);
+  }
 }
 
 /** Parse fields from an SCL VAR block */
@@ -428,6 +527,41 @@ function buildStepsSectionFromRows(rows: SequenceRow[]): string {
   return lines.join("\n");
 }
 
+/**
+ * Defensive: split any row whose condition contains OR / || into separate
+ * branch rows so the deterministic compiler doesn't reject them.
+ */
+function splitOrConditions(seq: ProcessSequence): ProcessSequence {
+  const OR_RE = /\s+OR\s+|\|\|/i;
+  if (!seq.rows?.length) return seq;
+
+  let changed = false;
+  const out: SequenceRow[] = [];
+
+  for (const row of seq.rows) {
+    if (!OR_RE.test(row.condition)) {
+      out.push(row);
+      continue;
+    }
+    changed = true;
+    const parts = row.condition.split(OR_RE).map((s) => s.trim()).filter(Boolean);
+    const existingBranches = seq.rows
+      .filter((r) => r.step === row.step && r.branch)
+      .map((r) => r.branch!);
+    let nextLetter = "a".charCodeAt(0);
+    if (existingBranches.length) {
+      nextLetter = Math.max(...existingBranches.map((b) => b.charCodeAt(0))) + 1;
+    }
+    for (const part of parts) {
+      out.push({ ...row, condition: part, branch: String.fromCharCode(nextLetter), type: "branch" });
+      nextLetter++;
+    }
+    console.warn(`[forge:process] Auto-split OR condition at ${seq.name} step ${row.step}`);
+  }
+
+  return changed ? { ...seq, rows: out } : seq;
+}
+
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
@@ -471,13 +605,16 @@ export function useForgeProcessGenerate() {
       } catch { /* ignore */ }
 
       if (matrixSequence?.rows?.length && processSchema?.step_action_db?.enabled && stepActionDbName) {
+        const safeSequence = splitOrConditions(matrixSequence);
+        const operandTypes = buildOperandTypeMap((session.device_artifacts as ForgeArtifact[]) ?? []);
         return [compileDeterministicProcessArtifact({
-          sequence: matrixSequence,
+          sequence: safeSequence,
           blockName: matrixSequence.name,
           dbName: stepActionDbName,
           stepArrayName: processSchema.step_action_db.step_array_name || "S",
           actionArrayName: processSchema.step_action_db.action_array_name || "A",
           language: isLad ? "LAD" : "SCL",
+          operandTypes,
         })];
       }
 
@@ -919,6 +1056,17 @@ Output MUST use the tagged fenced block format: \`\`\`scl [FB:${matrixSequence.n
             while ((match = actionRe.exec(content)) !== null) maxStep = Math.max(maxStep, parseInt(match[1], 10));
 
             const arraySize = maxStep + 1;
+
+            // Scan for timer instances (instStepTimer_N) referenced in the LAD JSON
+            const timerRe = /instStepTimer_(\d+)/g;
+            const timerSteps = new Set<number>();
+            let tm: RegExpExecArray | null;
+            while ((tm = timerRe.exec(content)) !== null) timerSteps.add(parseInt(tm[1], 10));
+
+            const timerDecls = [...timerSteps].sort((a, b) => a - b)
+              .map(n => `    instStepTimer_${n} : TON;   // Timeout timer for step ${n}`)
+              .join("\n");
+
             const dbCode = `DATA_BLOCK "${dbName}"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1
@@ -926,7 +1074,7 @@ VERSION : 0.1
   VAR
     ${S} : Array[0..${arraySize - 1}] of Bool;   // Step activation bits
     ${A} : Array[0..${arraySize - 1}] of Bool;   // Action activation bits
-  END_VAR
+${timerDecls ? timerDecls + "\n" : ""}  END_VAR
 
 BEGIN
 
@@ -943,6 +1091,7 @@ END_DATA_BLOCK`;
               destination_folder: "Program blocks/Forge/Process",
               dependencies: [],
               compile_after_import: false,
+              deterministic: true,
             });
           }
         }
@@ -957,9 +1106,11 @@ END_DATA_BLOCK`;
           });
 
           allArtifacts.push(buildDeterministicFaultDb(faultMatrix));
+          const devArtifactsForTypes = (session.device_artifacts as ForgeArtifact[]) ?? [];
           const faultArtifact = compileDeterministicFaultArtifact({
             faults: faultMatrix,
             language: session.process_code_language ?? profile.process_code_language ?? "SCL",
+            operandTypes: buildOperandTypeMap(devArtifactsForTypes),
           });
           if (faultArtifact) {
             allArtifacts.push(faultArtifact);
@@ -1033,7 +1184,13 @@ END_DATA_BLOCK`;
           destination_folder: "Program blocks",
           dependencies: [],
           compile_after_import: true,
+          deterministic: true,
         });
+
+        // Final reconciliation: scan all process FCs for DB.field references
+        // and add any missing fields to the corresponding DB artifacts.
+        // Include device artifacts so device-step DBs (DB_ProcessState, etc.) get updated too.
+        reconcileProcessDbFields(allArtifacts, devArtifacts);
 
         return allArtifacts;
       } catch (err) {

@@ -5,6 +5,7 @@ import {
   buildQaReviewPrompt,
   buildQaUpdateAnalysisPrompt,
 } from "@/lib/forge-prompts";
+import { getJsonResponseCandidates, parseJsonResponse } from "@/lib/json-response";
 import type { QaMessage, SpecAnalysis } from "@/types/forge";
 import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 
@@ -44,14 +45,6 @@ function detectComplete(text: string): boolean {
   const hasOutstandingQuestions = text.includes("?");
 
   return hasExplicitFinalization && !hasOutstandingQuestions;
-}
-
-/**
- * Extract the first ```json ... ``` block from a PM response.
- */
-function extractJsonBlock(text: string): string | null {
-  const match = text.match(/```json\s*([\s\S]*?)```/);
-  return match?.[1]?.trim() ?? null;
 }
 
 export function useForgeQaReview() {
@@ -185,19 +178,17 @@ export function useForgeQaReview() {
     // PM responses during Q&A often include only partial/discussed data.
     const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
     if (lastAssistant) {
-      const jsonBlock = extractJsonBlock(lastAssistant.content);
-      if (jsonBlock) {
+      for (const candidateText of getJsonResponseCandidates(lastAssistant.content)) {
         try {
-          const candidate = JSON.parse(jsonBlock) as SpecAnalysis;
+          const candidate = JSON.parse(candidateText) as SpecAnalysis;
           const originalDeviceCount = (originalAnalysis.devices ?? []).length;
           const candidateDeviceCount = (candidate.devices ?? []).length;
           // Only use if it preserves all original devices (or original had none)
           if (originalDeviceCount === 0 || candidateDeviceCount >= originalDeviceCount) {
             return candidate;
           }
-          // Otherwise fall through to dedicated finalization call
         } catch {
-          // Fall through to dedicated call
+          // Try the next extracted candidate.
         }
       }
     }
@@ -249,10 +240,11 @@ export function useForgeQaReview() {
         "pm_qa",
       );
 
-      // Try to parse the response directly, or extract from a json block
-      const jsonBlock = extractJsonBlock(content);
-      const jsonStr = jsonBlock ?? content.trim();
-      return JSON.parse(jsonStr) as SpecAnalysis;
+      const parsed = parseJsonResponse<SpecAnalysis>(content);
+      if (!parsed) {
+        throw new Error("Finalized SpecAnalysis response was not valid JSON");
+      }
+      return parsed;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to finalize analysis";
       setError(msg);

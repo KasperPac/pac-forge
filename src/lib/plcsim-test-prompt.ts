@@ -50,7 +50,7 @@ const TEST_SUITE_SCHEMA = `{
               "type": "write | read | wait",
               "tag": "string (PLC tag — symbolic name like \\"DB_Inputs\\".ESTOP_OK)",
               "value": "boolean | number | string",
-              "dataType": "Bool | Int | DInt | Real | Word",
+              "dataType": "Bool | Int | DInt | Real | Word | Time",
               "tolerance": "number (optional, for analog read assertions)",
               "waitMs": "number (optional, for wait actions — ms)",
               "description": "string"
@@ -78,6 +78,20 @@ export function buildPlcsimTestPrompt(
   return `${identity}
 
 ${instructions}
+
+## CRITICAL: Timer and Delay Configuration for Testing
+
+The test framework has network latency (~200-300ms per action) between the test runner and PLCSIM.
+Any timer or delay configuration under 2 seconds is too fast to reliably test intermediate states.
+
+When a test needs to verify a timer-dependent behavior (e.g., on-delay, off-delay, feedback timeout):
+1. In the FIRST step of the test, WRITE the configuration DB timer value to T#2s (or 2000 for Int/DInt fields)
+   Example: write "DB_Configuration".pe01Config.blockedDelay = T#2s
+2. Use a wait action of at least 500ms between write and read when checking intermediate states
+3. Use a wait action that EXCEEDS the overridden timer value when checking timer-elapsed states (e.g., waitMs: 2500 for a T#2s timer)
+
+This applies to ALL Time-type configuration fields (clearDelay, blockedDelay, feedbackTimeout, timeoutDuration, etc.).
+Do NOT skip this — tests WILL fail if sub-second timers are not overridden.
 
 ## Output Format
 
@@ -142,9 +156,15 @@ export function buildPlcsimTestUserMessage(
     parts.push("DB tags include DB_Inputs.*, DB_Outputs.*, DB_Process_Commands.*, instance DB fields, DB_HmiData.*, etc.");
     parts.push("");
     parts.push("### For device_fb tests (unit testing a single FB):");
-    parts.push("- You MAY write to DB tags that are FB inputs (e.g., DB_Process_Commands.cv01RunForward) to directly drive the FB under test, bypassing sequence logic.");
-    parts.push("- This is like bench-testing a device — you force the command inputs and check the outputs.");
-    parts.push("- READ the FB's output DB tags or physical output tags to verify behaviour.");
+    parts.push("- CRITICAL: Do NOT write to DB_ProcessCommands, DB_ProcessState, or any global DB for device_fb tests — the process sequence FC and device call FCs overwrite these every scan cycle and your writes will be lost immediately.");
+    parts.push("- Instead, write directly to the INSTANCE DB of the FB under test using \"InstanceDbName\".paramName syntax.");
+    parts.push("  The Device Linkage table above shows each device's Instance DB name and parameter names.");
+    parts.push("  Example: to set M01 to run forward, write to \"InstM01\".run = TRUE (NOT to DB_ProcessCommands.m01CmdFwd).");
+    parts.push("  Example: to enable CV01, write to \"InstCV01\".enable = TRUE.");
+    parts.push("  Example: to set motor mode, write to \"InstM01\".mode = 2.");
+    parts.push("- For physical IO inputs (sensor signals, feedback), write to the physical input tags directly (e.g., M01_RUN, ESTOP_OK, PE01_DET).");
+    parts.push("- READ physical output tags (M01_CMD_FWD, M01_CMD_REV) or instance DB output params (\"InstM01\".fwdrun) to verify behaviour.");
+    parts.push("- This is bench-testing — you bypass the device call FC entirely and drive the FB instance directly.");
     parts.push("");
     parts.push("### For all other tests (normal, fault, permissive, interlock, reset):");
     parts.push("- WRITE only to physical INPUT tags (from the table above). The sequence logic drives DB tags.");

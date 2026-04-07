@@ -108,7 +108,8 @@ export function ForgeProcessCode({
       setStageStatus("Generate", "completed", `${generated.length} artifacts`);
 
       // 2. Review SCL artifacts only — LAD JSON can't be meaningfully reviewed by Standards Enforcer
-      const sclArtifacts = generated.filter(a => a.language === "SCL");
+      //    Also exclude deterministic artifacts (compiler-generated, structurally correct by construction)
+      const sclArtifacts = generated.filter(a => a.language === "SCL" && !a.deterministic);
       if (sclArtifacts.length > 0) {
         setStageStatus("Review", "running");
         const reviewResult = await review(sclArtifacts, "process", profile);
@@ -120,9 +121,9 @@ export function ForgeProcessCode({
           // 3. Rewrite
           setStageStatus("Fix", "running");
           const rewritten = await rewrite(sclArtifacts, reviewResult.findings, profile);
-          // Merge rewritten SCL back with unchanged LAD artifacts
-          const ladArtifacts = generated.filter(a => a.language !== "SCL");
-          const merged = [...ladArtifacts, ...rewritten];
+          // Merge rewritten SCL back with unchanged LAD + deterministic artifacts
+          const unchangedArtifacts = generated.filter(a => a.language !== "SCL" || a.deterministic);
+          const merged = [...unchangedArtifacts, ...rewritten];
           setArtifacts(merged);
           onArtifactsUpdate(merged);
           setStageStatus("Fix", "completed", `${count} fixed`);

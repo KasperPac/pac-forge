@@ -45,7 +45,17 @@ interface DeterministicPlan {
   actionArrayName: string;
   orderedSteps: number[];
   steps: CompiledStep[];
+  /** Steps that reference stepTimer.Q — need TON instances in the DB */
+  timerSteps: Set<number>;
+  /** Operand type map for resolving data types in CMP/MOVE elements */
+  operandTypes?: OperandTypeMap;
 }
+
+/**
+ * Map of fully-qualified operand paths (e.g. "DB_ProcessState.tempPv") to their
+ * PLC data type (e.g. "Real", "Int", "Bool"). Built from DB artifact SCL declarations.
+ */
+export type OperandTypeMap = Map<string, string>;
 
 export interface DeterministicCompilerInput {
   sequence: ProcessSequence;
@@ -54,6 +64,8 @@ export interface DeterministicCompilerInput {
   stepArrayName: string;
   actionArrayName: string;
   language: "SCL" | "LAD";
+  /** Optional type map for resolving operand data types (CMP, MOVE, etc.) */
+  operandTypes?: OperandTypeMap;
 }
 
 export interface DeterministicFaultCompilerInput {
@@ -61,6 +73,75 @@ export interface DeterministicFaultCompilerInput {
   language: "SCL" | "LAD";
   blockName?: string;
   dbName?: string;
+  /** Optional type map for resolving operand data types */
+  operandTypes?: OperandTypeMap;
+}
+
+/**
+ * Build an OperandTypeMap from DB artifact SCL content.
+ * Parses VAR declarations to extract field names and their data types.
+ * Supports nested struct-like access (e.g. "DB_Config.threshold" → "Real").
+ */
+export function buildOperandTypeMap(artifacts: ForgeArtifact[]): OperandTypeMap {
+  const typeMap: OperandTypeMap = new Map();
+  const dbArtifacts = artifacts.filter(a => a.type === "DB" && a.content);
+
+  for (const db of dbArtifacts) {
+    const dbName = db.name;
+    // Match field declarations: fieldName : DataType; or fieldName : DataType :=
+    const fieldRe = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/gm;
+    let match: RegExpExecArray | null;
+    while ((match = fieldRe.exec(db.content)) !== null) {
+      const fieldName = match[1];
+      const fieldType = match[2] ?? match[3]; // quoted or unquoted type
+      if (fieldType) {
+        // Store both with and without quotes on DB name
+        typeMap.set(`${dbName}.${fieldName}`, fieldType);
+        typeMap.set(`"${dbName}".${fieldName}`, fieldType);
+      }
+    }
+  }
+
+  return typeMap;
+}
+
+/**
+ * Resolve the data type for a CMP/MOVE operand.
+ * Priority: type map lookup → literal inference → fallback to "Int".
+ */
+function resolveOperandType(operand: string, operand2: string | undefined, typeMap?: OperandTypeMap): string {
+  // 1. Try type map lookup on either operand
+  if (typeMap) {
+    const t1 = typeMap.get(operand);
+    if (t1) return normalizePlcType(t1);
+    if (operand2) {
+      const t2 = typeMap.get(operand2);
+      if (t2) return normalizePlcType(t2);
+    }
+  }
+
+  // 2. Infer from literal values
+  if (operand2) {
+    if (/^-?\d+\.\d+$/.test(operand2)) return "Real";
+    if (/^T#/i.test(operand2)) return "Time";
+    if (/^-?\d+$/.test(operand2)) return "Int";
+  }
+
+  // 3. Fallback
+  return "Int";
+}
+
+/** Normalize PLC type names to what TIA Portal expects in LAD SrcType */
+function normalizePlcType(t: string): string {
+  const lower = t.toLowerCase();
+  if (lower === "real" || lower === "lreal") return "Real";
+  if (lower === "int" || lower === "sint" || lower === "usint" || lower === "uint") return "Int";
+  if (lower === "dint" || lower === "udint") return "DInt";
+  if (lower === "word") return "Word";
+  if (lower === "dword") return "DWord";
+  if (lower === "bool") return "Bool";
+  if (lower === "time") return "Time";
+  return t; // pass through as-is
 }
 
 const CONDITION_SPLIT_RE = /\s+(?:AND|&&)\s+/i;
@@ -111,6 +192,8 @@ function parseConditionTerm(token: string, rowLabel: string): ConditionAtom {
     operand = operand.replace(/^NOT\s+/i, "").trim();
   }
 
+  // Strip all parens (balanced or not): NOT (X = TRUE) → NOT X = TRUE
+  operand = operand.replace(/[()]/g, "").trim();
   operand = stripTrailingAnnotation(operand);
 
   const eqMatch = operand.match(/^(.*?)(?:\s*=\s*(TRUE|FALSE))$/i);
@@ -118,6 +201,11 @@ function parseConditionTerm(token: string, rowLabel: string): ConditionAtom {
     operand = eqMatch[1].trim();
     if (eqMatch[2].toUpperCase() == "FALSE") {
       kind = kind === "nc" ? "no" : "nc";
+    }
+    // NOT X = TRUE → NC contact on X (already handled: kind is "nc", eqMatch strips "= TRUE")
+    // NOT X = FALSE → NO contact on X (double negation resolved above)
+    if (SIMPLE_TOKEN_RE.test(operand)) {
+      return { mode: "contact", kind, operand };
     }
   }
 
@@ -132,7 +220,19 @@ function parseConditionTerm(token: string, rowLabel: string): ConditionAtom {
       throw new Error(`${rowLabel}: unsupported comparison operand "${right}"`);
     }
     if (kind === "nc") {
-      throw new Error(`${rowLabel}: NOT comparisons are not supported yet; split this into an explicit inverse condition`);
+      // NOT (X = 5) → invert the operator
+      const inverted = compareMatch[2] === "=" || compareMatch[2] === "==" ? "<>"
+        : compareMatch[2] === "!=" || compareMatch[2] === "<>" ? "="
+        : compareMatch[2] === ">" ? "<="
+        : compareMatch[2] === "<" ? ">="
+        : compareMatch[2] === ">=" ? "<"
+        : ">";
+      return {
+        mode: "compare",
+        operand: left,
+        operator: normalizeCompareOperator(inverted),
+        operand2: right,
+      };
     }
     return {
       mode: "compare",
@@ -188,15 +288,33 @@ function parseConditionBranches(raw: string, rowLabel: string): ConditionAtom[][
 }
 
 function parseFaultConditionAtoms(raw: string, rowLabel: string): ConditionAtom[] {
-  const trimmed = raw.trim();
-  if (!trimmed.startsWith("NOT (")) {
-    const branches = parseConditionBranches(trimmed, rowLabel);
-    if (branches.length !== 1) {
-      throw new Error(`${rowLabel}: fault conditions cannot contain XOR/OR branches yet`);
-    }
-    return branches[0];
+  const branches = parseConditionBranches(raw.trim(), rowLabel);
+  if (branches.length !== 1) {
+    throw new Error(`${rowLabel}: fault conditions cannot contain XOR/OR branches yet`);
   }
-  throw new Error(`${rowLabel}: complex grouped fault conditions are not supported yet`);
+  return branches[0];
+}
+
+/**
+ * Normalize AI-generated condition text before parsing.
+ * Transforms pseudo-variables into real DB operands.
+ */
+function normalizeCondition(condition: string, dbName: string, stepArrayName: string, step: number): string {
+  let result = condition;
+  // stepNumber = N → "DB".S[N] = TRUE
+  result = result.replace(/\bstepNumber\s*=\s*(\d+)/gi, (_m, n) =>
+    `${buildDbOperand(dbName, stepArrayName, parseInt(n, 10))} = TRUE`,
+  );
+  // stepTimer.Q → "DB".instStepTimer_N.Q (TON instance in the step/action DB)
+  result = result.replace(/\bstepTimer\.Q\b/gi,
+    `"${dbName}".instStepTimer_${step}.Q`,
+  );
+  return result;
+}
+
+/** Check if a condition references a step timer (TON instance needed in the DB). */
+function referencesStepTimer(condition: string): boolean {
+  return /\bstepTimer\b/i.test(condition);
 }
 
 function compilePlan(input: DeterministicCompilerInput): DeterministicPlan {
@@ -205,18 +323,35 @@ function compilePlan(input: DeterministicCompilerInput): DeterministicPlan {
     throw new Error(`Sequence "${input.sequence.name}" has no rows`);
   }
 
-  const orderedSteps = [...new Set(rows.map((row) => row.step))].sort((a, b) => a - b);
-  const compiledRows: CompiledRow[] = rows.map((row, index) => ({
-    key: `${row.step}_${row.branch ?? "main"}_${index}`,
-    step: row.step,
-    branch: row.branch,
-    conditionRaw: row.condition,
-    conditionBranches: parseConditionBranches(row.condition, `${input.sequence.name} step ${row.step}${row.branch ?? ""}`),
-    action: row.action,
-    output: row.output,
-    next: row.next,
-    type: row.type,
+  // Track which steps need timer instances
+  const timerSteps = new Set<number>();
+  for (const row of rows) {
+    if (referencesStepTimer(row.condition)) timerSteps.add(row.step);
+  }
+
+  // Normalize conditions before parsing (must pass step number for timer references)
+  const normalizedRows = rows.map((row) => ({
+    ...row,
+    condition: normalizeCondition(row.condition, input.dbName, input.stepArrayName, row.step),
   }));
+
+  const orderedSteps = [...new Set(normalizedRows.map((row) => row.step))].sort((a, b) => a - b);
+  const entryStep = orderedSteps[0];
+
+  // fault_exit rows are skipped — permissives are compiled separately
+  const compiledRows: CompiledRow[] = normalizedRows
+    .filter((row) => row.type !== "fault_exit")
+    .map((row, index) => ({
+      key: `${row.step}_${row.branch ?? "main"}_${index}`,
+      step: row.step,
+      branch: row.branch,
+      conditionRaw: row.condition,
+      conditionBranches: parseConditionBranches(row.condition, `${input.sequence.name} step ${row.step}${row.branch ?? ""}`),
+      action: row.action,
+      output: row.output,
+      next: row.next,
+      type: row.type,
+    }));
 
   const steps = orderedSteps.map((step) => {
     const stepRows = compiledRows.filter((row) => row.step === step && row.type !== "fault_exit");
@@ -238,6 +373,8 @@ function compilePlan(input: DeterministicCompilerInput): DeterministicPlan {
     actionArrayName: input.actionArrayName,
     orderedSteps,
     steps,
+    timerSteps,
+    operandTypes: input.operandTypes,
   };
 }
 
@@ -253,7 +390,7 @@ function buildContactNode(kind: ConditionKind, operand: string, id: string): Lad
   };
 }
 
-function buildCompareNode(atom: Extract<ConditionAtom, { mode: "compare" }>, id: string): LadNode {
+function buildCompareNode(atom: Extract<ConditionAtom, { mode: "compare" }>, id: string, typeMap?: OperandTypeMap): LadNode {
   return {
     type: "element",
     element: {
@@ -262,31 +399,31 @@ function buildCompareNode(atom: Extract<ConditionAtom, { mode: "compare" }>, id:
       operand: atom.operand,
       operand2: atom.operand2,
       cmpOperator: atom.operator === "=" ? "==" : atom.operator === "<>" ? "!=" : atom.operator,
-      dataType: "Int",
+      dataType: resolveOperandType(atom.operand, atom.operand2, typeMap),
     },
   };
 }
 
-function buildSeriesFromAtoms(atoms: ConditionAtom[], prefix: string): LadSeriesChain {
+function buildSeriesFromAtoms(atoms: ConditionAtom[], prefix: string, typeMap?: OperandTypeMap): LadSeriesChain {
   return {
     type: "series",
     nodes: atoms.map((atom, index) =>
       atom.mode === "contact"
         ? buildContactNode(atom.kind, atom.operand, `${prefix}_${index}`)
-        : buildCompareNode(atom, `${prefix}_${index}`),
+        : buildCompareNode(atom, `${prefix}_${index}`, typeMap),
     ),
   };
 }
 
-function buildConditionNodes(branches: ConditionAtom[][], prefix: string): LadNode[] {
+function buildConditionNodes(branches: ConditionAtom[][], prefix: string, typeMap?: OperandTypeMap): LadNode[] {
   if (branches.length === 1) {
-    return buildSeriesFromAtoms(branches[0], prefix).nodes;
+    return buildSeriesFromAtoms(branches[0], prefix, typeMap).nodes;
   }
   return [
     {
       type: "parallel",
       id: `par_${prefix}`,
-      branches: branches.map((branch, index) => buildSeriesFromAtoms(branch, `${prefix}_b${index}`)),
+      branches: branches.map((branch, index) => buildSeriesFromAtoms(branch, `${prefix}_b${index}`, typeMap)),
     },
   ];
 }
@@ -326,7 +463,7 @@ function buildStepLatchRung(plan: DeterministicPlan, step: CompiledStep): LadRun
       type: "series",
       nodes: [
         buildContactNode("no", buildDbOperand(plan.dbName, plan.stepArrayName, incoming.step), `step_${step.step}_from_${incoming.key}_active`),
-        ...buildConditionNodes(incoming.conditionBranches, `step_${step.step}_from_${incoming.key}`),
+        ...buildConditionNodes(incoming.conditionBranches, `step_${step.step}_from_${incoming.key}`, plan.operandTypes),
       ],
     });
   }
@@ -361,11 +498,150 @@ function buildStepLatchRung(plan: DeterministicPlan, step: CompiledStep): LadRun
   };
 }
 
+/**
+ * Parse a matrix row output field like "DB_ProcessCommands.cv01Run = TRUE" into
+ * an operand and a coil type (SET for TRUE, RESET for FALSE, OUTPUT for non-bool).
+ */
+function parseOutputAssignment(output: string, typeMap?: OperandTypeMap): { operand: string; coilType: "SET_COIL" | "RESET_COIL" | "OUTPUT_COIL"; dataType: string; value?: string } | null {
+  const trimmed = output.trim();
+  if (!trimmed) return null;
+
+  const match = trimmed.match(/^(.+?)\s*=\s*(.+)$/);
+  if (!match) return null;
+
+  const operand = match[1].trim();
+  const value = match[2].trim();
+
+  // Boolean TRUE — OUTPUT_COIL (scan-dependent, fails safe when step inactive)
+  // Never use SET_COIL for process outputs — latches are dangerous for motors/valves.
+  if (/^TRUE$/i.test(value)) return { operand, coilType: "OUTPUT_COIL", dataType: "Bool" };
+  // Boolean FALSE — skip. With OUTPUT_COIL pattern, outputs are only ON when
+  // explicitly driven by an active step. No need to explicitly drive FALSE.
+  if (/^FALSE$/i.test(value)) return null;
+  // Non-boolean assignment — MOVE box, resolve data type from operand
+  return { operand, coilType: "OUTPUT_COIL", dataType: resolveOperandType(operand, value, typeMap), value };
+}
+
+/**
+ * Build consolidated output rungs for the entire plan.
+ * Boolean outputs: ONE rung per unique output signal, ORing all steps that set it TRUE.
+ *   This uses OUTPUT_COIL (scan-dependent, fails safe) — never SET/RESET.
+ * Non-boolean outputs (MOVE): one rung per step assignment (can't consolidate different values).
+ */
+function buildAllOutputRungs(plan: DeterministicPlan): LadRung[] {
+  // Collect all output assignments across all steps
+  const boolOutputs = new Map<string, number[]>(); // operand → [step numbers that set it TRUE]
+  const moveOutputs: Array<{ step: number; key: string; operand: string; value: string; action: string }> = [];
+
+  for (const step of plan.steps) {
+    for (const row of step.rows) {
+      if (!row.output) continue;
+      const parsed = parseOutputAssignment(row.output, plan.operandTypes);
+      if (!parsed) continue; // includes FALSE assignments (null return)
+
+      if (!parsed.value) {
+        // Boolean TRUE — collect for consolidation
+        if (!boolOutputs.has(parsed.operand)) boolOutputs.set(parsed.operand, []);
+        boolOutputs.get(parsed.operand)!.push(step.step);
+      } else {
+        // Non-boolean MOVE
+        moveOutputs.push({ step: step.step, key: row.key, operand: parsed.operand, value: parsed.value, action: row.action });
+      }
+    }
+  }
+
+  const rungs: LadRung[] = [];
+
+  // Boolean output rungs — one rung per output, OR of all action bits
+  // Output rungs use A[n] contacts (not S[n]) — the action bit is the interface
+  // between step logic and output driving.
+  for (const [operand, steps] of boolOutputs) {
+    const shortName = operand.split(".").pop() ?? operand;
+
+    if (steps.length === 1) {
+      rungs.push({
+        id: `rung_out_${shortName}`,
+        title: `${shortName}`,
+        comment: `Active during action ${steps[0]}`,
+        logic: {
+          type: "series",
+          nodes: [
+            buildContactNode("no", buildDbOperand(plan.dbName, plan.actionArrayName, steps[0]), `out_${shortName}_a${steps[0]}`),
+            {
+              type: "element",
+              element: {
+                id: `coil_out_${shortName}`,
+                type: "OUTPUT_COIL",
+                operand,
+                dataType: "Bool",
+              },
+            },
+          ],
+        },
+      });
+    } else {
+      const branches: LadSeriesChain[] = steps.map((s) => ({
+        type: "series" as const,
+        nodes: [buildContactNode("no", buildDbOperand(plan.dbName, plan.actionArrayName, s), `out_${shortName}_a${s}`)],
+      }));
+
+      rungs.push({
+        id: `rung_out_${shortName}`,
+        title: `${shortName}`,
+        comment: `Active during actions ${steps.join(", ")}`,
+        logic: {
+          type: "series",
+          nodes: [
+            { type: "parallel", id: `par_out_${shortName}`, branches },
+            {
+              type: "element",
+              element: {
+                id: `coil_out_${shortName}`,
+                type: "OUTPUT_COIL",
+                operand,
+                dataType: "Bool",
+              },
+            },
+          ],
+        },
+      });
+    }
+  }
+
+  // MOVE rungs — driven by action bits, not step bits
+  for (const mv of moveOutputs) {
+    const shortName = mv.operand.split(".").pop() ?? mv.operand;
+    rungs.push({
+      id: `rung_move_${shortName}_a${mv.step}`,
+      title: `${shortName} = ${mv.value}`,
+      comment: mv.action,
+      logic: {
+        type: "series",
+        nodes: [
+          buildContactNode("no", buildDbOperand(plan.dbName, plan.actionArrayName, mv.step), `move_${shortName}_a${mv.step}_active`),
+          {
+            type: "element",
+            element: {
+              id: `move_${shortName}_a${mv.step}`,
+              type: "MOVE",
+              operand: mv.value,
+              outputOperand: mv.operand,
+              dataType: resolveOperandType(mv.operand, mv.value, plan.operandTypes),
+            },
+          },
+        ],
+      },
+    });
+  }
+
+  return rungs;
+}
+
 function buildActionRung(plan: DeterministicPlan, step: CompiledStep): LadRung {
   return {
     id: `rung_action_${step.step}`,
-    title: `Action bit ${step.step}`,
-    comment: step.rows.map((row) => row.output ?? row.action).join(" | "),
+    title: `Action ${step.step}`,
+    comment: step.rows.map((row) => row.action).join(" | "),
     logic: {
       type: "series",
       nodes: [
@@ -386,12 +662,49 @@ function buildActionRung(plan: DeterministicPlan, step: CompiledStep): LadRung {
 
 function buildDeterministicLadProgram(plan: DeterministicPlan): LadProgram {
   const variables: LadVariable[] = [];
+  const entryStep = plan.orderedSteps[0];
   const rungs: LadRung[] = [buildBootstrapRung(plan)];
 
+  // Section 1: All step latch rungs (skip entry step — bootstrap handles it)
   for (const step of plan.steps) {
+    if (step.step === entryStep) continue;
     rungs.push(buildStepLatchRung(plan, step));
+  }
+
+  // Section 1b: Timer call rungs — S[n] drives TON instance for steps that need timeouts
+  for (const stepNum of plan.timerSteps) {
+    const timerInstance = `"${plan.dbName}".instStepTimer_${stepNum}`;
+    rungs.push({
+      id: `rung_timer_${stepNum}`,
+      title: `Step ${stepNum} timeout timer`,
+      comment: `TON timer — starts when step ${stepNum} is active, Q goes TRUE after PT elapsed`,
+      logic: {
+        type: "series",
+        nodes: [
+          buildContactNode("no", buildDbOperand(plan.dbName, plan.stepArrayName, stepNum), `timer_${stepNum}_in`),
+          {
+            type: "element",
+            element: {
+              id: `ton_${stepNum}`,
+              type: "TON",
+              operand: timerInstance,
+              dataType: "Time",
+              presetTime: "T#5s",
+              instanceDb: `${plan.dbName}`,
+            },
+          },
+        ],
+      },
+    });
+  }
+
+  // Section 2: Action bit rungs — S[n] → A[n] for each step
+  for (const step of plan.steps) {
     rungs.push(buildActionRung(plan, step));
   }
+
+  // Section 3: Consolidated output rungs — one rung per output signal
+  rungs.push(...buildAllOutputRungs(plan));
 
   return {
     id: `det_${plan.blockName}`,
@@ -423,10 +736,8 @@ function renderConditionForScl(branches: ConditionAtom[][]): string {
 function renderSclStep(plan: DeterministicPlan, step: CompiledStep): string[] {
   const lines: string[] = [];
   const stepOperand = buildDbOperand(plan.dbName, plan.stepArrayName, step.step);
-  const actionOperand = buildDbOperand(plan.dbName, plan.actionArrayName, step.step);
 
   lines.push(`IF ${stepOperand} THEN`);
-  lines.push(`    ${actionOperand} := TRUE;`);
 
   if (step.rows.length > 0) {
     step.rows.forEach((row, index) => {
@@ -447,7 +758,33 @@ function renderSclStep(plan: DeterministicPlan, step: CompiledStep): string[] {
   return lines;
 }
 
+function renderSclOutputs(plan: DeterministicPlan, step: CompiledStep): string[] {
+  const lines: string[] = [];
+  // Output assignments use action bits (A[n]), not step bits (S[n])
+  const actionOperand = buildDbOperand(plan.dbName, plan.actionArrayName, step.step);
+
+  const outputRows = step.rows.filter((r) => r.output);
+  if (outputRows.length === 0) return lines;
+
+  lines.push(`IF ${actionOperand} THEN`);
+  for (const row of outputRows) {
+    const parsed = parseOutputAssignment(row.output!);
+    if (!parsed) continue;
+    if (parsed.value) {
+      // Non-boolean: direct assignment
+      lines.push(`    ${parsed.operand} := ${parsed.value}; // ${row.action}`);
+    } else if (parsed.coilType === "SET_COIL") {
+      lines.push(`    ${parsed.operand} := TRUE; // ${row.action}`);
+    } else {
+      lines.push(`    ${parsed.operand} := FALSE; // ${row.action}`);
+    }
+  }
+  lines.push(`END_IF;`);
+  return lines;
+}
+
 function buildDeterministicScl(plan: DeterministicPlan): string {
+  const entryStep = plan.orderedSteps[0];
   const lines: string[] = [
     `FUNCTION "${plan.blockName}" : Void`,
     `{ S7_Optimized_Access := 'TRUE' }`,
@@ -455,21 +792,50 @@ function buildDeterministicScl(plan: DeterministicPlan): string {
     `BEGIN`,
     `    // Bootstrap the sequence when all steps are off.`,
     `    IF ${plan.orderedSteps.map((step) => `NOT ${buildDbOperand(plan.dbName, plan.stepArrayName, step)}`).join(" AND ")} THEN`,
-    `        ${buildDbOperand(plan.dbName, plan.stepArrayName, plan.orderedSteps[0])} := TRUE;`,
+    `        ${buildDbOperand(plan.dbName, plan.stepArrayName, entryStep)} := TRUE;`,
     `    END_IF;`,
     ``,
-    `    // Clear action bits every scan, then re-assert the active step's bit deterministically.`,
+    `    // --- Step transitions ---`,
   ];
 
-  for (const step of plan.orderedSteps) {
-    lines.push(`    ${buildDbOperand(plan.dbName, plan.actionArrayName, step)} := FALSE;`);
+  // Section 1: Timer calls for steps that need timeouts
+  if (plan.timerSteps.size > 0) {
+    lines.push(`    // --- Step timers ---`);
+    for (const stepNum of plan.timerSteps) {
+      const stepOp = buildDbOperand(plan.dbName, plan.stepArrayName, stepNum);
+      lines.push(`    "${plan.dbName}".instStepTimer_${stepNum}(IN := ${stepOp}, PT := T#5s);`);
+    }
+    lines.push("");
   }
 
-  lines.push("");
+  // Section 2: All step transition logic (skip entry step — bootstrap handles it)
   for (const step of plan.steps) {
+    if (step.step === entryStep) continue;
     lines.push(`    // Step ${step.step}: ${step.rows.map((row) => row.action).join(" | ")}`);
     lines.push(...renderSclStep(plan, step).map((line) => `    ${line}`.replace(/^ {8}/, "    ")));
     lines.push("");
+  }
+
+  // Section 3: Action bits — mirror step bits to action array
+  lines.push(`    // --- Action bits ---`);
+  for (const step of plan.steps) {
+    const stepOp = buildDbOperand(plan.dbName, plan.stepArrayName, step.step);
+    const actionOp = buildDbOperand(plan.dbName, plan.actionArrayName, step.step);
+    lines.push(`    ${actionOp} := ${stepOp};`);
+  }
+  lines.push("");
+
+  // Section 3: All output assignments
+  const hasOutputs = plan.steps.some((s) => s.rows.some((r) => r.output));
+  if (hasOutputs) {
+    lines.push(`    // --- Process outputs ---`);
+    for (const step of plan.steps) {
+      const outputLines = renderSclOutputs(plan, step);
+      if (outputLines.length > 0) {
+        lines.push(...outputLines.map((line) => `    ${line}`.replace(/^ {8}/, "    ")));
+        lines.push("");
+      }
+    }
   }
 
   lines.push(`END_FUNCTION`);
@@ -491,6 +857,7 @@ export function compileDeterministicProcessArtifact(input: DeterministicCompiler
       destination_folder: "Program blocks/Forge/Process",
       dependencies: [],
       compile_after_import: true,
+      deterministic: true,
     };
   }
 
@@ -505,6 +872,7 @@ export function compileDeterministicProcessArtifact(input: DeterministicCompiler
     destination_folder: "Program blocks/Forge/Process",
     dependencies: [],
     compile_after_import: true,
+    deterministic: true,
   };
 }
 
@@ -519,7 +887,8 @@ VERSION : 0.1
 
   VAR
 ${faultFieldDecls}
-    faultActive : Bool;
+    anyFaultLatched : Bool;    // Summary: TRUE when any fault is latched
+    faultActive : Bool;        // Alias for anyFaultLatched (legacy compatibility)
     faultCode : Word;
     faultReset : Bool;
   END_VAR
@@ -539,20 +908,17 @@ END_DATA_BLOCK`;
     destination_folder: "Program blocks/Forge/Process",
     dependencies: [],
     compile_after_import: false,
+    deterministic: true,
   };
 }
 
+/**
+ * Fault latch rung: self-hold with reset.
+ * The fault bit is SET by the sequence FC's output rungs (e.g. A[40] → DB_FaultData.f003 = TRUE).
+ * This rung just HOLDS it latched until faultReset clears it.
+ * Pattern: faultBit AND NOT faultReset → faultBit (seal-in latch)
+ */
 function buildFaultLatchRung(fault: FaultMatrixEntry, dbName: string): LadRung {
-  const atoms = parseFaultConditionAtoms(fault.condition, fault.code);
-  const topBranch = buildSeriesFromAtoms(atoms, `${fault.tag}_trigger`);
-  const bottomBranch: LadSeriesChain = {
-    type: "series",
-    nodes: [
-      buildContactNode("no", buildDbFieldOperand(dbName, fault.tag), `${fault.tag}_seal`),
-      buildContactNode("nc", buildDbFieldOperand(dbName, "faultReset"), `${fault.tag}_reset`),
-    ],
-  };
-
   return {
     id: `rung_${fault.tag}`,
     title: `${fault.code} latch`,
@@ -560,7 +926,8 @@ function buildFaultLatchRung(fault: FaultMatrixEntry, dbName: string): LadRung {
     logic: {
       type: "series",
       nodes: [
-        { type: "parallel", id: `par_${fault.tag}`, branches: [topBranch, bottomBranch] },
+        buildContactNode("no", buildDbFieldOperand(dbName, fault.tag), `${fault.tag}_seal`),
+        buildContactNode("nc", buildDbFieldOperand(dbName, "faultReset"), `${fault.tag}_reset`),
         {
           type: "element",
           element: {
@@ -616,6 +983,27 @@ function buildDeterministicFaultLadProgram(faults: FaultMatrixEntry[], blockName
     rungs: [
       ...faults.map((fault) => buildFaultLatchRung(fault, dbName)),
       buildFaultActiveRung(faults, dbName),
+      // anyFaultLatched mirrors faultActive — sequences reference this name
+      {
+        id: "rung_any_fault_latched",
+        title: "anyFaultLatched",
+        comment: "Mirror of faultActive — used by sequence conditions",
+        logic: {
+          type: "series",
+          nodes: [
+            buildContactNode("no", buildDbFieldOperand(dbName, "faultActive"), "any_fault_src"),
+            {
+              type: "element",
+              element: {
+                id: "coil_any_fault_latched",
+                type: "OUTPUT_COIL",
+                operand: buildDbFieldOperand(dbName, "anyFaultLatched"),
+                dataType: "Bool",
+              },
+            },
+          ],
+        },
+      },
     ],
   };
 }
@@ -628,9 +1016,11 @@ function buildDeterministicFaultScl(faults: FaultMatrixEntry[], blockName: strin
     `BEGIN`,
   ];
 
+  // Fault latch: self-hold with reset.
+  // The fault bit is SET by sequence FC output rungs. This just holds it latched.
   for (const fault of faults) {
-    const expr = renderConditionForScl([parseFaultConditionAtoms(fault.condition, fault.code)]);
-    lines.push(`    IF ((${expr}) OR "${dbName}".${fault.tag}) AND NOT "${dbName}".faultReset THEN`);
+    lines.push(`    // ${fault.code}: ${fault.description}`);
+    lines.push(`    IF "${dbName}".${fault.tag} AND NOT "${dbName}".faultReset THEN`);
     lines.push(`        "${dbName}".${fault.tag} := TRUE;`);
     lines.push(`    ELSIF "${dbName}".faultReset THEN`);
     lines.push(`        "${dbName}".${fault.tag} := FALSE;`);
@@ -639,6 +1029,7 @@ function buildDeterministicFaultScl(faults: FaultMatrixEntry[], blockName: strin
   }
 
   lines.push(`    "${dbName}".faultActive := ${faults.map((fault) => `"${dbName}".${fault.tag}`).join(" OR ") || "FALSE"};`);
+  lines.push(`    "${dbName}".anyFaultLatched := "${dbName}".faultActive;`);
   lines.push(`END_FUNCTION`);
   return lines.join("\n");
 }
@@ -660,6 +1051,7 @@ export function compileDeterministicFaultArtifact(input: DeterministicFaultCompi
       destination_folder: "Program blocks/Forge/Process",
       dependencies: [],
       compile_after_import: true,
+      deterministic: true,
     };
   }
 
@@ -674,5 +1066,6 @@ export function compileDeterministicFaultArtifact(input: DeterministicFaultCompi
     destination_folder: "Program blocks/Forge/Process",
     dependencies: [],
     compile_after_import: true,
+    deterministic: true,
   };
 }

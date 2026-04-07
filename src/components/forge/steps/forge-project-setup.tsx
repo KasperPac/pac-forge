@@ -44,6 +44,10 @@ export interface ForgeProjectSetupProps {
   initialIoLinkingLanguage?: "SCL" | "LAD";
   initialProcessCodeLanguage?: "SCL" | "LAD";
   initialConversionFcLanguage?: "SCL" | "LAD";
+  /** Previously-saved TIA project path from the session */
+  initialTiaProjectPath?: string;
+  /** Previously-saved design profile ID from the session */
+  initialDesignProfileId?: string;
 }
 
 /** Handle exposed via ref — lets the parent footer nav trigger save without duplicating buttons. */
@@ -61,14 +65,14 @@ function padPlcNum(n: number): string {
   return String(Math.max(1, n)).padStart(2, "0");
 }
 
-export const ForgeProjectSetup = forwardRef<ForgeProjectSetupHandle, ForgeProjectSetupProps>(function ForgeProjectSetup({ specAnalysis, project, onComplete, onCanSubmitChange, initialDeviceFbLanguage, initialDeviceCallFcLanguage, initialIoLinkingLanguage, initialProcessCodeLanguage, initialConversionFcLanguage }, ref) {
+export const ForgeProjectSetup = forwardRef<ForgeProjectSetupHandle, ForgeProjectSetupProps>(function ForgeProjectSetup({ specAnalysis, project, onComplete, onCanSubmitChange, initialDeviceFbLanguage, initialDeviceCallFcLanguage, initialIoLinkingLanguage, initialProcessCodeLanguage, initialConversionFcLanguage, initialTiaProjectPath, initialDesignProfileId }, ref) {
   const { data: profiles = [] } = useDesignProfiles();
 
   const [form, setForm] = useState<ForgeProjectSetup>({
     project_name: project?.description_short ?? specAnalysis?.project_name ?? "",
     project_number: project?.project_number ?? "",
     client_name: project?.client_name ?? "",
-    design_profile_id: project?.design_profile_id ?? null,
+    design_profile_id: initialDesignProfileId ?? project?.design_profile_id ?? null,
     device_fb_language: initialDeviceFbLanguage ?? "SCL",
     device_call_fc_language: initialDeviceCallFcLanguage ?? "SCL",
     io_linking_language: initialIoLinkingLanguage ?? "SCL",
@@ -78,7 +82,7 @@ export const ForgeProjectSetup = forwardRef<ForgeProjectSetupHandle, ForgeProjec
     cpu_type: project?.cpu_type ?? specAnalysis?.plc_type ?? "S7-1500",
     safety_level: project?.safety_level ?? "",
     safety_notes: project?.safety_notes ?? "",
-    tia_project_path: null,
+    tia_project_path: initialTiaProjectPath ?? null,
   });
 
   // PLC sequence number within the job (01, 02, 03…)

@@ -348,6 +348,8 @@ export default function ForgePage() {
             initialIoLinkingLanguage={session.io_linking_language ?? undefined}
             initialProcessCodeLanguage={session.process_code_language ?? undefined}
             initialConversionFcLanguage={session.conversion_fc_language ?? undefined}
+            initialTiaProjectPath={session.tia_project_path ?? undefined}
+            initialDesignProfileId={session.design_profile_id ?? undefined}
           />
         );
 

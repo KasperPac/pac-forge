@@ -233,15 +233,40 @@ function processElement(
   // ── Timers (TON / TOF) ───────────────────────────────────────────────────
   if (el.type === "TON" || el.type === "TOF") {
     const instUid = counter.next();
-    const instName = el.instanceDb ?? el.operand;
-    // Instance scope: LocalVariable for static members in an FB
-    const instXml = `          <Part Name="${partName}" Version="1.0" UId="${partUid}">
+    const instName = el.operand;
+
+    // Determine scope: if instanceDb is set AND differs from operand, the timer
+    // lives in a global DB (FC calling pattern). Otherwise it's a local static
+    // variable in an FB.
+    const isGlobalDb = el.instanceDb && el.instanceDb !== el.operand;
+
+    let instanceXml: string;
+    if (isGlobalDb) {
+      // Global DB instance: "DbName".instTimerName — split into DB + member components
+      // The operand is the full path like "DB_Name".instStepTimer_30
+      const dbName = el.instanceDb!;
+      // Extract just the timer instance name (strip DB prefix if present)
+      const memberName = instName.startsWith(`"${dbName}".`)
+        ? instName.slice(dbName.length + 3)
+        : instName.replace(/^"[^"]+"\./,"");
+
+      instanceXml = `          <Part Name="${partName}" Version="1.0" UId="${partUid}">
+            <Instance Scope="GlobalVariable" UId="${instUid}">
+              <Component Name="${esc(dbName)}" />
+              <Component Name="${esc(memberName)}" />
+            </Instance>
+            <TemplateValue Name="time_type" Type="Type">Time</TemplateValue>
+          </Part>`;
+    } else {
+      // Local static variable (FB context)
+      instanceXml = `          <Part Name="${partName}" Version="1.0" UId="${partUid}">
             <Instance Scope="LocalVariable" UId="${instUid}">
               <Component Name="${esc(instName)}" />
             </Instance>
             <TemplateValue Name="time_type" Type="Type">Time</TemplateValue>
           </Part>`;
-    parts.push({ uid: partUid, isAccess: false, xml: instXml });
+    }
+    parts.push({ uid: partUid, isAccess: false, xml: instanceXml });
 
     // PT (preset time) — TypedConstant for time literals
     // AI may use "pt" instead of "presetTime"
@@ -259,23 +284,28 @@ function processElement(
           </Wire>`,
     });
 
-    // ET output (elapsed time) → variable if operand2 given
+    // ET output — TIA requires this pin to be connected.
+    // Wire to an open connection if no target is specified.
+    const etWireUid = counter.next();
     if (el.operand2) {
       const etUid = counter.next();
       parts.push({ uid: etUid, isAccess: true, xml: buildAccessNode(etUid, el.operand2) });
-      const etWire = counter.next();
       wires.push({
-        uid: etWire,
-        xml: `          <Wire UId="${etWire}">
+        uid: etWireUid,
+        xml: `          <Wire UId="${etWireUid}">
             <NameCon UId="${partUid}" Name="ET" />
             <IdentCon UId="${etUid}" />
           </Wire>`,
       });
-    }
-
-    // Q output → rung continues (or drives a coil access via operand)
-    if (el.operand && !el.instanceDb) {
-      // operand used as instance name above; no Q output variable
+    } else {
+      // Open connection — ET not used but must be wired
+      wires.push({
+        uid: etWireUid,
+        xml: `          <Wire UId="${etWireUid}">
+            <NameCon UId="${partUid}" Name="ET" />
+            <OpenCon UId="${counter.next()}" />
+          </Wire>`,
+      });
     }
 
     // Q output drives the downstream rung flow via pin "Q"

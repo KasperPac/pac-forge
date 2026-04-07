@@ -7,6 +7,7 @@ import {
   buildForgePatternAnalysisPrompt,
   buildForgePatternAnalysisUserMessage,
 } from "@/lib/forge-agent-prompts";
+import { parseJsonResponse } from "@/lib/json-response";
 import { loadPlatformRules } from "@/lib/platform-rules";
 import { supabase } from "@/lib/supabase";
 import type { ForgeArtifact } from "@/types/forge";
@@ -54,15 +55,14 @@ async function savePattern(
       2048,
     );
 
-    // Attempt to extract JSON (may or may not have fences)
-    const jsonStr = content.replace(/```json?\s*/gi, "").replace(/```/g, "").trim();
-    const pattern = JSON.parse(jsonStr) as {
+    const pattern = parseJsonResponse<{
       correction_type: string;
       original_snippet: string;
       corrected_snippet: string;
       explanation_tag: string;
       context: string;
-    };
+    }>(content);
+    if (!pattern) return;
 
     const { data: { user } } = await supabase.auth.getUser();
     await supabase.from("pattern_candidates").insert({

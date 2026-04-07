@@ -2361,6 +2361,7 @@ Return the HmiScreenSpec JSON array now.`;
 
 
 const MATRIX_RULES_COMMON = `## Rules
+- **CRITICAL — DB naming prefix:** If the Design Profile Rules specify a DB naming prefix (e.g. "DB_"), ALL global DB names MUST use that prefix consistently EVERYWHERE — in globalData \`dbName\` fields, wiring \`connectedTo\` references, AND sequence row \`condition\`/\`output\` fields. The same prefixed name must appear in every place that references the DB. Example: if prefix is "DB_", use "DB_ProcessCommands" in the globalData entry AND "DB_ProcessCommands.cv01Run" in wiring AND "DB_ProcessCommands.cv01Run = TRUE" in conditions. NEVER mix prefixed and unprefixed names for the same DB.
 - Device names must EXACTLY match the confirmed device list
 - FB names: UpperCamelCase (e.g. ControlMotorDol, ControlValvePneumatic)
 - Instance DB names: \`Inst\` prefix (e.g. InstMotor1, InstConveyor1)
@@ -2493,8 +2494,8 @@ const SEQUENCES_SCHEMA = `{
         {
           "step": 0,
           "branch": null,
-          "condition": "string — ONE condition using actual signal names e.g. 'PE01_DET = TRUE', 'PB_START rising edge'",
-          "action": "string — ONE short imperative e.g. 'Set motor forward', 'Start timeout timer'",
+          "condition": "string — ONE machine-parseable condition. MUST be a signal comparison (e.g. 'PE01_DET = TRUE', 'NOT M01_RUNNING', 'stepTimer.Q = TRUE'). NEVER use prose.",
+          "action": "string — ONE short imperative description (human-readable, not parsed)",
           "output": "string | null — specific signal change e.g. 'M01_CMD_FWD = TRUE', null if no output",
           "next": "number | FAULT | IDLE — step number to go to next, or FAULT, or IDLE",
           "type": "action | monitor | branch | fault_exit | merge",
@@ -2608,6 +2609,9 @@ ${MATRIX_RULES_COMMON}
 - Safety conditions are continuously monitored — failure stops the process
 - generatedAt must be the current ISO timestamp
 - Keep descriptions concise — avoid verbose prose
+- **CRITICAL — Use EXACT wiring field names:** If the user message includes a "CONFIRMED WIRING FIELD NAMES" section, your sequence \`condition\` and \`output\` fields MUST use ONLY those exact field names when referencing global DBs (ProcessCommands, ProcessState, FaultData). Do NOT invent new names, abbreviations, or alternatives. The device linkage wiring defines the contract — your sequences must honour it exactly.
+- **New process-level fields:** If you need a field that doesn't exist in the wiring list (e.g. \`systemEnabled\`, \`sequenceActive\`), add it to \`DB_ProcessState\` or \`DB_ProcessCommands\` in your globalData — NEVER to \`DB_HmiData\`. HmiData is display-only and must NEVER be written to by process sequences.
+- **NEVER write to DB_HmiData in sequence outputs.** HmiData fields are populated by device FBs or mirrored by the call FCs — process code does not write to them.
 
 ## CRITICAL: Row Format Rules
 
@@ -2616,6 +2620,12 @@ Each sequence has a \`rows\` array. EVERY row represents ONE condition, ONE acti
 1. ONE condition per row. Never combine with AND/OR inside a single row.
    WRONG: "PE01_DET = TRUE AND ESTOP_OK = TRUE"
    RIGHT: Put AND conditions in permissives. Each row has a single signal condition.
+
+   WRONG — OR in a single row (step 0 idle → start):
+     { "step": 0, "branch": null, "condition": "START_CMD = TRUE OR AUTO_START = TRUE", "next": 10, "type": "action" }
+   RIGHT — split OR into branch rows:
+     { "step": 0, "branch": "a", "condition": "START_CMD = TRUE",  "next": 10, "type": "branch" }
+     { "step": 0, "branch": "b", "condition": "AUTO_START = TRUE", "next": 10, "type": "branch" }
 
 2. ONE action per row. Never combine multiple operations.
    WRONG: "Set M01_CMD_FWD = TRUE, M01_CMD_REV = FALSE, start timer"
@@ -2632,9 +2642,9 @@ Each sequence has a \`rows\` array. EVERY row represents ONE condition, ONE acti
    A GATE is a pass/fail check where one outcome continues and the other rejects/faults.
    Use type "action" + "fault_exit" when one path continues the process and the other goes to FAULT/0/IDLE.
    NEVER use branch rows (a/b pairs) for gates.
-   CORRECT gate example — permissive check:
-     { "step": 20, "branch": null, "condition": "PB_START rising edge", "action": "Evaluate all permissives", "output": null, "next": 30, "type": "action" }
-     { "step": 20, "branch": null, "condition": "Any permissive fails",  "action": "Reject start",              "output": null, "next": 0,  "type": "fault_exit" }
+   CORRECT gate example — start command triggers permissive check:
+     { "step": 20, "branch": null, "condition": "PB01_START = TRUE", "action": "Start command received, check permissives", "output": null, "next": 30, "type": "action" }
+     { "step": 20, "branch": null, "condition": "NOT PB01_START",    "action": "No start command",                         "output": null, "next": 0,  "type": "fault_exit" }
 
    THE ANTI-PATTERN TO AVOID — do NOT decompose permissive checks into individual pass/fail branch pairs:
    WRONG (creates a useless waterfall of XOR diamonds for what is just one AND gate):
@@ -2648,8 +2658,8 @@ Each sequence has a \`rows\` array. EVERY row represents ONE condition, ONE acti
    If all permissive conditions are already declared in the sequence's \`permissives\` array, you do NOT need any rows for them at all — they are checked automatically before the sequence can run.
 
 4. Monitoring rows have type "monitor". Fault exits from a monitoring step are SEPARATE rows with type "fault_exit" at the SAME step number.
-     { "step": 30, "branch": null, "condition": "PE02_DET = TRUE",  "action": "Arrived", "next": 50, "type": "monitor" }
-     { "step": 30, "branch": null, "condition": "timeout elapsed",  "action": "Timeout", "next": "FAULT", "type": "fault_exit" }
+     { "step": 30, "branch": null, "condition": "PE02_DET = TRUE",       "action": "Product arrived", "next": 50, "type": "monitor" }
+     { "step": 30, "branch": null, "condition": "stepTimer.Q = TRUE",    "action": "Timeout fault",   "next": "FAULT", "type": "fault_exit" }
 
 5. CRITICAL — "next" pointer rules:
    - A branch row's "next" MUST point to the IMMEDIATELY NEXT step number in sequence.
@@ -2659,10 +2669,40 @@ Each sequence has a \`rows\` array. EVERY row represents ONE condition, ONE acti
    - RIGHT:  step 10a → next: 20  (points to the immediately next step, even if 20 is a common merge step)
    - Branches merge when two branches' "next" values BOTH point to the same common step.
 
-6. Step numbers must be multiples of 10 (0, 10, 20, 30 ...). The "branch" letter is just a sub-ID — it does NOT affect step numbering.
+6. Step 0 is the idle/entry step. It MUST have rows defining the start condition (what triggers the sequence to begin).
+   Example — start command from operator:
+     { "step": 0, "branch": null, "condition": "PB01_START = TRUE", "action": "Start command received", "output": null, "next": 10, "type": "action" }
 
-7. Use actual signal names throughout: device instance names, IO tag names, DB field names.
-   WRONG: "motor runs forward"   RIGHT: "M01_CMD_FWD = TRUE"
+7. Step numbers must be multiples of 10 (0, 10, 20, 30 ...). The "branch" letter is just a sub-ID — it does NOT affect step numbering.
+
+8. CONDITION SYNTAX — every \`condition\` field MUST be machine-parseable. It is compiled directly into LAD/SCL.
+   The compiler accepts ONLY these forms:
+     - Boolean signal:        "M01_RUNNING"  or  "M01_RUNNING = TRUE"  or  "M01_RUNNING = FALSE"
+     - Negated signal:        "NOT M01_RUNNING"
+     - Comparison:            "stepNumber > 5"  or  "cv01Direction = 2"  or  "errorCode <> 0"
+     - DB field:              "DB_ProcessState.m01Running = TRUE"
+     - Timer done:            "stepTimer.Q = TRUE"
+     - AND (multiple):        "M01_RUNNING AND PE01_DET = TRUE"  (only if both needed in same row)
+
+   NEVER use prose, descriptions, or explanations in the condition field. The \`action\` field is for human-readable text.
+
+   WRONG examples (prose — will crash the compiler):
+     "Sequence initialised"
+     "timeout elapsed"
+     "Any permissive fails"
+     "TRUE confirmed within timeout"
+     "Underlying conditions verified cleared"
+     "Motor feedback confirmed running"
+     "PB_START rising edge"
+
+   RIGHT equivalents (signal syntax):
+     "DB_ProcessState.sequenceReady = TRUE"
+     "stepTimer.Q = TRUE"
+     "NOT DB_ProcessState.permissivesOk"
+     "stepTimer.Q = TRUE"
+     "NOT DB_FaultData.faultActive"
+     "DB_ProcessState.m01Running = TRUE"
+     "DB_ProcessState.pbStartPressed = TRUE"
 
 ## Output Format
 Wrap the JSON in [SEQUENCES_DATA]...[/SEQUENCES_DATA] tags:
@@ -2782,6 +2822,7 @@ Generate the deviceLinkage JSON now, wrapped in [DEVICE_LINKAGE]...[/DEVICE_LINK
 export function buildSequencesUserMessage(
   devices: ForgeDeviceEntry[],
   specAnalysis: SpecAnalysis | null,
+  wiringFieldNames?: Map<string, Set<string>>,
 ): string {
   const deviceNames = devices
     .map((d) => `  - ${d.name} [${d.tag}] (${d.device_type}, ${d.subsystem})`)
@@ -2805,11 +2846,31 @@ export function buildSequencesUserMessage(
         .join("\n")
     : "  (none)";
 
+  // Build wiring field reference from device linkage (generated in step 1)
+  let wiringSection = "";
+  if (wiringFieldNames?.size) {
+    const lines: string[] = [];
+    for (const [dbName, fields] of wiringFieldNames) {
+      const fieldList = [...fields].sort().map(f => `    - ${dbName}.${f}`).join("\n");
+      lines.push(`  **${dbName}:**\n${fieldList}`);
+    }
+    wiringSection = `
+## CONFIRMED WIRING FIELD NAMES (from Device Linkage — MANDATORY)
+The device linkage wiring has been generated and confirmed. These are the EXACT global DB field names that device FBs read from and write to.
+
+**Your sequence \`condition\` and \`output\` fields MUST use ONLY these field names when referencing global DBs.**
+Do NOT invent new field names. Do NOT use abbreviations or alternative names.
+If a device command input is wired to \`ProcessCommands.fan01AutoRun\`, your sequence output MUST be \`DB_ProcessCommands.fan01AutoRun = TRUE\` — not \`fan1Cmd\`, not \`fanRun\`, not any other variation.
+
+${lines.join("\n\n")}
+`;
+  }
+
   return `Generate the process sequences and global data for this project.
 
 ## Device List (${devices.length} devices — reference for device names in conditions)
 ${deviceNames}
-
+${wiringSection}
 ## Process Sequences from Spec
 ${sequenceSummary}
 

@@ -258,7 +258,7 @@ export function buildForgePatternAnalysisPrompt(
 
 ${instructions}
 
-## Output Format (JSON only, no markdown fences)
+## Output Format (JSON only, wrapped in \`\`\`json fences)
 {
   "correction_type": "TYPE",
   "pattern_type": "SYSTEMIC_PATTERN | LOCAL_PATTERN",

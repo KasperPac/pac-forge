@@ -264,6 +264,21 @@ namespace PacForgeBridge
                     case "float":
                         ok = _runtime.WriteFloat(tagName, Convert.ToSingle(value));
                         break;
+                    case "time":
+                        // S7 TIME is a 32-bit signed integer in milliseconds.
+                        // Accept either raw ms (int) or T# format string (T#2s, T#100ms, T#1m30s).
+                        int timeMs;
+                        var valStr = value?.ToString() ?? "";
+                        if (valStr.StartsWith("T#", StringComparison.OrdinalIgnoreCase))
+                        {
+                            timeMs = ParseTimeString(valStr);
+                        }
+                        else
+                        {
+                            timeMs = Convert.ToInt32(value);
+                        }
+                        ok = _runtime.WriteInt32(tagName, timeMs);
+                        break;
                     default:
                         result.Message = $"Unsupported data type: '{dataType}'";
                         return result;
@@ -345,6 +360,15 @@ namespace PacForgeBridge
                     case "float":
                         r = _runtime.ReadFloat(tagName);
                         break;
+                    case "time":
+                        // TIME is stored as Int32 (milliseconds) in the PLC.
+                        // Convert to T# format string so comparisons work against T#2s etc.
+                        r = _runtime.ReadInt32(tagName);
+                        if (r.Success && r.Value is int ms)
+                        {
+                            r = new PlcsimBridge.TagReadResult { Success = true, Value = FormatTimeString(ms) };
+                        }
+                        break;
                     default:
                         val.Error = $"Unsupported data type: '{dataType}'";
                         return val;
@@ -395,6 +419,74 @@ namespace PacForgeBridge
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Format milliseconds as S7 TIME literal (T#2s, T#100ms, T#1m30s).
+        /// </summary>
+        private static string FormatTimeString(int ms)
+        {
+            if (ms == 0) return "T#0ms";
+            if (ms < 1000) return $"T#{ms}ms";
+            if (ms % 1000 == 0)
+            {
+                int sec = ms / 1000;
+                if (sec < 60) return $"T#{sec}s";
+                int min = sec / 60;
+                sec = sec % 60;
+                if (sec == 0) return $"T#{min}m";
+                return $"T#{min}m{sec}s";
+            }
+            // Mixed: e.g. 1500ms → T#1s500ms
+            int s = ms / 1000;
+            int remainder = ms % 1000;
+            return $"T#{s}s{remainder}ms";
+        }
+
+        /// <summary>
+        /// Parse S7 TIME literal (T#2s, T#100ms, T#1m30s, T#500us) to milliseconds.
+        /// </summary>
+        private static int ParseTimeString(string value)
+        {
+            // Strip T# prefix
+            var s = value;
+            if (s.StartsWith("T#", StringComparison.OrdinalIgnoreCase))
+                s = s.Substring(2);
+
+            int totalMs = 0;
+            int i = 0;
+            while (i < s.Length)
+            {
+                // Read numeric part
+                int start = i;
+                while (i < s.Length && (char.IsDigit(s[i]) || s[i] == '.'))
+                    i++;
+                if (i == start) break;
+                double num = double.Parse(s.Substring(start, i - start),
+                    System.Globalization.CultureInfo.InvariantCulture);
+
+                // Read unit
+                int unitStart = i;
+                while (i < s.Length && char.IsLetter(s[i]))
+                    i++;
+                string unit = s.Substring(unitStart, i - unitStart).ToLower();
+
+                switch (unit)
+                {
+                    case "d":   totalMs += (int)(num * 86400000); break;
+                    case "h":   totalMs += (int)(num * 3600000); break;
+                    case "m":   totalMs += (int)(num * 60000); break;
+                    case "s":   totalMs += (int)(num * 1000); break;
+                    case "ms":  totalMs += (int)num; break;
+                    case "us":  totalMs += (int)(num / 1000); break;
+                    default:
+                        // If no unit, assume milliseconds
+                        totalMs += (int)num;
+                        break;
+                }
+            }
+
+            return totalMs;
         }
     }
 

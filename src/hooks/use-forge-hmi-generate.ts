@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { callNonStreaming } from "@/hooks/use-generation";
 import { validateAndCall } from "@/lib/forge-pipeline-validator";
 import { buildHmiPrompt, buildHmiUserMessage } from "@/lib/forge-prompts";
+import { parseJsonResponse } from "@/lib/json-response";
 import type { ForgeSession, ForgeArtifact } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
 import type { HmiScreenSpec } from "@/types/hmi-screen";
@@ -10,20 +11,12 @@ const HMI_GEN_MAX_TOKENS = 8192;
 
 /** Parse HmiScreenSpec JSON array and build HMI ForgeArtifacts. */
 function parseHmiArtifacts(rawContent: string): ForgeArtifact[] {
-  const cleaned = rawContent
-    .trim()
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/```\s*$/, "")
-    .trim();
-
   let screens: unknown[];
-  try {
-    const parsed = JSON.parse(cleaned);
-    screens = Array.isArray(parsed) ? parsed : [parsed];
-  } catch {
+  const parsed = parseJsonResponse<unknown>(rawContent);
+  if (parsed == null) {
     return [];
   }
+  screens = Array.isArray(parsed) ? parsed : [parsed];
 
   return screens
     .filter((s): s is Record<string, unknown> => typeof s === "object" && s !== null)

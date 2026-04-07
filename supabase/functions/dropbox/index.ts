@@ -329,6 +329,10 @@ async function handleCreateClientFolder(
   const result = await dropboxApi(token, "/files/create_folder_v2", { path: folderPath }, rootNamespaceId);
 
   if (!result.ok) {
+    // Folder already exists — treat as success (idempotent)
+    if (result.error?.includes("conflict/folder")) {
+      return jsonResponse({ created: false, already_exists: true, path: folderPath }, 200);
+    }
     return jsonResponse({ error: result.error ?? "Failed to create folder" }, 500);
   }
 
