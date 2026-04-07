@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Navigate } from "react-router";
 import { useAuth } from "@/hooks/use-auth";
-import pacForgeLogo from "@/../media/logos/PacForge_transparent.png";
+import pacForgeLogo from "@/../media/logos/PacForge_v2.png";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 

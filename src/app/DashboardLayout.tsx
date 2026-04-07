@@ -2,7 +2,7 @@ import { useState } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router";
 import { FolderOpen, Bot, Terminal, BookOpen, GraduationCap, Layers, SlidersHorizontal, FileText, Library, LogOut, User, Sun, Moon, Monitor, ChevronRight, MessageSquare, Blocks, PanelLeftClose, PanelLeftOpen, GitBranchPlus, Wand2, ArrowRightLeft, BookPlus, Building2, Cpu } from "lucide-react";
 import { AgentChatFab } from "@/components/agent-chat/agent-chat-fab";
-import pacLogo from "@/../media/logos/PacForge_transparent.png";
+import pacLogo from "@/../media/logos/PacForge_v2.png";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -216,24 +216,25 @@ function Sidebar() {
         sidebarCollapsed ? "w-12" : "w-56",
       )}
     >
-      <div className={cn("flex items-center", sidebarCollapsed ? "justify-center p-2" : "justify-between px-3 py-4")}>
+      <div className={cn("relative flex items-center", sidebarCollapsed ? "justify-center p-2" : "px-4 py-4")}>
         {sidebarCollapsed ? (
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={toggleSidebar}>
             <PanelLeftOpen className="h-4 w-4" />
           </Button>
         ) : (
           <>
-            <div className="flex items-center gap-2">
-              <img
-                src={pacLogo}
-                alt=""
-                className="h-12 object-contain"
-                style={{ clipPath: "inset(2% 0 40% 18%)", margin: "0 -24px 0 -6px" }}
-              />
-              <span className="text-base font-semibold tracking-tight text-foreground">PacForge</span>
-            </div>
-            <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={toggleSidebar}>
-              <PanelLeftClose className="h-3.5 w-3.5" />
+            <img
+              src={pacLogo}
+              alt="PacForge"
+              className="h-8 w-full object-contain object-left"
+            />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute -right-3 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full border border-border bg-background shadow-sm hover:bg-accent"
+              onClick={toggleSidebar}
+            >
+              <PanelLeftClose className="h-3 w-3" />
             </Button>
           </>
         )}

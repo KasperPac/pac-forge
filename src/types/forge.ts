@@ -253,6 +253,14 @@ export interface SpecAnalysisProcessStep {
   step_number: number;
   action: string;
   completion_criteria: string;
+  /** Device names involved in this step */
+  devices_involved?: string[];
+  /** Signal changes at this step (e.g. "FAN1_CMD = TRUE") */
+  outputs?: string[];
+  /** What happens if completion_criteria not met within timeout */
+  timeout_action?: string | null;
+  /** Edge cases, conditions, or clarifications */
+  notes?: string | null;
 }
 
 export interface SpecAnalysisProcessSequence {
@@ -260,26 +268,71 @@ export interface SpecAnalysisProcessSequence {
   subsystem: string;
   permissives: string[];
   steps: SpecAnalysisProcessStep[];
+  /** What happens when this sequence stops */
+  shutdown_behaviour?: string;
+  /** Names of related sequences (de-staging, reverse, companion) */
+  related_sequences?: string[];
 }
 
 export interface SpecAnalysisAlarm {
   name: string;
+  /** Fault code in Fxxx format */
+  code?: string;
   severity: "IMMEDIATE_SHUTDOWN" | "CONTROLLED_SHUTDOWN" | "WARNING";
   description: string;
+  /** Specific signal condition that triggers this alarm */
+  trigger_condition?: string;
+  /** auto = clears when condition clears, manual = requires operator reset */
+  reset_type?: "auto" | "manual";
+  /** What must happen before reset is possible */
+  reset_condition?: string;
+  /** Which sequences are stopped or modified by this alarm */
+  affected_sequences?: string[];
   possible_causes: string[];
 }
 
 export interface SpecAnalysisInterlock {
   name: string;
   condition: string;
+  /** permissive = must be true to start, runtime_safety = continuously monitored */
+  interlock_type?: "permissive" | "runtime_safety";
+  /** What happens when interlock trips */
+  trip_action?: string;
   affected_devices: string[];
+}
+
+export interface SpecAnalysisHardwareSlot {
+  slot: number;
+  module_description: string;
+  order_number?: string | null;
+  channels_used?: string | null;
+}
+
+export interface SpecAnalysisProcessSetting {
+  name: string;
+  description: string;
+  default_value: string;
+  data_type: string;
+  unit?: string | null;
+  range_min?: string | null;
+  range_max?: string | null;
 }
 
 export interface SpecAnalysis {
   project_name: string;
   project_description: string;
   plc_type: string;
+  /** CPU MLFB order number if specified in spec */
+  plc_order_number?: string | null;
   hmi_type: string;
+  /** Safety classification from spec (e.g. "None", "PLd Cat.3", "SIL2") */
+  safety_classification?: string | null;
+  /** Hardware rack layout if specified in spec */
+  hardware_rack?: SpecAnalysisHardwareSlot[];
+  /** Configurable process parameters with defaults and ranges */
+  process_settings?: SpecAnalysisProcessSetting[];
+  /** FB architecture design intent from spec */
+  fb_architecture?: string | null;
   subsystems: Array<{ name: string; description: string }>;
   devices: SpecAnalysisDevice[];
   process_sequences: SpecAnalysisProcessSequence[];

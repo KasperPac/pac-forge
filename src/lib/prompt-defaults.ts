@@ -2054,15 +2054,45 @@ Each device/equipment type has its OWN Function Block. Devices connect to physic
 - Light Tower: One DQ per lamp colour (GREEN, AMBER, RED) — but extracted as equipment, not device
 - E-Stop: Circuit OK signal (DI)
 
+## Hardware configuration
+
+- If the spec lists a **hardware rack layout** (CPU slot, IO module slots with MLFBs), extract it into the \`hardware_rack\` array. Include slot number, module description, order number (MLFB), and channels used.
+- Extract the **CPU order number** (MLFB) into \`plc_order_number\` if specified (e.g. "6ES7511-1AK02-0AB0").
+- Extract the **safety classification** into \`safety_classification\` if mentioned (e.g. "None", "PLd Cat.3", "SIL2").
+
+## Process settings / configurable parameters
+
+- If the spec lists **configurable parameters** with defaults (thresholds, timeouts, setpoints, hysteresis), extract each one into the \`process_settings\` array. Include the parameter name, description, default value, data type, unit, and min/max range if specified.
+- These become fields in the Configuration DB. The more accurately they are extracted, the less the matrix AI needs to invent.
+
+## FB architecture
+
+- If the spec describes an **FB architecture or design intent** (which FBs to use, how they're structured), capture it in \`fb_architecture\`. This guides the FB template matching and call FC structure.
+
 ## General rules
 
 - Extract ALL devices, including those in instrumentation tables or IO schedules.
 - Extract ALL IO signals for each device. DI = digital input, DQ = digital output, AI = analog input, AQ = analog output.
-- Extract ALL process sequences with numbered steps, actions, and completion criteria.
-- Extract alarms and interlocks where described.
+- For EACH sequence step, extract:
+  - **devices_involved**: which devices are active in this step
+  - **outputs**: specific signal changes (e.g. "FAN1_CMD = TRUE", "CV01_DIR = FORWARD")
+  - **timeout_action**: what happens if the step doesn't complete (e.g. "Fault F003, stop motor"). If the spec mentions a feedback timeout, extract it.
+  - **notes**: any edge cases, conditions, or clarifications from the spec
+- For EACH sequence, extract:
+  - **shutdown_behaviour**: what happens when the sequence stops or is interrupted (de-energise, hold, controlled ramp-down, return to home)
+  - **related_sequences**: if the spec describes a de-staging, reverse, or shutdown sequence that pairs with this one, name it
+- Extract ALL alarms with FULL detail:
+  - **code**: assign fault codes in Fxxx format (F001, F002, ...) in order of severity
+  - **trigger_condition**: the specific signal condition that causes the alarm (e.g. "FAN1_CMD = TRUE AND FAN1_RUN = FALSE for > T#5s")
+  - **reset_type**: "auto" if the alarm clears when the condition clears, "manual" if operator must press reset
+  - **reset_condition**: what must physically happen before reset is possible (e.g. "Thermal relay manually reset, overload contact returns to NC")
+  - **affected_sequences**: which sequences are stopped or modified when this alarm is active
+- Extract ALL interlocks with FULL detail:
+  - **interlock_type**: "permissive" if it must be true before a sequence can start, "runtime_safety" if it is continuously monitored during operation
+  - **trip_action**: what happens when the interlock trips (e.g. "Immediate de-energise all motor CMDs", "Hold current step, prevent advance")
 - The spec may contain Italian terminology — translate to English for all output fields.
-- If a field cannot be determined from the spec, use an empty string or empty array.
-- Do NOT invent data that isn't in the spec.`;
+- If a field cannot be determined from the spec, use null or empty array — but DO use your engineering expertise to infer reasonable values for timeout_action, reset_type, and interlock_type based on the device type and safety implications. For example: every motor should have a run feedback timeout alarm, every E-Stop is a runtime_safety interlock with immediate shutdown.
+- Do NOT invent device names or IO signals that aren't in the spec, but DO infer standard fault/alarm patterns for the devices that ARE in the spec.`;
 
 const FORGE_PM_QA_REVIEW_IDENTITY = `You are a Project Manager performing a structured gap analysis on an automation project specification that has been extracted from a customer document into a SpecAnalysis JSON. Your job is to identify only what is genuinely missing or ambiguous — not to re-ask what is already clearly answered.`;
 

@@ -88,7 +88,29 @@ const SPEC_ANALYSIS_SCHEMA = `{
   "project_name": "string",
   "project_description": "string (2-4 sentence summary)",
   "plc_type": "string (e.g. S7-1517F)",
+  "plc_order_number": "string | null (MLFB e.g. 6ES7511-1AK02-0AB0 — if specified in spec)",
   "hmi_type": "string (e.g. UNIFIED COMFORT, KTP900)",
+  "safety_classification": "string | null (e.g. 'None', 'PLd Cat.3', 'SIL2' — from spec)",
+  "hardware_rack": [
+    {
+      "slot": "number",
+      "module_description": "string (e.g. SM 521 DI 16×24VDC HF)",
+      "order_number": "string | null (MLFB — e.g. 6ES7521-1BH10-0AA0)",
+      "channels_used": "string | null (e.g. '10 DI used', '1 AI used')"
+    }
+  ],
+  "process_settings": [
+    {
+      "name": "string (e.g. tempThreshold1)",
+      "description": "string (e.g. Fan 1 start threshold)",
+      "default_value": "string (e.g. 35, T#5s, 3.0)",
+      "data_type": "string (Real, Int, Time, Bool)",
+      "unit": "string | null (e.g. °C, bar, mm)",
+      "range_min": "string | null",
+      "range_max": "string | null"
+    }
+  ],
+  "fb_architecture": "string | null (design intent from spec — e.g. 'FanStagingController FB manages threshold logic, three ControlMotor instances handle contactor control')",
   "subsystems": [
     { "name": "string", "description": "string" }
   ],
@@ -115,28 +137,41 @@ const SPEC_ANALYSIS_SCHEMA = `{
     {
       "name": "string (e.g. Conveyor Sorting Sequence)",
       "subsystem": "string",
-      "permissives": ["string (pre-conditions that must be true)"],
+      "permissives": ["string (pre-conditions that must be true before sequence can start)"],
       "steps": [
         {
           "step_number": 1,
-          "action": "string (what happens)",
-          "completion_criteria": "string (how we know this step is done)"
+          "action": "string (what happens — be specific: which device, what command)",
+          "completion_criteria": "string (observable signal/condition — e.g. 'FAN1_RUN = TRUE within T#5s')",
+          "devices_involved": ["string (device names involved in this step)"],
+          "outputs": ["string (signal changes — e.g. 'FAN1_CMD = TRUE', 'ConveyorDirection = FORWARD')"],
+          "timeout_action": "string | null (what happens if completion_criteria not met — e.g. 'Fault F003, stop motor')",
+          "notes": "string | null (edge cases, conditions, or clarifications)"
         }
-      ]
+      ],
+      "shutdown_behaviour": "string (what happens when this sequence stops: hold position, de-energise all, controlled ramp-down, return to home)",
+      "related_sequences": ["string (names of de-staging, reverse, or companion sequences if any)"]
     }
   ],
   "alarms": [
     {
-      "name": "string",
+      "name": "string (e.g. F003 Fan 1 Run Timeout)",
+      "code": "string (e.g. F003 — use Fxxx format)",
       "severity": "IMMEDIATE_SHUTDOWN | CONTROLLED_SHUTDOWN | WARNING",
       "description": "string",
+      "trigger_condition": "string (specific signal condition — e.g. 'FAN1_CMD = TRUE AND FAN1_RUN = FALSE for > T#5s')",
+      "reset_type": "auto | manual (auto = clears when condition clears, manual = requires operator reset button)",
+      "reset_condition": "string (what must happen before reset is possible — e.g. 'Motor overload relay physically reset, FAN1_OL returns TRUE')",
+      "affected_sequences": ["string (which sequences are stopped or modified by this alarm)"],
       "possible_causes": ["string"]
     }
   ],
   "interlocks": [
     {
       "name": "string",
-      "condition": "string (Boolean expression or natural language)",
+      "condition": "string (Boolean expression or natural language — e.g. 'ESTOP_OK = TRUE')",
+      "interlock_type": "permissive | runtime_safety (permissive = must be true to start, runtime_safety = continuously monitored during operation)",
+      "trip_action": "string (what happens when interlock trips — e.g. 'Immediate de-energise all fan CMDs', 'Hold current step, prevent advance')",
       "affected_devices": ["string (device names)"]
     }
   ]
@@ -184,11 +219,13 @@ export function buildQaUpdateAnalysisPrompt(): string {
 Your task is to produce an updated SpecAnalysis JSON that incorporates all the information provided in the Q&A conversation.
 
 Rules:
-- Keep all original data that was correct
+- Keep all original data that was correct — preserve ALL fields from the original JSON, including hardware_rack, process_settings, plc_order_number, safety_classification, fb_architecture
 - Update fields where the engineer provided corrections or additional detail
 - Fill in previously empty fields using information from the Q&A answers
+- Do NOT strip out fields that exist in the original — if a field was populated in the input, it must appear in the output
 - Do NOT invent data that wasn't provided
-- Return the updated JSON inside \`\`\`json fences — no explanation`;
+- Return the updated JSON inside \`\`\`json fences matching this schema:
+${SPEC_ANALYSIS_SCHEMA}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -2897,19 +2934,54 @@ export function buildSequencesUserMessage(
     ? specAnalysis.process_sequences
         .map((seq) => {
           const steps = (seq.steps ?? [])
-            .map((st) => `      Step ${st.step_number}: ${st.action} → ${st.completion_criteria}`)
+            .map((st) => {
+              let line = `      Step ${st.step_number}: ${st.action} → ${st.completion_criteria}`;
+              if (st.devices_involved?.length) line += `\n        Devices: ${st.devices_involved.join(", ")}`;
+              if (st.outputs?.length) line += `\n        Outputs: ${st.outputs.join(", ")}`;
+              if (st.timeout_action) line += `\n        Timeout: ${st.timeout_action}`;
+              if (st.notes) line += `\n        Notes: ${st.notes}`;
+              return line;
+            })
             .join("\n");
           const perms = (seq.permissives ?? []).length > 0 ? `\n    Permissives: ${(seq.permissives ?? []).join(", ")}` : "";
-          return `  **${seq.name}** (${seq.subsystem})${perms}\n${steps}`;
+          const shutdown = seq.shutdown_behaviour ? `\n    Shutdown: ${seq.shutdown_behaviour}` : "";
+          const related = (seq.related_sequences ?? []).length > 0 ? `\n    Related: ${seq.related_sequences.join(", ")}` : "";
+          return `  **${seq.name}** (${seq.subsystem})${perms}${shutdown}${related}\n${steps}`;
         })
         .join("\n\n")
     : "  (none)";
 
   const interlocksText = specAnalysis?.interlocks?.length
     ? specAnalysis.interlocks
-        .map((il) => `  - ${il.name}: ${il.condition} → affects: ${(il.affected_devices ?? []).join(", ")}`)
+        .map((il) => {
+          const type = il.interlock_type ? ` [${il.interlock_type}]` : "";
+          const trip = il.trip_action ? ` → Action: ${il.trip_action}` : "";
+          return `  - ${il.name}${type}: ${il.condition}${trip} → affects: ${(il.affected_devices ?? []).join(", ")}`;
+        })
         .join("\n")
     : "  (none)";
+
+  const alarmsText = specAnalysis?.alarms?.length
+    ? specAnalysis.alarms
+        .map((al) => {
+          const code = al.code ? `${al.code}: ` : "";
+          const trigger = al.trigger_condition ? ` | Trigger: ${al.trigger_condition}` : "";
+          const reset = al.reset_type ? ` | Reset: ${al.reset_type}` : "";
+          const resetCond = al.reset_condition ? ` (${al.reset_condition})` : "";
+          return `  - ${code}${al.name} [${al.severity}]: ${al.description}${trigger}${reset}${resetCond}`;
+        })
+        .join("\n")
+    : "  (none)";
+
+  const settingsText = specAnalysis?.process_settings?.length
+    ? specAnalysis.process_settings
+        .map((ps) => {
+          const range = ps.range_min && ps.range_max ? ` (${ps.range_min}–${ps.range_max})` : "";
+          const unit = ps.unit ? ` ${ps.unit}` : "";
+          return `  - ${ps.name}: ${ps.default_value}${unit}${range} [${ps.data_type}] — ${ps.description}`;
+        })
+        .join("\n")
+    : null;
 
   // Build wiring field reference from device linkage (generated in step 1)
   let wiringSection = "";
@@ -2931,6 +3003,10 @@ ${lines.join("\n\n")}
 `;
   }
 
+  const settingsSection = settingsText
+    ? `\n## Process Settings (from Spec — use for DB_Configuration fields)\n${settingsText}\n`
+    : "";
+
   return `Generate the process sequences and global data for this project.
 
 ## Device List (${devices.length} devices — reference for device names in conditions)
@@ -2939,9 +3015,12 @@ ${wiringSection}
 ## Process Sequences from Spec
 ${sequenceSummary}
 
+## Alarms from Spec
+${alarmsText}
+
 ## Interlocks from Spec
 ${interlocksText}
-
+${settingsSection}
 Generate the processSequences and globalData JSON now, wrapped in [SEQUENCES_DATA]...[/SEQUENCES_DATA] tags.`;
 }
 
