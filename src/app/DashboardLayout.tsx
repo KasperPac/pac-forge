@@ -2,7 +2,7 @@ import { useState } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router";
 import { FolderOpen, Bot, Terminal, BookOpen, GraduationCap, Layers, SlidersHorizontal, FileText, Library, LogOut, User, Sun, Moon, Monitor, ChevronRight, MessageSquare, Blocks, PanelLeftClose, PanelLeftOpen, GitBranchPlus, Wand2, ArrowRightLeft, BookPlus, Building2, Cpu } from "lucide-react";
 import { AgentChatFab } from "@/components/agent-chat/agent-chat-fab";
-import pacLogo from "@/../media/logos/PacForge_v2.png";
+import pacLogo from "@/../media/logos/PacTechnologiesEdit_White.png";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -216,7 +216,7 @@ function Sidebar() {
         sidebarCollapsed ? "w-12" : "w-56",
       )}
     >
-      <div className={cn("relative flex items-center", sidebarCollapsed ? "justify-center p-2" : "px-4 py-4")}>
+      <div className={cn("relative flex items-center", sidebarCollapsed ? "justify-center p-2" : "px-3 py-3")}>
         {sidebarCollapsed ? (
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={toggleSidebar}>
             <PanelLeftOpen className="h-4 w-4" />
@@ -225,13 +225,13 @@ function Sidebar() {
           <>
             <img
               src={pacLogo}
-              alt="PacForge"
-              className="h-8 w-full object-contain object-left"
+              alt="Pac Technologies"
+              className="h-10 w-auto object-contain invert dark:invert-0"
             />
             <Button
               variant="ghost"
               size="icon"
-              className="absolute -right-3 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full border border-border bg-background shadow-sm hover:bg-accent"
+              className="absolute -right-3 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full border border-border bg-background shadow-sm hover:bg-accent z-10"
               onClick={toggleSidebar}
             >
               <PanelLeftClose className="h-3 w-3" />

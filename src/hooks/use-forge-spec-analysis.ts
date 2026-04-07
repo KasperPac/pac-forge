@@ -22,14 +22,32 @@ function validateSpecAnalysis(parsed: unknown): SpecAnalysis {
     project_name: (obj.project_name as string) ?? "",
     project_description: (obj.project_description as string) ?? "",
     plc_type: (obj.plc_type as string) ?? "",
+    plc_order_number: (obj.plc_order_number as string) ?? null,
     hmi_type: (obj.hmi_type as string) ?? "",
+    safety_classification: (obj.safety_classification as string) ?? null,
+    hardware_rack: Array.isArray(obj.hardware_rack)
+      ? (obj.hardware_rack as SpecAnalysis["hardware_rack"])
+      : [],
+    process_settings: Array.isArray(obj.process_settings)
+      ? (obj.process_settings as SpecAnalysis["process_settings"])
+      : [],
+    fb_architecture: (obj.fb_architecture as string) ?? null,
     subsystems: Array.isArray(obj.subsystems)
       ? (obj.subsystems as SpecAnalysis["subsystems"])
       : [],
     devices: Array.isArray(obj.devices)
       ? (obj.devices as Array<Record<string, unknown>>).map((d) => ({
           ...d,
-          io_signals: Array.isArray(d.io_signals) ? d.io_signals : [],
+          io_signals: Array.isArray(d.io_signals)
+            ? (d.io_signals as Array<Record<string, unknown>>).map((sig) => ({
+                // Normalize field names — AI sometimes uses signal_name instead of tag_name
+                tag_name: (sig.tag_name ?? sig.signal_name ?? sig.name ?? "") as string,
+                signal_type: (sig.signal_type ?? sig.type ?? "") as string,
+                description: (sig.description ?? sig.desc ?? "") as string,
+                signal_behaviour: (sig.signal_behaviour ?? sig.behaviour ?? "") as string,
+                contact_type: (sig.contact_type ?? "") as string,
+              }))
+            : [],
         })) as SpecAnalysis["devices"]
       : [],
     process_sequences: Array.isArray(obj.process_sequences)

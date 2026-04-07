@@ -2788,6 +2788,12 @@ Each sequence has a \`rows\` array. EVERY row represents ONE condition, ONE acti
 
    NEVER use prose, descriptions, or explanations in the condition field. The \`action\` field is for human-readable text.
 
+   NEVER use arithmetic expressions (+ - * /) in conditions. The compiler cannot evaluate arithmetic.
+   WRONG: "DB_ProcessState.tt01Value < DB_Configuration.tempThreshold3 - DB_Configuration.stagingHysteresis"
+   RIGHT: Add a pre-computed de-stage threshold field to DB_Configuration (e.g. "tempDeStageThreshold3") and use it directly:
+          "DB_ProcessState.tt01Value < DB_Configuration.tempDeStageThreshold3"
+   If you need hysteresis-adjusted thresholds, add them as separate fields in the globalData Configuration DB with their computed default values.
+
    WRONG examples (prose — will crash the compiler):
      "Sequence initialised"
      "timeout elapsed"

@@ -226,7 +226,7 @@ export function ForgeSpecUpload({ onComplete, onSkip, fbTemplates }: ForgeSpecUp
               </CardTitle>
             </div>
           </CardHeader>
-          <ScrollArea className="h-[220px]">
+          <ScrollArea className="max-h-[400px]">
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-card/90">
                 <tr className="border-b border-border/60">

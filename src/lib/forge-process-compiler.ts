@@ -149,7 +149,11 @@ const SIMPLE_TOKEN_RE = /^(?:"[^"]+"(?:\.[A-Za-z_][A-Za-z0-9_]*)*|[A-Za-z_][A-Za
 const SIMPLE_LITERAL_RE = /^(?:-?\d+(?:\.\d+)?|TRUE|FALSE|T#[A-Za-z0-9_]+)$/i;
 
 function sanitizeBlockName(name: string): string {
-  return name.replace(/\s+/g, "_");
+  return name
+    .replace(/[^A-Za-z0-9_\s]/g, "")  // strip all non-alphanumeric/underscore/space chars
+    .replace(/\s+/g, "_")             // spaces to underscores
+    .replace(/_+/g, "_")              // collapse multiple underscores
+    .replace(/^_|_$/g, "");           // trim leading/trailing underscores
 }
 
 function buildDbOperand(dbName: string, arrayName: string, index: number): string {

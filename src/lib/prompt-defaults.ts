@@ -2073,6 +2073,8 @@ Each device/equipment type has its OWN Function Block. Devices connect to physic
 
 - Extract ALL devices, including those in instrumentation tables or IO schedules.
 - Extract ALL IO signals for each device. DI = digital input, DQ = digital output, AI = analog input, AQ = analog output.
+- **CRITICAL — Use EXACT tag names from the spec document.** Do NOT rename, abbreviate, modify, or "improve" IO signal tag names. If the spec says the tag is "FAN1_RUN", extract it as "FAN1_RUN" — not "FAN01_RUN_FB", not "FAN1_RUN_FEEDBACK", not any other variation. The tag names in the spec are the physical PLC tag names that will be used in TIA Portal.
+- **CRITICAL — Use EXACT field names from the schema.** The io_signals array must use "tag_name" (not "signal_name"), "signal_type", "description", "signal_behaviour", and "contact_type". Follow the schema exactly.
 - For EACH sequence step, extract:
   - **devices_involved**: which devices are active in this step
   - **outputs**: specific signal changes (e.g. "FAN1_CMD = TRUE", "CV01_DIR = FORWARD")
