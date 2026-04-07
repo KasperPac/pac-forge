@@ -975,7 +975,7 @@ Output MUST use the tagged fenced block format: \`\`\`scl [FB:${matrixSequence.n
         const allSeqs = useMatrixAsPrimary ? matrixSequences : specSequences;
         for (const seq of allSeqs) {
           const seqName = ('name' in seq ? seq.name : (seq as SpecAnalysisProcessSequence).name)
-            .replace(/\s+/g, "_").toUpperCase();
+            .replace(/[^A-Za-z0-9_\s]/g, "").replace(/\s+/g, "_").toUpperCase();
           stepActionDbNames.set(seq.name ?? seqName, pattern.replace("{SECTION}", seqName));
         }
       }
@@ -1038,13 +1038,21 @@ Output MUST use the tagged fenced block format: \`\`\`scl [FB:${matrixSequence.n
           const A = action_array_name || "A";
 
           // Create step/action DBs using pre-computed names
+          console.log("[forge-process] stepActionDbNames:", JSON.stringify([...stepActionDbNames]));
+          console.log("[forge-process] allArtifacts (LAD FC/FB):", allArtifacts.filter(a => a.language === "LAD" && (a.type === "FC" || a.type === "FB")).map(a => a.name));
           for (const [seqName, dbName] of stepActionDbNames) {
             // Find the matching LAD artifact to scan for max step index
+            const normalize = (s: string) => s.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
             const artifact = allArtifacts.find(a =>
               a.language === "LAD" && (a.type === "FC" || a.type === "FB") &&
-              (a.name === seqName || a.name.replace(/\s+/g, "_").toUpperCase() === seqName.replace(/\s+/g, "_").toUpperCase()),
+              (a.name === seqName || normalize(a.name) === normalize(seqName)),
             );
-            if (!artifact) continue;
+            if (!artifact) {
+              console.warn(`[forge-process] No LAD artifact found for sequence "${seqName}" (normalized: ${normalize(seqName)})`);
+              continue;
+            }
+            console.log(`[forge-process] Generating DB "${dbName}" from artifact "${artifact.name}"`);
+
 
             // Scan the JSON content for highest step/action index
             const content = artifact.content;
