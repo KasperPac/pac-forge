@@ -339,11 +339,14 @@ function extractFaultFieldsFromSequences(
 ): Map<string, { tag: string; description: string; condition: string; source: string; sequences: string[] }> {
   const fields = new Map<string, { tag: string; description: string; condition: string; source: string; sequences: string[] }>();
   // Match DB_FaultData.fieldName or FaultData.fieldName references
+  // Also match fault-like fields in ProcessState as fallback (e.g. DB_ProcessState.faultF001*)
   const dbPatterns = [faultDbName, faultDbName.replace(/^DB_/, ""), "DB_Faults", "Faults"];
   const fieldRe = new RegExp(
     `(?:${dbPatterns.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\.([a-zA-Z_][a-zA-Z0-9_]*)`,
     "g",
   );
+  // Fallback: catch fault fields placed in ProcessState (AI sometimes puts them there)
+  const fallbackRe = /DB_ProcessState\.(fault[A-Z_][a-zA-Z0-9_]*)/g;
 
   // Skip meta fields — these are hardcoded in buildDeterministicFaultDb
   const metaFields = new Set(["faultActive", "faultCode", "faultReset", "anyFaultLatched"]);
@@ -352,6 +355,7 @@ function extractFaultFieldsFromSequences(
     for (const row of seq.rows ?? []) {
       const texts = [row.condition, row.output, row.action].filter(Boolean);
       for (const text of texts) {
+        // Primary: scan for DB_FaultData.* references
         let m: RegExpExecArray | null;
         fieldRe.lastIndex = 0;
         while ((m = fieldRe.exec(text!)) !== null) {
@@ -369,6 +373,19 @@ function extractFaultFieldsFromSequences(
             const entry = fields.get(fieldName)!;
             if (!entry.sequences.includes(seq.name)) entry.sequences.push(seq.name);
           }
+        }
+        // Fallback: scan for fault-like fields in ProcessState
+        fallbackRe.lastIndex = 0;
+        while ((m = fallbackRe.exec(text!)) !== null) {
+          const fieldName = m[1];
+          if (metaFields.has(fieldName) || fields.has(fieldName)) continue;
+          fields.set(fieldName, {
+            tag: fieldName,
+            description: row.action || row.condition,
+            condition: row.condition,
+            source: row.type === "fault_exit" ? "fault_exit" : "sequence_reference",
+            sequences: [seq.name],
+          });
         }
       }
     }

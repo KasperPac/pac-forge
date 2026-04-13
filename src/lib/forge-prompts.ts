@@ -84,7 +84,7 @@ ${seq?.custom_notes ? `\n### Sequence Notes\n${seq.custom_notes}` : ""}`;
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-const SPEC_ANALYSIS_SCHEMA = `{
+export const SPEC_ANALYSIS_SCHEMA = `{
   "project_name": "string",
   "project_description": "string (2-4 sentence summary)",
   "plc_type": "string (e.g. S7-1517F)",
@@ -141,6 +141,7 @@ const SPEC_ANALYSIS_SCHEMA = `{
       "steps": [
         {
           "step_number": 1,
+          "trigger_condition": "string | null (WHAT causes this step to activate — a machine-parseable condition expression. For analog thresholds: 'temperature > 40.0 °C', 'pressure < 2.5 bar'. For digital: 'FAN1_RUN = TRUE', 'pushButton = TRUE'. For timed: 'delay elapsed T#5s'. For the first step use the start/permissive condition. NEVER leave null if the spec describes a condition.)",
           "action": "string (what happens — be specific: which device, what command)",
           "completion_criteria": "string (observable signal/condition — e.g. 'FAN1_RUN = TRUE within T#5s')",
           "devices_involved": ["string (device names involved in this step)"],
@@ -798,6 +799,8 @@ export interface DeviceCallFcContext {
   facePlatesDbContent?: string;
   /** Instruction library — injected into LAD prompts */
   instructions?: Instruction[];
+  /** IO list — used to resolve NC/NO contact types for polarity inversion */
+  ioList?: ForgeIoEntry[];
 }
 
 function findFacePlateFieldName(
@@ -1233,13 +1236,32 @@ function extractVarOutputParams(fbInterfaceSection: string): Array<{ name: strin
  * (TRUE = danger), but safety feedback signals like safetyOk are active-low
  * (TRUE = healthy). Wiring safetyOk directly to eStop inverts the safety logic.
  */
-function needsPolarityInversion(paramName: string, connectedTo: string): boolean {
+function needsPolarityInversion(
+  paramName: string,
+  connectedTo: string,
+  ioList?: ForgeIoEntry[],
+): boolean {
   const param = paramName.toLowerCase();
   const source = connectedTo.toLowerCase();
   // eStop/emergency input params wired to safetyOk/systemOk sources need NOT
   const isEStopParam = param.includes("estop") || param.includes("emergency");
   const isSafetySource = source.includes("safetyok") || source.includes("systemok") || source.includes("safety_ok");
-  return isEStopParam && isSafetySource;
+  if (isEStopParam && isSafetySource) return true;
+
+  // NC contact inversion: if the IO signal is an NC (normally closed) contact wired
+  // to a fault/trip input (TRUE=fault convention), invert it. NC contacts read TRUE
+  // when healthy and FALSE when tripped — the opposite of what fault inputs expect.
+  if (ioList) {
+    const ioTag = connectedTo.replace(/^"?(?:DB_)?(?:Inputs|DB_Inputs)"?\./, "");
+    const io = ioList.find(e => e.tag_name?.toLowerCase() === ioTag.toLowerCase());
+    if (io?.contact_type === "NC") {
+      const isFaultParam = param.includes("fault") || param.includes("overload")
+        || param.includes("trip") || param.includes("extfault") || param.includes("ext_fault");
+      if (isFaultParam) return true;
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -1328,9 +1350,8 @@ export function generateDeviceCallFc(context: DeviceCallFcContext): string | nul
       if (!source.trim()) continue;
 
       if (w.direction === "in") {
-        // Invert safety signals: safetyOk (TRUE=safe) must be negated
-        // when wired to eStop inputs (TRUE=danger)
-        const invert = needsPolarityInversion(w.paramName, w.connectedTo ?? "");
+        // Invert NC contacts and safety signals where polarity conventions differ
+        const invert = needsPolarityInversion(w.paramName, w.connectedTo ?? "", context.ioList);
         const expr = invert ? `NOT ${source}` : source;
         inputLines.push(`        ${w.paramName} := ${expr}`);
       } else {
@@ -1485,10 +1506,9 @@ export function generateDeviceCallFcLad(context: DeviceCallFcContext): string | 
         } else {
           value = w.connectedTo ?? "";
         }
-        // Invert safety signals: safetyOk (TRUE=safe) must be negated
-        // when wired to eStop inputs (TRUE=danger)
-        // In LAD, negation uses NC (normally closed) contact — NOT prefix in tag name is invalid
-        const invert = w.direction === "in" && needsPolarityInversion(w.paramName, w.connectedTo ?? "");
+        // Invert NC contacts and safety signals where polarity conventions differ
+        // In LAD, negation uses NC (normally closed) contact element
+        const invert = w.direction === "in" && needsPolarityInversion(w.paramName, w.connectedTo ?? "", context.ioList);
         return {
           name: w.paramName,
           direction: w.direction as "in" | "out" | "inout",
@@ -1648,17 +1668,29 @@ Use this EXACT schema — the "logic" wrapper with "nodes" is mandatory:
   "rungs": [
     {
       "id": "rung_1",
-      "title": "Map SensorInput to ${iDbName} DB",
+      "title": "Map digital input to ${iDbName}",
       "logic": {
         "type": "series",
         "nodes": [
           { "type": "element", "element": { "id": "e1", "type": "NO_CONTACT", "operand": "SensorTag", "dataType": "Bool" } },
-          { "type": "element", "element": { "id": "e2", "type": "OUTPUT_COIL", "operand": "${iDbName}.SensorTag", "dataType": "Bool" } }
+          { "type": "element", "element": { "id": "e2", "type": "OUTPUT_COIL", "operand": "\\"${iDbName}\\".SensorTag", "dataType": "Bool" } }
+        ]
+      }
+    },
+    {
+      "id": "rung_2",
+      "title": "Map analog input to ${iDbName} (Word MOVE)",
+      "logic": {
+        "type": "series",
+        "nodes": [
+          { "type": "element", "element": { "id": "e3", "type": "MOVE", "operand": "AnalogTag", "dataType": "Word", "outputOperand": "\\"${iDbName}\\".AnalogTag" } }
         ]
       }
     }
   ]
-}`;
+}
+
+CRITICAL: You MUST generate a rung for EVERY IO entry — digital AND analog. Use NO_CONTACT + OUTPUT_COIL for Bool signals, and MOVE for Word/Int/Real signals. Do NOT skip any IO entries.`;
 }
 
 /**
@@ -2420,6 +2452,147 @@ Return the HmiScreenSpec JSON array now.`;
 }
 
 // ---------------------------------------------------------------------------
+// Panel-aware HMI prompt (custom/AI screens only)
+// ---------------------------------------------------------------------------
+
+/**
+ * System prompt for AI-generated custom HMI screens.
+ * The AI only generates screens that cannot be produced deterministically:
+ * alarm summary, trend views, diagnostics, and user-requested custom screens.
+ *
+ * The deterministic screens (framework, overview, checklists) are passed as
+ * context so the AI can reference them for navigation.
+ */
+export function buildHmiCustomScreenPrompt(
+  config: import("@/types/hmi-panel").HmiPanelConfig,
+  session: ForgeSession,
+  catalog: import("@/types/hmi-panel").FaceplateCatalogEntry[],
+  existingScreenNames: string[],
+): string {
+  const projectName = session.spec_analysis?.project_name ?? "Unnamed Project";
+  const panelLabel = `${config.panelModel} (${config.screenWidth}x${config.screenHeight})`;
+
+  const faceplateSection = catalog.length > 0
+    ? catalog.map((c) =>
+      `- ${c.deviceType} → ${c.faceplateTypeName} (${c.interfaceProperties.length} properties${c.libraryName ? `, from ${c.libraryName}` : ""})`,
+    ).join("\n")
+    : "- No faceplate catalog available";
+
+  const existingSection = existingScreenNames.length > 0
+    ? existingScreenNames.map((n) => `- ${n}`).join("\n")
+    : "- No existing screens";
+
+  const familyConstraints = config.family === "comfort"
+    ? `- WinCC Comfort runtime — NO JavaScript scripting, NO WebWidgets
+- Use system functions (ActivateScreen, SetTag, etc.) for navigation and actions
+- Limited animation set: visibility, appearance, movement, flashing
+- Faceplate instances via FACEPLATE element type`
+    : `- WinCC Unified runtime — JavaScript scripting available
+- WebWidgets supported for custom content
+- Rich animation and SVG faceplate support`;
+
+  return `You are generating custom HMI screens for a Siemens WinCC project in TIA Portal.
+
+Target panel: ${panelLabel}
+Panel family: ${config.family}
+Project: ${projectName}
+
+## Panel Constraints
+${familyConstraints}
+
+## Your Role
+You generate ONLY the custom/creative screens that require AI judgment.
+The following screens have ALREADY been generated deterministically — do NOT recreate them:
+${existingSection}
+
+You can reference these screen names in navigateTo fields for cross-screen navigation.
+
+## Faceplate Catalog (use EXACT type names)
+${faceplateSection}
+
+CRITICAL: When placing FACEPLATE elements, use the EXACT faceplateTypeName from the catalog above. NEVER invent faceplate type names.
+
+## Output Contract
+Return a JSON array of HmiScreenSpec objects. Each screen MUST include:
+- id (unique string)
+- name (unique, deterministic)
+- width = ${config.screenWidth}
+- height = ${config.screenHeight}
+- backgroundColor
+- elements (HmiElement[])
+- screenRole ("alarm_summary" | "trend" | "device_faceplate" | "custom")
+- screenNumber (will be assigned by the system — use 0)
+
+## Screen Design Rules
+- Dark theme: #1E1E1E background, #E0E0E0 text, status accents only
+- Dense operator-tool layout, not airy consumer UI
+- Alarm summary: use ALARM_VIEW element with meaningful column configuration
+- Trend screens: use TREND_VIEW element with relevant process tags
+- Device faceplate screens: use FACEPLATE elements from the catalog, bind to instance DB paths
+- Use IO_FIELD for editable values, TEXT for labels, BUTTON for navigation/commands
+- Every screen must belong to the same visual suite as the existing screens
+
+Return raw JSON only. No markdown fences, no explanation text.`;
+}
+
+/**
+ * User message for AI custom screen generation.
+ */
+export function buildHmiCustomScreenUserMessage(
+  session: ForgeSession,
+  requestedTypes: string[],
+): string {
+  const devices = session.device_list;
+  const sequences = session.spec_analysis?.process_sequences ?? [];
+  const alarms = session.spec_analysis?.alarms ?? [];
+
+  const sections: string[] = [`Generate these custom HMI screens:`];
+
+  if (requestedTypes.includes("alarm_summary")) {
+    const alarmInfo = alarms.length > 0
+      ? alarms.slice(0, 10).map((a) => `  - ${a.name}: ${a.description} (${a.severity})`).join("\n")
+      : "  - Derive alarm types from device faults and process interlocks";
+    sections.push(`\n## Alarm Summary Screen\n${alarmInfo}`);
+  }
+
+  if (requestedTypes.includes("trend")) {
+    const analogSignals = session.io_list
+      .filter((io) => io.signal_type === "AI" || io.signal_type === "AQ")
+      .slice(0, 10);
+    const trendInfo = analogSignals.length > 0
+      ? analogSignals.map((io) => `  - ${io.tag_name}: ${io.description}`).join("\n")
+      : "  - Select key analog process values for trending";
+    sections.push(`\n## Trend Screen\n${trendInfo}`);
+  }
+
+  if (requestedTypes.includes("device_faceplate")) {
+    const deviceTypes = [...new Set(devices.map((d) => d.device_type))];
+    const fpInfo = deviceTypes.map((dt) => {
+      const instances = devices.filter((d) => d.device_type === dt);
+      return `  - ${dt}: ${instances.length} instance(s) — ${instances.map((d) => d.tag).join(", ")}`;
+    }).join("\n");
+    sections.push(`\n## Device Faceplate Screens (one per device type)\n${fpInfo}`);
+  }
+
+  if (requestedTypes.includes("custom")) {
+    sections.push(`\n## Custom Screens\nGenerate any additional screens you think would be operationally useful based on the process sequences and device layout.`);
+  }
+
+  // Context
+  sections.push(`\n## Process Sequences`);
+  if (sequences.length > 0) {
+    for (const seq of sequences.slice(0, 5)) {
+      sections.push(`- ${seq.name} (${seq.subsystem}): ${seq.steps.slice(0, 4).map((s) => `${s.step_number}:${s.action}`).join(", ")}`);
+    }
+  } else {
+    sections.push("- No sequences available");
+  }
+
+  sections.push(`\nReturn the HmiScreenSpec JSON array now.`);
+  return sections.join("\n");
+}
+
+// ---------------------------------------------------------------------------
 // Matrix generation prompts
 // ---------------------------------------------------------------------------
 
@@ -2649,6 +2822,14 @@ Process sequences need to read device operational status (is motor running? what
 - **Conveyor/subsystem**: Mirror run feedback → \`ProcessState.{tag}Running\` (sourceType: "io" or "fb_output")
 - **Any device whose status is used as a condition in process sequences**
 
+**CRITICAL — Synthetic feedback when no physical signal exists:**
+If a device FB has a feedback parameter (e.g. \`runFeedback\`, \`enableFeedback\`, \`positionFeedback\`) but NO corresponding physical IO signal exists in the IO list:
+1. Wire the feedback parameter to CONSTANT FALSE (no physical signal)
+2. The device FB MUST derive the status internally from the command state + a configurable delay timer. For example: if \`runFeedback = FALSE\` and \`autoRun = TRUE\`, the FB sets its \`running\` output TRUE after \`faultDelay_Run\` expires.
+3. Add a statusMirror for the derived status using sourceType "fb_output" (e.g. \`{ "source": "running", "sourceType": "fb_output", "target": "ProcessState.{tag}Running" }\`)
+4. Add a note in the device's \`notes\` field: "No physical run feedback — FB derives running status from command state + delay timer"
+This ensures sequences can wait for \`ProcessState.{tag}Running = TRUE\` and it will be set by the FB's internal logic, not by a physical signal that doesn't exist.
+
 **When NOT to add statusMirrors:**
 - Push buttons — already wired to ProcessState via FB outputs
 - E-Stop — already wired to ProcessState via FB outputs
@@ -2748,6 +2929,13 @@ Each sequence has a \`rows\` array. EVERY row represents ONE condition, ONE acti
      { "step": 20, "branch": null, "condition": "PB01_START = TRUE", "action": "Start command received, check permissives", "output": null, "next": 30, "type": "action" }
      { "step": 20, "branch": null, "condition": "NOT PB01_START",    "action": "No start command",                         "output": null, "next": 0,  "type": "fault_exit" }
 
+   **CRITICAL — "Already at target" is NOT a fault:**
+   If a condition check reveals the goal is ALREADY satisfied (e.g. "table already at upper position" when running a raise sequence), this is a graceful no-op — the sequence should exit to IDLE (step 0), NOT to FAULT.
+   Use type "action" with next: 0 (return to idle) — NOT "fault_exit" with next: "FAULT".
+   Reserve "fault_exit" ONLY for genuine error/safety conditions that require a fault latch (timeouts, safety trips, sensor failures).
+   WRONG: { "step": 10, "condition": "atPosition = TRUE", "action": "Already at target", "next": "FAULT", "type": "fault_exit" }
+   RIGHT: { "step": 10, "condition": "atPosition = TRUE", "action": "Already at target — sequence complete", "next": 0, "type": "action" }
+
    THE ANTI-PATTERN TO AVOID — do NOT decompose permissive checks into individual pass/fail branch pairs:
    WRONG (creates a useless waterfall of XOR diamonds for what is just one AND gate):
      { "step": 20, "branch": "a", "condition": "ESTOP_OK = TRUE",              "next": 30, "type": "branch" }
@@ -2811,6 +2999,20 @@ Each sequence has a \`rows\` array. EVERY row represents ONE condition, ONE acti
      "NOT DB_FaultData.faultActive"
      "DB_ProcessState.m01Running = TRUE"
      "DB_ProcessState.pbStartPressed = TRUE"
+
+## CRITICAL — Stop/Pause Buttons in Motion Sequences
+
+If ANY device in the device list is a stop button, pause button, or emergency stop (device_type contains "stop", "pause", or "estop"), it MUST be included in every motion sequence as a monitoring condition that triggers a controlled stop. Stop buttons are input-only devices with no command outputs, but they MUST still appear in sequences.
+
+For each motion sequence (raise, lower, advance, retract, etc.):
+1. Add the stop button's \`shortHold\` or \`pressed\` output as a safety condition or monitoring row
+2. The stop action should be a CONTROLLED STOP (de-energise actuators in sequence, then stop motor) — not an immediate fault latch
+3. After a controlled stop, the sequence should return to IDLE (step 0), not FAULT — unless the stop was triggered by a safety device (E-Stop)
+
+Example — operator stop during a motion sequence:
+  { "step": 20, "branch": null, "condition": "DB_ProcessState.pbStopPressed = TRUE", "action": "Operator stop — de-energise actuator and stop motor", "output": "DB_ProcessCommands.solUpCmdWork = FALSE", "next": 40, "type": "monitor" }
+
+Do NOT exclude stop buttons just because they are input-only devices. They are critical operator controls.
 
 ## Output Format
 Wrap the JSON in [SEQUENCES_DATA]...[/SEQUENCES_DATA] tags:
@@ -3013,6 +3215,36 @@ ${lines.join("\n\n")}
     ? `\n## Process Settings (from Spec — use for DB_Configuration fields)\n${settingsText}\n`
     : "";
 
+  // Build a fault catalog from spec alarms — these are the CANONICAL fault definitions
+  const faultCatalog = specAnalysis?.alarms?.length
+    ? specAnalysis.alarms
+        .filter((al) => al.name)
+        .map((al) => {
+          const code = al.code || "";
+          const name = al.name || "Unknown";
+          const fieldName = code
+            ? `${code.toLowerCase()}${name.replace(/[\s\-/]+/g, "_").replace(/[^a-zA-Z0-9_]/g, "")}`
+            : name.replace(/[\s\-/]+/g, "_").replace(/[^a-zA-Z0-9_]/g, "");
+          return `  - ${code}: DB_FaultData.${fieldName} — ${name} [${al.severity || "FAULT"}]`;
+        })
+        .join("\n")
+    : null;
+
+  const faultCatalogSection = faultCatalog
+    ? `
+## PREDEFINED FAULT CATALOG (from Spec — MANDATORY)
+These are the confirmed fault definitions from the specification. All fault flags MUST be stored in \`DB_FaultData\` — NEVER in DB_ProcessState or any other DB. The fault DB is a dedicated block for fault latching, clearing, and aggregate monitoring.
+
+When your sequences set or check fault flags, you MUST use \`DB_FaultData.{fieldName}\` with these EXACT field names:
+
+${faultCatalog}
+
+For any ADDITIONAL faults your sequences need (e.g. step timeout, feedback timeout), add them to DB_FaultData using the same convention: \`f{NNN}{descriptiveName}\` where NNN continues from the last predefined code.
+
+**CRITICAL:** The aggregate flag \`DB_FaultData.anyFaultLatched\` must be the OR of ALL individual fault flags. Include it in your globalData DB_FaultData definition. NEVER put fault flags in DB_ProcessState — they belong exclusively in DB_FaultData.
+`
+    : "";
+
   return `Generate the process sequences and global data for this project.
 
 ## Device List (${devices.length} devices — reference for device names in conditions)
@@ -3023,7 +3255,7 @@ ${sequenceSummary}
 
 ## Alarms from Spec
 ${alarmsText}
-
+${faultCatalogSection}
 ## Interlocks from Spec
 ${interlocksText}
 ${settingsSection}

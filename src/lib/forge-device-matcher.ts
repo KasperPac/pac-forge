@@ -220,7 +220,7 @@ function nameAffinity(deviceType: string, template: FbTemplate): number {
     const overlap = deviceTokens.filter(w => templateTokens.includes(w));
     if (overlap.length > 0) {
       const ratio = overlap.length / deviceTokens.length;
-      return Math.min(0.55, 0.3 + ratio * 0.25);
+      return Math.min(0.8, 0.4 + ratio * 0.4);
     }
   }
 
@@ -262,23 +262,31 @@ export function scoreTemplate(device: ForgeDeviceEntry, template: FbTemplate): T
   const nScore = nameAffinity(device.device_type, template);
   const sScore = summaryAffinity(device.device_type, template);
 
-  // Interface is primary (40%), name (30%), summary (30%)
-  // But if template has no SCL blocks yet, fall back to name + summary
+  // Name is primary (40%), interface (30%), summary (30%)
+  // Name affinity is the strongest signal — a template called "fbValveSolenoid" should
+  // always beat "fbIO_DigitalOutput" for a solenoid device, even if interface scores tie.
   const hasScl = (template.blocks?.length ?? 0) > 0;
   // Library templates have tested code + matched HMI faceplates — prefer them
   const sourceBoost = template.source === "library" ? 0.08 : 0;
+  // Penalize generic templates (fbIO_*, Pushbutton used as catch-all) when name affinity is zero —
+  // a generic FB with perfect interface fit shouldn't beat a specific FB with a real name match
+  const normName = template.name.toLowerCase();
+  const isGeneric = normName.startsWith("fbio") || normName === "pushbutton";
+  const genericPenalty = (isGeneric && nScore === 0) ? -0.15 : 0;
   const combined = hasScl
-    ? Math.min(1.0, 0.4 * iScore + 0.3 * nScore + 0.3 * sScore + sourceBoost)
-    : Math.min(1.0, 0.5 * nScore + 0.5 * sScore + sourceBoost);
+    ? Math.max(0, Math.min(1.0, 0.3 * iScore + 0.4 * nScore + 0.3 * sScore + sourceBoost + genericPenalty))
+    : Math.max(0, Math.min(1.0, 0.5 * nScore + 0.5 * sScore + sourceBoost + genericPenalty));
 
   return { template, iScore, nScore, sScore, combined };
 }
 
 function confidenceFromScore(score: TemplateScore): "exact" | "probable" | "none" {
-  // Exact: good interface fit AND name is related (safe to copy template as-is)
+  // Exact: good combined fit AND name is clearly related (safe to copy template as-is)
   if (score.combined >= 0.7 && score.nScore >= 0.3) return "exact";
-  // Probable: reasonable fit by either metric
-  if (score.combined >= 0.4 || score.nScore >= 0.5) return "probable";
+  // Probable: decent combined score BUT must have some name relevance — pure interface
+  // matches without any name/category relation produce wrong results (e.g. fbPulser for a lift table)
+  if (score.combined >= 0.55 && score.nScore >= 0.2) return "probable";
+  if (score.nScore >= 0.6) return "probable";
   return "none";
 }
 

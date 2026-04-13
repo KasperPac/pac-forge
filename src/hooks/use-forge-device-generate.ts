@@ -33,6 +33,7 @@ import type { FbTemplate } from "@/types/fb-template";
 import type { PatternCandidate, Instruction } from "@/types";
 import type { ProcessLinkageMatrix } from "@/types/forge-matrix";
 import { fetchInstructionsForPrompt, DEVICE_FB_CATEGORIES } from "@/hooks/use-instructions";
+import { lookupInstructions } from "@/lib/instruction-lookup";
 import { getRelevantReferenceSections, formatReferenceSections } from "@/lib/reference-lookup";
 import { extractConversions, generateDbConverted, generateFcTypeConvertScl, generateFcTypeConvertLad, rewireConvertedSources } from "@/lib/forge-type-convert";
 import { extractBlockName } from "@/lib/scl-block-parser";
@@ -43,6 +44,15 @@ const DEVICE_GEN_MAX_TOKENS = 8192;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** Normalize device entries from DB — ensures name/tag are never undefined. */
+function normalizeDevices(raw: ForgeDeviceEntry[]): ForgeDeviceEntry[] {
+  return raw.map(d => ({
+    ...d,
+    name: d.name || d.tag || "",
+    tag: d.tag || d.name || "",
+  }));
+}
 
 /** Resolve the DB naming prefix from structured rules or flat field */
 function resolveDbPrefix(profile: DesignProfile): string {
@@ -1889,6 +1899,7 @@ export function useForgeDeviceGenerate() {
         DEVICE_GEN_MAX_TOKENS,
         isLad ? "code_architect_lad" : "code_architect_scl",
         !!profile,
+        { prompt_name: "forge-device-generate", agent_role: isLad ? "code_architect_lad" : "code_architect_scl", pipeline_step: "device_generate" },
       );
 
       if (isLad) {
@@ -1954,19 +1965,27 @@ export function useForgeDeviceGenerate() {
       setError(null);
       clearLog();
 
-      // Fetch instruction library for LAD generation (non-fatal)
+      const devices = normalizeDevices(session.device_list as ForgeDeviceEntry[]);
+      const ioList = session.io_list as ForgeIoEntry[];
+
+      // Fetch instruction library for LAD generation via two-pass AI lookup (non-fatal)
       let ladInstructions: Instruction[] | undefined;
       try {
-        ladInstructions = await fetchInstructionsForPrompt("LAD", DEVICE_FB_CATEGORIES);
+        const deviceContext = devices
+          .map((d) => `${d.name} (${d.device_type}): ${d.description}`)
+          .join("\n");
+        ladInstructions = await lookupInstructions(
+          `Generate LAD device FBs for:\n${deviceContext}`,
+          "LAD",
+          undefined,
+          DEVICE_FB_CATEGORIES,
+        );
         if (ladInstructions.length > 0) {
-          appendLog("info", `Instruction library: ${ladInstructions.length} LAD instruction(s) loaded`);
+          appendLog("info", `Instruction library: ${ladInstructions.length} LAD instruction(s) loaded (AI-selected)`);
         }
       } catch {
-        // Non-fatal
+        // Non-fatal — fall back silently
       }
-
-      const devices = session.device_list as ForgeDeviceEntry[];
-      const ioList = session.io_list as ForgeIoEntry[];
       const matrix = session.linkage_matrix as ProcessLinkageMatrix | null;
       // Global DBs to generate from matrix (HmiData, Configuration, etc.)
       const matrixGlobalDbs = matrix?.globalData ?? [];
@@ -2319,8 +2338,9 @@ END_TYPE`;
         for (const deviceType of uniqueDeviceTypes) {
           const fbIface = deviceTypeFbInterfaces.get(deviceType) ?? "";
           const inOutParams = extractVarInOutParams(fbIface);
-          // Only HMI UDTs — type name contains "HMI" (case-insensitive)
-          const hmiParams = inOutParams.filter(p => !isElementaryType(p.dataType) && /hmi/i.test(p.dataType));
+          // All non-elementary VAR_IN_OUT params — HMI UDTs, error UDTs, etc.
+          // These are the faceplate-bound structs that need a global DB home.
+          const hmiParams = inOutParams.filter(p => !isElementaryType(p.dataType));
           if (hmiParams.length === 0) continue;
 
           const groupDevices = devices.filter(d => d.device_type === deviceType);
@@ -2386,6 +2406,7 @@ END_TYPE`;
               DEVICE_GEN_MAX_TOKENS,
               "io_linking",
               !!profile,
+              { prompt_name: "forge-io-linking", agent_role: "io_linking", pipeline_step: "io_linking_lad" },
             );
             const artifact = parseLadArtifact(content, ioLinkingFcName, "device");
             if (!artifact) console.warn("[forge] LAD IO linking parse failed:", content.slice(0, 500));
@@ -2441,7 +2462,7 @@ END_TYPE`;
           const groupSignalTags = new Set(
             groupDevices
               .flatMap((d) => d.io_signals ?? [])
-              .map((s) => s.tag_name.replace(/[^A-Za-z0-9]/g, "").toLowerCase()),
+              .map((s) => (s.tag_name || (s as Record<string, unknown>).signal_name as string || "").replace(/[^A-Za-z0-9]/g, "").toLowerCase()),
           );
           const groupIoListEntries = (ioList ?? []).filter((io) => {
             const ioStem = (io.tag_name ?? "").replace(/[^A-Za-z0-9]/g, "").toLowerCase();
@@ -2498,6 +2519,7 @@ END_TYPE`;
             facePlatesDbContent: facePlatesContent,
             referenceSections: refSectionsText || undefined,
             instructions: ladInstructions,
+            ioList: ioList ?? undefined,
           };
 
           // Only use deterministic generation if EVERY instance has wiring entries in the
@@ -2577,6 +2599,7 @@ END_TYPE`;
               DEVICE_GEN_MAX_TOKENS,
               "code_architect_lad",
               !!profile,
+              { prompt_name: "forge-device-fallback-lad", agent_role: "code_architect_lad", pipeline_step: "device_call_fc_lad" },
             );
             const artifact = parseLadArtifact(content, fcName, "device");
             if (!artifact) {
@@ -2596,6 +2619,7 @@ END_TYPE`;
               DEVICE_GEN_MAX_TOKENS,
               "code_architect_scl",
               !!profile,
+              { prompt_name: "forge-device-fallback-scl", agent_role: "code_architect_scl", pipeline_step: "device_call_fc_scl" },
             );
             const fcArtifacts = parseSclArtifacts(content, "device");
             if (fcArtifacts.length === 0) {
@@ -2693,7 +2717,7 @@ END_TYPE`;
       let ladInstructions: Instruction[] | undefined;
       try { ladInstructions = await fetchInstructionsForPrompt("LAD", DEVICE_FB_CATEGORIES); } catch { /* non-fatal */ }
 
-      const devices = session.device_list as ForgeDeviceEntry[];
+      const devices = normalizeDevices(session.device_list as ForgeDeviceEntry[]);
       const allArtifacts: ForgeArtifact[] = [];
       const copiedTemplateBlockNames = new Set<string>();
       const instDbPrefix = resolveInstDbPrefix(profile);
@@ -2790,7 +2814,7 @@ END_TYPE`;
       let ladInstructions: Instruction[] | undefined;
       try { ladInstructions = await fetchInstructionsForPrompt("LAD", DEVICE_FB_CATEGORIES); } catch { /* non-fatal */ }
 
-      const devices = session.device_list as ForgeDeviceEntry[];
+      const devices = normalizeDevices(session.device_list as ForgeDeviceEntry[]);
       const ioList = session.io_list as ForgeIoEntry[];
       const matrix = session.linkage_matrix as ProcessLinkageMatrix | null;
       const matrixGlobalDbs = matrix?.globalData ?? [];
@@ -3183,6 +3207,7 @@ END_TYPE`;
               DEVICE_GEN_MAX_TOKENS,
               "io_linking",
               !!profile,
+              { prompt_name: "forge-io-linking", agent_role: "io_linking", pipeline_step: "io_linking_lad" },
             );
             const artifact = parseLadArtifact(content, ioLinkingFcName, "device");
             if (!artifact) console.warn("[forge] LAD IO linking parse failed:", content.slice(0, 500));
@@ -3234,7 +3259,7 @@ END_TYPE`;
           const groupSignalTags = new Set(
             groupDevices
               .flatMap((d) => d.io_signals ?? [])
-              .map((s) => s.tag_name.replace(/[^A-Za-z0-9]/g, "").toLowerCase()),
+              .map((s) => (s.tag_name || (s as Record<string, unknown>).signal_name as string || "").replace(/[^A-Za-z0-9]/g, "").toLowerCase()),
           );
           const groupIoListEntries = (ioList ?? []).filter((io) => {
             const ioStem = (io.tag_name ?? "").replace(/[^A-Za-z0-9]/g, "").toLowerCase();
@@ -3290,6 +3315,7 @@ END_TYPE`;
             facePlatesDbContent: facePlatesContent,
             referenceSections: refSectionsText2 || undefined,
             instructions: ladInstructions,
+            ioList: ioList ?? undefined,
           };
 
           const allInstancesWired = instanceDbNames.every(name =>
@@ -3361,6 +3387,7 @@ END_TYPE`;
               DEVICE_GEN_MAX_TOKENS,
               "code_architect_lad",
               !!profile,
+              { prompt_name: "forge-device-fallback-lad", agent_role: "code_architect_lad", pipeline_step: "device_call_fc_lad" },
             );
             const artifact = parseLadArtifact(content, fcName, "device");
             if (!artifact) {
@@ -3379,6 +3406,7 @@ END_TYPE`;
               DEVICE_GEN_MAX_TOKENS,
               "code_architect_scl",
               !!profile,
+              { prompt_name: "forge-device-fallback-scl", agent_role: "code_architect_scl", pipeline_step: "device_call_fc_scl" },
             );
             const fcArtifacts = parseSclArtifacts(content, "device");
             if (fcArtifacts.length === 0) {

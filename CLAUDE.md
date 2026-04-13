@@ -328,6 +328,32 @@ LAD (Ladder Logic) editor at `/pac-lad` → `src/routes/pac-lad.tsx`. Key files:
 - Prefer deterministic, auditable implementations over cleverness
 - Ask for missing requirements only when truly required
 
+## Machine Hierarchy (Non-negotiable)
+
+The forge wizard uses a 4-level hierarchy for machine decomposition. The functional spec defines this structure — the AI extracts it, never invents it.
+
+- **System** — the full machine / production line
+- **Subsystem** — a functional station (e.g. "Infeed Conveyor Station", "Hydraulic Lift Station", "Safety")
+- **Assembly** — a coordinated group of devices working together (e.g. "Lift Table LFT01", "Conveyor CV01"). Has NO FB — orchestrated by process sequence logic.
+- **Device** — a single physical thing with IO signals (e.g. motor M01, limit switch LS_TOP, solenoid SOL_UP). Gets an FB, instance DB, and IO wiring.
+
+**Rules:**
+- Only **devices** appear in the device list and get FBs
+- **Assemblies** appear in process sequences as the coordination logic
+- **Subsystems** are organisational grouping — each typically has its own process sequence(s)
+- A system with 3 conveyors and 2 lift tables = 5 assemblies across however many subsystems
+- The spec builder outputs this hierarchy — the wizard extracts it directly
+
+## Critical: All Changes Must Be Generic (Non-negotiable)
+
+The functional specs in `Docs/Functional Specs/` are **example projects only**. Any fix, improvement, or new logic added to prompts, matrix generation, sequence building, fault handling, device matching, or any other pipeline step **MUST apply generically to ALL projects**, not just the current spec being tested.
+
+- Never hardcode project-specific device names, sequences, or fault conditions
+- Never fix a problem "just for this spec" — always solve the general pattern
+- Prompt improvements must work for conveyors, stamping cells, filling stations, etc. — not just lift tables
+- When testing with one spec, mentally verify the fix would also work for a completely different machine type
+- Training data, correction patterns, and learned behaviors are reused across all future projects — anything project-specific will pollute other generations
+
 ## Post-Task Hooks
 
 After every code change that touches files matching these patterns:

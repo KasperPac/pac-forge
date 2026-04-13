@@ -30,8 +30,7 @@ import { useForgeMatrixGenerate } from "@/hooks/use-forge-matrix-generate";
 import { useForgeMatrixValidate } from "@/hooks/use-forge-matrix-validate";
 import { useCreatePatternCandidate } from "@/hooks/use-patterns";
 import { cn } from "@/lib/utils";
-import { buildWiringContext } from "@/lib/wiring-context";
-import type { ForgeSession, ForgeArtifact } from "@/types/forge";
+import type { ForgeSession, ForgeArtifact, ForgeIoEntry } from "@/types/forge";
 import type { FbTemplate } from "@/types/fb-template";
 import type { DesignProfile } from "@/types/design-profile";
 import type { PatternCandidate, AgentKnowledgeDoc } from "@/types";
@@ -39,6 +38,8 @@ import type {
   FaultMatrixEntry,
   ProcessLinkageMatrix,
   LinkageDevice,
+  LinkageInterlock,
+  FbWire,
   ProcessSequence,
   ProcessStep,
   SequenceRow,
@@ -258,7 +259,7 @@ type ColKey = "step" | "condition" | "action" | "output" | "next";
 const COL_LABELS: Record<ColKey, string> = { step: "Step", condition: "Condition", action: "Action", output: "Output", next: "Next" };
 const COLS: ColKey[] = ["step", "condition", "action", "output", "next"];
 
-function SequenceRowsTable({ rows }: { rows: SequenceRow[] }) {
+function SequenceRowsTable({ rows, highlightedSteps }: { rows: SequenceRow[]; highlightedSteps?: Set<number> }) {
   // null = auto layout (browser fits content); Record = user has dragged at least one column
   const [colWidths, setColWidths] = useState<Record<ColKey, number> | null>(null);
   const tableRef = useRef<HTMLTableElement>(null);
@@ -333,10 +334,13 @@ function SequenceRowsTable({ rows }: { rows: SequenceRow[] }) {
               <tr
                 key={i}
                 className={cn(
-                  "border-b border-border/20 last:border-0",
-                  row.type === "fault_exit" && "bg-red-500/5",
-                  row.type === "monitor" && "bg-purple-500/5",
-                  row.type === "branch" && "bg-blue-500/5",
+                  "border-b border-border/20 last:border-0 transition-colors",
+                  highlightedSteps?.has(row.step)
+                    ? "bg-amber-500/15 ring-1 ring-inset ring-amber-500/40"
+                    : row.type === "fault_exit" ? "bg-red-500/5"
+                    : row.type === "monitor" ? "bg-purple-500/5"
+                    : row.type === "branch" ? "bg-blue-500/5"
+                    : "",
                 )}
               >
                 <td className="px-2 py-1.5 whitespace-nowrap overflow-hidden">
@@ -366,8 +370,13 @@ function SequenceRowsTable({ rows }: { rows: SequenceRow[] }) {
   );
 }
 
-function SequenceCard({ seq }: { seq: ProcessSequence }) {
+function SequenceCard({ seq, highlightedSteps, autoExpand }: { seq: ProcessSequence; highlightedSteps?: Set<number>; autoExpand?: boolean }) {
   const [expanded, setExpanded] = useState(false);
+  const hasHighlight = highlightedSteps && highlightedSteps.size > 0;
+
+  useEffect(() => {
+    if (autoExpand && hasHighlight) setExpanded(true);
+  }, [autoExpand, hasHighlight]);
 
   return (
     <div className="rounded border border-border/60 bg-background/40">
@@ -441,6 +450,7 @@ function SequenceCard({ seq }: { seq: ProcessSequence }) {
                 ? seq.rows
                 : migrateStepsToRows(seq.steps ?? [])
             }
+            highlightedSteps={highlightedSteps}
           />
         </div>
       )}
@@ -515,12 +525,18 @@ export function ForgeMatrixReview({ session, fbTemplates, profile, patterns, age
 
   const [activeTab, setActiveTab] = useState<"devices" | "sequences" | "faults" | "wiring">("devices");
   const [selectedSeqId, setSelectedSeqId] = useState<string | undefined>(undefined);
-  const { validate, applySelectedFixes, loading: validating, applying: applyingFixes, result: validationResult, clear: clearValidation } = useForgeMatrixValidate();
+  const { validate, applySelectedFixes, fixDiagnostic, loading: validating, applying: applyingFixes, result: validationResult, clear: clearValidation } = useForgeMatrixValidate();
   const createPattern = useCreatePatternCandidate();
   const [selectedIssueIds, setSelectedIssueIds] = useState<Set<string>>(new Set());
   const [dismissedIssueIds, setDismissedIssueIds] = useState<Set<string>>(new Set());
   const [savedToLibrary, setSavedToLibrary] = useState<Set<string>>(new Set());
   const [applyError, setApplyError] = useState<string | null>(null);
+  const [fixingDiagIdx, setFixingDiagIdx] = useState<number | null>(null);
+  const [diagInstruction, setDiagInstruction] = useState("");
+  const [diagDrawerOpen, setDiagDrawerOpen] = useState(false);
+  const [activeDiagIdx, setActiveDiagIdx] = useState<number | null>(null);
+  const [highlightedSeqName, setHighlightedSeqName] = useState<string | null>(null);
+  const [highlightedSteps, setHighlightedSteps] = useState<Set<number>>(new Set());
 
   // Auto-generate on mount if no matrix exists
   useEffect(() => {
@@ -840,6 +856,24 @@ export function ForgeMatrixReview({ session, fbTemplates, profile, patterns, age
               <div className="text-destructive text-[10px] font-mono">{applyError}</div>
             )}
 
+            {/* Compiler diagnostics — open drawer */}
+            {validationResult.compilerDiagnostics.length > 0 && (
+              <div className="pt-1 border-t border-current/10">
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 font-mono text-[10px] hover:bg-white/5 transition-colors"
+                  onClick={() => { setDiagDrawerOpen(true); setActiveTab("sequences"); }}
+                >
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                  <span className="uppercase tracking-wider font-medium">
+                    {validationResult.compilerDiagnostics.filter(d => d.severity === "error").length} error(s),{" "}
+                    {validationResult.compilerDiagnostics.filter(d => d.severity === "warning").length} warning(s)
+                  </span>
+                  <span className="ml-auto opacity-60">Show &rarr;</span>
+                </button>
+              </div>
+            )}
+
             {/* Suggestions */}
             {validationResult.suggestions.length > 0 && (
               <div className="space-y-0.5 pt-0.5 border-t border-current/10">
@@ -935,7 +969,12 @@ export function ForgeMatrixReview({ session, fbTemplates, profile, patterns, age
                 {activeTab === "sequences" && (
                   <>
                     {matrix.processSequences.map((seq) => (
-                      <SequenceCard key={seq.id} seq={seq} />
+                      <SequenceCard
+                        key={seq.id}
+                        seq={seq}
+                        highlightedSteps={highlightedSeqName === seq.name ? highlightedSteps : undefined}
+                        autoExpand={highlightedSeqName === seq.name}
+                      />
                     ))}
                     {matrix.processSequences.length === 0 && (
                       <div className="py-6 text-center font-mono text-xs text-muted-foreground">
@@ -1056,6 +1095,118 @@ export function ForgeMatrixReview({ session, fbTemplates, profile, patterns, age
       </div>
       )} {/* end right panel conditional */}
 
+      {/* Diagnostics drawer */}
+      {diagDrawerOpen && validationResult && validationResult.compilerDiagnostics.length > 0 && (
+        <div className="w-[320px] shrink-0 flex flex-col border-l border-border/60 bg-card/50 min-h-0">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-border/40">
+            <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              <AlertCircle className="h-3 w-3" />
+              Diagnostics ({validationResult.compilerDiagnostics.length})
+            </div>
+            <button
+              type="button"
+              onClick={() => { setDiagDrawerOpen(false); setActiveDiagIdx(null); setHighlightedSteps(new Set()); setHighlightedSeqName(null); }}
+              className="flex h-5 w-5 items-center justify-center rounded hover:bg-accent/30 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+          <ScrollArea className="flex-1 min-h-0">
+            <div className="p-2 space-y-1">
+              {validationResult.compilerDiagnostics.map((d, i) => {
+                const seqName = d.title.split(":")[0]?.trim() ?? "";
+                const isActive = activeDiagIdx === i;
+                return (
+                  <div key={i} className={cn(
+                    "rounded border px-2 py-1.5 transition-colors cursor-pointer space-y-1.5",
+                    isActive
+                      ? "border-amber-500/40 bg-amber-500/10"
+                      : "border-transparent hover:bg-white/5",
+                  )}>
+                    <div
+                      className="flex items-start gap-2"
+                      onClick={() => {
+                        if (isActive) {
+                          setActiveDiagIdx(null);
+                          setHighlightedSteps(new Set());
+                          setHighlightedSeqName(null);
+                        } else {
+                          setActiveDiagIdx(i);
+                          setHighlightedSteps(new Set(d.affectedSteps));
+                          setHighlightedSeqName(seqName);
+                          setActiveTab("sequences");
+                        }
+                        setFixingDiagIdx(null);
+                        setDiagInstruction("");
+                      }}
+                    >
+                      <span className={cn(
+                        "mt-0.5 shrink-0 font-mono text-[9px] uppercase tracking-wider px-1 rounded",
+                        d.severity === "error" ? "bg-red-500/20 text-red-300" : "bg-amber-500/20 text-amber-300",
+                      )}>
+                        {d.severity}
+                      </span>
+                      <div className="min-w-0 space-y-0.5 flex-1">
+                        <div className="font-mono text-[10px] opacity-60">{d.category}</div>
+                        <div className="text-xs">{d.title}</div>
+                        <div className="text-xs opacity-70">{d.description}</div>
+                        {d.affectedSteps.length > 0 && (
+                          <div className="opacity-50 font-mono text-[10px]">
+                            Steps: {d.affectedSteps.join(", ")}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Fix panel — inline in the active diagnostic */}
+                    {isActive && (
+                      <div className="pt-1 space-y-1.5 border-t border-border/30">
+                        <textarea
+                          className="w-full rounded border border-border/50 bg-background/50 px-2 py-1.5 font-mono text-xs placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+                          rows={2}
+                          placeholder="How should this be fixed? (optional)"
+                          value={fixingDiagIdx === i ? diagInstruction : ""}
+                          onChange={(e) => { setFixingDiagIdx(i); setDiagInstruction(e.target.value); }}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <button
+                          type="button"
+                          disabled={applyingFixes}
+                          className="flex w-full items-center justify-center gap-1.5 rounded border border-primary/40 bg-primary/10 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-primary hover:bg-primary/20 transition-colors disabled:opacity-40"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (!matrix) return;
+                            try {
+                              setApplyError(null);
+                              const corrected = await fixDiagnostic(matrix, d, diagInstruction || undefined);
+                              setMatrix(corrected);
+                              setFixingDiagIdx(null);
+                              setDiagInstruction("");
+                              setActiveDiagIdx(null);
+                              setHighlightedSteps(new Set());
+                              setHighlightedSeqName(null);
+                              clearValidation();
+                            } catch (err) {
+                              setApplyError(err instanceof Error ? err.message : String(err));
+                            }
+                          }}
+                        >
+                          {applyingFixes ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wrench className="h-3 w-3" />}
+                          Apply Fix
+                        </button>
+                        {applyError && (
+                          <div className="text-destructive text-[10px] font-mono">{applyError}</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </ScrollArea>
+        </div>
+      )}
+
       {/* Fullscreen diagram dialog */}
       <Dialog open={diagramFullscreen} onOpenChange={setDiagramFullscreen}>
         <DialogContent className="flex h-[95vh] max-w-[95vw] flex-col gap-0 p-0 overflow-hidden">
@@ -1088,6 +1239,361 @@ export function ForgeMatrixReview({ session, fbTemplates, profile, patterns, age
 
 // ── Wiring Map Panel ─────────────────────────────────────────────────────────
 
+type PillVariant =
+  | "param"
+  | "io-input"
+  | "io-output"
+  | "tag-input"
+  | "tag-output"
+  | "process-var"
+  | "conversion"
+  | "global"
+  | "constant"
+  | "datatype"
+  | "behaviour"
+  | "interlock-requires"
+  | "interlock-blocks"
+  | "interlock-follows";
+
+const PILL_STYLES: Record<PillVariant, string> = {
+  param:              "bg-slate-500/15 text-slate-200 border-slate-400/30",
+  "io-input":         "bg-blue-500/15 text-blue-300 border-blue-500/40",
+  "io-output":        "bg-green-500/15 text-green-300 border-green-500/40",
+  "tag-input":        "bg-sky-500/10 text-sky-300 border-sky-500/30",
+  "tag-output":       "bg-emerald-500/10 text-emerald-300 border-emerald-500/30",
+  "process-var":      "bg-purple-500/15 text-purple-300 border-purple-500/40",
+  conversion:         "bg-orange-500/15 text-orange-300 border-orange-500/40",
+  global:             "bg-amber-500/15 text-amber-300 border-amber-500/40",
+  constant:           "bg-rose-500/15 text-rose-300 border-rose-500/40",
+  datatype:           "bg-muted/40 text-muted-foreground border-border/40",
+  behaviour:          "bg-yellow-500/10 text-yellow-300/90 border-yellow-500/30",
+  "interlock-requires": "bg-amber-500/15 text-amber-300 border-amber-500/40",
+  "interlock-blocks":   "bg-red-500/15 text-red-300 border-red-500/40",
+  "interlock-follows":  "bg-indigo-500/15 text-indigo-300 border-indigo-500/40",
+};
+
+function Pill({ variant, children, title }: { variant: PillVariant; children: React.ReactNode; title?: string }) {
+  return (
+    <span
+      title={title}
+      className={cn(
+        "inline-flex items-center rounded-md border px-1.5 py-0 font-mono text-[10px] leading-[18px] whitespace-nowrap",
+        PILL_STYLES[variant],
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+interface IoLookup {
+  byTag: Map<string, ForgeIoEntry>;
+}
+
+function buildIoLookup(ioList: ForgeIoEntry[]): IoLookup {
+  const byTag = new Map<string, ForgeIoEntry>();
+  for (const io of ioList) {
+    if (io.tag_name) byTag.set(io.tag_name.toLowerCase(), io);
+  }
+  return { byTag };
+}
+
+function resolveIoEntry(connectedTo: string, lookup: IoLookup): ForgeIoEntry | null {
+  const dbFieldMatch = connectedTo.match(/^"(?:Inputs|Outputs)"\.(.+)$/);
+  const fieldName = dbFieldMatch ? dbFieldMatch[1] : connectedTo;
+  return lookup.byTag.get(fieldName.toLowerCase()) ?? null;
+}
+
+function buildOutputSourceMap(devices: LinkageDevice[]): Map<string, { deviceName: string; deviceType: string }> {
+  const map = new Map<string, { deviceName: string; deviceType: string }>();
+  for (const dev of devices) {
+    for (const wire of dev.wiring) {
+      if (wire.direction === "out") {
+        map.set(`${dev.instanceDbName}.${wire.paramName}`.toLowerCase(), {
+          deviceName: dev.name,
+          deviceType: dev.deviceType,
+        });
+      }
+    }
+  }
+  return map;
+}
+
+function buildInputConsumerMap(devices: LinkageDevice[]): Map<string, Array<{ deviceName: string; paramName: string }>> {
+  const map = new Map<string, Array<{ deviceName: string; paramName: string }>>();
+  for (const dev of devices) {
+    for (const wire of dev.wiring) {
+      if (wire.direction === "in" && wire.wireType === "fb" && wire.connectedTo) {
+        const key = wire.connectedTo.replace(/"/g, "").toLowerCase();
+        const list = map.get(key) ?? [];
+        list.push({ deviceName: dev.name, paramName: wire.paramName });
+        map.set(key, list);
+      }
+    }
+  }
+  return map;
+}
+
+function WireRow({
+  wire,
+  direction,
+  instanceDbName,
+  lookup,
+  outputSources,
+  inputConsumers,
+}: {
+  wire: FbWire;
+  direction: "in" | "out";
+  instanceDbName: string;
+  lookup: IoLookup;
+  outputSources: Map<string, { deviceName: string; deviceType: string }>;
+  inputConsumers: Map<string, Array<{ deviceName: string; paramName: string }>>;
+}) {
+  const arrow = direction === "in" ? "←" : "→";
+  const pills: React.ReactNode[] = [];
+  let description: string | null = null;
+
+  const isConversion = !!wire.notes && /TYPE_CONVERSION/i.test(wire.notes);
+
+  if (wire.wireType === "io") {
+    const io = resolveIoEntry(wire.connectedTo, lookup);
+    const tagVariant: PillVariant = direction === "in" ? "tag-input" : "tag-output";
+    pills.push(<Pill key="tag" variant={tagVariant}>{wire.connectedTo}</Pill>);
+    if (io) {
+      const addrVariant: PillVariant = direction === "in" ? "io-input" : "io-output";
+      pills.push(
+        <Pill key="addr" variant={addrVariant} title={io.tag_name}>
+          {io.address} · {io.tag_name}
+        </Pill>,
+      );
+      if (io.signal_behaviour) {
+        pills.push(<Pill key="beh" variant="behaviour">{io.signal_behaviour.toUpperCase()}</Pill>);
+      }
+      if (io.contact_type) {
+        pills.push(<Pill key="ct" variant="behaviour">{io.contact_type}</Pill>);
+      }
+      description = io.description || null;
+    }
+  } else if (wire.wireType === "fb") {
+    if (direction === "in") {
+      const key = (wire.connectedTo ?? "").replace(/"/g, "").toLowerCase();
+      const source = outputSources.get(key);
+      pills.push(
+        <Pill key="pv" variant={isConversion ? "conversion" : "process-var"}>
+          {wire.connectedTo}
+        </Pill>,
+      );
+      if (source) description = `from ${source.deviceName} (${source.deviceType})`;
+    } else {
+      pills.push(<Pill key="pv" variant="process-var">{wire.connectedTo}</Pill>);
+      const consumers = inputConsumers.get(`${instanceDbName}.${wire.paramName}`.toLowerCase());
+      if (consumers && consumers.length > 0) {
+        description = `drives ${consumers.map((c) => `${c.deviceName}.${c.paramName}`).join(", ")}`;
+      }
+    }
+  } else if (wire.wireType === "global") {
+    pills.push(<Pill key="g" variant="global">{wire.connectedTo}</Pill>);
+  } else if (wire.wireType === "constant") {
+    pills.push(<Pill key="c" variant="constant">{wire.connectedTo}</Pill>);
+  } else {
+    pills.push(<Pill key="u" variant="param">{wire.connectedTo}</Pill>);
+  }
+
+  if (wire.dataType) {
+    pills.push(<Pill key="dt" variant="datatype">{wire.dataType}</Pill>);
+  }
+  if (isConversion) {
+    pills.push(<Pill key="conv" variant="conversion">CONVERT</Pill>);
+  }
+
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap py-0.5">
+      <Pill variant="param">{wire.paramName}</Pill>
+      <span className="text-muted-foreground/60 font-mono text-[11px]">{arrow}</span>
+      {pills}
+      {description && (
+        <span className="font-mono text-[10px] text-muted-foreground/70">— {description}</span>
+      )}
+    </div>
+  );
+}
+
+function InterlockRow({ interlock }: { interlock: LinkageInterlock }) {
+  const variant: PillVariant =
+    interlock.direction === "requires" ? "interlock-requires" :
+    interlock.direction === "blocks" ? "interlock-blocks" :
+    "interlock-follows";
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap py-0.5">
+      <Pill variant={variant}>{interlock.direction.toUpperCase()}</Pill>
+      <Pill variant="process-var">{interlock.targetDeviceName}</Pill>
+      <span className="font-mono text-[10px] text-muted-foreground/80">— {interlock.condition}</span>
+    </div>
+  );
+}
+
+interface SignalChain {
+  id: string;
+  ioTag: string | null;
+  ioAddr: string | null;
+  ioType: "DI" | "DQ" | "AI" | "AQ" | "CONST" | "GLOBAL";
+  ioDesc: string | null;
+  fbDevice: string;
+  fbParam: string;
+  fbName: string;
+  instanceDb: string;
+  globalField: string | null;
+  globalDb: string | null;
+  seqUsages: Array<{ seqName: string; step: number; role: "condition" | "output"; text: string }>;
+  broken: boolean;
+  direction: "in" | "out";
+}
+
+function buildSignalChains(
+  matrix: ProcessLinkageMatrix,
+  ioList: ForgeSession["io_list"],
+): SignalChain[] {
+  const lookup = buildIoLookup(ioList ?? []);
+  const chains: SignalChain[] = [];
+
+  // Build a set of all global DB field references used in sequences
+  const seqFieldUsages = new Map<string, Array<{ seqName: string; step: number; role: "condition" | "output"; text: string }>>();
+  for (const seq of matrix.processSequences ?? []) {
+    for (const row of seq.rows ?? []) {
+      const texts: Array<{ text: string; role: "condition" | "output" }> = [];
+      if (row.condition) texts.push({ text: row.condition, role: "condition" });
+      if (row.output) texts.push({ text: row.output, role: "output" });
+      for (const { text, role } of texts) {
+        const re = /DB_\w+\.([a-zA-Z_]\w*)/g;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(text)) !== null) {
+          const fullRef = text.slice(m.index, m.index + m[0].length);
+          const key = fullRef.toLowerCase();
+          const list = seqFieldUsages.get(key) ?? [];
+          if (!list.some(u => u.seqName === seq.name && u.step === row.step && u.role === role)) {
+            list.push({ seqName: seq.name, step: row.step, role, text: row.action || text });
+          }
+          seqFieldUsages.set(key, list);
+        }
+      }
+    }
+  }
+
+  for (const device of matrix.deviceLinkage) {
+    for (const wire of device.wiring) {
+      const io = wire.wireType === "io" ? resolveIoEntry(wire.connectedTo, lookup) : null;
+      const isGlobal = wire.wireType === "global";
+      const isConstant = wire.wireType === "constant";
+
+      const globalField = isGlobal ? wire.connectedTo?.split(".")?.pop() ?? null : null;
+      const globalDb = isGlobal ? wire.connectedTo?.split(".")?.[0] ?? null : null;
+
+      // For output wires going to global DBs, look up sequence usages of that field
+      let globalRef = isGlobal ? wire.connectedTo : null;
+      // For output wires going to IO, the signal chain ends at the physical output
+      const usages = globalRef ? (seqFieldUsages.get(`db_${globalRef}`.toLowerCase()) ?? seqFieldUsages.get(globalRef.toLowerCase()) ?? []) : [];
+
+      // Also check with DB_ prefix
+      if (usages.length === 0 && globalRef) {
+        const withPrefix = globalRef.startsWith("DB_") ? globalRef : `DB_${globalRef}`;
+        const found = seqFieldUsages.get(withPrefix.toLowerCase()) ?? [];
+        if (found.length > 0) usages.push(...found);
+      }
+
+      const ioType: SignalChain["ioType"] = wire.wireType === "io"
+        ? (io?.signal_type as "DI" | "DQ" | "AI" | "AQ") ?? "DI"
+        : wire.wireType === "constant" ? "CONST" : "GLOBAL";
+
+      const broken = wire.direction === "out" && isGlobal && usages.length === 0
+        && !wire.connectedTo?.includes("HmiData");
+
+      chains.push({
+        id: wire.id,
+        ioTag: wire.wireType === "io" ? wire.connectedTo : (isConstant ? wire.connectedTo : null),
+        ioAddr: io?.address ?? null,
+        ioType,
+        ioDesc: io?.description ?? null,
+        fbDevice: device.name,
+        fbParam: wire.paramName,
+        fbName: device.fbName,
+        instanceDb: device.instanceDbName,
+        globalField,
+        globalDb,
+        globalRef,
+        seqUsages: usages,
+        broken,
+        direction: wire.direction,
+      });
+    }
+  }
+
+  return chains;
+}
+
+function ChainRow({ chain }: { chain: SignalChain & { globalRef: string | null } }) {
+  const arrow = "→";
+  const isBroken = chain.broken;
+
+  return (
+    <div className={cn(
+      "flex items-center gap-1 flex-wrap py-0.5 font-mono text-[10px]",
+      isBroken && "opacity-60",
+    )}>
+      {/* Source */}
+      {chain.ioType === "CONST" ? (
+        <Pill variant="constant">{chain.ioTag}</Pill>
+      ) : chain.ioType === "GLOBAL" && chain.direction === "in" ? (
+        <Pill variant="global">{chain.globalRef ?? "?"}</Pill>
+      ) : chain.ioTag ? (
+        <>
+          <Pill variant={chain.direction === "in" ? "tag-input" : "tag-output"}>{chain.ioTag}</Pill>
+          {chain.ioAddr && (
+            <Pill variant={chain.direction === "in" ? "io-input" : "io-output"}>{chain.ioAddr}</Pill>
+          )}
+        </>
+      ) : null}
+
+      <span className="text-muted-foreground/40">{arrow}</span>
+
+      {/* FB */}
+      <Pill variant="param">{chain.fbDevice}.{chain.fbParam}</Pill>
+
+      {/* Global DB field (for outputs) */}
+      {chain.direction === "out" && chain.globalRef && (
+        <>
+          <span className="text-muted-foreground/40">{arrow}</span>
+          <Pill variant="global">{chain.globalRef}</Pill>
+        </>
+      )}
+
+      {/* Sequence usages */}
+      {chain.seqUsages.length > 0 && (
+        <>
+          <span className="text-muted-foreground/40">{arrow}</span>
+          {chain.seqUsages.slice(0, 3).map((u, i) => (
+            <Pill key={i} variant={u.role === "condition" ? "process-var" : "interlock-follows"}>
+              {u.seqName.replace(/ Sequence/, "").slice(0, 12)} S{u.step}
+            </Pill>
+          ))}
+          {chain.seqUsages.length > 3 && (
+            <span className="text-muted-foreground/50">+{chain.seqUsages.length - 3}</span>
+          )}
+        </>
+      )}
+
+      {/* Broken chain indicator */}
+      {isBroken && (
+        <Pill variant="interlock-blocks">⚠ NO SEQ USAGE</Pill>
+      )}
+
+      {/* Description */}
+      {chain.ioDesc && (
+        <span className="text-muted-foreground/50 ml-1">— {chain.ioDesc}</span>
+      )}
+    </div>
+  );
+}
+
 function WiringMapPanel({
   matrix,
   ioList,
@@ -1095,9 +1601,7 @@ function WiringMapPanel({
   matrix: ProcessLinkageMatrix;
   ioList: ForgeSession["io_list"];
 }) {
-  const wiringText = buildWiringContext(matrix, ioList ?? []);
-
-  if (!wiringText) {
+  if (!matrix || matrix.deviceLinkage.length === 0) {
     return (
       <div className="py-6 text-center font-mono text-xs text-muted-foreground">
         No wiring data available — generate the matrix first.
@@ -1105,68 +1609,108 @@ function WiringMapPanel({
     );
   }
 
-  // Parse the markdown-like text into styled sections
+  const chains = buildSignalChains(matrix, ioList);
+  const inputChains = chains.filter(c => c.direction === "in");
+  const outputChains = chains.filter(c => c.direction === "out");
+  const brokenCount = chains.filter(c => c.broken).length;
+
+  // Group by device
+  const deviceGroups = new Map<string, SignalChain[]>();
+  for (const chain of chains) {
+    const list = deviceGroups.get(chain.fbDevice) ?? [];
+    list.push(chain);
+    deviceGroups.set(chain.fbDevice, list);
+  }
+
   return (
     <div className="space-y-3">
-      {wiringText.split("\n### ").map((section, i) => {
-        if (i === 0) {
-          // Header section (## Project Wiring Map + intro text)
-          const lines = section.split("\n").filter((l) => !l.startsWith("## "));
-          return (
-            <div key="header" className="rounded border border-border/40 bg-muted/20 px-3 py-2">
-              <p className="font-mono text-[10px] text-muted-foreground leading-relaxed">
-                {lines.filter(Boolean).join(" ")}
-              </p>
-            </div>
-          );
-        }
+      {/* Summary */}
+      <div className="rounded border border-border/40 bg-muted/20 px-3 py-2 flex flex-wrap items-center gap-3">
+        <span className="font-mono text-[10px] text-muted-foreground">
+          {inputChains.length} inputs · {outputChains.length} outputs · {chains.length} total chains
+        </span>
+        {brokenCount > 0 && (
+          <Pill variant="interlock-blocks">⚠ {brokenCount} broken chain{brokenCount > 1 ? "s" : ""}</Pill>
+        )}
+        <div className="flex items-center gap-1 ml-auto">
+          <span className="font-mono text-[10px] text-muted-foreground/60">Flow:</span>
+          <Pill variant="tag-input">IO</Pill>
+          <span className="text-muted-foreground/40 text-[10px]">→</span>
+          <Pill variant="param">FB.param</Pill>
+          <span className="text-muted-foreground/40 text-[10px]">→</span>
+          <Pill variant="global">Global DB</Pill>
+          <span className="text-muted-foreground/40 text-[10px]">→</span>
+          <Pill variant="process-var">Sequence</Pill>
+        </div>
+      </div>
 
-        const lines = section.split("\n");
-        const title = lines[0]?.trim() ?? "";
-        const body = lines.slice(1);
-
-        // Detect global data section
-        const isGlobalData = title === "Global Data Blocks";
+      {/* Signal chains grouped by device */}
+      {[...deviceGroups.entries()].map(([deviceName, deviceChains]) => {
+        const device = matrix.deviceLinkage.find(d => d.name === deviceName);
+        const ins = deviceChains.filter(c => c.direction === "in");
+        const outs = deviceChains.filter(c => c.direction === "out");
+        const hasBroken = deviceChains.some(c => c.broken);
 
         return (
-          <div key={title || i} className="rounded border border-border/40 bg-card/50 p-3">
-            <h4 className={cn(
-              "font-mono text-xs font-semibold",
-              isGlobalData ? "text-amber-400/80" : "text-foreground",
-            )}>
-              {title}
-            </h4>
-            <div className="mt-1.5 space-y-0.5">
-              {body.map((line, j) => {
-                const trimmed = line.trimStart();
-                if (!trimmed) return null;
-
-                // Color-code by line type
-                let lineClass = "text-muted-foreground";
-                if (trimmed.startsWith("FB:") || trimmed.startsWith("INPUTS:") || trimmed.startsWith("OUTPUTS:") || trimmed.startsWith("INTERLOCKS:")) {
-                  lineClass = "text-muted-foreground font-semibold mt-1";
-                } else if (trimmed.includes("←") && trimmed.includes("%")) {
-                  lineClass = "text-blue-400/80"; // IO-traced input
-                } else if (trimmed.includes("←") && trimmed.includes("from ")) {
-                  lineClass = "text-cyan-400/70"; // Cross-device input
-                } else if (trimmed.includes("→") && trimmed.includes("%")) {
-                  lineClass = "text-green-400/80"; // IO-traced output
-                } else if (trimmed.includes("→") && trimmed.includes("drives ")) {
-                  lineClass = "text-emerald-400/70"; // Cross-device output
-                } else if (trimmed.startsWith("Requires:") || trimmed.startsWith("Blocks:") || trimmed.startsWith("Follows:")) {
-                  lineClass = "text-amber-400/70"; // Interlocks
-                }
-
-                return (
-                  <pre key={j} className={cn("font-mono text-[11px] leading-relaxed whitespace-pre-wrap", lineClass)}>
-                    {line}
-                  </pre>
-                );
-              })}
+          <div key={deviceName} className={cn(
+            "rounded border bg-card/50 p-3",
+            hasBroken ? "border-red-500/30" : "border-border/40",
+          )}>
+            <div className="flex items-center gap-2 flex-wrap mb-1.5">
+              <h4 className="font-mono text-xs font-semibold text-foreground">{deviceName}</h4>
+              <Pill variant="process-var">{device?.fbName ?? ""}</Pill>
+              <Pill variant="global">{device?.instanceDbName ?? ""}</Pill>
+              <span className="font-mono text-[10px] text-muted-foreground/60 ml-auto">
+                {ins.length}↓ {outs.length}↑
+              </span>
             </div>
+
+            {ins.length > 0 && (
+              <div className="mb-1">
+                <div className="font-mono text-[10px] uppercase tracking-wider text-blue-400/60 mb-0.5">Input chains</div>
+                <div className="pl-2 border-l border-blue-500/20">
+                  {ins.map(c => <ChainRow key={c.id} chain={c} />)}
+                </div>
+              </div>
+            )}
+
+            {outs.length > 0 && (
+              <div>
+                <div className="font-mono text-[10px] uppercase tracking-wider text-green-400/60 mb-0.5">Output chains</div>
+                <div className="pl-2 border-l border-green-500/20">
+                  {outs.map(c => <ChainRow key={c.id} chain={c} />)}
+                </div>
+              </div>
+            )}
           </div>
         );
       })}
+
+      {/* Global data blocks */}
+      {matrix.globalData.filter((gd) => gd.fields.length > 0).length > 0 && (
+        <div className="rounded border border-amber-500/20 bg-amber-500/5 p-3">
+          <h4 className="font-mono text-xs font-semibold text-amber-400/90 mb-2">Global Data Blocks</h4>
+          <div className="space-y-2">
+            {matrix.globalData.filter((gd) => gd.fields.length > 0).map((gd) => (
+              <div key={gd.id}>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <Pill variant="global">{gd.dbName}</Pill>
+                  <span className="font-mono text-[10px] text-muted-foreground/80">— {gd.purpose}</span>
+                </div>
+                <div className="pl-2 border-l border-amber-500/20 mt-1 space-y-0.5">
+                  {gd.fields.map((f) => (
+                    <div key={f.id} className="flex items-center gap-1.5 flex-wrap py-0.5">
+                      <Pill variant="param">{f.fieldName}</Pill>
+                      <Pill variant="datatype">{f.dataType}</Pill>
+                      <span className="font-mono text-[10px] text-muted-foreground/70">— {f.description}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
