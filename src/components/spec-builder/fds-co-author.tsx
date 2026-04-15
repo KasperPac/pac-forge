@@ -45,7 +45,6 @@ import type {
   InstrumentRegister,
   InstrumentTag,
   OperatingState,
-  SequentialStateData,
   DeviceStateEntry,
   AssemblyConfig,
   SubsystemConfig,
@@ -53,6 +52,7 @@ import type {
   FdsValidationIssue,
 } from "@/types/spec-builder";
 import { migrateOperatingStates } from "@/types/spec-builder";
+import type { SequentialStateV2 } from "@/types/spec-contract-v2";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -126,7 +126,7 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
 
   // Update sequential state data (from table edits)
   const handleUpdateSequentialState = useCallback(
-    (stateId: string, data: SequentialStateData) => {
+    (stateId: string, data: SequentialStateV2) => {
       if (!activeSession) return;
       updateSequential.mutate({ id: activeSession.id, state_id: stateId, data });
     },
@@ -332,7 +332,7 @@ function ConversationStage({
   allTags: InstrumentTag[];
   allStates: OperatingState[];
   sequentialStates: OperatingState[];
-  onUpdateSequentialState: (stateId: string, data: SequentialStateData) => void;
+  onUpdateSequentialState: (stateId: string, data: SequentialStateV2) => void;
 }) {
   const [chatInput, setChatInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);

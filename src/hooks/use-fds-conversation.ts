@@ -18,11 +18,11 @@ import type {
   SubsystemConfig,
   InstrumentTag,
   OperatingState,
-  SequentialStateData,
   FdsAssemblySession,
   FdsConversationTurn,
-  StepEntry,
 } from "@/types/spec-builder";
+import type { SequentialStateV2 } from "@/types/spec-contract-v2";
+import { ensureV2 } from "@/lib/spec-builder/sequence-legacy-shim";
 
 interface UseFdsConversationOptions {
   session: FdsAssemblySession;
@@ -79,7 +79,7 @@ export function useFdsConversation({
   );
 
   const persistTurn = useCallback(
-    async (turn: FdsConversationTurn, tableUpdate?: { state_id: string; data: SequentialStateData }) => {
+    async (turn: FdsConversationTurn, tableUpdate?: { state_id: string; data: SequentialStateV2 }) => {
       const conversation = [...session.conversation, turn];
       const update: Record<string, unknown> = { conversation };
 
@@ -101,12 +101,11 @@ export function useFdsConversation({
   );
 
   const processAiResponse = useCallback(
-    (fullText: string): { state_id: string; data: SequentialStateData } | undefined => {
+    (fullText: string): { state_id: string; data: SequentialStateV2 } | undefined => {
       const extracted = extractJsonFromResponse(fullText);
       if (!extracted) return undefined;
 
       const rawId = extracted.state_id as string | undefined;
-      // Validate against known sequential state_ids; if mismatch, match by state_name (case-insensitive)
       let stateId = rawId && sequentialStates.some((s) => s.state_id === rawId) ? rawId : undefined;
       if (!stateId && rawId) {
         const byName = sequentialStates.find(
@@ -119,14 +118,15 @@ export function useFdsConversation({
 
       const existing = session.sequential_states[stateId] ?? { permissives: [], steps: [], notes: null };
 
-      return {
-        state_id: stateId,
-        data: {
-          permissives: (extracted.permissives as string[]) ?? existing.permissives,
-          steps: (extracted.steps as StepEntry[]) ?? existing.steps,
-          notes: (extracted.notes as string | null) ?? existing.notes,
-        },
+      // Merge AI output (v1-shaped) over existing, then upgrade to v2 via shim.
+      const merged: SequentialStateV2 = {
+        ...existing,
+        permissives: (extracted.permissives as string[]) ?? existing.permissives,
+        steps: (extracted.steps as SequentialStateV2["steps"]) ?? existing.steps,
+        notes: (extracted.notes as string | null) ?? existing.notes,
       };
+
+      return { state_id: stateId, data: ensureV2(merged, stateId) };
     },
     [sequentialStates, session.sequential_states],
   );

@@ -1,4 +1,5 @@
 // Spec Builder types — functional specification document generation
+import type { SequentialStateV2 } from "./spec-contract-v2";
 
 // --- Spec Project ---
 
@@ -493,7 +494,7 @@ export interface FdsAssemblySession {
   static_states: Record<string, DeviceStateEntry[]>;
   static_confirmed: boolean;
   // Sequential states: { [state_id]: SequentialStateData }
-  sequential_states: Record<string, SequentialStateData>;
+  sequential_states: Record<string, SequentialStateV2>;
   // Conversation audit trail
   conversation: FdsConversationTurn[];
   // Duplicate tracking

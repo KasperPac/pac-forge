@@ -7,11 +7,27 @@ import type {
   FdsAssemblySession,
   SubsystemOrchestration,
   DeviceStateEntry,
-  SequentialStateData,
   FdsConversationTurn,
   FdsValidationResult,
   FdsSessionStatus,
 } from "@/types/spec-builder";
+import type { SequentialStateV2 } from "@/types/spec-contract-v2";
+import { ensureV2Record } from "@/lib/spec-builder/sequence-legacy-shim";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Run legacy v1→v2 SFC shim on a session's sequential_states at read time. */
+function applyShim(session: FdsAssemblySession): FdsAssemblySession {
+  if (!session.sequential_states) return session;
+  return {
+    ...session,
+    sequential_states: ensureV2Record(
+      session.sequential_states as Record<string, SequentialStateV2>,
+    ),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Query keys
@@ -45,7 +61,7 @@ export function useFdsSessionsForProject(specProjectId: string | undefined) {
         .eq("spec_project_id", specProjectId)
         .order("created_at", { ascending: true });
       if (error) throw error;
-      return data as FdsAssemblySession[];
+      return (data as FdsAssemblySession[]).map(applyShim);
     },
     enabled: !!specProjectId,
   });
@@ -64,7 +80,7 @@ export function useFdsSessionsForSubsystem(specProjectId: string | undefined, su
         .eq("subsystem_id", subsystemId)
         .order("created_at", { ascending: true });
       if (error) throw error;
-      return data as FdsAssemblySession[];
+      return (data as FdsAssemblySession[]).map(applyShim);
     },
     enabled: !!specProjectId && !!subsystemId,
   });
@@ -82,7 +98,7 @@ export function useFdsSession(id: string | undefined) {
         .eq("id", id)
         .single();
       if (error) throw error;
-      return data as FdsAssemblySession;
+      return applyShim(data as FdsAssemblySession);
     },
     enabled: !!id,
   });
@@ -161,7 +177,7 @@ export function useUpdateSequentialState() {
     mutationFn: async (input: {
       id: string;
       state_id: string;
-      data: SequentialStateData;
+      data: SequentialStateV2;
     }) => {
       // Fetch current to merge
       const { data: current, error: fetchError } = await supabase
@@ -171,7 +187,7 @@ export function useUpdateSequentialState() {
         .single();
       if (fetchError) throw fetchError;
 
-      const existing = (current.sequential_states as Record<string, SequentialStateData>) ?? {};
+      const existing = (current.sequential_states as Record<string, SequentialStateV2>) ?? {};
       const updated = { ...existing, [input.state_id]: input.data };
 
       const newStatus: FdsSessionStatus = current.status === "not_started" ? "in_progress" : current.status;

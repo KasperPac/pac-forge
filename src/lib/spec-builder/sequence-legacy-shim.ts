@@ -120,6 +120,9 @@ export function ensureV2(
 
     const completion: CompletionCriterion[] = Array.isArray(step.completion_criteria)
       ? step.completion_criteria
+      : typeof (step.completion_criteria as unknown) === "string" &&
+        (step.completion_criteria as unknown as string).trim()
+      ? [{ kind: "expression", text: step.completion_criteria as unknown as string, referenced_tags: [] }]
       : [];
 
     const actions: ActionV2[] = [
