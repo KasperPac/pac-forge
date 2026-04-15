@@ -46,7 +46,7 @@ COMMENT ON COLUMN fds_assembly_sessions.static_states_v2 IS 'V2 static states sh
 -- spec_alarms — normalised alarm rows per spec project
 -- ============================================================
 CREATE TABLE IF NOT EXISTS spec_alarms (
-  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   spec_project_id uuid NOT NULL REFERENCES spec_projects(id) ON DELETE CASCADE,
 
   -- References to structures that live as JSON (not FK-enforced)

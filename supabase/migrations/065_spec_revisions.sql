@@ -6,7 +6,7 @@
 -- spec_project_revisions — immutable revision snapshots
 -- ============================================================
 CREATE TABLE IF NOT EXISTS spec_project_revisions (
-  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   spec_project_id uuid NOT NULL REFERENCES spec_projects(id) ON DELETE RESTRICT,
 
   revision_number int NOT NULL,
