@@ -2,6 +2,14 @@ import type { ProcessLinkageMatrix } from "@/types/forge-matrix";
 import type { HmiPanelConfig } from "@/types/hmi-panel";
 import type { InterfaceContractMap } from "@/types/forge-contract";
 
+// Wave 5: re-export contract-v2 types so forge consumers can reach them
+// without importing from @/types/spec-contract-v2 directly.
+export type {
+  NetworkConfig,
+  VfdParams,
+  CompletionCriterion,
+} from "@/types/spec-contract-v2";
+
 export const FORGE_STEPS = {
   SPEC_UPLOAD: "spec_upload",
   QA_REVIEW: "qa_review",

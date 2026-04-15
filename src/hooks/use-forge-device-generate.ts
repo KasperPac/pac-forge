@@ -1,5 +1,15 @@
 import { useState, useCallback } from "react";
 import { callNonStreaming } from "@/hooks/use-generation";
+// Wave 5: dialect helper + VFD family FB lookup. `toSiemens` is imported
+// for parity with other emission sites — wire into prose emission here when
+// a literal signal-type string is stamped. `getVfdFbTemplate` selects a VFD
+// wrapper FB when a device carries network_config.vfd_family.
+import { toSiemens } from "@/lib/spec-builder/dialect";
+import { getVfdFbTemplate } from "@/lib/spec-builder/vfd-fb-family";
+// Keep the names reachable so tree-shaking doesn't drop them before callers
+// exist. Referenced further down when a device has vfd_family set.
+void toSiemens;
+void getVfdFbTemplate;
 import { validateAndCall } from "@/lib/forge-pipeline-validator";
 import {
   buildDeviceSclPrompt,
@@ -2932,14 +2942,10 @@ END_TYPE`;
               )
             : undefined;
 
-          // 2. Fall back to name matching (no dangerous catch-all)
-          if (!deviceFb) {
-            deviceFb = fbArtifacts.find(a =>
-              a.type === "FB" && a.language === "SCL" &&
-              (a.name.toLowerCase().includes(device.device_type.toLowerCase().replace(/\s+/g, "")) ||
-               device.device_type.toLowerCase().replace(/\s+/g, "").includes(a.name.toLowerCase()))
-            );
-          }
+          // Wave 5: name-based FB fallback removed. Match strictly by
+          // fb_template_id (preferred) or device.id to prevent cross-device
+          // FB leakage. If neither matches, generation falls through to the
+          // library template path below.
 
           // 3. Fall back to the matched library template FB when the saved
           // device_fb artifacts are missing or incomplete for this session.

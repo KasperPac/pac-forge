@@ -1,3 +1,6 @@
+// @deprecated — relocation pending (Wave 4 ai-ingest.ts). Wave 5 does not
+// delete this file because `@/lib/spec-builder/ai-ingest.ts` is not yet on
+// master. Main session will remove once Wave 4 merges.
 import { useState, useCallback } from "react";
 import { streamFromEdgeFunction } from "@/hooks/use-generation";
 // validateAndCall not needed — streaming bypasses the pipeline validator wrapper

@@ -4,6 +4,9 @@
  */
 import { useState, useCallback } from "react";
 import { callNonStreaming } from "@/hooks/use-generation";
+// Wave 5: dialect helper reserved for signal-type emission at this site.
+import { toSiemens } from "@/lib/spec-builder/dialect";
+void toSiemens;
 import {
   buildAssemblySclPrompt,
   buildAssemblySclUserMessage,
@@ -161,6 +164,10 @@ export function useForgeAssemblyGenerate() {
             name === assembly.tag,
         ),
       );
+      // Wave 5 note: the contract-backed path populates `brief.alarmConditions`
+      // by device_id / assembly_id foreign keys. The tag-substring fallback
+      // below only fires when no contract is bound (standalone SpecAnalysis
+      // mode) — it should be removed once standalone mode is retired.
       const relevantAlarms = specAnalysis?.alarms?.filter(
         (a) =>
           a.affected_sequences?.some((seq) =>

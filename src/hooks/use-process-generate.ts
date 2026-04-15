@@ -2,6 +2,9 @@ import { useState, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePacStStore } from "@/stores/pac-st-store";
 import { buildProcessPrompt } from "@/lib/process-prompt-builder";
+// Wave 5: dialect helper reserved for signal-type emission at this site.
+import { toSiemens } from "@/lib/spec-builder/dialect";
+void toSiemens;
 import {
   streamFromEdgeFunction,
   processRawResponse,

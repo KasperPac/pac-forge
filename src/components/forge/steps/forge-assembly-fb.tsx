@@ -137,7 +137,6 @@ export function ForgeAssemblyFb({
   const { generateAll, generateSingle, loading, progress, error } = useForgeAssemblyGenerate();
   const { briefs, assemblyEntries: fdsAssemblies, isFdsLinked } = useForgeFdsHandoff(
     session.spec_project_id,
-    session.device_list,
   );
 
   const [artifacts, setArtifacts] = useState<ForgeArtifact[]>(
