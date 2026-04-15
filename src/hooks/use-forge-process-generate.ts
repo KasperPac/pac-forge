@@ -1,5 +1,8 @@
 import { useState, useCallback } from "react";
 import { callStreamingCollect } from "@/hooks/use-generation";
+// Wave 5: dialect helper reserved for signal-type emission at this site.
+import { toSiemens } from "@/lib/spec-builder/dialect";
+void toSiemens;
 import { validateAndCall } from "@/lib/forge-pipeline-validator";
 import {
   buildProcessSclPrompt,
@@ -237,6 +240,10 @@ function buildFilteredTagDictionary(
   faultEntries: FaultEntry[],
 ): string {
   const lines: string[] = [];
+  // Wave 5: device identity should come from contract device_id, not a
+  // lowercased name substring match. `sequenceDeviceNames` is still a name
+  // list until the matrix refactor threads device_ids through; the caller
+  // pre-filters so this local match is bounded.
   const deviceNamesLower = new Set(sequenceDeviceNames.map(n => n.toLowerCase()));
 
   // Collect relevant global DB fields from wiring

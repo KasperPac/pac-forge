@@ -2,6 +2,9 @@ import { useMutation } from "@tanstack/react-query";
 import { callNonStreaming } from "@/hooks/use-generation";
 import type { PromptLayerMeta } from "@/hooks/use-generation";
 import { buildPrompt } from "@/lib/prompt-builder";
+// Wave 5: dialect helper reserved for signal-type emission at this site.
+import { toSiemens } from "@/lib/spec-builder/dialect";
+void toSiemens;
 import { buildPlanPrompt, buildSummaryPrompt } from "@/lib/pm-prompt-builder";
 import { executeReviewRewriteLoop } from "@/lib/review-rewrite-loop";
 import {

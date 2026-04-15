@@ -4,6 +4,10 @@
  *   1. Interface coverage — does the FB have the right Bool/analog params for this device's IO?
  *   2. Name affinity — secondary tiebreaker (category, tags, synonyms)
  *
+ * Wave 5: `device_id` is the canonical lookup key. Name/tag matching is a
+ * tiebreaker only — never the primary discriminator. If a caller has a
+ * `device_id` from the spec contract, it must be preferred.
+ *
  * "exact" = interface fits well AND name is related → template is copied as-is, no AI
  * "probable" = interface fits OR name matches → AI uses template as reference/hint
  * "none" = no meaningful match → AI generates from scratch

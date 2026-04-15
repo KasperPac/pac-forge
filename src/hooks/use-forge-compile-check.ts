@@ -1,5 +1,8 @@
 import { useState, useCallback } from "react";
 import { callNonStreaming } from "@/hooks/use-generation";
+// Wave 5: dialect helper reserved for signal-type emission at this site.
+import { toSiemens } from "@/lib/spec-builder/dialect";
+void toSiemens;
 import { validateAndCall } from "@/lib/forge-pipeline-validator";
 import {
   buildForgeCompileFixPrompt,

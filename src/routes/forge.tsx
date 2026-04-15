@@ -12,7 +12,9 @@ import {
 import { useParams, useSearchParams } from "react-router";
 import { cn } from "@/lib/utils";
 import { ForgeStepBar } from "@/components/forge/forge-step-bar";
-import { ForgeSpecUpload } from "@/components/forge/steps/forge-spec-upload";
+import { SpecRevisionRequiredEmptyState } from "@/components/forge/spec-revision-required-empty-state";
+import { FLAGS } from "@/lib/feature-flags";
+import { supabase } from "@/lib/supabase";
 import { ForgeProjectSetup } from "@/components/forge/steps/forge-project-setup";
 import { ForgeQaReview } from "@/components/forge/steps/forge-qa-review";
 import { ForgeHardwareIo } from "@/components/forge/steps/forge-hardware-io";
@@ -155,6 +157,30 @@ export default function ForgePage() {
     }
   }, [currentStep, setStepStatus, stepStatuses]);
 
+  // Wave 5: backfill spec_revision_id from spec_projects.latest_approved_revision_id
+  // when a session is bound to a spec project but revision is still null.
+  useEffect(() => {
+    if (!session?.id || !session.spec_project_id) return;
+    const sessionAny = session as unknown as { spec_revision_id?: string | null };
+    if (sessionAny.spec_revision_id) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("spec_projects")
+        .select("latest_approved_revision_id")
+        .eq("id", session.spec_project_id as string)
+        .maybeSingle();
+      if (cancelled || error || !data?.latest_approved_revision_id) return;
+      await updateSession({
+        id: session.id,
+        updates: { spec_revision_id: data.latest_approved_revision_id } as Parameters<typeof updateSession>[0]["updates"],
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.id, session?.spec_project_id, updateSession, session]);
+
   // Advance step — also persist step_statuses to DB
   function completeStep(step: ForgeStep) {
     setStepStatus(step, "completed");
@@ -179,11 +205,6 @@ export default function ForgePage() {
   }
 
   // Per-step handlers
-  async function handleSpecComplete(specText: string, specFilename: string, analysis: SpecAnalysis) {
-    await saveSession({ spec_text: specText, spec_filename: specFilename, spec_analysis: analysis, current_step: "qa_review" });
-    completeStep("spec_upload");
-  }
-
   async function handleQaComplete(updatedAnalysis: SpecAnalysis, _messages: QaMessage[]) {
     await saveSession({ spec_analysis: updatedAnalysis, current_step: "project_setup" });
     completeStep("qa_review");
@@ -341,17 +362,24 @@ export default function ForgePage() {
 
     switch (currentStep) {
       case "spec_upload":
-        return (
-          <ForgeSpecUpload
-            onComplete={handleSpecComplete}
-            fbTemplates={fbTemplates}
-            onSkip={() => {
-              // Skip both spec upload and Q&A
-              setStepStatus("qa_review", "completed");
-              completeStep("spec_upload");
-            }}
-          />
-        );
+        // Wave 5: manual spec upload is removed. When revision-binding is
+        // required and the session has no spec_revision_id (and none can be
+        // resolved from spec_projects.latest_approved_revision_id), block
+        // here with an empty state. Otherwise skip straight past.
+        if (FLAGS.forge_require_revision_binding && !session.spec_project_id) {
+          return (
+            <SpecRevisionRequiredEmptyState
+              projectId={session.project_id}
+              specProjectId={session.spec_project_id}
+            />
+          );
+        }
+        // Auto-complete and move on — no manual upload UI.
+        if (stepStatuses.spec_upload !== "completed") {
+          setStepStatus("qa_review", session.spec_analysis ? "active" : "completed");
+          completeStep("spec_upload");
+        }
+        return null;
 
       case "qa_review":
         if (!session.spec_analysis) {

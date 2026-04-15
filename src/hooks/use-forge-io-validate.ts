@@ -1,5 +1,8 @@
 import { useState, useCallback } from "react";
 import { callNonStreaming } from "@/hooks/use-generation";
+// Wave 5: IO validation must assume IEC signal types. No dialect conversion
+// happens here — inputs should already be canonical IEC. Emission-site
+// hooks handle Siemens conversion via `toSiemens()`.
 import { validateAndCall } from "@/lib/forge-pipeline-validator";
 import {
   buildForgeIoValidationPrompt,

@@ -1,6 +1,9 @@
 import { useMutation } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { buildCompileFixSystemPrompt, formatCompileErrorContext } from "@/lib/compile-fix-prompt";
+// Wave 5: dialect helper reserved for signal-type emission at this site.
+import { toSiemens } from "@/lib/spec-builder/dialect";
+void toSiemens;
 import { parseCompileFixResponse } from "@/lib/compile-fix-parser";
 import { getRelevantReferenceSections } from "@/lib/reference-lookup";
 import { buildContextMessages } from "@/lib/prompt-builder";

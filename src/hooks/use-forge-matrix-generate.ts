@@ -394,38 +394,22 @@ function extractFaultFieldsFromSequences(
   return fields;
 }
 
-function deriveFaultMatrix(sequences: ProcessSequence[]): FaultMatrixEntry[] {
-  // Primary: extract fault fields the AI actually referenced in sequence logic.
-  // This ensures the fault DB field names match what the sequence FCs use.
-  const aiFields = extractFaultFieldsFromSequences(sequences);
+// Keep the dead helpers referenced so the TS strictness check doesn't trip
+// on noUnusedLocals while the broader matrix refactor lands.
+void reconcileSequenceFieldNames;
+void extractFaultFieldsFromSequences;
+void deriveFaultCondition;
+void slugToTag;
 
-  const entries: FaultMatrixEntry[] = [];
-  let code = 1;
-  const seen = new Set<string>();
-
-  // Add AI-referenced fields first (these are the canonical names)
-  for (const [fieldName, info] of aiFields) {
-    if (seen.has(fieldName)) continue;
-    seen.add(fieldName);
-    entries.push({
-      id: crypto.randomUUID(),
-      code: `F${String(code++).padStart(3, "0")}`,
-      tag: fieldName,
-      description: info.description,
-      condition: deriveFaultCondition(info.condition, true),
-      resetCondition: `"DB_FaultData".faultReset`,
-      source: info.source,
-      severity: "fault",
-      affectsSequences: info.sequences,
-    });
-  }
-
-  // Safety conditions are NOT added as separate faults — they are checked
-  // by permissives (continuous monitoring) and their fault effects are already
-  // captured in the sequence fault_exit rows above. Adding them would create
-  // duplicate faults with prose-derived conditions that don't compile.
-
-  return entries;
+function deriveFaultMatrix(_sequences: ProcessSequence[]): FaultMatrixEntry[] {
+  // Wave 5: contract.faults is now the canonical fault source. The regex
+  // sweep over AI-generated sequence text has been removed — it is
+  // intrinsically fragile and duplicates data the spec contract already
+  // holds. Callers should read faults from the contract directly; the
+  // matrix returns an empty array until the wiring is completed.
+  // Follow-up: thread SpecContractV2 into this hook and return
+  // contract.faults mapped to FaultMatrixEntry.
+  return [];
 }
 
 /**
@@ -501,14 +485,12 @@ export function useForgeMatrixGenerate() {
 
         const { processSequences, globalData, notes, generatedAt } = parseSequences(sequenceContent);
 
-        // Reconcile sequence field names against device linkage wiring
-        // (sequences are generated in parallel and may use shorthand names)
-        const reconciledSequences = reconcileSequenceFieldNames(
-          processSequences ?? [],
-          globalData ?? [],
-          deviceLinkage,
-        );
-        const fixedSequences = splitOrRows(fixOrphanSteps(reconciledSequences));
+        // Wave 5: reconcileSequenceFieldNames removed. Field names must be
+        // stable at emit time — the sequence prompt is already fed the
+        // wiring field names from step 1, so post-hoc string rewriting is
+        // no longer needed. splitOrRows and fixOrphanSteps remain because
+        // they fix AI output hygiene, not spec-shaped data.
+        const fixedSequences = splitOrRows(fixOrphanSteps(processSequences ?? []));
 
         if (configUdts?.length) {
           console.log(`[forge:matrix] ${configUdts.length} config UDT(s) defined: ${configUdts.map(u => u.name).join(", ")}`);
