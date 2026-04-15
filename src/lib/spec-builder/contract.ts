@@ -24,6 +24,7 @@ import {
   SpecContractV2Schema,
   SpecSectionRowSchema,
   SubsystemStateSequenceSchema,
+  SystemOrchestrationSchema,
   type AlarmRow,
   type AlarmTier,
   type AssemblyContract,
@@ -42,6 +43,7 @@ import {
   type SubsystemStateSequence,
   type SubsystemV2,
   type IoSignalV2,
+  type SystemOrchestration,
 } from "@/types/spec-contract-v2";
 import { z } from "zod";
 
@@ -69,6 +71,7 @@ export interface SpecContractPatch {
   assemblies?: Record<string, AssemblyContract>;
   states?: OperatingStateV2[];
   orchestrations?: Record<string, Record<string, SubsystemStateSequence>>;
+  system_orchestration?: SystemOrchestration;
   io_list?: IoListEntry[];
   faults?: FaultRow[];
   sections?: Partial<Record<SpecSectionType, SpecSectionRow[]>>;
@@ -83,6 +86,7 @@ const SpecContractPatchSchema = z.object({
   orchestrations: z
     .record(z.string(), z.record(z.string(), SubsystemStateSequenceSchema))
     .optional(),
+  system_orchestration: SystemOrchestrationSchema.optional(),
   io_list: z.array(IoListEntrySchema).optional(),
   faults: z
     .array(
@@ -98,6 +102,23 @@ const SpecContractPatchSchema = z.object({
     .optional(),
   sections: z.record(z.string(), z.array(SpecSectionRowSchema)).optional(),
 });
+
+/**
+ * Thrown by writeSpecContract when the patch violates one or more
+ * structural invariants (tag uniqueness, orchestration layering, SFC
+ * cross-branch rule, etc). `issues` lists every failure — callers should
+ * surface all of them, not just the first.
+ */
+export class ContractValidationError extends Error {
+  readonly issues: string[];
+  constructor(issues: string[]) {
+    super(
+      `writeSpecContract: ${issues.length} validation issue(s):\n - ${issues.join("\n - ")}`,
+    );
+    this.name = "ContractValidationError";
+    this.issues = issues;
+  }
+}
 
 // ============================================================
 // Builder context assertion (stub — real enforcement lands later)
@@ -162,6 +183,33 @@ async function fetchSubsystemOrchestrations(specProjectId: string): Promise<
     .eq("spec_project_id", specProjectId);
   if (error) throw new Error(`loadSpecContract: orchestrations fetch failed: ${error.message}`);
   return (data ?? []) as Record<string, unknown>[];
+}
+
+async function fetchSystemOrchestrationRow(
+  specProjectId: string,
+): Promise<Record<string, unknown> | null> {
+  const { data, error } = await supabase
+    .from("fds_system_orchestrations")
+    .select("*")
+    .eq("spec_project_id", specProjectId)
+    .maybeSingle();
+  if (error)
+    throw new Error(
+      `loadSpecContract: system orchestration fetch failed: ${error.message}`,
+    );
+  return (data as Record<string, unknown> | null) ?? null;
+}
+
+/**
+ * Public — load the system orchestration row for a project, if any.
+ * Returns null when no row exists yet.
+ */
+export async function loadSystemOrchestration(
+  specProjectId: string,
+): Promise<SystemOrchestration | null> {
+  const row = await fetchSystemOrchestrationRow(specProjectId);
+  if (!row) return null;
+  return SystemOrchestrationSchema.parse(row);
 }
 
 async function fetchAlarmRows(
@@ -543,7 +591,7 @@ function deriveFaults(
         const onFails: { fault_code: string; severity: FaultSeverity }[] = [];
         if (step.on_fail) onFails.push(step.on_fail);
         for (const cc of step.completion_criteria) {
-          if (cc.kind !== "manual_ack" && cc.on_fail) onFails.push(cc.on_fail);
+          if (cc.kind !== "manual_ack" && cc.kind !== "placeholder" && cc.on_fail) onFails.push(cc.on_fail);
         }
         for (const ref of onFails) {
           if (!byCode.has(ref.fault_code)) {
@@ -636,6 +684,9 @@ async function upgradeLegacyRow(
   const alarms = upgradeAlarms(alarmRows, hierarchy);
   const io_list = deriveIoList(hierarchy);
   const faults = deriveFaults(alarms, assemblies);
+  const system_orchestration = await loadSystemOrchestration(
+    String(projectRow.id),
+  );
 
   const contract: SpecContractV2 = {
     schema_version: 2,
@@ -645,6 +696,7 @@ async function upgradeLegacyRow(
     alarm_tiers: toAlarmTiers(projectRow),
     assemblies,
     orchestrations,
+    system_orchestration,
     alarms,
     io_list,
     faults,
@@ -877,6 +929,10 @@ export async function writeSpecContract(
   assertBuilderContext();
   const parsed = SpecContractPatchSchema.parse(patch);
 
+  // ---- Structural validators (all collected, then thrown as one) ----
+  const issues = validateSpecContractPatch(parsed);
+  if (issues.length > 0) throw new ContractValidationError(issues);
+
   // ---- alarms (full replace in spec_alarms) ----
   if (parsed.alarms) {
     const { error: delErr } = await supabase
@@ -961,6 +1017,27 @@ export async function writeSpecContract(
           `writeSpecContract.orchestrations upsert (${subsystemId}): ${error.message}`,
         );
     }
+  }
+
+  // ---- system_orchestration → fds_system_orchestrations (single row upsert) ----
+  if (parsed.system_orchestration) {
+    const so = parsed.system_orchestration;
+    const row: Record<string, unknown> = {
+      spec_project_id: specProjectId,
+      state_sequences: so.state_sequences,
+      conversation: so.conversation,
+      token_usage: so.token_usage,
+    };
+    if (so.validation_results !== undefined) {
+      row.validation_results = so.validation_results;
+    }
+    const { error } = await supabase
+      .from("fds_system_orchestrations")
+      .upsert(row, { onConflict: "spec_project_id" });
+    if (error)
+      throw new Error(
+        `writeSpecContract.system_orchestration upsert: ${error.message}`,
+      );
   }
 
   // ---- sections → spec_sections (delete + reinsert per section_type) ----
@@ -1067,4 +1144,253 @@ export async function deleteAlarm(alarmId: string): Promise<void> {
   assertBuilderContext();
   const { error } = await supabase.from("spec_alarms").delete().eq("id", alarmId);
   if (error) throw new Error(`deleteAlarm: ${error.message}`);
+}
+
+// ============================================================
+// writeSpecContract validators (wave A)
+// ============================================================
+
+type ParsedPatch = z.infer<typeof SpecContractPatchSchema>;
+
+/**
+ * Runs all structural invariant checks over a parsed patch and returns
+ * the list of human-readable issues. Empty list = valid. Callers wrap
+ * non-empty results in {@link ContractValidationError}.
+ *
+ * Checks (wave A):
+ *   1. Global IO tag uniqueness across the hierarchy.
+ *   2. System-level interlocks reference subsystems only (not assemblies).
+ *   3. Cycle detection on hold/block_transition/disable system interlocks.
+ *   4. Subsystem-level inter-assembly interlocks must stay within the
+ *      same subsystem.
+ *   5. SFC: no cross-branch transitions; sequence_model_version=2 requires
+ *      step_id + transitions populated on non-terminal steps.
+ */
+function validateSpecContractPatch(patch: ParsedPatch): string[] {
+  const issues: string[] = [];
+
+  // 1. IO tag global uniqueness ------------------------------------------
+  if (patch.hierarchy) {
+    const seen = new Map<string, string>(); // tag -> first location
+    for (const sub of patch.hierarchy.subsystems) {
+      for (const asm of sub.assemblies) {
+        for (const dev of asm.devices) {
+          for (const sig of dev.io_signals) {
+            const tag = sig.tag;
+            if (!tag) continue;
+            const loc = `${sub.subsystem_id}/${asm.assembly_id}/${dev.device_id}`;
+            const prior = seen.get(tag);
+            if (prior) {
+              issues.push(
+                `IO tag "${tag}" is not unique — appears in ${prior} and ${loc}`,
+              );
+            } else {
+              seen.set(tag, loc);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Resolve the set of subsystem IDs (for layering checks below).
+  const knownSubsystemIds = new Set<string>();
+  const subsystemByAssembly = new Map<string, string>(); // assembly_id -> subsystem_id
+  if (patch.hierarchy) {
+    for (const sub of patch.hierarchy.subsystems) {
+      knownSubsystemIds.add(sub.subsystem_id);
+      for (const asm of sub.assemblies) {
+        subsystemByAssembly.set(asm.assembly_id, sub.subsystem_id);
+      }
+    }
+  }
+
+  // 2 + 3. System orchestration layering + cycle detection ---------------
+  if (patch.system_orchestration) {
+    for (const [stateId, seq] of Object.entries(
+      patch.system_orchestration.state_sequences,
+    )) {
+      // 2. Layering — IDs must resolve to subsystems in the hierarchy, if
+      //    the hierarchy is part of this patch. If hierarchy is not in the
+      //    patch we cannot check resolution here; skip silently.
+      if (patch.hierarchy) {
+        for (const sid of seq.subsystem_order) {
+          if (!knownSubsystemIds.has(sid)) {
+            issues.push(
+              `system_orchestration[${stateId}].subsystem_order references unknown subsystem "${sid}"`,
+            );
+          }
+        }
+        for (const il of seq.inter_subsystem_interlocks) {
+          if (subsystemByAssembly.has(il.source_subsystem_id)) {
+            issues.push(
+              `system_orchestration[${stateId}] interlock ${il.interlock_id}: source "${il.source_subsystem_id}" looks like an assembly — lift it to the subsystem that owns it`,
+            );
+          } else if (!knownSubsystemIds.has(il.source_subsystem_id)) {
+            issues.push(
+              `system_orchestration[${stateId}] interlock ${il.interlock_id}: source_subsystem_id "${il.source_subsystem_id}" is not a known subsystem`,
+            );
+          }
+          if (subsystemByAssembly.has(il.target_subsystem_id)) {
+            issues.push(
+              `system_orchestration[${stateId}] interlock ${il.interlock_id}: target "${il.target_subsystem_id}" looks like an assembly — lift it to the subsystem that owns it`,
+            );
+          } else if (!knownSubsystemIds.has(il.target_subsystem_id)) {
+            issues.push(
+              `system_orchestration[${stateId}] interlock ${il.interlock_id}: target_subsystem_id "${il.target_subsystem_id}" is not a known subsystem`,
+            );
+          }
+        }
+      }
+
+      // 3. Cycle detection on restrictive effects within a single state.
+      const restrictive = new Set(["hold", "block_transition", "disable"]);
+      const graph = new Map<string, Set<string>>();
+      for (const il of seq.inter_subsystem_interlocks) {
+        if (!restrictive.has(il.effect)) continue;
+        if (!graph.has(il.source_subsystem_id))
+          graph.set(il.source_subsystem_id, new Set());
+        graph.get(il.source_subsystem_id)!.add(il.target_subsystem_id);
+      }
+      if (hasCycle(graph)) {
+        issues.push(
+          `system_orchestration[${stateId}] contains a cycle across restrictive interlocks (hold/block_transition/disable). Break the cycle or reclassify one edge as trigger/enable.`,
+        );
+      }
+    }
+  }
+
+  // 4. Subsystem-level inter-assembly interlocks: stay within subsystem ---
+  if (patch.orchestrations) {
+    for (const [subsystemId, byState] of Object.entries(patch.orchestrations)) {
+      for (const [stateId, seq] of Object.entries(byState)) {
+        for (const il of seq.inter_assembly_interlocks) {
+          const srcSub = subsystemByAssembly.get(il.source_assembly);
+          const tgtSub = subsystemByAssembly.get(il.target_assembly);
+          // If hierarchy is not in the patch we can only reject mismatches
+          // we can see. Assemblies we cannot resolve are skipped silently.
+          if (srcSub && srcSub !== subsystemId) {
+            issues.push(
+              `orchestrations[${subsystemId}][${stateId}]: interlock source_assembly "${il.source_assembly}" belongs to subsystem "${srcSub}" — lift to system orchestration`,
+            );
+          }
+          if (tgtSub && tgtSub !== subsystemId) {
+            issues.push(
+              `orchestrations[${subsystemId}][${stateId}]: interlock target_assembly "${il.target_assembly}" belongs to subsystem "${tgtSub}" — lift to system orchestration`,
+            );
+          }
+        }
+      }
+    }
+  }
+
+  // 5. SFC sequence-model checks ----------------------------------------
+  if (patch.assemblies) {
+    for (const asm of Object.values(patch.assemblies)) {
+      for (const [stateId, seq] of Object.entries(asm.sequential_states)) {
+        if (seq.sequence_model_version !== 2) continue;
+        // Build step_id -> branch_id map
+        const branchByStep = new Map<string, string>();
+        for (const s of seq.steps) {
+          if (!s.step_id) {
+            issues.push(
+              `assemblies[${asm.assembly_id}].sequential_states[${stateId}]: sequence_model_version=2 requires step_id on every step (offending step #${s.step})`,
+            );
+            continue;
+          }
+          branchByStep.set(s.step_id, s.branch_id ?? "main");
+        }
+        // Branch registry: allow transitions that target parent branch
+        // boundaries (fork_step_id, join_step_id) across the parent edge.
+        const branchMeta = new Map<string, BranchV2Like>();
+        for (const b of seq.branches ?? []) branchMeta.set(b.branch_id, b);
+
+        for (let i = 0; i < seq.steps.length; i++) {
+          const s = seq.steps[i];
+          const isTerminal = i === seq.steps.length - 1;
+          const transitions = s.transitions ?? [];
+          if (!isTerminal && transitions.length === 0) {
+            issues.push(
+              `assemblies[${asm.assembly_id}].sequential_states[${stateId}]: step "${s.step_id || s.step}" has no transitions but is not terminal`,
+            );
+          }
+          for (const tr of transitions) {
+            const targets =
+              tr.kind === "parallel" ? tr.target_step_ids : [tr.target_step_id];
+            for (const targetId of targets) {
+              const sourceBranch = s.branch_id ?? "main";
+              const targetBranch = branchByStep.get(targetId);
+              if (!targetBranch) {
+                issues.push(
+                  `assemblies[${asm.assembly_id}].sequential_states[${stateId}]: transition ${tr.transition_id} targets unknown step "${targetId}"`,
+                );
+                continue;
+              }
+              if (
+                !isBranchTransitionLegal(sourceBranch, targetBranch, branchMeta)
+              ) {
+                issues.push(
+                  `assemblies[${asm.assembly_id}].sequential_states[${stateId}]: transition ${tr.transition_id} crosses branches (${sourceBranch} -> ${targetBranch}). Cross-branch transitions are illegal; use a MonitorV2 with effect="fault" for pre-emption.`,
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return issues;
+}
+
+interface BranchV2Like {
+  branch_id: string;
+  parent_branch_id?: string;
+  fork_step_id: string;
+  join_step_id?: string;
+}
+
+/**
+ * Legal transitions:
+ *   - same branch
+ *   - child->parent at the parent's fork/join point (i.e. target is in the
+ *     parent branch — the transition is the branch completing and merging)
+ *   - parent->child at the child's fork_step (spawning, but spawns are
+ *     normally modeled via a "parallel" transition; allow it here).
+ */
+function isBranchTransitionLegal(
+  sourceBranch: string,
+  targetBranch: string,
+  branchMeta: Map<string, BranchV2Like>,
+): boolean {
+  if (sourceBranch === targetBranch) return true;
+  const source = branchMeta.get(sourceBranch);
+  const target = branchMeta.get(targetBranch);
+  // Moving from a child branch up into its parent — allowed (join).
+  if (source?.parent_branch_id === targetBranch) return true;
+  // Moving from a parent into a declared child branch — allowed (fork).
+  if (target?.parent_branch_id === sourceBranch) return true;
+  return false;
+}
+
+function hasCycle(graph: Map<string, Set<string>>): boolean {
+  const WHITE = 0;
+  const GRAY = 1;
+  const BLACK = 2;
+  const color = new Map<string, number>();
+  for (const k of graph.keys()) color.set(k, WHITE);
+  const dfs = (node: string): boolean => {
+    color.set(node, GRAY);
+    for (const nxt of graph.get(node) ?? []) {
+      const c = color.get(nxt) ?? WHITE;
+      if (c === GRAY) return true;
+      if (c === WHITE && dfs(nxt)) return true;
+    }
+    color.set(node, BLACK);
+    return false;
+  };
+  for (const k of graph.keys()) {
+    if ((color.get(k) ?? WHITE) === WHITE && dfs(k)) return true;
+  }
+  return false;
 }

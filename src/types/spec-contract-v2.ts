@@ -16,6 +16,23 @@
  * (subsystem, state) rows coexist. `SpecSectionRowSchema` itself is unchanged;
  * only the container widens. Callers must iterate — the single-row reducer in
  * `contract.ts#indexSections()` was retired.
+ *
+ * WAVE A (SFC + system orchestration):
+ * - `StepV2Schema` widened with SFC-shaped fields (`step_id`, `branch_id`,
+ *   `actions`, `monitors`, `transitions`, `timeout_ms`). Legacy fields
+ *   (`step`, `action`, `completion_criteria*`, `on_fail`) remain — they are
+ *   read during the shim window. Sequence model version is declared on
+ *   `SequentialStateV2Schema.sequence_model_version` (1 = legacy, 2 = SFC).
+ * - `ActionV2Schema` / `ExpressionSchema` — discriminated unions for
+ *   structured actions and value sources. Every variant carries a `prose`
+ *   field so DOCX rendering stays stable.
+ * - `CompletionCriterionSchema` now admits a `placeholder` arm for
+ *   TBD guards/permissives.
+ * - `IoSignalV2Schema` gained `tier` — `"wired"` (instrument register) vs
+ *   `"fb_instance"` (resolved once a device's FB template is assigned).
+ * - `SystemOrchestrationSchema` — top-level, project-scoped, one row per
+ *   spec. Mirrors the per-subsystem layer but operates on subsystem IDs
+ *   only. Subsystem-level interlocks remain scoped inside a subsystem.
  */
 import { z } from "zod";
 
@@ -168,12 +185,22 @@ export const IoSignalDirectionOverlaySchema = z.enum([
   "from_drive",
 ]);
 
+/**
+ * `tier` distinguishes signals that exist at the wired instrument layer
+ * (from the hardware IO register — always present) from those that only
+ * resolve once a device FB template is assigned (e.g. VFD status bits
+ * exposed via an instance DB). Resolution logic lives in a later wave.
+ */
+export const IoSignalTierSchema = z.enum(["wired", "fb_instance"]);
+export type IoSignalTier = z.infer<typeof IoSignalTierSchema>;
+
 export const IoSignalV2Schema = z.object({
   tag: z.string(),
   signal_type: SignalTypeSchema,
   io_address: z.string(),
   description: z.string(),
   source: IoSignalSourceSchema,
+  tier: IoSignalTierSchema.optional(),
   telegram_offset: TelegramOffsetSchema.optional(),
   direction_overlay: IoSignalDirectionOverlaySchema.optional(),
 });
@@ -286,15 +313,240 @@ const ManualAckSchema = z.object({
   prompt: z.string(),
 });
 
+// Placeholder inferred-type domain — shared by ExpressionSchema and
+// PlaceholderCriterionSchema. Keeps the set of legal "what am I" hints
+// consistent across expressions and criteria.
+export const PlaceholderInferredTypeSchema = z.enum([
+  "tag",
+  "device",
+  "assembly",
+  "subsystem",
+  "state",
+  "value",
+]);
+export type PlaceholderInferredType = z.infer<
+  typeof PlaceholderInferredTypeSchema
+>;
+
+const PlaceholderCriterionSchema = z.object({
+  kind: z.literal("placeholder"),
+  criterion_id: z.string(),
+  prompt: z.string(),
+  inferred_type: PlaceholderInferredTypeSchema.optional(),
+});
+
 export const CompletionCriterionSchema = z.discriminatedUnion("kind", [
   TagEqualsSchema,
   TagCompareSchema,
   ExpressionCriterionSchema,
   ManualAckSchema,
+  PlaceholderCriterionSchema,
 ]);
 export type CompletionCriterion = z.infer<typeof CompletionCriterionSchema>;
 
+// ============================================================
+// Expressions — discriminated union on `kind`
+// Used in structured actions and (via CompletionCriterion.placeholder)
+// as a TBD authoring value.
+// ============================================================
+
+const ExpressionTagRefSchema = z.object({
+  kind: z.literal("tag_ref"),
+  tag: z.string(),
+});
+const ExpressionHmiRefSchema = z.object({
+  kind: z.literal("hmi_ref"),
+  hmi_tag: z.string(),
+});
+const ExpressionLiteralSchema = z.object({
+  kind: z.literal("literal"),
+  value: z.union([z.string(), z.number(), z.boolean()]),
+  value_type: z.enum(["string", "number", "boolean"]),
+});
+const ExpressionTextSchema = z.object({
+  kind: z.literal("expr_text"),
+  text: z.string(),
+  referenced_tags: z.array(z.string()),
+});
+const ExpressionPlaceholderSchema = z.object({
+  kind: z.literal("placeholder"),
+  prompt: z.string(),
+  inferred_type: PlaceholderInferredTypeSchema.optional(),
+});
+
+export const ExpressionSchema = z.discriminatedUnion("kind", [
+  ExpressionTagRefSchema,
+  ExpressionHmiRefSchema,
+  ExpressionLiteralSchema,
+  ExpressionTextSchema,
+  ExpressionPlaceholderSchema,
+]);
+export type Expression = z.infer<typeof ExpressionSchema>;
+
+// ============================================================
+// Actions — discriminated union on `kind`
+// Every variant includes `action_id` + `prose` so the DOCX exporter
+// can render a consistent sentence per action regardless of kind.
+// ============================================================
+
+const ActionAssignSchema = z.object({
+  kind: z.literal("assign"),
+  action_id: z.string(),
+  target_tag: z.string(),
+  source: ExpressionSchema,
+  prose: z.string(),
+});
+const ActionCallFbSchema = z.object({
+  kind: z.literal("call_fb"),
+  action_id: z.string(),
+  fb_template_id: z.string(),
+  instance_name: z.string(),
+  params: z.record(z.string(), ExpressionSchema),
+  prose: z.string(),
+});
+const ActionStartTimerSchema = z.object({
+  kind: z.literal("start_timer"),
+  action_id: z.string(),
+  timer_tag: z.string(),
+  preset_ms: ExpressionSchema,
+  prose: z.string(),
+});
+const ActionStopTimerSchema = z.object({
+  kind: z.literal("stop_timer"),
+  action_id: z.string(),
+  timer_tag: z.string(),
+  prose: z.string(),
+});
+const ActionResetTimerSchema = z.object({
+  kind: z.literal("reset_timer"),
+  action_id: z.string(),
+  timer_tag: z.string(),
+  prose: z.string(),
+});
+const ActionIncrCounterSchema = z.object({
+  kind: z.literal("incr_counter"),
+  action_id: z.string(),
+  counter_tag: z.string(),
+  by: ExpressionSchema.optional(),
+  prose: z.string(),
+});
+const ActionResetCounterSchema = z.object({
+  kind: z.literal("reset_counter"),
+  action_id: z.string(),
+  counter_tag: z.string(),
+  prose: z.string(),
+});
+const ActionRaiseAlarmSchema = z.object({
+  kind: z.literal("raise_alarm"),
+  action_id: z.string(),
+  alarm_tag: z.string(),
+  prose: z.string(),
+});
+const ActionManualProseSchema = z.object({
+  kind: z.literal("manual_prose"),
+  action_id: z.string(),
+  text: z.string(),
+  referenced_tags: z.array(z.string()),
+  prose: z.string(),
+});
+
+export const ActionV2Schema = z.discriminatedUnion("kind", [
+  ActionAssignSchema,
+  ActionCallFbSchema,
+  ActionStartTimerSchema,
+  ActionStopTimerSchema,
+  ActionResetTimerSchema,
+  ActionIncrCounterSchema,
+  ActionResetCounterSchema,
+  ActionRaiseAlarmSchema,
+  ActionManualProseSchema,
+]);
+export type ActionV2 = z.infer<typeof ActionV2Schema>;
+
+// ============================================================
+// Monitors — watchdog-style condition handlers on a step or state.
+// `priority` disambiguates simultaneous firings (higher wins).
+// ============================================================
+
+export const MonitorV2Schema = z.object({
+  monitor_id: z.string(),
+  condition: CompletionCriterionSchema,
+  effect: z.enum(["alarm", "fault", "hold", "branch_to"]),
+  fault_ref: FaultRefSchema.optional(),
+  target_step_id: z.string().optional(),
+  auto_clear: z.boolean(),
+  priority: z.number().int(),
+});
+export type MonitorV2 = z.infer<typeof MonitorV2Schema>;
+
+// ============================================================
+// Transitions — SFC-style, discriminated on `kind`.
+// `single` = one outgoing edge; `parallel` = AND-split (≥2 targets).
+// Cross-branch targets are rejected at write time by writeSpecContract.
+// Pre-emption is done via a MonitorV2 with `effect: "fault"`.
+// ============================================================
+
+const TransitionSingleSchema = z.object({
+  transition_id: z.string(),
+  kind: z.literal("single"),
+  target_step_id: z.string(),
+  guard: z.array(CompletionCriterionSchema),
+  priority: z.number().int(),
+  is_default: z.boolean(),
+  on_fail: FaultRefSchema.optional(),
+  notes: z.string().nullable(),
+});
+const TransitionParallelSchema = z.object({
+  transition_id: z.string(),
+  kind: z.literal("parallel"),
+  target_step_ids: z.array(z.string()).min(2),
+  guard: z.array(CompletionCriterionSchema),
+  priority: z.number().int(),
+  is_default: z.boolean(),
+  on_fail: FaultRefSchema.optional(),
+  notes: z.string().nullable(),
+});
+export const TransitionV2Schema = z.discriminatedUnion("kind", [
+  TransitionSingleSchema,
+  TransitionParallelSchema,
+]);
+export type TransitionV2 = z.infer<typeof TransitionV2Schema>;
+
+// ============================================================
+// Branches — per-sequential-state registry of concurrent flows.
+// Every step carries `branch_id`; branches know their fork/join points.
+// ============================================================
+
+export const BranchV2Schema = z.object({
+  branch_id: z.string(),
+  name: z.string(),
+  kind: z.enum(["main", "parallel", "monitor"]),
+  parent_branch_id: z.string().optional(),
+  fork_step_id: z.string(),
+  join_step_id: z.string().optional(),
+});
+export type BranchV2 = z.infer<typeof BranchV2Schema>;
+
+// ============================================================
+// Step — legacy fields remain; SFC fields are additive.
+// Sequence-model v1 callers ignore the new fields; v2 callers populate
+// them and leave the legacy fields synced (action/completion_criteria_text
+// are still used by DOCX rendering).
+// ============================================================
+
 export const StepV2Schema = z.object({
+  // SFC (v2) — optional during the shim window so legacy callers that
+  // only populate the v1 fields still type-check.
+  step_id: z.string().optional(),
+  branch_id: z.string().optional(),
+  name: z.string().optional(),
+  actions: z.array(ActionV2Schema).optional(),
+  monitors: z.array(MonitorV2Schema).optional(),
+  transitions: z.array(TransitionV2Schema).optional(),
+  timeout_ms: z.number().optional(),
+  on_timeout: FaultRefSchema.optional(),
+
+  // Legacy (v1) — preserved during the shim window
   step: z.number().int().positive(),
   action: z.string(),
   completion_criteria: z.array(CompletionCriterionSchema),
@@ -303,9 +555,18 @@ export const StepV2Schema = z.object({
 });
 export type StepV2 = z.infer<typeof StepV2Schema>;
 
+export const SequenceModelVersionSchema = z.union([
+  z.literal(1),
+  z.literal(2),
+]);
+export type SequenceModelVersion = z.infer<typeof SequenceModelVersionSchema>;
+
 export const SequentialStateV2Schema = z.object({
   permissives: z.array(z.string()),
   steps: z.array(StepV2Schema),
+  branches: z.array(BranchV2Schema).optional(),
+  state_monitors: z.array(MonitorV2Schema).optional(),
+  sequence_model_version: SequenceModelVersionSchema.optional(),
   notes: z.string().nullable(),
 });
 export type SequentialStateV2 = z.infer<typeof SequentialStateV2Schema>;
@@ -424,6 +685,83 @@ export const SpecProjectHeaderSchema = z.object({
 export type SpecProjectHeader = z.infer<typeof SpecProjectHeaderSchema>;
 
 // ============================================================
+// System-level orchestration (cross-subsystem coordination)
+// One row per spec_project (persisted in fds_system_orchestrations).
+// Interlocks here operate on SUBSYSTEM ids only — assembly-scope
+// interlocks belong inside SubsystemStateSequence.
+// ============================================================
+
+/**
+ * Free-form conversation turn for co-author interviews. Structured just
+ * enough for the history log; builder UIs own the full shape elsewhere.
+ */
+export const FdsConversationTurnSchema = z.object({
+  role: z.enum(["user", "assistant", "system"]),
+  content: z.string(),
+  timestamp: z.string(),
+  state_context: z.string().optional(),
+});
+export type FdsConversationTurn = z.infer<typeof FdsConversationTurnSchema>;
+
+/**
+ * Shared permissive at the system level — structured (unlike the
+ * subsystem-level `shared_permissives: string[]` which stays free-text
+ * for backward compat).
+ */
+export const SharedPermissiveSchema = z.object({
+  permissive_id: z.string(),
+  condition: CompletionCriterionSchema,
+  source_subsystem: z.string().optional(),
+  prose: z.string(),
+});
+export type SharedPermissive = z.infer<typeof SharedPermissiveSchema>;
+
+export const InterSubsystemInterlockSchema = z.object({
+  interlock_id: z.string(),
+  source_subsystem_id: z.string(),
+  source_condition: CompletionCriterionSchema,
+  target_subsystem_id: z.string(),
+  effect: z.enum([
+    "hold",
+    "block_transition",
+    "trigger",
+    "enable",
+    "disable",
+  ]),
+  effect_target: z
+    .object({ subsystem: z.string(), state_id: z.string() })
+    .optional(),
+  prose: z.string(),
+});
+export type InterSubsystemInterlock = z.infer<
+  typeof InterSubsystemInterlockSchema
+>;
+
+export const SystemStateSequenceSchema = z.object({
+  subsystem_order: z.array(z.string()),
+  shared_permissives: z.array(SharedPermissiveSchema).default([]),
+  inter_subsystem_interlocks: z
+    .array(InterSubsystemInterlockSchema)
+    .default([]),
+  notes: z.string().nullable().default(null),
+});
+export type SystemStateSequence = z.infer<typeof SystemStateSequenceSchema>;
+
+export const SystemOrchestrationSchema = z.object({
+  id: z.string(),
+  spec_project_id: z.string(),
+  state_sequences: z
+    .record(z.string(), SystemStateSequenceSchema)
+    .default({}),
+  conversation: z.array(FdsConversationTurnSchema).default([]),
+  validation_results: z.unknown().optional(),
+  token_usage: z.record(z.string(), z.unknown()).default({}),
+  created_at: z.string().optional(),
+  updated_at: z.string().optional(),
+});
+export type SystemOrchestration = z.infer<typeof SystemOrchestrationSchema>;
+
+// ============================================================
 // Top-level contract
 // ============================================================
 
@@ -440,6 +778,9 @@ export const SpecContractV2Schema = z.object({
     z.string(),
     z.record(z.string(), SubsystemStateSequenceSchema),
   ),
+  // New: project-wide cross-subsystem layer. Optional + nullable — absent
+  // until Wave C's UI persists the first row.
+  system_orchestration: SystemOrchestrationSchema.nullable().optional(),
   alarms: z.array(AlarmRowSchema),
   io_list: z.array(IoListEntrySchema),
   faults: z.array(FaultRowSchema),
