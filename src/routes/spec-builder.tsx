@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router";
 import {
   FileText,
@@ -19,7 +19,12 @@ import {
   MessageSquareText,
   Zap,
   Dices,
+  Upload,
+  ArrowDownToLine,
+  History,
 } from "lucide-react";
+import { useSpecIngest } from "@/hooks/use-spec-ingest";
+import { RevisionsPanel } from "@/components/spec-builder/revisions-panel";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -84,8 +89,25 @@ export default function SpecBuilderPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showRandom, setShowRandom] = useState(false);
+  const [revisionsOpen, setRevisionsOpen] = useState(false);
+  const navigate = useNavigate();
 
   const selectedSpec = specs?.find((p) => p.id === selectedId);
+
+  // DOCX ingest (markup + foreign). The dispatcher inside `ingestDocx`
+  // detects the pac-forge sentinel and chooses deterministic vs AI path —
+  // the two buttons are semantically identical today.
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
+  const { ingest, loading: ingestLoading } = useSpecIngest(selectedId ?? undefined, {
+    onReviewRequired: () =>
+      navigate(`/specs/ingest-review?projectId=${selectedId ?? ""}`),
+  });
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) ingest(file);
+    e.target.value = "";
+  };
 
   // No project selected — show project picker
   if (!projectId) {
@@ -120,6 +142,59 @@ export default function SpecBuilderPage() {
             >
               <Dices className="h-4 w-4" />
             </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0"
+              onClick={() => uploadInputRef.current?.click()}
+              title="Upload marked-up DOCX"
+              disabled={!selectedId || ingestLoading}
+            >
+              {ingestLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Upload className="h-4 w-4" />
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0"
+              onClick={() => importInputRef.current?.click()}
+              title="Import foreign spec"
+              disabled={!selectedId || ingestLoading}
+            >
+              <ArrowDownToLine className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0"
+              onClick={() => setRevisionsOpen(true)}
+              title="Revisions"
+              disabled={!selectedId}
+            >
+              <History className="h-4 w-4" />
+            </Button>
+            <input
+              ref={uploadInputRef}
+              type="file"
+              accept=".docx"
+              className="hidden"
+              onChange={handleFile}
+            />
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".docx"
+              className="hidden"
+              onChange={handleFile}
+            />
+            <RevisionsPanel
+              specProjectId={selectedId ?? undefined}
+              open={revisionsOpen}
+              onOpenChange={setRevisionsOpen}
+            />
             <Dialog open={showCreate} onOpenChange={setShowCreate}>
               <DialogTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0">
