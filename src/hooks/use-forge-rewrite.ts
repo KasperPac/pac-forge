@@ -15,12 +15,13 @@ import type { DesignProfile } from "@/types/design-profile";
 import type { ReviewFinding } from "@/lib/forge-review-parser";
 import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 
-/** Re-parse rewritten SCL artifacts from Code Architect response. */
+/** Re-parse rewritten artifacts (SCL or LAD JSON) from Code Architect response. */
 function parseRewrittenArtifacts(
   responseText: string,
   originals: ForgeArtifact[],
 ): ForgeArtifact[] {
-  const blockRe = /```scl\s+\[(\w+):([^\]]+)\]\s*\n([\s\S]*?)```/gi;
+  // Match both ```scl [TYPE:Name] and ```json [TYPE:Name] blocks
+  const blockRe = /```(?:scl|json)\s+\[(\w+):([^\]]+)\]\s*\n([\s\S]*?)```/gi;
   const parsed = new Map<string, { type: string; content: string }>();
 
   let match: RegExpExecArray | null;
@@ -29,10 +30,16 @@ function parseRewrittenArtifacts(
     parsed.set(blockName.trim(), { type: blockType.toUpperCase(), content: code.trim() });
   }
 
-  // Merge: update originals that were rewritten, keep the rest
+  // Merge: update originals that were rewritten, keep the rest.
+  // Protect instance DBs — they have a fixed structure (DATA_BLOCK + FB ref)
+  // that must not be modified by the rewriter.
   return originals.map((orig) => {
     const rewritten = parsed.get(orig.name);
     if (rewritten) {
+      // Instance DBs (Inst*) are deterministically generated — never overwrite
+      if (orig.type === "DB" && /^Inst[A-Z]/.test(orig.name)) {
+        return orig;
+      }
       return { ...orig, content: rewritten.content };
     }
     return orig;
@@ -53,6 +60,7 @@ async function savePattern(
       [{ role: "user", content: buildForgePatternAnalysisUserMessage(originalCode, fixedCode, artifactName) }],
       controller.signal,
       2048,
+      { prompt_name: "forge-rewrite-pattern-analysis", agent_role: "pattern_librarian", pipeline_step: "rewrite_pattern_analysis" },
     );
 
     const pattern = parseJsonResponse<{
@@ -112,6 +120,7 @@ export function useForgeRewrite() {
           16384,
           agentType,
           !!profile,
+          { prompt_name: "forge-rewrite", agent_role: agentType, pipeline_step: "rewrite" },
         );
 
         const rewritten = parseRewrittenArtifacts(content, artifacts);

@@ -85,6 +85,24 @@ export default function HmiEditorPage() {
     }).catch((err) => console.error("Failed to load TIA catalog from IndexedDB:", err));
   }, []);
 
+  // Load screen from forge wizard (via sessionStorage)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("from") !== "forge") return;
+    const json = sessionStorage.getItem("forge-hmi-preview");
+    if (!json) return;
+    try {
+      const spec = JSON.parse(json) as HmiScreenSpec;
+      setScreens([spec]);
+      setActiveIdx(0);
+      sessionStorage.removeItem("forge-hmi-preview");
+      // Clean up URL param
+      window.history.replaceState({}, "", "/hmi-editor");
+    } catch {
+      console.warn("[hmi-editor] Failed to parse forge preview screen");
+    }
+  }, []);
+
   // Persist graphics to IndexedDB when they change
   const graphicsSaveRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => {

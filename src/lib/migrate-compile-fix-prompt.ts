@@ -10,7 +10,7 @@ export interface CompileFixBlock {
 }
 
 export function buildMigrationCompileFixSystemPrompt(): string {
-  return `You are fixing TIA Portal V18 S7-1500 compile errors in SCL code that was migrated from S7-300/400.
+  return `You are fixing TIA Portal V20 S7-1500 compile errors in SCL code that was migrated from S7-300/400.
 
 CRITICAL RULES:
 - Apply ONLY the minimum change needed to fix each listed compile error

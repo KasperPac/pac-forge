@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useKnowledgeConflicts } from "@/hooks/use-knowledge-conflicts";
 import { KnowledgeConflictBanner } from "@/components/knowledge-conflict-banner";
 import { KnowledgeConflictDialog } from "@/components/knowledge-conflict-dialog";
+import { TiaVersionMismatchBanner } from "@/components/tia-version-mismatch-banner";
 import {
   Terminal,
   Wifi,
@@ -506,6 +507,37 @@ export default function TiaConsolePage() {
   const connectMutation = useTiaAction<{ mode: string }>("/tia/connect");
   const disconnectMutation = useTiaAction("/tia/disconnect");
   const openProjectMutation = useTiaAction<{ project_path: string }>("/tia/open-project");
+
+  // Reference export — dumps wizard-run project screens/UDTs/tags for Phase 3 seed data
+  interface ExportReferenceResult {
+    success: boolean;
+    message: string;
+    outputDir: string;
+    screens: string[];
+    udts: string[];
+    tagTables: string[];
+    warnings: string[];
+  }
+  const exportReferenceMutation = useMutation({
+    mutationFn: async (outputDir: string): Promise<ExportReferenceResult> => {
+      const response = await fetch(`${DEFAULT_BRIDGE_CONFIG.baseUrl}/tia/hmi/export-reference`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ outputDir }),
+        signal: AbortSignal.timeout(300_000),
+      });
+      const raw = (await response.json()) as Record<string, unknown>;
+      return {
+        success: Boolean(raw.success ?? raw.Success),
+        message: String(raw.message ?? raw.Message ?? ""),
+        outputDir: String(raw.outputDir ?? raw.OutputDir ?? outputDir),
+        screens: (raw.screens ?? raw.Screens ?? []) as string[],
+        udts: (raw.udts ?? raw.Udts ?? []) as string[],
+        tagTables: (raw.tagTables ?? raw.TagTables ?? []) as string[],
+        warnings: (raw.warnings ?? raw.Warnings ?? []) as string[],
+      };
+    },
+  });
   const createProjectMutation = useTiaAction<{
     project_path: string;
     project_name: string;
@@ -545,6 +577,16 @@ export default function TiaConsolePage() {
   const [projectPath, setProjectPath] = useState(
     () => localStorage.getItem("tia-project-path") ?? ""
   );
+  const [exportReferenceDir, setExportReferenceDir] = useState(
+    () => localStorage.getItem("tia-export-reference-dir") ??
+      "C:\\Users\\kaspe\\Documents\\VSCode Apps\\pac-forge\\Docs\\HMI Reference\\wizard-output"
+  );
+
+  function handleExportReference() {
+    if (!exportReferenceDir) return;
+    localStorage.setItem("tia-export-reference-dir", exportReferenceDir);
+    exportReferenceMutation.mutate(exportReferenceDir);
+  }
   const [demoPath, setDemoPath] = useState(
     () => localStorage.getItem("tia-demo-path") ?? "C:\\TIA_Projects"
   );
@@ -687,6 +729,8 @@ export default function TiaConsolePage() {
         unresolvedCount={unresolvedCount}
         onReview={() => setShowConflictDialog(true)}
       />
+
+      <TiaVersionMismatchBanner projectVersion={selectedProject?.tia_version ?? null} />
 
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -855,6 +899,75 @@ export default function TiaConsolePage() {
               Disconnect
             </Button>
             <ActionResult isPending={disconnectMutation.isPending} isError={disconnectMutation.isError} data={disconnectMutation.data} />
+          </Card>
+
+          {/* Export Reference Project (HMI Phase 3 seed data) */}
+          <Card className="p-3">
+            <div className="mb-2 flex items-center gap-1.5">
+              <Download className="h-3.5 w-3.5 text-violet-400" />
+              <span className="font-mono text-sm font-medium">Export Reference</span>
+            </div>
+            <p className="mb-2 font-mono text-xs text-muted-foreground">
+              Dump the open wizard-run project: Unified HMI screens + tag tables as JSON, PLC UDTs as SimaticML. Seeds Phase 3.2/3.4.
+            </p>
+            <div className="mb-1.5 flex gap-1.5">
+              <Input
+                value={exportReferenceDir}
+                onChange={(e) => setExportReferenceDir(e.target.value)}
+                placeholder="C:\...\Docs\HMI Reference\wizard-output"
+                className="h-6 flex-1 font-mono text-[10px]"
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 shrink-0 font-mono text-xs"
+                disabled={!tiaConnected || !exportReferenceDir || exportReferenceMutation.isPending}
+                onClick={handleExportReference}
+              >
+                {exportReferenceMutation.isPending ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Download className="h-3 w-3" />
+                )}
+              </Button>
+            </div>
+            {exportReferenceMutation.isPending && (
+              <div className="font-mono text-[10px] text-muted-foreground">
+                Enumerating screens, tags, and UDTs — this can take 30–60s for a full wizard project.
+              </div>
+            )}
+            {exportReferenceMutation.isError && (
+              <div className="font-mono text-[10px] text-red-400">
+                {(exportReferenceMutation.error as Error)?.message ?? "Export failed"}
+              </div>
+            )}
+            {exportReferenceMutation.data && (
+              <div className="space-y-0.5 font-mono text-[10px]">
+                <div className={exportReferenceMutation.data.success ? "text-emerald-400" : "text-red-400"}>
+                  {exportReferenceMutation.data.message}
+                </div>
+                <div className="text-muted-foreground">
+                  {exportReferenceMutation.data.screens.length} screens ·{" "}
+                  {exportReferenceMutation.data.tagTables.length} tag tables ·{" "}
+                  {exportReferenceMutation.data.udts.length} UDTs
+                </div>
+                {exportReferenceMutation.data.warnings.length > 0 && (
+                  <details className="text-amber-400">
+                    <summary className="cursor-pointer">
+                      {exportReferenceMutation.data.warnings.length} warning(s)
+                    </summary>
+                    <ul className="ml-2 mt-0.5 space-y-0.5">
+                      {exportReferenceMutation.data.warnings.slice(0, 10).map((w, i) => (
+                        <li key={i} className="break-all">· {w}</li>
+                      ))}
+                      {exportReferenceMutation.data.warnings.length > 10 && (
+                        <li className="italic">...+{exportReferenceMutation.data.warnings.length - 10} more</li>
+                      )}
+                    </ul>
+                  </details>
+                )}
+              </div>
+            )}
           </Card>
         </div>
       </div>

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router";
-import { FolderOpen, Bot, Terminal, BookOpen, GraduationCap, Layers, SlidersHorizontal, FileText, Library, LogOut, User, Sun, Moon, Monitor, ChevronRight, MessageSquare, Blocks, PanelLeftClose, PanelLeftOpen, GitBranchPlus, Wand2, ArrowRightLeft, BookPlus, Building2, Cpu } from "lucide-react";
+import { FolderOpen, Bot, Terminal, BookOpen, GraduationCap, Layers, SlidersHorizontal, FileText, Library, LogOut, User, Sun, Moon, Monitor, ChevronRight, MessageSquare, Blocks, PanelLeftClose, PanelLeftOpen, GitBranchPlus, Wand2, ArrowRightLeft, BookPlus, Building2, Cpu, FlaskConical, LayoutDashboard, ClipboardList } from "lucide-react";
 import { AgentChatFab } from "@/components/agent-chat/agent-chat-fab";
 import pacLogo from "@/../media/logos/PacTechnologiesEdit_White.png";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -38,15 +38,18 @@ interface NavGroup {
 const NAV_GROUPS: NavGroup[] = [
   {
     items: [
+      { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
       { to: "/clients", label: "Clients", icon: Building2 },
       { to: "/projects", label: "Projects", icon: FolderOpen },
       { to: "/forge", label: "Project Wizard", icon: Wand2 },
+      { to: "/specs", label: "Spec Builder", icon: ClipboardList },
     ],
   },
   {
     label: "Code Tools",
     items: [
-      { to: "/hmi-editor", label: "HMI Editor", icon: Monitor },
+      { to: "/hmi-builder", label: "HMI Builder (V20)", icon: Monitor },
+      { to: "/hmi-editor", label: "HMI Editor (Comfort)", icon: Monitor },
       { to: "/pac-lad", label: "Pac-LAD", icon: GitBranchPlus },
       { to: "/pac-st/fb-builder", label: "FB Builder", icon: Blocks },
       { to: "/pac-st/chat", label: "Pac-ST Chat", icon: MessageSquare },
@@ -58,6 +61,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: "/profiles", label: "Profiles", icon: SlidersHorizontal },
       { to: "/fb-library", label: "FB Library", icon: Layers },
+      { to: "/test-templates", label: "Test Templates", icon: FlaskConical },
       { to: "/library-import", label: "Library Import", icon: BookPlus },
       { to: "/instructions", label: "Instructions", icon: Cpu },
       { to: "/agents", label: "Agents", icon: Bot },
@@ -281,6 +285,7 @@ const THEME_ICON = { light: Sun, dark: Moon, system: Monitor } as const;
 
 function BridgeStatusIndicator() {
   const { data: status } = useBridgeStatus();
+  const [starting, setStarting] = useState(false);
   const bridgeOn = status?.bridgeOnline ?? false;
   const tiaOn = status?.tiaConnected ?? false;
   const projectOn = status?.projectOpen ?? false;
@@ -299,11 +304,46 @@ function BridgeStatusIndicator() {
       ? "bg-amber-500"
       : "bg-green-500";
 
+  async function handleStartBridge() {
+    setStarting(true);
+    try {
+      const resp = await fetch("http://localhost:5102/tia/status", { signal: AbortSignal.timeout(2000) });
+      if (resp.ok) return; // already running
+    } catch {
+      // Expected — bridge is offline, try to start it
+    }
+    try {
+      // POST to dev server's bridge launcher endpoint
+      await fetch("/__bridge/start", { method: "POST", signal: AbortSignal.timeout(5000) });
+    } catch {
+      // Fallback: copy command to clipboard
+      await navigator.clipboard.writeText("dotnet run --project bridge/PacForgeBridge");
+    }
+    // Poll for bridge to come online
+    for (let i = 0; i < 15; i++) {
+      await new Promise(r => setTimeout(r, 2000));
+      try {
+        const resp = await fetch("http://localhost:5102/tia/status", { signal: AbortSignal.timeout(2000) });
+        if (resp.ok) { setStarting(false); return; }
+      } catch { /* still starting */ }
+    }
+    setStarting(false);
+  }
+
   return (
     <div className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground" title={label}>
       <Terminal className="h-3 w-3" />
-      <span className={cn("inline-block h-2 w-2 rounded-full", dotColor)} />
+      <span className={cn("inline-block h-2 w-2 rounded-full", dotColor, starting && "animate-pulse")} />
       <span>{label}</span>
+      {!bridgeOn && (
+        <button
+          onClick={() => void handleStartBridge()}
+          disabled={starting}
+          className="ml-1 rounded border border-border/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors disabled:opacity-50"
+        >
+          {starting ? "Starting…" : "Start"}
+        </button>
+      )}
     </div>
   );
 }

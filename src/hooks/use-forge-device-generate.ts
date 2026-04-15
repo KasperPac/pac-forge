@@ -10,6 +10,8 @@ import {
   buildDeviceCallFcPrompt,
   buildDeviceCallFcLadPrompt,
   buildDeviceCallFcUserMessage,
+  buildAssemblySclPrompt,
+  buildAssemblySclUserMessage,
   generateDeviceCallFc,
   generateDeviceCallFcLad,
   generateInputsDb,
@@ -20,6 +22,7 @@ import {
   getDeviceCallOrder,
   type DeviceGenContext,
   type DeviceCallFcContext,
+  type AssemblyGenContext,
   type IoDirectInstanceBinding,
   type IoLinkingWrapperBinding,
   extractVarInOutParams,
@@ -27,7 +30,7 @@ import {
 } from "@/lib/forge-prompts";
 import { loadPlatformRules } from "@/lib/platform-rules";
 import { parseGeneralRules, parseFolderRules, resolveDestinationFolder } from "@/lib/design-profile-schemas";
-import type { ForgeSession, ForgeArtifact, ForgeDeviceEntry, ForgeIoEntry } from "@/types/forge";
+import type { ForgeSession, ForgeArtifact, ForgeDeviceEntry, ForgeAssemblyEntry, ForgeIoEntry } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
 import type { FbTemplate } from "@/types/fb-template";
 import type { PatternCandidate, Instruction } from "@/types";
@@ -2732,6 +2735,9 @@ END_TYPE`;
 
       setProgress({ current: 0, total: devices.length, currentDevice: "" });
 
+      // Track AI-generated FBs by device_type so we generate once and reuse
+      const aiGeneratedTypeMap = new Map<string, string>();
+
       try {
         for (let i = 0; i < devices.length; i++) {
           const device = devices[i];
@@ -2765,15 +2771,51 @@ END_TYPE`;
               }
             }
           } else {
-            deviceArtifacts = await generateSingle(device, session, profile, fbTemplates, patterns, appendLog, undefined, ladInstructions);
-            // Apply profile folder rules to AI-generated artifacts
-            for (const a of deviceArtifacts) {
-              if (a.type === "FB") a.destination_folder = fbFolder;
-              else if (a.type === "DB" && a.name.startsWith(instDbPrefix)) a.destination_folder = instDbFolder;
-              else if (a.type === "DB") a.destination_folder = globalDbFolder;
-              else if (a.type === "FC") a.destination_folder = callFcFolder;
+            // Check if we already AI-generated an FB for this device_type
+            const existingFb = allArtifacts.find(
+              (a) => a.type === "FB" && a.stage === "device_fb" && aiGeneratedTypeMap.has(device.device_type) && a.name === aiGeneratedTypeMap.get(device.device_type),
+            );
+            if (existingFb) {
+              // Reuse the existing FB — just create an instance DB
+              appendLog("info", `${device.name}: reusing AI-generated FB "${existingFb.name}" for type "${device.device_type}"`);
+              const instDbName = `${instDbPrefix}${device.name.replace(/[^A-Za-z0-9]/g, "")}`;
+              const instDbCode = [
+                `DATA_BLOCK "${instDbName}"`,
+                `{ S7_Optimized_Access := 'TRUE' }`,
+                `VERSION : 0.1`,
+                `NON_RETAIN`,
+                `"${existingFb.name}"`,
+                `BEGIN`,
+                `END_DATA_BLOCK`,
+              ].join("\n");
+              allArtifacts.push({
+                id: crypto.randomUUID(),
+                name: instDbName,
+                type: "DB",
+                language: "SCL",
+                content: instDbCode,
+                approved: false,
+                stage: "device_fb",
+                destination_folder: instDbFolder,
+                dependencies: [existingFb.name],
+                compile_after_import: true,
+              });
+            } else {
+              deviceArtifacts = await generateSingle(device, session, profile, fbTemplates, patterns, appendLog, undefined, ladInstructions);
+              // Apply profile folder rules to AI-generated artifacts
+              for (const a of deviceArtifacts) {
+                if (a.type === "FB") a.destination_folder = fbFolder;
+                else if (a.type === "DB" && a.name.startsWith(instDbPrefix)) a.destination_folder = instDbFolder;
+                else if (a.type === "DB") a.destination_folder = globalDbFolder;
+                else if (a.type === "FC") a.destination_folder = callFcFolder;
+              }
+              allArtifacts.push(...deviceArtifacts.map(a => ({ ...a, stage: "device_fb" as const })));
+              // Track the FB name for this device type so subsequent devices reuse it
+              const generatedFb = deviceArtifacts.find((a) => a.type === "FB");
+              if (generatedFb) {
+                aiGeneratedTypeMap.set(device.device_type, generatedFb.name);
+              }
             }
-            allArtifacts.push(...deviceArtifacts.map(a => ({ ...a, stage: "device_fb" as const })));
           }
         }
 
@@ -3502,5 +3544,80 @@ END_TYPE`;
     [generateSingle],
   );
 
-  return { generateAll, generateFbsOnly, generateCallCode, generateSingle, regenerateSingleFb, loading, progress, error, log, clearLog };
+  const generateAssemblyFb = useCallback(
+    async (
+      assembly: ForgeAssemblyEntry,
+      session: ForgeSession,
+      profile: DesignProfile,
+      deviceArtifacts: ForgeArtifact[],
+      fbTemplates: FbTemplate[],
+      patterns: PatternCandidate[],
+      log: (level: DeviceGenLogLevel, msg: string) => void,
+    ): Promise<ForgeArtifact[]> => {
+      const matchedTemplate = assembly.fb_template_id
+        ? fbTemplates.find((t) => t.id === assembly.fb_template_id) ?? null
+        : null;
+
+      if (matchedTemplate && matchedTemplate.blocks && matchedTemplate.blocks.length > 0) {
+        log("info", `Assembly ${assembly.tag}: copying template "${matchedTemplate.name}"`);
+        return copyTemplateAsArtifacts(
+          { ...assembly, device_type: assembly.assembly_type, io_signals: [] } as unknown as ForgeDeviceEntry,
+          matchedTemplate,
+        ).map((a) => ({ ...a, stage: "assembly_fb" as const }));
+      }
+
+      log("info", `Assembly ${assembly.tag}: generating via AI`);
+      const platformRules = await loadPlatformRules();
+      const constituentDevices = (session.device_list ?? []).filter(
+        (d) => assembly.device_ids.includes(d.id),
+      );
+      const specAnalysis = session.spec_analysis;
+      const relevantInterlocks = specAnalysis?.interlocks?.filter(
+        (i) => i.affected_devices?.some(
+          (name) => constituentDevices.some((d) => d.name === name || d.tag === name) || name === assembly.name || name === assembly.tag,
+        ),
+      );
+      const relevantAlarms = specAnalysis?.alarms?.filter(
+        (a) => a.affected_sequences?.some(
+          (seq) => seq.toLowerCase().includes(assembly.tag.toLowerCase()),
+        ) || a.description?.toLowerCase().includes(assembly.tag.toLowerCase()),
+      );
+
+      const context: AssemblyGenContext = {
+        profile,
+        platformRules,
+        patterns,
+        constituentDevices,
+        deviceArtifacts,
+        interlocks: relevantInterlocks,
+        alarms: relevantAlarms,
+      };
+
+      const systemPrompt = buildAssemblySclPrompt(assembly, context, promptSections ?? undefined);
+      const userMessage = buildAssemblySclUserMessage(assembly);
+
+      const { content } = await validateAndCall(
+        () => callNonStreaming(
+          systemPrompt,
+          [{ role: "user", content: userMessage }],
+          new AbortController().signal,
+          16384,
+        ),
+        systemPrompt,
+        userMessage,
+        "assembly_fb_generate",
+      );
+
+      const artifacts = parseSclArtifacts(content, "device").map((a) => ({
+        ...a,
+        stage: "assembly_fb" as const,
+      }));
+
+      log("info", `Assembly ${assembly.tag}: generated ${artifacts.length} artifacts`);
+      return artifacts;
+    },
+    [promptSections],
+  );
+
+  return { generateAll, generateFbsOnly, generateCallCode, generateSingle, generateAssemblyFb, regenerateSingleFb, loading, progress, error, log, clearLog };
 }

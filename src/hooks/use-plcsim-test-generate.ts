@@ -6,6 +6,7 @@ import {
   buildPlcsimTestUserMessage,
   PLCSIM_TEST_MAX_TOKENS,
 } from "@/lib/plcsim-test-prompt";
+import type { PlcsimTestPromptOptions } from "@/lib/plcsim-test-prompt";
 import type { ForgeSession } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
 import type {
@@ -15,7 +16,13 @@ import type {
   TestStep,
   TestIoAction,
 } from "@/types/plcsim-test";
+import type { PlcsimTestTemplate } from "@/types/plcsim-test-template";
 import { useActivePromptSections } from "@/hooks/use-prompt-sections";
+import {
+  findMatchingTemplate,
+  instantiateTestTemplate,
+  instantiateSimRules,
+} from "@/lib/plcsim-test-instantiate";
 
 // ---------------------------------------------------------------------------
 // Truncation recovery — attempt to close open brackets in truncated JSON
@@ -227,6 +234,8 @@ export function usePlcsimTestGenerate() {
     async (
       session: ForgeSession,
       profile: DesignProfile | null,
+      promptOptions?: PlcsimTestPromptOptions,
+      testTemplates?: PlcsimTestTemplate[],
     ): Promise<PlcsimTestSuite> => {
       setLoading(true);
       setError(null);
@@ -234,8 +243,36 @@ export function usePlcsimTestGenerate() {
       const abort = new AbortController();
 
       try {
+        // --- Template instantiation (before AI call) ---
+        const templateTests: PlcsimTestCase[] = [];
+        const templateSimRules: IoSimulationRule[] = [];
+        const coveredDeviceNames: string[] = [];
+
+        if (testTemplates?.length && session.device_list?.length) {
+          const matrix = session.linkage_matrix;
+          for (const device of session.device_list) {
+            const match = findMatchingTemplate(testTemplates, device);
+            if (!match) continue;
+
+            const wiring = matrix?.deviceLinkage?.find(
+              (d) => d.name === device.name || d.instanceDbName === `Inst${device.tag}`,
+            );
+            templateTests.push(instantiateTestTemplate(match, device, wiring));
+            if (match.sim_rules?.length) {
+              templateSimRules.push(...instantiateSimRules(match.sim_rules, device, wiring));
+            }
+            coveredDeviceNames.push(device.name);
+          }
+        }
+
+        // Pass covered devices to prompt so AI skips them
+        const mergedOptions: PlcsimTestPromptOptions = {
+          ...promptOptions,
+          excludeDevices: coveredDeviceNames.length > 0 ? coveredDeviceNames : undefined,
+        };
+
         const systemPrompt = buildPlcsimTestPrompt(promptSections);
-        const userMessage = buildPlcsimTestUserMessage(session, profile);
+        const userMessage = buildPlcsimTestUserMessage(session, profile, mergedOptions);
 
         // Use callStreamingCollect to avoid 60s edge function timeout
         // (test generation can produce large JSON responses)
@@ -246,6 +283,8 @@ export function usePlcsimTestGenerate() {
           abort.signal,
           PLCSIM_TEST_MAX_TOKENS,
           "pm_test_generation",
+          false,
+          { prompt_name: "forge-plcsim-test", agent_role: "pm_test_generation", pipeline_step: "plcsim_test_generate" },
         );
 
         // Strip markdown fences if present
@@ -274,7 +313,17 @@ export function usePlcsimTestGenerate() {
           }
         }
 
-        return validateTestSuite(parsed);
+        const aiSuite = validateTestSuite(parsed);
+
+        // Merge template tests (prepend — they run first) + template sim rules
+        if (templateTests.length > 0) {
+          aiSuite.testCases = [...templateTests, ...aiSuite.testCases];
+        }
+        if (templateSimRules.length > 0) {
+          aiSuite.ioSimRules = [...templateSimRules, ...aiSuite.ioSimRules];
+        }
+
+        return aiSuite;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         setError(msg);

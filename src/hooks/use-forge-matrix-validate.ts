@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { callNonStreaming } from "@/hooks/use-generation";
 import type { ProcessLinkageMatrix, LinkageDevice } from "@/types/forge-matrix";
+import { validateSequence, type CompilerDiagnostic } from "@/lib/forge-process-compiler";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -28,6 +29,8 @@ export interface MatrixValidationResult {
   timerFixCount: number;
   /** Matrix with deterministic T# fixes already applied */
   correctedMatrix: ProcessLinkageMatrix | null;
+  /** Deterministic compiler diagnostics per sequence (cycles, unreachable states, coil conflicts, etc.) */
+  compilerDiagnostics: CompilerDiagnostic[];
 }
 
 // ---------------------------------------------------------------------------
@@ -131,6 +134,22 @@ export function useForgeMatrixValidate() {
     const ctrl = new AbortController();
 
     try {
+      // Step 0: Run deterministic compiler checks on each sequence (instant, no AI)
+      const compilerDiagnostics: CompilerDiagnostic[] = [];
+      for (const seq of matrix.processSequences) {
+        const seqDiags = validateSequence(seq);
+        for (const d of seqDiags) {
+          compilerDiagnostics.push({
+            ...d,
+            title: `${seq.name}: ${d.title}`,
+          });
+        }
+      }
+      if (compilerDiagnostics.length > 0) {
+        console.log(`[matrix-validate] Compiler diagnostics:`,
+          compilerDiagnostics.map(d => `[${d.severity}] ${d.category}: ${d.title}`));
+      }
+
       // Step 1: Apply deterministic fixes client-side (T# conversion)
       const { matrix: fixedMatrix, count: timerFixCount } = applyDeterministicFixes(matrix);
 
@@ -218,12 +237,21 @@ export function useForgeMatrixValidate() {
       const verdict = (parsed.verdict ?? "warnings") as MatrixValidationResult["verdict"];
       const suggestions = (parsed.suggestions ?? []).map(s => str(s)).filter(Boolean);
 
+      // Upgrade verdict if compiler found errors
+      const hasCompilerErrors = compilerDiagnostics.some(d => d.severity === "error");
+      const hasCompilerWarnings = compilerDiagnostics.length > 0;
+      let finalVerdict = verdict;
+      if (hasCompilerErrors) finalVerdict = "errors";
+      else if (hasCompilerWarnings && finalVerdict === "ok") finalVerdict = "warnings";
+      if (timerFixCount > 0 && fixableIssues.length === 0 && !hasCompilerErrors) finalVerdict = "warnings";
+
       setResult({
-        verdict: timerFixCount > 0 && fixableIssues.length === 0 ? "warnings" : verdict,
+        verdict: finalVerdict,
         fixableIssues,
         suggestions,
         timerFixCount,
         correctedMatrix: timerFixCount > 0 ? fixedMatrix : null,
+        compilerDiagnostics,
       });
     } catch (err) {
       setResult({
@@ -240,6 +268,7 @@ export function useForgeMatrixValidate() {
         suggestions: [],
         timerFixCount: 0,
         correctedMatrix: null,
+        compilerDiagnostics: [],
       });
     } finally {
       setLoading(false);
@@ -293,7 +322,56 @@ export function useForgeMatrixValidate() {
     }
   }, []);
 
+  const fixDiagnostic = useCallback(async (
+    matrix: ProcessLinkageMatrix,
+    diagnostic: CompilerDiagnostic,
+    userInstruction?: string,
+  ): Promise<ProcessLinkageMatrix> => {
+    setApplying(true);
+    const ctrl = new AbortController();
+
+    try {
+      const instruction = userInstruction?.trim()
+        ? `\n\nUser instruction: ${userInstruction.trim()}`
+        : "";
+
+      const { content } = await callNonStreaming(
+        `You are a senior Siemens TIA Portal automation project manager.
+You are given a Process Linkage Matrix JSON and a specific compiler diagnostic to fix.
+The diagnostic was found by static analysis of the sequence logic.
+Fix ONLY the specific issue described. Do not change anything else in the matrix.
+Respond with ONLY the corrected matrix as valid JSON — no markdown fences, no explanation.`,
+        [{
+          role: "user",
+          content: `Fix this compiler diagnostic in the matrix:
+
+Category: ${diagnostic.category}
+Severity: ${diagnostic.severity}
+Title: ${diagnostic.title}
+Description: ${diagnostic.description}
+Affected steps: ${diagnostic.affectedSteps.join(", ")}${instruction}
+
+Matrix JSON:
+${JSON.stringify(matrix, null, 2)}`,
+        }],
+        ctrl.signal,
+        32768,
+      );
+
+      const cleaned = content.trim().replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/, "").trim();
+      try {
+        JSON.parse(cleaned);
+      } catch {
+        throw new Error("Fix response was truncated — try again or fix manually.");
+      }
+      const corrected = JSON.parse(cleaned) as ProcessLinkageMatrix;
+      return { ...corrected, lastReviewedAt: new Date().toISOString() };
+    } finally {
+      setApplying(false);
+    }
+  }, []);
+
   const clear = useCallback(() => setResult(null), []);
 
-  return { validate, applySelectedFixes, loading, applying, result, clear };
+  return { validate, applySelectedFixes, fixDiagnostic, loading, applying, result, clear };
 }

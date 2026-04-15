@@ -1,0 +1,49 @@
+{
+  "name": "0001_Application",
+  "displayName": "Siemens.Engineering.MultilingualText",
+  "width": 1920,
+  "height": 912,
+  "screenNumber": 0,
+  "backColor": "Color [A=255, R=205, G=211, B=215]",
+  "alternateBackColor": "Color [A=255, R=235, G=235, B=235]",
+  "backgroundFillMode": "Window",
+  "horizontalAlignment": "Left",
+  "verticalAlignment": "Top",
+  "enabled": true,
+  "items": [
+    {
+      "type": "Siemens.Engineering.HmiUnified.UI.Shapes.HmiGraphicView",
+      "typeShort": "HmiGraphicView",
+      "attributes": {
+        "AlternateBackColor": "Color [A=255, R=0, G=255, B=0]",
+        "Authorization": "None",
+        "BackColor": "Color [A=255, R=200, G=205, B=215]",
+        "BackFillPattern": "Transparent",
+        "CurrentQuality": "None",
+        "Enabled": "True",
+        "FillDirection": "BottomToTop",
+        "FillLevel": "0",
+        "Graphic": "HMI_Template_Suite_Logo_Panel",
+        "GraphicStretchMode": "Fill",
+        "Height": "92",
+        "Left": "796",
+        "Name": "gfxHMILogo",
+        "Opacity": "1",
+        "Padding": "Siemens.Engineering.HmiUnified.UI.Parts.HmiPaddingPart",
+        "RequireExplicitUnlock": "False",
+        "RotationAngle": "0",
+        "RotationCenterPlacement": "AbsoluteFromCenter",
+        "RotationCenterX": "0",
+        "RotationCenterY": "0",
+        "ShowFillLevel": "False",
+        "ShowFocusVisual": "True",
+        "StyleItemClass": "HmiGraphicView",
+        "TabIndex": "0",
+        "ToolTipText": "Siemens.Engineering.MultilingualText",
+        "Top": "410",
+        "Visible": "True",
+        "Width": "327"
+      }
+    }
+  ]
+}

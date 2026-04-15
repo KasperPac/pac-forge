@@ -19,7 +19,7 @@ import type {
 /** Generate a complete SimaticML screen XML document from an HmiScreenSpec */
 export function buildScreenXml(
   screen: HmiScreenSpec,
-  tiaVersion = "V18",
+  tiaVersion = "V20",
 ): string {
   const lines: string[] = [];
   lines.push(`<?xml version="1.0" encoding="utf-8"?>`);
@@ -68,7 +68,7 @@ export function buildScreenXml(
 export function buildTagTableXml(
   tableName: string,
   tags: HmiTagBinding[],
-  tiaVersion = "V18",
+  tiaVersion = "V20",
 ): string {
   const lines: string[] = [];
   lines.push(`<?xml version="1.0" encoding="utf-8"?>`);
@@ -130,7 +130,7 @@ export function buildTagTableXml(
 export function buildTextListXml(
   listName: string,
   entries: Array<{ value: number; text: string; language?: string }>,
-  tiaVersion = "V18",
+  tiaVersion = "V20",
 ): string {
   const lines: string[] = [];
   lines.push(`<?xml version="1.0" encoding="utf-8"?>`);
@@ -163,7 +163,7 @@ export function buildTextListXml(
 export function buildGraphicListXml(
   listName: string,
   entries: Array<{ value: number; graphicName: string }>,
-  tiaVersion = "V18",
+  tiaVersion = "V20",
 ): string {
   const lines: string[] = [];
   lines.push(`<?xml version="1.0" encoding="utf-8"?>`);
@@ -199,7 +199,7 @@ export function buildGraphicListXml(
 /** Generate a WinCC discrete alarm configuration XML */
 export function buildAlarmXml(
   alarms: HmiAlarmDefinition[],
-  tiaVersion = "V18",
+  tiaVersion = "V20",
 ): string {
   const lines: string[] = [];
   lines.push(`<?xml version="1.0" encoding="utf-8"?>`);
@@ -249,7 +249,7 @@ export function buildFaceplateTypeXml(
   name: string,
   screen: HmiScreenSpec,
   interfaceProps: HmiFaceplateProperty[],
-  tiaVersion = "V18",
+  tiaVersion = "V20",
 ): string {
   const lines: string[] = [];
   lines.push(`<?xml version="1.0" encoding="utf-8"?>`);

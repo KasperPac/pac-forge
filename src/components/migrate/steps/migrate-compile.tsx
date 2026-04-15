@@ -275,7 +275,7 @@ export function MigrateCompile({ session, onSessionUpdate }: MigrateCompileProps
 
       const { manifest } = buildManifest(artifacts, {
         projectId: session.id,
-        tiaVersion: bridgeStatus?.version ?? "V18",
+        tiaVersion: bridgeStatus?.version ?? "V20",
         cpuType: "S7-1500",
         userId: user?.id ?? "",
         sessionId: session.id,

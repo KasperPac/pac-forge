@@ -110,6 +110,7 @@ interface FormState {
   tags: string[];
   blocks: BlockFormEntry[];
   profile_ids: string[];
+  is_assembly: boolean;
 }
 
 const EMPTY_BLOCK: BlockFormEntry = {
@@ -129,11 +130,13 @@ function emptyForm(): FormState {
     tags: [],
     blocks: [{ ...EMPTY_BLOCK }],
     profile_ids: [],
+    is_assembly: false,
   };
 }
 
 export default function FbLibraryPage() {
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [assemblyFilter, setAssemblyFilter] = useState<"all" | "device" | "assembly">("all");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<FbTemplate | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm());
@@ -167,6 +170,9 @@ export default function FbLibraryPage() {
   // Search + filter
   const filteredTemplates = useMemo(() => {
     let list = templates ?? [];
+    if (assemblyFilter !== "all") {
+      list = list.filter((t) => assemblyFilter === "assembly" ? t.is_assembly : !t.is_assembly);
+    }
     if (sourceFilter !== "all") {
       list = list.filter((t) => sourceFilter === "library" ? t.source === "library" : t.source !== "library");
     }
@@ -185,7 +191,7 @@ export default function FbLibraryPage() {
       );
     }
     return list;
-  }, [templates, searchQuery, sourceFilter, langFilter]);
+  }, [templates, searchQuery, assemblyFilter, sourceFilter, langFilter]);
   const { data: categories, isLoading: catsLoading } = useFbDeviceCategories();
   const { data: profiles } = useDesignProfiles();
   const createTemplate = useCreateFbTemplate();
@@ -228,6 +234,7 @@ export default function FbLibraryPage() {
             }))
           : [{ ...EMPTY_BLOCK }],
       profile_ids: template.profile_ids ?? [],
+      is_assembly: template.is_assembly ?? false,
     });
     setTagInput(template.tags.join(", "));
     setActiveBlockIdx(0);
@@ -255,6 +262,7 @@ export default function FbLibraryPage() {
         sort_order: i,
       })),
       profile_ids: form.profile_ids,
+      is_assembly: form.is_assembly,
     };
 
     const errorHandler = (err: Error) => {
@@ -575,12 +583,12 @@ export default function FbLibraryPage() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1">
-              <label className="font-mono text-xs text-muted-foreground">Global Library Path (.zal18 / .al18)</label>
+              <label className="font-mono text-xs text-muted-foreground">Global Library Path (.al17–.al20 / .zal17–.zal20)</label>
               <div className="flex gap-1.5">
                 <Input
                   value={importProjectPath}
                   onChange={(e) => setImportProjectPath(e.target.value)}
-                  placeholder="C:\...\Siemens Open Library V5.0.zal18"
+                  placeholder="C:\...\Open Library V19 PLC.al20"
                   className="flex-1 font-mono text-sm"
                 />
                 <Button
@@ -594,7 +602,7 @@ export default function FbLibraryPage() {
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
                           title: "Select TIA Global Library",
-                          filter: "TIA Libraries (*.zal18;*.al18;*.zal17;*.zal19;*.zal20)|*.zal18;*.al18;*.zal17;*.zal19;*.zal20|All Files (*.*)|*.*",
+                          filter: "TIA Libraries|*.al17;*.al18;*.al19;*.al20;*.zal17;*.zal18;*.zal19;*.zal20|All Files|*.*",
                           initial_directory: importProjectPath ? importProjectPath.replace(/[/\\][^/\\]+$/, "") : "",
                         }),
                       });
@@ -619,7 +627,7 @@ export default function FbLibraryPage() {
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground/60">
-                The .zal file from the library download. TIA Portal must be open.
+                The .al (unarchived) or .zal (archived) library file. TIA Portal must be open.
               </p>
             </div>
             <div className="space-y-1">
@@ -857,6 +865,16 @@ export default function FbLibraryPage() {
             className="h-8 pl-8 font-mono text-xs"
           />
         </div>
+        <Select value={assemblyFilter} onValueChange={(v) => setAssemblyFilter(v as "all" | "device" | "assembly")}>
+          <SelectTrigger className="h-8 w-28 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All types</SelectItem>
+            <SelectItem value="device">Device FBs</SelectItem>
+            <SelectItem value="assembly">Assembly FBs</SelectItem>
+          </SelectContent>
+        </Select>
         <Select value={sourceFilter} onValueChange={(v) => setSourceFilter(v as "all" | "library" | "custom")}>
           <SelectTrigger className="h-8 w-28 text-xs">
             <SelectValue />
@@ -955,6 +973,21 @@ export default function FbLibraryPage() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            {/* Assembly toggle */}
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={form.is_assembly}
+                onCheckedChange={(checked) => setForm((f) => ({ ...f, is_assembly: checked }))}
+                id="is-assembly-toggle"
+              />
+              <label htmlFor="is-assembly-toggle" className="font-mono text-xs text-muted-foreground cursor-pointer">
+                Assembly FB
+              </label>
+              <span className="font-mono text-[10px] text-muted-foreground/60">
+                {form.is_assembly ? "Coordinates groups of devices (conveyor, lift table, press)" : "Controls a single physical device (motor, sensor, valve)"}
+              </span>
             </div>
 
             {/* Description + Tags */}
@@ -1316,6 +1349,11 @@ function TemplateCard({
         <Badge variant="secondary" className="shrink-0 font-mono text-[10px] px-1.5 py-0">
           {template.device_category}
         </Badge>
+        {template.is_assembly && (
+          <Badge variant="outline" className="shrink-0 font-mono text-[10px] px-1 py-0 border-blue-500/40 text-blue-400">
+            assembly
+          </Badge>
+        )}
         {template.source === "library" && (
           <Badge variant="outline" className="shrink-0 font-mono text-[10px] px-1 py-0 border-amber-500/40 text-amber-400">
             lib

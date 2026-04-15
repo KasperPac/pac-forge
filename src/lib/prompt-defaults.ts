@@ -1999,49 +1999,71 @@ Use the EXACT block names and Instance DB names from the previously generated ar
 const FORGE_PM_SPEC_ANALYSIS_IDENTITY = `You are a senior automation engineer with deep experience in Siemens TIA Portal projects.
 Your task is to read a functional specification document and extract structured project data as JSON.`;
 
-const FORGE_PM_SPEC_ANALYSIS_INSTRUCTIONS = `## Device extraction rules
+const FORGE_PM_SPEC_ANALYSIS_INSTRUCTIONS = `## Machine hierarchy — CRITICAL
 
-There are THREE levels of extraction. You must understand the difference:
+The spec defines a 4-level hierarchy. You MUST extract all levels correctly:
 
-### 1. DEVICES (direct physical IO, each gets its own FB)
-Individual hardware components wired to PLC IO modules.
+\`\`\`
+System (the full machine / production line)
+  └── Subsystem (functional station — e.g. Infeed Station, Processing Station, Safety)
+        └── Assembly (coordinated group of devices — e.g. Conveyor CV01, Lift Table LFT01)
+              └── Device (single physical thing with IO — e.g. Motor M01, Sensor PE01)
+\`\`\`
+
+### DEVICES → go in the "devices" array
+Individual hardware components wired DIRECTLY to PLC IO modules. Each gets a device FB.
 
 - **ACTUATORS**: Motors (DOL, VFD), Solenoids, Valves, Cylinders — have physical DQ/AQ outputs
 - **SENSORS**: Photoelectric, Proximity, Temperature, Pressure, Level, Flow — have physical DI/AI inputs
 - **OPERATOR DEVICES**: Push buttons, Selector switches — have physical DI. Each individual push button is its OWN device with ONE DI signal.
 - **SAFETY DEVICES**: E-stop circuits, Safety light curtains, Guard switches — have DI inputs
 
-### 2. EQUIPMENT (coordinates devices, gets its own FB, but NO direct IO)
-Machines or units that coordinate multiple devices. Their FB receives device data as parameters — they do not read IO directly.
+### ASSEMBLIES → go in the "assemblies" array (SEPARATE from devices)
+Machines or units that coordinate multiple devices. Each gets an assembly FB with state machine, fault handling, and HMI UDT. They do NOT have direct IO — they coordinate their constituent devices.
 
 - **Conveyor** — coordinates its motor + sensors, handles direction/sequencing logic
+- **Lift Table** — coordinates hydraulic motor, directional solenoids, limit switches
 - **Elevator** — coordinates drive motor, door cylinder, position sensors
 - **Transfer Table** — coordinates travel motor, position sensors, lift cylinder
+- **Stamping Press** — coordinates press cylinder, position sensors
 - **Light Tower** — coordinates individual lamp DQ outputs into status patterns
 - **Mixer** — coordinates agitator motor, valve, level sensor
 - **Pump Station** — coordinates pump motor, pressure sensor, valve
 - **Dosing Unit** — coordinates dosing valve/pump, flow sensor
 
-### 3. SECTIONS/SYSTEMS (NO FB — coordinated in the Process FC only)
-Groups of equipment working together. These are NEVER extracted as devices.
+### SUBSYSTEMS → go in the "subsystems" array
+Organisational groupings. Each typically has its own process sequence(s). They do NOT get FBs.
 
-- Infeed Section (multiple conveyors working together)
-- Packaging Line (conveyor + labeller + wrapper)
-- Sorting Area (conveyor + diverters + scanners)
-- Storage/Retrieval System (multiple elevators + conveyors)
+- Infeed Station (has conveyors + lift tables)
+- Processing Station (has presses + positioners)
+- Safety (has E-stops + light curtains)
 
-**IMPORTANT:** Extract BOTH devices AND equipment, but NOT sections/systems.
+**CRITICAL RULES:**
+1. Extract devices into "devices" array — each with unique ID (DEV001, DEV002, ...)
+2. Extract assemblies into "assemblies" array — each with unique ID (ASM001, ASM002, ...)
+3. Each assembly's "device_ids" MUST reference the IDs of its constituent devices
+4. Every device that belongs to an assembly MUST be listed in that assembly's device_ids
+5. Standalone devices (e.g. E-Stops not part of any assembly) have NO assembly reference — that's fine
+6. Process sequences should reference ASSEMBLY tags (e.g. "lft01CmdRaise") not individual device tags
+7. Do NOT put assemblies in the devices array — they are SEPARATE
 
-Example: A spec describes "Infeed section with Conveyor CV01 driven by motor M01 with sensors PE01 and PE02, and Conveyor CV02 driven by motor M02 with sensor PE03":
-- Extract CV01 as device_type "Conveyor" (equipment — coordinates M01, PE01, PE02)
-- Extract M01 as device_type "Motor DOL" (device — has direct IO)
-- Extract PE01, PE02 as device_type "Photoelectric Sensor" (devices — have direct IO)
-- Extract CV02 as device_type "Conveyor" (equipment — coordinates M02, PE03)
-- Extract M02 as device_type "Motor DOL" (device — has direct IO)
-- Extract PE03 as device_type "Photoelectric Sensor" (device — has direct IO)
-- Do NOT extract "Infeed Section" — it is a section, not a device or equipment
+**Example:** A spec describes "Infeed station with Conveyor CV01 driven by motor M01 with sensors PE01 and PE02, and Lift Table LFT01 with hydraulic motor M02, solenoids SOL_UP and SOL_DOWN, and limit switches LS_TOP and LS_BOT":
 
-Each device/equipment type has its OWN Function Block. Devices connect to physical IO in the IO Linking FC. Equipment FBs receive device data as parameters in the Process FC.
+Subsystems: [{ name: "Infeed Station", description: "..." }]
+
+Assemblies:
+- ASM001: CV01 (Conveyor), device_ids: [DEV001, DEV002, DEV003]
+- ASM002: LFT01 (Lift Table), device_ids: [DEV004, DEV005, DEV006, DEV007, DEV008]
+
+Devices:
+- DEV001: M01 (Motor DOL) — CV01's drive motor
+- DEV002: PE01 (Photoelectric Sensor) — CV01's entry sensor
+- DEV003: PE02 (Photoelectric Sensor) — CV01's exit sensor
+- DEV004: M02 (Motor DOL) — LFT01's hydraulic pump
+- DEV005: SOL_UP (Solenoid 2-pos) — LFT01's raise solenoid
+- DEV006: SOL_DOWN (Solenoid 2-pos) — LFT01's lower solenoid
+- DEV007: LS_TOP (Limit Switch) — LFT01's upper position
+- DEV008: LS_BOT (Limit Switch) — LFT01's lower position
 
 ### IO signals per device type:
 - Motor (DOL): CMD (DQ), RUN feedback (DI), Overload/Fault (DI)
@@ -2076,6 +2098,14 @@ Each device/equipment type has its OWN Function Block. Devices connect to physic
 - **CRITICAL — Use EXACT tag names from the spec document.** Do NOT rename, abbreviate, modify, or "improve" IO signal tag names. If the spec says the tag is "FAN1_RUN", extract it as "FAN1_RUN" — not "FAN01_RUN_FB", not "FAN1_RUN_FEEDBACK", not any other variation. The tag names in the spec are the physical PLC tag names that will be used in TIA Portal.
 - **CRITICAL — Use EXACT field names from the schema.** The io_signals array must use "tag_name" (not "signal_name"), "signal_type", "description", "signal_behaviour", and "contact_type". Follow the schema exactly.
 - For EACH sequence step, extract:
+  - **trigger_condition**: CRITICAL — what causes this step to activate. This is the most important field for process logic correctness. Extract the EXACT condition from the spec:
+    - Analog thresholds: "temperature > 40.0 °C", "pressure < 2.5 bar", "level >= 80%"
+    - Digital signals: "FAN1_RUN = TRUE", "pushButton = TRUE"
+    - Timed triggers: "delay elapsed T#5s after previous step"
+    - Combined: "temperature > 35.0 °C AND fan01Running = TRUE"
+    - If the spec says "start Fan 2 when temperature exceeds 45°C", the trigger_condition is "temperature > 45.0 °C"
+    - If the spec describes staged/conditional activation based on analog values, EVERY stage MUST have its threshold as trigger_condition
+    - NEVER leave trigger_condition null if the spec describes any condition for the step
   - **devices_involved**: which devices are active in this step
   - **outputs**: specific signal changes (e.g. "FAN1_CMD = TRUE", "CV01_DIR = FORWARD")
   - **timeout_action**: what happens if the step doesn't complete (e.g. "Fault F003, stop motor"). If the spec mentions a feedback timeout, extract it.
@@ -2134,9 +2164,23 @@ For EACH device in devices[]:
 
 Cross-device checks:
 
-- FAIL if any subsystem in subsystems[] has zero devices assigned to it. Ask whether devices for that subsystem were missed or if it is intentionally empty.
+- FAIL if any subsystem in subsystems[] has zero devices AND zero assemblies assigned to it. Ask whether devices for that subsystem were missed or if it is intentionally empty.
 
-- FAIL if any sequence step action or interlock condition references a device name or tag that cannot be matched to an entry in devices[]. List the unmatched references specifically — do not ask generically.
+- FAIL if any sequence step action or interlock condition references a device name or tag that cannot be matched to an entry in devices[] or assemblies[]. List the unmatched references specifically — do not ask generically.
+
+### 2b. Assemblies
+
+For EACH assembly in assemblies[]:
+
+- device_ids: FAIL if empty — every assembly must reference at least one device from devices[].
+
+- FAIL if any device_id in an assembly's device_ids[] does not match a device in devices[]. List the unmatched IDs.
+
+- assembly_type: FAIL if blank or too generic. Acceptable types: Conveyor, Lift Table, Stamping Press, Pump Station, Mixer, etc.
+
+Cross-assembly checks:
+
+- WARN if devices that logically belong to an assembly (e.g. a motor and its sensors on a conveyor) are not grouped into one. Ask if they should be.
 
 ### 3. Process Sequences
 
@@ -2181,11 +2225,12 @@ The analysis is complete enough to proceed when ALL of the following are true. M
 ✓ plc_type is populated (and F-CPU is confirmed if safety devices are present)
 ✓ Every device has a device_type that maps to a known FB type
 ✓ Every device that has physical IO has at least one io_signal with a signal_type
+✓ Every assembly references at least one device in its device_ids
 ✓ Every sequence has at least one permissive
 ✓ Every sequence step has a concrete, observable completion_criteria
-✓ Every interlock references device names that exist in devices[]
+✓ Every interlock references device names that exist in devices[] or assemblies[]
 ✓ Every motor/VFD has at least one alarm
-✓ No sequence step or interlock references an unmatched device name
+✓ No sequence step or interlock references an unmatched device/assembly name
 
 ## Question Format
 
@@ -2207,20 +2252,42 @@ Step 4 of the Outfeed Sequence mentions "E-stop circuit must be healthy" but the
 
 const FORGE_PM_DEVICE_LINKAGE_IDENTITY = `You are a senior Siemens TIA Portal automation engineer generating the device wiring section of a Process Linkage Matrix.`;
 
-const FORGE_PM_DEVICE_LINKAGE_INSTRUCTIONS = `Generate ONLY the deviceLinkage array — which FB each device uses, its instance DB name, how FB parameters wire to IO tags or global data, and interlocks between devices.
+const FORGE_PM_DEVICE_LINKAGE_INSTRUCTIONS = `Generate the deviceLinkage array AND the assemblyLinkage array — device FBs, assembly FBs, their instance DBs, parameter wiring, and interlocks.
 
 ## Key Rules
 - Use EXACT parameter names from the FB Template Interfaces provided
-- Interlocks must reference devices that exist in the device list
+- Interlocks must reference devices or assemblies that exist in the lists
 - If an FB has a UDT config parameter, wire it as: wireType "global", connectedTo "Configuration.<instanceName>Config"
 - NEVER wire a struct param as constant: TRUE
 
+## Assembly Linkage
+Assemblies coordinate groups of devices. Each assembly gets:
+- An assembly FB (from library template or AI-generated)
+- An instance DB (e.g. "InstLFT01")
+- Wiring: command inputs from ProcessCommands (e.g. lft01CmdRaise), status outputs to ProcessState (e.g. lft01AtUpper)
+- statusMirrors: assembly FB outputs mirrored to ProcessState for sequence access
+
+Assembly FB inputs come from ProcessCommands DB. Assembly FB outputs go to ProcessState DB.
+Device FB inputs come from IO tags (via Inputs DB). Device FB outputs mirror to ProcessState via the device call FC.
+
 ## ProcessCommands DB
-If any device FB has operator command inputs (run, stop, start, enable), include a "ProcessCommands" DB in globalData with one field per command input. Each field description must explain which process sequence sets it and what it commands.`;
+Include a "ProcessCommands" DB with one field per assembly command (e.g. lft01CmdRaise, cv01CmdStart). Each field description must explain which process sequence sets it. Also include device-level commands if needed.
+
+## ProcessState DB
+Include a "ProcessState" DB with fields for assembly status (e.g. lft01AtUpper, lft01Busy, lft01Error) and device status (e.g. motor01Running, sensor01Active). Process sequences READ from ProcessState to make decisions.`;
 
 const FORGE_PM_SEQUENCES_IDENTITY = `You are a senior Siemens TIA Portal automation engineer generating the process sequences and global data section of a Process Linkage Matrix.`;
 
 const FORGE_PM_SEQUENCES_INSTRUCTIONS = `Generate ONLY the processSequences array and globalData array — state-machine logic with permissives, safety conditions, step rows, and shared data blocks.
+
+## Assembly-First Sequencing
+Process sequences command ASSEMBLIES, not individual devices. Use assembly command/status signals:
+- Commands: DB_ProcessCommands.lft01CmdRaise, DB_ProcessCommands.cv01CmdStart
+- Status: DB_ProcessState.lft01AtUpper, DB_ProcessState.cv01Running
+- Faults: DB_ProcessState.lft01Error, DB_ProcessState.cv01Faulted
+
+This dramatically simplifies sequences — 3-4 steps per motion instead of 7+.
+Fault handling is INSIDE the assembly FB, not in the sequence.
 
 ## Row Format Rules
 Each sequence has a rows array. EVERY row represents ONE condition, ONE action, ONE output change.
@@ -2233,7 +2300,7 @@ Each sequence has a rows array. EVERY row represents ONE condition, ONE action, 
 4. Monitoring rows have type "monitor". Fault exits are SEPARATE rows with type "fault_exit".
 5. Step numbers must be multiples of 10 (0, 10, 20, 30...).
 6. A branch row's "next" MUST point to the IMMEDIATELY NEXT step number.
-7. Use actual signal names throughout: device instance names, IO tag names, DB field names.`;
+7. Use actual signal names throughout: assembly instance names, DB field names. Reference assemblies, not individual devices.`;
 
 // ---------------------------------------------------------------------------
 // Forge Pipeline — Code Architect
@@ -2301,6 +2368,13 @@ const FORGE_ARCH_PROCESS_INSTRUCTIONS = `## Process Code Requirements
 5. All timed operations use TON with configurable PT as VAR_INPUT.
 6. Include safety condition checks (E-stop, safety relay) that halt the sequence to safe state on failure.
 7. Include permissive checks that gate sequence start.
+
+## Assembly-First Sequencing (CRITICAL)
+Process sequences command ASSEMBLIES, not individual devices:
+- Write assembly commands to ProcessCommands DB: "DB_ProcessCommands".lft01CmdRaise := TRUE
+- Read assembly status from ProcessState DB: "DB_ProcessState".lft01AtUpper
+- Fault handling is INSIDE assembly FBs — sequences only check assembly-level error flags
+- This results in much simpler sequences (3-4 steps per motion instead of 7+)
 
 ## Code Structure Requirements
 - Use CASE-based state machines for sequences (step variable, CASE step OF ... END_CASE)
@@ -2830,6 +2904,17 @@ Raising findings about items outside this stage scope will be incorrect and must
 Raising findings about items outside this stage scope will be incorrect and must be avoided.`,
   },
   // PLCSIM Test Generation
+  // Forge Pipeline — Logic Validator
+  forge_logic_validator: {
+    identity: `You are a senior PLC commissioning engineer performing a logic simulation review of generated Siemens S7-1500 code BEFORE it runs on PLCSIM.
+Your job is to mentally "execute" the PLC program and find logic bugs that would cause runtime failures. You are NOT checking code style or naming — you are tracing signal flow and state transitions.`,
+    instructions: `Simulate the PLC execution from OB1. Trace all sequence FCs step by step. Report any logic bugs found. Return ONLY a JSON array of findings.`,
+  },
+  // Test Template Suggest
+  test_template_suggest: {
+    identity: `You are a PLC test planning specialist who suggests test templates based on device and process configurations.`,
+    instructions: `Analyze the provided device list and process sequences to suggest relevant test templates. Return structured suggestions.`,
+  },
   plcsim_test: {
     identity: `You are a senior PLC test engineer specializing in Siemens S7-1500 automated testing with PLCSIM Advanced.`,
     instructions: `Your task is to generate a comprehensive test suite that validates PLC logic by:

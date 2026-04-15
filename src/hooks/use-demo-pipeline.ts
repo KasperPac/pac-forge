@@ -63,7 +63,7 @@ const DEFAULT_PROJECT: Project = {
   project_number: null,
   design_profile_id: null,
   plc_brand: "SIEMENS_TIA",
-  tia_version: "V18",
+  tia_version: "V20",
   cpu_type: "S7-1500",
   rack_slot_layout: [],
   io_lists: [],

@@ -1,16 +1,22 @@
 import type { ProcessLinkageMatrix } from "@/types/forge-matrix";
+import type { HmiPanelConfig } from "@/types/hmi-panel";
+import type { InterfaceContractMap } from "@/types/forge-contract";
 
 export const FORGE_STEPS = {
   SPEC_UPLOAD: "spec_upload",
   QA_REVIEW: "qa_review",
   PROJECT_SETUP: "project_setup",
   HARDWARE_IO: "hardware_io",
+  INTERFACE_CONTRACT: "interface_contract",
   DEVICE_FB: "device_fb",
+  ASSEMBLY_FB: "assembly_fb",
+  LOGIC_CHECK: "logic_check",
   MATRIX_REVIEW: "matrix_review",
   DEVICE_CODE: "device_code",
+  PLCSIM_DEVICE_TEST: "plcsim_device_test",
   PROCESS_CODE: "process_code",
   HMI: "hmi",
-  PLCSIM_TEST: "plcsim_test",
+  PLCSIM_SYSTEM_TEST: "plcsim_system_test",
   TIA_EXPORT: "tia_export",
 } as const;
 
@@ -21,12 +27,16 @@ export const FORGE_STEP_LABELS: Record<ForgeStep, string> = {
   qa_review: "Q&A Review",
   project_setup: "Project Setup",
   hardware_io: "Hardware & IO",
+  interface_contract: "Interface Contracts",
   device_fb: "Device FBs",
+  assembly_fb: "Assembly FBs",
+  logic_check: "Logic Check",
   matrix_review: "Matrix Review",
   device_code: "Device Code",
+  plcsim_device_test: "Device Tests",
   process_code: "Process Code",
   hmi: "HMI Screens",
-  plcsim_test: "PLCSIM Test",
+  plcsim_system_test: "System Tests",
   tia_export: "TIA Export",
 };
 
@@ -35,12 +45,16 @@ export const FORGE_STEP_ORDER: ForgeStep[] = [
   "qa_review",
   "project_setup",
   "hardware_io",
+  "interface_contract",
   "device_fb",
+  "assembly_fb",
+  "logic_check",
   "matrix_review",
   "device_code",
+  "plcsim_device_test",
   "process_code",
   "hmi",
-  "plcsim_test",
+  "plcsim_system_test",
   "tia_export",
 ];
 
@@ -66,6 +80,8 @@ export interface ForgeSession {
   project_id: string;
   user_id: string;
   design_profile_id: string | null;
+  /** Links to FDS spec_project — when set, forge reads behavioral data from fds_assembly_sessions */
+  spec_project_id: string | null;
   current_step: ForgeStep;
 
   spec_text: string | null;
@@ -76,13 +92,23 @@ export interface ForgeSession {
   hardware_config: ForgeHardwareConfig;
   io_list: ForgeIoEntry[];
   device_list: ForgeDeviceEntry[];
+  /** Assembly entries with FB assignments — coordinated device groups */
+  assembly_list: ForgeAssemblyEntry[];
   network_topology: Record<string, unknown>;
+
+  /** Interface contracts defining how assemblies communicate (exposed/consumed signals + state defs) */
+  interface_contracts: InterfaceContractMap | null;
 
   linkage_matrix: ProcessLinkageMatrix | null;
 
   device_artifacts: ForgeArtifact[];
+  /** Assembly FB artifacts (FB, config UDT, HMI UDT, instance DB) */
+  assembly_artifacts: ForgeArtifact[];
   process_artifacts: ForgeArtifact[];
   hmi_artifacts: ForgeArtifact[];
+
+  /** HMI panel configuration (family, model, resolution) — set during HMI step */
+  hmi_panel_config: HmiPanelConfig | null;
 
   step_statuses: Partial<Record<ForgeStep, ForgeStepStatus>>;
 
@@ -96,7 +122,9 @@ export interface ForgeSession {
   process_code_language: "SCL" | "LAD" | null;
   conversion_fc_language: "SCL" | "LAD" | null;
 
-  /** PLCSIM test suite — test cases, simulation rules, and results */
+  /** PLCSIM device FB test suite — runs after device code, before process code */
+  plcsim_device_test_suite: import("./plcsim-test").PlcsimTestSuite | null;
+  /** PLCSIM system test suite — runs after process code (normal/fault/interlock/reset) */
   plcsim_test_suite: import("./plcsim-test").PlcsimTestSuite | null;
 
   created_at: string;
@@ -113,9 +141,9 @@ export type ForgeSessionUpdate = Partial<
 // Forge artifact — generated code block
 // ---------------------------------------------------------------------------
 
-export type ForgeArtifactType = "UDT" | "FB" | "FC" | "DB" | "OB" | "TAG_TABLE";
+export type ForgeArtifactType = "UDT" | "FB" | "FC" | "DB" | "OB" | "TAG_TABLE" | "HMI_SCREEN" | "HMI_TAG_TABLE";
 export type ForgeArtifactLanguage = "SCL" | "LAD";
-export type ForgeArtifactStage = "device_fb" | "device" | "process" | "hmi";
+export type ForgeArtifactStage = "device_fb" | "assembly_fb" | "device" | "process" | "hmi";
 
 export interface ForgeArtifact {
   id: string;
@@ -251,6 +279,10 @@ export interface SpecAnalysisDevice {
 
 export interface SpecAnalysisProcessStep {
   step_number: number;
+  /** What triggers entry into this step — machine-parseable condition expression
+   *  e.g. "DB_ProcessState.tt01Value > 40.0", "fan01Running = TRUE", "pushButtonHold = TRUE"
+   *  For the first step, use the permissive/start condition. */
+  trigger_condition?: string | null;
   action: string;
   completion_criteria: string;
   /** Device names involved in this step */
@@ -262,6 +294,9 @@ export interface SpecAnalysisProcessStep {
   /** Edge cases, conditions, or clarifications */
   notes?: string | null;
 }
+
+/** Depth of spec analysis: how many AI passes to run */
+export type SpecAnalysisDepth = 1 | 2 | 3;
 
 export interface SpecAnalysisProcessSequence {
   name: string;
@@ -318,6 +353,36 @@ export interface SpecAnalysisProcessSetting {
   range_max?: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// Assembly — coordinated group of devices (lift table, conveyor, press)
+// ---------------------------------------------------------------------------
+
+export interface SpecAnalysisAssembly {
+  id: string;
+  name: string;
+  tag: string;
+  assembly_type: string;
+  description: string;
+  subsystem: string;
+  /** References to SpecAnalysisDevice.id for constituent devices */
+  device_ids: string[];
+}
+
+export interface ForgeAssemblyEntry {
+  id: string;
+  name: string;
+  tag: string;
+  assembly_type: string;
+  description: string;
+  subsystem: string;
+  device_ids: string[];
+  /** Matched assembly FB template ID — null means AI must generate */
+  fb_template_id: string | null;
+  fb_match_confidence: "exact" | "probable" | "none";
+  language_override: "SCL" | "LAD" | null;
+  approved: boolean;
+}
+
 export interface SpecAnalysis {
   project_name: string;
   project_description: string;
@@ -334,11 +399,99 @@ export interface SpecAnalysis {
   /** FB architecture design intent from spec */
   fb_architecture?: string | null;
   subsystems: Array<{ name: string; description: string }>;
+  /** Coordinated groups of devices — each gets an assembly FB */
+  assemblies: SpecAnalysisAssembly[];
+  /** Leaf-level physical devices with IO signals */
   devices: SpecAnalysisDevice[];
   process_sequences: SpecAnalysisProcessSequence[];
   alarms: SpecAnalysisAlarm[];
   interlocks: SpecAnalysisInterlock[];
 }
+
+// ---------------------------------------------------------------------------
+// Chunked spec analysis (FEAT-12)
+// ---------------------------------------------------------------------------
+
+/** Stage 1 output: section map + extraction targets */
+export interface SpecSurveyResult {
+  project_name: string;
+  project_description: string;
+  plc_type: string;
+  plc_order_number: string | null;
+  hmi_type: string;
+  safety_classification: string | null;
+  extraction_targets: SpecExtractionTarget[];
+  cross_cutting_concerns: SpecCrossCuttingConcerns;
+}
+
+export interface SpecExtractionTarget {
+  /** Unique target ID, e.g. "T01" */
+  id: string;
+  /** Human-readable name: "Fan Staging System" */
+  name: string;
+  /** Which subsystem this belongs to */
+  subsystem: string;
+  /** Literal text from spec marking the START of relevant content */
+  start_anchors: string[];
+  /** Literal text marking the END of relevant content */
+  end_anchors: string[];
+  /** Expected device count in this target */
+  expected_device_count: number;
+  /** Expected sequence names */
+  expected_sequences: string[];
+  /** Brief description of what to extract */
+  extraction_notes: string;
+}
+
+export interface SpecCrossCuttingConcerns {
+  /** Global safety systems (E-Stop circuits, safety relays) */
+  safety_systems: string[];
+  /** Global settings that apply to multiple subsystems */
+  global_settings: string[];
+  /** HMI requirements mentioned across subsystems */
+  hmi_requirements: string[];
+  /** Shared interlocks that span subsystems */
+  shared_interlocks: string[];
+}
+
+/** Partial SpecAnalysis from one extraction target (Stage 2 output) */
+export interface PartialSpecAnalysis {
+  target_id: string;
+  subsystems: Array<{ name: string; description: string }>;
+  assemblies?: SpecAnalysisAssembly[];
+  devices: SpecAnalysisDevice[];
+  process_sequences: SpecAnalysisProcessSequence[];
+  alarms: SpecAnalysisAlarm[];
+  interlocks: SpecAnalysisInterlock[];
+  process_settings: SpecAnalysisProcessSetting[];
+  hardware_rack: SpecAnalysisHardwareSlot[];
+}
+
+/** A text chunk prepared for extraction */
+export interface SpecChunk {
+  targetId: string;
+  targetName: string;
+  text: string;
+  contextPreamble: string;
+}
+
+/** Progress state for the chunked analysis pipeline */
+export interface ChunkedAnalysisProgress {
+  stage: "survey" | "extracting" | "merging";
+  currentChunk: number;
+  totalChunks: number;
+  chunkName: string;
+  /** Progressive extraction stats updated during streaming */
+  streamStats?: {
+    devices: number;
+    assemblies: number;
+    sequences: number;
+  };
+}
+
+/** Chars threshold above which chunked extraction is used automatically */
+/** Chunking only for truly massive specs — streaming handles normal specs in a single call */
+export const CHUNKED_THRESHOLD = 80_000;
 
 // ---------------------------------------------------------------------------
 // TIA export result

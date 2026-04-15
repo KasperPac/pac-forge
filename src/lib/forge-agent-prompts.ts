@@ -13,7 +13,7 @@ import { resolveSection } from "@/lib/prompt-defaults";
 // Types
 // ---------------------------------------------------------------------------
 
-export type ReviewStage = "io" | "fb" | "db" | "fc_ob" | "process" | "full";
+export type ReviewStage = "io" | "fb" | "assembly" | "db" | "fc_ob" | "process" | "full";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -53,9 +53,13 @@ const STAGE_SCOPE: Record<ReviewStage, string> = {
 Check ONLY: tag naming, data types, address format (%I/%Q/%IW/%QW), no duplicate addresses, inputs use %I/%IW, outputs use %Q/%QW.
 Do NOT flag: missing FBs, FCs, OBs, DBs, or program logic — those come in later stages.`,
 
-  fb: `## Stage Scope: Function Blocks
-Check ONLY: FB interface sections, static vs temp declarations, no absolute addressing inside FBs, REGION blocks, CASE ELSE branches, naming conventions, timer/counter/edge in VAR.
+  fb: `## Stage Scope: Function Blocks (Device + Assembly)
+Check ONLY: FB interface sections, static vs temp declarations, no absolute addressing inside FBs, REGION blocks, CASE ELSE branches, naming conventions, timer/counter/edge in VAR. Assembly FBs should have state machines, fault detection, config UDT, and HMI UDT.
 Do NOT flag: missing OB1, instance DBs, Global DBs, Process FC, IO tag definitions — those come in other stages.`,
+
+  assembly: `## Stage Scope: Assembly Function Blocks
+Check ONLY: Assembly FB has state machine (CASE), fault detection (travel timeout, overtravel, motor fault), config UDT input, HMI UDT IN_OUT, command inputs (enable, reset, cmd*), status outputs (busy, done, error, faultCode, stateNumber), REGION blocks. Assembly FB must NOT read physical IO directly.
+Do NOT flag: missing OB1, device FBs, Global DBs, Process FC — those come in other stages.`,
 
   db: `## Stage Scope: Data Blocks
 Check ONLY: instance DBs match FB interfaces (same variable names and types), global DB initial values, UDT references correct, naming (Inst prefix for instance DBs), retain attributes.
@@ -155,6 +159,14 @@ Failure to update the DB schema when adding new wires will cause "undeclared var
 - DB_FaultData: Fault latches. Written by devices/process, read by process/sequences.
 - Siemens Open Library FBs have HMI UDTs as VAR_IN_OUT — the HMI faceplate reads the instance DB directly.
 
+## LAD JSON Artifacts
+Some artifacts (device call FCs) use LAD format and are encoded as JSON, not SCL. When fixing LAD artifacts:
+- The JSON structure contains rungs with elements that have properties like \`negated\`, \`operand\`, \`type\`, etc.
+- To invert a signal: change \`"negated": false\` to \`"negated": true\` (or vice versa) on the relevant element
+- To add a NOT: set the \`negated\` flag on the contact/coil element — do NOT add separate NOT instructions
+- Output LAD artifacts as \`\`\`json [FC:Name] ... \`\`\` blocks (not \`\`\`scl)
+- Preserve the complete JSON structure — do not convert LAD to SCL
+
 ## Response Format
 ## Rewrite Summary
 **Files Changed ([N]):**
@@ -163,7 +175,7 @@ Failure to update the DB schema when adding new wires will cause "undeclared var
 **Files Unchanged ([N]):**
 - [filename] — Copied from previous version
 
-[Output ALL files — changed and unchanged — as \`\`\`scl [TYPE:Name] ... \`\`\` blocks]`;
+[Output ALL files — changed and unchanged — as \`\`\`scl [TYPE:Name] ... \`\`\` (for SCL) or \`\`\`json [FC:Name] ... \`\`\` (for LAD JSON) blocks]`;
 }
 
 /**

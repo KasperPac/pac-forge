@@ -40,12 +40,16 @@ const createInitialStepStatuses = (): Record<ForgeStep, ForgeStepStatus> => ({
   qa_review: "pending",
   project_setup: "pending",
   hardware_io: "pending",
+  interface_contract: "pending",
   device_fb: "pending",
+  assembly_fb: "pending",
+  logic_check: "pending",
   matrix_review: "pending",
   device_code: "pending",
+  plcsim_device_test: "pending",
   process_code: "pending",
   hmi: "pending",
-  plcsim_test: "pending",
+  plcsim_system_test: "pending",
   tia_export: "pending",
 });
 
@@ -62,22 +66,36 @@ export const useForgeStore = create<ForgeStoreState>((set, get) => ({
   hydrated: false,
 
   hydrateFromSession: (dbStep, dbStatuses) => {
-    // Rebuild step statuses: all steps before current are "completed",
-    // current is "active", rest are from DB or "pending"
-    const currentIdx = getStepIndex(dbStep);
+    // Migrate old step names (cast to string for comparison with legacy values)
+    let safeStep: ForgeStep;
+    if (FORGE_STEP_ORDER.includes(dbStep)) {
+      safeStep = dbStep;
+    } else if ((dbStep as string) === "plcsim_test") {
+      safeStep = "plcsim_system_test";
+    } else {
+      safeStep = "spec_upload";
+    }
+
+    // Backward compat: old sessions stored before the 3 new steps
+    // (interface_contract, assembly_fb, logic_check) were added.
+    // If the session is at or past a step that was previously adjacent
+    // to the new steps, auto-complete the new steps.
+    const currentIdx = getStepIndex(safeStep);
     const statuses = createInitialStepStatuses();
+
     for (let i = 0; i < FORGE_STEP_ORDER.length; i++) {
       const step = FORGE_STEP_ORDER[i];
       if (dbStatuses[step]) {
         statuses[step] = dbStatuses[step]!;
       } else if (i < currentIdx) {
+        // Steps before current that have no saved status → completed
         statuses[step] = "completed";
       } else if (i === currentIdx) {
         statuses[step] = "active";
       }
       // else stays "pending" from createInitialStepStatuses
     }
-    set({ currentStep: dbStep, stepStatuses: statuses, hydrated: true });
+    set({ currentStep: safeStep, stepStatuses: statuses, hydrated: true });
   },
 
   setCurrentStep: (step) =>

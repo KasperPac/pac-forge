@@ -213,13 +213,24 @@ export async function getAuthToken(): Promise<string> {
   if (_cachedToken && Date.now() < _cachedTokenExp - 60_000) {
     return _cachedToken;
   }
-  const { data: { session: authSession } } = await supabase.auth.getSession();
+  // Try getSession first — Supabase auto-refreshes if needed
+  let { data: { session: authSession } } = await supabase.auth.getSession();
+  // If token is expired or missing, force a refresh
+  if (!authSession?.access_token || (authSession.expires_at && authSession.expires_at * 1000 < Date.now())) {
+    const { data: { session: refreshed } } = await supabase.auth.refreshSession();
+    authSession = refreshed;
+  }
   const token = authSession?.access_token;
   if (!token) throw new Error("Not authenticated");
-  // Cache for the token's lifetime
   _cachedToken = token;
-  _cachedTokenExp = (authSession.expires_at ?? 0) * 1000; // expires_at is in seconds
+  _cachedTokenExp = (authSession.expires_at ?? 0) * 1000;
   return token;
+}
+
+/** Clear cached auth token — call on 401 responses to force re-auth on next request */
+export function invalidateAuthToken(): void {
+  _cachedToken = null;
+  _cachedTokenExp = 0;
 }
 
 /**
@@ -310,6 +321,7 @@ export type MessageContent = string | Array<
 
 /** Metadata passed to PromptLayer for observability tagging */
 export interface PromptLayerMeta {
+  prompt_name?: string;
   agent_role?: string;
   pipeline_step?: string;
   session_id?: string;
@@ -327,6 +339,10 @@ export interface PromptLayerMeta {
   function_name?: string;
   round_index?: number;
   round?: number;
+  /** Override AI model — e.g. "o3", "gemini-2.5-pro", "claude-sonnet-4-6" */
+  model?: string;
+  /** Override provider — auto-detected from model if omitted */
+  provider?: "anthropic" | "openai" | "google";
 }
 
 /**
@@ -350,6 +366,8 @@ export async function callStreamingCollect(
   };
   if (maxTokens) body.max_tokens = maxTokens;
   if (plMeta) body.promptlayer_metadata = plMeta;
+  if (plMeta?.model) body.model = plMeta.model;
+  if (plMeta?.provider) body.provider = plMeta.provider;
   if (plMeta?.project_id && plMeta?.session_id) {
     body.project_context = {
       project_id: plMeta.project_id,
@@ -371,6 +389,31 @@ export async function callStreamingCollect(
     },
   );
 
+  if (response.status === 401) {
+    // Token expired — refresh and retry once
+    invalidateAuthToken();
+    const freshToken = await getAuthToken();
+    const retry = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${freshToken}`,
+          apikey: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
+        },
+        body: JSON.stringify(body),
+        signal,
+      },
+    );
+    if (!retry.ok) {
+      const text = await retry.text();
+      throw new Error(`API call failed after token refresh (${retry.status}): ${text}`);
+    }
+    // Replace response with the retry — continue to streaming reader below
+    return processStreamingResponse(retry, systemPrompt, messages, plMeta);
+  }
+
   if (!response.ok) {
     const text = await response.text();
     let detail: string;
@@ -384,6 +427,16 @@ export async function callStreamingCollect(
     throw new Error(`API call failed (${response.status}): ${detail}`);
   }
 
+  return processStreamingResponse(response, systemPrompt, messages, plMeta);
+}
+
+/** Read SSE stream and collect full response content. */
+async function processStreamingResponse(
+  response: Response,
+  systemPrompt: string,
+  messages: Array<{ role: string; content: MessageContent }>,
+  plMeta?: PromptLayerMeta,
+): Promise<{ content: string; usage: { input: number; output: number } | null }> {
   if (!response.body) {
     throw new Error("No response body for streaming");
   }
@@ -423,10 +476,9 @@ export async function callStreamingCollect(
     }
   }
 
-  // Log to PromptLayer from the frontend (Edge Function streaming logs are unreliable)
-  if (plMeta && fullContent) {
-    logToPromptLayerFromClient(systemPrompt, messages, fullContent, usage, plMeta).catch(() => {});
-  }
+  // Skip client-side PromptLayer logging — the edge function handles it for all providers.
+  // Previously needed because Deno's streaming finally block was unreliable, but the
+  // edge function now also wraps non-streaming providers as fake SSE, so it always logs.
 
   return { content: fullContent, usage };
 }
@@ -511,6 +563,8 @@ export async function callNonStreaming(
   };
   if (maxTokens) body.max_tokens = maxTokens;
   if (plMeta) body.promptlayer_metadata = plMeta;
+  if (plMeta?.model) body.model = plMeta.model;
+  if (plMeta?.provider) body.provider = plMeta.provider;
   if (plMeta?.project_id && plMeta?.session_id) {
     body.project_context = {
       project_id: plMeta.project_id,
@@ -532,12 +586,41 @@ export async function callNonStreaming(
     },
   );
 
+  if (response.status === 401) {
+    // Token expired mid-session — refresh and retry once
+    invalidateAuthToken();
+    const freshToken = await getAuthToken();
+    const retry = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${freshToken}`,
+          apikey: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
+        },
+        body: JSON.stringify(body),
+        signal,
+      },
+    );
+    if (!retry.ok) {
+      const text = await retry.text();
+      throw new Error(`API call failed after token refresh (${retry.status}): ${text}`);
+    }
+    const retryResult = await retry.json();
+    return {
+      content: retryResult.content ?? "",
+      usage: retryResult.usage
+        ? { input: retryResult.usage.input_tokens ?? 0, output: retryResult.usage.output_tokens ?? 0 }
+        : null,
+    };
+  }
+
   if (!response.ok) {
     const text = await response.text();
     let detail: string;
     try {
       const parsed = JSON.parse(text);
-      // Show both error summary and details (details has the actual Claude error)
       const parts = [parsed.error, parsed.details].filter(Boolean);
       detail = parts.join(" — ") || text;
     } catch {

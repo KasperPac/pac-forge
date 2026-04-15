@@ -116,7 +116,7 @@ function topoSort(artifacts: ForgeArtifact[]): ForgeArtifact[] {
 export function buildForgeManifest(
   artifacts: ForgeArtifact[],
   _tiaProjectPath: string,
-  tiaVersion: string = "V18",
+  tiaVersion: string = "V20",
 ): TiaManifest {
   const sorted = topoSort(artifacts);
 

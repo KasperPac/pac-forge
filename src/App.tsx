@@ -25,14 +25,18 @@ const PromptEditorPage = lazy(() => import("@/routes/prompt-editor"));
 const ReferenceLibraryPage = lazy(() => import("@/routes/reference-library"));
 const FbBuilderPage = lazy(() => import("@/routes/fb-builder"));
 const HmiEditorPage = lazy(() => import("@/routes/hmi-editor"));
+const HmiBuilderPage = lazy(() => import("@/routes/hmi-builder"));
 const PacLadPage = lazy(() => import("@/routes/pac-lad"));
 const ProfilePage = lazy(() => import("@/routes/profile"));
 const DropboxCallbackPage = lazy(() => import("@/routes/dropbox-callback"));
 const ForgePage = lazy(() => import("@/routes/forge"));
 const MigratePage = lazy(() => import("@/routes/migrate"));
 const LibraryImportPage = lazy(() => import("@/routes/library-import"));
+const TestTemplatesPage = lazy(() => import("@/routes/test-templates"));
 const ClientsPage = lazy(() => import("@/routes/clients"));
 const InstructionLibraryPage = lazy(() => import("@/routes/instruction-library"));
+const SpecBuilderPage = lazy(() => import("@/routes/spec-builder"));
+const DashboardPage = lazy(() => import("@/routes/dashboard"));
 
 function LazyRoute({ children }: { children: React.ReactNode }) {
   return (
@@ -53,7 +57,8 @@ const router = createBrowserRouter([
       {
         element: <DashboardLayout />,
         children: [
-          { index: true, element: <Navigate to="/projects" replace /> },
+          { index: true, element: <Navigate to="/dashboard" replace /> },
+          { path: "dashboard", element: <LazyRoute><DashboardPage /></LazyRoute> },
           { path: "projects", element: <ProjectsPage /> },
           { path: "clients", element: <LazyRoute><ClientsPage /></LazyRoute> },
           { path: "forge", element: <LazyRoute><ForgePage /></LazyRoute> },
@@ -68,14 +73,17 @@ const router = createBrowserRouter([
           { path: "patterns", element: <LazyRoute><PatternsPage /></LazyRoute> },
           { path: "tia-console", element: <LazyRoute><TiaConsolePage /></LazyRoute> },
           { path: "fb-library", element: <LazyRoute><FbLibraryPage /></LazyRoute> },
+          { path: "test-templates", element: <LazyRoute><TestTemplatesPage /></LazyRoute> },
           { path: "library-import", element: <LazyRoute><LibraryImportPage /></LazyRoute> },
           { path: "instructions", element: <LazyRoute><InstructionLibraryPage /></LazyRoute> },
+          { path: "specs", element: <LazyRoute><SpecBuilderPage /></LazyRoute> },
           { path: "profiles", element: <LazyRoute><ProfilesPage /></LazyRoute> },
           { path: "profiles/:id", element: <LazyRoute><ProfileDetailPage /></LazyRoute> },
           { path: "knowledge", element: <LazyRoute><KnowledgePage /></LazyRoute> },
           { path: "prompts", element: <LazyRoute><PromptEditorPage /></LazyRoute> },
           { path: "reference-library", element: <LazyRoute><ReferenceLibraryPage /></LazyRoute> },
           { path: "hmi-editor", element: <LazyRoute><HmiEditorPage /></LazyRoute> },
+          { path: "hmi-builder", element: <LazyRoute><HmiBuilderPage /></LazyRoute> },
           { path: "pac-lad", element: <LazyRoute><PacLadPage /></LazyRoute> },
           { path: "profile", element: <LazyRoute><ProfilePage /></LazyRoute> },
           { path: "dropbox-callback", element: <LazyRoute><DropboxCallbackPage /></LazyRoute> },

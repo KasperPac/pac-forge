@@ -50,6 +50,14 @@ const AGENT_IDENTITY_MARKERS: Record<string, string[]> = {
     "summary",
   ],
   
+  // Spec analysis agents
+  spec_survey: [
+    "senior automation engineer",
+    "STRUCTURAL SURVEY",
+    "section map",
+    "extraction targets",
+  ],
+
   // Specialist agents
   pattern_librarian: [
     "Pattern Librarian",
@@ -350,6 +358,7 @@ type MessageContent = string | Array<
 
 // Inlined PromptLayerMeta to avoid cross-layer import
 interface PlMeta {
+  prompt_name?: string;
   agent_role?: string;
   pipeline_step?: string;
   session_id?: string;
@@ -389,6 +398,7 @@ export async function validateAndCall(
   maxTokens: number | undefined,
   expectedAgent: string,
   hasProfile = false,
+  plMeta?: PlMeta,
 ): Promise<{ content: string; usage: { input: number; output: number } | null }> {
   const result = validatePipelineCall(systemPrompt, expectedAgent, hasProfile);
   reportViolations(result);
@@ -408,7 +418,7 @@ export async function validateAndCall(
     );
   }
 
-  return callFn(systemPrompt, messages, signal, maxTokens);
+  return callFn(systemPrompt, messages, signal, maxTokens, plMeta);
 }
 
 // ---------------------------------------------------------------------------

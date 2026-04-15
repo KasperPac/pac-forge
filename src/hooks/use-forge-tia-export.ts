@@ -141,6 +141,7 @@ export function useForgeTiaExport() {
 
       const allArtifacts: ForgeArtifact[] = [
         ...session.device_artifacts,
+        ...(session.assembly_artifacts ?? []),
         ...session.process_artifacts,
       ];
 
@@ -180,7 +181,7 @@ export function useForgeTiaExport() {
         if (libraryArtifacts.length > 0 && opts?.dropboxRoot && opts?.fbTemplates) {
           setProgress({ phase: "library", current: 0, total: libraryArtifacts.length });
           const libResult = await copyLibraryBlocksToProject(
-            opts.dropboxRoot, libraryArtifacts, opts.fbTemplates,
+            opts.dropboxRoot, libraryArtifacts, opts.fbTemplates, tiaProjectPath,
           );
           result.compile_warnings.push(
             ...libResult.warnings,

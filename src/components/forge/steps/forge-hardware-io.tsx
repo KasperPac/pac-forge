@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useId, useMemo } from "react";
+import { useState, useEffect, useCallback, useId, useMemo, Fragment } from "react";
 import { ChevronRight, Plus, Trash2, ChevronDown, ChevronRight as ChevronRightIcon, Lightbulb, X as XIcon, Loader2, CheckCircle2, AlertCircle, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -100,15 +100,42 @@ function rackLayoutToForgeHardware(
 
 // ── Spec-analysis helpers ─────────────────────────────────────────────────────
 
+/** Derive a tag name from device tag + signal description when AI leaves it blank. */
+function deriveTagName(deviceTag: string, sig: { description?: string; signal_type?: string }, index: number): string {
+  const base = deviceTag.toUpperCase().replace(/[^A-Z0-9_]/g, "");
+  if (!base) return "";
+  const desc = (sig.description ?? "").toLowerCase();
+  // Common signal suffixes based on description keywords
+  if (desc.includes("run feedback") || desc.includes("contactor auxiliary")) return `${base}_RUN`;
+  if (desc.includes("overload") || desc.includes("thermal")) return `${base}_OL`;
+  if (desc.includes("fault")) return `${base}_FLT`;
+  if (desc.includes("command") || desc.includes("cmd")) return `${base}_CMD`;
+  if (desc.includes("enable")) return `${base}_EN`;
+  if (desc.includes("reset")) return `${base}_RST`;
+  if (desc.includes("e-stop") || desc.includes("estop") || desc.includes("emergency")) return `${base}_OK`;
+  if (desc.includes("raw") || desc.includes("4-20") || desc.includes("analog")) return `${base}_RAW`;
+  // Fallback: type prefix + index
+  const prefix = sig.signal_type?.toUpperCase() ?? "IO";
+  return `${base}_${prefix}${index}`;
+}
+
 function devicesFromAnalysis(analysis: SpecAnalysis): ForgeDeviceEntry[] {
   return (analysis.devices ?? []).map((d) => ({
     id: d.id,
-    name: d.name,
-    tag: d.tag,
+    name: d.name || d.tag || "",
+    tag: d.tag || d.name || "",
     device_type: d.device_type,
     description: d.description,
     subsystem: d.subsystem,
-    io_signals: d.io_signals ?? [],
+    io_signals: (d.io_signals ?? []).map((sig, sigIdx) => {
+      // Normalize: AI sometimes stores signal_name instead of tag_name
+      const raw = sig as Record<string, unknown>;
+      const tagName = sig.tag_name || (raw.signal_name as string) || (raw.name as string) || "";
+      return {
+        ...sig,
+        tag_name: tagName || deriveTagName(d.tag || d.name || "", sig, sigIdx),
+      };
+    }),
     fb_template_id: null,
     fb_match_confidence: "none" as const,
     language_override: null,
@@ -169,10 +196,15 @@ function buildAddressPool(hardware: ForgeHardwareConfig): PhysicalPoint[] {
   const pool: PhysicalPoint[] = [];
   const is1200 = hardware.cpu_type.startsWith("S7-12");
 
-  let diByte = 0, diBit = 0;
-  let dqByte = 0, dqBit = 0;
-  let aiWord = is1200 ? 64 : 0;
-  let aqWord = is1200 ? 64 : 0;
+  // S7-1500: DI and AI share the I address space; DQ and AQ share the Q space.
+  // Each module occupies a contiguous range. Track the next free byte in each space.
+  let inputByte = 0;   // next free byte in the %I / %IW space
+  let outputByte = 0;  // next free byte in the %Q / %QW space
+
+  // S7-1200 uses fixed offsets for analog (starting at byte 64)
+  if (is1200) {
+    // DI/DQ start at 0; AI/AQ are handled separately below
+  }
 
   for (const mod of modules) {
     const catalog = mod.order_number ? getModuleByMlfb(mod.order_number) : undefined;
@@ -183,17 +215,49 @@ function buildAddressPool(hardware: ForgeHardwareConfig): PhysicalPoint[] {
     const aiCount = catalog?.aiChannels ?? 0;
     const aqCount = catalog?.aqChannels ?? 0;
 
-    for (let i = 0; i < diCount; i++) {
-      pool.push({ address: `%I${diByte}.${diBit}`, slot: mod.slot, module: label, signalType: "DI" });
-      diBit++; if (diBit > 7) { diBit = 0; diByte++; }
+    if (diCount > 0) {
+      // DI modules: bit-addressed, starting at current inputByte
+      let bit = 0;
+      let byte = inputByte;
+      for (let i = 0; i < diCount; i++) {
+        pool.push({ address: `%I${byte}.${bit}`, slot: mod.slot, module: label, signalType: "DI" });
+        bit++; if (bit > 7) { bit = 0; byte++; }
+      }
+      // Advance inputByte past this module (round up to next byte boundary)
+      inputByte = bit > 0 ? byte + 1 : byte;
     }
-    for (let i = 0; i < dqCount; i++) {
-      pool.push({ address: `%Q${dqByte}.${dqBit}`, slot: mod.slot, module: label, signalType: "DQ" });
-      dqBit++; if (dqBit > 7) { dqBit = 0; dqByte++; }
+
+    if (dqCount > 0) {
+      let bit = 0;
+      let byte = outputByte;
+      for (let i = 0; i < dqCount; i++) {
+        pool.push({ address: `%Q${byte}.${bit}`, slot: mod.slot, module: label, signalType: "DQ" });
+        bit++; if (bit > 7) { bit = 0; byte++; }
+      }
+      outputByte = bit > 0 ? byte + 1 : byte;
     }
-    for (let i = 0; i < aiCount; i++) {
-      pool.push({ address: `%IW${aiWord}`, slot: mod.slot, module: label, signalType: "AI" });
-      aiWord += 2;
+
+    if (aiCount > 0) {
+      // AI modules: word-addressed in the I space
+      // S7-1200: fixed at byte 64+; S7-1500: continues from current inputByte (word-aligned)
+      let wordAddr = is1200 ? 64 : inputByte;
+      // Ensure word-aligned (even byte)
+      if (wordAddr % 2 !== 0) wordAddr++;
+      for (let i = 0; i < aiCount; i++) {
+        pool.push({ address: `%IW${wordAddr}`, slot: mod.slot, module: label, signalType: "AI" });
+        wordAddr += 2;
+      }
+      if (!is1200) inputByte = wordAddr;
+    }
+
+    if (aqCount > 0) {
+      let wordAddr = is1200 ? 64 : outputByte;
+      if (wordAddr % 2 !== 0) wordAddr++;
+      for (let i = 0; i < aqCount; i++) {
+        pool.push({ address: `%QW${wordAddr}`, slot: mod.slot, module: label, signalType: "AQ" });
+        wordAddr += 2;
+      }
+      if (!is1200) outputByte = wordAddr;
     }
     for (let i = 0; i < aqCount; i++) {
       pool.push({ address: `%QW${aqWord}`, slot: mod.slot, module: label, signalType: "AQ" });
@@ -266,7 +330,7 @@ export function ForgeHardwareIo({
     if (savedHardware) return savedHardware;
     return {
       cpu_type: specAnalysis?.plc_type ?? "S7-1500",
-      tia_version: "V18",
+      tia_version: "V20",
       racks: [{ rack: 0, modules: [] }],
     };
   });
@@ -296,6 +360,7 @@ export function ForgeHardwareIo({
 
   // Expanded device rows (shows IO signals)
   const [expandedDeviceIds, setExpandedDeviceIds] = useState<Set<string>>(new Set());
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
 
   // Missing device suggestions (dismissed by user)
   const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(new Set());
@@ -566,8 +631,9 @@ export function ForgeHardwareIo({
       };
       for (const device of devices) {
         for (const sig of device.io_signals ?? []) {
+          const raw = sig as Record<string, unknown>;
           const t = sig.signal_type.toUpperCase() as "DI" | "DQ" | "AI" | "AQ";
-          if (t in byType) byType[t].push({ tag_name: sig.tag_name, description: sig.description, device_id: device.id, signal_behaviour: sig.signal_behaviour, contact_type: sig.contact_type });
+          if (t in byType) byType[t].push({ tag_name: sig.tag_name || (raw.signal_name as string) || "", description: sig.description, device_id: device.id, signal_behaviour: sig.signal_behaviour, contact_type: sig.contact_type });
         }
       }
 
@@ -603,10 +669,11 @@ export function ForgeHardwareIo({
 
     for (const device of devices) {
       for (const sig of device.io_signals ?? []) {
+        const raw = sig as Record<string, unknown>;
         const sigType = sig.signal_type.toUpperCase() as "DI" | "DQ" | "AI" | "AQ";
         const entry: ForgeIoEntry = {
           address: "",
-          tag_name: sig.tag_name,
+          tag_name: sig.tag_name || (raw.signal_name as string) || "",
           signal_type: sigType,
           data_type: sigType.startsWith("A") ? "Int" : "Bool",
           description: sig.description,
@@ -678,11 +745,14 @@ export function ForgeHardwareIo({
   // All device signals available as tag assignments in the IO list
   const availableTags = useMemo(() =>
     devices.flatMap(d =>
-      (d.io_signals ?? []).map(sig => ({
-        tag_name: sig.tag_name,
-        description: sig.description,
-        signal_type: sig.signal_type.toUpperCase() as "DI" | "DQ" | "AI" | "AQ",
-      }))
+      (d.io_signals ?? []).map(sig => {
+        const raw = sig as Record<string, unknown>;
+        return {
+          tag_name: sig.tag_name || (raw.signal_name as string) || "",
+          description: sig.description,
+          signal_type: sig.signal_type.toUpperCase() as "DI" | "DQ" | "AI" | "AQ",
+        };
+      })
     ),
     [devices]
   );
@@ -698,7 +768,7 @@ export function ForgeHardwareIo({
   };
   const needsExpansion = overflow.DI > 0 || overflow.DQ > 0 || overflow.AI > 0 || overflow.AQ > 0;
 
-  const missingDeviceSuggestions = suggestMissingDevices(devices).filter(
+  const missingDeviceSuggestions = suggestMissingDevices(devices, specAnalysis?.assemblies).filter(
     (s) => !dismissedSuggestions.has(s.suggestedTag),
   );
 
@@ -983,7 +1053,7 @@ export function ForgeHardwareIo({
             )}
 
             {/* Device List */}
-            <ScrollArea className="h-[380px]">
+            <ScrollArea className="h-[600px]">
               {devices.length === 0 ? (
                 <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
                   No devices yet — add one above or upload a spec in Step 1.
@@ -1005,9 +1075,115 @@ export function ForgeHardwareIo({
                     </tr>
                   </thead>
                   <tbody>
-                    {devices.map((d) => (
-                      <>
-                        <tr key={d.id} className="border-b border-border/40 hover:bg-muted/20">
+                    {/* Subsystem → Assembly → Device hierarchy */}
+                    {(() => {
+                      const assemblies = specAnalysis?.assemblies ?? [];
+                      const subsystems = specAnalysis?.subsystems ?? [];
+                      const assemblyDeviceIds = new Set(assemblies.flatMap((a) => a.device_ids));
+
+                      const toggleSection = (key: string) =>
+                        setCollapsedSections((prev) => {
+                          const next = new Set(prev);
+                          next.has(key) ? next.delete(key) : next.add(key);
+                          return next;
+                        });
+
+                      const rows: React.ReactNode[] = [];
+
+                      // Group by subsystem
+                      const subsystemNames = subsystems.length > 0
+                        ? subsystems.map((s) => s.name)
+                        : [...new Set(devices.map((d) => d.subsystem))];
+
+                      for (const subName of subsystemNames) {
+                        const subKey = `ss-${subName}`;
+                        const subCollapsed = collapsedSections.has(subKey);
+                        const subAssemblies = assemblies.filter((a) => a.subsystem === subName);
+                        const subStandalone = devices.filter(
+                          (d) => d.subsystem === subName && !assemblyDeviceIds.has(d.id),
+                        );
+                        const subDeviceCount = devices.filter((d) => d.subsystem === subName).length;
+
+                        if (subDeviceCount === 0 && subAssemblies.length === 0) continue;
+
+                        // Subsystem header
+                        rows.push(
+                          <tr key={subKey} className="bg-muted/10 border-b border-border/50">
+                            <td colSpan={10} className="px-2 py-1.5">
+                              <button
+                                type="button"
+                                className="flex items-center gap-2 w-full text-left"
+                                onClick={() => toggleSection(subKey)}
+                              >
+                                <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${subCollapsed ? "-rotate-90" : ""}`} />
+                                <Badge variant="secondary" className="font-mono text-[10px] px-1.5 py-0">SS</Badge>
+                                <span className="font-mono text-xs font-semibold">{subName}</span>
+                                <span className="font-mono text-[10px] text-muted-foreground">
+                                  ({subAssemblies.length} asm, {subDeviceCount} dev)
+                                </span>
+                              </button>
+                            </td>
+                          </tr>,
+                        );
+
+                        if (subCollapsed) continue;
+
+                        // Assemblies in this subsystem
+                        for (const asm of subAssemblies) {
+                          const asmKey = `asm-${asm.id}`;
+                          const asmCollapsed = collapsedSections.has(asmKey);
+                          const asmDevices = devices.filter((d) => asm.device_ids.includes(d.id));
+                          if (asmDevices.length === 0) continue;
+
+                          rows.push(
+                            <tr key={asmKey} className="bg-blue-500/5 border-b border-blue-500/20">
+                              <td colSpan={10} className="px-2 py-1.5 pl-6">
+                                <button
+                                  type="button"
+                                  className="flex items-center gap-2 w-full text-left"
+                                  onClick={() => toggleSection(asmKey)}
+                                >
+                                  <ChevronDown className={`h-3 w-3 text-blue-400/60 transition-transform ${asmCollapsed ? "-rotate-90" : ""}`} />
+                                  <Badge variant="outline" className="font-mono text-[10px] px-1 py-0 border-blue-500/40 text-blue-400">
+                                    {asm.tag}
+                                  </Badge>
+                                  <span className="font-mono text-xs font-semibold text-blue-300/80">{asm.name}</span>
+                                  <span className="font-mono text-[10px] text-muted-foreground">({asm.assembly_type} — {asmDevices.length} devices)</span>
+                                </button>
+                              </td>
+                            </tr>,
+                          );
+
+                          if (!asmCollapsed) {
+                            for (const d of asmDevices) {
+                              rows.push(renderDeviceRow(d));
+                            }
+                          }
+                        }
+
+                        // Standalone devices in this subsystem
+                        if (subStandalone.length > 0) {
+                          if (subAssemblies.length > 0) {
+                            rows.push(
+                              <tr key={`standalone-${subName}`} className="bg-muted/5 border-b border-border/40">
+                                <td colSpan={10} className="px-2 py-1 pl-6">
+                                  <span className="font-mono text-[10px] text-muted-foreground/60 uppercase tracking-wider">Standalone</span>
+                                </td>
+                              </tr>,
+                            );
+                          }
+                          for (const d of subStandalone) {
+                            rows.push(renderDeviceRow(d));
+                          }
+                        }
+                      }
+
+                      return rows;
+
+                      function renderDeviceRow(d: ForgeDeviceEntry) {
+                        return (
+                      <Fragment key={d.id}>
+                        <tr className="border-b border-border/40 hover:bg-muted/20">
                           {/* Expand toggle */}
                           <td className="px-1 py-1.5">
                             <button
@@ -1088,8 +1264,9 @@ export function ForgeHardwareIo({
                             </td>
                           </tr>
                         )}
-                      </>
-                    ))}
+                      </Fragment>);
+                      }
+                    })()}
                   </tbody>
                 </table>
               )}
@@ -1176,7 +1353,7 @@ export function ForgeHardwareIo({
         </div>
       )}
 
-      <Button className="w-full" onClick={() => onComplete(hardware, ioList, devices)}>
+      <Button variant="outline" className="w-full" onClick={() => onComplete(hardware, ioList, devices)}>
         Confirm Hardware & IO
         <ChevronRight className="ml-2 h-4 w-4" />
       </Button>

@@ -1,10 +1,31 @@
 import path from "path"
+import { spawn } from "child_process"
 import { defineConfig } from 'vite'
+import type { Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
+
+/** Vite plugin: POST /__bridge/start spawns the .NET TIA bridge if not already running. */
+function bridgeLauncherPlugin(): Plugin {
+  return {
+    name: "bridge-launcher",
+    configureServer(server) {
+      server.middlewares.use("/__bridge/start", (_req, res) => {
+        const child = spawn(
+          "cmd.exe",
+          ["/c", "dotnet", "run", "--project", "bridge/PacForgeBridge"],
+          { stdio: "ignore", detached: true, windowsHide: true },
+        );
+        child.unref();
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, pid: child.pid }));
+      });
+    },
+  };
+}
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), bridgeLauncherPlugin()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

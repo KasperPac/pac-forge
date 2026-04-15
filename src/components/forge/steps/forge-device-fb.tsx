@@ -39,6 +39,7 @@ export interface ForgeDeviceFbProps {
   fbTemplates: FbTemplate[];
   patterns: PatternCandidate[];
   onArtifactsUpdate: (artifacts: ForgeArtifact[]) => void;
+  onAssemblyArtifactsUpdate?: (artifacts: ForgeArtifact[]) => void;
   onBeforeGenerate?: () => Promise<FbTemplate[]>;
   onComplete: () => void;
 }
@@ -134,6 +135,7 @@ export function ForgeDeviceFb({
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
   const [reviewArtifact, setReviewArtifact] = useState<ForgeArtifact | null>(null);
   const [reviewDevice, setReviewDevice] = useState<ForgeDeviceEntry | null>(null);
+
 
   const { generateFbsOnly, regenerateSingleFb, loading: genLoading, progress, error: genError, log: genLog } = useForgeDeviceGenerate();
   const createTemplate = useCreateFbTemplate();
@@ -443,7 +445,7 @@ export function ForgeDeviceFb({
             className="gap-2"
           >
             {genLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            Generate All
+            Generate Device FBs
           </Button>
 
           {artifacts.length > 0 && (
@@ -463,16 +465,21 @@ export function ForgeDeviceFb({
                   : <BookMarked className="h-3.5 w-3.5" />}
                 Save FBs to Library
               </Button>
-              <div className="flex-1" />
-              <Button
-                disabled={approvedCount === 0}
-                onClick={onComplete}
-              >
-                Continue ({approvedCount} approved)
-              </Button>
             </>
           )}
         </div>
+
+        {/* Continue button */}
+        {artifacts.length > 0 && (
+          <div className="flex justify-end mt-2">
+            <Button
+              disabled={approvedCount === 0}
+              onClick={onComplete}
+            >
+              Continue ({approvedCount} approved)
+            </Button>
+          </div>
+        )}
       </div>
 
       <ForgeArtifactDialog

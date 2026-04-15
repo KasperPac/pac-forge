@@ -221,6 +221,67 @@ namespace PacForgeBridge
         public List<string> Warnings { get; set; } = new List<string>();
     }
 
+    public class ExportReferenceRequest
+    {
+        /// <summary>Absolute directory where screens/, udts/, tags/ subfolders will be created.</summary>
+        public string OutputDir { get; set; }
+    }
+
+    public class ExportReferenceResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+        public string OutputDir { get; set; }
+        public List<string> Screens { get; set; } = new List<string>();
+        public List<string> TagTables { get; set; } = new List<string>();
+        public List<string> Udts { get; set; } = new List<string>();
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    // Unified screen creation request/response (Phase 4 bridge consumer)
+    public class UnifiedScreenItemRequest
+    {
+        /// <summary>Short type name (HmiRectangle) or full .NET name.</summary>
+        public string Type { get; set; }
+        public string Name { get; set; }
+        public Dictionary<string, object> Attributes { get; set; } = new Dictionary<string, object>();
+
+        // Phase 4.3: composite-property fields that can't be set via SetAttribute.
+        // All are optional — bridge dispatches specialised helpers when present.
+
+        /// <summary>Text content. Either a plain string (sets default language) or a Dictionary&lt;string, string&gt; of culture -> text.</summary>
+        public object Text { get; set; }
+        /// <summary>Tooltip text. Same shape as Text.</summary>
+        public object ToolTip { get; set; }
+        /// <summary>Font sub-properties: size (number), name (string), weight ("Normal" | "Bold" | ...), italic (bool), underline (bool), strikeOut (bool).</summary>
+        public Dictionary<string, object> Font { get; set; }
+        /// <summary>Padding sub-properties: left, top, right, bottom (all int).</summary>
+        public Dictionary<string, object> Padding { get; set; }
+        /// <summary>Corner radii: topLeft, topRight, bottomLeft, bottomRight (all uint). "radius" sets all four at once.</summary>
+        public Dictionary<string, object> Corners { get; set; }
+    }
+
+    public class UnifiedScreenRequest
+    {
+        public string Name { get; set; }
+        public int Width { get; set; }
+        public int Height { get; set; }
+        public string BackColor { get; set; }
+        public int? ScreenNumber { get; set; }
+        /// <summary>Forward-slash separated folder path to nest the new screen under, e.g. "Application/Overviews".</summary>
+        public string FolderPath { get; set; }
+        public List<UnifiedScreenItemRequest> Items { get; set; } = new List<UnifiedScreenItemRequest>();
+    }
+
+    public class CreateUnifiedScreenResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+        public string ScreenName { get; set; }
+        public int ItemsCreated { get; set; }
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
     public class ImportHmiRequest
     {
         public string TiaProjectPath { get; set; }
@@ -450,6 +511,8 @@ namespace PacForgeBridge
     {
         /// <summary>Path to the global library file (.al18 etc.)</summary>
         public string LibraryPath { get; set; }
+        /// <summary>Optional project path — if provided and no project is open, the bridge opens it first.</summary>
+        public string ProjectPath { get; set; }
         /// <summary>List of master copy paths to copy into the project (e.g. "04 Electrical Drives/fbMotor_Reversing")</summary>
         public List<string> MasterCopyPaths { get; set; } = new List<string>();
         /// <summary>List of library type paths to copy into the project (e.g. "04 Electrical Drives/udtHMI_MotorControl")</summary>

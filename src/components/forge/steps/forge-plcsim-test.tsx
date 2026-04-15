@@ -73,9 +73,13 @@ import { cn } from "@/lib/utils";
 // Props
 // ---------------------------------------------------------------------------
 
+export type PlcsimTestMode = "device" | "system";
+
 export interface ForgePlcsimTestProps {
   session: ForgeSession;
   profile: DesignProfile;
+  /** "device" = device FB tests after device code, "system" = full tests after process code */
+  mode: PlcsimTestMode;
   onTestSuiteUpdate: (suite: PlcsimTestSuite) => void;
   onComplete: () => void;
 }
@@ -185,13 +189,15 @@ function detectTimingOverrides(testCases: PlcsimTestCase[]): string[] {
 export function ForgePlcsimTest({
   session,
   profile,
+  mode,
   onTestSuiteUpdate,
   onComplete,
 }: ForgePlcsimTestProps) {
   const [fullscreen, setFullscreen] = useState(false);
-  const [suite, setSuite] = useState<PlcsimTestSuite | null>(
-    session.plcsim_test_suite ?? null,
-  );
+  const initialSuite = mode === "device"
+    ? session.plcsim_device_test_suite ?? null
+    : session.plcsim_test_suite ?? null;
+  const [suite, setSuite] = useState<PlcsimTestSuite | null>(initialSuite);
   const [selectedTestId, setSelectedTestId] = useState<string | null>(null);
   const [expandedRules, setExpandedRules] = useState(false);
   const [stages, setStages] = useState<SubPipelineStage[]>(INITIAL_STAGES);
@@ -266,7 +272,10 @@ export function ForgePlcsimTest({
 
     try {
       setStageStatus("Generate", "running");
-      const result = await generate(session, profile.id ? profile : null);
+      const promptOptions = mode === "device"
+        ? { categoryFilter: ["device_fb"], artifactScope: "device_only" as const }
+        : { categoryFilter: ["normal", "fault", "permissive", "interlock", "reset"], artifactScope: "all" as const };
+      const result = await generate(session, profile.id ? profile : null, promptOptions);
       setSuite(result);
       onTestSuiteUpdate(result);
       setStageStatus("Generate", "completed", `${result.testCases.length} tests`);
@@ -283,7 +292,7 @@ export function ForgePlcsimTest({
   // ---- Test execution ----
 
   async function handleRunAll() {
-    if (!suite) return;
+    if (!suite || execRunning) return;
 
     // Check for timing configuration overrides
     const overrides = detectTimingOverrides(suite.testCases);
@@ -341,7 +350,7 @@ export function ForgePlcsimTest({
   }
 
   async function handleRunSingle(testCaseId: string) {
-    if (!suite) return;
+    if (!suite || execRunning) return;
     // Clear this test's previous result before running
     const clearedSuite: PlcsimTestSuite = {
       ...suite,
@@ -1078,8 +1087,8 @@ function TestDetailPane({
       </div>
 
       {/* Steps */}
-      <ScrollArea className="flex-1">
-        <div className="p-4 space-y-3">
+      <ScrollArea className="flex-1 w-full [&>[data-radix-scroll-area-viewport]>div]:!block">
+        <div className="p-4 space-y-3 w-full">
           {test.steps.map((step) => {
             // Live results take priority (in-progress execution), then completed results
             const stepResult =

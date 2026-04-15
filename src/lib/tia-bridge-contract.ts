@@ -243,6 +243,8 @@ export interface LibraryExportResponse {
  */
 export interface LibraryCopyToProjectRequest {
   library_path: string;
+  /** Optional project path — if no project is open, the bridge opens it first. */
+  project_path?: string;
   /** Master copy paths to paste into PLC block group (e.g. "04 Electrical Drives/fbMotor_Reversing") */
   master_copy_paths?: string[];
   /** Library type paths to import into PLC type group (e.g. "04 Electrical Drives/udtHMI_MotorControl") */

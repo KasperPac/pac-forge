@@ -44,9 +44,10 @@ export function useForgeReview() {
           systemPrompt,
           [{ role: "user", content: userMessage }],
           controller.signal,
-          4096,
+          8192,
           "standards_reviewer",
           !!profile,
+          { prompt_name: "forge-standards-review", agent_role: "standards_reviewer", pipeline_step: "standards_review" },
         );
 
         if (isCleanReview(content)) {

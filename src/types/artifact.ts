@@ -8,6 +8,8 @@ export const ARTIFACT_TYPES = {
   OB: "OB",
   SCL_SOURCE: "SCL_SOURCE",
   TAG_TABLE: "TAG_TABLE",
+  HMI_SCREEN: "HMI_SCREEN",
+  HMI_TAG_TABLE: "HMI_TAG_TABLE",
 } as const;
 
 export type ArtifactType = (typeof ARTIFACT_TYPES)[keyof typeof ARTIFACT_TYPES];

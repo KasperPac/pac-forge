@@ -1,0 +1,52 @@
+{
+  "name": "0002_Messages",
+  "displayName": "Siemens.Engineering.MultilingualText",
+  "width": 1920,
+  "height": 976,
+  "screenNumber": 0,
+  "backColor": "Color [A=255, R=205, G=211, B=215]",
+  "alternateBackColor": "Color [A=255, R=235, G=235, B=235]",
+  "backgroundFillMode": "Window",
+  "horizontalAlignment": "Left",
+  "verticalAlignment": "Top",
+  "enabled": true,
+  "items": [
+    {
+      "type": "Siemens.Engineering.HmiUnified.UI.Controls.HmiAlarmControl",
+      "typeShort": "HmiAlarmControl",
+      "attributes": {
+        "AcknowledgmentFlashingRate": "Medium",
+        "ActiveAlarmsViewSetup": "UnSuppressed",
+        "AlarmDefinitionViewSetup": "UnSuppressed, Disabled, SuppressedByDesign, Shelved",
+        "AlarmSourceType": "ActiveAlarms",
+        "AlarmStatisticsView": "Siemens.Engineering.HmiUnified.UI.Parts.HmiDataGridViewPart",
+        "AlarmView": "Siemens.Engineering.HmiUnified.UI.Parts.HmiDataGridViewPart",
+        "AlwaysShowRecent": "True",
+        "BackColor": "Color [A=255, R=204, G=204, B=204]",
+        "Caption": "Siemens.Engineering.HmiUnified.UI.Parts.HmiTextPart",
+        "CaptionColor": "Color [A=255, R=145, G=147, B=154]",
+        "CurrentQuality": "None",
+        "DefaultSortDirection": "Ascending",
+        "Enabled": "True",
+        "Filter": "",
+        "Height": "976",
+        "Icon": "",
+        "Left": "0",
+        "Name": "ctlAlarmView",
+        "ResetFlashingRate": "Medium",
+        "ShowFocusVisual": "True",
+        "StatusBar": "Siemens.Engineering.HmiUnified.UI.Parts.HmiStatusBarPart",
+        "StyleItemClass": "HmiAlarmControl",
+        "SuppressFlashing": "False",
+        "TabIndex": "0",
+        "TimeZone": "-1",
+        "ToolBar": "Siemens.Engineering.HmiUnified.UI.Parts.HmiToolBarPart",
+        "Top": "0",
+        "UseAlarmColors": "True",
+        "Visible": "True",
+        "Width": "1920",
+        "WindowFlags": "None"
+      }
+    }
+  ]
+}

@@ -78,6 +78,8 @@ export default function ProfilesPage() {
         process_code_language: "SCL" as const,
         conversion_fc_language: "SCL" as const,
         hmi_theme: "default",
+        hmi_panel_family: "comfort" as const,
+        hmi_panel_model: "TP1500",
         naming_prefix: "",
         db_naming_prefix: "",
         fb_favourites: {},

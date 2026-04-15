@@ -26,6 +26,7 @@ import type { ProcessLinkageMatrix, ProcessSequence, SequenceRow } from "@/types
 import type { AgentKnowledgeDoc } from "@/types";
 import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 import { fetchInstructionsForPrompt, PROCESS_CODE_CATEGORIES } from "@/hooks/use-instructions";
+import { lookupInstructions } from "@/lib/instruction-lookup";
 import { getRelevantReferenceSections, formatReferenceSections } from "@/lib/reference-lookup";
 import {
   buildDeterministicFaultDb,
@@ -607,7 +608,7 @@ export function useForgeProcessGenerate() {
       if (matrixSequence?.rows?.length && processSchema?.step_action_db?.enabled && stepActionDbName) {
         const safeSequence = splitOrConditions(matrixSequence);
         const operandTypes = buildOperandTypeMap((session.device_artifacts as ForgeArtifact[]) ?? []);
-        return [compileDeterministicProcessArtifact({
+        const result = compileDeterministicProcessArtifact({
           sequence: safeSequence,
           blockName: matrixSequence.name,
           dbName: stepActionDbName,
@@ -615,16 +616,29 @@ export function useForgeProcessGenerate() {
           actionArrayName: processSchema.step_action_db.action_array_name || "A",
           language: isLad ? "LAD" : "SCL",
           operandTypes,
-        })];
-      }
-
-      // Fetch instruction library for LAD generation (non-fatal)
-      let ladInstructions: Instruction[] | undefined;
-      if (isLad) {
-        try { ladInstructions = await fetchInstructionsForPrompt("LAD", PROCESS_CODE_CATEGORIES); } catch { /* non-fatal */ }
+        });
+        if (result.diagnostics.length > 0) {
+          console.log(`[process-gen] Compiler diagnostics for ${matrixSequence.name}:`,
+            result.diagnostics.map((d) => `[${d.severity}] ${d.category}: ${d.title}`));
+        }
+        return [result.artifact];
       }
 
       const devices = (session.device_list as ForgeDeviceEntry[]) ?? [];
+
+      // Fetch instruction library for LAD generation via two-pass AI lookup (non-fatal)
+      let ladInstructions: Instruction[] | undefined;
+      if (isLad) {
+        try {
+          const seqNames = matrix?.processSequences?.map((s) => `${s.name}: ${s.description}`).join("\n") ?? "";
+          ladInstructions = await lookupInstructions(
+            `Generate LAD process sequence FCs for:\n${seqNames}`,
+            "LAD",
+            undefined,
+            PROCESS_CODE_CATEGORIES,
+          );
+        } catch { /* non-fatal */ }
+      }
       const deviceArtifacts = (session.device_artifacts as ForgeArtifact[]) ?? [];
       const fbInterfaces = extractFbInterfaces(deviceArtifacts);
       const matrix = session.linkage_matrix as ProcessLinkageMatrix | null;
@@ -795,6 +809,7 @@ Output MUST use the tagged fenced block format: \`\`\`scl [FB:${matrixSequence.n
         maxTokens,
         isLad ? "process_lad" : "process_scl",
         !!profile,
+        { prompt_name: "forge-process-generate", agent_role: isLad ? "process_lad" : "process_scl", pipeline_step: "process_generate" },
       );
 
       if (isLad) {

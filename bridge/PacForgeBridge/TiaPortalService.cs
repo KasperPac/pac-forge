@@ -20,6 +20,15 @@ using Siemens.Engineering.Connection;
 using Siemens.Engineering.Library;
 using Siemens.Engineering.Library.Types;
 using Siemens.Engineering.Library.MasterCopies;
+using Siemens.Engineering.HmiUnified;
+using Siemens.Engineering.HmiUnified.UI.Screens;
+using Siemens.Engineering.HmiUnified.UI.ScreenGroup;
+using Siemens.Engineering.HmiUnified.UI.Base;
+using Siemens.Engineering.HmiUnified.HmiTags;
+using System.Reflection;
+using System.Drawing;
+using System.Text.RegularExpressions;
+using Newtonsoft.Json.Linq;
 
 namespace PacForgeBridge
 {
@@ -30,6 +39,7 @@ namespace PacForgeBridge
         private bool _disposed;
 
         public bool IsConnected => _tiaPortal != null;
+        public bool HasProjectOpen => _project != null;
         public bool IsProjectOpen => _project != null;
         public CompileResultDto LastCompileResult { get; private set; }
         public Dictionary<string, string> LastImportedSources { get; private set; } = new Dictionary<string, string>();
@@ -413,6 +423,11 @@ namespace PacForgeBridge
 
             if (device == null)
                 throw new InvalidOperationException($"Could not add any S7-1500 CPU to project. Last error: {lastEx?.Message}");
+
+            // V20: CreateWithItem invalidates the Project COM proxy. Re-grab it from the portal
+            // before any further access or _project.Devices enumeration throws "No project open."
+            if (_tiaPortal.Projects.Count > 0)
+                _project = _tiaPortal.Projects[0];
 
             PlcSoftware plcSoftware = GetPlcSoftware();
             var demoResult = new DemoResult { DeviceName = device.Name };
@@ -1455,10 +1470,15 @@ namespace PacForgeBridge
         /// The rack is the first DeviceItem under the Device.
         /// </summary>
         // Common firmware versions to try when plugging IO modules (most likely first)
+        // Descending order — newer firmware versions are more likely to be installed in TIA V18+
         private static readonly string[] VERSION_SUFFIXES = new[]
         {
-            "/V1.0", "/V1.1", "/V2.0", "/V2.1", "/V2.2", "/V0.1", "/V0.2", "/V0.0", "/V0.3", "/V0.4",
-            "/V3.0", "/V3.1", "/V4.0", "/V4.1", "/V4.2", "/V5.0"
+            "/V5.0", "/V4.2", "/V4.1", "/V4.0",
+            "/V3.1", "/V3.0",
+            "/V2.9", "/V2.8", "/V2.7", "/V2.6", "/V2.5", "/V2.4", "/V2.3", "/V2.2", "/V2.1", "/V2.0",
+            "/V1.2", "/V1.1", "/V1.0",
+            "/V0.4", "/V0.3", "/V0.2", "/V0.1", "/V0.0",
+            "/V6.0", "/V5.1", "/V5.2",
         };
 
         private void PlugIoModules(Device device, List<IoModuleDto> ioModules, DemoResult result)
@@ -1545,9 +1565,55 @@ namespace PacForgeBridge
                     }
                 }
 
+                // If first pass failed, re-acquire rack reference and retry
+                // TIA's internal object model can become stale after a successful PlugNew
+                if (!plugged)
+                {
+                    Console.WriteLine($"[TIA]   First pass failed for slot {targetSlot}, re-acquiring rack and retrying...");
+                    System.Threading.Thread.Sleep(200);
+
+                    // Re-acquire the rack DeviceItem — the previous PlugNew may have invalidated it
+                    DeviceItem freshRack = null;
+                    foreach (DeviceItem item in device.DeviceItems)
+                    {
+                        freshRack = item;
+                        break;
+                    }
+                    if (freshRack != null)
+                    {
+                        rack = freshRack;
+                        foreach (string variant in mlfbVariants)
+                        {
+                            if (plugged) break;
+                            foreach (string version in VERSION_SUFFIXES)
+                            {
+                                string orderWithVer = $"OrderNumber:{variant}{version}";
+                                try
+                                {
+                                    DeviceItem pluggedItem = rack.PlugNew(orderWithVer, moduleName, targetSlot);
+                                    Console.WriteLine($"[TIA]   RETRY OK: {pluggedItem.Name} in slot {targetSlot} with {version}");
+                                    plugged = true;
+                                    break;
+                                }
+                                catch (Exception ex)
+                                {
+                                    lastError = ex.Message;
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if (plugged)
                 {
                     nextAvailableSlot = targetSlot + 1;
+                    // Re-acquire rack reference after every successful plug —
+                    // PlugNew modifies the device tree, invalidating the old rack object
+                    foreach (DeviceItem item in device.DeviceItems)
+                    {
+                        rack = item;
+                        break;
+                    }
                 }
                 else
                 {
@@ -2748,6 +2814,967 @@ END_ORGANIZATION_BLOCK
             }
         }
 
+        // ─── Unified HMI (V20) — reference export ──────────────────────────
+
+        /// <summary>
+        /// Find the first HmiSoftware (WinCC Unified) by searching all devices.
+        /// Returns null when the open project has no Unified HMI device.
+        /// </summary>
+        public HmiSoftware GetHmiSoftware()
+        {
+            if (_project == null) return null;
+            foreach (Device device in _project.Devices)
+            {
+                HmiSoftware hmi = SearchHmiSoftwareDeviceItems(device.DeviceItems);
+                if (hmi != null) return hmi;
+            }
+            return null;
+        }
+
+        private HmiSoftware SearchHmiSoftwareDeviceItems(DeviceItemComposition items)
+        {
+            foreach (DeviceItem item in items)
+            {
+                SoftwareContainer container = item.GetService<SoftwareContainer>();
+                if (container?.Software is HmiSoftware hmi)
+                    return hmi;
+
+                HmiSoftware nested = SearchHmiSoftwareDeviceItems(item.DeviceItems);
+                if (nested != null) return nested;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Export wizard-run reference project data for Pac-Forge Phase 3 seeding.
+        ///
+        /// V20 Openness does NOT expose SimaticML export for Unified HmiScreen or HmiTagTable
+        /// (only PlcType and HmiScriptModule have Export methods). So this endpoint:
+        ///   - Exports all PLC types (UDTs) as SimaticML XML — real ground truth for the tag-mapping layer
+        ///   - Enumerates Unified HMI screens + tag tables and dumps basic metadata (name, key attributes)
+        ///     as JSON for reference — Pac-Forge uses this to understand Template Suite structure
+        ///
+        /// Pac-Forge's HMI generation path targets Openness API calls directly, not SimaticML round-trip.
+        /// </summary>
+        public ExportReferenceResponse ExportReferenceProject(string outputDir)
+        {
+            if (!IsConnected || !IsProjectOpen)
+                throw new InvalidOperationException("TIA Portal not connected or no project open.");
+
+            if (string.IsNullOrWhiteSpace(outputDir))
+                throw new ArgumentException("outputDir is required", nameof(outputDir));
+
+            var result = new ExportReferenceResponse { Success = true, OutputDir = outputDir };
+
+            string screensDir = Path.Combine(outputDir, "screens");
+            string udtsDir = Path.Combine(outputDir, "udts");
+            string tagsDir = Path.Combine(outputDir, "tags");
+            Directory.CreateDirectory(screensDir);
+            Directory.CreateDirectory(udtsDir);
+            Directory.CreateDirectory(tagsDir);
+
+            // ─── Unified HMI — enumerate and dump metadata as JSON (recursive) ──
+            HmiSoftware hmiSoftware = GetHmiSoftware();
+            if (hmiSoftware == null)
+            {
+                result.Warnings.Add("No Unified HmiSoftware found in project — skipping HMI exports. Make sure the project has a WinCC Unified Comfort Panel.");
+            }
+            else
+            {
+                Console.WriteLine($"[TIA] Found Unified HmiSoftware: {hmiSoftware.Name}");
+
+                // Recursively collect all screens across nested ScreenGroups
+                var screensWithPaths = new List<(HmiScreen screen, string folderPath)>();
+                CollectUnifiedScreens(hmiSoftware.Screens, hmiSoftware.ScreenGroups, "", screensWithPaths);
+                Console.WriteLine($"[TIA] Enumerating {screensWithPaths.Count} Unified screen(s) across all groups...");
+
+                foreach (var (screen, folderPath) in screensWithPaths)
+                {
+                    try
+                    {
+                        string safeName = SanitizeFileName(screen.Name);
+                        string subDir = string.IsNullOrEmpty(folderPath)
+                            ? screensDir
+                            : Path.Combine(screensDir, folderPath);
+                        Directory.CreateDirectory(subDir);
+                        string outputFile = Path.Combine(subDir, safeName + ".json");
+                        string json = SerializeHmiScreenToJson(screen);
+                        File.WriteAllText(outputFile, json);
+
+                        string displayPath = string.IsNullOrEmpty(folderPath) ? screen.Name : $"{folderPath}/{screen.Name}";
+                        result.Screens.Add(displayPath);
+                        Console.WriteLine($"[TIA]   screen: {displayPath}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[TIA]   screen {screen.Name} skipped: {ex.Message}");
+                        result.Warnings.Add($"screen {folderPath}/{screen.Name}: {ex.Message}");
+                    }
+                }
+
+                // Recursively collect all tag tables across nested TagTableGroups
+                var tagTablesWithPaths = new List<(HmiTagTable tagTable, string folderPath)>();
+                CollectUnifiedTagTables(hmiSoftware.TagTables, hmiSoftware.TagTableGroups, "", tagTablesWithPaths);
+                Console.WriteLine($"[TIA] Enumerating {tagTablesWithPaths.Count} Unified tag table(s) across all groups...");
+
+                foreach (var (tagTable, folderPath) in tagTablesWithPaths)
+                {
+                    try
+                    {
+                        string safeName = SanitizeFileName(tagTable.Name);
+                        string subDir = string.IsNullOrEmpty(folderPath)
+                            ? tagsDir
+                            : Path.Combine(tagsDir, folderPath);
+                        Directory.CreateDirectory(subDir);
+                        string outputFile = Path.Combine(subDir, safeName + ".json");
+                        string json = SerializeHmiTagTableToJson(tagTable);
+                        File.WriteAllText(outputFile, json);
+
+                        string displayPath = string.IsNullOrEmpty(folderPath) ? tagTable.Name : $"{folderPath}/{tagTable.Name}";
+                        result.TagTables.Add(displayPath);
+                        Console.WriteLine($"[TIA]   tag table: {displayPath}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[TIA]   tag table {tagTable.Name} skipped: {ex.Message}");
+                        result.Warnings.Add($"tag table {folderPath}/{tagTable.Name}: {ex.Message}");
+                    }
+                }
+            }
+
+            // ─── PLC UDTs — real SimaticML export, works via PlcType.Export ──
+            PlcSoftware plcSoftware = GetPlcSoftware();
+            if (plcSoftware == null)
+            {
+                result.Warnings.Add("No PlcSoftware found in project — skipping UDT exports.");
+            }
+            else
+            {
+                var allTypes = new List<PlcType>();
+                CollectTypes(plcSoftware.TypeGroup, allTypes);
+                Console.WriteLine($"[TIA] Exporting {allTypes.Count} UDT(s) as SimaticML...");
+
+                foreach (PlcType type in allTypes)
+                {
+                    try
+                    {
+                        string safeName = SanitizeFileName(type.Name);
+                        string outputFile = Path.Combine(udtsDir, safeName + ".xml");
+                        type.Export(new FileInfo(outputFile), ExportOptions.WithDefaults);
+                        if (File.Exists(outputFile))
+                        {
+                            result.Udts.Add(type.Name);
+                            Console.WriteLine($"[TIA]   udt: {type.Name}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[TIA]   udt {type.Name} skipped: {ex.Message}");
+                        result.Warnings.Add($"udt {type.Name}: {ex.Message}");
+                    }
+                }
+            }
+
+            result.Message = $"Exported {result.Screens.Count} screen(s), {result.TagTables.Count} tag table(s), {result.Udts.Count} UDT(s)";
+            Console.WriteLine($"[TIA] Reference export complete: {result.Message}");
+            return result;
+        }
+
+        /// <summary>
+        /// Recursively walk HmiSoftware's nested ScreenGroups, collecting every HmiScreen
+        /// with its folder path (forward-slash separated, empty for root-level screens).
+        /// </summary>
+        private void CollectUnifiedScreens(
+            HmiScreenComposition screens,
+            HmiScreenGroupComposition groups,
+            string currentPath,
+            List<(HmiScreen, string)> result)
+        {
+            foreach (HmiScreen screen in screens)
+            {
+                result.Add((screen, currentPath));
+            }
+            foreach (HmiScreenGroup group in groups)
+            {
+                string subPath = string.IsNullOrEmpty(currentPath)
+                    ? SanitizeFileName(group.Name)
+                    : currentPath + "/" + SanitizeFileName(group.Name);
+                CollectUnifiedScreens(group.Screens, group.Groups, subPath, result);
+            }
+        }
+
+        /// <summary>
+        /// Recursively walk HmiSoftware's nested TagTableGroups, collecting every HmiTagTable
+        /// with its folder path.
+        /// </summary>
+        private void CollectUnifiedTagTables(
+            HmiTagTableComposition tagTables,
+            HmiTagTableGroupComposition groups,
+            string currentPath,
+            List<(HmiTagTable, string)> result)
+        {
+            foreach (HmiTagTable tagTable in tagTables)
+            {
+                result.Add((tagTable, currentPath));
+            }
+            foreach (HmiTagTableGroup group in groups)
+            {
+                string subPath = string.IsNullOrEmpty(currentPath)
+                    ? SanitizeFileName(group.Name)
+                    : currentPath + "/" + SanitizeFileName(group.Name);
+                CollectUnifiedTagTables(group.TagTables, group.Groups, subPath, result);
+            }
+        }
+
+        /// <summary>
+        /// Serialize an HmiScreen to JSON using Openness attribute access.
+        /// Dumps top-level screen properties + every ScreenItem (type, name, position, size, key attributes).
+        /// Used for Pac-Forge Phase 3 reference capture — V20 Openness does not expose SimaticML export for Unified screens.
+        /// </summary>
+        private string SerializeHmiScreenToJson(HmiScreen screen)
+        {
+            var payload = new Dictionary<string, object>
+            {
+                ["name"] = screen.Name,
+                ["displayName"] = screen.DisplayName?.ToString() ?? "",
+                ["width"] = (long)screen.Width,
+                ["height"] = (long)screen.Height,
+                ["screenNumber"] = (int)screen.ScreenNumber,
+                ["backColor"] = screen.BackColor.ToString(),
+                ["alternateBackColor"] = screen.AlternateBackColor.ToString(),
+                ["backgroundFillMode"] = screen.BackgroundFillMode.ToString(),
+                ["horizontalAlignment"] = screen.HorizontalAlignment.ToString(),
+                ["verticalAlignment"] = screen.VerticalAlignment.ToString(),
+                ["enabled"] = screen.Enabled,
+                ["items"] = SerializeScreenItems(screen.ScreenItems),
+            };
+            return Newtonsoft.Json.JsonConvert.SerializeObject(payload, Newtonsoft.Json.Formatting.Indented);
+        }
+
+        private List<Dictionary<string, object>> SerializeScreenItems(System.Collections.IEnumerable items)
+        {
+            var result = new List<Dictionary<string, object>>();
+            foreach (var item in items)
+            {
+                try
+                {
+                    var obj = item as IEngineeringObject;
+                    if (obj == null) continue;
+
+                    var itemDict = new Dictionary<string, object>
+                    {
+                        ["type"] = item.GetType().FullName,
+                        ["typeShort"] = item.GetType().Name,
+                    };
+
+                    // Dump all readable attributes via Openness introspection
+                    try
+                    {
+                        var infos = obj.GetAttributeInfos();
+                        var attrDict = new Dictionary<string, object>();
+                        foreach (var info in infos)
+                        {
+                            if (!info.AccessMode.ToString().Contains("Read")) continue;
+                            try
+                            {
+                                var value = obj.GetAttribute(info.Name);
+                                attrDict[info.Name] = value?.ToString() ?? "";
+                            }
+                            catch { /* skip unreadable attrs */ }
+                        }
+                        itemDict["attributes"] = attrDict;
+                    }
+                    catch (Exception ex)
+                    {
+                        itemDict["attributeError"] = ex.Message;
+                    }
+
+                    result.Add(itemDict);
+                }
+                catch (Exception ex)
+                {
+                    result.Add(new Dictionary<string, object>
+                    {
+                        ["error"] = ex.Message,
+                        ["type"] = item?.GetType().FullName ?? "null",
+                    });
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Serialize an HmiTagTable to JSON — table name + list of tag names/types/addresses.
+        /// </summary>
+        private string SerializeHmiTagTableToJson(HmiTagTable tagTable)
+        {
+            var tags = new List<Dictionary<string, object>>();
+            foreach (var tag in tagTable.Tags)
+            {
+                try
+                {
+                    var obj = tag as IEngineeringObject;
+                    if (obj == null) continue;
+
+                    var tagDict = new Dictionary<string, object>
+                    {
+                        ["type"] = tag.GetType().Name,
+                    };
+
+                    var infos = obj.GetAttributeInfos();
+                    foreach (var info in infos)
+                    {
+                        if (!info.AccessMode.ToString().Contains("Read")) continue;
+                        try
+                        {
+                            var value = obj.GetAttribute(info.Name);
+                            tagDict[info.Name] = value?.ToString() ?? "";
+                        }
+                        catch { }
+                    }
+                    tags.Add(tagDict);
+                }
+                catch { /* skip bad tags */ }
+            }
+
+            var payload = new Dictionary<string, object>
+            {
+                ["name"] = tagTable.Name,
+                ["tagCount"] = tags.Count,
+                ["tags"] = tags,
+            };
+            return Newtonsoft.Json.JsonConvert.SerializeObject(payload, Newtonsoft.Json.Formatting.Indented);
+        }
+
+        private static string SanitizeFileName(string name)
+        {
+            var invalid = Path.GetInvalidFileNameChars();
+            var sb = new StringBuilder(name.Length);
+            foreach (char c in name)
+                sb.Append(invalid.Contains(c) ? '_' : c);
+            return sb.ToString();
+        }
+
+        // ─── Unified HMI screen creation (Phase 4) ─────────────────────────
+
+        private static Dictionary<string, Type> _itemTypeCache;
+        private static MethodInfo _createItemMethodDef;
+
+        /// <summary>
+        /// Build a case-insensitive map from HMI item type short name and full name
+        /// to the corresponding .NET Type. Used for generic dispatch when creating items.
+        /// </summary>
+        private static Dictionary<string, Type> GetItemTypeCache()
+        {
+            if (_itemTypeCache != null) return _itemTypeCache;
+
+            var dict = new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase);
+            var baseType = typeof(HmiScreenItemBase);
+            var asm = baseType.Assembly;
+            foreach (var t in asm.GetExportedTypes())
+            {
+                if (t.IsAbstract) continue;
+                if (!baseType.IsAssignableFrom(t)) continue;
+                if (!dict.ContainsKey(t.Name)) dict[t.Name] = t;
+                if (!dict.ContainsKey(t.FullName)) dict[t.FullName] = t;
+            }
+            _itemTypeCache = dict;
+            Console.WriteLine($"[TIA] Built HmiScreenItem type cache: {dict.Count} entries covering {dict.Values.Distinct().Count()} concrete types");
+            return dict;
+        }
+
+        /// <summary>
+        /// Get the single-arg generic Create&lt;T&gt;(string) method definition on
+        /// HmiScreenItemBaseComposition for later MakeGenericMethod() calls.
+        /// </summary>
+        private static MethodInfo GetCreateItemMethodDef()
+        {
+            if (_createItemMethodDef != null) return _createItemMethodDef;
+
+            var compositionType = typeof(HmiScreenItemBaseComposition);
+            foreach (var m in compositionType.GetMethods())
+            {
+                if (m.Name != "Create") continue;
+                if (!m.IsGenericMethodDefinition) continue;
+                var ps = m.GetParameters();
+                if (ps.Length == 1 && ps[0].ParameterType == typeof(string))
+                {
+                    _createItemMethodDef = m;
+                    return m;
+                }
+            }
+            throw new InvalidOperationException("HmiScreenItemBaseComposition.Create<T>(string) not found on V20 Openness API.");
+        }
+
+        /// <summary>
+        /// Create a Unified HMI screen from a Pac-Forge payload and apply all item attributes
+        /// via generic Openness dispatch. No SimaticML involvement — pure API calls.
+        /// </summary>
+        public CreateUnifiedScreenResponse CreateUnifiedScreen(UnifiedScreenRequest req)
+        {
+            if (!IsConnected || !IsProjectOpen)
+                throw new InvalidOperationException("TIA Portal not connected or no project open.");
+
+            if (req == null || string.IsNullOrWhiteSpace(req.Name))
+                throw new ArgumentException("Request must include a screen Name.", nameof(req));
+
+            var result = new CreateUnifiedScreenResponse { Success = false, ScreenName = req.Name };
+
+            HmiSoftware hmiSoftware = GetHmiSoftware();
+            if (hmiSoftware == null)
+            {
+                result.Message = "No Unified HmiSoftware found in project. Project needs a WinCC Unified device.";
+                return result;
+            }
+
+            try
+            {
+                // 1. Create the screen (in a specific folder if requested)
+                HmiScreenComposition targetComposition = hmiSoftware.Screens;
+                if (!string.IsNullOrWhiteSpace(req.FolderPath))
+                {
+                    targetComposition = ResolveScreenGroupFolder(hmiSoftware, req.FolderPath);
+                }
+
+                HmiScreen screen = targetComposition.Create(req.Name);
+                Console.WriteLine($"[TIA] Created Unified screen: {req.Name}");
+
+                // 2. Apply screen-level attributes
+                var engineeringScreen = (IEngineeringObject)screen;
+                TrySetAttribute(engineeringScreen, "Width", req.Width, result.Warnings, req.Name);
+                TrySetAttribute(engineeringScreen, "Height", req.Height, result.Warnings, req.Name);
+                if (!string.IsNullOrEmpty(req.BackColor))
+                    TrySetAttribute(engineeringScreen, "BackColor", req.BackColor, result.Warnings, req.Name);
+                if (req.ScreenNumber.HasValue)
+                    TrySetAttribute(engineeringScreen, "ScreenNumber", req.ScreenNumber.Value, result.Warnings, req.Name);
+
+                // 3. Create each screen item via generic dispatch
+                var typeCache = GetItemTypeCache();
+                var createMethodDef = GetCreateItemMethodDef();
+
+                foreach (var itemReq in req.Items ?? new List<UnifiedScreenItemRequest>())
+                {
+                    try
+                    {
+                        if (string.IsNullOrWhiteSpace(itemReq.Type) || string.IsNullOrWhiteSpace(itemReq.Name))
+                        {
+                            result.Warnings.Add($"Item skipped: missing type or name ({itemReq.Type}/{itemReq.Name})");
+                            continue;
+                        }
+
+                        if (!typeCache.TryGetValue(itemReq.Type, out Type itemType))
+                        {
+                            result.Warnings.Add($"Item {itemReq.Name}: unknown type '{itemReq.Type}' (not an HmiScreenItemBase subclass)");
+                            continue;
+                        }
+
+                        var genericCreate = createMethodDef.MakeGenericMethod(itemType);
+                        object createdItem = genericCreate.Invoke(screen.ScreenItems, new object[] { itemReq.Name });
+                        var engineeringItem = (IEngineeringObject)createdItem;
+
+                        // Apply each simple attribute on the created item
+                        foreach (var kv in itemReq.Attributes ?? new Dictionary<string, object>())
+                        {
+                            TrySetAttribute(engineeringItem, kv.Key, kv.Value, result.Warnings, $"{itemReq.Name}");
+                        }
+
+                        // Apply composite properties (MultilingualText, Font/Padding/Corners parts)
+                        if (itemReq.Text != null)
+                            TrySetMultilingualText(engineeringItem, "Text", itemReq.Text, result.Warnings, itemReq.Name);
+                        if (itemReq.ToolTip != null)
+                            TrySetMultilingualText(engineeringItem, "ToolTipText", itemReq.ToolTip, result.Warnings, itemReq.Name);
+                        if (itemReq.Font != null)
+                            TrySetCompositePart(engineeringItem, "Font", itemReq.Font, FontPropertyMap, result.Warnings, itemReq.Name);
+                        if (itemReq.Padding != null)
+                            TrySetCompositePart(engineeringItem, "Padding", itemReq.Padding, PaddingPropertyMap, result.Warnings, itemReq.Name);
+                        if (itemReq.Corners != null)
+                            TrySetCompositePart(engineeringItem, "Corners", itemReq.Corners, CornersPropertyMap, result.Warnings, itemReq.Name);
+
+                        result.ItemsCreated++;
+                    }
+                    catch (Exception ex)
+                    {
+                        string inner = ex.InnerException?.Message ?? ex.Message;
+                        Console.WriteLine($"[TIA]   item {itemReq.Name} ({itemReq.Type}) failed: {inner}");
+                        result.Warnings.Add($"{itemReq.Name} ({itemReq.Type}): {inner}");
+                    }
+                }
+
+                result.Success = true;
+                result.Message = $"Created screen '{req.Name}' with {result.ItemsCreated} item(s)";
+                Console.WriteLine($"[TIA] {result.Message}");
+            }
+            catch (Exception ex)
+            {
+                result.Message = $"Failed to create screen: {ex.Message}";
+                Console.WriteLine($"[TIA] {result.Message}");
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Walk the forward-slash separated folder path, creating missing HmiScreenGroups as needed,
+        /// and return the HmiScreenComposition that new screens should be created under.
+        /// </summary>
+        private HmiScreenComposition ResolveScreenGroupFolder(HmiSoftware hmiSoftware, string folderPath)
+        {
+            var segments = folderPath.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length == 0) return hmiSoftware.Screens;
+
+            HmiScreenGroupComposition currentGroups = hmiSoftware.ScreenGroups;
+            HmiScreenGroup currentGroup = null;
+
+            foreach (var segment in segments)
+            {
+                currentGroup = currentGroups.Find(segment) ?? currentGroups.Create(segment);
+                currentGroups = currentGroup.Groups;
+            }
+
+            return currentGroup.Screens;
+        }
+
+        /// <summary>
+        /// Try to set an Openness attribute, coercing the value to the target property's
+        /// actual .NET type via reflection. JSON deserialization gives us long/double/string
+        /// for everything; Openness expects UInt32, UInt16, Color, enum values, etc.
+        /// Errors are collected as warnings so one bad attribute doesn't abort the whole item.
+        /// </summary>
+        private void TrySetAttribute(
+            IEngineeringObject obj,
+            string name,
+            object value,
+            List<string> warnings,
+            string context)
+        {
+            if (obj == null || string.IsNullOrEmpty(name)) return;
+
+            try
+            {
+                PropertyInfo pi = obj.GetType().GetProperty(name);
+                object coerced;
+                if (pi != null)
+                {
+                    coerced = CoerceToType(value, pi.PropertyType);
+                }
+                else
+                {
+                    coerced = value;
+                }
+
+                obj.SetAttribute(name, coerced);
+            }
+            catch (Exception ex)
+            {
+                string inner = ex.InnerException?.Message ?? ex.Message;
+                warnings.Add($"{context}.{name}: {inner}");
+            }
+        }
+
+        /// <summary>
+        /// Convert a JSON-origin value (long/double/string/bool) to the specific .NET type
+        /// that Openness expects for a property. Handles nullable wrappers, numeric integer
+        /// variants (Int16/Int32/Int64, UInt16/UInt32/UInt64, Byte/SByte), enums, and
+        /// System.Drawing.Color (parsed from "Color [A=x, R=y, G=z, B=w]" or "#RRGGBB").
+        /// </summary>
+        private static object CoerceToType(object value, Type targetType)
+        {
+            if (value == null) return null;
+
+            // Unwrap Nullable<T>
+            Type underlying = Nullable.GetUnderlyingType(targetType) ?? targetType;
+
+            // Already the right type
+            if (underlying.IsInstanceOfType(value)) return value;
+
+            // Numeric conversions (JSON always gives us long/double for numbers)
+            if (underlying == typeof(Int32))  return Convert.ToInt32(value);
+            if (underlying == typeof(UInt32)) return Convert.ToUInt32(value);
+            if (underlying == typeof(Int16))  return Convert.ToInt16(value);
+            if (underlying == typeof(UInt16)) return Convert.ToUInt16(value);
+            if (underlying == typeof(Int64))  return Convert.ToInt64(value);
+            if (underlying == typeof(UInt64)) return Convert.ToUInt64(value);
+            if (underlying == typeof(Byte))   return Convert.ToByte(value);
+            if (underlying == typeof(SByte))  return Convert.ToSByte(value);
+            if (underlying == typeof(Double)) return Convert.ToDouble(value);
+            if (underlying == typeof(Single)) return Convert.ToSingle(value);
+            if (underlying == typeof(Decimal)) return Convert.ToDecimal(value);
+            if (underlying == typeof(Boolean)) return Convert.ToBoolean(value);
+            if (underlying == typeof(String))  return Convert.ToString(value);
+
+            // Enum: "Solid" -> HmiFillPattern.Solid
+            if (underlying.IsEnum)
+            {
+                string s = value.ToString();
+                return Enum.Parse(underlying, s, ignoreCase: true);
+            }
+
+            // System.Drawing.Color: parse "Color [A=255, R=72, G=73, B=78]" or "#RRGGBB" or named
+            if (underlying == typeof(Color))
+            {
+                if (value is string cs) return ParseColor(cs);
+            }
+
+            // Fallback: pass through and hope Openness figures it out
+            return value;
+        }
+
+        private static readonly Regex _colorArgbFormat =
+            new Regex(@"A=(\d+)[, ]+R=(\d+)[, ]+G=(\d+)[, ]+B=(\d+)", RegexOptions.IgnoreCase);
+
+        /// <summary>
+        /// Parse a colour string into System.Drawing.Color. Supports three forms:
+        ///   1. "Color [A=255, R=72, G=73, B=78]"  (Siemens ToString() format)
+        ///   2. "#RRGGBB" or "#AARRGGBB"
+        ///   3. Named colours like "White", "Red", "Basic 40" (Basic/Accent palette tokens fall through to Black for now)
+        /// </summary>
+        private static Color ParseColor(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input)) return Color.Transparent;
+
+            var m = _colorArgbFormat.Match(input);
+            if (m.Success)
+            {
+                int a = int.Parse(m.Groups[1].Value);
+                int r = int.Parse(m.Groups[2].Value);
+                int g = int.Parse(m.Groups[3].Value);
+                int b = int.Parse(m.Groups[4].Value);
+                return Color.FromArgb(a, r, g, b);
+            }
+
+            if (input.StartsWith("#"))
+            {
+                string hex = input.Substring(1);
+                if (hex.Length == 6)
+                {
+                    int rgb = int.Parse(hex, System.Globalization.NumberStyles.HexNumber);
+                    return Color.FromArgb(255, (rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+                }
+                if (hex.Length == 8)
+                {
+                    uint argb = uint.Parse(hex, System.Globalization.NumberStyles.HexNumber);
+                    return Color.FromArgb((int)((argb >> 24) & 0xFF), (int)((argb >> 16) & 0xFF), (int)((argb >> 8) & 0xFF), (int)(argb & 0xFF));
+                }
+            }
+
+            // Named colours (System.Drawing known colours)
+            Color named = Color.FromName(input);
+            if (named.ToArgb() != 0 || input.Equals("Transparent", StringComparison.OrdinalIgnoreCase))
+                return named;
+
+            // Palette tokens like "Basic 40", "Accent 1": resolve to Black for now.
+            // TODO: wire to a theme-aware palette resolver once we parse .cd20 Corporate Design files.
+            return Color.Black;
+        }
+
+        // ─── Phase 4.3: composite property helpers ──────────────────────────
+
+        /// <summary>
+        /// Property name map for the Font payload field -> HmiFontPart property.
+        /// Maps camelCase / shorthand names to the actual Openness attribute names.
+        /// </summary>
+        private static readonly Dictionary<string, string> FontPropertyMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "size", "Size" },
+            { "name", "Name" },
+            { "family", "Name" },    // alias
+            { "weight", "Weight" },
+            { "italic", "Italic" },
+            { "underline", "Underline" },
+            { "strikeOut", "StrikeOut" },
+        };
+
+        private static readonly Dictionary<string, string> PaddingPropertyMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "left", "Left" },
+            { "top", "Top" },
+            { "right", "Right" },
+            { "bottom", "Bottom" },
+        };
+
+        private static readonly Dictionary<string, string> CornersPropertyMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "topLeft", "TopLeftRadius" },
+            { "topRight", "TopRightRadius" },
+            { "bottomLeft", "BottomLeftRadius" },
+            { "bottomRight", "BottomRightRadius" },
+            // "radius" is expanded to all four in TrySetCompositePart
+        };
+
+        /// <summary>
+        /// Set a MultilingualText property on an item using the Siemens-canonical Language-object lookup path:
+        ///   project.LanguageSettings.Languages.Find(cultureInfo)  -> Language
+        ///   multiText.Items.Find(language)                         -> MultilingualTextItem
+        ///   item.Text = "..."                                      -> direct property setter
+        ///
+        /// Accepts either a plain string (applied to the project's EditingLanguage) or a
+        /// Dictionary&lt;string, string&gt; of culture -> text for multi-language content.
+        /// </summary>
+        private void TrySetMultilingualText(
+            IEngineeringObject item,
+            string propertyName,
+            object value,
+            List<string> warnings,
+            string context)
+        {
+            if (item == null || value == null) return;
+
+            try
+            {
+                PropertyInfo pi = item.GetType().GetProperty(propertyName);
+                if (pi == null)
+                {
+                    warnings.Add($"{context}.{propertyName}: property not found on {item.GetType().Name}");
+                    return;
+                }
+                object mtObj = pi.GetValue(item);
+                if (mtObj == null)
+                {
+                    warnings.Add($"{context}.{propertyName}: MultilingualText getter returned null");
+                    return;
+                }
+
+                // Get the Items composition once
+                PropertyInfo itemsProp = mtObj.GetType().GetProperty("Items");
+                if (itemsProp == null)
+                {
+                    warnings.Add($"{context}.{propertyName}: MultilingualText has no Items composition");
+                    return;
+                }
+                object itemsComposition = itemsProp.GetValue(mtObj);
+                if (itemsComposition == null)
+                {
+                    warnings.Add($"{context}.{propertyName}: Items composition is null");
+                    return;
+                }
+
+                // Get Project.LanguageSettings for Language object resolution
+                var languageSettings = _project?.LanguageSettings;
+                if (languageSettings == null)
+                {
+                    warnings.Add($"{context}.{propertyName}: project LanguageSettings unavailable");
+                    return;
+                }
+                var projectLanguages = languageSettings.Languages;
+                var editingLanguage = languageSettings.EditingLanguage;
+
+                var textMap = CoerceToTextMap(value);
+                int itemsUpdated = 0;
+
+                // Resolve and write each (culture, text) entry via Find(Language)
+                foreach (var kv in textMap)
+                {
+                    object targetLanguage = null;
+
+                    if (kv.Key == "*")
+                    {
+                        // Single-string payload → use project's EditingLanguage
+                        targetLanguage = editingLanguage;
+                    }
+                    else
+                    {
+                        // Culture-specific payload → look up the Language by CultureInfo
+                        try
+                        {
+                            var culture = new System.Globalization.CultureInfo(kv.Key);
+                            targetLanguage = projectLanguages.Find(culture);
+                        }
+                        catch
+                        {
+                            warnings.Add($"{context}.{propertyName}: invalid culture '{kv.Key}'");
+                            continue;
+                        }
+                    }
+
+                    if (targetLanguage == null)
+                    {
+                        warnings.Add($"{context}.{propertyName}[{kv.Key}]: language not present in project");
+                        continue;
+                    }
+
+                    // Find(Language) on the Items composition
+                    MethodInfo findMethod = itemsComposition.GetType().GetMethod(
+                        "Find",
+                        new Type[] { targetLanguage.GetType() });
+                    if (findMethod == null)
+                    {
+                        warnings.Add($"{context}.{propertyName}[{kv.Key}]: Find(Language) method not found");
+                        continue;
+                    }
+
+                    object mtItem = findMethod.Invoke(itemsComposition, new object[] { targetLanguage });
+                    if (mtItem == null)
+                    {
+                        warnings.Add($"{context}.{propertyName}[{kv.Key}]: no MultilingualTextItem for this language");
+                        continue;
+                    }
+
+                    // Siemens Unified MultilingualText requires values wrapped in <body><p>...</p></body>
+                    // Discovered via diagnostic dump of live items: default value is literally "<body><p>Text</p></body>".
+                    // Plain strings are rejected as "invalid format". XML-escape user content before wrapping.
+                    string wrapped = WrapMultilingualText(kv.Value);
+
+                    try
+                    {
+                        PropertyInfo textProp = mtItem.GetType().GetProperty("Text");
+                        if (textProp != null && textProp.CanWrite)
+                        {
+                            textProp.SetValue(mtItem, wrapped);
+                            itemsUpdated++;
+                        }
+                        else
+                        {
+                            warnings.Add($"{context}.{propertyName}[{kv.Key}]: Text property not writable");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        warnings.Add($"{context}.{propertyName}[{kv.Key}]: {ex.InnerException?.Message ?? ex.Message}");
+                    }
+                }
+
+                if (itemsUpdated == 0)
+                {
+                    warnings.Add($"{context}.{propertyName}: no MultilingualText items updated");
+                }
+            }
+            catch (Exception ex)
+            {
+                warnings.Add($"{context}.{propertyName}: {ex.InnerException?.Message ?? ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Wrap a plain text string in the Siemens Unified MultilingualText body/paragraph XML format.
+        /// Live diagnostic exports showed the canonical format is &lt;body&gt;&lt;p&gt;TEXT&lt;/p&gt;&lt;/body&gt;
+        /// with XML-escaped content. Plain strings (or HTML with &lt;span&gt; wrappers) are rejected by the setter.
+        /// If the caller already provides a &lt;body&gt; wrapper, pass through unchanged.
+        /// </summary>
+        private static string WrapMultilingualText(string plainText)
+        {
+            if (string.IsNullOrEmpty(plainText)) return "<body><p></p></body>";
+
+            // Pass-through if caller already wrapped it
+            if (plainText.StartsWith("<body>", StringComparison.OrdinalIgnoreCase))
+                return plainText;
+
+            // XML-escape and wrap
+            string escaped = plainText
+                .Replace("&", "&amp;")
+                .Replace("<", "&lt;")
+                .Replace(">", "&gt;");
+            return $"<body><p>{escaped}</p></body>";
+        }
+
+        /// <summary>
+        /// Convert a payload Text value (string or Dictionary) into a culture-keyed map.
+        /// Plain strings become { "*" -> value } which TrySetMultilingualText applies to all items.
+        /// </summary>
+        private static Dictionary<string, string> CoerceToTextMap(object value)
+        {
+            var map = new Dictionary<string, string>();
+            if (value is string plain)
+            {
+                map["*"] = plain;
+                return map;
+            }
+            if (value is JValue jv)
+            {
+                map["*"] = jv.ToString();
+                return map;
+            }
+            if (value is JObject jo)
+            {
+                foreach (var prop in jo.Properties())
+                {
+                    map[prop.Name] = prop.Value?.ToString() ?? "";
+                }
+                return map;
+            }
+            if (value is IDictionary<string, object> dict)
+            {
+                foreach (var kv in dict)
+                {
+                    map[kv.Key] = kv.Value?.ToString() ?? "";
+                }
+                return map;
+            }
+            map["*"] = value.ToString();
+            return map;
+        }
+
+        /// <summary>
+        /// Set sub-properties on a read-only "Part" composite object (Font, Padding, Corners, etc.).
+        /// Retrieves the existing Part instance via reflection and calls SetAttribute on each
+        /// mapped sub-property. Supports a "radius" shorthand for corners that expands to all four.
+        /// </summary>
+        private void TrySetCompositePart(
+            IEngineeringObject item,
+            string partPropertyName,
+            Dictionary<string, object> payload,
+            Dictionary<string, string> propertyMap,
+            List<string> warnings,
+            string context)
+        {
+            if (item == null || payload == null || payload.Count == 0) return;
+
+            try
+            {
+                PropertyInfo pi = item.GetType().GetProperty(partPropertyName);
+                if (pi == null)
+                {
+                    warnings.Add($"{context}.{partPropertyName}: property not found on {item.GetType().Name}");
+                    return;
+                }
+                object partObj = pi.GetValue(item);
+                if (partObj == null)
+                {
+                    warnings.Add($"{context}.{partPropertyName}: Part getter returned null");
+                    return;
+                }
+                var partEng = partObj as IEngineeringObject;
+                if (partEng == null)
+                {
+                    warnings.Add($"{context}.{partPropertyName}: Part does not implement IEngineeringObject");
+                    return;
+                }
+
+                // Expand "radius" shorthand for corners (applies to all four radii)
+                var expanded = new Dictionary<string, object>(payload, StringComparer.OrdinalIgnoreCase);
+                if (partPropertyName == "Corners" && expanded.TryGetValue("radius", out object radiusVal))
+                {
+                    expanded.Remove("radius");
+                    if (!expanded.ContainsKey("topLeft")) expanded["topLeft"] = radiusVal;
+                    if (!expanded.ContainsKey("topRight")) expanded["topRight"] = radiusVal;
+                    if (!expanded.ContainsKey("bottomLeft")) expanded["bottomLeft"] = radiusVal;
+                    if (!expanded.ContainsKey("bottomRight")) expanded["bottomRight"] = radiusVal;
+                }
+
+                // Font.bold shorthand → Weight=Bold/Normal
+                if (partPropertyName == "Font" && expanded.TryGetValue("bold", out object boldVal))
+                {
+                    expanded.Remove("bold");
+                    bool isBold = Convert.ToBoolean(boldVal);
+                    if (!expanded.ContainsKey("weight"))
+                        expanded["weight"] = isBold ? "Bold" : "Normal";
+                }
+
+                foreach (var kv in expanded)
+                {
+                    if (!propertyMap.TryGetValue(kv.Key, out string realName))
+                    {
+                        warnings.Add($"{context}.{partPropertyName}.{kv.Key}: unknown sub-property");
+                        continue;
+                    }
+                    TrySetAttribute(partEng, realName, kv.Value, warnings, $"{context}.{partPropertyName}");
+                }
+            }
+            catch (Exception ex)
+            {
+                warnings.Add($"{context}.{partPropertyName}: {ex.InnerException?.Message ?? ex.Message}");
+            }
+        }
+
         public void Dispose()
         {
             if (_disposed) return;
@@ -3030,18 +4057,17 @@ END_ORGANIZATION_BLOCK
         public LibraryCopyToProjectResponse CopyLibraryItemsToProject(
             string libraryPath, List<string> masterCopyPaths, List<string> typePaths)
         {
-            // Connect if not already — this endpoint runs before the job executor connects
-            if (!IsConnected)
-                Connect();
-
-            // libraryPath may be a folder — find the .al* file inside it
+            // libraryPath may be a folder — find the .al* file inside it (search subdirectories too)
             string resolvedLibPath = libraryPath;
             if (Directory.Exists(libraryPath))
             {
-                var alFiles = Directory.GetFiles(libraryPath, "*.al*");
-                if (alFiles.Length > 0)
+                var alFiles = Directory.GetFiles(libraryPath, "*.al*", SearchOption.AllDirectories);
+                // Filter to actual TIA library files (.al17, .al18, .al19, .al20, etc.)
+                var tiaLibFiles = alFiles.Where(f => System.Text.RegularExpressions.Regex.IsMatch(
+                    Path.GetExtension(f), @"\.al\d+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)).ToArray();
+                if (tiaLibFiles.Length > 0)
                 {
-                    resolvedLibPath = alFiles[0];
+                    resolvedLibPath = tiaLibFiles[0];
                     Console.WriteLine($"[TIA] Resolved library folder to file: {resolvedLibPath}");
                 }
                 else
@@ -3051,7 +4077,31 @@ END_ORGANIZATION_BLOCK
             }
             else if (!File.Exists(libraryPath))
             {
-                throw new FileNotFoundException($"Library path not found: {libraryPath}");
+                // Path doesn't exist as file or folder — try searching parent directory for a matching subfolder
+                string parentDir = Path.GetDirectoryName(libraryPath);
+                string searchName = Path.GetFileName(libraryPath);
+                if (parentDir != null && Directory.Exists(parentDir))
+                {
+                    // Search all subdirectories for .al* files matching the library name
+                    var alFiles = Directory.GetFiles(parentDir, "*.al*", SearchOption.AllDirectories);
+                    var match = alFiles.FirstOrDefault(f =>
+                        Path.GetFileNameWithoutExtension(f).Equals(searchName, StringComparison.OrdinalIgnoreCase)
+                        && System.Text.RegularExpressions.Regex.IsMatch(
+                            Path.GetExtension(f), @"\.al\d+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
+                    if (match != null)
+                    {
+                        resolvedLibPath = match;
+                        Console.WriteLine($"[TIA] Found library file by name search: {resolvedLibPath}");
+                    }
+                    else
+                    {
+                        throw new FileNotFoundException($"Library path not found: {libraryPath}");
+                    }
+                }
+                else
+                {
+                    throw new FileNotFoundException($"Library path not found: {libraryPath}");
+                }
             }
 
             var result = new LibraryCopyToProjectResponse { Success = true };
@@ -3060,6 +4110,9 @@ END_ORGANIZATION_BLOCK
 
             try
             {
+                // --- Get PLC software (caller must ensure project is open) ---
+                var plcSoftware = GetPlcSoftware();
+
                 // --- Open library (reuse if already open) ---
                 var fileInfo = new FileInfo(resolvedLibPath);
                 string expectedName = Path.GetFileNameWithoutExtension(resolvedLibPath);
@@ -3086,10 +4139,6 @@ END_ORGANIZATION_BLOCK
                     weOpened = true;
                     Console.WriteLine($"[TIA] Copy: opened library '{library.Name}'");
                 }
-
-                // --- Get PLC software from current project ---
-                Connect();
-                var plcSoftware = GetPlcSoftware();
                 if (plcSoftware == null)
                     throw new InvalidOperationException("No PLC device found in the project.");
 

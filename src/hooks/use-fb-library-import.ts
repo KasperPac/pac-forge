@@ -520,6 +520,16 @@ export function useFbLibraryImport() {
             }
 
             const autoCategory = detectCategory(templateName, deviceCategory, existingCatList);
+
+            // Detect HMI faceplate UDT — Open Library convention: udtHMI_* blocks
+            const hmiFaceplateBlock = templateBlocks.find((b) =>
+              b.type === "UDT" && /^udtHMI_/i.test(b.name),
+            );
+            const hmiFaceplateType = hmiFaceplateBlock?.name ?? null;
+            if (hmiFaceplateType) {
+              console.log(`[fb-import] ${templateName}: HMI faceplate UDT → ${hmiFaceplateType}`);
+            }
+
             console.log(`[fb-import] ${current}/${total} Creating: ${templateName} (${autoCategory}, ${templateBlocks.length} blocks, doc: ${doc ? doc.length + " chars" : "none"})`);
             await createTemplate.mutateAsync({
               name: templateName,
@@ -538,6 +548,7 @@ export function useFbLibraryImport() {
               })),
               source: "library" as const,
               library_name: libraryName,
+              hmi_faceplate_type: hmiFaceplateType,
             });
             result.imported++;
             console.log(`[fb-import] ✓ ${templateName} created`);

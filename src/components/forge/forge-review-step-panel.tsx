@@ -192,7 +192,7 @@ export function ReviewStepPanel({
                 Fix {selectedCount} Selected
               </Button>
             )}
-            {(status === "findings" || status === "accepted") && (
+            {(status === "findings" || status === "accepted" || status === "clean") && (
               <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" onClick={onRunReview} disabled={loading}>
                 <RefreshCw className="h-3 w-3" />
                 Re-run
@@ -276,7 +276,22 @@ export function ReviewStepPanel({
                         </Badge>
                       )}
                     </div>
-                    <p className="text-xs text-foreground/80 mt-1">{finding.message}</p>
+                    {(() => {
+                      const fixIdx = finding.message.indexOf("\nFix: ");
+                      if (fixIdx === -1) {
+                        return <p className="text-xs text-foreground/80 mt-1">{finding.message}</p>;
+                      }
+                      const main = finding.message.slice(0, fixIdx);
+                      const fix = finding.message.slice(fixIdx + 6);
+                      return (
+                        <>
+                          <p className="text-xs text-foreground/80 mt-1">{main}</p>
+                          <p className="text-xs text-green-400/80 mt-1 border-l-2 border-green-500/30 pl-2">
+                            <span className="font-semibold text-green-400">Fix:</span> {fix}
+                          </p>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               ))}

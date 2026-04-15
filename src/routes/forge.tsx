@@ -17,13 +17,17 @@ import { ForgeProjectSetup } from "@/components/forge/steps/forge-project-setup"
 import { ForgeQaReview } from "@/components/forge/steps/forge-qa-review";
 import { ForgeHardwareIo } from "@/components/forge/steps/forge-hardware-io";
 import { ForgeMatrixReview } from "@/components/forge/steps/forge-matrix-review";
+import { ForgeInterfaceContract } from "@/components/forge/steps/forge-interface-contract";
 import { ForgeDeviceFb } from "@/components/forge/steps/forge-device-fb";
+import { ForgeAssemblyFb } from "@/components/forge/steps/forge-assembly-fb";
+import { ForgeLogicCheck } from "@/components/forge/steps/forge-logic-check";
 import { ForgeDeviceCode } from "@/components/forge/steps/forge-device-code";
 import { ForgeProcessCode } from "@/components/forge/steps/forge-process-code";
 import { ForgeHmi } from "@/components/forge/steps/forge-hmi";
 import { ForgeTiaExport } from "@/components/forge/steps/forge-tia-export";
 import { ForgePlcsimTest } from "@/components/forge/steps/forge-plcsim-test";
 import { TiaProvisionDialog } from "@/components/forge/tia-provision-dialog";
+import { TiaVersionMismatchBanner } from "@/components/tia-version-mismatch-banner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -42,6 +46,9 @@ import { useForgeStore } from "@/stores/forge-store";
 import { FORGE_STEP_LABELS, FORGE_STEP_ORDER } from "@/types/forge";
 import type { ForgeStep, ForgeArtifact, ForgeHardwareConfig, ForgeIoEntry, ForgeDeviceEntry, SpecAnalysis, TiaForgeExportResult, QaMessage } from "@/types/forge";
 import type { ProcessLinkageMatrix } from "@/types/forge-matrix";
+import type { InterfaceContractMap } from "@/types/forge-contract";
+import type { AssemblyBriefMap } from "@/types/forge-brief";
+import type { LogicCheckResult } from "@/types/forge-logic-check";
 import type { PlcsimTestSuite } from "@/types/plcsim-test";
 import {
   useActiveForgeSession,
@@ -232,6 +239,21 @@ export default function ForgePage() {
     completeStep("hardware_io");
   }
 
+  async function handleContractComplete(contracts: InterfaceContractMap) {
+    await saveSession({ interface_contracts: contracts, current_step: "device_fb" });
+    completeStep("interface_contract");
+  }
+
+  async function handleBriefsComplete(briefs: AssemblyBriefMap) {
+    // Store briefs as device_briefs on the session (reusing the JSONB column)
+    await saveSession({ device_briefs: briefs as unknown as Record<string, unknown>, current_step: "device_fb" });
+  }
+
+  async function handleLogicCheckComplete(result: LogicCheckResult) {
+    await saveSession({ logic_check_result: result as unknown as Record<string, unknown>, current_step: "matrix_review" });
+    completeStep("logic_check");
+  }
+
   async function handleMatrixComplete(matrix: ProcessLinkageMatrix) {
     await saveSession({ linkage_matrix: matrix, current_step: "device_code" });
     completeStep("matrix_review");
@@ -247,12 +269,24 @@ export default function ForgePage() {
     await saveSession({ device_artifacts: mergedArtifacts });
   }
 
+  async function handleAssemblyArtifactsUpdate(artifacts: ForgeArtifact[]) {
+    await saveSession({ assembly_artifacts: artifacts });
+  }
+
+  async function handleAssemblyListResolved(assemblies: import("@/types/forge").ForgeAssemblyEntry[]) {
+    await saveSession({ assembly_list: assemblies });
+  }
+
   async function handleProcessArtifactsUpdate(artifacts: ForgeArtifact[]) {
     await saveSession({ process_artifacts: artifacts });
   }
 
   async function handleHmiArtifactsUpdate(artifacts: ForgeArtifact[]) {
     await saveSession({ hmi_artifacts: artifacts });
+  }
+
+  async function handleDeviceTestSuiteUpdate(suite: PlcsimTestSuite) {
+    await saveSession({ plcsim_device_test_suite: suite });
   }
 
   async function handleTestSuiteUpdate(suite: PlcsimTestSuite) {
@@ -284,6 +318,8 @@ export default function ForgePage() {
     process_code_language: "SCL" as const,
     conversion_fc_language: "SCL" as const,
     hmi_theme: "default",
+    hmi_panel_family: "comfort" as const,
+    hmi_panel_model: "TP1500",
     naming_prefix: "",
     db_naming_prefix: "",
     fb_favourites: {} as Record<string, string>,
@@ -368,6 +404,15 @@ export default function ForgePage() {
           />
         );
 
+      case "interface_contract":
+        return (
+          <ForgeInterfaceContract
+            session={session}
+            onComplete={handleContractComplete}
+            onBriefsComplete={handleBriefsComplete}
+          />
+        );
+
       case "device_fb":
         return (
           <ForgeDeviceFb
@@ -376,8 +421,30 @@ export default function ForgePage() {
             fbTemplates={fbTemplates}
             patterns={patterns}
             onArtifactsUpdate={handleDeviceArtifactsUpdate}
+            onAssemblyArtifactsUpdate={handleAssemblyArtifactsUpdate}
             onBeforeGenerate={fetchFreshTemplates}
             onComplete={() => completeStep("device_fb")}
+          />
+        );
+
+      case "assembly_fb":
+        return (
+          <ForgeAssemblyFb
+            session={session}
+            profile={profileOrDefault}
+            fbTemplates={fbTemplates}
+            patterns={patterns}
+            onArtifactsUpdate={handleAssemblyArtifactsUpdate}
+            onAssemblyListResolved={handleAssemblyListResolved}
+            onComplete={() => completeStep("assembly_fb")}
+          />
+        );
+
+      case "logic_check":
+        return (
+          <ForgeLogicCheck
+            session={session}
+            onComplete={handleLogicCheckComplete}
           />
         );
 
@@ -424,18 +491,31 @@ export default function ForgePage() {
           <ForgeHmi
             session={session}
             profile={profileOrDefault}
+            fbTemplates={fbTemplates}
             onArtifactsUpdate={handleHmiArtifactsUpdate}
             onComplete={() => completeStep("hmi")}
           />
         );
 
-      case "plcsim_test":
+      case "plcsim_device_test":
         return (
           <ForgePlcsimTest
             session={session}
             profile={profileOrDefault}
+            mode="device"
+            onTestSuiteUpdate={handleDeviceTestSuiteUpdate}
+            onComplete={() => completeStep("plcsim_device_test")}
+          />
+        );
+
+      case "plcsim_system_test":
+        return (
+          <ForgePlcsimTest
+            session={session}
+            profile={profileOrDefault}
+            mode="system"
             onTestSuiteUpdate={handleTestSuiteUpdate}
-            onComplete={() => completeStep("plcsim_test")}
+            onComplete={() => completeStep("plcsim_system_test")}
           />
         );
 
@@ -456,6 +536,7 @@ export default function ForgePage() {
         status={provisionStatus}
         onClose={() => setProvisionDialogOpen(false)}
       />
+      <TiaVersionMismatchBanner projectVersion={project?.tia_version ?? null} />
       {/* Header — collapsible */}
       <Card className="border-border/70 bg-card/80">
         {/* Always-visible slim bar */}

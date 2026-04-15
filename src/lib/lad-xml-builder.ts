@@ -964,7 +964,7 @@ ${wiresXml}
  * Build SimaticML LAD XML for a LadProgram.
  * The resulting XML can be imported into TIA Portal V18 via Openness.
  */
-export function buildLadXml(program: LadProgram, tiaVersion: string = "V18"): string {
+export function buildLadXml(program: LadProgram, tiaVersion: string = "V20"): string {
   const counter = new UidCounter();
 
   // Auto-upgrade FC → FB if the program has static variables (timers, step bits, latches).

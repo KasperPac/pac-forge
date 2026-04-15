@@ -40,7 +40,7 @@ export function ProjectForm({
   const [clientName, setClientName] = useState(initialValues?.client_name ?? "");
   const [projectNumber, setProjectNumber] = useState(initialValues?.project_number ?? "");
   const [plcBrand] = useState(initialValues?.plc_brand ?? PLC_BRANDS.SIEMENS_TIA);
-  const [tiaVersion, setTiaVersion] = useState(initialValues?.tia_version ?? "V17");
+  const [tiaVersion, setTiaVersion] = useState(initialValues?.tia_version ?? "V20");
   const [cpuType, setCpuType] = useState<CpuType>(
     (initialValues?.cpu_type as CpuType) ?? CPU_TYPES["S7-1500"]
   );

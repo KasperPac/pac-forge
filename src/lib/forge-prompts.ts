@@ -7,11 +7,14 @@
 import type { DesignProfile } from "@/types/design-profile";
 import type {
   ForgeDeviceEntry,
+  ForgeAssemblyEntry,
   ForgeIoEntry,
   ForgeArtifact,
   ForgeSession,
   SpecAnalysis,
   SpecAnalysisProcessSequence,
+  SpecAnalysisAlarm,
+  SpecAnalysisInterlock,
 } from "@/types/forge";
 import type { FbTemplate } from "@/types/fb-template";
 import type { PatternCandidate, Instruction } from "@/types";
@@ -113,6 +116,17 @@ export const SPEC_ANALYSIS_SCHEMA = `{
   "fb_architecture": "string | null (design intent from spec — e.g. 'FanStagingController FB manages threshold logic, three ControlMotor instances handle contactor control')",
   "subsystems": [
     { "name": "string", "description": "string" }
+  ],
+  "assemblies": [
+    {
+      "id": "string (e.g. ASM001)",
+      "name": "string (e.g. LFT01 Lift Table)",
+      "tag": "string (e.g. LFT01)",
+      "assembly_type": "string (e.g. Lift Table, Belt Conveyor, Stamping Press)",
+      "description": "string (one line)",
+      "subsystem": "string",
+      "device_ids": ["string (device IDs, e.g. DEV003, DEV004)"]
+    }
   ],
   "devices": [
     {
@@ -230,6 +244,143 @@ ${SPEC_ANALYSIS_SCHEMA}`;
 }
 
 // ---------------------------------------------------------------------------
+// Interface Contract prompts — defines how assemblies communicate
+// ---------------------------------------------------------------------------
+
+/**
+ * System prompt for AI to suggest interface contracts for all assemblies.
+ * Called after spec analysis + hardware_io, before device FB generation.
+ * The AI only sees spec-level data (no device FB code exists yet).
+ *
+ * HARDCODED — not configurable via Prompts page.
+ */
+export function buildInterfaceContractPrompt(): string {
+  return `You are a senior automation engineer designing the **interface contracts** between assembly function blocks in a Siemens S7-1200/S7-1500 PLC program.
+
+## What is an Interface Contract?
+
+Each assembly (e.g. lift table, conveyor, stamping press) is a coordinated group of devices controlled by a single Assembly FB. Assemblies communicate with each other and with process sequences through their FB interfaces:
+
+- **Exposed signals** — outputs this assembly provides (status, positions, faults). These become VAR_OUTPUT on the assembly FB.
+- **Consumed signals** — inputs this assembly needs from OTHER assemblies. These become VAR_INPUT on the assembly FB, wired by the call FC.
+- **State definitions** — the state machine states this assembly implements (IDLE, MOVING_UP, AT_UPPER, FAULT, etc.)
+
+The interface contract is the binding agreement that ensures:
+1. Every assembly exposes what downstream consumers need
+2. Every consumed signal has a matching exposed signal from a source assembly
+3. The process sequence logic knows what status signals are available
+
+## Rules
+
+- Use lowerCamelCase for all signal names (Siemens Style Guide V2.1)
+- Every assembly MUST expose at minimum: \`busy\` (Bool), \`done\` (Bool), \`error\` (Bool), \`faultCode\` (Word), \`stateNumber\` (Int)
+- Position/status signals depend on assembly type (e.g. lift table exposes \`atUpper\`, \`atLower\`; conveyor exposes \`running\`, \`atSpeed\`)
+- Command inputs are NOT consumed signals — they come from the process sequence, not other assemblies
+- Consumed signals should reference the SOURCE assembly tag and signal name
+- State definitions should cover: normal operation states, fault state(s), and any waiting/transitional states
+- Intent comments MUST explain the signal's purpose AND who reads/writes it
+
+## Output Format
+
+Return JSON inside \`\`\`json fences matching this schema exactly:
+
+\`\`\`json
+{
+  "<assemblyId>": {
+    "assemblyId": "string",
+    "assemblyTag": "string",
+    "exposed": [
+      {
+        "id": "string (unique, e.g. exp_001)",
+        "name": "string (lowerCamelCase parameter name)",
+        "dataType": "string (Bool, Int, Word, Real, Time)",
+        "direction": "expose",
+        "intentComment": "string (what it means + who reads it)"
+      }
+    ],
+    "consumed": [
+      {
+        "id": "string (unique, e.g. con_001)",
+        "name": "string (lowerCamelCase — how this assembly sees the signal)",
+        "dataType": "string",
+        "direction": "consume",
+        "intentComment": "string (why this assembly needs it)",
+        "sourceAssemblyTag": "string (tag of assembly that provides this)",
+        "sourceSignalName": "string (name of exposed signal on source)"
+      }
+    ],
+    "stateDefinitions": ["string (state names in UPPER_SNAKE_CASE)"],
+    "approved": false
+  }
+}
+\`\`\``;
+}
+
+/**
+ * User message containing the spec analysis data for contract generation.
+ */
+export function buildInterfaceContractUserMessage(analysis: SpecAnalysis): string {
+  const assemblies = analysis.assemblies ?? [];
+  const devices = analysis.devices ?? [];
+  const interlocks = analysis.interlocks ?? [];
+  const sequences = analysis.process_sequences ?? [];
+  const alarms = analysis.alarms ?? [];
+
+  if (assemblies.length === 0) {
+    return "No assemblies found in the spec analysis. Return an empty JSON object: {}";
+  }
+
+  const assemblySection = assemblies.map((a) => {
+    const devNames = devices
+      .filter((d) => a.device_ids.includes(d.id))
+      .map((d) => `    - ${d.name} (${d.device_type}, tag: ${d.tag}): ${d.description}\n      IO: ${d.io_signals.map((s) => `${s.signal_type}:${s.tag_name} — ${s.description}`).join(", ") || "none"}`)
+      .join("\n");
+    return `### ${a.name} [${a.tag}] — ${a.assembly_type}
+  Description: ${a.description}
+  Subsystem: ${a.subsystem}
+  Constituent devices:
+${devNames}`;
+  }).join("\n\n");
+
+  const sequenceSection = sequences.length > 0
+    ? `## Process Sequences (${sequences.length})
+${sequences.map((s) => {
+  const steps = (s.steps ?? []).map((st) =>
+    `    Step ${st.step_number}: ${st.action}${st.devices_involved?.length ? ` [devices: ${st.devices_involved.join(", ")}]` : ""}`,
+  ).join("\n");
+  return `  - **${s.name}** (${s.subsystem})\n    Permissives: ${s.permissives?.join(", ") || "none"}\n${steps}`;
+}).join("\n")}`
+    : "";
+
+  const interlockSection = interlocks.length > 0
+    ? `## Interlocks (${interlocks.length})
+${interlocks.map((i) => `  - **${i.name}**: ${i.condition} (${i.interlock_type ?? "permissive"}) — affects: ${i.affected_devices.join(", ")}`).join("\n")}`
+    : "";
+
+  const alarmSection = alarms.length > 0
+    ? `## Alarms (${alarms.length})
+${alarms.map((a) => `  - **${a.name}** [${a.severity}]: ${a.description}${a.trigger_condition ? ` — trigger: ${a.trigger_condition}` : ""}`).join("\n")}`
+    : "";
+
+  return `Generate interface contracts for the following assemblies.
+
+## Assemblies (${assemblies.length})
+
+${assemblySection}
+
+${sequenceSection}
+
+${interlockSection}
+
+${alarmSection}
+
+Analyze how these assemblies interact based on the process sequences, interlocks, and device relationships. Define the exposed signals, consumed signals (with source assembly references), and state machine states for each assembly.
+
+Return the JSON now.`;
+}
+
+
+// ---------------------------------------------------------------------------
 // TASK 4: Spec analysis prompt
 // ---------------------------------------------------------------------------
 
@@ -245,21 +396,28 @@ ${SPEC_ANALYSIS_SCHEMA}`;
  * To make configurable: add "forge:spec_analysis" section key to PROMPT_DEFAULTS and use resolveSection().
  */
 export function buildSpecAnalysisPrompt(fbTemplates?: FbTemplate[], promptSections?: Record<string, string>): string {
-  const librarySection =
-    fbTemplates && fbTemplates.length > 0
-      ? `## FB Library (available Function Blocks)
+  const deviceTemplates = (fbTemplates ?? []).filter((t) => !t.is_assembly);
+  const assemblyTemplates = (fbTemplates ?? []).filter((t) => t.is_assembly);
 
-The following FBs exist in the company library. Use this to decide how many device entries to create:
-- Each FB handles EXACTLY ONE physical device instance.
-- If the spec describes N physical devices of the same type, create N separate device entries — one per FB instance.
-- Match device_type names to the closest FB category name.
+  // Deduplicate templates by category — spec analysis only needs to know what types exist
+  const deviceCategories = [...new Set(deviceTemplates.map((t) => t.device_category ?? t.name))];
+  const assemblyCategories = [...new Set(assemblyTemplates.map((t) => t.device_category ?? t.name))];
 
-${fbTemplates
-  .map((t) => `- **${t.name}** (category: ${t.device_category ?? "general"}) — ${t.blocks?.length ?? 1} block(s): ${(t.blocks ?? []).map((b) => `${b.block_type}:${b.block_name}`).join(", ") || t.name}`)
-  .join("\n")}
+  let librarySection = "";
+  if (deviceCategories.length > 0) {
+    librarySection += `## Device FB Library (${deviceTemplates.length} templates)
+Each FB handles ONE physical device. Create N device entries for N instances of the same type.
+Categories: ${deviceCategories.join(", ")}
 
-`
-      : "";
+`;
+  }
+  if (assemblyCategories.length > 0) {
+    librarySection += `## Assembly FB Library (${assemblyTemplates.length} templates)
+Each assembly FB coordinates a group of devices.
+Categories: ${assemblyCategories.join(", ")}
+
+`;
+  }
 
   const identity = resolveSection(promptSections, "forge_pm_spec_analysis", "identity");
   const instructions = resolveSection(promptSections, "forge_pm_spec_analysis", "instructions");
@@ -270,6 +428,8 @@ ${librarySection}
 
 ${instructions}
 
+IMPORTANT: Keep descriptions SHORT (one line each). Do not repeat spec text verbatim — summarise.
+
 Return the JSON inside \`\`\`json fences, matching this schema exactly (no explanation):
 ${SPEC_ANALYSIS_SCHEMA}`;
 }
@@ -279,6 +439,241 @@ ${SPEC_ANALYSIS_SCHEMA}`;
  */
 export function buildSpecAnalysisUserMessage(specText: string): string {
   return `<spec_text>\n${specText}\n</spec_text>\n\nExtract and return the structured JSON now.`;
+}
+
+// ---------------------------------------------------------------------------
+// Assembly FB SCL code generation prompt
+// ---------------------------------------------------------------------------
+
+export interface AssemblyGenContext {
+  profile?: DesignProfile;
+  platformRules: string;
+  patterns?: PatternCandidate[];
+  fbTemplate?: FbTemplate | null;
+  constituentDevices: ForgeDeviceEntry[];
+  deviceArtifacts: ForgeArtifact[];
+  interlocks?: SpecAnalysisInterlock[];
+  alarms?: SpecAnalysisAlarm[];
+  instructions?: Instruction[];
+  /** FDS-derived behavioral brief — when present, the AI implements the FDS spec */
+  brief?: import("@/types/forge-brief").AssemblyBrief;
+}
+
+/**
+ * Builds the FDS behavioral specification section for the assembly prompt.
+ * This tells the AI exactly what to implement — states, step sequences, device safe states, faults.
+ */
+function buildFdsBehavioralSection(brief: import("@/types/forge-brief").AssemblyBrief): string {
+  const parts: string[] = [];
+  parts.push(`## FDS Behavioral Specification (IMPLEMENT THIS EXACTLY)\n`);
+  parts.push(`Source: Functional Design Specification — this defines the required behavior.\n`);
+
+  // Operating states → become CASE states
+  if (brief.operatingStates.length > 0) {
+    parts.push(`### Operating States (${brief.operatingStates.length})`);
+    parts.push(`The state machine MUST implement these states:\n`);
+    for (const os of brief.operatingStates) {
+      parts.push(`- **${os.state_name}** (${os.state_pattern}) — ${os.description}`);
+    }
+    parts.push("");
+  }
+
+  // Static states → device safe state tables
+  const staticIds = Object.keys(brief.staticStates);
+  if (staticIds.length > 0) {
+    parts.push(`### Static State Device Tables`);
+    parts.push(`In these states, outputs are held at fixed values:\n`);
+    for (const stateId of staticIds) {
+      const stateName = brief.operatingStates.find((os) => os.state_id === stateId)?.state_name ?? stateId;
+      const entries = brief.staticStates[stateId];
+      parts.push(`#### ${stateName}`);
+      for (const e of entries) {
+        parts.push(`- ${e.tag}: ${e.state} — ${e.description}`);
+      }
+      parts.push("");
+    }
+  }
+
+  // Sequential states → step sequences with permissives and completion criteria
+  const seqIds = Object.keys(brief.sequentialStates);
+  if (seqIds.length > 0) {
+    parts.push(`### Sequential State Step Sequences`);
+    parts.push(`In these states, the assembly executes a step sequence:\n`);
+    for (const stateId of seqIds) {
+      const stateName = brief.operatingStates.find((os) => os.state_id === stateId)?.state_name ?? stateId;
+      const seq = brief.sequentialStates[stateId];
+      parts.push(`#### ${stateName}`);
+
+      if (seq.permissives.length > 0) {
+        parts.push(`**Permissives (must be TRUE before sequence starts):**`);
+        for (const p of seq.permissives) {
+          parts.push(`- ${p}`);
+        }
+      }
+
+      if (seq.steps.length > 0) {
+        parts.push(`**Steps:**`);
+        for (const step of seq.steps) {
+          // Check for structured fields (coming from FDS)
+          const s = step as Record<string, unknown>;
+          const timeout = s.timeout_value ? ` — timeout: ${s.timeout_value}` : "";
+          const timeoutAction = s.timeout_action ? ` → ${s.timeout_action}` : "";
+          parts.push(`- Step ${step.step}: ${step.action}`);
+          parts.push(`  Completion: ${step.completion_criteria}${timeout}${timeoutAction}`);
+        }
+      }
+
+      if (seq.notes) {
+        parts.push(`**Notes:** ${seq.notes}`);
+      }
+      parts.push("");
+    }
+  }
+
+  // Alarm conditions
+  if (brief.alarmConditions.length > 0) {
+    parts.push(`### Fault Conditions (from alarm specification)`);
+    for (const a of brief.alarmConditions) {
+      parts.push(`- **${a.code}** [${a.severity}]: ${a.description} — Action: ${a.action}`);
+      if (a.triggerCondition) {
+        parts.push(`  Trigger: ${a.triggerCondition}`);
+      }
+    }
+    parts.push("");
+  }
+
+  // Engineer annotations
+  if (brief.annotations.length > 0) {
+    parts.push(`### Engineer Annotations`);
+    for (const a of brief.annotations) {
+      parts.push(`- ${a}`);
+    }
+    parts.push("");
+  }
+
+  return parts.join("\n") + "\n";
+}
+
+export function buildAssemblySclPrompt(
+  assembly: ForgeAssemblyEntry,
+  context: AssemblyGenContext,
+  promptSections?: Record<string, string>,
+): string {
+  const { profile, platformRules, patterns, constituentDevices, deviceArtifacts } = context;
+
+  const deviceInterfaces = constituentDevices.map((d) => {
+    const fbArtifact = deviceArtifacts.find(
+      (a) => a.type === "FB" && a.stage === "device_fb" && a.name.toLowerCase().includes(d.tag.toLowerCase()),
+    );
+    const interfaceSection = fbArtifact
+      ? extractVarSections(fbArtifact.content)
+      : `  // No FB artifact found for ${d.tag}`;
+    return `### ${d.name} (${d.device_type}) — Tag: ${d.tag}\nIO Signals: ${d.io_signals.map((s) => `${s.signal_type}:${s.tag_name}`).join(", ") || "none"}\n\`\`\`scl\n${interfaceSection}\n\`\`\``;
+  }).join("\n\n");
+
+  const profileSection = profile
+    ? `## Code Design Profile: ${profile.name}\n${profile.rules}\n\n`
+    : "";
+
+  const patternsSection = patterns && patterns.length > 0
+    ? formatPatterns(patterns) + "\n\n"
+    : "";
+
+  const interlocksSection = context.interlocks && context.interlocks.length > 0
+    ? `## Relevant Interlocks\n${context.interlocks.map((i) => `- **${i.name}**: ${i.condition} (${i.interlock_type ?? "permissive"}) — affects: ${i.affected_devices.join(", ")}`).join("\n")}\n\n`
+    : "";
+
+  const alarmsSection = context.alarms && context.alarms.length > 0
+    ? `## Relevant Alarms\n${context.alarms.map((a) => `- **${a.name}** [${a.severity}]: ${a.description}${a.trigger_condition ? ` — trigger: ${a.trigger_condition}` : ""}`).join("\n")}\n\n`
+    : "";
+
+  const _identity = resolveSection(promptSections, "forge_assembly_generate", "identity");
+
+  // Build FDS behavioral spec section when brief is available
+  const fdsBehavioralSection = context.brief ? buildFdsBehavioralSection(context.brief) : "";
+
+  return `You are a Code Architect generating an Assembly Function Block in SCL for Siemens S7-1200/S7-1500.
+
+## What is an Assembly FB?
+
+An Assembly FB coordinates a group of physical devices that work together as a functional unit (e.g. a lift table, a conveyor, a stamping press). It contains:
+- **State machine** — states defined by the functional design specification (FDS)
+- **Fault detection** — travel timeout, overtravel, motor fault, position loss
+- **Command interface** — inputs like cmdRaise, cmdLower, cmdStop, reset, enable
+- **Status outputs** — busy, done, error, faultCode, stateNumber, plus assembly-specific status
+- **HMI UDT** — VAR_IN_OUT for HMI faceplate binding
+- **Config UDT** — VAR_INPUT for configurable parameters (timeouts, thresholds)
+
+The assembly FB does NOT read physical IO directly — it reads device status from its input parameters, which are wired by the call FC.
+
+## Assembly: ${assembly.name}
+- **Tag:** ${assembly.tag}
+- **Type:** ${assembly.assembly_type}
+- **Description:** ${assembly.description}
+- **Subsystem:** ${assembly.subsystem}
+- **Constituent Devices (${constituentDevices.length}):**
+
+${deviceInterfaces}
+
+${fdsBehavioralSection}${profileSection}${patternsSection}${interlocksSection}${alarmsSection}
+
+## Platform Rules (abridged)
+${platformRules}
+
+## Output Format
+
+Emit ALL blocks as fenced SCL. Each block as:
+\`\`\`scl [BlockType:BlockName]
+...
+\`\`\`
+
+Required blocks:
+1. **Config UDT** — \`[UDT:type${sanitizeBlockName(assembly.tag)}Config]\` — configurable parameters (timeouts, thresholds)
+2. **HMI UDT** — \`[UDT:udtHMI_${sanitizeBlockName(assembly.tag)}]\` — HMI faceplate binding struct
+3. **Assembly FB** — \`[FB:Control${sanitizeBlockName(assembly.tag)}]\` — main assembly logic
+4. **Instance DB** — \`[DB:Inst${sanitizeBlockName(assembly.tag)}]\` — instance of the assembly FB
+
+## Rules
+- Use lowerCamelCase for parameters (Siemens Style Guide V2.1)
+- State machine via CASE #statState OF with ELSE branch
+- Every state transition must set #statState explicitly
+- TON timers for travel timeouts — declare as multi-instance in VAR
+- Fault codes as Word: 16#0000 (ok), 16#8001+ (faults)
+- REGION blocks: IO Mapping, State Machine, Fault Detection, HMI Update, Output Mapping
+- The FB reads device status via its VAR_INPUT parameters — NOT via global DB access
+${context.brief ? "- CRITICAL: Implement the FDS behavioral specification EXACTLY as described above. Do not invent states or steps not in the FDS." : ""}`;
+}
+
+export function buildAssemblySclUserMessage(assembly: ForgeAssemblyEntry): string {
+  return `Generate the Assembly FB for ${assembly.name} (${assembly.assembly_type}) with tag ${assembly.tag}.\n\nInclude the config UDT, HMI UDT, assembly FB, and instance DB. Emit all blocks now.`;
+}
+
+function sanitizeBlockName(tag: string): string {
+  return tag.replace(/[^A-Za-z0-9]/g, "");
+}
+
+function extractVarSections(sclContent: string): string {
+  const lines = sclContent.split("\n");
+  const sections: string[] = [];
+  let inSection = false;
+  let depth = 0;
+
+  for (const line of lines) {
+    const trimmed = line.trim().toUpperCase();
+    if (trimmed.startsWith("VAR_INPUT") || trimmed.startsWith("VAR_OUTPUT") || trimmed.startsWith("VAR_IN_OUT")) {
+      inSection = true;
+      depth = 1;
+      sections.push(line);
+    } else if (inSection) {
+      sections.push(line);
+      if (trimmed === "END_VAR") {
+        depth--;
+        if (depth <= 0) inSection = false;
+      }
+    }
+  }
+
+  return sections.length > 0 ? sections.join("\n") : "  // No interface found";
 }
 
 // ---------------------------------------------------------------------------
@@ -1723,6 +2118,10 @@ export interface ProcessGenContext {
   ioEntries?: ForgeIoEntry[];
   /** Device entries (for IO wiring context) */
   deviceEntries?: ForgeDeviceEntry[];
+  /** Assembly entries — sequences command these, not individual devices */
+  assemblyEntries?: ForgeAssemblyEntry[];
+  /** Assembly FB interface sections (SCL VAR_INPUT/OUTPUT) */
+  assemblyFbInterfaces?: string;
   /** Full linkage matrix with engineer-confirmed device wiring and process sequences */
   linkageMatrix?: ProcessLinkageMatrix;
   /** SCL content of generated global DBs (HmiData, ProcessCommands, Configuration) */
@@ -1866,6 +2265,15 @@ export function buildProcessSclPrompt(context: ProcessGenContext, promptSections
 Use these exact field names — do NOT invent alternatives.
 
 ${wiringSummary}` : "",
+    // Assembly context for assembly-first sequencing
+    context.assemblyEntries?.length
+      ? `## Assemblies (command these in sequences, NOT individual devices)
+${context.assemblyEntries.map((a) => `- **${a.name}** [${a.tag}] (${a.assembly_type}) — ${a.device_ids.length} devices`).join("\n")}
+${context.assemblyFbInterfaces ? `\n## Assembly FB Interfaces\n${context.assemblyFbInterfaces}` : ""}
+
+**CRITICAL:** Process sequences command assemblies via ProcessCommands DB (e.g. "DB_ProcessCommands".lft01CmdRaise := TRUE).
+Read assembly status from ProcessState DB (e.g. "DB_ProcessState".lft01AtUpper). Fault handling is INSIDE assembly FBs.`
+      : "",
     // Full signal path map — shows IO addresses, cross-device references, interlocks
     buildWiringContext(linkageMatrix, context.ioEntries ?? []),
     "",
@@ -2781,7 +3189,9 @@ export function buildDeviceLinkagePrompt(
 
   return `${identity}
 ${platformBlock}${profileBlock}${patternBlock}${referenceBlock}${knowledgeBlock}
-Generate ONLY the deviceLinkage array — which FB each device uses, its instance DB name, how FB parameters wire to IO tags or global data, and interlocks between devices.
+Generate the deviceLinkage array AND the assemblyLinkage array.
+- deviceLinkage: which FB each device uses, its instance DB name, how FB parameters wire to IO tags or global data, and interlocks between devices.
+- assemblyLinkage: which FB each assembly uses, its instance DB name, how assembly FB parameters wire to ProcessCommands (inputs) and ProcessState (outputs). Include statusMirrors for assembly outputs.
 
 ${MATRIX_RULES_COMMON}
 - Interlocks must reference devices that exist in the device list
@@ -3108,21 +3518,58 @@ export function buildDeviceLinkageUserMessage(
   ioList: ForgeIoEntry[],
   fbTemplates?: FbTemplate[],
   generatedFbArtifacts?: ForgeArtifact[],
+  assemblies?: ForgeAssemblyEntry[],
+  assemblyArtifacts?: ForgeArtifact[],
 ): string {
   const { deviceTable, ioSummary, fbInterfacesText } = buildMatrixContext(devices, ioList, fbTemplates, generatedFbArtifacts);
 
-  return `Generate the device linkage section for this project.
+  const assemblySection = assemblies && assemblies.length > 0
+    ? `## Assemblies (${assemblies.length})
+${assemblies.map((a) => {
+  const devNames = devices.filter((d) => a.device_ids.includes(d.id)).map((d) => d.tag).join(", ");
+  return `  - **${a.name}** [${a.tag}] (${a.assembly_type}) — devices: ${devNames}`;
+}).join("\n")}
+
+## Assembly FB Interfaces
+${(assemblyArtifacts ?? [])
+  .filter((a) => a.type === "FB" && a.stage === "assembly_fb")
+  .map((a) => {
+    const varSections = extractVarSectionsForMatrix(a.content);
+    return `### ${a.name}\n\`\`\`scl\n${varSections}\n\`\`\``;
+  }).join("\n\n")}
+`
+    : "";
+
+  return `Generate the device linkage AND assembly linkage sections for this project.
 
 ## Confirmed Device List (${devices.length} devices)
 ${deviceTable}
 
+${assemblySection}
 ## IO List (${ioList.length} signals)
 ${ioSummary}
 
 ## FB Template Interfaces (use EXACT parameter names for wiring)
 ${fbInterfacesText}
 
-Generate the deviceLinkage JSON now, wrapped in [DEVICE_LINKAGE]...[/DEVICE_LINKAGE] tags.`;
+Generate the deviceLinkage AND assemblyLinkage JSON now, wrapped in [DEVICE_LINKAGE]...[/DEVICE_LINKAGE] tags.`;
+}
+
+function extractVarSectionsForMatrix(sclContent: string): string {
+  const lines = sclContent.split("\n");
+  const sections: string[] = [];
+  let inSection = false;
+  for (const line of lines) {
+    const trimmed = line.trim().toUpperCase();
+    if (trimmed.startsWith("VAR_INPUT") || trimmed.startsWith("VAR_OUTPUT") || trimmed.startsWith("VAR_IN_OUT")) {
+      inSection = true;
+      sections.push(line);
+    } else if (inSection) {
+      sections.push(line);
+      if (trimmed === "END_VAR") inSection = false;
+    }
+  }
+  return sections.length > 0 ? sections.join("\n") : "  // No interface found";
 }
 
 /**
@@ -3133,9 +3580,14 @@ export function buildSequencesUserMessage(
   devices: ForgeDeviceEntry[],
   specAnalysis: SpecAnalysis | null,
   wiringFieldNames?: Map<string, Set<string>>,
+  assemblies?: ForgeAssemblyEntry[],
 ): string {
   const deviceNames = devices
     .map((d) => `  - ${d.name} [${d.tag}] (${d.device_type}, ${d.subsystem})`)
+    .join("\n");
+
+  const assemblyNames = (assemblies ?? specAnalysis?.assemblies ?? [])
+    .map((a) => `  - ${a.name} [${a.tag}] (${a.assembly_type}, ${a.subsystem}) — devices: ${a.device_ids.join(", ")}`)
     .join("\n");
 
   const sequenceSummary = specAnalysis?.process_sequences?.length
@@ -3249,6 +3701,7 @@ For any ADDITIONAL faults your sequences need (e.g. step timeout, feedback timeo
 
 ## Device List (${devices.length} devices — reference for device names in conditions)
 ${deviceNames}
+${assemblyNames ? `\n## Assemblies (command these in sequences, not individual devices)\n${assemblyNames}\n` : ""}
 ${wiringSection}
 ## Process Sequences from Spec
 ${sequenceSummary}

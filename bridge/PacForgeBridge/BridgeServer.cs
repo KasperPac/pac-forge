@@ -147,6 +147,24 @@ namespace PacForgeBridge
                     return;
                 }
 
+                // Route: POST /tia/hmi/export-reference
+                // Exports all Unified HMI screens + tag tables + PLC UDTs as SimaticML to a directory.
+                // Used to seed Pac-Forge's HMI XML builder and UDT catalog from real Siemens patterns.
+                if (method == "POST" && path == "/tia/hmi/export-reference")
+                {
+                    await HandleExportReference(req, res);
+                    return;
+                }
+
+                // Route: POST /tia/hmi/create-screen
+                // Phase 4: create a Unified HMI screen from a Pac-Forge payload via direct Openness API.
+                // Body is UnifiedScreenRequest (name, width/height, items[] with type + attributes).
+                if (method == "POST" && path == "/tia/hmi/create-screen")
+                {
+                    await HandleCreateUnifiedScreen(req, res);
+                    return;
+                }
+
                 // Route: POST /tia/export-block-xml
                 if (method == "POST" && path == "/tia/export-block-xml")
                 {
@@ -401,38 +419,40 @@ namespace PacForgeBridge
             var request = Json.Deserialize<BrowseFileRequest>(body);
 
             string selectedPath = null;
-            // OpenFileDialog must run on an STA thread with a topmost owner form
-            // so the dialog appears in front of the browser.
-            // Application.Run() ensures proper message pump cleanup.
+            // OpenFileDialog must run on an STA thread. We show the dialog with no
+            // owner form — WinForms handles the modal window itself, and the dialog
+            // appears in front of whatever is foreground at the time.
             var thread = new System.Threading.Thread(() =>
             {
-                System.Windows.Forms.Application.EnableVisualStyles();
-                var owner = new System.Windows.Forms.Form
+                try
                 {
-                    TopMost = true,
-                    ShowInTaskbar = false,
-                    FormBorderStyle = System.Windows.Forms.FormBorderStyle.None,
-                    Size = new System.Drawing.Size(1, 1),
-                    StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen,
-                    Opacity = 0,
-                };
-                owner.Load += (s, e) =>
+                    using (var dialog = new System.Windows.Forms.OpenFileDialog())
+                    {
+                        dialog.Title = request?.Title ?? "Select File";
+                        try
+                        {
+                            dialog.Filter = request?.Filter ?? "All Files|*.*";
+                        }
+                        catch (Exception filterEx)
+                        {
+                            Console.WriteLine($"[BROWSE] Invalid filter '{request?.Filter}': {filterEx.Message}. Falling back to All Files.");
+                            dialog.Filter = "All Files|*.*";
+                        }
+                        if (!string.IsNullOrEmpty(request?.InitialDirectory) && System.IO.Directory.Exists(request.InitialDirectory))
+                        {
+                            dialog.InitialDirectory = request.InitialDirectory;
+                        }
+                        dialog.AutoUpgradeEnabled = true;
+                        if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                        {
+                            selectedPath = dialog.FileName;
+                        }
+                    }
+                }
+                catch (Exception ex)
                 {
-                    var dialog = new System.Windows.Forms.OpenFileDialog();
-                    dialog.Title = request?.Title ?? "Select File";
-                    dialog.Filter = request?.Filter ?? "All Files (*.*)|*.*";
-                    if (!string.IsNullOrEmpty(request?.InitialDirectory) && System.IO.Directory.Exists(request.InitialDirectory))
-                    {
-                        dialog.InitialDirectory = request.InitialDirectory;
-                    }
-                    if (dialog.ShowDialog(owner) == System.Windows.Forms.DialogResult.OK)
-                    {
-                        selectedPath = dialog.FileName;
-                    }
-                    dialog.Dispose();
-                    owner.Close();
-                };
-                System.Windows.Forms.Application.Run(owner);
+                    Console.WriteLine($"[BROWSE] Dialog error: {ex.Message}");
+                }
             });
             thread.SetApartmentState(System.Threading.ApartmentState.STA);
             thread.Start();
@@ -1058,6 +1078,68 @@ namespace PacForgeBridge
             }
         }
 
+        private async Task HandleExportReference(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            try
+            {
+                string body = await ReadBody(req);
+                var request = Newtonsoft.Json.JsonConvert.DeserializeObject<ExportReferenceRequest>(body);
+                if (request == null || string.IsNullOrWhiteSpace(request.OutputDir))
+                {
+                    await WriteJson(res, 400, new ExportReferenceResponse
+                    {
+                        Success = false,
+                        Message = "Request body must include outputDir (absolute path)."
+                    });
+                    return;
+                }
+
+                Console.WriteLine($"[TIA] Exporting reference project to {request.OutputDir}...");
+                var result = _tiaService.ExportReferenceProject(request.OutputDir);
+                await WriteJson(res, 200, result);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TIA] Reference export failed: {ex.Message}");
+                await WriteJson(res, 500, new ExportReferenceResponse
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+        }
+
+        private async Task HandleCreateUnifiedScreen(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            try
+            {
+                string body = await ReadBody(req);
+                var request = Newtonsoft.Json.JsonConvert.DeserializeObject<UnifiedScreenRequest>(body);
+                if (request == null || string.IsNullOrWhiteSpace(request.Name))
+                {
+                    await WriteJson(res, 400, new CreateUnifiedScreenResponse
+                    {
+                        Success = false,
+                        Message = "Request body must include screen Name."
+                    });
+                    return;
+                }
+
+                Console.WriteLine($"[TIA] Creating Unified screen '{request.Name}' with {request.Items?.Count ?? 0} item(s)...");
+                var result = _tiaService.CreateUnifiedScreen(request);
+                await WriteJson(res, result.Success ? 200 : 500, result);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TIA] Create Unified screen failed: {ex.Message}");
+                await WriteJson(res, 500, new CreateUnifiedScreenResponse
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+        }
+
         private async Task HandleExportHmiGraphics(HttpListenerRequest req, HttpListenerResponse res)
         {
             try
@@ -1209,6 +1291,26 @@ namespace PacForgeBridge
 
                 Console.WriteLine($"[TIA] Copying from library to project: {request.LibraryPath} " +
                     $"({request.MasterCopyPaths?.Count ?? 0} master copies, {request.TypePaths?.Count ?? 0} types)");
+
+                // Ensure project is open before library copy (V20 requires explicit open after attach)
+                Console.WriteLine($"[TIA] Library copy: project_path='{request.ProjectPath ?? "(null)"}'");
+                _tiaService.Connect(preferAttach: true);
+                if (!_tiaService.HasProjectOpen)
+                {
+                    if (!string.IsNullOrEmpty(request.ProjectPath))
+                    {
+                        Console.WriteLine($"[TIA] Opening project for library copy: {request.ProjectPath}");
+                        _tiaService.OpenProject(request.ProjectPath);
+                    }
+                    else
+                    {
+                        Console.WriteLine("[TIA] WARNING: No project open and no project_path provided");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"[TIA] Project already open: {(_tiaService.HasProjectOpen ? "yes" : "no")}");
+                }
 
                 var result = _tiaService.CopyLibraryItemsToProject(
                     request.LibraryPath,

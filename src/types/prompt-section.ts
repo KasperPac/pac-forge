@@ -32,6 +32,8 @@ export const PROMPT_ROLES = {
   REVIEW_SCOPE_FC: "review_scope_fc",
   // IO Validator
   FORGE_IO_VALIDATOR: "forge_io_validator",
+  // Logic Validator
+  FORGE_LOGIC_VALIDATOR: "forge_logic_validator",
   // Pattern Librarian
   FORGE_PATTERN_LIBRARIAN: "forge_pattern_librarian",
   // Safety Auditor
@@ -41,6 +43,8 @@ export const PROMPT_ROLES = {
   HMI_SVG_GENERATOR: "hmi_svg_generator",
   // PLCSIM Test
   PLCSIM_TEST: "plcsim_test",
+  // Test Template Suggest
+  TEST_TEMPLATE_SUGGEST: "test_template_suggest",
 } as const;
 
 export type PromptRole = (typeof PROMPT_ROLES)[keyof typeof PROMPT_ROLES];
@@ -68,6 +72,8 @@ export const PROMPT_ROLE_LABELS: Record<PromptRole, string> = {
   review_scope_fc: "Review: FC+OB Stage Scope",
   // IO Validator
   forge_io_validator: "IO Validation",
+  // Logic Validator
+  forge_logic_validator: "Logic Validator",
   // Pattern Librarian
   forge_pattern_librarian: "Pattern Analysis",
   // Safety Auditor
@@ -77,6 +83,8 @@ export const PROMPT_ROLE_LABELS: Record<PromptRole, string> = {
   hmi_svg_generator: "HMI SVG Generator",
   // PLCSIM Test
   plcsim_test: "PLCSIM Test Generation",
+  // Test Template Suggest
+  test_template_suggest: "Test Template Suggest",
 };
 
 /** Which section keys each role supports */
@@ -102,6 +110,8 @@ export const ROLE_SECTIONS: Record<PromptRole, string[]> = {
   review_scope_fc: ["scope"],
   // IO Validator
   forge_io_validator: ["identity", "instructions"],
+  // Logic Validator
+  forge_logic_validator: ["identity", "instructions"],
   // Pattern Librarian
   forge_pattern_librarian: ["identity", "instructions"],
   // Safety Auditor
@@ -111,6 +121,8 @@ export const ROLE_SECTIONS: Record<PromptRole, string[]> = {
   hmi_svg_generator: ["identity", "instructions"],
   // PLCSIM Test
   plcsim_test: ["identity", "instructions"],
+  // Test Template Suggest
+  test_template_suggest: ["identity", "instructions"],
 };
 
 export const SECTION_LABELS: Record<string, string> = {

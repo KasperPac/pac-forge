@@ -902,3 +902,19 @@ IF #speed = 50.0 THEN ...
 // CORRECT:
 IF ABS(#speed - 50.0) < 0.01 THEN ...
 ```
+
+**Writing FALSE/0 to unused library FB outputs (breaks compile):**
+When calling a library FB (Open Library, etc.), parameters that are not used by the process must be **self-assigned** — written back to their own instance DB value. Writing `FALSE` or `0` to an unused output forces a value that may conflict with the FB's internal logic or type.
+```scl
+// WRONG — forces FALSE on an output the process doesn't use:
+"InstFAN01".bOutCommandReverse := FALSE;
+"InstFAN01".rOutSpeedReference := 0.0;
+
+// CORRECT — self-assign preserves the FB's internal state:
+"InstFAN01".bOutCommandReverse := "InstFAN01".bOutCommandReverse;
+"InstFAN01".rOutSpeedReference := "InstFAN01".rOutSpeedReference;
+
+// CORRECT — if the parameter IS used by the process, assign normally:
+"InstFAN01".bOutCommandRun := "DB_ProcessCommands".fan01Run;
+```
+This applies to ALL library FB parameters (inputs AND outputs) that are not wired in the linkage matrix. Only assign real process values to parameters that appear in the wiring map.

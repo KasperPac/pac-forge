@@ -204,58 +204,95 @@ namespace PacForgeBridge
                 List<ManifestArtifactDto> artifacts = job.Manifest.Artifacts;
                 int totalArtifacts = artifacts.Count;
 
-                // Import in manifest order (already topologically sorted)
-                _tiaService.WithTransaction("PacForge Import", () =>
+                // Two-pass import: instance DBs reference FBs that must be compiled first.
+                // Pass 1: import everything except instance DBs (UDTs, FBs, FCs, global DBs).
+                // Pass 2: compile, then import instance DBs.
+                bool IsInstanceDb(ManifestArtifactDto a)
                 {
-                    for (int i = 0; i < totalArtifacts; i++)
+                    return a.Type == "DB" && a.Name.StartsWith("Inst", StringComparison.OrdinalIgnoreCase)
+                        && !a.Name.StartsWith("Inst_", StringComparison.OrdinalIgnoreCase); // "Inst_" prefix is not instance DB convention
+                }
+
+                var pass1 = new List<ManifestArtifactDto>();
+                var pass2 = new List<ManifestArtifactDto>();
+                foreach (var a in artifacts)
+                {
+                    if (IsInstanceDb(a)) pass2.Add(a);
+                    else pass1.Add(a);
+                }
+
+                if (pass2.Count > 0)
+                    Console.WriteLine($"[JOBS] Two-pass import: {pass1.Count} blocks first, then {pass2.Count} instance DB(s) after compile");
+
+                // Pass 1: import non-instance blocks
+                _tiaService.WithTransaction("PacForge Import Pass 1", () =>
+                {
+                    for (int i = 0; i < pass1.Count; i++)
                     {
-                        if (job.CancellationRequested)
-                        {
-                            Console.WriteLine($"[JOBS] Import cancelled at artifact {i + 1}/{totalArtifacts}");
-                            break;
-                        }
-
-                        var artifact = artifacts[i];
-                        int progress = 20 + (int)((double)i / totalArtifacts * 50); // 20-70%
-                        UpdateProgress(job, progress, $"Importing {artifact.Name}", artifact.Name);
-
-                        // Find the SCL file in the extracted bundle
-                        string sclFile = FindArtifactFile(tempDir, artifact.Filename);
-
-                        if (sclFile == null)
-                        {
-                            Console.WriteLine($"[JOBS] Skipping {artifact.Name}: file not found ({artifact.Filename})");
-                            job.SkippedArtifacts.Add(artifact.Name);
-
-                            Task.Run(() => _wsHandler.Broadcast(
-                                BridgeEvent.ArtifactImported(job.JobId, artifact.Name, false, "File not found in bundle")));
-                            continue;
-                        }
-
-                        try
-                        {
-                            _tiaService.ImportArtifact(plcSoftware, artifact.Name, sclFile, artifact.DestinationFolder);
-                            job.ImportedArtifacts.Add(artifact.Name);
-
-                            Task.Run(() => _wsHandler.Broadcast(
-                                BridgeEvent.ArtifactImported(job.JobId, artifact.Name, true)));
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"[JOBS] Import failed for {artifact.Name}: {ex.Message}");
-                            job.SkippedArtifacts.Add(artifact.Name);
-
-                            Task.Run(() => _wsHandler.Broadcast(
-                                BridgeEvent.ArtifactImported(job.JobId, artifact.Name, false, ex.Message)));
-                        }
+                        if (job.CancellationRequested) break;
+                        ImportSingleArtifact(job, plcSoftware, pass1[i], tempDir, i, totalArtifacts);
                     }
                 });
+
+                // Mid-compile: compile FBs so instance DBs can resolve their type references
+                if (pass2.Count > 0)
+                {
+                    Console.WriteLine("[JOBS] Mid-compile: compiling FBs before instance DB import");
+                    plcSoftware = _tiaService.GetPlcSoftware();
+                    var midResult = _tiaService.CompileAll(plcSoftware);
+                    Console.WriteLine($"[JOBS] Mid-compile: {(midResult.Success ? "OK" : $"{midResult.Errors.Count} error(s)")}");
+                }
+
+                // Pass 2: import instance DBs (FBs are now compiled and resolvable)
+                if (pass2.Count > 0)
+                {
+                    plcSoftware = _tiaService.GetPlcSoftware();
+                    _tiaService.WithTransaction("PacForge Import Pass 2 — Instance DBs", () =>
+                    {
+                        for (int i = 0; i < pass2.Count; i++)
+                        {
+                            if (job.CancellationRequested) break;
+                            ImportSingleArtifact(job, plcSoftware, pass2[i], tempDir, pass1.Count + i, totalArtifacts);
+                        }
+                    });
+                }
             }
             finally
             {
                 // Clean up temp directory
                 try { Directory.Delete(tempDir, true); }
                 catch { }
+            }
+        }
+
+        private void ImportSingleArtifact(JobState job, PlcSoftware plcSoftware, ManifestArtifactDto artifact, string tempDir, int index, int total)
+        {
+            int progress = 20 + (int)((double)index / total * 50);
+            UpdateProgress(job, progress, $"Importing {artifact.Name}", artifact.Name);
+
+            string sclFile = FindArtifactFile(tempDir, artifact.Filename);
+            if (sclFile == null)
+            {
+                Console.WriteLine($"[JOBS] Skipping {artifact.Name}: file not found ({artifact.Filename})");
+                job.SkippedArtifacts.Add(artifact.Name);
+                Task.Run(() => _wsHandler.Broadcast(
+                    BridgeEvent.ArtifactImported(job.JobId, artifact.Name, false, "File not found in bundle")));
+                return;
+            }
+
+            try
+            {
+                _tiaService.ImportArtifact(plcSoftware, artifact.Name, sclFile, artifact.DestinationFolder);
+                job.ImportedArtifacts.Add(artifact.Name);
+                Task.Run(() => _wsHandler.Broadcast(
+                    BridgeEvent.ArtifactImported(job.JobId, artifact.Name, true)));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[JOBS] Import failed for {artifact.Name}: {ex.Message}");
+                job.SkippedArtifacts.Add(artifact.Name);
+                Task.Run(() => _wsHandler.Broadcast(
+                    BridgeEvent.ArtifactImported(job.JobId, artifact.Name, false, ex.Message)));
             }
         }
 

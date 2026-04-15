@@ -21,6 +21,7 @@ export async function copyLibraryBlocksToProject(
   dropboxRoot: string,
   libraryArtifacts: ForgeArtifact[],
   fbTemplates: FbTemplate[],
+  projectPath?: string,
 ): Promise<{ success: boolean; copied: string[]; skipped: string[]; warnings: string[] }> {
   // Group library artifacts by their source library
   const byLibrary = new Map<string, Set<string>>();
@@ -46,6 +47,7 @@ export async function copyLibraryBlocksToProject(
     const libraryFolder = buildLibraryFolder(dropboxRoot, libName);
     const body: LibraryCopyToProjectRequest = {
       library_path: libraryFolder,
+      project_path: projectPath,
       master_copy_paths: [...blockNames],
       type_paths: [],
     };

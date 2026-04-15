@@ -32,6 +32,8 @@ import { useForgeReview } from "@/hooks/use-forge-review";
 import { useForgeRewrite } from "@/hooks/use-forge-rewrite";
 import { useForgeIoValidate } from "@/hooks/use-forge-io-validate";
 import { useForgeCompileCheck, saveCompileFixPattern } from "@/hooks/use-forge-compile-check";
+import { useLogicValidator } from "@/hooks/use-logic-validator";
+import type { LogicFinding } from "@/hooks/use-logic-validator";
 import { ReviewStepPanel } from "@/components/forge/forge-review-step-panel";
 import { toTrackedFindings, derivedDbFindings } from "@/lib/forge-review-helpers";
 import type { TrackedFinding, ReviewStepStatus } from "@/lib/forge-review-helpers";
@@ -122,10 +124,19 @@ function GenerationLog({ entries }: { entries: DeviceGenLogEntry[] }) {
   );
 }
 
+const FIXABLE_LOGIC_CATEGORIES = new Set([
+  "type_mismatch",
+  "signal_polarity",
+  "missing_initial_state",
+  "timer_abuse",
+  "coil_conflict",
+]);
+
 const INITIAL_STAGES: SubPipelineStage[] = [
   { label: "Generate", status: "pending" },
   { label: "Standards", status: "pending" },
   { label: "IO Check", status: "pending" },
+  { label: "Logic Check", status: "pending" },
   { label: "Safety", status: "pending" },
   { label: "Approve", status: "pending" },
   { label: "Upload", status: "pending" },
@@ -156,6 +167,13 @@ export function ForgeDeviceCode({
   const [ioRound, setIoRound] = useState(0);
   const [ioError, setIoError] = useState<string | null>(null);
 
+  // Logic Validator state
+  const [logicStatus, setLogicStatus] = useState<ReviewStepStatus>("idle");
+  const [logicTrackedFindings, setLogicTrackedFindings] = useState<TrackedFinding[]>([]);
+  const [logicRawFindings, setLogicRawFindings] = useState<LogicFinding[]>([]);
+  const [logicRound, setLogicRound] = useState(0);
+  const [logicError, setLogicError] = useState<string | null>(null);
+
   // Legacy IO state (used by handleGenerateAll reset)
   const [, setIoValidationSummary] = useState<string | null>(null);
   const [, setIoFindings] = useState<ReviewFinding[]>([]);
@@ -185,6 +203,7 @@ export function ForgeDeviceCode({
   const { review: runStandardsReview, loading: reviewLoading } = useForgeReview();
   const { rewrite: runRewrite, loading: rewriteLoading } = useForgeRewrite();
   const { validateIo, loading: ioValidateLoading } = useForgeIoValidate();
+  const { validate: logicValidate, loading: logicLoading } = useLogicValidator();
   const {
     uploadAndCompile,
     proposeFixes,
@@ -196,7 +215,7 @@ export function ForgeDeviceCode({
   const createPattern = useCreatePatternCandidate();
   const dropboxRoot = useUiStore((state) => state.dropboxRoot);
 
-  const loading = genLoading || reviewLoading || rewriteLoading || ioValidateLoading || compileLoading;
+  const loading = genLoading || reviewLoading || rewriteLoading || ioValidateLoading || logicLoading || compileLoading;
   const selected = artifacts.find(a => a.id === selectedId) ?? null;
   const selectedPre = preRewriteArtifacts?.find(a => a.id === selectedId) ?? null;
   const showDiffToggle = !!selectedPre && changedIds.has(selectedId ?? "");
@@ -279,6 +298,11 @@ export function ForgeDeviceCode({
     setIoTrackedFindings([]);
     setIoRound(0);
     setIoError(null);
+    setLogicStatus("idle");
+    setLogicTrackedFindings([]);
+    setLogicRawFindings([]);
+    setLogicRound(0);
+    setLogicError(null);
 
     try {
       setStageStatus("Generate", "running");
@@ -555,15 +579,142 @@ export function ForgeDeviceCode({
   function handleIoAccept() {
     setIoStatus("accepted");
     setStageStatus("IO Check", "completed", "accepted");
-    // Safety audit step — not yet implemented as an AI agent
-    setStageStatus("Safety", "skipped");
-    setStageStatus("Approve", "pending");
+    // Enable Logic Check step
+    setLogicStatus("idle");
+    setStageStatus("Logic Check", "pending");
   }
 
   function handleIoSkip() {
     setIoStatus("skipped");
     setStageStatus("IO Check", "skipped");
     handleIoAccept();
+  }
+
+  // ---- Logic Validation step ----
+
+  async function handleLogicRun() {
+    setLogicStatus("reviewing");
+    setLogicError(null);
+    setStageStatus("Logic Check", "running");
+    try {
+      // Device code only — no process artifacts
+      const findings = await logicValidate(artifacts, []);
+      const round = logicRound + 1;
+      setLogicRound(round);
+      setLogicRawFindings(findings);
+      const tracked: TrackedFinding[] = findings.map((f, i) => ({
+        severity: f.severity as "CRITICAL" | "WARNING" | "INFO",
+        artifactName: `${f.category.replace(/_/g, " ")} · ${f.code_reference || f.affected_blocks.join(", ") || "cross-block"}`,
+        message: `${f.title}${f.description ? ` — ${f.description}` : ""}${f.suggested_fix ? `\nFix: ${f.suggested_fix}` : ""}${f.found_by ? ` [${f.found_by === "both" ? "Claude + Gemini" : f.found_by === "claude" ? "Claude" : "Gemini"}${f.validated_by === "both" ? ", peer-validated" : ""}]` : ""}${f.confidence !== "HIGH" ? ` [${f.confidence} confidence]` : ""}${f.scan_cycle_sensitive ? " [scan-sensitive]" : ""}`,
+        id: `logic-r${round}-${i}`,
+        selected: FIXABLE_LOGIC_CATEGORIES.has(f.category),
+        unresolved: false,
+        round,
+      }));
+      setLogicTrackedFindings(tracked);
+      if (tracked.length === 0) {
+        setLogicStatus("clean");
+        setStageStatus("Logic Check", "completed", "clean");
+      } else {
+        setLogicStatus("findings");
+        const issues = tracked.filter(f => f.severity === "CRITICAL" || f.severity === "WARNING").length;
+        setStageStatus("Logic Check", "completed", `${issues} issues`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setLogicError(msg);
+      setLogicStatus("findings");
+      setStageStatus("Logic Check", "failed", msg.slice(0, 40));
+    }
+  }
+
+  async function handleLogicFix() {
+    const selectedFindings = logicTrackedFindings.filter(f => f.selected);
+    if (selectedFindings.length === 0) return;
+    setLogicStatus("rewriting");
+    setLogicError(null);
+    setStageStatus("Logic Check", "running");
+    if (!preRewriteArtifacts) setPreRewriteArtifacts(artifacts);
+
+    try {
+      let currentArtifacts = [...artifacts];
+
+      for (let i = 0; i < selectedFindings.length; i++) {
+        const finding = selectedFindings[i];
+        setCurrentStepLabel(`Logic fix ${i + 1}/${selectedFindings.length}...`);
+
+        const idxStr = finding.id.replace(/^logic-r\d+-/, "");
+        const rawIdx = parseInt(idxStr, 10);
+        const rawFinding = logicRawFindings[rawIdx];
+        const affectedNames = rawFinding?.affected_blocks ?? [];
+
+        const affected = affectedNames.length > 0
+          ? currentArtifacts.filter(a => affectedNames.some(name =>
+              a.name === name || a.name.toLowerCase() === name.toLowerCase()))
+          : currentArtifacts;
+
+        if (affected.length === 0) continue;
+        const rewritten = await runRewrite(affected, [finding], profile);
+
+        for (const rw of rewritten) {
+          const idx = currentArtifacts.findIndex(a => a.id === rw.id);
+          if (idx >= 0 && currentArtifacts[idx].content !== rw.content) {
+            currentArtifacts[idx] = rw;
+            setChangedIds(prev => new Set([...prev, rw.id]));
+          }
+        }
+      }
+
+      setArtifacts(currentArtifacts);
+      onArtifactsUpdate(currentArtifacts);
+      setCurrentStepLabel("Re-checking logic...");
+
+      // Re-run logic check after fix
+      setLogicStatus("re-reviewing");
+      const findings = await logicValidate(currentArtifacts, []);
+      const round = logicRound + 1;
+      setLogicRound(round);
+      setLogicRawFindings(findings);
+      const tracked: TrackedFinding[] = findings.map((f, i) => ({
+        severity: f.severity as "CRITICAL" | "WARNING" | "INFO",
+        artifactName: `${f.category.replace(/_/g, " ")} · ${f.code_reference || f.affected_blocks.join(", ") || "cross-block"}`,
+        message: `${f.title}${f.description ? ` — ${f.description}` : ""}${f.suggested_fix ? `\nFix: ${f.suggested_fix}` : ""}${f.found_by ? ` [${f.found_by === "both" ? "Claude + Gemini" : f.found_by === "claude" ? "Claude" : "Gemini"}${f.validated_by === "both" ? ", peer-validated" : ""}]` : ""}${f.confidence !== "HIGH" ? ` [${f.confidence} confidence]` : ""}${f.scan_cycle_sensitive ? " [scan-sensitive]" : ""}`,
+        id: `logic-r${round}-${i}`,
+        selected: false,
+        unresolved: false,
+        round,
+      }));
+      setLogicTrackedFindings(tracked);
+      if (tracked.length === 0) {
+        setLogicStatus("clean");
+        setStageStatus("Logic Check", "completed", "clean");
+      } else {
+        const issues = tracked.filter(f => f.severity === "CRITICAL" || f.severity === "WARNING").length;
+        setLogicStatus("findings");
+        setStageStatus("Logic Check", "completed", `${issues} issues`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setLogicError(msg);
+      setLogicStatus("findings");
+      setStageStatus("Logic Check", "failed", msg.slice(0, 40));
+    } finally {
+      setCurrentStepLabel(null);
+    }
+  }
+
+  function handleLogicAccept() {
+    setLogicStatus("accepted");
+    setStageStatus("Logic Check", "completed", "accepted");
+    // Safety audit step — not yet implemented
+    setStageStatus("Safety", "skipped");
+    setStageStatus("Approve", "pending");
+  }
+
+  function handleLogicSkip() {
+    setLogicStatus("skipped");
+    setStageStatus("Logic Check", "skipped");
+    handleLogicAccept();
   }
 
   async function handleUploadAndCompile() {
@@ -610,7 +761,7 @@ export function ForgeDeviceCode({
         } else {
           console.log(`[forge] Copying library blocks from: ${dropboxRoot}`);
           const { copyLibraryBlocksToProject } = await import("@/lib/forge-library-copy");
-          const libResult = await copyLibraryBlocksToProject(dropboxRoot, libraryArtifacts, fbTemplates);
+          const libResult = await copyLibraryBlocksToProject(dropboxRoot, libraryArtifacts, fbTemplates, tiaProjectPath);
           console.log(`[forge] Library copy result:`, libResult);
           if (libResult.warnings.length > 0) {
             setCompileWarnings(prev => [...prev, ...libResult.warnings]);
@@ -966,7 +1117,7 @@ export function ForgeDeviceCode({
           </div>
         )}
 
-        {/* Review pipeline — Standards → IO → Safety */}
+        {/* Review pipeline — Standards → IO → Logic → Safety */}
         {artifacts.length > 0 && (
           <div className="space-y-2">
             <ReviewStepPanel
@@ -999,6 +1150,22 @@ export function ForgeDeviceCode({
               onAccept={handleIoAccept}
               onSkip={handleIoSkip}
               enabled={(agents?.find(a => a.display_name === "IO Validator")?.is_enabled ?? true) && (standardsStatus === "accepted" || standardsStatus === "skipped" || standardsStatus === "clean")}
+            />
+
+            <ReviewStepPanel
+              title="Logic Check"
+              accentColor="green"
+              status={logicStatus}
+              findings={logicTrackedFindings}
+              loading={logicLoading || rewriteLoading}
+              error={logicError}
+              onRunReview={handleLogicRun}
+              onToggleFinding={(id) => setLogicTrackedFindings(prev => prev.map(f => f.id === id ? { ...f, selected: !f.selected } : f))}
+              onSelectAll={(sel) => setLogicTrackedFindings(prev => prev.map(f => ({ ...f, selected: sel })))}
+              onFixSelected={handleLogicFix}
+              onAccept={handleLogicAccept}
+              onSkip={handleLogicSkip}
+              enabled={(ioStatus === "accepted" || ioStatus === "skipped" || ioStatus === "clean") && (standardsStatus === "accepted" || standardsStatus === "skipped" || standardsStatus === "clean")}
             />
 
             <ReviewStepPanel

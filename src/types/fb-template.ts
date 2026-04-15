@@ -54,8 +54,12 @@ export interface FbTemplate {
   library_name: string | null;
   /** When false, PM ignores this template entirely (per-library bulk toggle) */
   is_enabled: boolean;
+  /** True for assembly-level templates (coordinate groups of devices), false for device-level */
+  is_assembly: boolean;
   /** Full manufacturer documentation — wiring, parameters, behaviour, status codes */
   documentation: string | null;
+  /** HMI faceplate type name from the library (e.g. "udtHMI_MotorControl") — used by HMI screen generators */
+  hmi_faceplate_type: string | null;
   created_by: string | null;
   updated_at: string;
   created_at: string;
@@ -63,13 +67,15 @@ export interface FbTemplate {
   profile_ids?: string[];
 }
 
-export type FbTemplateCreate = Omit<FbTemplate, "id" | "created_at" | "updated_at" | "created_by" | "blocks" | "profile_ids" | "version" | "ai_summary" | "diagram_chart" | "diagram_generated_at" | "flow_diagram_json" | "flow_diagram_generated_at" | "source" | "library_name" | "is_enabled" | "documentation"> & {
+export type FbTemplateCreate = Omit<FbTemplate, "id" | "created_at" | "updated_at" | "created_by" | "blocks" | "profile_ids" | "version" | "ai_summary" | "diagram_chart" | "diagram_generated_at" | "flow_diagram_json" | "flow_diagram_generated_at" | "source" | "library_name" | "is_enabled" | "is_assembly" | "documentation" | "hmi_faceplate_type"> & {
   blocks: Array<{ block_name: string; block_type: FbBlockType; scl_code: string; sort_order: number; block_xml?: string | null; programming_language?: FbBlockLanguage }>;
   profile_ids?: string[];
   source?: FbTemplateSource;
   library_name?: string | null;
   is_enabled?: boolean;
+  is_assembly?: boolean;
   documentation?: string | null;
+  hmi_faceplate_type?: string | null;
 };
 
 export type FbTemplateUpdate = Partial<FbTemplateCreate>;

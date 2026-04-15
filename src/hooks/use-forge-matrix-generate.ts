@@ -17,8 +17,8 @@ import type { ProcessLinkageMatrix, ProcessSequence, SequenceRow, LinkageGlobalD
 import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 import { getRelevantReferenceSections, formatReferenceSections } from "@/lib/reference-lookup";
 
-const DEVICE_LINKAGE_MAX_TOKENS = 20000;
-const SEQUENCES_MAX_TOKENS = 28000;
+const DEVICE_LINKAGE_MAX_TOKENS = 65000;
+const SEQUENCES_MAX_TOKENS = 65000;
 
 /**
  * Extract all global DB field names from device linkage wiring AND statusMirrors.

@@ -1,7 +1,7 @@
 /**
  * Prompt builders for the S7-300/400 → S7-1500 Migration Wizard.
  *
- * All prompts are focused on migrating legacy Siemens code to S7-1500 / TIA Portal V18+
+ * All prompts are focused on migrating legacy Siemens code to S7-1500 / TIA Portal V20+
  * with Siemens Style Guide V2.1 naming conventions.
  */
 
@@ -20,7 +20,7 @@ export function buildMigrationAnalysisSystemPrompt(referenceSections: ReferenceL
     : "";
 
   return `You are a Siemens S7 PLC migration expert. Your task is to analyse legacy S7-300/S7-400 SCL/AWL code
-and produce a structured migration plan for upgrading to S7-1500 / TIA Portal V18.${refBlock}
+and produce a structured migration plan for upgrading to S7-1500 / TIA Portal V20.${refBlock}
 
 Key migration concerns to identify:
 - NAMING: Old prefix conventions (i_, o_, b_, r_) → Siemens Style Guide V2.1 lowerCamelCase
@@ -232,7 +232,7 @@ export function buildMigrationTransformUserMessage(
 export function buildMigrationSTLTransformSystemPrompt(): string {
   return `You are a Siemens S7 PLC migration expert converting legacy STL (AWL) code to S7-1500 SCL.
 
-Your task is to produce functionally equivalent SCL code for S7-1500 / TIA Portal V18.
+Your task is to produce functionally equivalent SCL code for S7-1500 / TIA Portal V20.
 
 CONVERSION RULES:
 - Convert all STL/AWL instructions to equivalent SCL statements
@@ -288,7 +288,7 @@ export function buildMigrationSTLTransformUserMessage(blockName: string, stl: st
 
 export function buildMigrationReviewSystemPrompt(): string {
   return `You are a senior Siemens S7-1500 code reviewer. Review transformed SCL code for
-correctness on S7-1500 / TIA Portal V18 and compliance with Siemens Style Guide V2.1.
+correctness on S7-1500 / TIA Portal V20 and compliance with Siemens Style Guide V2.1.
 
 Check for:
 1. Any remaining S7-300/400 patterns (absolute addresses, old timers/counters, old call syntax)

@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from "react-router";
 import { useKnowledgeConflicts } from "@/hooks/use-knowledge-conflicts";
 import { KnowledgeConflictBanner } from "@/components/knowledge-conflict-banner";
 import { KnowledgeConflictDialog } from "@/components/knowledge-conflict-dialog";
+import { TiaVersionMismatchBanner } from "@/components/tia-version-mismatch-banner";
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -662,6 +663,11 @@ export default function PacStPage() {
 
   return (
     <div className="-m-4 flex min-h-0 flex-1 flex-col">
+      {project && (
+        <div className="px-4 pt-2">
+          <TiaVersionMismatchBanner projectVersion={project.tia_version} />
+        </div>
+      )}
       {/* Session start dialog */}
       {projectId && (needsSession || showStartDialog) && (
         <SessionStartDialog

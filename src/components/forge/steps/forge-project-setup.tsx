@@ -78,7 +78,7 @@ export const ForgeProjectSetup = forwardRef<ForgeProjectSetupHandle, ForgeProjec
     io_linking_language: initialIoLinkingLanguage ?? "SCL",
     process_code_language: initialProcessCodeLanguage ?? "SCL",
     conversion_fc_language: initialConversionFcLanguage ?? "SCL",
-    tia_version: project?.tia_version ?? "V18",
+    tia_version: project?.tia_version ?? "V20",
     cpu_type: project?.cpu_type ?? specAnalysis?.plc_type ?? "S7-1500",
     safety_level: project?.safety_level ?? "",
     safety_notes: project?.safety_notes ?? "",

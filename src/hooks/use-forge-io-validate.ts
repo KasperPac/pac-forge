@@ -42,6 +42,7 @@ export function useForgeIoValidate() {
           4096,
           "io_validator",
           !!profile,
+          { prompt_name: "forge-io-validate", agent_role: "io_validator", pipeline_step: "io_validate" },
         );
 
         if (isCleanReview(content)) {

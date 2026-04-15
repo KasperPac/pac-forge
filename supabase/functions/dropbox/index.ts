@@ -405,6 +405,90 @@ async function handleListFolder(
   }, 200);
 }
 
+async function handleCreateFolderPath(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  body: Record<string, unknown>
+): Promise<Response> {
+  const path = body.path as string;
+  if (!path) {
+    return jsonResponse({ error: "path required" }, 400);
+  }
+
+  const { token, rootNamespaceId, error: tokenErr } = await getValidToken(supabase, userId);
+  if (tokenErr) return jsonResponse({ error: tokenErr }, 401);
+
+  const result = await dropboxApi(token, "/files/create_folder_v2", { path, autorename: false }, rootNamespaceId);
+
+  if (!result.ok) {
+    if (result.error?.includes("conflict/folder")) {
+      return jsonResponse({ created: false, already_exists: true, path }, 200);
+    }
+    return jsonResponse({ error: result.error ?? "Failed to create folder" }, 500);
+  }
+
+  return jsonResponse({ created: true, path }, 200);
+}
+
+async function handleUploadFile(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  body: Record<string, unknown>
+): Promise<Response> {
+  const path = body.path as string;
+  const contentBase64 = body.content_base64 as string;
+  const mode = (body.mode as string) ?? "overwrite";
+
+  if (!path || !contentBase64) {
+    return jsonResponse({ error: "path and content_base64 required" }, 400);
+  }
+
+  const { token, rootNamespaceId, error: tokenErr } = await getValidToken(supabase, userId);
+  if (tokenErr) return jsonResponse({ error: tokenErr }, 401);
+
+  // Decode base64 → bytes
+  const binary = atob(contentBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+  // Dropbox content upload uses a different endpoint (content.dropboxapi.com)
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/octet-stream",
+    "Dropbox-API-Arg": JSON.stringify({
+      path,
+      mode,
+      autorename: false,
+      mute: true,
+    }),
+  };
+  if (rootNamespaceId) {
+    headers["Dropbox-API-Path-Root"] = JSON.stringify({
+      ".tag": "root",
+      root: rootNamespaceId,
+    });
+  }
+
+  const resp = await fetch("https://content.dropboxapi.com/2/files/upload", {
+    method: "POST",
+    headers,
+    body: bytes,
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    return jsonResponse({ error: `Upload failed: ${text}` }, 500);
+  }
+
+  const data = await resp.json();
+  return jsonResponse({
+    uploaded: true,
+    path: data.path_display ?? path,
+    size: data.size,
+    rev: data.rev,
+  }, 200);
+}
+
 async function handleSuggestProjectNumber(
   supabase: ReturnType<typeof createClient>,
   userId: string,
@@ -558,6 +642,10 @@ Deno.serve(async (req) => {
         return await handleCopyTemplate(supabase, user.id, body);
       case "list-folder":
         return await handleListFolder(supabase, user.id, body);
+      case "create-folder-path":
+        return await handleCreateFolderPath(supabase, user.id, body);
+      case "upload-file":
+        return await handleUploadFile(supabase, user.id, body);
       case "suggest-project-number":
         return await handleSuggestProjectNumber(supabase, user.id, body);
       default:

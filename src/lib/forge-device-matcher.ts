@@ -9,11 +9,18 @@
  * "none" = no meaningful match → AI generates from scratch
  */
 
-import type { ForgeDeviceEntry } from "@/types/forge";
+import type { ForgeDeviceEntry, ForgeAssemblyEntry } from "@/types/forge";
 import type { FbTemplate } from "@/types/fb-template";
 
 export interface DeviceFbMatch {
   device: ForgeDeviceEntry;
+  template: FbTemplate | null;
+  confidence: "exact" | "probable" | "none";
+  reason: string;
+}
+
+export interface AssemblyFbMatch {
+  assembly: ForgeAssemblyEntry;
   template: FbTemplate | null;
   confidence: "exact" | "probable" | "none";
   reason: string;
@@ -404,15 +411,99 @@ export interface MissingDeviceSuggestion {
   reason: string;
 }
 
-export function suggestMissingDevices(devices: ForgeDeviceEntry[]): MissingDeviceSuggestion[] {
+// ---------------------------------------------------------------------------
+// Assembly matching — matches assemblies to is_assembly templates
+// ---------------------------------------------------------------------------
+
+export function matchAssembliesToTemplates(
+  assemblies: ForgeAssemblyEntry[],
+  templates: FbTemplate[],
+  favourites: Record<string, string> = {},
+): AssemblyFbMatch[] {
+  return assemblies.map((assembly): AssemblyFbMatch => {
+    const favouriteId = favourites[assembly.assembly_type];
+    if (favouriteId) {
+      const template = templates.find((t) => t.id === favouriteId) ?? null;
+      if (template) {
+        return {
+          assembly,
+          template,
+          confidence: "exact",
+          reason: `"${assembly.assembly_type}" matched via profile favourite: "${template.name}".`,
+        };
+      }
+    }
+
+    if (templates.length === 0) {
+      return { assembly, template: null, confidence: "none", reason: "No assembly templates in library." };
+    }
+
+    const scores = templates.map((t) => {
+      const nScore = nameAffinity(assembly.assembly_type, t);
+      const sScore = summaryAffinity(assembly.assembly_type, t);
+      const sourceBoost = t.source === "library" ? 0.08 : 0;
+      const combined = Math.max(0, Math.min(1.0, 0.5 * nScore + 0.5 * sScore + sourceBoost));
+      return { template: t, nScore, sScore, combined };
+    });
+
+    scores.sort((a, b) => b.combined - a.combined);
+    const best = scores[0];
+
+    if (best.combined >= 0.7 && best.nScore >= 0.3) {
+      return {
+        assembly,
+        template: best.template,
+        confidence: "exact",
+        reason: `"${assembly.assembly_type}" matches "${best.template.name}" — name ${Math.round(best.nScore * 100)}%, summary ${Math.round(best.sScore * 100)}%.`,
+      };
+    }
+    if (best.combined >= 0.5 && best.nScore >= 0.2) {
+      return {
+        assembly,
+        template: best.template,
+        confidence: "probable",
+        reason: `"${assembly.assembly_type}" partially matches "${best.template.name}" — score ${Math.round(best.combined * 100)}%.`,
+      };
+    }
+
+    return { assembly, template: null, confidence: "none", reason: `No suitable template for "${assembly.assembly_type}". AI will generate from scratch.` };
+  });
+}
+
+export function applyMatchesToAssemblies(
+  assemblies: ForgeAssemblyEntry[],
+  matches: AssemblyFbMatch[],
+): ForgeAssemblyEntry[] {
+  return assemblies.map((assembly) => {
+    const match = matches.find((m) => m.assembly.id === assembly.id);
+    if (!match) return assembly;
+    return {
+      ...assembly,
+      fb_template_id: match.template?.id ?? null,
+      fb_match_confidence: match.confidence,
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Missing device suggestions (unchanged)
+// ---------------------------------------------------------------------------
+
+export function suggestMissingDevices(
+  devices: ForgeDeviceEntry[],
+  assemblies?: Array<{ device_ids: string[] }>,
+): MissingDeviceSuggestion[] {
   const suggestions: MissingDeviceSuggestion[] = [];
   const typesLower = new Set(devices.map(d => (d.device_type ?? "").toLowerCase()));
 
+  // Skip conveyor suggestions if assemblies already cover coordination
+  const assemblyDeviceIds = new Set((assemblies ?? []).flatMap(a => a.device_ids));
   const hasConveyor = [...typesLower].some(t => t.includes("conveyor") || t.includes("belt"));
 
   if (!hasConveyor) {
     const conveyorMotors = devices.filter(
       d =>
+        !assemblyDeviceIds.has(d.id) && // Skip devices already in an assembly
         (d.device_type ?? "").toLowerCase().includes("motor") &&
         ((d.description ?? "").toLowerCase().includes("conveyor") ||
           (d.description ?? "").toLowerCase().includes("belt") ||

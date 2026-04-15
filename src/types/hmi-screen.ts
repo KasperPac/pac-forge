@@ -728,7 +728,7 @@ export interface HmiScreenSpec {
   /** Navigation/template framework name */
   templateSuite?: string;
   /** High-level role in the generated HMI suite */
-  screenRole?: "template_shell" | "overview" | "device_faceplate" | "subsystem_checklist" | "alarm_summary" | "popup";
+  screenRole?: "template_shell" | "overview" | "device_faceplate" | "subsystem_checklist" | "device_checklist" | "alarm_summary" | "trend" | "popup" | "custom";
   /** Optional subsystem association for checklist / overview screens */
   subsystem?: string;
   /** Optional device type association for faceplate/detail screens */

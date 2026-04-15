@@ -21,6 +21,8 @@ const TYPE_COLORS: Record<ArtifactType, string> = {
   OB: "bg-green-500/20 text-green-400",
   SCL_SOURCE: "bg-neutral-500/20 text-neutral-400",
   TAG_TABLE: "bg-orange-500/20 text-orange-400",
+  HMI_SCREEN: "bg-teal-500/20 text-teal-400",
+  HMI_TAG_TABLE: "bg-rose-500/20 text-rose-400",
 };
 
 export function ArtifactTabs({ artifacts, activeIndex, onSelect }: ArtifactTabsProps) {

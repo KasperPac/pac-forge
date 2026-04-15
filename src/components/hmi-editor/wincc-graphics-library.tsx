@@ -383,7 +383,7 @@ export function WinccGraphicsLibrary({
                 Select Graphics_All.zip from your TIA Portal installation
               </p>
               <p className="mt-0.5 font-mono text-[10px] text-muted-foreground/60">
-                Typical path: C:\Program Files\Siemens\Automation\Portal V18\lib\Graphics
+                Typical path: C:\Program Files\Siemens\Automation\Portal V20\lib\Graphics
               </p>
               <Button
                 className="mt-4 gap-2"

@@ -1,0 +1,30 @@
+Tag,Device Type,Description,Signal Type,IO Address,Subsystem
+GK01_M01_CMD,Motor Contactor,Fan 1 Motor Command,DO,%Q0.0,Fan Array
+GK01_M01_FB,Motor Feedback,Fan 1 Motor Running Feedback,DI,%I0.0,Fan Array
+GK01_M01_OL,Overload Relay,Fan 1 Motor Overload,DI,%I0.1,Fan Array
+GK01_TT01,Temp Transmitter,Fan 1 Discharge Air Temperature,AI,%IW64,Fan Array
+GK02_M01_CMD,Motor Contactor,Fan 2 Motor Command,DO,%Q0.1,Fan Array
+GK02_M01_FB,Motor Feedback,Fan 2 Motor Running Feedback,DI,%I0.2,Fan Array
+GK02_M01_OL,Overload Relay,Fan 2 Motor Overload,DI,%I0.3,Fan Array
+GK02_TT01,Temp Transmitter,Fan 2 Discharge Air Temperature,AI,%IW66,Fan Array
+GK03_M01_CMD,Motor Contactor,Fan 3 Motor Command,DO,%Q0.2,Fan Array
+GK03_M01_FB,Motor Feedback,Fan 3 Motor Running Feedback,DI,%I0.4,Fan Array
+GK03_M01_OL,Overload Relay,Fan 3 Motor Overload,DI,%I0.5,Fan Array
+CV01_M01_CMD,Motor Contactor,Infeed Conveyor Motor Command,DO,%Q0.3,Infeed Conveyor
+CV01_M01_FB,Motor Feedback,Infeed Conveyor Motor Running,DI,%I1.0,Infeed Conveyor
+CV01_M01_SPD,VFD,Infeed Conveyor Motor Speed Reference,AO,%QW68,Infeed Conveyor
+CV01_LS01,Level Switch,Infeed Conveyor Product Level High,DI,%I1.1,Infeed Conveyor
+CV01_ZSH01,Position,Infeed Conveyor Diverter Gate Closed,DI,%I1.2,Infeed Conveyor
+CV01_ZSL01,Position,Infeed Conveyor Diverter Gate Open,DI,%I1.3,Infeed Conveyor
+CV01_SOL01_CMD,Solenoid,Infeed Conveyor Diverter Gate Solenoid,DO,%Q0.4,Infeed Conveyor
+LFT01_M01_CMD,Motor Contactor,Lift Table Hydraulic Pump Command,DO,%Q1.0,Lift Station
+LFT01_M01_FB,Motor Feedback,Lift Table Hydraulic Pump Running,DI,%I2.0,Lift Station
+LFT01_SOL_UP,Solenoid,Lift Table Up Solenoid,DO,%Q1.1,Lift Station
+LFT01_SOL_DN,Solenoid,Lift Table Down Solenoid,DO,%Q1.2,Lift Station
+LFT01_ZSH01,Position,Lift Table Upper Position,DI,%I2.1,Lift Station
+LFT01_ZSL01,Position,Lift Table Lower Position,DI,%I2.2,Lift Station
+LFT01_PIT01,Pressure Transmitter,Lift Table Hydraulic Pressure,AI,%IW70,Lift Station
+ESTOP_01,Emergency Stop,Main Panel E-Stop,DI,%I3.0,Safety
+ESTOP_02,Emergency Stop,Remote E-Stop Station 1,DI,%I3.1,Safety
+PB_START,Push Button,System Start Button,DI,%I3.2,Safety
+PB_STOP,Push Button,System Stop Button,DI,%I3.3,Safety

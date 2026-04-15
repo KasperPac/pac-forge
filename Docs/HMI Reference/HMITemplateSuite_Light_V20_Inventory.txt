@@ -1,0 +1,56 @@
+=== HMI Template Suite Light V20 ===
+Total rows: 22983
+
+--- TYPE CATEGORIES: 3 ---
+  Control Modul PopUp  [16 entries]
+  PieChart  [6 entries]
+  ValueStepper  [4 entries]
+
+--- DISTINCT TYPES: 7 ---
+  Control Modul PopUp/BasicControlModulPopUp_Layer1
+  Control Modul PopUp/BasicControlModulPopUP_Layer2_1
+  Control Modul PopUp/BasicControlModulPopUP_Layer2_2
+  Control Modul PopUp/BasicControlModulPopUP_Layer2_3
+  PieChart/PieChart
+  ValueStepper/ValueStepperInt
+  ValueStepper/ValueStepperReal
+
+--- MASTER COPY LEAVES: 38 ---
+  HMI Template Suite/WinCC Unified View of Things/01 - 800 x 480/01 - ScreenLayout
+  HMI Template Suite/WinCC Unified View of Things/01 - 800 x 480/02 - Screens
+  HMI Template Suite/WinCC Unified View of Things/02 - 1280 x 800/01 - ScreenLayout
+  HMI Template Suite/WinCC Unified View of Things/02 - 1280 x 800/02 - Screens
+  HMI Template Suite/WinCC Unified View of Things/03 - 1366 x 768/01 - ScreenLayout
+  HMI Template Suite/WinCC Unified View of Things/03 - 1366 x 768/02 - Screens
+  HMI Template Suite/WinCC Unified View of Things/04 - 1920 x 1080/01 - ScreenLayout
+  HMI Template Suite/WinCC Unified View of Things/04 - 1920 x 1080/02 - Screens
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Basic Panel/02 - 800 x 480/00 - Device
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Basic Panel/02 - 800 x 480/01 - Screenlayout
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Basic Panel/02 - 800 x 480/02 - Screens
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Basic Panel/02 - 800 x 480/03 - Popup screens
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Basic Panel/02 - 800 x 480/04 - Other Templates
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Basic Panel/03 - 1280 x 800/00 - Device
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Basic Panel/03 - 1280 x 800/01 - Screenlayout
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Basic Panel/03 - 1280 x 800/02 - Screens
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Basic Panel/03 - 1280 x 800/03 - Popup screens
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Basic Panel/03 - 1280 x 800/04 - Other Templates
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Comfort Panel/02 - 800 x 480/00 - Device
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Comfort Panel/02 - 800 x 480/01 - Screenlayout
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Comfort Panel/02 - 800 x 480/02 - Screens
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Comfort Panel/02 - 800 x 480/03 - Popup screens
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Comfort Panel/02 - 800 x 480/04 - Other Templates
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Comfort Panel/03 - 1280 x 800/00 - Device
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Comfort Panel/03 - 1280 x 800/01 - Screenlayout
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Comfort Panel/03 - 1280 x 800/02 - Screens
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Comfort Panel/03 - 1280 x 800/03 - Popup screens
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Comfort Panel/03 - 1280 x 800/04 - Other Templates
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Comfort Panel/04 - 1366 x 768/00 - Device
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Comfort Panel/04 - 1366 x 768/01 - Screenlayout
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Comfort Panel/04 - 1366 x 768/02 - Screens
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Comfort Panel/04 - 1366 x 768/03 - Popup screens
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Comfort Panel/04 - 1366 x 768/04 - Other Templates
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Comfort Panel/05 - 1920 x 1080/00 - Device
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Comfort Panel/05 - 1920 x 1080/01 - Screenlayout
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Comfort Panel/05 - 1920 x 1080/02 - Screens
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Comfort Panel/05 - 1920 x 1080/03 - Popup screens
+  HMI Template Suite/WinCC Unified/SIMATIC WinCC Unified Comfort Panel/05 - 1920 x 1080/04 - Other Templates

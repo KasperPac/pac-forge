@@ -357,13 +357,30 @@ function compilePlan(input: DeterministicCompilerInput): DeterministicPlan {
       type: row.type,
     }));
 
+  // Resolve "FAULT" → actual fault step number (highest step with fault_exit rows pointing to it, or the max step)
+  const faultStepNumbers = new Set(
+    normalizedRows.filter(r => r.type === "fault_exit" && typeof r.next === "number").map(r => r.next as number),
+  );
+  // If fault_exit rows use "FAULT" string, find steps that are only reachable via fault paths
+  // (typically the highest step number group that has no non-fault incoming transitions)
+  const faultTargetStep = faultStepNumbers.size > 0
+    ? Math.min(...faultStepNumbers)
+    : orderedSteps.length > 0 ? orderedSteps[orderedSteps.length - 1] : -1;
+
   const steps = orderedSteps.map((step) => {
-    const stepRows = compiledRows.filter((row) => row.step === step && row.type !== "fault_exit");
+    const stepRows = compiledRows.filter((row) => row.step === step);
     const incoming = compiledRows.filter((row) => row.next === step);
+    // Build outgoing targets from ALL rows including fault_exit (from normalizedRows, not compiledRows)
+    const allRawRows = normalizedRows.filter((row) => row.step === step);
     const outgoingTargets = [...new Set(
-      stepRows
-        .map((row) => row.next)
-        .filter((next): next is number => typeof next === "number"),
+      allRawRows
+        .map((row) => {
+          if (typeof row.next === "number") return row.next;
+          // Resolve "FAULT" to the actual fault step number
+          if (row.next === "FAULT" && faultTargetStep >= 0) return faultTargetStep;
+          return null;
+        })
+        .filter((next): next is number => next !== null),
     )];
 
     return { step, rows: stepRows, incoming, outgoingTargets };
@@ -881,38 +898,422 @@ function buildDeterministicScl(plan: DeterministicPlan): string {
   return lines.join("\n");
 }
 
-export function compileDeterministicProcessArtifact(input: DeterministicCompilerInput): ForgeArtifact {
-  const plan = compilePlan(input);
+// ---------------------------------------------------------------------------
+// Deterministic validation pass — runs on the plan BEFORE code generation
+// ---------------------------------------------------------------------------
 
-  if (input.language === "LAD") {
-    return {
-      id: crypto.randomUUID(),
-      name: plan.blockName,
-      type: "FC",
-      language: "LAD",
-      content: JSON.stringify(buildDeterministicLadProgram(plan)),
-      approved: false,
-      stage: "process",
-      destination_folder: "Program blocks/Forge/Process",
-      dependencies: [],
-      compile_after_import: true,
-      deterministic: true,
-    };
+export interface CompilerDiagnostic {
+  severity: "error" | "warning";
+  category: string;
+  title: string;
+  description: string;
+  affectedSteps: number[];
+}
+
+export interface DeterministicCompilerResult {
+  artifact: ForgeArtifact;
+  diagnostics: CompilerDiagnostic[];
+}
+
+function collectOutputOperands(step: CompiledStep, typeMap?: OperandTypeMap): string[] {
+  const operands: string[] = [];
+  for (const row of step.rows) {
+    if (!row.output) continue;
+    const parsed = parseOutputAssignment(row.output, typeMap);
+    if (parsed) operands.push(parsed.operand.toLowerCase());
+  }
+  return operands;
+}
+
+function collectConditionOperands(step: CompiledStep): string[] {
+  const operands: string[] = [];
+  for (const row of step.rows) {
+    for (const branch of row.conditionBranches) {
+      for (const atom of branch) {
+        if (atom.mode === "contact") operands.push(atom.operand.toLowerCase());
+        if (atom.mode === "compare") {
+          operands.push(atom.operand.toLowerCase());
+          operands.push(atom.operand2.toLowerCase());
+        }
+      }
+    }
+  }
+  return operands;
+}
+
+function checkSelfDefeatingTransitions(plan: DeterministicPlan): CompilerDiagnostic[] {
+  const diagnostics: CompilerDiagnostic[] = [];
+  const stepMap = new Map(plan.steps.map((s) => [s.step, s]));
+
+  for (const step of plan.steps) {
+    const outputs = collectOutputOperands(step, plan.operandTypes);
+    if (outputs.length === 0) continue;
+
+    for (const target of step.outgoingTargets) {
+      const targetStep = stepMap.get(target);
+      if (!targetStep) continue;
+      const conditions = collectConditionOperands(targetStep);
+      const overlap = outputs.filter((o) => conditions.includes(o));
+      if (overlap.length > 0) {
+        diagnostics.push({
+          severity: "warning",
+          category: "self_defeating_transition",
+          title: `Step ${step.step} output immediately satisfies step ${target} condition`,
+          description: `Step ${step.step} writes ${overlap.join(", ")} which appears in step ${target}'s transition condition. Step ${step.step} may only be active for one scan cycle.`,
+          affectedSteps: [step.step, target],
+        });
+      }
+    }
+  }
+  return diagnostics;
+}
+
+function checkCircularDependencies(plan: DeterministicPlan): CompilerDiagnostic[] {
+  const diagnostics: CompilerDiagnostic[] = [];
+  const firstStep = plan.orderedSteps[0];
+  const adjacency = new Map<number, number[]>();
+  for (const step of plan.steps) {
+    // Filter out transitions back to the first step (normal sequence reset)
+    // and self-loops on the first step (idle/wait state) — these are not deadlocks.
+    const targets = step.outgoingTargets.filter((t) =>
+      !(t === firstStep && step.step !== firstStep) && // back-to-start is normal reset
+      !(t === step.step && step.step === firstStep),   // self-loop on idle step is normal
+    );
+    adjacency.set(step.step, targets);
   }
 
-  return {
-    id: crypto.randomUUID(),
-    name: plan.blockName,
-    type: "FC",
-    language: "SCL",
-    content: buildDeterministicScl(plan),
-    approved: false,
-    stage: "process",
-    destination_folder: "Program blocks/Forge/Process",
-    dependencies: [],
-    compile_after_import: true,
-    deterministic: true,
-  };
+  const WHITE = 0, GRAY = 1, BLACK = 2;
+  const color = new Map<number, number>();
+  const parent = new Map<number, number>();
+  for (const s of plan.orderedSteps) color.set(s, WHITE);
+
+  function dfs(u: number): number[] | null {
+    color.set(u, GRAY);
+    for (const v of adjacency.get(u) ?? []) {
+      if (color.get(v) === GRAY) {
+        const cycle: number[] = [v, u];
+        let cur = u;
+        while (cur !== v && parent.has(cur)) {
+          cur = parent.get(cur)!;
+          cycle.push(cur);
+        }
+        return cycle;
+      }
+      if (color.get(v) === WHITE) {
+        parent.set(v, u);
+        const result = dfs(v);
+        if (result) return result;
+      }
+    }
+    color.set(u, BLACK);
+    return null;
+  }
+
+  for (const s of plan.orderedSteps) {
+    if (color.get(s) === WHITE) {
+      const cycle = dfs(s);
+      if (cycle) {
+        const cycleSteps = [...new Set(cycle)];
+        if (cycleSteps.length <= 1) continue; // single-step self-loop — not interesting
+        const hasExit = cycleSteps.some((cs) => {
+          const step = plan.steps.find((st) => st.step === cs);
+          return step?.rows.some((r) => r.next === "IDLE" || r.next === "FAULT" || r.next === firstStep);
+        });
+        diagnostics.push({
+          severity: hasExit ? "warning" : "error",
+          category: "circular_dependency",
+          title: hasExit
+            ? `Cycle detected (steps ${cycleSteps.join(" → ")}) with exit path`
+            : `Deadlock: steps ${cycleSteps.join(" → ")} form a cycle with no exit`,
+          description: hasExit
+            ? `Steps ${cycleSteps.join(", ")} form a loop but have an exit — likely an intentional retry.`
+            : `Steps ${cycleSteps.join(", ")} form a closed loop with no way to return to idle, FAULT, or step ${firstStep}.`,
+          affectedSteps: cycleSteps,
+        });
+        break;
+      }
+    }
+  }
+  return diagnostics;
+}
+
+function checkUnstableOutputs(plan: DeterministicPlan): CompilerDiagnostic[] {
+  const diagnostics: CompilerDiagnostic[] = [];
+  const outputMap = new Map<string, Array<{ step: number; coilType: string; value?: string }>>();
+
+  for (const step of plan.steps) {
+    for (const row of step.rows) {
+      if (!row.output) continue;
+      const parsed = parseOutputAssignment(row.output, plan.operandTypes);
+      if (!parsed) continue;
+      const key = parsed.operand.toLowerCase();
+      const list = outputMap.get(key) ?? [];
+      list.push({ step: step.step, coilType: parsed.coilType, value: parsed.value });
+      outputMap.set(key, list);
+    }
+  }
+
+  for (const [operand, writers] of outputMap) {
+    if (writers.length <= 1) continue;
+    const coilTypes = new Set(writers.map((w) => w.coilType));
+    const values = new Set(writers.map((w) => w.value ?? "TRUE"));
+    if (coilTypes.size > 1 || values.size > 1) {
+      diagnostics.push({
+        severity: "warning",
+        category: "unstable_output",
+        title: `Output ${operand} written by ${writers.length} steps with different values`,
+        description: `Steps ${writers.map((w) => w.step).join(", ")} all write to ${operand}. Values: ${[...values].join(", ")}. Last-write-wins may cause unexpected behaviour.`,
+        affectedSteps: writers.map((w) => w.step),
+      });
+    }
+  }
+  return diagnostics;
+}
+
+function checkUnreachableSteps(plan: DeterministicPlan): CompilerDiagnostic[] {
+  const diagnostics: CompilerDiagnostic[] = [];
+  if (plan.orderedSteps.length === 0) return diagnostics;
+
+  const visited = new Set<number>();
+  const queue = [plan.orderedSteps[0]];
+  visited.add(plan.orderedSteps[0]);
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const step = plan.steps.find((s) => s.step === current);
+    if (!step) continue;
+    console.log(`[reachability] Step ${current} → targets: [${step.outgoingTargets.join(", ")}]`);
+    for (const target of step.outgoingTargets) {
+      if (!visited.has(target)) {
+        visited.add(target);
+        queue.push(target);
+      }
+    }
+  }
+
+  console.log(`[reachability] Visited steps: [${[...visited].sort((a,b) => a-b).join(", ")}]`);
+  console.log(`[reachability] All steps: [${plan.orderedSteps.join(", ")}]`);
+
+  for (const s of plan.orderedSteps) {
+    if (!visited.has(s)) {
+      console.log(`[reachability] Step ${s} is UNREACHABLE`);
+      diagnostics.push({
+        severity: "error",
+        category: "unreachable_state",
+        title: `Step ${s} is unreachable`,
+        description: `No transition path leads to step ${s} from the initial step (${plan.orderedSteps[0]}). This step will never execute.`,
+        affectedSteps: [s],
+      });
+    }
+  }
+  return diagnostics;
+}
+
+function checkTypeMismatches(plan: DeterministicPlan): CompilerDiagnostic[] {
+  const diagnostics: CompilerDiagnostic[] = [];
+  if (!plan.operandTypes || plan.operandTypes.size === 0) return diagnostics;
+
+  for (const step of plan.steps) {
+    for (const row of step.rows) {
+      for (const branch of row.conditionBranches) {
+        for (const atom of branch) {
+          if (atom.mode !== "compare") continue;
+          const type1 = resolveOperandType(atom.operand, undefined, plan.operandTypes);
+          const type2 = resolveOperandType(atom.operand2, undefined, plan.operandTypes);
+          const norm1 = normalizePlcType(type1);
+          const norm2 = normalizePlcType(type2);
+          if (norm1 !== norm2 && norm1 !== "Int" && norm2 !== "Int") {
+            diagnostics.push({
+              severity: "warning",
+              category: "type_mismatch",
+              title: `Type mismatch in step ${step.step} comparison: ${norm1} vs ${norm2}`,
+              description: `Condition compares ${atom.operand} (${norm1}) with ${atom.operand2} (${norm2}). Silent truncation or wrong values at runtime.`,
+              affectedSteps: [step.step],
+            });
+          }
+        }
+      }
+    }
+  }
+  return diagnostics;
+}
+
+function checkCoilConflicts(plan: DeterministicPlan): CompilerDiagnostic[] {
+  const diagnostics: CompilerDiagnostic[] = [];
+  const outputMap = new Map<string, Array<{ step: number; value?: string; dataType: string }>>();
+
+  for (const step of plan.steps) {
+    for (const row of step.rows) {
+      if (!row.output) continue;
+      const parsed = parseOutputAssignment(row.output, plan.operandTypes);
+      if (!parsed) continue;
+      const key = parsed.operand.toLowerCase();
+      const list = outputMap.get(key) ?? [];
+      list.push({ step: step.step, value: parsed.value, dataType: parsed.dataType });
+      outputMap.set(key, list);
+    }
+  }
+
+  for (const [operand, writers] of outputMap) {
+    if (writers.length <= 1) continue;
+    const uniqueSteps = [...new Set(writers.map((w) => w.step))];
+    if (uniqueSteps.length <= 1) continue;
+
+    // Bool outputs with the same value (TRUE) from multiple steps are
+    // consolidated into a single OR rung by the compiler — not a conflict.
+    const allBoolTrue = writers.every((w) => w.dataType === "Bool" && !w.value);
+    if (allBoolTrue) continue;
+
+    // Non-bool MOVE outputs with different values from different steps — real conflict
+    const values = [...new Set(writers.map((w) => w.value ?? "TRUE"))];
+    if (values.length > 1) {
+      diagnostics.push({
+        severity: "warning",
+        category: "coil_conflict",
+        title: `Multiple steps drive ${operand} with different values`,
+        description: `Steps ${uniqueSteps.join(", ")} write different values to ${operand}: ${values.join(", ")}. Last-write-wins — verify this is intentional.`,
+        affectedSteps: uniqueSteps,
+      });
+    }
+  }
+  return diagnostics;
+}
+
+function checkMissingInitialState(plan: DeterministicPlan): CompilerDiagnostic[] {
+  const diagnostics: CompilerDiagnostic[] = [];
+  if (plan.orderedSteps.length === 0) {
+    diagnostics.push({
+      severity: "error",
+      category: "missing_initial_state",
+      title: "Sequence has no steps",
+      description: "The sequence plan contains zero steps. Nothing will execute.",
+      affectedSteps: [],
+    });
+    return diagnostics;
+  }
+
+  const firstStep = plan.steps.find((s) => s.step === plan.orderedSteps[0]);
+  if (!firstStep || firstStep.rows.length === 0) {
+    diagnostics.push({
+      severity: "error",
+      category: "missing_initial_state",
+      title: `Initial step ${plan.orderedSteps[0]} has no rows`,
+      description: `Step ${plan.orderedSteps[0]} is the entry point but contains no transitions. The sequence will be stuck at the initial step.`,
+      affectedSteps: [plan.orderedSteps[0]],
+    });
+  }
+  return diagnostics;
+}
+
+function checkSequenceResetPath(plan: DeterministicPlan): CompilerDiagnostic[] {
+  const diagnostics: CompilerDiagnostic[] = [];
+  const firstStep = plan.orderedSteps[0];
+  const resetSteps: number[] = [];
+
+  for (const step of plan.steps) {
+    // A step has a reset path if it transitions to IDLE or back to the first step
+    const hasReset = step.rows.some((r) =>
+      r.next === "IDLE" || (typeof r.next === "number" && r.next === firstStep && step.step !== firstStep),
+    );
+    if (hasReset) resetSteps.push(step.step);
+  }
+
+  if (resetSteps.length === 0) {
+    diagnostics.push({
+      severity: "error",
+      category: "sequence_reset",
+      title: "No reset path exists",
+      description: `No step transitions to IDLE or back to step ${firstStep}. The sequence will run once and be stuck at the final step.`,
+      affectedSteps: plan.orderedSteps,
+    });
+  } else {
+    const lastStep = plan.orderedSteps[plan.orderedSteps.length - 1];
+    const onlyFromLast = resetSteps.length === 1 && resetSteps[0] === lastStep;
+    if (onlyFromLast && plan.orderedSteps.length > 2) {
+      diagnostics.push({
+        severity: "warning",
+        category: "sequence_reset",
+        title: "Reset only from final step",
+        description: `Only step ${lastStep} can return to idle/step ${firstStep}. No mid-sequence abort path exists.`,
+        affectedSteps: [lastStep],
+      });
+    }
+  }
+  return diagnostics;
+}
+
+function validatePlan(plan: DeterministicPlan): CompilerDiagnostic[] {
+  return [
+    ...checkSelfDefeatingTransitions(plan),
+    ...checkCircularDependencies(plan),
+    ...checkUnstableOutputs(plan),
+    ...checkUnreachableSteps(plan),
+    ...checkTypeMismatches(plan),
+    ...checkCoilConflicts(plan),
+    ...checkMissingInitialState(plan),
+    ...checkSequenceResetPath(plan),
+  ];
+}
+
+/**
+ * Validate a sequence's rows without full compilation.
+ * Used at matrix review time before process code generation.
+ * Returns compiler diagnostics for the sequence.
+ */
+export function validateSequence(sequence: ProcessSequence): CompilerDiagnostic[] {
+  if (!sequence.rows?.length) return [];
+  try {
+    const plan = compilePlan({
+      sequence,
+      blockName: sequence.name,
+      dbName: "_VALIDATE",
+      stepArrayName: "S",
+      actionArrayName: "A",
+      language: "SCL",
+    });
+    return validatePlan(plan);
+  } catch {
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Artifact compilation
+// ---------------------------------------------------------------------------
+
+export function compileDeterministicProcessArtifact(input: DeterministicCompilerInput): DeterministicCompilerResult {
+  const plan = compilePlan(input);
+  const diagnostics = validatePlan(plan);
+
+  const artifact: ForgeArtifact = input.language === "LAD"
+    ? {
+        id: crypto.randomUUID(),
+        name: plan.blockName,
+        type: "FC",
+        language: "LAD",
+        content: JSON.stringify(buildDeterministicLadProgram(plan)),
+        approved: false,
+        stage: "process",
+        destination_folder: "Program blocks/Forge/Process",
+        dependencies: [],
+        compile_after_import: true,
+        deterministic: true,
+      }
+    : {
+        id: crypto.randomUUID(),
+        name: plan.blockName,
+        type: "FC",
+        language: "SCL",
+        content: buildDeterministicScl(plan),
+        approved: false,
+        stage: "process",
+        destination_folder: "Program blocks/Forge/Process",
+        dependencies: [],
+        compile_after_import: true,
+        deterministic: true,
+      };
+
+  return { artifact, diagnostics };
 }
 
 export function buildDeterministicFaultDb(faults: FaultMatrixEntry[], dbName = "DB_FaultData"): ForgeArtifact {

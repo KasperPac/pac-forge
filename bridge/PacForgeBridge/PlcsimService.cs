@@ -2,21 +2,23 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using Newtonsoft.Json;
+using Siemens.Simatic.Simulation.Runtime;
 
 namespace PacForgeBridge
 {
     /// <summary>
     /// Service that manages PLCSIM Advanced V6 virtual controller lifecycle
     /// and provides tag read/write access for automated testing.
-    /// Uses the PlcsimBridge C++/CLI wrapper for native API access.
+    /// Uses the official managed Siemens.Simatic.Simulation.Runtime API.
     /// </summary>
     public class PlcsimService
     {
-        private PlcsimBridge.PlcsimRuntime _runtime;
-        private bool _connected;
+        private IInstance _instance;
         private string _instanceName;
+        private string _lastError;
 
-        // CPU type constants from PLCSIM Advanced API (ECPUType enum)
+        // CPU type constants — underlying integers match ECPUType enum,
+        // kept as int so HTTP callers don't need to reference the Siemens assembly.
         public static class CpuTypes
         {
             public const int S7_1500_Unspecified = 0x000005DC;
@@ -34,23 +36,23 @@ namespace PacForgeBridge
             public const int S7_1518F = 0x000105EE;
         }
 
-        // IO Area constants
-        public static class IoArea
-        {
-            public const int Input = 1;
-            public const int Marker = 2;
-            public const int Output = 3;
-            public const int DataBlock = 6;
-        }
-
-        public bool IsConnected => _connected;
+        public bool IsConnected => _instance != null;
         public string InstanceName => _instanceName;
-        public string LastError => _runtime?.LastError ?? "Not initialized";
+        public string LastError => _lastError ?? "";
 
         public PlcsimService()
         {
-            _connected = false;
+            _instance = null;
             _instanceName = null;
+            _lastError = null;
+        }
+
+        private void SetError(Exception ex)
+        {
+            if (ex is SimulationRuntimeException sre)
+                _lastError = $"{sre.RuntimeErrorCode}: {sre.Message}";
+            else
+                _lastError = ex.Message;
         }
 
         /// <summary>
@@ -62,53 +64,38 @@ namespace PacForgeBridge
 
             try
             {
-                if (_runtime != null && _connected)
+                if (_instance != null)
                 {
                     result.Success = true;
                     result.Message = $"Already connected to instance '{_instanceName}'";
-                    result.OperatingState = _runtime.GetOperatingState();
+                    result.OperatingState = _instance.OperatingState.ToString();
                     return result;
                 }
 
-                _runtime = new PlcsimBridge.PlcsimRuntime();
-
-                // Step 1: Initialize API
-                Console.WriteLine("[PLCSIM] Initializing PLCSIM Advanced API...");
-                if (!_runtime.Initialize())
-                {
-                    result.Message = $"API initialization failed: {_runtime.LastError}";
-                    return result;
-                }
-                Console.WriteLine("[PLCSIM] API initialized.");
-
-                // Step 2: Register instance
                 if (cpuType == 0) cpuType = CpuTypes.S7_1515; // default
                 Console.WriteLine($"[PLCSIM] Registering instance '{instanceName}' (CPU type: 0x{cpuType:X})...");
-                if (!_runtime.RegisterInstance(instanceName, cpuType))
-                {
-                    result.Message = $"RegisterInstance failed: {_runtime.LastError}";
-                    return result;
-                }
+
+                _instance = SimulationRuntimeManager.RegisterInstance((ECPUType)cpuType, instanceName);
                 Console.WriteLine("[PLCSIM] Instance registered.");
 
-                // Step 3: Power on
                 Console.WriteLine("[PLCSIM] Powering on...");
-                if (!_runtime.PowerOn(timeoutMs))
+                ERuntimeErrorCode powerRc = _instance.PowerOn((uint)timeoutMs);
+                if (powerRc != ERuntimeErrorCode.OK && powerRc != ERuntimeErrorCode.WarningAlreadyExists)
                 {
-                    result.Message = $"PowerOn failed: {_runtime.LastError}";
+                    result.Message = $"PowerOn failed: {powerRc}";
+                    _lastError = powerRc.ToString();
                     return result;
                 }
                 Console.WriteLine("[PLCSIM] Powered on.");
 
-                // Wait for instance to fully initialize (PLCSIM needs 2-5s after PowerOn)
+                // Wait for instance to reach Stop or Run (ready to accept downloads/commands)
                 Console.WriteLine("[PLCSIM] Waiting for instance to stabilize...");
                 var deadline = DateTime.Now.AddMilliseconds(timeoutMs);
                 string state = "";
                 while (DateTime.Now < deadline)
                 {
-                    state = _runtime.GetOperatingState();
+                    state = _instance.OperatingState.ToString();
                     Console.WriteLine($"[PLCSIM] State: {state}");
-                    // STOP or RUN means the instance is ready to accept downloads/commands
                     if (state == "Stop" || state == "Run")
                         break;
                     Thread.Sleep(500);
@@ -124,14 +111,14 @@ namespace PacForgeBridge
                 }
 
                 _instanceName = instanceName;
-                _connected = true;
                 result.Success = true;
                 result.Message = $"PLCSIM instance '{instanceName}' started and ready (state: {state})";
                 result.OperatingState = state;
             }
             catch (Exception ex)
             {
-                result.Message = $"Exception: {ex.Message}";
+                SetError(ex);
+                result.Message = $"Exception: {_lastError}";
                 Console.WriteLine($"[PLCSIM] Error: {ex}");
             }
 
@@ -145,7 +132,7 @@ namespace PacForgeBridge
         {
             var result = new PlcsimResult();
 
-            if (!_connected || _runtime == null)
+            if (_instance == null)
             {
                 result.Message = "Not connected to PLCSIM instance";
                 return result;
@@ -153,24 +140,17 @@ namespace PacForgeBridge
 
             try
             {
-                bool ok;
                 if (mode.Equals("run", StringComparison.OrdinalIgnoreCase))
                 {
-                    ok = _runtime.Run(timeoutMs);
+                    _instance.Run((uint)timeoutMs);
                 }
                 else if (mode.Equals("stop", StringComparison.OrdinalIgnoreCase))
                 {
-                    ok = _runtime.Stop(timeoutMs);
+                    _instance.Stop((uint)timeoutMs);
                 }
                 else
                 {
                     result.Message = $"Invalid mode: '{mode}'. Use 'run' or 'stop'.";
-                    return result;
-                }
-
-                if (!ok)
-                {
-                    result.Message = $"SetMode({mode}) failed: {_runtime.LastError}";
                     return result;
                 }
 
@@ -179,7 +159,8 @@ namespace PacForgeBridge
             }
             catch (Exception ex)
             {
-                result.Message = $"Exception: {ex.Message}";
+                SetError(ex);
+                result.Message = $"SetMode({mode}) failed: {_lastError}";
             }
 
             return result;
@@ -191,7 +172,7 @@ namespace PacForgeBridge
         public PlcsimResult UpdateTagList()
         {
             var result = new PlcsimResult();
-            if (!_connected || _runtime == null)
+            if (_instance == null)
             {
                 result.Message = "Not connected to PLCSIM instance";
                 return result;
@@ -200,18 +181,15 @@ namespace PacForgeBridge
             try
             {
                 Console.WriteLine("[PLCSIM] Updating tag list...");
-                if (!_runtime.UpdateTagList())
-                {
-                    result.Message = $"UpdateTagList failed: {_runtime.LastError}";
-                    return result;
-                }
+                _instance.UpdateTagList();
                 Console.WriteLine("[PLCSIM] Tag list updated.");
                 result.Success = true;
                 result.Message = "Tag list updated";
             }
             catch (Exception ex)
             {
-                result.Message = $"Exception: {ex.Message}";
+                SetError(ex);
+                result.Message = $"UpdateTagList failed: {_lastError}";
             }
             return result;
         }
@@ -223,10 +201,10 @@ namespace PacForgeBridge
         {
             return new PlcsimStatusResult
             {
-                Connected = _connected,
+                Connected = _instance != null,
                 InstanceName = _instanceName,
-                OperatingState = _connected ? _runtime?.GetOperatingState() ?? "Unknown" : "Disconnected",
-                HasInstance = _runtime?.HasInstance ?? false,
+                OperatingState = _instance != null ? _instance.OperatingState.ToString() : "Disconnected",
+                HasInstance = _instance != null,
             };
         }
 
@@ -237,7 +215,7 @@ namespace PacForgeBridge
         {
             var result = new PlcsimResult();
 
-            if (!_connected || _runtime == null)
+            if (_instance == null)
             {
                 result.Message = "Not connected to PLCSIM instance";
                 return result;
@@ -245,24 +223,31 @@ namespace PacForgeBridge
 
             try
             {
-                bool ok;
                 switch (dataType.ToLower())
                 {
                     case "bool":
-                        ok = _runtime.WriteBool(tagName, Convert.ToBoolean(value));
+                        _instance.WriteBool(tagName, Convert.ToBoolean(value));
                         break;
                     case "int":
                     case "int16":
                     case "sint":
-                        ok = _runtime.WriteInt16(tagName, Convert.ToInt16(value));
+                        _instance.WriteInt16(tagName, Convert.ToInt16(value));
                         break;
                     case "dint":
                     case "int32":
-                        ok = _runtime.WriteInt32(tagName, Convert.ToInt32(value));
+                        _instance.WriteInt32(tagName, Convert.ToInt32(value));
+                        break;
+                    case "word":
+                    case "uint16":
+                        _instance.WriteUInt16(tagName, ParseUInt16(value));
+                        break;
+                    case "dword":
+                    case "uint32":
+                        _instance.WriteUInt32(tagName, ParseUInt32(value));
                         break;
                     case "real":
                     case "float":
-                        ok = _runtime.WriteFloat(tagName, Convert.ToSingle(value));
+                        _instance.WriteFloat(tagName, Convert.ToSingle(value));
                         break;
                     case "time":
                         // S7 TIME is a 32-bit signed integer in milliseconds.
@@ -270,24 +255,14 @@ namespace PacForgeBridge
                         int timeMs;
                         var valStr = value?.ToString() ?? "";
                         if (valStr.StartsWith("T#", StringComparison.OrdinalIgnoreCase))
-                        {
                             timeMs = ParseTimeString(valStr);
-                        }
                         else
-                        {
                             timeMs = Convert.ToInt32(value);
-                        }
-                        ok = _runtime.WriteInt32(tagName, timeMs);
+                        _instance.WriteInt32(tagName, timeMs);
                         break;
                     default:
                         result.Message = $"Unsupported data type: '{dataType}'";
                         return result;
-                }
-
-                if (!ok)
-                {
-                    result.Message = $"WriteTag({tagName}) failed: {_runtime.LastError}";
-                    return result;
                 }
 
                 result.Success = true;
@@ -295,7 +270,8 @@ namespace PacForgeBridge
             }
             catch (Exception ex)
             {
-                result.Message = $"Exception writing {tagName}: {ex.Message}";
+                SetError(ex);
+                result.Message = $"WriteTag({tagName}) failed: {_lastError}";
             }
 
             return result;
@@ -308,7 +284,7 @@ namespace PacForgeBridge
         {
             var result = new PlcsimReadResult();
 
-            if (!_connected || _runtime == null)
+            if (_instance == null)
             {
                 result.Message = "Not connected to PLCSIM instance";
                 return result;
@@ -317,11 +293,9 @@ namespace PacForgeBridge
             try
             {
                 result.Values = new List<TagReadValue>();
-
                 foreach (var tag in tags)
                 {
-                    var readResult = ReadSingleTag(tag.TagName, tag.DataType);
-                    result.Values.Add(readResult);
+                    result.Values.Add(ReadSingleTag(tag.TagName, tag.DataType));
                 }
 
                 result.Success = true;
@@ -329,7 +303,8 @@ namespace PacForgeBridge
             }
             catch (Exception ex)
             {
-                result.Message = $"Exception: {ex.Message}";
+                SetError(ex);
+                result.Message = $"Exception: {_lastError}";
             }
 
             return result;
@@ -341,48 +316,47 @@ namespace PacForgeBridge
 
             try
             {
-                PlcsimBridge.TagReadResult r;
                 switch (dataType.ToLower())
                 {
                     case "bool":
-                        r = _runtime.ReadBool(tagName);
+                        val.Value = _instance.ReadBool(tagName);
                         break;
                     case "int":
                     case "int16":
                     case "sint":
-                        r = _runtime.ReadInt16(tagName);
+                        val.Value = (int)_instance.ReadInt16(tagName);
                         break;
                     case "dint":
                     case "int32":
-                        r = _runtime.ReadInt32(tagName);
+                        val.Value = _instance.ReadInt32(tagName);
+                        break;
+                    case "word":
+                    case "uint16":
+                        val.Value = (int)_instance.ReadUInt16(tagName);
+                        break;
+                    case "dword":
+                    case "uint32":
+                        val.Value = (long)_instance.ReadUInt32(tagName);
                         break;
                     case "real":
                     case "float":
-                        r = _runtime.ReadFloat(tagName);
+                        val.Value = (double)_instance.ReadFloat(tagName);
                         break;
                     case "time":
-                        // TIME is stored as Int32 (milliseconds) in the PLC.
-                        // Convert to T# format string so comparisons work against T#2s etc.
-                        r = _runtime.ReadInt32(tagName);
-                        if (r.Success && r.Value is int ms)
-                        {
-                            r = new PlcsimBridge.TagReadResult { Success = true, Value = FormatTimeString(ms) };
-                        }
+                        // TIME is stored as Int32 (milliseconds). Convert to T# literal.
+                        int ms = _instance.ReadInt32(tagName);
+                        val.Value = FormatTimeString(ms);
                         break;
                     default:
                         val.Error = $"Unsupported data type: '{dataType}'";
                         return val;
                 }
 
-                if (r.Success)
-                {
-                    val.Value = r.Value;
-                    val.Success = true;
-                }
-                else
-                {
-                    val.Error = r.ErrorMessage;
-                }
+                val.Success = true;
+            }
+            catch (SimulationRuntimeException sre)
+            {
+                val.Error = $"{sre.RuntimeErrorCode}: {sre.Message}";
             }
             catch (Exception ex)
             {
@@ -401,24 +375,58 @@ namespace PacForgeBridge
 
             try
             {
-                if (_runtime != null)
+                if (_instance != null)
                 {
-                    Console.WriteLine("[PLCSIM] Shutting down...");
-                    _runtime.Shutdown();
-                    _runtime = null;
+                    Console.WriteLine("[PLCSIM] Shutting down instance...");
+
+                    // Best-effort graceful shutdown
+                    var state = _instance.OperatingState;
+                    if (state == EOperatingState.Run || state == EOperatingState.Stop)
+                    {
+                        try { _instance.PowerOff(5000); } catch { /* ignore */ }
+                    }
+
+                    try { _instance.UnregisterInstance(); } catch { /* ignore */ }
+                    _instance = null;
                 }
 
-                _connected = false;
                 _instanceName = null;
                 result.Success = true;
                 result.Message = "PLCSIM instance stopped";
             }
             catch (Exception ex)
             {
-                result.Message = $"Exception: {ex.Message}";
+                SetError(ex);
+                result.Message = $"Exception: {_lastError}";
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Parse a Word value that may be an integer or a hex literal (16#FF or 0xFF).
+        /// </summary>
+        private static ushort ParseUInt16(object value)
+        {
+            var s = value?.ToString() ?? "0";
+            if (s.StartsWith("16#", StringComparison.OrdinalIgnoreCase))
+                return Convert.ToUInt16(s.Substring(3), 16);
+            if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                return Convert.ToUInt16(s.Substring(2), 16);
+            return Convert.ToUInt16(value);
+        }
+
+        /// <summary>
+        /// Parse a DWord value that may be an integer or a hex literal (16#FFFFFFFF or 0xFFFFFFFF).
+        /// </summary>
+        private static uint ParseUInt32(object value)
+        {
+            var s = value?.ToString() ?? "0";
+            if (s.StartsWith("16#", StringComparison.OrdinalIgnoreCase))
+                return Convert.ToUInt32(s.Substring(3), 16);
+            if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                return Convert.ToUInt32(s.Substring(2), 16);
+            return Convert.ToUInt32(value);
         }
 
         /// <summary>
@@ -437,7 +445,6 @@ namespace PacForgeBridge
                 if (sec == 0) return $"T#{min}m";
                 return $"T#{min}m{sec}s";
             }
-            // Mixed: e.g. 1500ms → T#1s500ms
             int s = ms / 1000;
             int remainder = ms % 1000;
             return $"T#{s}s{remainder}ms";
@@ -448,7 +455,6 @@ namespace PacForgeBridge
         /// </summary>
         private static int ParseTimeString(string value)
         {
-            // Strip T# prefix
             var s = value;
             if (s.StartsWith("T#", StringComparison.OrdinalIgnoreCase))
                 s = s.Substring(2);
@@ -457,7 +463,6 @@ namespace PacForgeBridge
             int i = 0;
             while (i < s.Length)
             {
-                // Read numeric part
                 int start = i;
                 while (i < s.Length && (char.IsDigit(s[i]) || s[i] == '.'))
                     i++;
@@ -465,7 +470,6 @@ namespace PacForgeBridge
                 double num = double.Parse(s.Substring(start, i - start),
                     System.Globalization.CultureInfo.InvariantCulture);
 
-                // Read unit
                 int unitStart = i;
                 while (i < s.Length && char.IsLetter(s[i]))
                     i++;
@@ -480,7 +484,6 @@ namespace PacForgeBridge
                     case "ms":  totalMs += (int)num; break;
                     case "us":  totalMs += (int)(num / 1000); break;
                     default:
-                        // If no unit, assume milliseconds
                         totalMs += (int)num;
                         break;
                 }

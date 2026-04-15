@@ -3,6 +3,13 @@
 @tailwind utilities;
 
 @layer base {
+  /* Bump global base font-size for readability.
+     Scales all rem-based Tailwind utilities (text-xs, text-sm, text-base, etc.) by ~12.5%.
+     Hardcoded text-[NNpx] sizes are overridden separately below. */
+  html {
+    font-size: 18px;
+  }
+
   :root {
     --background: 0 0% 100%;
     --foreground: 0 0% 3.9%;
@@ -70,4 +77,15 @@
   ::selection {
     @apply bg-blue-500/40 text-foreground;
   }
+}
+
+@layer utilities {
+  /* Legibility overrides for the dense engineering-tool labels that use
+     hardcoded pixel sizes throughout the app. Bumps each tier by ~2px
+     so pills, metadata, and monospace chrome stay readable without a
+     per-file refactor. */
+  .text-\[10px\] { font-size: 12px; line-height: 1.4; }
+  .text-\[11px\] { font-size: 13px; line-height: 1.4; }
+  .text-\[12px\] { font-size: 13px; line-height: 1.4; }
+  .text-\[13px\] { font-size: 14px; line-height: 1.45; }
 }

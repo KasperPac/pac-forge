@@ -126,9 +126,28 @@ export interface ConfigUdtDefinition {
   }>;
 }
 
+/** Assembly linkage — wiring for assembly-level FBs that coordinate device groups */
+export interface LinkageAssembly {
+  id: string;
+  name: string;
+  assemblyType: string;
+  description: string;
+  fbName: string;
+  fbTemplateName: string | null;
+  fbTemplateId: string | null;
+  instanceDbName: string;
+  /** IDs of constituent devices in deviceLinkage */
+  deviceIds: string[];
+  wiring: FbWire[];
+  interlocks: LinkageInterlock[];
+  statusMirrors?: StatusMirror[];
+}
+
 export interface ProcessLinkageMatrix {
   version: number;
   deviceLinkage: LinkageDevice[];
+  /** Assembly-level FB linkage — coordinates groups of devices */
+  assemblyLinkage?: LinkageAssembly[];
   globalData: LinkageGlobalData[];
   processSequences: ProcessSequence[];
   faultMatrix?: FaultMatrixEntry[];

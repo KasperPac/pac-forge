@@ -95,6 +95,8 @@ export function useForgeQaReview() {
         controller.signal,
         4096,
         "pm_qa",
+        false,
+        { prompt_name: "forge-qa-review", agent_role: "pm_qa", pipeline_step: "qa_review_start" },
       );
 
       const assistantMsg = makeMessage("assistant", content);
@@ -143,6 +145,8 @@ export function useForgeQaReview() {
         controller.signal,
         4096,
         "pm_qa",
+        false,
+        { prompt_name: "forge-qa-review", agent_role: "pm_qa", pipeline_step: "qa_review_message" },
       );
 
       const assistantMsg = makeMessage("assistant", content);
@@ -238,6 +242,8 @@ export function useForgeQaReview() {
         controller.signal,
         16000,
         "pm_qa",
+        false,
+        { prompt_name: "forge-qa-review", agent_role: "pm_qa", pipeline_step: "qa_review_finalize" },
       );
 
       const parsed = parseJsonResponse<SpecAnalysis>(content);

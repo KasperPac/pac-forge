@@ -1,0 +1,130 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V20" />
+  <DocumentInfo>
+    <Created>2026-04-11T06:02:29.7990128Z</Created>
+    <ExportSetting>WithDefaults</ExportSetting>
+    <InstalledProducts>
+      <Product>
+        <DisplayName>Totally Integrated Automation Portal</DisplayName>
+        <DisplayVersion>V20</DisplayVersion>
+      </Product>
+      <OptionPackage>
+        <DisplayName>TIA Portal Openness</DisplayName>
+        <DisplayVersion>V20</DisplayVersion>
+      </OptionPackage>
+      <OptionPackage>
+        <DisplayName>TIA Portal Version Control Interface</DisplayName>
+        <DisplayVersion>V20</DisplayVersion>
+      </OptionPackage>
+      <Product>
+        <DisplayName>STEP 7 Professional</DisplayName>
+        <DisplayVersion>V20</DisplayVersion>
+      </Product>
+      <OptionPackage>
+        <DisplayName>STEP 7 Safety</DisplayName>
+        <DisplayVersion>V20</DisplayVersion>
+      </OptionPackage>
+      <Product>
+        <DisplayName>WinCC Basic/Comfort/Advanced</DisplayName>
+        <DisplayVersion>V20</DisplayVersion>
+      </Product>
+      <Product>
+        <DisplayName>WinCC Unified</DisplayName>
+        <DisplayVersion>V20</DisplayVersion>
+      </Product>
+    </InstalledProducts>
+  </DocumentInfo>
+  <SW.Types.PlcStruct ID="0">
+    <AttributeList>
+      <Interface><Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+  <Section Name="None">
+    <Member Name="Control" Datatype="&quot;udtContC_C&quot;">
+      <AttributeList>
+        <BooleanAttribute Name="ExternalAccessible" SystemDefined="true">true</BooleanAttribute>
+        <BooleanAttribute Name="ExternalVisible" SystemDefined="true">true</BooleanAttribute>
+        <BooleanAttribute Name="ExternalWritable" SystemDefined="true">true</BooleanAttribute>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+      <Sections>
+        <Section Name="None">
+          <Member Name="COM_RST" Datatype="Bool" />
+          <Member Name="MAN_ON" Datatype="Bool" />
+          <Member Name="PVPER_ON" Datatype="Bool" />
+          <Member Name="P_SEL" Datatype="Bool" />
+          <Member Name="I_SEL" Datatype="Bool" />
+          <Member Name="INT_HOLD" Datatype="Bool" />
+          <Member Name="I_ITL_ON" Datatype="Bool" />
+          <Member Name="D_SEL" Datatype="Bool" />
+          <Member Name="CYCLE" Datatype="Time" />
+          <Member Name="SP_INT" Datatype="Real" />
+          <Member Name="PV_IN" Datatype="Real" />
+          <Member Name="PV_PER" Datatype="Word" />
+          <Member Name="MAN" Datatype="Real" />
+          <Member Name="GAIN" Datatype="Real" />
+          <Member Name="TI" Datatype="Time" />
+          <Member Name="TD" Datatype="Time" />
+          <Member Name="TM_LAG" Datatype="Time" />
+          <Member Name="DEADB_W" Datatype="Real" />
+          <Member Name="LMN_HLM" Datatype="Real" />
+          <Member Name="LMN_LLM" Datatype="Real" />
+          <Member Name="PV_FAC" Datatype="Real" />
+          <Member Name="PV_OFF" Datatype="Real" />
+          <Member Name="LMN_FAC" Datatype="Real" />
+          <Member Name="LMN_OFF" Datatype="Real" />
+          <Member Name="I_ITLVAL" Datatype="Real" />
+          <Member Name="DISV" Datatype="Real" />
+        </Section>
+      </Sections>
+    </Member>
+    <Member Name="Status" Datatype="&quot;udtContC_S&quot;">
+      <AttributeList>
+        <BooleanAttribute Name="ExternalAccessible" SystemDefined="true">true</BooleanAttribute>
+        <BooleanAttribute Name="ExternalVisible" SystemDefined="true">true</BooleanAttribute>
+        <BooleanAttribute Name="ExternalWritable" SystemDefined="true">true</BooleanAttribute>
+        <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+      </AttributeList>
+      <Sections>
+        <Section Name="None">
+          <Member Name="LMN" Datatype="Real" />
+          <Member Name="LMN_PER" Datatype="Word" />
+          <Member Name="QLMN_HLM" Datatype="Bool" />
+          <Member Name="QLMN_LLM" Datatype="Bool" />
+          <Member Name="LMN_P" Datatype="Real" />
+          <Member Name="LMN_I" Datatype="Real" />
+          <Member Name="LMN_D" Datatype="Real" />
+          <Member Name="PV" Datatype="Real" />
+          <Member Name="ER" Datatype="Real" />
+        </Section>
+      </Sections>
+    </Member>
+  </Section>
+</Sections></Interface>
+      <IsFailsafeCompliant>false</IsFailsafeCompliant>
+      <Name>udtContC</Name>
+      <Namespace />
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="3" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Types.PlcStruct>
+</Document>

@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
-import { callNonStreaming } from "@/hooks/use-generation";
-import { validateAndCall } from "@/lib/forge-pipeline-validator";
+import { streamFromEdgeFunction } from "@/hooks/use-generation";
+// validateAndCall not needed — streaming bypasses the pipeline validator wrapper
 import {
   buildSpecAnalysisPrompt,
   buildSpecAnalysisUserMessage,
@@ -9,7 +9,7 @@ import type { SpecAnalysis } from "@/types/forge";
 import type { FbTemplate } from "@/types/fb-template";
 import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 
-const SPEC_ANALYSIS_MAX_TOKENS = 16384;
+const SPEC_ANALYSIS_MAX_TOKENS = 65536;
 
 /** Minimal validation — ensures required top-level fields are present. */
 function validateSpecAnalysis(parsed: unknown): SpecAnalysis {
@@ -35,9 +35,23 @@ function validateSpecAnalysis(parsed: unknown): SpecAnalysis {
     subsystems: Array.isArray(obj.subsystems)
       ? (obj.subsystems as SpecAnalysis["subsystems"])
       : [],
+    assemblies: Array.isArray(obj.assemblies)
+      ? (obj.assemblies as Array<Record<string, unknown>>).map((a) => ({
+          id: (a.id ?? "") as string,
+          name: (a.name ?? a.tag ?? "") as string,
+          tag: (a.tag ?? a.name ?? "") as string,
+          assembly_type: (a.assembly_type ?? a.type ?? "") as string,
+          description: (a.description ?? "") as string,
+          subsystem: (a.subsystem ?? "") as string,
+          device_ids: Array.isArray(a.device_ids) ? (a.device_ids as string[]) : [],
+        })) as SpecAnalysis["assemblies"]
+      : [],
     devices: Array.isArray(obj.devices)
       ? (obj.devices as Array<Record<string, unknown>>).map((d) => ({
           ...d,
+          // Normalize: AI sometimes omits name (uses tag only) or vice versa
+          name: (d.name ?? d.tag ?? "") as string,
+          tag: (d.tag ?? d.name ?? "") as string,
           io_signals: Array.isArray(d.io_signals)
             ? (d.io_signals as Array<Record<string, unknown>>).map((sig) => ({
                 // Normalize field names — AI sometimes uses signal_name instead of tag_name
@@ -53,7 +67,12 @@ function validateSpecAnalysis(parsed: unknown): SpecAnalysis {
     process_sequences: Array.isArray(obj.process_sequences)
       ? (obj.process_sequences as Array<Record<string, unknown>>).map((s) => ({
           ...s,
-          steps: Array.isArray(s.steps) ? s.steps : [],
+          steps: Array.isArray(s.steps)
+            ? (s.steps as Array<Record<string, unknown>>).map((step) => ({
+                ...step,
+                trigger_condition: (step.trigger_condition ?? step.trigger ?? null) as string | null,
+              }))
+            : [],
           permissives: Array.isArray(s.permissives) ? s.permissives : [],
         })) as SpecAnalysis["process_sequences"]
       : [],
@@ -89,33 +108,48 @@ export function useForgeSpecAnalysis() {
         const systemPrompt = buildSpecAnalysisPrompt(fbTemplates, promptSections);
         const userMessage = buildSpecAnalysisUserMessage(specText);
 
-        const { content } = await validateAndCall(
-          callNonStreaming,
-          systemPrompt,
-          [{ role: "user", content: userMessage }],
+        console.log("[spec-analysis] streaming — system prompt:", systemPrompt.length, "chars, user message:", userMessage.length, "chars");
+        const startTime = Date.now();
+
+        const content = await streamFromEdgeFunction(
+          {
+            system_prompt: systemPrompt,
+            messages: [{ role: "user", content: userMessage }],
+            stream: true,
+          },
           abort.signal,
+          () => {}, // no per-chunk callback needed for single analysis
           SPEC_ANALYSIS_MAX_TOKENS,
-          "spec_analysis",
+          { prompt_name: "forge-spec-analysis", agent_role: "spec_analysis", pipeline_step: "spec_analysis" },
         );
 
+        console.log("[spec-analysis] streamed in", Date.now() - startTime, "ms,", content.length, "chars");
+
         // Strip any accidental markdown fences the model may add
-        const cleaned = content
-          .trim()
-          .replace(/^```json\s*/i, "")
-          .replace(/^```\s*/i, "")
-          .replace(/```\s*$/, "")
-          .trim();
+        let cleaned = content.trim();
+        cleaned = cleaned.replace(/^[\s\S]*?```json\s*/i, "");
+        cleaned = cleaned.replace(/```[\s\S]*$/, "");
+        cleaned = cleaned.trim();
+        if (!cleaned.startsWith("{") && !cleaned.startsWith("[")) {
+          const jsonStart = cleaned.indexOf("{");
+          if (jsonStart >= 0) cleaned = cleaned.slice(jsonStart);
+        }
 
         let parsed: unknown;
         try {
           parsed = JSON.parse(cleaned);
-        } catch {
+        } catch (jsonErr) {
+          console.error("[spec-analysis] JSON parse failed:", jsonErr);
+          console.error("[spec-analysis] last 200 chars:", cleaned.slice(-200));
           throw new Error(`Spec analysis returned invalid JSON: ${cleaned.slice(0, 200)}…`);
         }
 
-        return validateSpecAnalysis(parsed);
+        const result = validateSpecAnalysis(parsed);
+        console.log("[spec-analysis] OK — devices:", result.devices.length, "assemblies:", result.assemblies.length, "sequences:", result.process_sequences.length);
+        return result;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        console.error("[spec-analysis] ERROR:", msg);
         setError(msg);
         throw err;
       } finally {

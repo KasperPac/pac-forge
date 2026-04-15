@@ -198,6 +198,33 @@ async function uploadHmiArtifacts(
   const errors: string[] = [];
 
   for (const artifact of hmiArtifacts) {
+    // Branch on destination folder: Unified artifacts go to the create-screen endpoint,
+    // Comfort artifacts go through the legacy SimaticML import path.
+    const isUnified = artifact.destination_folder === "HMI/Unified";
+
+    if (isUnified) {
+      try {
+        // Content is a serialized HmiUnifiedScreenPayload — POST as-is
+        const resp = await fetch(`${BRIDGE_BASE}/tia/hmi/create-screen`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: artifact.content,
+          signal: AbortSignal.timeout(120_000),
+        });
+        const result = await resp.json();
+        if (!result.success) {
+          errors.push(`Unified HMI create failed: ${artifact.name} — ${result.message ?? "unknown"}`);
+        } else if (Array.isArray(result.warnings) && result.warnings.length > 0) {
+          // Surface bridge warnings but don't fail the artifact
+          console.warn(`[upload-hmi] ${artifact.name} warnings:`, result.warnings);
+        }
+      } catch (err) {
+        errors.push(`Unified HMI create error: ${artifact.name} — ${err instanceof Error ? err.message : String(err)}`);
+      }
+      continue;
+    }
+
+    // Comfort legacy path — SimaticML XML import
     try {
       const xmlContent = await buildHmiXmlForArtifact(artifact);
       const body: ImportHmiRequest = {
@@ -430,6 +457,7 @@ export function useForgeCompileCheck() {
                 8192,
                 "compile_fix",
                 false,
+                { prompt_name: "forge-compile-check", agent_role: "compile_fix", pipeline_step: "compile_fix" },
               );
 
               const fixed = parseFixedArtifact(content, artifact);
@@ -627,6 +655,7 @@ export function useForgeCompileCheck() {
                 8192,
                 "compile_fix",
                 false,
+                { prompt_name: "forge-compile-check", agent_role: "compile_fix", pipeline_step: "compile_fix" },
               );
 
               const fixed = parseFixedArtifact(content, artifact);

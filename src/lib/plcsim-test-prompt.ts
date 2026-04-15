@@ -43,7 +43,7 @@ const TEST_SUITE_SCHEMA = `{
         {
           "id": "string (unique)",
           "stepNumber": 1,
-          "description": "string (what this step verifies)",
+          "description": "string (IMPORTANT: stepNumber 1 MUST always be fault reset / healthy preconditions)",
           "actions": [
             {
               "id": "string (unique)",
@@ -79,6 +79,19 @@ export function buildPlcsimTestPrompt(
 
 ${instructions}
 
+## MANDATORY: Fault Reset as First Step
+
+The FIRST STEP of EVERY test case MUST clear all faults and set healthy preconditions before testing anything.
+This is non-negotiable — a previous test may have left faults latched, e-stop tripped, or outputs in an unexpected state.
+
+Every test case must begin with a step that:
+1. Sets healthy preconditions (e-stop, overloads, safety signals)
+2. Triggers the project's fault reset method (e.g., push button input) for the required duration, then releases it
+3. Waits for the PLC to process the reset
+4. Confirms the device under test has no active faults before proceeding
+
+Study the generated code to identify the correct reset mechanism — do NOT write directly to internal fault reset DB tags that are driven by logic.
+
 ## CRITICAL: Timer and Delay Configuration for Testing
 
 The test framework has network latency (~200-300ms per action) between the test runner and PLCSIM.
@@ -104,10 +117,21 @@ ${TEST_SUITE_SCHEMA}`;
 // User message builder
 // ---------------------------------------------------------------------------
 
+export interface PlcsimTestPromptOptions {
+  /** Restrict test generation to specific categories */
+  categoryFilter?: string[];
+  /** Which artifacts to include — "device_only" omits process_artifacts */
+  artifactScope?: "device_only" | "all";
+  /** Devices already covered by test templates — AI should skip these */
+  excludeDevices?: string[];
+}
+
 export function buildPlcsimTestUserMessage(
   session: ForgeSession,
   profile: DesignProfile | null,
+  options?: PlcsimTestPromptOptions,
 ): string {
+  const isDeviceOnly = options?.artifactScope === "device_only";
   const parts: string[] = [];
 
   // Project context
@@ -129,8 +153,12 @@ export function buildPlcsimTestUserMessage(
     const inputs = session.io_list.filter((io) => io.signal_type === "DI" || io.signal_type === "AI");
     const outputs = session.io_list.filter((io) => io.signal_type === "DQ" || io.signal_type === "AQ");
 
-    parts.push("\n## PHYSICAL INPUT TAGS — use these for WRITE actions");
-    parts.push("These are the ONLY tags you should write to. They are physical IO signals forced via PLCSIM.");
+    parts.push(isDeviceOnly
+      ? "\n## PHYSICAL INPUT TAGS — reference only (IoLinking NOT active in device tests)"
+      : "\n## PHYSICAL INPUT TAGS — use these for WRITE actions");
+    parts.push(isDeviceOnly
+      ? "These tags are NOT writable during device-only tests because IoLinking FC is not connected. Use DB_Inputs.* fields instead. Listed here for reference only."
+      : "These are the ONLY tags you should write to. They are physical IO signals forced via PLCSIM.");
     if (inputs.length) {
       parts.push("| Tag Name | Signal Type | Data Type | Description | Device |");
       parts.push("|----------|-------------|-----------|-------------|--------|");
@@ -152,24 +180,41 @@ export function buildPlcsimTestUserMessage(
       parts.push("(No physical outputs found in IO list)");
     }
 
-    parts.push("\n## DB TAGS — rules depend on test category");
-    parts.push("DB tags include DB_Inputs.*, DB_Outputs.*, DB_Process_Commands.*, instance DB fields, DB_HmiData.*, etc.");
+    parts.push("\n## DB TAGS — rules depend on test phase");
+    parts.push("DB tags include DB_Inputs.*, DB_Outputs.*, DB_ProcessCommands.*, instance DB fields, DB_HmiData.*, etc.");
     parts.push("");
-    parts.push("### For device_fb tests (unit testing a single FB):");
-    parts.push("- CRITICAL: Do NOT write to DB_ProcessCommands, DB_ProcessState, or any global DB for device_fb tests — the process sequence FC and device call FCs overwrite these every scan cycle and your writes will be lost immediately.");
-    parts.push("- Instead, write directly to the INSTANCE DB of the FB under test using \"InstanceDbName\".paramName syntax.");
-    parts.push("  The Device Linkage table above shows each device's Instance DB name and parameter names.");
-    parts.push("  Example: to set M01 to run forward, write to \"InstM01\".run = TRUE (NOT to DB_ProcessCommands.m01CmdFwd).");
-    parts.push("  Example: to enable CV01, write to \"InstCV01\".enable = TRUE.");
-    parts.push("  Example: to set motor mode, write to \"InstM01\".mode = 2.");
-    parts.push("- For physical IO inputs (sensor signals, feedback), write to the physical input tags directly (e.g., M01_RUN, ESTOP_OK, PE01_DET).");
-    parts.push("- READ physical output tags (M01_CMD_FWD, M01_CMD_REV) or instance DB output params (\"InstM01\".fwdrun) to verify behaviour.");
-    parts.push("- This is bench-testing — you bypass the device call FC entirely and drive the FB instance directly.");
-    parts.push("");
-    parts.push("### For all other tests (normal, fault, permissive, interlock, reset):");
-    parts.push("- WRITE only to physical INPUT tags (from the table above). The sequence logic drives DB tags.");
-    parts.push("- READ DB tags or physical output tags to verify PLC state.");
-    parts.push("- ⚠ Do NOT write to DB tags in sequence/integration tests — they will be overwritten by the PLC scan cycle.");
+    if (isDeviceOnly) {
+      parts.push("### Device FB Tests (current phase — device layer only, NO IoLinking FC):");
+      parts.push("- The PLC is running with: Device Call FCs → Device FBs. The IoLinking FC is NOT connected.");
+      parts.push("- Physical IO tags (PB_ENABLE, ESTOP_OK, FAN1_RUN) are NOT mapped — do NOT write to them.");
+      parts.push("- Write to the **DB fields** that feed the device call FCs instead:");
+      parts.push("  - Sensor/button inputs → **DB_Inputs** fields (e.g., \"DB_Inputs\".ESTOP_OK, \"DB_Inputs\".PB_ENABLE)");
+      parts.push("  - Process commands → **DB_ProcessCommands** fields (e.g., \"DB_ProcessCommands\".fan01Enable)");
+      parts.push("  - The Device Linkage table shows each device's wiring — the 'Connected To' column has the exact DB path.");
+      parts.push("");
+      parts.push("### CRITICAL: Follow inter-device dependency chains");
+      parts.push("- Device Call FCs wire device FBs together — these links ARE active even without IoLinking.");
+      parts.push("- Study the **interlocks** and **safety conditions** in the Device Linkage carefully.");
+      parts.push("- You cannot shortcut dependencies by writing directly to a downstream device's input.");
+      parts.push("  The device call FC overwrites it from the upstream device's output every scan.");
+      parts.push("- Example: E-Stop → downstream devices:");
+      parts.push("  1. Write \"DB_Inputs\".ESTOP_OK := TRUE (healthy NC contact signal)");
+      parts.push("  2. Write \"DB_Inputs\".PB_RESET := TRUE, wait for resetHoldTime, then write FALSE");
+      parts.push("  3. Wait for ControlEStop FB to process → \"InstESTOP\".safetyOk goes TRUE");
+      parts.push("  4. Only THEN will downstream devices (fans, motors) see their safety interlock satisfied");
+      parts.push("  Writing \"InstFAN01\".safetyOk := TRUE directly will NOT work — the call FC overwrites it from \"InstESTOP\".safetyOk.");
+      parts.push("- Walk the FULL dependency chain for each device before writing test actions.");
+      parts.push("");
+      parts.push("- READ instance DB output params to verify behaviour (e.g., \"InstFAN01\".bOutCommandRun).");
+      parts.push("- READ **DB_Outputs** fields to verify output state.");
+      parts.push("- Do NOT write directly to instance DB inputs — the device call FC overwrites them every scan.");
+      parts.push("- Configuration DB tags (DB_Configuration.*) CAN be written directly — they are not overwritten by any FC.");
+    } else {
+      parts.push("### System Tests (current phase — full program running with process sequences):");
+      parts.push("- WRITE only to physical INPUT tags (from the table above). The sequence logic drives DB tags.");
+      parts.push("- READ DB tags or physical output tags to verify PLC state.");
+      parts.push("- Do NOT write to DB command tags or instance DB inputs — they are overwritten by the process sequence FCs every scan cycle.");
+    }
   }
 
   // Device list — FB instances to test
@@ -208,8 +253,8 @@ export function buildPlcsimTestUserMessage(
       }
     }
 
-    // Process sequences — the core logic to test
-    if (matrix.processSequences?.length) {
+    // Process sequences — skip for device-only tests (no process code exists yet)
+    if (matrix.processSequences?.length && !isDeviceOnly) {
       parts.push("\n## Process Sequences");
       parts.push("These are the state-machine sequences that the test suite must validate.");
       for (const seq of matrix.processSequences) {
@@ -271,7 +316,7 @@ export function buildPlcsimTestUserMessage(
   // Generated artifacts — extract tag names from SCL code
   const allArtifacts = [
     ...(session.device_artifacts ?? []),
-    ...(session.process_artifacts ?? []),
+    ...(!isDeviceOnly ? (session.process_artifacts ?? []) : []),
   ];
   if (allArtifacts.length) {
     parts.push("\n## Generated Code Artifacts");
@@ -288,15 +333,40 @@ export function buildPlcsimTestUserMessage(
     }
   }
 
+  // Devices covered by test templates — AI should skip these
+  const excluded = options?.excludeDevices;
+  if (excluded?.length) {
+    parts.push("\n## Devices with Template Tests (DO NOT generate tests for these)");
+    parts.push("The following devices already have proven test procedures from templates. Skip them entirely:");
+    for (const name of excluded) {
+      parts.push(`- ${name}`);
+    }
+  }
+
   parts.push("\n---");
   parts.push("## CRITICAL REMINDERS (re-read before generating)");
-  parts.push("1. The FIRST STEP of EVERY test case must be a fault reset / clean precondition step — clear all faults, set e-stop healthy, reset any latched states. Never assume the PLC starts in a clean state.");
-  parts.push("2. Every device FB must have its own dedicated test case(s) — do NOT skip any FBs.");
-  parts.push("3. Follow the ordering from the system prompt: device_fb → permissive → normal → fault → interlock → reset. Use priority numbers accordingly.");
-  parts.push("4. For device_fb tests: you MAY write to DB command tags (e.g., DB_Process_Commands.cv01RunForward) to directly drive the FB under test. For ALL other test categories: WRITE only to physical input tags (ESTOP_OK, M01_OL, etc.).");
-  parts.push("5. READ actions should use DB tags or output tags to verify internal PLC state (e.g., DB_Outputs.M01_CMD_FWD, \"InstM01\".fault).");
+
+  const cats = options?.categoryFilter;
+  if (isDeviceOnly) {
+    parts.push("1. The FIRST STEP of EVERY test case must walk the safety dependency chain: set DB_Inputs for safety signals, pulse reset, wait for safety FBs to clear, THEN proceed.");
+    parts.push("2. Every device FB must have its own dedicated test case(s) — do NOT skip any FBs.");
+    parts.push("3. Write to DB_Inputs.* and DB_ProcessCommands.* fields — NEVER physical IO tags (IoLinking not active).");
+    parts.push("4. Follow inter-device wiring chains — do NOT shortcut by writing to a device's input that is driven by another device's output. Walk the dependency path.");
+    parts.push("5. Configuration DB tags (DB_Configuration.*) CAN be written directly.");
+    parts.push("6. READ instance DB output params or DB_Outputs.* fields to verify behaviour.");
+    parts.push(`7. Generate ONLY device_fb category tests. Do NOT generate normal, fault, permissive, interlock, or reset tests — those will be generated in the System Tests phase after process code exists.`);
+  } else {
+    parts.push("1. The FIRST STEP of EVERY test case must be a fault reset / clean precondition step — clear all faults, set e-stop healthy, reset any latched states. Never assume the PLC starts in a clean state.");
+    parts.push("2. WRITE only to physical INPUT tags (ESTOP_OK, M01_OL, etc.) — sequence FCs and device call FCs control all DB tags.");
+    parts.push("3. READ DB tags or output tags to verify internal PLC state.");
+    if (cats?.length) {
+      parts.push(`4. Generate ONLY these test categories: ${cats.join(", ")}. Do NOT generate device_fb tests — those run in the Device Tests phase.`);
+    }
+    parts.push(`${cats?.length ? "5" : "4"}. Follow the ordering from the system prompt: permissive → normal → fault → interlock → reset. Use priority numbers accordingly.`);
+  }
+
   parts.push("");
-  parts.push("Generate a comprehensive PLCSIM test suite. Return ONLY the JSON object, no markdown fencing.");
+  parts.push("Generate the PLCSIM test suite. Return ONLY the JSON object, no markdown fencing.");
 
   return parts.join("\n");
 }

@@ -22,6 +22,12 @@ import type {
 // Bridge REST helpers
 // ---------------------------------------------------------------------------
 
+/** Strip SCL-style quotes from tag paths — PLCSIM API uses unquoted names.
+ *  e.g. `"DB_Configuration".fan01Config.x` → `DB_Configuration.fan01Config.x` */
+function stripTagQuotes(tag: string): string {
+  return tag.replace(/"/g, "");
+}
+
 const BASE = DEFAULT_BRIDGE_CONFIG.baseUrl;
 
 async function bridgeGet<T>(path: string): Promise<T> {
@@ -43,7 +49,7 @@ async function bridgePost<T>(path: string, body?: unknown): Promise<T> {
 async function writeTags(actions: Array<{ tag: string; value: boolean | number | string; dataType: string }>): Promise<void> {
   for (const a of actions) {
     await bridgePost<PlcsimStartResponse>("/tia/plcsim/write-tag", {
-      tag_name: a.tag,
+      tag_name: stripTagQuotes(a.tag),
       value: a.value,
       data_type: a.dataType,
     } satisfies PlcsimWriteTagRequest);
@@ -54,7 +60,7 @@ async function readTags(
   tags: Array<{ tag: string; dataType: string }>,
 ): Promise<PlcsimReadTagsResponse> {
   const body: PlcsimReadTagRequest[] = tags.map((t) => ({
-    tag_name: t.tag,
+    tag_name: stripTagQuotes(t.tag),
     data_type: t.dataType,
   }));
   return bridgePost<PlcsimReadTagsResponse>("/tia/plcsim/read-tags", body);
@@ -183,6 +189,7 @@ export interface UsePlcsimRunnerReturn {
 
 export function usePlcsimRunner(): UsePlcsimRunnerReturn {
   const [running, setRunning] = useState(false);
+  const runningRef = useRef(false);
   const [paused, setPaused] = useState(false);
   const [pausedTestName, setPausedTestName] = useState<string | null>(null);
   const [progress, setProgress] = useState<TestRunProgress | null>(null);
@@ -321,7 +328,7 @@ export function usePlcsimRunner(): UsePlcsimRunnerReturn {
       for (const step of testCase.steps) {
         for (const action of step.actions) {
           if (action.tag && action.type !== "wait") {
-            tagSet.set(action.tag, action.dataType);
+            tagSet.set(stripTagQuotes(action.tag), action.dataType);
           }
         }
       }
@@ -414,11 +421,14 @@ export function usePlcsimRunner(): UsePlcsimRunnerReturn {
                     { tag: action.tag, value: action.value, dataType: action.dataType },
                   ]);
 
+                  // Pause between writes — PLCSIM needs at least 1-2 scan cycles to commit
+                  await sleep(200);
                   // Verify write by reading back
                   const verifyResp = await readTags([
                     { tag: action.tag, dataType: action.dataType },
                   ]);
                   const verifyVal = verifyResp.values?.[0];
+
                   if (verifyVal?.success) {
                     const match = String(verifyVal.value) === String(action.value);
                     console.log(`[plcsim-runner]   ✓ VERIFY ${action.tag} = ${verifyVal.value} ${match ? "(OK)" : `(MISMATCH — wrote ${action.value})`}`);
@@ -565,6 +575,8 @@ export function usePlcsimRunner(): UsePlcsimRunnerReturn {
 
   const runAll = useCallback(
     async (suite: PlcsimTestSuite, options: TestRunOptions = {}): Promise<PlcsimTestSuite> => {
+      if (runningRef.current) throw new Error("Test run already in progress");
+      runningRef.current = true;
       setRunning(true);
       setError(null);
       cancelledRef.current = false;
@@ -625,6 +637,7 @@ export function usePlcsimRunner(): UsePlcsimRunnerReturn {
         setError(msg);
         throw err;
       } finally {
+        runningRef.current = false;
         setRunning(false);
       }
     },
@@ -633,6 +646,8 @@ export function usePlcsimRunner(): UsePlcsimRunnerReturn {
 
   const runSingle = useCallback(
     async (suite: PlcsimTestSuite, testCaseId: string, options: TestRunOptions = {}): Promise<PlcsimTestSuite> => {
+      if (runningRef.current) throw new Error("Test run already in progress");
+      runningRef.current = true;
       setRunning(true);
       setError(null);
       cancelledRef.current = false;
@@ -674,6 +689,7 @@ export function usePlcsimRunner(): UsePlcsimRunnerReturn {
         setError(msg);
         throw err;
       } finally {
+        runningRef.current = false;
         setRunning(false);
       }
     },

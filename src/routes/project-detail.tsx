@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router";
-import { ArrowLeft, Play, Save, Plus, Trash2, ChevronDown, ChevronRight, Upload, X, FileText, Cpu, Wand2, FolderOpen, Pencil, Check } from "lucide-react";
+import { ArrowLeft, Play, Save, Plus, Trash2, ChevronDown, ChevronRight, Upload, X, FileText, Cpu, Wand2, FolderOpen, Pencil, Check, ClipboardList } from "lucide-react";
 import { DropboxFolderDialog } from "@/components/dropbox-folder-dialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -27,6 +27,7 @@ import { ProjectForm } from "@/components/project-form";
 import { IoListEditor } from "@/components/io-list-editor";
 import { HardwareConfigEditor } from "@/components/hardware-config-editor";
 import { GitHubRepoCard } from "@/components/github-repo-card";
+import { TiaVersionMismatchBanner } from "@/components/tia-version-mismatch-banner";
 import { supabase } from "@/lib/supabase";
 import type { IoEntry, RackSlotLayout, TagDbDefinition, ProjectUpdate } from "@/types";
 import type { Project } from "@/types/project";
@@ -524,6 +525,7 @@ export default function ProjectDetailPage() {
 
   return (
     <div className="space-y-4">
+      <TiaVersionMismatchBanner projectVersion={project.tia_version} />
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
@@ -562,6 +564,15 @@ export default function ProjectDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => navigate(`/specs?projectId=${project.id}`)}
+            className="gap-1.5"
+          >
+            <ClipboardList className="h-4 w-4" />
+            Spec Builder
+          </Button>
           <Button
             size="sm"
             onClick={() => navigate(`/forge?projectId=${project.id}`)}

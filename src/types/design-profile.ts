@@ -172,6 +172,10 @@ export interface DesignProfile {
   conversion_fc_language: "SCL" | "LAD";
   /** HMI screen theme identifier (migration 025) */
   hmi_theme: string;
+  /** HMI panel family — "comfort" (V18) or "unified" (V20+) (migration 056) */
+  hmi_panel_family: "comfort" | "unified";
+  /** Default HMI panel model, e.g. "TP1500" (migration 056) */
+  hmi_panel_model: string;
   /** FB/FC naming prefix for customer, e.g. "FB_CK_" (migration 025) */
   naming_prefix: string;
   /** DB naming prefix for customer, e.g. "DB_CK_" (migration 025) */
