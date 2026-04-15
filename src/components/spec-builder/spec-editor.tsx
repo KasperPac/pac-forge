@@ -98,6 +98,11 @@ function buildTree(sections: SpecSection[], spec: SpecProject): TreeGroup[] {
     // Section 3 — Equipment + Functional Descriptions grouped by subsystem
     const equipment = sections.filter((s) => s.section_type === "equipment_description");
     const funcDescs = sections.filter((s) => s.section_type === "functional_description");
+    const assemblyName = (subsystemId: string | null, assemblyId: string | null) => {
+      if (!assemblyId) return null;
+      const sub = spec.confirmed_subsystems.find((s) => s.subsystem_id === subsystemId);
+      return sub?.assemblies.find((a) => a.assembly_id === assemblyId)?.assembly_name ?? assemblyId;
+    };
     if (equipment.length > 0 || funcDescs.length > 0) {
       const funcNodes: TreeNode[] = [];
       for (const eq of equipment) {
@@ -108,12 +113,29 @@ function buildTree(sections: SpecSection[], spec: SpecProject): TreeGroup[] {
           section: eq,
           approved: eq.approved,
         });
-        // Add functional descriptions for this subsystem
-        const subFuncs = funcDescs.filter((fd) => fd.subsystem_id === eq.subsystem_id);
+        // Add functional descriptions for this subsystem — sort by (state, assembly name)
+        const subFuncs = funcDescs
+          .filter((fd) => fd.subsystem_id === eq.subsystem_id)
+          .slice()
+          .sort((a, b) => {
+            const stateA = stateName(a.state_name);
+            const stateB = stateName(b.state_name);
+            if (stateA !== stateB) return stateA.localeCompare(stateB);
+            const aId = (a.content_json as { assembly_id?: string | null })?.assembly_id ?? null;
+            const bId = (b.content_json as { assembly_id?: string | null })?.assembly_id ?? null;
+            const aName = assemblyName(a.subsystem_id, aId) ?? "";
+            const bName = assemblyName(b.subsystem_id, bId) ?? "";
+            return aName.localeCompare(bName);
+          });
         for (const fd of subFuncs) {
+          const asmId = (fd.content_json as { assembly_id?: string | null })?.assembly_id ?? null;
+          const asmName = assemblyName(fd.subsystem_id, asmId);
+          const label = asmName
+            ? `${subsystemName(fd.subsystem_id)} · ${asmName} — ${stateName(fd.state_name)}`
+            : `${subsystemName(fd.subsystem_id)} — ${stateName(fd.state_name)}`;
           funcNodes.push({
             id: fd.id,
-            label: `${subsystemName(fd.subsystem_id)} — ${stateName(fd.state_name)}`,
+            label,
             icon: Activity,
             section: fd,
             approved: fd.approved,
@@ -210,7 +232,15 @@ function buildTree(sections: SpecSection[], spec: SpecProject): TreeGroup[] {
 // Main editor
 // ---------------------------------------------------------------------------
 
-export function SpecEditor({ spec, sections }: { spec: SpecProject; sections: SpecSection[] }) {
+export function SpecEditor({
+  spec,
+  sections,
+  fullScreen = false,
+}: {
+  spec: SpecProject;
+  sections: SpecSection[];
+  fullScreen?: boolean;
+}) {
   const tree = useMemo(() => buildTree(sections, spec), [sections, spec]);
   const [selectedId, setSelectedId] = useState<string | null>(
     tree[0]?.nodes[0]?.id ?? null
@@ -220,11 +250,19 @@ export function SpecEditor({ spec, sections }: { spec: SpecProject; sections: Sp
   const totalCount = sections.length;
   const approvedCount = sections.filter((s) => s.approved).length;
 
+  const outerCls = fullScreen
+    ? "h-full w-full overflow-hidden border-0 rounded-none"
+    : "overflow-hidden";
+  const innerCls = fullScreen ? "flex h-full" : "flex h-[600px]";
+  const sidebarCls = fullScreen
+    ? "w-80 border-r flex flex-col shrink-0 bg-muted/30"
+    : "w-64 border-r flex flex-col shrink-0 bg-muted/30";
+
   return (
-    <Card className="overflow-hidden">
-      <div className="flex h-[600px]">
+    <Card className={outerCls}>
+      <div className={innerCls}>
         {/* Tree nav */}
-        <div className="w-64 border-r flex flex-col shrink-0 bg-muted/30">
+        <div className={sidebarCls}>
           <div className="p-2.5 border-b">
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs font-semibold">Sections</span>

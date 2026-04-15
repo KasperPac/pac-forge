@@ -11,13 +11,6 @@ import {
   Pencil,
   Cog,
   FolderOpen,
-  Play,
-  XCircle,
-  AlertTriangle,
-  Download,
-  Cloud,
-  MessageSquareText,
-  Zap,
   Dices,
   Upload,
   ArrowDownToLine,
@@ -70,15 +63,15 @@ import { useProjects, useProject } from "@/hooks/use-projects";
 import { InstrumentRegisterUpload } from "@/components/spec-builder/instrument-register-upload";
 import { SpecSkeletonWizard } from "@/components/spec-builder/spec-skeleton-wizard";
 import { useNextSpecDocCode } from "@/hooks/use-spec-doc-number";
-import { useSpecGenerate } from "@/hooks/use-spec-generate";
 import { useSpecSections, useSpecExports } from "@/hooks/use-spec-projects";
-import { useSpecExport } from "@/hooks/use-spec-export";
-import { SpecEditor } from "@/components/spec-builder/spec-editor";
-import { FdsCoAuthor } from "@/components/spec-builder/fds-co-author";
-import { Progress } from "@/components/ui/progress";
-import type { SpecProject, InstrumentRegister } from "@/types/spec-builder";
+import { useFdsSessionsForProject } from "@/hooks/use-fds-session";
+import {
+  computeCoAuthorStatus,
+  computeEditorStatus,
+  computeExportStatus,
+} from "@/components/spec-builder/spec-phase-status";
+import type { SpecProject } from "@/types/spec-builder";
 import { migrateSubsystemConfig, migrateOperatingStates } from "@/types/spec-builder";
-import type { Project } from "@/types/project";
 import { RandomFdsDialog } from "@/components/spec-builder/random-fds-dialog";
 import { cn } from "@/lib/utils";
 
@@ -92,9 +85,10 @@ const STATUS_CONFIG = {
 export default function SpecBuilderPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const projectId = searchParams.get("projectId") ?? undefined;
+  const initialSpecId = searchParams.get("specId");
   const { data: project } = useProject(projectId);
   const { data: specs, isLoading: specsLoading } = useSpecProjectsForProject(projectId);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialSpecId);
   const [showCreate, setShowCreate] = useState(false);
   const [showRandom, setShowRandom] = useState(false);
   const [revisionsOpen, setRevisionsOpen] = useState(false);
@@ -444,12 +438,15 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
 
   const { data: register } = useInstrumentRegister(spec.id);
   const { data: sections } = useSpecSections(spec.id);
-  const generator = useSpecGenerate();
+  const { data: exports } = useSpecExports(spec.id);
+  const { data: fdsSessions } = useFdsSessionsForProject(spec.id);
   const hasRegister = !!register && (register.tags?.length ?? 0) > 0;
   const hasWizardData = spec.confirmed_subsystems.length > 0 && spec.confirmed_states.length > 0;
   const hasSections = (sections?.length ?? 0) > 0;
-  const isGenerating = spec.status === "generating" || generator.running;
+  const allApproved = hasSections && (sections ?? []).every((s) => s.approved);
+  const hasExports = (exports?.length ?? 0) > 0;
 
+  const projectIdForNav = spec.project_id ?? "";
 
   return (
     <div className="p-6 space-y-6">
@@ -499,33 +496,47 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
       {/* Phase 3 — FDS Authoring */}
       <Separator />
       {hasWizardData && register ? (
-        <Phase3Authoring spec={spec} register={register} generator={generator} sections={sections ?? []} hasSections={hasSections} isGenerating={isGenerating} />
+        <PhaseLaunchCard
+          number={3}
+          title="FDS Authoring"
+          description="Co-Author each assembly through static + sequential state building."
+          status={computeCoAuthorStatus(spec, fdsSessions)}
+          done={hasSections}
+          ctaLabel="Open Co-Author"
+          to={`/specs/${projectIdForNav}/${spec.id}/co-author`}
+        />
       ) : (
         <PhaseStub number={3} title="FDS Authoring" locked />
       )}
 
       {/* Phase 4 — Structured Spec Editor */}
       <Separator />
-      {hasSections && sections ? (
-        <>
-          <PhaseHeader
-            number={4}
-            title="Structured Spec Editor"
-            done={sections.every((s) => s.approved)}
-          />
-          <p className="text-xs text-muted-foreground">
-            Review and edit each section. Approve sections before export.
-          </p>
-          <SpecEditor spec={spec} sections={sections} />
-        </>
+      {hasSections ? (
+        <PhaseLaunchCard
+          number={4}
+          title="Structured Spec Editor"
+          description="Review and edit each section. Approve before export."
+          status={computeEditorStatus(sections)}
+          done={allApproved}
+          ctaLabel="Open Editor"
+          to={`/specs/${projectIdForNav}/${spec.id}/editor`}
+        />
       ) : (
         <PhaseStub number={4} title="Structured Spec Editor" locked={!hasSections} />
       )}
 
       {/* Phase 5 — DOCX Export */}
       <Separator />
-      {hasSections && sections ? (
-        <ExportPhase spec={spec} sections={sections} />
+      {hasSections ? (
+        <PhaseLaunchCard
+          number={5}
+          title="DOCX Export"
+          description="Render the spec to Word. Optionally upload to Dropbox."
+          status={computeExportStatus(exports)}
+          done={hasExports}
+          ctaLabel="Open Export"
+          to={`/specs/${projectIdForNav}/${spec.id}/export`}
+        />
       ) : (
         <PhaseStub number={5} title="DOCX Export" locked />
       )}
@@ -534,242 +545,57 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 3 — FDS Authoring (Co-Author + Quick Draft)
+// Phase launch card — replaces inline Phase 3/4/5 rendering
 // ---------------------------------------------------------------------------
 
-function Phase3Authoring({
-  spec,
-  register,
-  generator,
-  sections,
-  hasSections,
-  isGenerating,
+function PhaseLaunchCard({
+  number,
+  title,
+  description,
+  status,
+  done,
+  ctaLabel,
+  to,
 }: {
-  spec: SpecProject;
-  register: InstrumentRegister;
-  generator: ReturnType<typeof useSpecGenerate>;
-  sections: NonNullable<ReturnType<typeof useSpecSections>["data"]>;
-  hasSections: boolean;
-  isGenerating: boolean;
+  number: number;
+  title: string;
+  description: string;
+  status: string;
+  done?: boolean;
+  ctaLabel: string;
+  to: string;
 }) {
-  const [mode, setMode] = useState<"co-author" | "quick-draft">("co-author");
-
   return (
-    <>
-      <PhaseHeader number={3} title="FDS Authoring" done={hasSections && !isGenerating} />
-
-      {/* Mode toggle */}
-      <div className="flex gap-1 p-0.5 bg-muted rounded-lg w-fit">
-        <button
-          onClick={() => setMode("co-author")}
-          className={cn(
-            "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
-            mode === "co-author"
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          <MessageSquareText className="h-3.5 w-3.5" />
-          Co-Author
-        </button>
-        <button
-          onClick={() => setMode("quick-draft")}
-          className={cn(
-            "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
-            mode === "quick-draft"
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          <Zap className="h-3.5 w-3.5" />
-          Quick Draft
-        </button>
+    <Card className="p-4 flex items-center gap-4">
+      <div className="flex items-center justify-center h-9 w-9 rounded-full bg-muted text-sm font-semibold shrink-0">
+        {done ? (
+          <CheckCircle2 className="h-5 w-5 text-green-400" />
+        ) : (
+          <span className="font-mono text-xs">{number}</span>
+        )}
       </div>
-
-      {mode === "co-author" ? (
-        <FdsCoAuthor spec={spec} register={register} />
-      ) : (
-        <div className="space-y-3">
-          <p className="text-xs text-muted-foreground">
-            Generate all sections in one pass. AI infers operational behavior from tag names — best for simple systems or as a starting point to edit.
-          </p>
-          {generator.running && generator.progress ? (
-            <Card className="p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                  <span className="text-sm font-medium">{generator.progress.phase}</span>
-                </div>
-                <Button variant="ghost" size="sm" onClick={generator.cancel}>
-                  <XCircle className="h-3.5 w-3.5 mr-1" />
-                  Cancel
-                </Button>
-              </div>
-              <Progress
-                value={Math.round(
-                  (generator.progress.current / Math.max(generator.progress.total, 1)) * 100
-                )}
-              />
-              <p className="text-xs text-muted-foreground">
-                {generator.progress.detail} ({generator.progress.current}/{generator.progress.total})
-              </p>
-            </Card>
-          ) : (
-            <div className="flex items-center gap-3">
-              <Button
-                size="sm"
-                onClick={() => generator.run(spec, register)}
-                disabled={isGenerating}
-              >
-                <Play className="h-3.5 w-3.5 mr-1.5" />
-                {hasSections ? "Regenerate All Sections" : "Generate Sections"}
-              </Button>
-              {hasSections && (
-                <Badge variant="secondary" className="text-xs">
-                  {sections.length} sections generated
-                </Badge>
-              )}
-            </div>
-          )}
-
-          {generator.error && (
-            <Card className="p-3 border-destructive/50 bg-destructive/10">
-              <div className="flex items-start gap-2">
-                <XCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
-                <p className="text-sm text-destructive">{generator.error}</p>
-              </div>
-            </Card>
-          )}
-
-          {generator.result && (
-            <Card className="p-3 space-y-2">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-green-400" />
-                <span className="text-sm font-medium">Generation complete</span>
-                <Badge variant="outline" className="text-xs ml-auto">
-                  {generator.result.totalUsage.total?.toLocaleString()} tokens
-                </Badge>
-              </div>
-              {generator.result.errors.length > 0 && (
-                <div className="space-y-1">
-                  {generator.result.errors.map((err, i) => (
-                    <div key={i} className="flex items-start gap-1.5 text-xs text-amber-400">
-                      <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
-                      {err}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Card>
-          )}
-        </div>
-      )}
-    </>
+      <div className="flex-1 min-w-0 space-y-0.5">
+        <h3 className="text-sm font-semibold">{title}</h3>
+        <p className="text-xs text-muted-foreground truncate">{description}</p>
+        <p className="text-[11px] text-muted-foreground font-mono">{status}</p>
+      </div>
+      <Button asChild size="sm" variant={done ? "outline" : "default"}>
+        <Link to={to}>
+          {ctaLabel}
+          <ChevronRight className="h-3.5 w-3.5 ml-1" />
+        </Link>
+      </Button>
+    </Card>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Phase 5 — DOCX Export
+// Phase 3 / 4 / 5 now live on dedicated routes:
+//   /specs/:projectId/:specId/co-author
+//   /specs/:projectId/:specId/editor
+//   /specs/:projectId/:specId/export
+// See PhaseLaunchCard above for the dashboard launcher.
 // ---------------------------------------------------------------------------
-
-function ExportPhase({ spec, sections }: { spec: SpecProject; sections: NonNullable<ReturnType<typeof useSpecSections>["data"]> }) {
-  const exporter = useSpecExport(spec);
-  const { data: exports } = useSpecExports(spec.id);
-  const { data: project } = useProject(spec.project_id ?? undefined);
-  const hasDropboxFolder = !!project?.dropbox_folder_path;
-  const allApproved = sections.every((s) => s.approved);
-  const approvedCount = sections.filter((s) => s.approved).length;
-
-  const busy = exporter.status.phase === "rendering" || exporter.status.phase === "uploading";
-
-  return (
-    <>
-      <PhaseHeader number={5} title="DOCX Export" done={(exports?.length ?? 0) > 0} />
-      <div className="space-y-3">
-        <p className="text-xs text-muted-foreground">
-          Render the spec to a Word document.{" "}
-          {allApproved
-            ? "All sections approved."
-            : `${approvedCount}/${sections.length} sections approved — unapproved sections will still be included but flagged.`}
-        </p>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button
-            size="sm"
-            onClick={() => exporter.exportDocx(sections, { uploadToDropbox: false })}
-            disabled={busy}
-          >
-            {busy && exporter.status.phase === "rendering" ? (
-              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-            ) : (
-              <Download className="h-3.5 w-3.5 mr-1.5" />
-            )}
-            Download DOCX
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => exporter.exportDocx(sections, { uploadToDropbox: true })}
-            disabled={busy || !hasDropboxFolder}
-            title={!hasDropboxFolder ? "Project has no Dropbox folder" : undefined}
-          >
-            {busy && exporter.status.phase === "uploading" ? (
-              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-            ) : (
-              <Cloud className="h-3.5 w-3.5 mr-1.5" />
-            )}
-            Save to Dropbox
-          </Button>
-        </div>
-
-        {exporter.status.phase === "error" && (
-          <Card className="p-3 border-destructive/50 bg-destructive/10">
-            <div className="flex items-start gap-2">
-              <XCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
-              <p className="text-sm text-destructive">{exporter.status.message}</p>
-            </div>
-          </Card>
-        )}
-
-        {exporter.status.phase === "complete" && (
-          <Card className="p-3 border-green-500/30 bg-green-500/5">
-            <div className="flex items-start gap-2">
-              <CheckCircle2 className="h-4 w-4 text-green-400 mt-0.5 shrink-0" />
-              <p className="text-xs text-green-400 font-mono break-all">
-                {exporter.status.message}
-              </p>
-            </div>
-          </Card>
-        )}
-
-        {exports && exports.length > 0 && (
-          <div className="space-y-1.5">
-            <h4 className="text-xs font-semibold text-muted-foreground">Export History</h4>
-            <div className="space-y-1">
-              {exports.slice(0, 5).map((ex) => (
-                <div
-                  key={ex.id}
-                  className="flex items-center gap-2 text-xs p-2 border rounded-md"
-                >
-                  <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                  <Badge variant="outline" className="text-[10px]">
-                    Rev {ex.revision}
-                  </Badge>
-                  <span className="font-mono text-muted-foreground truncate flex-1">
-                    {ex.storage_path ?? "(local download)"}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground shrink-0">
-                    {new Date(ex.exported_at).toLocaleDateString()}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </>
-  );
-}
 
 function PhaseHeader({ title, done }: { number?: number; title: string; done?: boolean }) {
   return (

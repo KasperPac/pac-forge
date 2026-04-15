@@ -58,9 +58,11 @@ import { cn } from "@/lib/utils";
 interface Props {
   spec: SpecProject;
   register: InstrumentRegister;
+  /** Render to fill the host container (used by /specs/.../co-author route). */
+  fullScreen?: boolean;
 }
 
-export function FdsCoAuthor({ spec, register }: Props) {
+export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
   const { data: sessions = [] } = useFdsSessionsForProject(spec.id);
   const ensureSession = useEnsureFdsSession();
   const confirmStatic = useConfirmStaticStates();
@@ -155,7 +157,14 @@ export function FdsCoAuthor({ spec, register }: Props) {
   const hasErrors = validationIssues.some((i) => i.severity === "error");
 
   return (
-    <div className="flex border rounded-lg overflow-hidden h-[600px] max-h-[calc(100vh-220px)]">
+    <div
+      className={cn(
+        "flex overflow-hidden",
+        fullScreen
+          ? "h-full w-full border-0 rounded-none"
+          : "border rounded-lg h-[600px] max-h-[calc(100vh-220px)]",
+      )}
+    >
       {/* Left rail — assembly sidebar */}
       <div className="w-80 border-r shrink-0 bg-muted/30">
         <FdsAssemblySidebar
