@@ -7,6 +7,15 @@
  *
  * This file is NEW and does not replace `src/types/spec-builder.ts`.
  * Legacy types remain until a later wave migrates callers.
+ *
+ * MIGRATION NOTE (wave 3):
+ * `sections` was narrowed to `Record<SpecSectionType, SpecSectionRow>` in
+ * wave 1 (one row per section_type). This does not fit `functional_description`
+ * where a single spec holds one row per (assembly_id, state_id). The container
+ * has been widened to `Record<SpecSectionType, SpecSectionRow[]>` so per-
+ * (subsystem, state) rows coexist. `SpecSectionRowSchema` itself is unchanged;
+ * only the container widens. Callers must iterate — the single-row reducer in
+ * `contract.ts#indexSections()` was retired.
  */
 import { z } from "zod";
 
@@ -434,6 +443,6 @@ export const SpecContractV2Schema = z.object({
   alarms: z.array(AlarmRowSchema),
   io_list: z.array(IoListEntrySchema),
   faults: z.array(FaultRowSchema),
-  sections: z.record(SpecSectionTypeSchema, SpecSectionRowSchema),
+  sections: z.record(SpecSectionTypeSchema, z.array(SpecSectionRowSchema)),
 });
 export type SpecContractV2 = z.infer<typeof SpecContractV2Schema>;

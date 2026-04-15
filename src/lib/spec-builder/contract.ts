@@ -16,13 +16,16 @@ import { FLAGS } from "@/lib/feature-flags";
 import { convertSignalDirection } from "@/lib/spec-builder/dialect";
 import {
   AlarmRowSchema,
+  AlarmTierSchema,
   AssemblyContractSchema,
   HierarchySchema,
   IoListEntrySchema,
   OperatingStateV2Schema,
   SpecContractV2Schema,
+  SpecSectionRowSchema,
   SubsystemStateSequenceSchema,
   type AlarmRow,
+  type AlarmTier,
   type AssemblyContract,
   type AssemblyV2,
   type DeviceStateEntry,
@@ -62,16 +65,19 @@ export interface AssemblyStateView {
 export interface SpecContractPatch {
   hierarchy?: Hierarchy;
   alarms?: AlarmRow[];
+  alarm_tiers?: AlarmTier[];
   assemblies?: Record<string, AssemblyContract>;
   states?: OperatingStateV2[];
   orchestrations?: Record<string, Record<string, SubsystemStateSequence>>;
   io_list?: IoListEntry[];
   faults?: FaultRow[];
+  sections?: Partial<Record<SpecSectionType, SpecSectionRow[]>>;
 }
 
 const SpecContractPatchSchema = z.object({
   hierarchy: HierarchySchema.optional(),
   alarms: z.array(AlarmRowSchema).optional(),
+  alarm_tiers: z.array(AlarmTierSchema).optional(),
   assemblies: z.record(z.string(), AssemblyContractSchema).optional(),
   states: z.array(OperatingStateV2Schema).optional(),
   orchestrations: z
@@ -90,6 +96,7 @@ const SpecContractPatchSchema = z.object({
       }),
     )
     .optional(),
+  sections: z.record(z.string(), z.array(SpecSectionRowSchema)).optional(),
 });
 
 // ============================================================
@@ -590,16 +597,17 @@ function toAlarmTiers(projectRow: Record<string, unknown>): SpecContractV2["alar
   }));
 }
 
-function indexSections(rows: SpecSectionRow[]): Record<string, SpecSectionRow> {
-  // Contract schema keys sections by section_type. When multiple rows exist
-  // (after fan-out), the latest updated_at wins at the top-level key. Detailed
-  // per-assembly copies remain available via other accessors.
-  const out: Record<string, SpecSectionRow> = {};
+function indexSections(rows: SpecSectionRow[]): Record<string, SpecSectionRow[]> {
+  // Contract schema keys sections by section_type; each key holds an array so
+  // per-(subsystem, state) `functional_description` rows can coexist. Arrays
+  // are sorted by updated_at ASC so the last element is the most recent.
+  const out: Record<string, SpecSectionRow[]> = {};
   for (const r of rows) {
-    const existing = out[r.section_type];
-    if (!existing || r.updated_at > existing.updated_at) {
-      out[r.section_type] = r;
-    }
+    if (!out[r.section_type]) out[r.section_type] = [];
+    out[r.section_type].push(r);
+  }
+  for (const key of Object.keys(out)) {
+    out[key].sort((a, b) => a.updated_at.localeCompare(b.updated_at));
   }
   return out;
 }
@@ -869,8 +877,8 @@ export async function writeSpecContract(
   assertBuilderContext();
   const parsed = SpecContractPatchSchema.parse(patch);
 
+  // ---- alarms (full replace in spec_alarms) ----
   if (parsed.alarms) {
-    // Full-subtree replace for alarms.
     const { error: delErr } = await supabase
       .from("spec_alarms")
       .delete()
@@ -896,22 +904,113 @@ export async function writeSpecContract(
     }
   }
 
-  const deferredKeys: (keyof SpecContractPatch)[] = [
-    "hierarchy",
-    "assemblies",
-    "states",
-    "orchestrations",
-    "io_list",
-    "faults",
-  ];
-  const applied = deferredKeys.filter((k) => parsed[k] !== undefined);
-  if (applied.length > 0) {
-    // Persistence for these keys is deferred; shape is validated above.
+  // ---- hierarchy / states / alarm_tiers all live on spec_projects ----
+  const projectUpdate: Record<string, unknown> = {};
+  if (parsed.hierarchy) {
+    projectUpdate.confirmed_subsystems = parsed.hierarchy.subsystems;
+  }
+  if (parsed.states) {
+    projectUpdate.confirmed_states = parsed.states;
+  }
+  if (parsed.alarm_tiers) {
+    projectUpdate.alarm_tiers = parsed.alarm_tiers;
+  }
+  if (Object.keys(projectUpdate).length > 0) {
+    const { error: updErr } = await supabase
+      .from("spec_projects")
+      .update(projectUpdate)
+      .eq("id", specProjectId);
+    if (updErr) throw new Error(`writeSpecContract.project update: ${updErr.message}`);
+  }
+
+  // ---- assemblies → fds_assembly_sessions (upsert per assembly) ----
+  if (parsed.assemblies) {
+    for (const asm of Object.values(parsed.assemblies)) {
+      const row = {
+        spec_project_id: specProjectId,
+        subsystem_id: asm.subsystem_id,
+        assembly_id: asm.assembly_id,
+        status: "complete",
+        static_confirmed: true,
+        static_states_v2: asm.static_states,
+        sequential_states: asm.sequential_states,
+      };
+      const { error } = await supabase
+        .from("fds_assembly_sessions")
+        .upsert(row, { onConflict: "spec_project_id,assembly_id" });
+      if (error)
+        throw new Error(
+          `writeSpecContract.assemblies upsert (${asm.assembly_id}): ${error.message}`,
+        );
+    }
+  }
+
+  // ---- orchestrations → fds_subsystem_orchestrations (upsert per subsystem) ----
+  if (parsed.orchestrations) {
+    for (const [subsystemId, stateSequences] of Object.entries(parsed.orchestrations)) {
+      const row = {
+        spec_project_id: specProjectId,
+        subsystem_id: subsystemId,
+        state_sequences: stateSequences,
+      };
+      const { error } = await supabase
+        .from("fds_subsystem_orchestrations")
+        .upsert(row, { onConflict: "spec_project_id,subsystem_id" });
+      if (error)
+        throw new Error(
+          `writeSpecContract.orchestrations upsert (${subsystemId}): ${error.message}`,
+        );
+    }
+  }
+
+  // ---- sections → spec_sections (delete + reinsert per section_type) ----
+  if (parsed.sections) {
+    for (const [sectionType, rows] of Object.entries(parsed.sections)) {
+      const { error: delErr } = await supabase
+        .from("spec_sections")
+        .delete()
+        .eq("spec_project_id", specProjectId)
+        .eq("section_type", sectionType);
+      if (delErr)
+        throw new Error(
+          `writeSpecContract.sections delete (${sectionType}): ${delErr.message}`,
+        );
+      if (!rows || rows.length === 0) continue;
+      const inserts = rows.map((r) => ({
+        // Omit id so Postgres generates a fresh uuid for the new row.
+        spec_project_id: specProjectId,
+        section_type: r.section_type,
+        subsystem_id: r.subsystem_id,
+        assembly_id: r.assembly_id,
+        state_id: r.state_id,
+        state_pattern: r.state_pattern,
+        granularity: r.granularity,
+        content_json: r.content_json,
+        content_markdown: r.content_markdown,
+        model_used: r.model_used,
+        generation_prompt: r.generation_prompt,
+        token_usage: r.token_usage,
+        reviewed_by: r.reviewed_by,
+        review_notes: r.review_notes,
+        approved: r.approved,
+      }));
+      const { error: insErr } = await supabase.from("spec_sections").insert(inserts);
+      if (insErr)
+        throw new Error(
+          `writeSpecContract.sections insert (${sectionType}): ${insErr.message}`,
+        );
+    }
+  }
+
+  // io_list + faults are derived — no persistence.
+  const derivedIgnored: (keyof SpecContractPatch)[] = ["io_list", "faults"];
+  const derivedProvided = derivedIgnored.filter((k) => parsed[k] !== undefined);
+  if (derivedProvided.length > 0) {
     // eslint-disable-next-line no-console
     console.warn(
-      `writeSpecContract: patch keys [${applied.join(
+      `writeSpecContract: [${derivedProvided.join(
         ", ",
-      )}] accepted + validated but not persisted yet (wired in a later wave)`,
+      )}] are derived from hierarchy/alarms — ignored`,
     );
   }
 }

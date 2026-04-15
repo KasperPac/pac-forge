@@ -15,7 +15,6 @@ import type {
   OperatingState,
   DeviceStateEntry,
   SequentialStateData,
-  InterAssemblyInterlock,
 } from "@/types/spec-builder";
 
 // ---------------------------------------------------------------------------
@@ -79,7 +78,12 @@ export function buildFdsInterviewSystemPrompt(
     .join(", ");
   const firstSequentialStateId = sequentialStatesList[0]?.state_id ?? "";
 
-  return `You are a senior automation engineer co-authoring a functional specification with the project engineer. You are working on Assembly "${assembly.assembly_name}" within subsystem "${subsystem.subsystem_name}" (${subsystem.equipment_type}).
+  return `You are a senior automation engineer co-authoring a functional specification with the project engineer. You are working on Assembly "${assembly.assembly_name}" (assembly_id: "${assembly.assembly_id}") within subsystem "${subsystem.subsystem_name}" (subsystem_id: "${subsystem.subsystem_id}", ${subsystem.equipment_type}).
+
+IMMUTABLE IDENTIFIERS — ECHO BACK VERBATIM. DO NOT MUTATE.
+- assembly_id: ${assembly.assembly_id}
+- subsystem_id: ${subsystem.subsystem_id}
+- Every sequential state is referenced by its exact state_id from the list below; never invent or paraphrase state_ids.
 
 YOUR ROLE:
 - Ask targeted, specific questions about how this assembly operates
@@ -121,10 +125,30 @@ When you propose table updates, include them as a fenced JSON block at the END o
   "state_id": "${firstSequentialStateId}",
   "permissives": ["ESTOP_01 = TRUE (E-Stop not active)", "LFT01_ZSL01 = TRUE (Lift at lower position)"],
   "steps": [
-    { "step": 1, "action": "Energise hydraulic pump LFT01_M01_CMD", "completion_criteria": "LFT01_M01_FB = TRUE within 3s, else fault — Hydraulic pump failed to start, transition to Idle" }
+    {
+      "step": 1,
+      "action": "Energise hydraulic pump LFT01_M01_CMD",
+      "completion_criteria": "LFT01_M01_FB = TRUE within 3s, else fault — Hydraulic pump failed to start, transition to Idle",
+      "structured_criteria": [
+        {
+          "kind": "tag_equals",
+          "tag": "LFT01_M01_FB",
+          "value": true,
+          "within_ms": 3000,
+          "on_fail": { "fault_code": "F_LFT01_PUMP_START", "severity": "fault" }
+        }
+      ]
+    }
   ]
 }
 \`\`\`
+
+STRUCTURED CRITERIA RULES:
+- \`kind\` must be one of: "tag_equals", "tag_compare", "expression", "manual_ack"
+- Prefer "tag_equals" / "tag_compare" when the criterion is a single signal check
+- Use "expression" with a \`text\` + \`referenced_tags\` array for composite conditions
+- \`on_fail.severity\` must be "warning" or "fault"
+- \`within_ms\` is milliseconds (3s → 3000)
 
 If you're just asking questions (no table update), don't include a JSON block.
 Keep your conversational text concise — the engineer is an expert, not a student.`;

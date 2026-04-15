@@ -27,6 +27,81 @@ import type {
   EquipmentType,
   SignalDirection,
 } from "@/types/spec-builder";
+import type { CompletionCriterion } from "@/types/spec-contract-v2";
+
+/**
+ * Parse prose completion criteria into a structured CompletionCriterion[].
+ * Extracts the common pattern: "<tag> = <value> within <Ns>, else fault —
+ * <description>". Falls back to an { kind: "expression" } row when the prose
+ * doesn't match a recognisable structure.
+ */
+function parseCompletionCriteria(
+  prose: string,
+  faultCodeSeed: string,
+): CompletionCriterion[] {
+  if (!prose || typeof prose !== "string") return [];
+  const criteria: CompletionCriterion[] = [];
+
+  // Timeout extraction (e.g. "within 3s", "within 500ms")
+  const timeoutMatch = prose.match(/within\s+(\d+(?:\.\d+)?)\s*(ms|s)\b/i);
+  let within_ms: number | undefined;
+  if (timeoutMatch) {
+    const n = Number(timeoutMatch[1]);
+    within_ms = timeoutMatch[2].toLowerCase() === "ms" ? Math.round(n) : Math.round(n * 1000);
+  }
+
+  // Fault extraction ("else fault — <text>") — use as fault_code seed
+  let on_fail: CompletionCriterion extends { on_fail?: infer F } ? F : never =
+    undefined as unknown as never;
+  const faultMatch = prose.match(/else\s+(fault|warning)\b[^\w]*([^.]*)/i);
+  if (faultMatch) {
+    const severity = faultMatch[1].toLowerCase() === "warning" ? "warning" : "fault";
+    on_fail = { fault_code: `F_${faultCodeSeed}`, severity } as typeof on_fail;
+  }
+
+  // tag_equals: "<TAG> = TRUE/FALSE" or "<TAG> = <number>"
+  const tagEq = prose.match(/\b([A-Z][A-Z0-9_]{2,})\s*=\s*(TRUE|FALSE|-?\d+(?:\.\d+)?)/i);
+  if (tagEq) {
+    const tag = tagEq[1];
+    const raw = tagEq[2].toUpperCase();
+    const value: string | number | boolean =
+      raw === "TRUE" ? true : raw === "FALSE" ? false : Number(tagEq[2]);
+    criteria.push({
+      kind: "tag_equals",
+      tag,
+      value,
+      ...(within_ms !== undefined ? { within_ms } : {}),
+      ...(on_fail ? { on_fail } : {}),
+    });
+    return criteria;
+  }
+
+  // tag_compare: "<TAG> >= <number>"
+  const tagCmp = prose.match(/\b([A-Z][A-Z0-9_]{2,})\s*(<=|>=|<|>|==)\s*(-?\d+(?:\.\d+)?)/);
+  if (tagCmp) {
+    criteria.push({
+      kind: "tag_compare",
+      tag: tagCmp[1],
+      op: tagCmp[2] as "<" | "<=" | ">" | ">=" | "==",
+      value: Number(tagCmp[3]),
+      ...(within_ms !== undefined ? { within_ms } : {}),
+      ...(on_fail ? { on_fail } : {}),
+    });
+    return criteria;
+  }
+
+  // Fallback: expression with referenced_tags scraped from UPPER_SNAKE tokens.
+  const tokens = Array.from(prose.matchAll(/\b([A-Z][A-Z0-9_]{2,})\b/g)).map((m) => m[1]);
+  const unique = Array.from(new Set(tokens));
+  criteria.push({
+    kind: "expression",
+    text: prose,
+    referenced_tags: unique,
+    ...(within_ms !== undefined ? { within_ms } : {}),
+    ...(on_fail ? { on_fail } : {}),
+  });
+  return criteria;
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -281,32 +356,50 @@ export function useRandomFdsGenerate() {
           console.warn(`[random-fds] expected ${params.devices} devices, got ${totalDevices}`);
         }
 
-        // Convert to typed structures BEFORE creating the spec — surfaces errors early
-        const confirmedSubsystems: SubsystemConfig[] = subsystemsArr.map((s) => ({
-          subsystem_id: s.subsystem_id ?? "",
-          subsystem_name: s.subsystem_name ?? "Unnamed",
-          equipment_type: (s.equipment_type ?? "Other") as EquipmentType,
-          description: s.description ?? "",
-          excluded: false,
-          assemblies: (s.assemblies ?? []).map((a) => ({
-            assembly_id: a.assembly_id ?? "",
-            assembly_name: a.assembly_name ?? "Unnamed",
-            description: a.description ?? "",
-            devices: (a.devices ?? []).map((d) => ({
-              device_id: d.device_id ?? "",
-              device_name: d.device_name ?? "Unnamed",
-              device_class: (d.device_class ?? "other") as DeviceClass,
-              description: d.description ?? "",
-              is_safety: Boolean(d.is_safety),
-              io_signals: (d.io_signals ?? []).map((io) => ({
-                tag: io.tag ?? "",
-                signal_type: io.signal_type ?? "DI",
-                io_address: io.io_address ?? "",
-                description: io.description ?? "",
-              })) satisfies IoSignal[],
-            })) satisfies DeviceConfig[],
-          })) satisfies AssemblyConfig[],
-        }));
+        // Convert to typed structures BEFORE creating the spec — surfaces errors early.
+        // All hierarchy ids are replaced with real UUIDs; the AI's short "SS01"-style
+        // labels are retained as `short_tag` on the config objects where the type
+        // permits (kept in description prefix for now — `short_tag` not on legacy
+        // SubsystemConfig). Wave 5 / type cleanup may widen this later.
+        const confirmedSubsystems: SubsystemConfig[] = subsystemsArr.map((s) => {
+          const subsystem_id = crypto.randomUUID();
+          const shortSub = s.subsystem_id ?? "";
+          return {
+            subsystem_id,
+            subsystem_name: s.subsystem_name ?? "Unnamed",
+            equipment_type: (s.equipment_type ?? "Other") as EquipmentType,
+            description: shortSub
+              ? `[${shortSub}] ${s.description ?? ""}`.trim()
+              : s.description ?? "",
+            excluded: false,
+            assemblies: (s.assemblies ?? []).map((a) => {
+              const assembly_id = crypto.randomUUID();
+              const shortAsm = a.assembly_id ?? "";
+              return {
+                assembly_id,
+                assembly_name: a.assembly_name ?? "Unnamed",
+                description: shortAsm
+                  ? `[${shortAsm}] ${a.description ?? ""}`.trim()
+                  : a.description ?? "",
+                devices: (a.devices ?? []).map((d) => ({
+                  device_id: crypto.randomUUID(),
+                  device_name: d.device_name ?? "Unnamed",
+                  device_class: (d.device_class ?? "other") as DeviceClass,
+                  description: d.device_id
+                    ? `[${d.device_id}] ${d.description ?? ""}`.trim()
+                    : d.description ?? "",
+                  is_safety: Boolean(d.is_safety),
+                  io_signals: (d.io_signals ?? []).map((io) => ({
+                    tag: io.tag ?? "",
+                    signal_type: io.signal_type ?? "DI",
+                    io_address: io.io_address ?? "",
+                    description: io.description ?? "",
+                  })) satisfies IoSignal[],
+                })) satisfies DeviceConfig[],
+              };
+            }) satisfies AssemblyConfig[],
+          };
+        });
 
         const confirmedStates: OperatingState[] = (fds.operating_states ?? []).map((s) => ({
           state_id: s.state_id ?? "",
@@ -437,12 +530,28 @@ export function useRandomFdsGenerate() {
           const subsystemStatics: Record<string, Record<string, Array<{ tag: string; state: string }>>> = {};
           for (const s of funcSections ?? []) {
             if (!s.subsystem_id || !s.state_name) continue;
-            const c = s.content_json as { pattern?: string; permissives?: string[]; steps?: unknown[]; notes?: string | null; device_states?: Array<{ tag: string; state: string }> };
+            const c = s.content_json as { pattern?: string; permissives?: string[]; steps?: Array<Record<string, unknown>>; notes?: string | null; device_states?: Array<{ tag: string; state: string }> };
             if (c.pattern === "sequential") {
+              // Enrich each step with structured completion_criteria parsed from
+              // its prose. Keeps the original `completion_criteria` prose for
+              // DOCX rendering while making `structured_criteria` available for
+              // deterministic re-ingest.
+              const enrichedSteps = (c.steps ?? []).map((rawStep, idx) => {
+                const step = rawStep as Record<string, unknown>;
+                const prose = String(step.completion_criteria ?? "");
+                const structured = parseCompletionCriteria(
+                  prose,
+                  `${s.subsystem_id}_${s.state_name}_STEP${idx + 1}`,
+                );
+                return {
+                  ...step,
+                  structured_criteria: structured,
+                };
+              });
               subsystemSequences[s.subsystem_id] ??= {};
               subsystemSequences[s.subsystem_id][s.state_name] = {
                 permissives: c.permissives ?? [],
-                steps: c.steps ?? [],
+                steps: enrichedSteps,
                 notes: c.notes ?? null,
               };
             } else if (c.pattern === "static" && Array.isArray(c.device_states)) {
@@ -470,6 +579,10 @@ export function useRandomFdsGenerate() {
                 status: "complete",
                 static_confirmed: true,
                 static_states: staticStates,
+                // Dual-write V2 mirror keyed by state_id (schema identical here
+                // because the generator already keys by state_id). Writer flip,
+                // not a cutover — legacy readers still use `static_states`.
+                static_states_v2: staticStates,
                 sequential_states: seq,
                 conversation: [],
               });

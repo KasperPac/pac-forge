@@ -18,6 +18,19 @@ import {
   BorderStyle,
 } from "docx";
 import type { SpecProject, SpecSection } from "@/types/spec-builder";
+import type { Hierarchy, SpecContractV2 } from "@/types/spec-contract-v2";
+import {
+  buildHierarchyTable,
+  buildHierarchyTableCaption,
+} from "./docx-hierarchy-table";
+import {
+  buildNetworkDeviceTable,
+  buildNetworkTableCaption,
+} from "./docx-network-table";
+import {
+  buildMachineDataAppendix,
+  type RevisionMeta,
+} from "./docx-machine-data-appendix";
 import type {
   DocControlContent,
   SystemOverviewContent,
@@ -269,13 +282,17 @@ function renderSystemOverview(section: SpecSection): (Paragraph | Table)[] {
 
   // Machine Hierarchy — deterministic tree: Subsystem → Assembly → Device
   const hierarchy = (c as unknown as { machine_hierarchy?: Array<{
+    subsystem_id?: string;
     subsystem_name: string;
     equipment_type: string;
     description?: string;
+    excluded?: boolean;
     assemblies: Array<{
+      assembly_id?: string;
       assembly_name: string;
       description?: string;
       devices: Array<{
+        device_id?: string;
         device_name: string;
         device_class: string;
         is_safety: boolean;
@@ -332,9 +349,101 @@ function renderSystemOverview(section: SpecSection): (Paragraph | Table)[] {
       }
     }
     children.push(spacer());
+
+    // ---- Section 1.6 — Canonical Machine Hierarchy (structured table) ----
+    const canonicalHierarchy = hierarchyToContractShape(hierarchy);
+    children.push(heading("1.6 Canonical Machine Hierarchy", HeadingLevel.HEADING_2));
+    children.push(buildHierarchyTableCaption());
+    children.push(buildHierarchyTable(canonicalHierarchy));
+    children.push(spacer());
+
+    // ---- Section 1.7 — Network Device Configuration (conditional) ----
+    const networkTable = buildNetworkDeviceTable(canonicalHierarchy);
+    if (networkTable) {
+      children.push(heading("1.7 Network Device Configuration", HeadingLevel.HEADING_2));
+      children.push(buildNetworkTableCaption());
+      children.push(networkTable);
+      children.push(spacer());
+    }
   }
 
   return children;
+}
+
+/**
+ * Lift the JSON-shaped machine_hierarchy (from the system_overview section) to
+ * the contract `Hierarchy` shape that the table renderers accept. Synthesises
+ * missing UUIDs as deterministic placeholders keyed by name so the ingest
+ * parser can still extract stable ids even on legacy data that predates the
+ * UUID switch.
+ */
+function hierarchyToContractShape(
+  raw: Array<{
+    subsystem_id?: string;
+    subsystem_name: string;
+    equipment_type: string;
+    description?: string;
+    excluded?: boolean;
+    assemblies: Array<{
+      assembly_id?: string;
+      assembly_name: string;
+      description?: string;
+      devices: Array<{
+        device_id?: string;
+        device_name: string;
+        device_class: string;
+        is_safety: boolean;
+        description?: string;
+        signals: Array<{ tag: string; signal_type: string; io_address: string }>;
+      }>;
+    }>;
+  }>,
+): Hierarchy {
+  return {
+    subsystems: raw.map((s) => ({
+      subsystem_id: s.subsystem_id ?? `00000000-0000-0000-0000-${hashTo12Hex(s.subsystem_name)}`,
+      subsystem_name: s.subsystem_name,
+      equipment_type: s.equipment_type,
+      description: s.description ?? "",
+      excluded: Boolean(s.excluded),
+      assemblies: s.assemblies.map((a) => ({
+        assembly_id: a.assembly_id ?? `00000000-0000-0000-0000-${hashTo12Hex(a.assembly_name)}`,
+        assembly_name: a.assembly_name,
+        description: a.description ?? "",
+        devices: a.devices.map((d) => ({
+          device_id: d.device_id ?? `00000000-0000-0000-0000-${hashTo12Hex(d.device_name)}`,
+          device_name: d.device_name,
+          device_class: d.device_class,
+          is_safety: d.is_safety,
+          description: d.description ?? "",
+          io_signals: d.signals.map((sig) => ({
+            tag: sig.tag,
+            signal_type: (sig.signal_type as "DI" | "DO" | "AI" | "AO" | "internal") ?? "internal",
+            io_address: sig.io_address,
+            description: "",
+            source: "wired" as const,
+          })),
+        })),
+      })),
+    })),
+  };
+}
+
+/**
+ * Deterministic 12-hex-char placeholder suffix derived from a name. Not a
+ * cryptographic hash — just enough to keep placeholder UUIDs stable across
+ * renders of the same legacy spec.
+ */
+function hashTo12Hex(input: string): string {
+  let h1 = 0x811c9dc5;
+  let h2 = 0xdeadbeef;
+  for (let i = 0; i < input.length; i++) {
+    const c = input.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 16777619);
+    h2 = Math.imul(h2 ^ c, 2246822507);
+  }
+  const toHex = (n: number) => (n >>> 0).toString(16).padStart(8, "0");
+  return (toHex(h1) + toHex(h2)).slice(0, 12);
 }
 
 function renderControlPhilosophy(section: SpecSection): (Paragraph | Table)[] {
@@ -883,6 +992,7 @@ function renderLegacySettings(
 export async function buildSpecDocx(
   spec: SpecProject,
   sections: SpecSection[],
+  opts?: { contract?: SpecContractV2; revisionMeta?: RevisionMeta },
 ): Promise<Blob> {
   // Determine if this is a V2 or V1 spec based on section types present
   const hasV2 = sections.some((s) =>
@@ -963,6 +1073,11 @@ export async function buildSpecDocx(
     if (settings) {
       children.push(...renderLegacySettings(settings, spec, sectionNumber));
     }
+  }
+
+  // Appendix Z — Machine-Readable Data (only when a contract is supplied).
+  if (opts?.contract) {
+    children.push(...buildMachineDataAppendix(opts.contract, opts.revisionMeta));
   }
 
   const doc = new Document({

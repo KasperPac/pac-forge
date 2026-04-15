@@ -153,6 +153,19 @@ function addUsage(total: TokenUsage, add: TokenUsage): void {
   total.total = (total.input ?? 0) + (total.output ?? 0);
 }
 
+interface SaveSectionV2Opts {
+  subsystemId?: string;
+  stateName?: string;
+  /** V2 — assembly uuid (required for assembly_state granularity) */
+  assemblyId?: string;
+  /** V2 — canonical state identifier */
+  stateId?: string;
+  /** V2 — static vs sequential */
+  statePattern?: "static" | "sequential" | null;
+  /** V2 — row granularity */
+  granularity?: "assembly_state" | "subsystem" | "project";
+}
+
 async function saveSection(
   specProjectId: string,
   sectionType: SpecSection["section_type"],
@@ -160,16 +173,36 @@ async function saveSection(
   modelUsed: string,
   prompt: string,
   usage: TokenUsage,
-  subsystemId?: string,
-  stateName?: string,
+  v2OrSubsystem?: SaveSectionV2Opts | string,
+  stateNameLegacy?: string,
 ): Promise<SpecSection> {
+  // Back-compat: legacy signature (subsystemId, stateName) still supported.
+  let opts: SaveSectionV2Opts;
+  if (typeof v2OrSubsystem === "string" || v2OrSubsystem === undefined) {
+    opts = { subsystemId: v2OrSubsystem, stateName: stateNameLegacy };
+  } else {
+    opts = v2OrSubsystem;
+  }
+
+  const inferredGranularity: SaveSectionV2Opts["granularity"] = opts.granularity ??
+    (opts.assemblyId || opts.stateId
+      ? "assembly_state"
+      : opts.subsystemId
+        ? "subsystem"
+        : "project");
+
   const { data, error } = await supabase
     .from("spec_sections")
     .insert({
       spec_project_id: specProjectId,
       section_type: sectionType,
-      subsystem_id: subsystemId ?? null,
-      state_name: stateName ?? null,
+      subsystem_id: opts.subsystemId ?? null,
+      state_name: opts.stateName ?? null,
+      // V2 additive columns — safe to write even when null.
+      assembly_id: opts.assemblyId ?? null,
+      state_id: opts.stateId ?? null,
+      state_pattern: opts.statePattern ?? null,
+      granularity: inferredGranularity,
       content_json: contentJson,
       model_used: modelUsed,
       generation_prompt: prompt,
@@ -434,19 +467,38 @@ export async function generateSpec(
           const prompt = buildDeviceStateTablePrompt(sub, staticStates, tags, deviceTable);
           const result = await callSonnet(prompt, "Generate device state tables.", signal, "spec_device_state_table");
           const parsed = JSON.parse(result.content);
-          // Save one section per static state
+          // Save one section per (assembly, static state). The prompt emits a
+          // subsystem-level table; fan it out across assemblies deterministically
+          // so V2's per-(assembly, state) row shape is honoured. Assembly-specific
+          // refinement is delegated to later ingest/co-author passes.
           const statesData = parsed.states as Record<string, Array<{ tag: string; description: string; state: string }>>;
+          const assemblyTagSets = sub.assemblies.map((asm) => {
+            const names = new Set<string>();
+            for (const dev of asm.devices) for (const sig of dev.io_signals) names.add(sig.tag);
+            return { assembly_id: asm.assembly_id, tags: names };
+          });
           for (const st of staticStates) {
             const deviceStates = statesData[st.state_name] ?? [];
-            const content = {
-              pattern: "static" as const,
-              device_states: deviceStates,
-            };
-            const stateSection = await saveSection(
-              spec.id, "functional_description", content, "claude-sonnet-4-6",
-              prompt, { input: 0, output: 0 }, sub.subsystem_id, st.state_id,
-            );
-            sections.push(stateSection);
+            for (const asm of assemblyTagSets) {
+              const scoped = deviceStates.filter((e) => asm.tags.has(e.tag));
+              const content = {
+                pattern: "static" as const,
+                device_states: scoped,
+              };
+              const stateSection = await saveSection(
+                spec.id, "functional_description", content, "claude-sonnet-4-6",
+                prompt, { input: 0, output: 0 },
+                {
+                  subsystemId: sub.subsystem_id,
+                  stateName: st.state_id,
+                  assemblyId: asm.assembly_id,
+                  stateId: st.state_id,
+                  statePattern: "static",
+                  granularity: "assembly_state",
+                },
+              );
+              sections.push(stateSection);
+            }
           }
           addUsage(totalUsage, result.usage);
           reportProgress(`Section 3: ${sub.subsystem_name} — Static states`);
@@ -469,11 +521,24 @@ export async function generateSpec(
             steps: parsed.steps ?? [],
             notes: parsed.notes ?? null,
           };
-          const stateSection = await saveSection(
-            spec.id, "functional_description", content, "claude-sonnet-4-6",
-            prompt, result.usage, sub.subsystem_id, state.state_id,
-          );
-          sections.push(stateSection);
+          // Fan out the subsystem-level step table across assemblies. Each
+          // assembly gets the same steps until later passes refine per-assembly
+          // ownership. This keeps V2's (assembly_id, state_id) key honoured.
+          for (const asm of sub.assemblies) {
+            const stateSection = await saveSection(
+              spec.id, "functional_description", content, "claude-sonnet-4-6",
+              prompt, result.usage,
+              {
+                subsystemId: sub.subsystem_id,
+                stateName: state.state_id,
+                assemblyId: asm.assembly_id,
+                stateId: state.state_id,
+                statePattern: "sequential",
+                granularity: "assembly_state",
+              },
+            );
+            sections.push(stateSection);
+          }
           addUsage(totalUsage, result.usage);
           reportProgress(`Section 3: ${sub.subsystem_name} — ${state.state_name}`);
         } catch (err) {
@@ -638,10 +703,22 @@ export async function generateSpec(
       reportProgress("Gap audit (failed)");
     }
 
-    // Update status to review
+    // Update status to review + flip schema_version to 2 (one-way) now that a
+    // V2-shape write pass has completed. Guard on existing value so we never
+    // downgrade or re-flip an already-V2 project.
+    const { data: currentRow } = await supabase
+      .from("spec_projects")
+      .select("schema_version")
+      .eq("id", spec.id)
+      .single();
+    const currentVersion = Number(
+      (currentRow as { schema_version?: number } | null)?.schema_version ?? 1,
+    );
+    const projectUpdate: Record<string, unknown> = { status: "review" };
+    if (currentVersion < 2) projectUpdate.schema_version = 2;
     await supabase
       .from("spec_projects")
-      .update({ status: "review" })
+      .update(projectUpdate)
       .eq("id", spec.id);
 
   } catch (err) {
