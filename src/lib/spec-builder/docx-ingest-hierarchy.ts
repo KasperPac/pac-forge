@@ -23,9 +23,11 @@ import type { ParsedDocxTable } from "@/lib/spec-builder/docx-ingest";
 // (type-only — avoids runtime cycle with docx-ingest.ts dispatcher)
 
 export class DocxIngestError extends Error {
-  constructor(message: string, public readonly diagnostics: string[] = []) {
+  readonly diagnostics: string[];
+  constructor(message: string, diagnostics: string[] = []) {
     super(message);
     this.name = "DocxIngestError";
+    this.diagnostics = diagnostics;
   }
 }
 
