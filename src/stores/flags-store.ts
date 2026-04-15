@@ -6,8 +6,8 @@
  * `hydrateFromEnv()` (gated by `USE_DB_OVERRIDES` in feature-flags.ts).
  */
 import { create } from "zustand";
-import type { FlagKey, FlagSet } from "@/lib/feature-flags";
-import { FLAG_DEFAULTS, readFlagsFromEnv } from "@/lib/feature-flags";
+import type { FlagKey, FlagSet } from "@/lib/flag-defaults";
+import { FLAG_DEFAULTS, readFlagsFromEnv } from "@/lib/flag-defaults";
 
 interface FlagsState {
   flags: FlagSet;

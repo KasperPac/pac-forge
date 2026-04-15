@@ -8,22 +8,10 @@
  */
 import { useFlagsStore } from "@/stores/flags-store";
 
-export type FlagKey =
-  | "revision_system_enabled"
-  | "strict_contract_reads"
-  | "ingest_ai_path"
-  | "legacy_shim_enabled"
-  | "forge_require_revision_binding";
-
-export type FlagSet = Record<FlagKey, boolean>;
-
-export const FLAG_DEFAULTS: FlagSet = {
-  revision_system_enabled: false,
-  strict_contract_reads: false,
-  ingest_ai_path: false,
-  legacy_shim_enabled: true,
-  forge_require_revision_binding: false,
-};
+// Re-export everything from the dependency-free defaults module so callers
+// only need one import path.
+export type { FlagKey, FlagSet } from "@/lib/flag-defaults";
+export { FLAG_DEFAULTS, readFlagsFromEnv } from "@/lib/flag-defaults";
 
 /**
  * DB override path toggle. When false, flags come from env + overrides only.
@@ -33,38 +21,18 @@ export const FLAG_DEFAULTS: FlagSet = {
  */
 export const USE_DB_OVERRIDES = false;
 
-const ENV_PREFIX = "VITE_FLAG_";
-
-function parseEnvBool(raw: unknown, fallback: boolean): boolean {
-  if (typeof raw !== "string") return fallback;
-  const v = raw.trim().toLowerCase();
-  if (v === "1" || v === "true" || v === "yes" || v === "on") return true;
-  if (v === "0" || v === "false" || v === "no" || v === "off") return false;
-  return fallback;
-}
-
-/** Resolve the flag set from `import.meta.env`, falling back to defaults. */
-export function readFlagsFromEnv(): FlagSet {
-  const env = (import.meta as unknown as { env?: Record<string, unknown> }).env ?? {};
-  const out: FlagSet = { ...FLAG_DEFAULTS };
-  (Object.keys(FLAG_DEFAULTS) as FlagKey[]).forEach((key) => {
-    const envKey = `${ENV_PREFIX}${key.toUpperCase()}`;
-    out[key] = parseEnvBool(env[envKey], FLAG_DEFAULTS[key]);
-  });
-  return out;
-}
-
 /**
  * Snapshot the current flags (non-reactive). Prefer `useFlags()` in components.
  */
-export function getFlags(): FlagSet {
+export function getFlags() {
   return useFlagsStore.getState().flags;
 }
 
 /** React hook — returns the live flag object. */
-export function useFlags(): FlagSet {
+export function useFlags() {
   return useFlagsStore((s) => s.flags);
 }
 
 /** The exported constant — resolved once at module load for non-reactive reads. */
-export const FLAGS: FlagSet = readFlagsFromEnv();
+import { readFlagsFromEnv as _readFlagsFromEnv } from "@/lib/flag-defaults";
+export const FLAGS = _readFlagsFromEnv();
