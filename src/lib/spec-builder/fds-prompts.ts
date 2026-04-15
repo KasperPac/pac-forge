@@ -111,11 +111,15 @@ ${completedText || "  (none yet)"}
 SEQUENTIAL STATES REMAINING: ${sequentialStates}
 
 RULES FOR STEP TABLES:
+- ONE STEP = ONE DISCRETE OUTPUT COMMAND. Never combine multiple output commands or conditional branches into a single step's action text.
+- Conditional direction logic (e.g. "if SEN_A then FWD, if SEN_B then REV") MUST be split: one step evaluates / branches, separate steps issue each possible command. Do NOT write multi-branch if/else prose inside a single action field.
+- Parallel simultaneous outputs (e.g. "energise pump AND open valve together") are acceptable in one step — but sequential or conditional commands always get their own step.
 - Every step must reference specific output tags by exact name
 - Every completion criteria must reference specific input tags by exact name
 - Every completion criteria must include a timeout (e.g. "within 3s")
 - Every step must define what happens on failure/timeout (e.g. "else fault — Motor failed to start, transition to Idle")
 - Permissives must reference specific input tags with expected values
+- Typical step count: 3–8 steps per state. If you have fewer than 3, you are almost certainly combining steps that should be separate.
 
 RESPONSE FORMAT:
 When you propose table updates, include them as a fenced JSON block at the END of your message. The \`state_id\` field MUST be one of the exact state_id values listed in SEQUENTIAL STATES REMAINING above — do NOT invent new IDs or use the state name as the ID. The JSON must match this schema exactly:
@@ -136,6 +140,20 @@ When you propose table updates, include them as a fenced JSON block at the END o
           "value": true,
           "within_ms": 3000,
           "on_fail": { "fault_code": "F_LFT01_PUMP_START", "severity": "fault" }
+        }
+      ]
+    },
+    {
+      "step": 2,
+      "action": "Open lift valve LFT01_SOL01_CMD",
+      "completion_criteria": "LFT01_ZSU01 = TRUE within 10s, else fault — Lift failed to reach upper position, transition to Idle",
+      "structured_criteria": [
+        {
+          "kind": "tag_equals",
+          "tag": "LFT01_ZSU01",
+          "value": true,
+          "within_ms": 10000,
+          "on_fail": { "fault_code": "F_LFT01_LIFT_TIMEOUT", "severity": "fault" }
         }
       ]
     }
