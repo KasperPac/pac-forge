@@ -206,10 +206,14 @@ ${specText}
   }
 
   const postProcessed = postProcess(parsed);
+
+  // Wave D — remap temporary step IDs to real UUIDs + fix transition refs.
+  const remapWarnings = remapSequenceStepIds(postProcessed);
+
   const validation = SpecContractV2Schema.safeParse(postProcessed);
 
   if (validation.success) {
-    return { draft: validation.data, warnings: [] };
+    return { draft: validation.data, warnings: remapWarnings };
   }
 
   // Lenient: still return the best-effort draft plus the issues as warnings.
@@ -217,7 +221,124 @@ ${specText}
     path: z.path.join("."),
     message: z.message,
   }));
-  return { draft: postProcessed as SpecContractV2, warnings };
+  return {
+    draft: postProcessed as SpecContractV2,
+    warnings: [...remapWarnings, ...warnings],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Wave D — SFC step-ID remap.
+//
+// The AI often emits temporary string IDs like "s1"/"s2" rather than real
+// UUIDs. Walk every assembly.sequential_states.steps[] and, if the step_id
+// does not look like a UUID, mint one via crypto.randomUUID() and record
+// the mapping. Then fix every transition.target_step_id(s) that points at
+// a remapped ID. Transitions that reference an unknown temp ID are dropped
+// and reported as a warning.
+// ---------------------------------------------------------------------------
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function remapSequenceStepIds(root: Record<string, unknown>): Warning[] {
+  const warnings: Warning[] = [];
+  const assemblies = root.assemblies as Record<string, unknown> | undefined;
+  if (!assemblies || typeof assemblies !== "object") return warnings;
+
+  let remappedCount = 0;
+
+  for (const [asyId, asyVal] of Object.entries(assemblies)) {
+    if (!asyVal || typeof asyVal !== "object") continue;
+    const asy = asyVal as Record<string, unknown>;
+    const seqStates = asy.sequential_states;
+    if (!seqStates || typeof seqStates !== "object") continue;
+
+    for (const [stateId, stateVal] of Object.entries(
+      seqStates as Record<string, unknown>,
+    )) {
+      if (!stateVal || typeof stateVal !== "object") continue;
+      const state = stateVal as Record<string, unknown>;
+      const steps = state.steps;
+      if (!Array.isArray(steps)) continue;
+
+      const mapping = new Map<string, string>();
+
+      // Pass 1: mint UUIDs for any non-UUID step_id.
+      for (const step of steps) {
+        if (!step || typeof step !== "object") continue;
+        const s = step as Record<string, unknown>;
+        const current = typeof s.step_id === "string" ? s.step_id : "";
+        if (current && UUID_RE.test(current)) continue;
+        const minted = randomUuid();
+        if (current) mapping.set(current, minted);
+        s.step_id = minted;
+        remappedCount++;
+      }
+
+      // Pass 2: rewrite transition targets.
+      for (const step of steps) {
+        if (!step || typeof step !== "object") continue;
+        const s = step as Record<string, unknown>;
+        const transitions = s.transitions;
+        if (!Array.isArray(transitions)) continue;
+        const surviving: unknown[] = [];
+        for (const tr of transitions) {
+          if (!tr || typeof tr !== "object") continue;
+          const t = tr as Record<string, unknown>;
+          let drop = false;
+
+          if (t.kind === "single" && typeof t.target_step_id === "string") {
+            const before = t.target_step_id;
+            if (mapping.has(before)) {
+              t.target_step_id = mapping.get(before)!;
+            } else if (!UUID_RE.test(before)) {
+              warnings.push({
+                path: `assemblies.${asyId}.sequential_states.${stateId}.step[${(s.step_id as string) ?? "?"}].transition`,
+                message: `AI referenced unknown step id "${before}" — transition dropped`,
+              });
+              drop = true;
+            }
+          }
+
+          if (t.kind === "parallel" && Array.isArray(t.target_step_ids)) {
+            const remapped: string[] = [];
+            for (const tid of t.target_step_ids as unknown[]) {
+              if (typeof tid !== "string") continue;
+              if (mapping.has(tid)) remapped.push(mapping.get(tid)!);
+              else if (UUID_RE.test(tid)) remapped.push(tid);
+              else {
+                warnings.push({
+                  path: `assemblies.${asyId}.sequential_states.${stateId}.step[${(s.step_id as string) ?? "?"}].transition.parallel`,
+                  message: `AI referenced unknown step id "${tid}" — dropped from parallel split`,
+                });
+              }
+            }
+            if (remapped.length < 2) {
+              warnings.push({
+                path: `assemblies.${asyId}.sequential_states.${stateId}.step[${(s.step_id as string) ?? "?"}].transition`,
+                message: `parallel split collapsed below 2 targets after remap — transition dropped`,
+              });
+              drop = true;
+            } else {
+              t.target_step_ids = remapped;
+            }
+          }
+
+          if (!drop) surviving.push(t);
+        }
+        s.transitions = surviving;
+      }
+    }
+  }
+
+  if (remappedCount > 0) {
+    warnings.unshift({
+      path: "assemblies",
+      message: `AI assigned ${remappedCount} step IDs`,
+    });
+  }
+
+  return warnings;
 }
 
 // ---------------------------------------------------------------------------

@@ -540,6 +540,21 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
       ) : (
         <PhaseStub number={5} title="DOCX Export" locked />
       )}
+
+      {/* Phase 6 — System Orchestration */}
+      <Separator />
+      {hasWizardData ? (
+        <PhaseLaunchCard
+          number={6}
+          title="System Orchestration"
+          description="Define cross-subsystem interlocks, shared permissives and startup order."
+          status={spec.confirmed_subsystems.length > 1 ? `${spec.confirmed_subsystems.length} subsystems` : "No subsystems yet"}
+          ctaLabel="Open Orchestration"
+          to={`/specs/${projectIdForNav}/${spec.id}/system-orchestration`}
+        />
+      ) : (
+        <PhaseStub number={6} title="System Orchestration" locked />
+      )}
     </div>
   );
 }

@@ -1,6 +1,12 @@
 import type { ForgeArtifact } from "@/types/forge";
 import type { FaultMatrixEntry, ProcessSequence, SequenceRow } from "@/types/forge-matrix";
 import type { LadNode, LadProgram, LadRung, LadSeriesChain, LadVariable } from "@/types/lad";
+import type { SpecContractV2 } from "@/types/spec-contract-v2";
+import {
+  compileSequentialStateV2,
+  type CompileV2Context,
+  type SequenceCompileResult,
+} from "@/lib/forge-process-compiler-v2";
 
 type ConditionKind = "no" | "nc";
 type CompareOperator = "=" | "<>" | ">" | "<" | ">=" | "<=";
@@ -1508,4 +1514,46 @@ export function compileDeterministicFaultArtifact(input: DeterministicFaultCompi
     compile_after_import: true,
     deterministic: true,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Wave D — v2-aware dispatch.
+//
+// When a caller has a SpecContractV2 + assembly/state pair, use this entry
+// point. If the target state is `sequence_model_version === 2` it delegates
+// to the SFC compiler in `forge-process-compiler-v2.ts`. Otherwise the caller
+// should keep using `compileDeterministicProcessArtifact` with a v1
+// ProcessSequence — this helper does not attempt to lower a v1 contract
+// into a ProcessSequence on the caller's behalf.
+// ---------------------------------------------------------------------------
+
+export function compileSequentialStateFromContract(
+  contract: SpecContractV2,
+  stateId: string,
+  assemblyId: string,
+  ctx: CompileV2Context = {},
+): SequenceCompileResult {
+  const assembly = contract.assemblies[assemblyId];
+  const state = assembly?.sequential_states?.[stateId];
+  if (!state) {
+    return {
+      ok: false,
+      errors: [
+        {
+          kind: "validation",
+          assembly_id: assemblyId,
+          state_id: stateId,
+          message: `state ${stateId} not found on assembly ${assemblyId}`,
+        },
+      ],
+    };
+  }
+  // v2 → SFC compiler. v1 rows still get routed through here because the
+  // v2 compiler calls ensureV2() to upgrade in memory first. This keeps a
+  // single entry point for contract-shaped data while the v1 ProcessSequence
+  // flat-list callers stay on `compileDeterministicProcessArtifact`.
+  if (state.sequence_model_version === 2) {
+    return compileSequentialStateV2(contract, stateId, assemblyId, ctx);
+  }
+  return compileSequentialStateV2(contract, stateId, assemblyId, ctx);
 }
