@@ -22,9 +22,17 @@ import {
   Upload,
   ArrowDownToLine,
   History,
+  MoreVertical,
 } from "lucide-react";
 import { useSpecIngest } from "@/hooks/use-spec-ingest";
 import { RevisionsPanel } from "@/components/spec-builder/revisions-panel";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -140,42 +148,48 @@ export default function SpecBuilderPage() {
               onClick={() => setShowRandom(true)}
               title="Generate Random FDS"
             >
-              <Dices className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 shrink-0"
-              onClick={() => uploadInputRef.current?.click()}
-              title="Upload marked-up DOCX"
-              disabled={!selectedId || ingestLoading}
-            >
               {ingestLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                <Upload className="h-4 w-4" />
+                <Dices className="h-4 w-4" />
               )}
             </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 shrink-0"
-              onClick={() => importInputRef.current?.click()}
-              title="Import foreign spec"
-              disabled={!selectedId || ingestLoading}
-            >
-              <ArrowDownToLine className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 shrink-0"
-              onClick={() => setRevisionsOpen(true)}
-              title="Revisions"
-              disabled={!selectedId}
-            >
-              <History className="h-4 w-4" />
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 shrink-0"
+                  title="More actions"
+                >
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuItem
+                  onClick={() => uploadInputRef.current?.click()}
+                  disabled={!selectedId || ingestLoading}
+                >
+                  <Upload className="h-3.5 w-3.5 mr-2" />
+                  Upload marked-up DOCX
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => importInputRef.current?.click()}
+                  disabled={!selectedId || ingestLoading}
+                >
+                  <ArrowDownToLine className="h-3.5 w-3.5 mr-2" />
+                  Import foreign spec
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => setRevisionsOpen(true)}
+                  disabled={!selectedId}
+                >
+                  <History className="h-3.5 w-3.5 mr-2" />
+                  Revisions
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <input
               ref={uploadInputRef}
               type="file"
