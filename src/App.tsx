@@ -36,6 +36,7 @@ const TestTemplatesPage = lazy(() => import("@/routes/test-templates"));
 const ClientsPage = lazy(() => import("@/routes/clients"));
 const InstructionLibraryPage = lazy(() => import("@/routes/instruction-library"));
 const SpecBuilderPage = lazy(() => import("@/routes/spec-builder"));
+const SpecBuilderIngestReviewPage = lazy(() => import("@/routes/spec-builder-ingest-review"));
 const DashboardPage = lazy(() => import("@/routes/dashboard"));
 
 function LazyRoute({ children }: { children: React.ReactNode }) {
@@ -77,6 +78,7 @@ const router = createBrowserRouter([
           { path: "library-import", element: <LazyRoute><LibraryImportPage /></LazyRoute> },
           { path: "instructions", element: <LazyRoute><InstructionLibraryPage /></LazyRoute> },
           { path: "specs", element: <LazyRoute><SpecBuilderPage /></LazyRoute> },
+          { path: "specs/ingest-review", element: <LazyRoute><SpecBuilderIngestReviewPage /></LazyRoute> },
           { path: "profiles", element: <LazyRoute><ProfilesPage /></LazyRoute> },
           { path: "profiles/:id", element: <LazyRoute><ProfileDetailPage /></LazyRoute> },
           { path: "knowledge", element: <LazyRoute><KnowledgePage /></LazyRoute> },
