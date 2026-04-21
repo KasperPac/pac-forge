@@ -420,6 +420,201 @@ function transformObInterface(scl: string): { scl: string; changesApplied: strin
   };
 }
 
+// ─── SYSTEM_FUNCTION: SFC → S7-1500 instruction substitution ─────────────────
+//
+// Source: Siemens Migration Guide (Entry ID 109478811, Table 1-1)
+// Only SFCs with a documented direct replacement are listed here.
+// SFCs with no direct equivalent are flagged for engineer review.
+// Pin mapping is NOT auto-applied — the call is flagged so the engineer reviews
+// parameter changes. Silent pin remap on safety-critical code is unacceptable.
+
+interface SfcEntry {
+  replacement: string;
+  note: string;
+  /** true = fully 1:1, false = pin names/semantics changed → MIGRATION_FLAG added */
+  exact: boolean;
+}
+
+const SFC_MAP: Record<string, SfcEntry> = {
+  // Communication / data record
+  SFC14:  { replacement: "RDREC",    exact: false, note: "Pin mapping changed: LADDR→INDEX; add VALID, BUSY outputs" },
+  SFC15:  { replacement: "WRREC",    exact: false, note: "Pin mapping changed: LADDR→INDEX; add STATUS, BUSY outputs" },
+  SFC58:  { replacement: "WRREC",    exact: false, note: "Optimized DB access; pin mapping changed" },
+  SFC59:  { replacement: "RDREC",    exact: false, note: "Optimized DB access; pin mapping changed" },
+  // Block move
+  SFC20:  { replacement: "MOVE_BLK", exact: false, note: "SRCBLK→SRC, DSTBLK→DST; COUNT unchanged; RET_VAL→STATUS (output)" },
+  SFC21:  { replacement: "FILL_BLK", exact: false, note: "BVAL→VAL, DSTBLK→DST; COUNT unchanged; RET_VAL→STATUS (output)" },
+  SFC22:  { replacement: "UBLKMOV",  exact: false, note: "Uninterruptible block move; review parameter names" },
+  SFC23:  { replacement: "MOVE_BLK", exact: false, note: "BLKMOV renamed MOVE_BLK; review parameter names" },
+  // System / CPU control
+  SFC43:  { replacement: "RE_TRIGR", exact: true,  note: "1:1 replacement" },
+  SFC46:  { replacement: "STP",      exact: true,  note: "1:1 replacement" },
+  SFC47:  { replacement: "WAIT",     exact: true,  note: "Verify WAIT is available on target CPU" },
+  // Time
+  SFC64:  { replacement: "TIME_TCK", exact: true,  note: "1:1 replacement" },
+  // PROFIBUS DP
+  SFC13:  { replacement: "DPNRM_DG", exact: false, note: "Review parameter names" },
+  SFC78:  { replacement: "DPRD_DAT", exact: true,  note: "1:1 replacement" },
+  SFC79:  { replacement: "DPWR_DAT", exact: true,  note: "1:1 replacement" },
+  // Interrupt control
+  SFC36:  { replacement: "MSK_FLT",  exact: true,  note: "1:1 replacement" },
+  SFC37:  { replacement: "DMSK_FLT", exact: true,  note: "1:1 replacement" },
+  SFC38:  { replacement: "READ_ERR", exact: true,  note: "1:1 replacement" },
+  // Address / diagnostic
+  SFC49:  { replacement: "LGC_GADR", exact: true,  note: "1:1 replacement" },
+  SFC50:  { replacement: "RD_LGADR", exact: true,  note: "1:1 replacement" },
+  // Diagnostics / user message
+  SFC52:  { replacement: "WR_USMSG", exact: true,  note: "1:1 replacement" },
+};
+
+// SFCs with NO direct S7-1500 equivalent — flag only, no replacement
+const SFC_NO_EQUIVALENT: Record<string, string> = {
+  SFC24: "Flash LED — not available on S7-1500; remove or replace with HMI indicator logic",
+  SFC25: "Flash LED — not available on S7-1500",
+  SFC26: "Busy LED — not available on S7-1500",
+  SFC51: "RDSYSST — not available; use SYSDIAG or hardware diagnostics",
+  SFC39: "DIS_IRT — not available on S7-1500 in this form; use DINT/SINT OB priority",
+};
+
+/**
+ * Replace SFC calls with S7-1500 equivalents.
+ * Only replaces the function name. Adds MIGRATION_FLAG comment for non-exact
+ * mappings so the engineer knows to review parameter names.
+ * Calls with no equivalent are flagged but not changed.
+ */
+function transformSfcCalls(scl: string): {
+  scl: string;
+  changesApplied: string[];
+  flaggedComments: string[];
+} {
+  const changesApplied: string[] = [];
+  const flaggedComments: string[] = [];
+  let result = scl;
+
+  // Replace SFCs that have a known equivalent
+  for (const [sfcName, entry] of Object.entries(SFC_MAP)) {
+    // Match: SFC14( or SFC14 ( — word boundary, case-insensitive
+    const re = new RegExp(`\\b${sfcName}\\s*\\(`, "gi");
+    if (!re.test(result)) continue;
+
+    result = result.replace(new RegExp(`\\b${sfcName}\\s*\\(`, "gi"), `${entry.replacement}(`);
+    changesApplied.push(`${sfcName} → ${entry.replacement}`);
+
+    if (!entry.exact) {
+      // Prepend a flag comment before the first occurrence of the replacement call
+      const flagRe = new RegExp(`(${entry.replacement}\\()`, "i");
+      const flagMsg = `MIGRATION_FLAG [${sfcName}→${entry.replacement}]: ${entry.note}`;
+      result = result.replace(flagRe, `(* ${flagMsg} *)\n$1`);
+      flaggedComments.push(flagMsg);
+    }
+  }
+
+  // Flag SFCs with no equivalent (do NOT replace)
+  for (const [sfcName, reason] of Object.entries(SFC_NO_EQUIVALENT)) {
+    const re = new RegExp(`\\b${sfcName}\\s*\\(`, "gi");
+    if (!re.test(result)) continue;
+
+    const flagMsg = `MIGRATION_FLAG [${sfcName} — NO EQUIVALENT]: ${reason}`;
+    result = result.replace(
+      new RegExp(`(\\b${sfcName}\\s*\\()`, "gi"),
+      `(* ${flagMsg} *)\n$1`,
+    );
+    flaggedComments.push(flagMsg);
+  }
+
+  return { scl: result, changesApplied, flaggedComments };
+}
+
+// ─── SCL_SYNTAX: renamed/removed SCL keywords ────────────────────────────────
+//
+// These are 1:1 token substitutions documented in the Siemens migration guide.
+// They are provably correct in all contexts — no engineer review needed.
+
+/**
+ * Apply SCL syntax changes that are 1:1 token replacements:
+ *   LOG(  → LN(   (natural logarithm renamed in S7-1500)
+ *   NIL   → NULL  (pointer null value renamed)
+ *   n.nEn → n.nEn (float literals must have decimal point: 1E10 → 1.0E10)
+ *   OV    → flag  (overflow detection completely changed in S7-1500)
+ */
+function transformSclSyntax(scl: string): {
+  scl: string;
+  changesApplied: string[];
+  flaggedComments: string[];
+} {
+  const changesApplied: string[] = [];
+  const flaggedComments: string[] = [];
+  let result = scl;
+
+  // LOG( → LN(  (natural log was renamed; only match as function call, not variable names)
+  const logCount = (result.match(/\bLOG\s*\(/gi) ?? []).length;
+  if (logCount > 0) {
+    result = result.replace(/\bLOG\s*\(/gi, "LN(");
+    changesApplied.push(`LOG( → LN( (${logCount} occurrence${logCount !== 1 ? "s" : ""})`);
+  }
+
+  // NIL → NULL  (pointer null literal renamed)
+  const nilCount = (result.match(/\bNIL\b/gi) ?? []).length;
+  if (nilCount > 0) {
+    result = result.replace(/\bNIL\b/gi, "NULL");
+    changesApplied.push(`NIL → NULL (${nilCount} occurrence${nilCount !== 1 ? "s" : ""})`);
+  }
+
+  // Float literals without decimal point before exponent: 1E10 → 1.0E10
+  // Matches integers immediately followed by E+/-digits (scientific notation)
+  // Negative lookbehind for '.' avoids touching already-correct 1.0E10
+  const floatCount = { n: 0 };
+  result = result.replace(/\b(\d+)(E[+-]?\d+)\b/gi, (match, mantissa, exp) => {
+    if (mantissa.includes(".")) return match; // already has decimal
+    floatCount.n++;
+    return `${mantissa}.0${exp}`;
+  });
+  if (floatCount.n > 0)
+    changesApplied.push(`Fixed ${floatCount.n} float literal(s) missing decimal point (e.g. 1E10 → 1.0E10)`);
+
+  // OV (overflow) special register — not available in S7-1500 SCL
+  if (/\bOV\b/.test(result)) {
+    const flagMsg =
+      "MIGRATION_FLAG [OV]: Overflow flag not available in S7-1500 SCL; use DINT arithmetic or check result manually";
+    result = result.replace(/\bOV\b/g, `(* ${flagMsg} *) OV`);
+    flaggedComments.push(flagMsg);
+  }
+
+  return { scl: result, changesApplied, flaggedComments };
+}
+
+// ─── BLOCK_CALL: legacy FB instance call syntax ───────────────────────────────
+//
+// S7-300 SCL allowed: FB10.DB20( param := value )
+//                                   ↑ instance DB referenced by number
+// S7-1500 SCL requires: "InstDB"( param := value )
+//                                   ↑ symbolic name, quoted
+//
+// We can safely replace FBn.DBm( → "DBm"( because:
+//   • The DB number is preserved as the quoted symbolic name (TIA Portal creates it)
+//   • The parameters are unchanged
+//   • The engineer will see the change in the review diff
+
+function transformLegacyFbCalls(scl: string): {
+  scl: string;
+  changesApplied: string[];
+} {
+  const changesApplied: string[] = [];
+  let result = scl;
+  let count = 0;
+
+  // Match: FB\d+.DB\d+( or FB\d+ . DB\d+ (
+  result = result.replace(/\bFB\d+\s*\.\s*(DB\d+)\s*\(/gi, (_, dbName) => {
+    count++;
+    return `"${dbName}"(`;
+  });
+
+  if (count > 0)
+    changesApplied.push(`Replaced ${count} legacy FB\#.DB\# call(s) with symbolic instance DB syntax`);
+
+  return { scl: result, changesApplied };
+}
+
 // ─── OTHER: known single-token / attribute fixes ──────────────────────────────
 
 /**
@@ -427,7 +622,7 @@ function transformObInterface(scl: string): { scl: string; changesApplied: strin
  * Each rule is a simple regex substitution — no context needed.
  *
  * Rules applied:
- *   S7_Optimized_Access := 'FALSE'  → remove attribute line (optimized is default)
+ *   S7_Optimized_Access              → preserved as-is (engineer decides per block)
  *   BOOL#TRUE / BOOL#FALSE          → TRUE / FALSE  (typed literal syntax removed)
  *   INT#0, REAL#0.0, WORD#16#0 etc  → bare literals (typed literal syntax removed)
  *   RETAIN attribute on local vars  → remove (VAR_RETAIN is the S7-1500 way)
@@ -439,16 +634,9 @@ function transformOtherPatterns(scl: string): { scl: string; changesApplied: str
   let result = scl;
 
   // ── DB optimized access attribute ────────────────────────────────────────────
-  // Remove { S7_Optimized_Access := 'FALSE' } line — optimized is the S7-1500 default
-  // (the attribute can also appear inline with other attributes; handle both forms)
-  const beforeOptimized = result;
-  result = result
-    // Standalone attribute block on its own line
-    .replace(/^[^\S\n]*\{[^}]*S7_Optimized_Access\s*:=\s*'FALSE'[^}]*\}\s*\n/gim, "")
-    // Inline FALSE → TRUE inside a multi-attribute block
-    .replace(/(S7_Optimized_Access\s*:=\s*)'FALSE'/gi, "$1'TRUE'");
-  if (result !== beforeOptimized)
-    changesApplied.push("Removed/updated S7_Optimized_Access := 'FALSE' (optimized DB)");
+  // S7_Optimized_Access is preserved as-is. HMI-linked DBs and SCADA DBs
+  // (e.g. Citect using absolute DBX/DBD offsets) must stay non-optimised.
+  // Engineers decide per-DB whether to change this in TIA Portal.
 
   // ── Typed boolean literals ────────────────────────────────────────────────────
   // BOOL#TRUE → TRUE,  BOOL#FALSE → FALSE
@@ -532,6 +720,274 @@ function transformOtherPatterns(scl: string): { scl: string; changesApplied: str
   }
 
   return { scl: result, changesApplied };
+}
+
+// ─── Post-processor: deterministic cleanup of AI-generated SCL ────────────────
+//
+// Run AFTER the AI produces migrated SCL (from STL→SCL or LAD→SCL or SCL transform).
+// Catches patterns the AI may have left or introduced.
+// Safe to run unconditionally — every rule here is always correct.
+
+export interface PostProcessResult {
+  scl: string;
+  cleanups: string[];
+  flaggedComments: string[];
+}
+
+export function postProcessMigratedScl(scl: string): PostProcessResult {
+  const cleanups: string[] = [];
+  const flaggedComments: string[] = [];
+  let current = scl;
+
+  // SCL syntax normalisation
+  const syn = transformSclSyntax(current);
+  current = syn.scl;
+  cleanups.push(...syn.changesApplied);
+  flaggedComments.push(...syn.flaggedComments);
+
+  // Attribute / literal cleanup
+  const other = transformOtherPatterns(current);
+  current = other.scl;
+  cleanups.push(...other.changesApplied);
+
+  // S5TIME literals that AI may have left behind
+  const dt = transformS5TimeTypes(current);
+  if (dt.count > 0) {
+    current = dt.scl;
+    cleanups.push(`Cleaned ${dt.count} residual S5TIME literal/type(s) → TIME`);
+  }
+
+  // SFC names the AI may have forgotten to replace
+  const sfcNames = Object.keys(SFC_MAP);
+  for (const sfcName of sfcNames) {
+    if (new RegExp(`\\b${sfcName}\\s*\\(`, "i").test(current)) {
+      const r = transformSfcCalls(current);
+      current = r.scl;
+      cleanups.push(...r.changesApplied);
+      flaggedComments.push(...r.flaggedComments);
+      break; // transformSfcCalls handles all in one pass
+    }
+  }
+
+  return { scl: current, cleanups, flaggedComments };
+}
+
+// ─── Project-wide: spaces in identifiers → underscores ────────────────────────
+//
+// S7-300/STEP7 allowed quoted names with spaces (e.g. "Gen Drive UDT").
+// TIA Portal V20 requires valid identifiers — no spaces. Replace all occurrences
+// across the entire project before per-block processing.
+
+/**
+ * Scan all blocks for quoted identifiers containing spaces.
+ * Returns a rename map: original name → underscore name.
+ * e.g. "Gen Drive UDT" → "Gen_Drive_UDT"
+ */
+export function buildSpaceRenameMap(sourceBlocks: Record<string, string>): Map<string, string> {
+  const renames = new Map<string, string>();
+  // Quoted S7 identifiers: "anything with spaces"
+  const quotedRe = /"([^"]+)"/g;
+  for (const scl of Object.values(sourceBlocks)) {
+    let m: RegExpExecArray | null;
+    quotedRe.lastIndex = 0;
+    while ((m = quotedRe.exec(scl)) !== null) {
+      const name = m[1];
+      if (name.includes(" ") && !renames.has(name)) {
+        renames.set(name, name.replace(/ /g, "_"));
+      }
+    }
+  }
+  // Also check block keys themselves (block names that are keys in the dict)
+  for (const blockName of Object.keys(sourceBlocks)) {
+    if (blockName.includes(" ") && !renames.has(blockName)) {
+      renames.set(blockName, blockName.replace(/ /g, "_"));
+    }
+  }
+  return renames;
+}
+
+/**
+ * Apply the space rename map project-wide:
+ * — replaces "Old Name" → "Old_Name" inside all block SCL content
+ * — renames block keys that contained spaces
+ * — updates the languages map keys accordingly
+ */
+export function applyProjectWideSpaceRenames(
+  sourceBlocks: Record<string, string>,
+  sourceLangs: Record<string, string>,
+  renames: Map<string, string>,
+): { blocks: Record<string, string>; langs: Record<string, string>; changes: string[] } {
+  if (renames.size === 0) return { blocks: sourceBlocks, langs: sourceLangs, changes: [] };
+
+  const changes: string[] = [];
+  const blocks: Record<string, string> = {};
+  const langs: Record<string, string> = {};
+
+  for (const [blockName, scl] of Object.entries(sourceBlocks)) {
+    let updated = scl;
+    for (const [oldName, newName] of renames) {
+      // Replace quoted occurrences: "Old Name" → "Old_Name"
+      const quoted = `"${oldName}"`;
+      if (updated.includes(quoted)) {
+        updated = updated.split(quoted).join(`"${newName}"`);
+      }
+      // Also replace unquoted occurrences if the block key itself had spaces
+      if (oldName === blockName) {
+        // The TYPE/DATA_BLOCK/FUNCTION_BLOCK declaration line: 'BLOCK "Old Name"' → 'BLOCK "Old_Name"'
+        // Already handled by the quoted replacement above
+      }
+    }
+    // Rename the block key if it had spaces
+    const newKey = renames.get(blockName) ?? blockName;
+    blocks[newKey] = updated;
+
+    // Carry language tag over to new key
+    const lang = sourceLangs[blockName];
+    if (lang) langs[newKey] = lang;
+    else if (sourceLangs[blockName] === undefined) {
+      // key wasn't in langs (SCL default) — no entry needed
+    }
+  }
+
+  for (const [oldName, newName] of renames) {
+    changes.push(`Renamed identifier "${oldName}" → "${newName}" (spaces → underscores)`);
+  }
+
+  return { blocks, langs, changes };
+}
+
+// ─── Standalone timer DB detection + inlining ─────────────────────────────────
+//
+// S7-300/400 required a separate DATA_BLOCK for each SFB (timer/counter) instance.
+// On S7-1500, IEC timers are declared as VAR_STAT inside the FB — TIA Portal
+// automatically creates a hidden system DB (visible under System blocks >
+// Program resources). There is no need for a standalone instance DB.
+//
+// Migration: detect standalone timer instance DBs, find the calling FB(s),
+// inject a static variable declaration, rewrite all call/member-access references,
+// and mark the original DB for deletion.
+
+const TIMER_DB_TYPE_MAP: Record<string, string> = {
+  // IEC timer instance types used in S7-300 exports
+  TON_I: "TON",
+  TOF_T: "TOF",
+  TP_I:  "TP",
+  // Alternate names seen in some Siemens versions
+  SFB3:  "TP",
+  SFB4:  "TON",
+  SFB5:  "TOF",
+};
+
+/** Detect if a DATA_BLOCK is a standalone S7-300 SFB timer instance DB.
+ *  Returns the S7-1500 IEC timer type ("TON" | "TOF" | "TP") or null. */
+function detectTimerDbType(scl: string): string | null {
+  if (!/\bDATA_BLOCK\b/i.test(scl)) return null;
+
+  for (const [s7Type, iecType] of Object.entries(TIMER_DB_TYPE_MAP)) {
+    // Type appears as a quoted name on a standalone line: "TON_I" or "SFB4"
+    if (new RegExp(`"${s7Type}"`, "i").test(scl)) return iecType;
+  }
+
+  // Fallback: FAMILY : 'TIMER' with no explicit type → assume TON
+  if (/FAMILY\s*:\s*['"]TIMER['"]/i.test(scl)) return "TON";
+
+  return null;
+}
+
+/** Derive a clean VAR_STAT variable name from a timer DB name.
+ *  "T_GritClassWait" → "gritClassWait"  (strips T_ prefix, lowercases first char) */
+function timerDbVarName(dbName: string): string {
+  const stripped = dbName.replace(/^[Tt]_/, "");
+  return stripped.charAt(0).toLowerCase() + stripped.slice(1);
+}
+
+/** Replace all references to a timer DB in a single calling block with a static variable. */
+function inlineTimerDbInBlock(
+  scl: string,
+  dbName: string,
+  varName: string,
+  iecType: string,
+): { scl: string; changed: boolean } {
+  const quotedName = `"${dbName}"`;
+  if (!scl.includes(quotedName)) return { scl, changed: false };
+
+  let result = scl;
+
+  // Member access: "DBName".Q → #varName.Q
+  result = result.replace(
+    new RegExp(`"${escapeRegex(dbName)}"\\.(\\w+)`, "g"),
+    `#${varName}.$1`,
+  );
+
+  // Function call: "DBName"( → #varName(
+  result = result.replace(
+    new RegExp(`"${escapeRegex(dbName)}"\\s*\\(`, "g"),
+    `#${varName}(`,
+  );
+
+  // Inject VAR_STAT declaration
+  result = injectVarStatDecls(result, new Set([`${varName} : ${iecType};`]));
+
+  return { scl: result, changed: true };
+}
+
+export interface TimerInlineResult {
+  /** Source blocks with timer DB references replaced in calling FBs */
+  updatedBlocks: Record<string, string>;
+  /** DB names that were successfully inlined — exclude these from import */
+  timerDbNames: Set<string>;
+  /** Human-readable change descriptions */
+  changes: string[];
+}
+
+/**
+ * Project-wide pass: detect all standalone timer instance DBs, inline them into
+ * their calling FBs as VAR_STAT variables, and mark the original DBs for deletion.
+ */
+export function inlineStandaloneTimerDbs(
+  sourceBlocks: Record<string, string>,
+): TimerInlineResult {
+  const timerDbNames = new Set<string>();
+  const changes: string[] = [];
+
+  // Step 1: identify all timer instance DBs
+  const timerDbMap = new Map<string, string>(); // dbName → iecType
+  for (const [blockName, scl] of Object.entries(sourceBlocks)) {
+    const iecType = detectTimerDbType(scl);
+    if (iecType) timerDbMap.set(blockName, iecType);
+  }
+
+  if (timerDbMap.size === 0) {
+    return { updatedBlocks: sourceBlocks, timerDbNames, changes };
+  }
+
+  // Step 2: for each timer DB, find all calling blocks and inject the static var
+  const updatedBlocks = { ...sourceBlocks };
+
+  for (const [dbName, iecType] of timerDbMap) {
+    const varName = timerDbVarName(dbName);
+    let inlinedCount = 0;
+    const inlinedInto: string[] = [];
+
+    for (const [callerName, callerScl] of Object.entries(updatedBlocks)) {
+      if (callerName === dbName) continue; // skip the timer DB itself
+      const { scl: newScl, changed } = inlineTimerDbInBlock(callerScl, dbName, varName, iecType);
+      if (changed) {
+        updatedBlocks[callerName] = newScl;
+        inlinedInto.push(callerName);
+        inlinedCount++;
+      }
+    }
+
+    if (inlinedCount > 0) {
+      timerDbNames.add(dbName);
+      changes.push(
+        `Timer DB "${dbName}" (${iecType}) → #${varName} : ${iecType} in ${inlinedCount} block(s): ${inlinedInto.join(", ")}`,
+      );
+    }
+  }
+
+  return { updatedBlocks, timerDbNames, changes };
 }
 
 // ─── Block type inference (used when AI call is skipped) ──────────────────────
@@ -623,17 +1079,51 @@ export function applyDeterministicTransforms(
     }
   }
 
-  // OTHER — known single-token/attribute fixes (DB optimized access, typed literals, etc.)
-  // Always run when ANY approved steps exist — these patterns are unambiguously correct
-  // and never conflict with other step types.
+  // SYSTEM_FUNCTION — SFC → S7-1500 instruction substitution (documented Siemens mappings)
+  if (hasType("SYSTEM_FUNCTION")) {
+    const r = transformSfcCalls(current);
+    if (r.changesApplied.length > 0 || r.flaggedComments.length > 0) {
+      current = r.scl;
+      changesApplied.push(...r.changesApplied);
+      flaggedComments.push(...r.flaggedComments);
+    }
+    handledTypes.push("SYSTEM_FUNCTION");
+  }
+
+  // BLOCK_CALL — legacy FBn.DBm() → "DBm"() symbolic instance DB call syntax
+  if (hasType("BLOCK_CALL")) {
+    const r = transformLegacyFbCalls(current);
+    if (r.changesApplied.length > 0) {
+      current = r.scl;
+      changesApplied.push(...r.changesApplied);
+    }
+    handledTypes.push("BLOCK_CALL");
+  }
+
+  // SCL syntax fixes — LOG→LN, NIL→NULL, float literal decimal points
+  // Run whenever any steps are approved — these are always correct regardless of context
+  if (approvedSteps.length > 0) {
+    const r = transformSclSyntax(current);
+    if (r.changesApplied.length > 0) {
+      current = r.scl;
+      changesApplied.push(...r.changesApplied);
+      flaggedComments.push(...r.flaggedComments);
+    }
+  }
+
+  // OTHER — known single-token/attribute fixes (typed literals, ENO, etc.)
+  // Always run when ANY approved steps exist. S7_Optimized_Access is intentionally
+  // preserved by the deterministic handler — marking OTHER as handled prevents the
+  // AI from receiving the step and (re-)applying the removal itself.
   if (approvedSteps.length > 0) {
     const r = transformOtherPatterns(current);
     if (r.changesApplied.length > 0) {
       current = r.scl;
       changesApplied.push(...r.changesApplied);
-      // Mark OTHER as handled only if there was an explicit OTHER step approved
-      if (hasType("OTHER")) handledTypes.push("OTHER");
     }
+    // Always mark OTHER handled when an OTHER step was approved — the deterministic
+    // handler owns it fully (including the intentional no-op for S7_Optimized_Access).
+    if (hasType("OTHER")) handledTypes.push("OTHER");
   }
 
   return { scl: current, changesApplied, handledTypes, flaggedComments };

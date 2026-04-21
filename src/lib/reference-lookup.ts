@@ -63,10 +63,12 @@ export async function extractRelevantTopics(
 /**
  * Search reference library sections using FTS + topic tag overlap.
  * Filters by programmingLanguage when provided (GENERAL docs always match).
+ * Filters by plcBrand: SIEMENS_TIA excludes migration-only docs;
+ * SIEMENS_MIGRATION includes both general and migration-specific docs.
  */
 export async function searchReferenceSections(
   topics: string[],
-  _plcBrand: string,
+  plcBrand: string,
   maxSections = 20,
   programmingLanguage?: ProgrammingLanguage,
 ): Promise<ReferenceLibrarySection[]> {
@@ -82,6 +84,7 @@ export async function searchReferenceSections(
     topic_list: topics,
     max_results: maxSections,
     language_filter: languageFilter,
+    plc_brand_filter: plcBrand ?? null,
   });
 
   if (error) {

@@ -1,0 +1,31 @@
+Tag,Description,Device Type,Signal Type,IO Address,Subsystem
+IC_CV01_M01_CMD,Entry Belt Motor Run Command,Motor Contactor,DO,Q0.0,IC
+IC_CV01_M01_RUN,Entry Belt Motor Run Feedback,Motor Feedback,DI,I0.0,IC
+IC_CV01_M01_OL,Entry Belt Motor Overload,Overload Relay,DI,I0.1,IC
+IC_CV01_PE01,Entry Belt Infeed Photoelectric,Photoelectric Sensor,DI,I0.2,IC
+IC_CV01_PE02,Entry Belt Outfeed Photoelectric,Photoelectric Sensor,DI,I0.3,IC
+IC_CV01_JS01,Entry Belt Jam Switch,Proximity Switch,DI,I0.4,IC
+IC_CV02_M01_CMD,Transfer Belt Motor Run Command,Motor Contactor,DO,Q0.1,IC
+IC_CV02_M01_RUN,Transfer Belt Motor Run Feedback,Motor Feedback,DI,I0.5,IC
+IC_CV02_M01_OL,Transfer Belt Motor Overload,Overload Relay,DI,I0.6,IC
+IC_CV02_PE01,Transfer Belt Infeed Photoelectric,Photoelectric Sensor,DI,I0.7,IC
+IC_CV02_PE02,Transfer Belt Outfeed Photoelectric,Photoelectric Sensor,DI,I1.0,IC
+IC_CV03_M01_CMD,Divert Belt Motor Run Command,Motor Contactor,DO,Q0.2,IC
+IC_CV03_M01_RUN,Divert Belt Motor Run Feedback,Motor Feedback,DI,I1.1,IC
+IC_CV03_M01_OL,Divert Belt Motor Overload,Overload Relay,DI,I1.2,IC
+IC_CV03_PE01,Divert Belt Photoelectric Sensor,Photoelectric Sensor,DI,I1.3,IC
+IC_CV03_SOL01,Divert Gate Solenoid,Solenoid,DO,Q0.3,IC
+IC_CV03_SOL01_FB,Divert Gate Solenoid Feedback,Position Switch,DI,I1.4,IC
+IC_ES01,Inbound Zone Emergency Stop,Emergency Stop,DI,I1.5,IC
+OC_CV01_M01_CMD,Dispatch Belt Motor Run Command,Motor Contactor,DO,Q1.0,OC
+OC_CV01_M01_RUN,Dispatch Belt Motor Run Feedback,Motor Feedback,DI,I2.0,OC
+OC_CV01_M01_OL,Dispatch Belt Motor Overload,Overload Relay,DI,I2.1,OC
+OC_CV01_PE01,Dispatch Belt Infeed Photoelectric,Photoelectric Sensor,DI,I2.2,OC
+OC_CV01_PE02,Dispatch Belt Outfeed Photoelectric,Photoelectric Sensor,DI,I2.3,OC
+OC_CV02_M01_CMD,Exit Belt Motor Run Command,Motor Contactor,DO,Q1.1,OC
+OC_CV02_M01_RUN,Exit Belt Motor Run Feedback,Motor Feedback,DI,I2.4,OC
+OC_CV02_M01_OL,Exit Belt Motor Overload,Overload Relay,DI,I2.5,OC
+OC_CV02_PE01,Exit Belt Infeed Photoelectric,Photoelectric Sensor,DI,I2.6,OC
+OC_CV02_PE02,Exit Belt Outfeed Photoelectric,Photoelectric Sensor,DI,I2.7,OC
+OC_CV02_SPD01,Exit Belt Speed Encoder,Speed Transmitter,AI,IW64,OC
+OC_ES01,Outbound Zone Emergency Stop,Emergency Stop,DI,I3.0,OC

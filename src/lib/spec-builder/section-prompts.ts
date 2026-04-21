@@ -130,7 +130,6 @@ Respond ONLY with a JSON object:
 export function buildFunctionalStatePrompt(
   subsystem: SubsystemConfig,
   state: OperatingState,
-  tags: InstrumentTag[],
   deviceTable: Array<{ device: string; tag: string; description: string }>,
 ): string {
   const deviceTableJson = JSON.stringify(deviceTable, null, 2);

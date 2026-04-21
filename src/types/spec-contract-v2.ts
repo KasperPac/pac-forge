@@ -273,7 +273,7 @@ export const DeviceStateEntrySchema = z.object({
 });
 export type DeviceStateEntry = z.infer<typeof DeviceStateEntrySchema>;
 
-export const FaultSeveritySchema = z.enum(["warning", "fault"]);
+export const FaultSeveritySchema = z.enum(["warning", "fault", "critical"]);
 export type FaultSeverity = z.infer<typeof FaultSeveritySchema>;
 
 export const FaultRefSchema = z.object({
@@ -561,8 +561,26 @@ export const SequenceModelVersionSchema = z.union([
 ]);
 export type SequenceModelVersion = z.infer<typeof SequenceModelVersionSchema>;
 
+export const PermissiveOperatorSchema = z.enum(["=", "!=", ">", "<", ">=", "<="]);
+export type PermissiveOperator = z.infer<typeof PermissiveOperatorSchema>;
+
+export const PermissiveValueSchema = z.union([
+  z.boolean(),
+  z.number(),
+  z.literal("P_TRIG"),
+  z.literal("N_TRIG"),
+]);
+export type PermissiveValue = z.infer<typeof PermissiveValueSchema>;
+
+export const PermissiveConditionSchema = z.object({
+  tag: z.string(),
+  operator: PermissiveOperatorSchema,
+  value: PermissiveValueSchema,
+});
+export type PermissiveCondition = z.infer<typeof PermissiveConditionSchema>;
+
 export const SequentialStateV2Schema = z.object({
-  permissives: z.array(z.string()),
+  permissives: z.array(PermissiveConditionSchema),
   steps: z.array(StepV2Schema),
   branches: z.array(BranchV2Schema).optional(),
   state_monitors: z.array(MonitorV2Schema).optional(),

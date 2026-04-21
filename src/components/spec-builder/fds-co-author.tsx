@@ -23,6 +23,9 @@ import {
   Sparkles,
   AlertCircle,
   Copy,
+  RotateCcw,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { FdsAssemblySidebar } from "./fds-assembly-sidebar";
 import { FdsStaticReview } from "./fds-static-review";
@@ -34,6 +37,7 @@ import {
   useConfirmStaticStates,
   useUpdateSequentialState,
   useCompleteFdsSession,
+  useDeleteFdsSession,
   useSaveValidationResults,
 } from "@/hooks/use-fds-session";
 import { useFdsConversation } from "@/hooks/use-fds-conversation";
@@ -49,7 +53,6 @@ import type {
   AssemblyConfig,
   SubsystemConfig,
   FdsAssemblySession,
-  FdsValidationIssue,
 } from "@/types/spec-builder";
 import { migrateOperatingStates } from "@/types/spec-builder";
 import type { SequentialStateV2 } from "@/types/spec-contract-v2";
@@ -68,6 +71,7 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
   const confirmStatic = useConfirmStaticStates();
   const updateSequential = useUpdateSequentialState();
   const completeSession = useCompleteFdsSession();
+  const deleteSession = useDeleteFdsSession();
   const saveValidation = useSaveValidationResults();
 
   const states = useMemo(() => migrateOperatingStates(spec.confirmed_states), [spec.confirmed_states]);
@@ -79,6 +83,7 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
   const [selectedAssemblyId, setSelectedAssemblyId] = useState<string | null>(null);
   const [orchestrationSubsystemId, setOrchestrationSubsystemId] = useState<string | null>(null);
   const [showDuplicate, setShowDuplicate] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Find current assembly and session
   const activeSubsystem = spec.confirmed_subsystems.find((s) => s.subsystem_id === selectedSubsystemId);
@@ -133,6 +138,15 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
     [activeSession, updateSequential],
   );
 
+  // Reset (delete) active session so the interview starts fresh
+  const handleReset = useCallback(async () => {
+    if (!activeSession) return;
+    await deleteSession.mutateAsync({
+      id: activeSession.id,
+      spec_project_id: activeSession.spec_project_id,
+    });
+  }, [activeSession, deleteSession]);
+
   // Mark assembly complete
   const handleComplete = useCallback(async () => {
     if (!activeSession || !activeAssembly) return;
@@ -166,16 +180,38 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
       )}
     >
       {/* Left rail — assembly sidebar */}
-      <div className="w-80 border-r shrink-0 bg-muted/30">
-        <FdsAssemblySidebar
-          subsystems={spec.confirmed_subsystems}
-          sessions={sessions}
-          selectedAssemblyId={selectedAssemblyId}
-          selectedOrchestrationSubsystemId={orchestrationSubsystemId}
-          onSelectAssembly={handleSelectAssembly}
-          onSelectOrchestration={handleSelectOrchestration}
-        />
-      </div>
+      {sidebarCollapsed ? (
+        <div
+          className="w-6 border-r shrink-0 bg-muted/30 flex items-start justify-center pt-2 cursor-pointer hover:bg-muted/50 transition-colors"
+          onClick={() => setSidebarCollapsed(false)}
+          title="Expand assemblies panel"
+        >
+          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+        </div>
+      ) : (
+        <div className="w-56 border-r shrink-0 bg-muted/30 flex flex-col">
+          <div className="flex items-center justify-between px-2.5 py-1.5 border-b shrink-0">
+            <span className="text-[10px] uppercase font-semibold tracking-wide text-muted-foreground">Assemblies</span>
+            <button
+              onClick={() => setSidebarCollapsed(true)}
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              title="Collapse assemblies panel"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <div className="flex-1 min-h-0">
+            <FdsAssemblySidebar
+              subsystems={spec.confirmed_subsystems}
+              sessions={sessions}
+              selectedAssemblyId={selectedAssemblyId}
+              selectedOrchestrationSubsystemId={orchestrationSubsystemId}
+              onSelectAssembly={handleSelectAssembly}
+              onSelectOrchestration={handleSelectOrchestration}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Duplicate dialog */}
       {activeSession && activeAssembly && (
@@ -224,6 +260,18 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
                     Duplicate
                   </Button>
                 )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={handleReset}
+                  disabled={deleteSession.isPending}
+                  className="text-muted-foreground hover:text-destructive"
+                  title="Clear and restart this assembly's interview"
+                >
+                  {deleteSession.isPending
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <RotateCcw className="h-3.5 w-3.5" />}
+                </Button>
                 {activeSession.status === "complete" ? (
                   <Badge className="text-[10px] bg-green-500/20 text-green-400 border-green-500/30">
                     Complete
@@ -335,6 +383,7 @@ function ConversationStage({
   onUpdateSequentialState: (stateId: string, data: SequentialStateV2) => void;
 }) {
   const [chatInput, setChatInput] = useState("");
+  const [chatCollapsed, setChatCollapsed] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const { sendMessage, startInterview, streamingText, isStreaming, error } =
@@ -356,8 +405,28 @@ function ConversationStage({
 
   return (
     <div className="flex-1 flex min-h-0">
-      {/* Chat pane */}
+      {/* Chat pane — collapsible */}
+      {chatCollapsed ? (
+        <div
+          className="w-6 border-r shrink-0 flex items-start justify-center pt-2 cursor-pointer hover:bg-muted/50 transition-colors"
+          onClick={() => setChatCollapsed(false)}
+          title="Expand AI interview panel"
+        >
+          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+        </div>
+      ) : (
       <div className="w-[400px] border-r flex flex-col shrink-0">
+        {/* Chat header with collapse button */}
+        <div className="flex items-center justify-between px-2.5 py-1.5 border-b shrink-0">
+          <span className="text-[10px] uppercase font-semibold tracking-wide text-muted-foreground">AI Interview</span>
+          <button
+            onClick={() => setChatCollapsed(true)}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+            title="Collapse chat panel"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </button>
+        </div>
         {/* Messages */}
         <ScrollArea className="flex-1">
           <div className="p-3 space-y-3">
@@ -464,13 +533,15 @@ function ConversationStage({
           </p>
         </div>
       </div>
+      )}
 
       {/* Table pane */}
       <div className="flex-1 min-w-0">
         <FdsTablePane
           sequentialStates={sequentialStates}
-          stateData={session.sequential_states}
+          stateData={session.sequential_states as unknown as Record<string, SequentialStateV2>}
           onUpdateState={onUpdateSequentialState}
+          allTags={allTags}
         />
       </div>
     </div>

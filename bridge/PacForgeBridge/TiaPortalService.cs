@@ -20,11 +20,13 @@ using Siemens.Engineering.Connection;
 using Siemens.Engineering.Library;
 using Siemens.Engineering.Library.Types;
 using Siemens.Engineering.Library.MasterCopies;
+#if !TIA_V18
 using Siemens.Engineering.HmiUnified;
 using Siemens.Engineering.HmiUnified.UI.Screens;
 using Siemens.Engineering.HmiUnified.UI.ScreenGroup;
 using Siemens.Engineering.HmiUnified.UI.Base;
 using Siemens.Engineering.HmiUnified.HmiTags;
+#endif
 using System.Reflection;
 using System.Drawing;
 using System.Text.RegularExpressions;
@@ -61,16 +63,33 @@ namespace PacForgeBridge
             // Probe whether the TIA Portal instance is still alive
             bool connected = false;
             bool projectOpen = false;
-            if (_tiaPortal != null)
+            if (_tiaPortal == null)
+            {
+                Console.WriteLine("[TIA] GetStatus: _tiaPortal is null (not yet connected)");
+            }
+            else
             {
                 try
                 {
-                    var _ = _tiaPortal.Projects;
+                    var projects = _tiaPortal.Projects;
                     connected = true;
+                    // Refresh _project in case user opened a project after the bridge attached
+                    if (_project == null && projects.Count > 0)
+                    {
+                        _project = projects[0];
+                        Console.WriteLine($"[TIA] GetStatus: picked up newly opened project: {_project.Name}");
+                    }
+                    else if (_project != null && projects.Count == 0)
+                    {
+                        _project = null;
+                        Console.WriteLine("[TIA] GetStatus: project was closed, cleared reference");
+                    }
                     projectOpen = _project != null;
+                    Console.WriteLine($"[TIA] GetStatus: connected=true, projects={projects.Count}, projectOpen={projectOpen}");
                 }
-                catch
+                catch (Exception ex)
                 {
+                    Console.WriteLine($"[TIA] GetStatus: _tiaPortal.Projects threw {ex.GetType().Name}: {ex.Message}");
                     // Instance is stale — clear it so Connect() will create a fresh one
                     _tiaPortal = null;
                     _project = null;
@@ -169,6 +188,7 @@ namespace PacForgeBridge
             {
                 // Try to attach to a running TIA Portal instance
                 IList<TiaPortalProcess> processes = TiaPortal.GetProcesses();
+                Console.WriteLine($"[TIA] GetProcesses() found {processes.Count} TIA Portal process(es).");
                 if (processes.Count > 0)
                 {
                     Console.WriteLine($"[TIA] Attaching to running TIA Portal (PID: {processes[0].Id})...");
@@ -176,7 +196,9 @@ namespace PacForgeBridge
                     Console.WriteLine("[TIA] Attached successfully.");
 
                     // If a project is already open, grab it
-                    if (_tiaPortal.Projects.Count > 0)
+                    int projCount = _tiaPortal.Projects.Count;
+                    Console.WriteLine($"[TIA] Projects open after attach: {projCount}");
+                    if (projCount > 0)
                     {
                         _project = _tiaPortal.Projects[0];
                         Console.WriteLine($"[TIA] Project already open: {_project.Name}");
@@ -325,17 +347,21 @@ namespace PacForgeBridge
             Connect(preferAttach: true);
 
             string cleanFolder = request.TiaProjectPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            // TIA Projects.Create(dir, name) creates dir\name\name.ap* — so use parent of target folder
-            string parentDir = Path.GetDirectoryName(cleanFolder);
-            string folderName = Path.GetFileName(cleanFolder);
-            // projectName inside TIA = folder name (so the folder matches the session path)
-            string projectName = folderName;
+            // Use explicit ProjectName if provided, otherwise derive from folder basename
+            string projectName = !string.IsNullOrWhiteSpace(request.ProjectName)
+                ? request.ProjectName
+                : Path.GetFileName(cleanFolder);
 
-            // Check whether a project file already exists in the folder
+            // TIA Projects.Create(containerDir, name) creates containerDir\name\name.ap*
+            // cleanFolder is the container directory (e.g. C:\TIA_Projects)
+            // Result will be cleanFolder\projectName\projectName.ap*
+            string projectDir = Path.Combine(cleanFolder, projectName);
+
+            // Check whether a project file already exists inside the project subfolder
             string existingFile = null;
-            if (Directory.Exists(cleanFolder))
+            if (Directory.Exists(projectDir))
             {
-                string[] apFiles = Directory.GetFiles(cleanFolder, "*.ap*", SearchOption.TopDirectoryOnly);
+                string[] apFiles = Directory.GetFiles(projectDir, "*.ap*", SearchOption.TopDirectoryOnly);
                 foreach (string f in apFiles)
                 {
                     string ext = Path.GetExtension(f).ToLowerInvariant();
@@ -360,10 +386,10 @@ namespace PacForgeBridge
                 return response;
             }
 
-            // Create new project — pass parent directory so TIA creates folder/name.ap* at cleanFolder
+            // Create new project — TIA creates cleanFolder\projectName\projectName.ap*
             Emit("Creating TIA project", 15);
-            Console.WriteLine($"[TIA] Provision: creating new project '{projectName}' in parent={parentDir ?? cleanFolder}");
-            CreateProject(parentDir ?? cleanFolder, projectName);
+            Console.WriteLine($"[TIA] Provision: creating new project '{projectName}' in {cleanFolder}");
+            CreateProject(cleanFolder, projectName);
 
             // Add CPU device
             Emit("Adding PLC device", 35);
@@ -1004,6 +1030,109 @@ namespace PacForgeBridge
         }
 
         /// <summary>
+        /// Create symbolic tags in TIA Portal's tag table for migration placeholder names.
+        /// Uses the "Migration Tags" table (created if missing) so they're easy to find and rename.
+        /// </summary>
+        public CreateMigrationTagsResponse CreateMigrationTags(CreateMigrationTagsRequest request)
+        {
+            if (_project == null)
+                throw new InvalidOperationException("No TIA project open.");
+
+            PlcSoftware plcSoftware = GetPlcSoftware();
+            string tableName = string.IsNullOrEmpty(request.TableName) ? "Migration Tags" : request.TableName;
+
+            // Find or create the tag table
+            PlcTagTable tagTable = plcSoftware.TagTableGroup.TagTables.Find(tableName);
+            if (tagTable == null)
+                tagTable = plcSoftware.TagTableGroup.TagTables.Create(tableName);
+
+            var response = new CreateMigrationTagsResponse { Success = true };
+
+            foreach (var tag in request.Tags)
+            {
+                try
+                {
+                    // Skip if already exists
+                    if (tagTable.Tags.Find(tag.Name) != null)
+                    {
+                        response.Skipped.Add(tag.Name);
+                        continue;
+                    }
+
+                    // Create(name, dataTypeName, logicalAddress)
+                    tagTable.Tags.Create(tag.Name, tag.DataType, tag.Address);
+                    response.Created.Add(tag.Name);
+                    Console.WriteLine($"[Tags] Created: {tag.Name} : {tag.DataType} @ {tag.Address}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Tags] Failed to create {tag.Name}: {ex.Message}");
+                    response.Errors.Add($"{tag.Name}: {ex.Message}");
+                }
+            }
+
+            response.Message = $"Created {response.Created.Count}, skipped {response.Skipped.Count}, errors {response.Errors.Count}";
+            if (response.Errors.Count > 0) response.Success = false;
+            return response;
+        }
+
+        /// <summary>
+        /// Reimport fixed SimaticML XML blocks (LAD/FBD/GRAPH) into the open project.
+        /// Overwrites existing blocks with the fixed versions (absolute addresses resolved etc.)
+        /// </summary>
+        public ReimportMigrationBlocksResponse ReimportMigrationBlocks(ReimportMigrationBlocksRequest request)
+        {
+            if (_project == null)
+                throw new InvalidOperationException("No TIA project open.");
+
+            PlcSoftware plcSoftware = GetPlcSoftware();
+            var response = new ReimportMigrationBlocksResponse { Success = true };
+            string tempDir = Path.Combine(Path.GetTempPath(), "PacForge", "reimport_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                foreach (var kvp in request.Blocks)
+                {
+                    string blockName = kvp.Key;
+                    string xmlContent = kvp.Value;
+
+                    if (string.IsNullOrEmpty(xmlContent))
+                    {
+                        response.Errors.Add($"{blockName}: empty XML content");
+                        continue;
+                    }
+
+                    string tempFile = Path.Combine(tempDir, blockName + ".xml");
+                    try
+                    {
+                        File.WriteAllText(tempFile, xmlContent, System.Text.Encoding.UTF8);
+                        var imported = plcSoftware.BlockGroup.Blocks.Import(
+                            new FileInfo(tempFile),
+                            ImportOptions.Override);
+
+                        Console.WriteLine($"[Reimport] {blockName}: imported {imported?.Count ?? 0} block(s)");
+                        response.Imported.Add(blockName);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[Reimport] {blockName} failed: {ex.Message}");
+                        response.Errors.Add($"{blockName}: {ex.Message}");
+                    }
+                }
+
+                response.Message = $"Reimported {response.Imported.Count} block(s), {response.Errors.Count} error(s)";
+                if (response.Errors.Count > 0 && response.Imported.Count == 0) response.Success = false;
+            }
+            finally
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+
+            return response;
+        }
+
+        /// <summary>
         /// Import a LAD block from SimaticML XML into the open project and optionally compile it.
         /// Uses PlcBlockGroup.Blocks.Import() — different from the SCL external source path.
         /// </summary>
@@ -1342,22 +1471,17 @@ namespace PacForgeBridge
         }
 
         /// <summary>
-        /// Detect the installed TIA Portal version by checking common paths.
+        /// Return the TIA Portal version this bridge was compiled against.
+        /// Uses the compile-time constant so V18 and V20 builds always report correctly,
+        /// regardless of which other TIA Portal versions are installed on the machine.
         /// </summary>
         private string DetectInstalledVersion()
         {
-            string basePath = @"C:\Program Files\Siemens\Automation";
-            string[] versions = { "Portal V20", "Portal V19", "Portal V18", "Portal V17" };
-
-            foreach (string version in versions)
-            {
-                string vNum = version.Replace("Portal V", "V");
-                string dllPath = Path.Combine(basePath, version, "PublicAPI", vNum, "Siemens.Engineering.dll");
-                if (File.Exists(dllPath))
-                    return version.Replace("Portal ", "");
-            }
-
-            return null;
+#if TIA_V18
+            return "V18";
+#else
+            return "V20";
+#endif
         }
 
         /// <summary>
@@ -1996,11 +2120,12 @@ END_ORGANIZATION_BLOCK
 
                     try
                     {
-                        // Determine correct file extension based on programming language
+                        // File extension must match block type for GenerateSource.
+                        // LAD/FBD blocks decompile to AWL — use .awl extension.
                         string ext = ".scl";
                         if (blockLang == "STL") ext = ".awl";
                         else if (blockLang == "DB") ext = ".db";
-                        // LAD/FBD: try GenerateSource first; fall back to XML Export below
+                        else if (blockLang == "LAD" || blockLang == "FBD") ext = ".awl";
 
                         string outputFile = Path.Combine(tempDir, block.Name + ext);
 
@@ -2012,24 +2137,30 @@ END_ORGANIZATION_BLOCK
                         if (File.Exists(outputFile))
                         {
                             result.Sources[block.Name] = File.ReadAllText(outputFile);
-                            result.SourceLanguages[block.Name] = blockLang == "DB" ? "DB" : blockLang == "STL" ? "STL" : "SCL";
-                            Console.WriteLine($"[TIA] Exported ({blockLang}): {block.Name}");
+                            // LAD/FBD decompiled to AWL — label as STL so migration treats it as STL
+                            if (blockLang == "LAD" || blockLang == "FBD")
+                                result.SourceLanguages[block.Name] = blockLang; // keep original lang for UI
+                            else
+                                result.SourceLanguages[block.Name] = blockLang == "DB" ? "DB" : blockLang == "STL" ? "STL" : "SCL";
+                            Console.WriteLine($"[TIA] Exported ({blockLang}→AWL): {block.Name}");
                         }
                         else
                         {
                             result.Warnings.Add($"{block.Name}: No output file generated");
                         }
                     }
-                    catch (Exception)
+                    catch (Exception genEx)
                     {
-                        // GenerateSource failed — likely a LAD/FBD block.
-                        // Fall back to SimaticML XML export so the block is still captured.
+                        // GenerateSource failed — for LAD/FBD fall back to SimaticML XML export.
+                        Console.WriteLine($"[TIA] GenerateSource failed for {block.Name} ({blockLang}): {genEx.Message}");
                         if (blockLang == "LAD" || blockLang == "FBD" || blockLang == "GRAPH")
                         {
                             try
                             {
                                 string xmlFile = Path.Combine(tempDir, block.Name + ".xml");
-                                block.Export(new FileInfo(xmlFile), ExportOptions.WithDefaults);
+                                try { block.Export(new FileInfo(xmlFile), ExportOptions.None); }
+                                catch { block.Export(new FileInfo(xmlFile), ExportOptions.WithDefaults); }
+
                                 if (File.Exists(xmlFile))
                                 {
                                     result.Sources[block.Name] = File.ReadAllText(xmlFile);
@@ -2815,6 +2946,7 @@ END_ORGANIZATION_BLOCK
         }
 
         // ─── Unified HMI (V20) — reference export ──────────────────────────
+#if !TIA_V18
 
         /// <summary>
         /// Find the first HmiSoftware (WinCC Unified) by searching all devices.
@@ -2874,6 +3006,7 @@ END_ORGANIZATION_BLOCK
             Directory.CreateDirectory(tagsDir);
 
             // ─── Unified HMI — enumerate and dump metadata as JSON (recursive) ──
+#if !TIA_V18
             HmiSoftware hmiSoftware = GetHmiSoftware();
             if (hmiSoftware == null)
             {
@@ -2941,6 +3074,9 @@ END_ORGANIZATION_BLOCK
                     }
                 }
             }
+#else
+            result.Warnings.Add("Unified HMI export not supported in V18 bridge — skipping HMI exports.");
+#endif
 
             // ─── PLC UDTs — real SimaticML export, works via PlcType.Export ──
             PlcSoftware plcSoftware = GetPlcSoftware();
@@ -3333,6 +3469,8 @@ END_ORGANIZATION_BLOCK
 
             return currentGroup.Screens;
         }
+
+#endif // !TIA_V18
 
         /// <summary>
         /// Try to set an Openness attribute, coercing the value to the target property's
@@ -4459,6 +4597,463 @@ END_ORGANIZATION_BLOCK
             {
                 string subPath = string.IsNullOrEmpty(path) ? subFolder.Name : path + "/" + subFolder.Name;
                 ExportMasterCopiesFromFolder(subFolder, subPath, tempDir, wantedPaths, exportAll, result);
+            }
+        }
+
+        // ============================================================
+        // Pac-Audit: Full project extraction
+        // ============================================================
+
+        /// <summary>
+        /// Get project metadata for the /tia/project-info endpoint.
+        /// </summary>
+        public ProjectInfoResponse GetProjectInfo()
+        {
+            if (!IsConnected || !IsProjectOpen)
+                throw new InvalidOperationException("TIA Portal not connected or no project open.");
+
+            PlcSoftware plcSoftware = GetPlcSoftware();
+
+            string cpuFamily = null;
+            string cpuOrderNumber = null;
+            try { GetSourcePlcInfo(out cpuFamily, out cpuOrderNumber); } catch { }
+
+            // Count blocks
+            var blocks = new List<PlcBlock>();
+            CollectBlocks(plcSoftware.BlockGroup, blocks);
+
+            // Count UDTs
+            var udts = new List<PlcType>();
+            CollectTypes(plcSoftware.TypeGroup, udts);
+
+            // Count tag tables
+            int tagTableCount = 0;
+            try { tagTableCount = plcSoftware.TagTableGroup.TagTables.Count; } catch { }
+
+            // Count HMI screens
+            int hmiScreenCount = 0;
+            try
+            {
+                var hmiTarget = GetHmiTarget();
+                if (hmiTarget != null)
+                {
+                    var screens = new List<Siemens.Engineering.Hmi.Screen.Screen>();
+                    CollectScreens(hmiTarget.ScreenFolder, screens);
+                    hmiScreenCount = screens.Count;
+                }
+            }
+            catch { }
+
+            // Count devices
+            int deviceCount = 0;
+            try { deviceCount = _project.Devices.Count; } catch { }
+
+            string tiaVersion = null;
+            try { tiaVersion = DetectInstalledVersion(); } catch { }
+
+            return new ProjectInfoResponse
+            {
+                Success = true,
+                ProjectName = _project.Name,
+                ProjectPath = _project.Path?.ToString(),
+                TiaVersion = tiaVersion,
+                CpuFamily = cpuFamily,
+                CpuOrderNumber = cpuOrderNumber,
+                BlockCount = blocks.Count,
+                UdtCount = udts.Count,
+                TagTableCount = tagTableCount,
+                HmiScreenCount = hmiScreenCount,
+                DeviceCount = deviceCount
+            };
+        }
+
+        /// <summary>
+        /// Extract the full project: blocks with folder hierarchy, UDTs, tag tables, and HW config.
+        /// </summary>
+        public ExtractProjectResponse ExtractProject()
+        {
+            if (!IsConnected || !IsProjectOpen)
+                throw new InvalidOperationException("TIA Portal not connected or no project open.");
+
+            PlcSoftware plcSoftware = GetPlcSoftware();
+            var result = new ExtractProjectResponse { Success = true };
+
+            string tempDir = Path.Combine(Path.GetTempPath(), "PacForge",
+                "audit_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                // ── 1. Extract folder structure + blocks ──────────────────
+                int folderSeq = 0;
+                ExtractBlocksRecursive(plcSoftware.BlockGroup, null, "Program blocks", 0, ref folderSeq, tempDir, plcSoftware, result);
+
+                // ── 2. Extract UDTs ───────────────────────────────────────
+                var udts = new List<PlcType>();
+                CollectTypes(plcSoftware.TypeGroup, udts);
+                Console.WriteLine($"[Audit] Extracting {udts.Count} UDT(s)...");
+
+                string udtFolderId = "folder-udt-root";
+                result.Folders.Add(new ExtractedFolderDto
+                {
+                    Id = udtFolderId,
+                    ParentId = null,
+                    Name = "PLC data types",
+                    FolderType = "udt",
+                    Path = "PLC data types",
+                    Depth = 0
+                });
+
+                foreach (PlcType udt in udts)
+                {
+                    try
+                    {
+                        string outputFile = Path.Combine(tempDir, udt.Name + ".udt");
+                        plcSoftware.ExternalSourceGroup.GenerateSource(
+                            new PlcType[] { udt },
+                            new FileInfo(outputFile),
+                            GenerateOptions.None);
+
+                        string source = File.Exists(outputFile) ? File.ReadAllText(outputFile) : null;
+                        result.Blocks.Add(new ExtractedBlockDto
+                        {
+                            Name = udt.Name,
+                            BlockType = "UDT",
+                            ProgrammingLanguage = "UDT",
+                            SourceCode = source,
+                            SourceFormat = "scl",
+                            FolderPath = "PLC data types",
+                            FolderId = udtFolderId,
+                            LineCount = source?.Split('\n').Length
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        result.Warnings.Add($"UDT {udt.Name}: {ex.Message}");
+                    }
+                }
+
+                // ── 3. Extract tag tables ─────────────────────────────────
+                Console.WriteLine("[Audit] Extracting tag tables...");
+                try
+                {
+                    foreach (PlcTagTable table in plcSoftware.TagTableGroup.TagTables)
+                    {
+                        var tagDto = new ExtractedTagTableDto { Name = table.Name };
+                        foreach (PlcTag tag in table.Tags)
+                        {
+                            string address = null;
+                            try { address = tag.LogicalAddress; } catch { }
+                            string comment = null;
+                            try
+                            {
+                                var commentItems = tag.Comment?.Items;
+                                if (commentItems != null)
+                                    foreach (var item in commentItems)
+                                        { comment = item.Text; break; }
+                            }
+                            catch { }
+
+                            tagDto.Tags.Add(new ExtractedTagDto
+                            {
+                                Name = tag.Name,
+                                DataType = tag.DataTypeName,
+                                Address = address,
+                                Comment = comment
+                            });
+                        }
+                        result.TagTables.Add(tagDto);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    result.Warnings.Add($"Tag tables: {ex.Message}");
+                }
+
+                // ── 4. Extract hardware config ────────────────────────────
+                Console.WriteLine("[Audit] Extracting hardware configuration...");
+                result.Hardware = ExtractHardwareConfig();
+
+                int blockCount = result.Blocks.Count;
+                int folderCount = result.Folders.Count;
+                int tagTableCount = result.TagTables.Count;
+                result.Message = $"Extracted {blockCount} blocks, {folderCount} folders, {tagTableCount} tag tables";
+                Console.WriteLine($"[Audit] {result.Message}, {result.Warnings.Count} warnings");
+            }
+            finally
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+
+            return result;
+        }
+
+        private void ExtractBlocksRecursive(
+            PlcBlockSystemGroup systemGroup,
+            string parentFolderId,
+            string currentPath,
+            int depth,
+            ref int folderSeq,
+            string tempDir,
+            PlcSoftware plcSoftware,
+            ExtractProjectResponse result)
+        {
+            string folderId = $"folder-{folderSeq++}";
+            result.Folders.Add(new ExtractedFolderDto
+            {
+                Id = folderId,
+                ParentId = parentFolderId,
+                Name = systemGroup.Name ?? "Program blocks",
+                FolderType = "program_blocks",
+                Path = currentPath,
+                Depth = depth
+            });
+
+            int rootBlockCount = 0;
+            try { rootBlockCount = systemGroup.Blocks.Count; } catch { }
+            int rootGroupCount = 0;
+            try { rootGroupCount = systemGroup.Groups.Count; } catch { }
+            Console.WriteLine($"[Audit] Folder '{currentPath}': {rootBlockCount} direct blocks, {rootGroupCount} sub-groups");
+
+            // Recurse into sub-groups FIRST to collect names of blocks that belong there.
+            // PlcBlockSystemGroup.Blocks returns ALL blocks recursively in V18, so we use
+            // the sub-group names to filter out duplicates when processing root-level blocks.
+            var subGroupBlockNames = new System.Collections.Generic.HashSet<string>(
+                System.StringComparer.OrdinalIgnoreCase);
+            CollectSubGroupBlockNames(systemGroup.Groups, subGroupBlockNames);
+
+            foreach (PlcBlockUserGroup subGroup in systemGroup.Groups)
+            {
+                ExtractUserGroupRecursive(subGroup, folderId, currentPath + "/" + subGroup.Name, depth + 1, ref folderSeq, tempDir, plcSoftware, result);
+            }
+
+            // Only add blocks that are NOT in any sub-group (truly root-level blocks)
+            int rootOnly = 0;
+            foreach (PlcBlock block in systemGroup.Blocks)
+            {
+                string blockName = null;
+                try { blockName = block.Name; } catch { }
+                if (blockName != null && !subGroupBlockNames.Contains(blockName))
+                {
+                    ExtractSingleBlock(block, folderId, currentPath, tempDir, plcSoftware, result);
+                    rootOnly++;
+                }
+            }
+            if (rootOnly > 0)
+                Console.WriteLine($"[Audit] Root-only blocks in '{currentPath}': {rootOnly}");
+        }
+
+        private void CollectSubGroupBlockNames(
+            PlcBlockUserGroupComposition groups,
+            System.Collections.Generic.HashSet<string> names)
+        {
+            foreach (PlcBlockUserGroup g in groups)
+            {
+                foreach (PlcBlock b in g.Blocks)
+                {
+                    try { if (b.Name != null) names.Add(b.Name); } catch { }
+                }
+                CollectSubGroupBlockNames(g.Groups, names);
+            }
+        }
+
+        private void ExtractUserGroupRecursive(
+            PlcBlockUserGroup userGroup,
+            string parentFolderId,
+            string currentPath,
+            int depth,
+            ref int folderSeq,
+            string tempDir,
+            PlcSoftware plcSoftware,
+            ExtractProjectResponse result)
+        {
+            string folderId = $"folder-{folderSeq++}";
+            result.Folders.Add(new ExtractedFolderDto
+            {
+                Id = folderId,
+                ParentId = parentFolderId,
+                Name = userGroup.Name,
+                FolderType = "program_blocks",
+                Path = currentPath,
+                Depth = depth
+            });
+
+            int groupBlockCount = 0;
+            try { groupBlockCount = userGroup.Blocks.Count; } catch { }
+            int groupSubCount = 0;
+            try { groupSubCount = userGroup.Groups.Count; } catch { }
+            Console.WriteLine($"[Audit] Folder '{currentPath}': {groupBlockCount} direct blocks, {groupSubCount} sub-groups");
+
+            foreach (PlcBlock block in userGroup.Blocks)
+            {
+                ExtractSingleBlock(block, folderId, currentPath, tempDir, plcSoftware, result);
+            }
+
+            foreach (PlcBlockUserGroup subGroup in userGroup.Groups)
+            {
+                ExtractUserGroupRecursive(subGroup, folderId, currentPath + "/" + subGroup.Name, depth + 1, ref folderSeq, tempDir, plcSoftware, result);
+            }
+        }
+
+        private void ExtractSingleBlock(
+            PlcBlock block,
+            string folderId,
+            string folderPath,
+            string tempDir,
+            PlcSoftware plcSoftware,
+            ExtractProjectResponse result)
+        {
+            string blockLang = "SCL";
+            try { blockLang = block.ProgrammingLanguage.ToString(); } catch { }
+
+            string blockType = "FB";
+            try
+            {
+                if (block is OB) blockType = "OB";
+                else if (block is FB) blockType = "FB";
+                else if (block is FC) blockType = "FC";
+                else if (block is InstanceDB || block is GlobalDB) blockType = "DB";
+                else blockType = block.GetType().Name.Replace("Plc", "");
+            }
+            catch { }
+
+            int? blockNumber = null;
+            try { blockNumber = block.Number; } catch { }
+
+            string source = null;
+            string sourceFormat = "scl";
+
+            try
+            {
+                string ext = ".scl";
+                if (blockLang == "STL") ext = ".awl";
+                else if (blockLang == "DB") ext = ".db";
+                else if (blockLang == "LAD" || blockLang == "FBD") ext = ".awl";
+
+                string outputFile = Path.Combine(tempDir, block.Name + ext);
+                plcSoftware.ExternalSourceGroup.GenerateSource(
+                    new PlcBlock[] { block },
+                    new FileInfo(outputFile),
+                    GenerateOptions.None);
+
+                if (File.Exists(outputFile))
+                {
+                    source = File.ReadAllText(outputFile);
+                    sourceFormat = (blockLang == "LAD" || blockLang == "FBD") ? "awl" : "scl";
+                }
+            }
+            catch
+            {
+                // Fallback to XML export for LAD/FBD/GRAPH
+                if (blockLang == "LAD" || blockLang == "FBD" || blockLang == "GRAPH")
+                {
+                    try
+                    {
+                        string xmlFile = Path.Combine(tempDir, block.Name + ".xml");
+                        try { block.Export(new FileInfo(xmlFile), ExportOptions.None); }
+                        catch { block.Export(new FileInfo(xmlFile), ExportOptions.WithDefaults); }
+
+                        if (File.Exists(xmlFile))
+                        {
+                            source = File.ReadAllText(xmlFile);
+                            sourceFormat = "xml";
+                        }
+                    }
+                    catch (Exception xmlEx)
+                    {
+                        result.Warnings.Add($"{block.Name}: {xmlEx.Message}");
+                    }
+                }
+                else
+                {
+                    result.Warnings.Add($"{block.Name}: not exportable");
+                }
+            }
+
+            result.Blocks.Add(new ExtractedBlockDto
+            {
+                Name = block.Name,
+                BlockType = blockType,
+                BlockNumber = blockNumber,
+                ProgrammingLanguage = blockLang,
+                SourceCode = source,
+                SourceFormat = sourceFormat,
+                FolderPath = folderPath,
+                FolderId = folderId,
+                LineCount = source?.Split('\n').Length
+            });
+
+            Console.WriteLine($"[Audit] Exported {blockType} '{block.Name}' ({blockLang}) [{folderPath}]");
+        }
+
+        private ExtractedHardwareDto ExtractHardwareConfig()
+        {
+            var hw = new ExtractedHardwareDto();
+
+            try
+            {
+                foreach (Device device in _project.Devices)
+                {
+                    hw.Devices.Add(new ExtractedDeviceDto
+                    {
+                        Name = device.Name,
+                        TypeId = device.TypeIdentifier
+                    });
+
+                    // Extract IO modules from device items
+                    ExtractDeviceItems(device.DeviceItems, hw, 0, 0);
+                }
+
+                // Extract subnets / networks
+                try
+                {
+                    foreach (Subnet subnet in _project.Subnets)
+                    {
+                        var netDto = new ExtractedNetworkDto
+                        {
+                            Name = subnet.Name,
+                            Type = subnet.TypeIdentifier
+                        };
+                        hw.Networks.Add(netDto);
+                    }
+                }
+                catch { }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Audit] HW extraction error: {ex.Message}");
+            }
+
+            return hw;
+        }
+
+        private void ExtractDeviceItems(DeviceItemComposition items, ExtractedHardwareDto hw, int rack, int slot)
+        {
+            foreach (DeviceItem item in items)
+            {
+                string typeId = null;
+                try { typeId = item.TypeIdentifier; } catch { }
+
+                if (typeId != null && (typeId.Contains("OrderNumber:") || typeId.Contains("GSD:")))
+                {
+                    int itemSlot = slot;
+                    try
+                    {
+                        var posNum = item.PositionNumber;
+                        itemSlot = posNum;
+                    }
+                    catch { }
+
+                    hw.IoModules.Add(new ExtractedIoModuleDto
+                    {
+                        Name = item.Name,
+                        TypeId = typeId,
+                        Rack = rack,
+                        Slot = itemSlot
+                    });
+                }
+
+                ExtractDeviceItems(item.DeviceItems, hw, rack, slot + 1);
             }
         }
     }

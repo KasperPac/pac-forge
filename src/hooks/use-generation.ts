@@ -283,6 +283,8 @@ export async function streamFromEdgeFunction(
   const decoder = new TextDecoder();
   let fullContent = "";
   let buffer = "";
+  let streamedModel: string | undefined;
+  let usage: { input: number; output: number } | null = null;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -303,11 +305,41 @@ export async function streamFromEdgeFunction(
           const text = data.delta.text as string;
           fullContent += text;
           onChunk(text);
+        } else if (data.type === "message_start") {
+          if (typeof data.message?.model === "string") {
+            streamedModel = data.message.model;
+          }
+          if (data.message?.usage) {
+            usage = {
+              input: data.message.usage.input_tokens ?? 0,
+              output: data.message.usage.output_tokens ?? 0,
+            };
+          }
+        } else if (data.type === "message_delta" && data.usage) {
+          const prevInput: number = usage ? usage.input : 0;
+          const prevOutput: number = usage ? usage.output : 0;
+          usage = {
+            input: data.usage.input_tokens ?? prevInput,
+            output: data.usage.output_tokens ?? prevOutput,
+          };
         }
       } catch {
         // Skip malformed JSON lines
       }
     }
+  }
+
+  const { provider, model } = resolveProviderAndModel(plMeta, body, streamedModel);
+  if (provider === "anthropic" && !signal.aborted) {
+    await logToPromptLayerFromClient(
+      typeof body.system_prompt === "string" ? body.system_prompt : "",
+      Array.isArray(body.messages)
+        ? (body.messages as Array<{ role: string; content: MessageContent }>)
+        : [],
+      fullContent,
+      usage,
+      { provider, model, ...plMeta },
+    );
   }
 
   return fullContent;
@@ -343,6 +375,48 @@ export interface PromptLayerMeta {
   model?: string;
   /** Override provider — auto-detected from model if omitted */
   provider?: "anthropic" | "openai" | "google";
+}
+
+function detectProviderFromModel(model?: string): "anthropic" | "openai" | "google" {
+  if (!model) return "anthropic";
+  if (model.startsWith("claude-") || model.startsWith("anthropic/")) return "anthropic";
+  if (model.startsWith("gemini-") || model.startsWith("google/")) return "google";
+  if (
+    model.startsWith("o1") ||
+    model.startsWith("o3") ||
+    model.startsWith("o4") ||
+    model.startsWith("gpt-") ||
+    model.startsWith("openai/")
+  ) {
+    return "openai";
+  }
+  return "anthropic";
+}
+
+function resolveProviderAndModel(
+  plMeta?: PromptLayerMeta,
+  body?: Record<string, unknown>,
+  streamedModel?: string,
+): { provider: "anthropic" | "openai" | "google"; model: string } {
+  const requestedModel =
+    streamedModel ??
+    (typeof plMeta?.model === "string" ? plMeta.model : undefined) ??
+    (typeof body?.model === "string" ? body.model : undefined);
+  const provider =
+    plMeta?.provider ??
+    (typeof body?.provider === "string" && ["anthropic", "openai", "google"].includes(body.provider)
+      ? (body.provider as "anthropic" | "openai" | "google")
+      : detectProviderFromModel(requestedModel));
+
+  const model =
+    requestedModel ??
+    (provider === "openai"
+      ? "o3"
+      : provider === "google"
+        ? "gemini-2.5-pro"
+        : "claude-sonnet-4-6");
+
+  return { provider, model };
 }
 
 /**
@@ -411,7 +485,7 @@ export async function callStreamingCollect(
       throw new Error(`API call failed after token refresh (${retry.status}): ${text}`);
     }
     // Replace response with the retry — continue to streaming reader below
-    return processStreamingResponse(retry, systemPrompt, messages, plMeta);
+    return processStreamingResponse(retry, systemPrompt, messages, plMeta, body);
   }
 
   if (!response.ok) {
@@ -427,7 +501,7 @@ export async function callStreamingCollect(
     throw new Error(`API call failed (${response.status}): ${detail}`);
   }
 
-  return processStreamingResponse(response, systemPrompt, messages, plMeta);
+  return processStreamingResponse(response, systemPrompt, messages, plMeta, body);
 }
 
 /** Read SSE stream and collect full response content. */
@@ -436,6 +510,7 @@ async function processStreamingResponse(
   systemPrompt: string,
   messages: Array<{ role: string; content: MessageContent }>,
   plMeta?: PromptLayerMeta,
+  body?: Record<string, unknown>,
 ): Promise<{ content: string; usage: { input: number; output: number } | null }> {
   if (!response.body) {
     throw new Error("No response body for streaming");
@@ -446,6 +521,7 @@ async function processStreamingResponse(
   let fullContent = "";
   let buffer = "";
   let usage: { input: number; output: number } | null = null;
+  let streamedModel: string | undefined;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -464,10 +540,22 @@ async function processStreamingResponse(
         const data = JSON.parse(jsonStr);
         if (data.type === "content_block_delta" && data.delta?.type === "text_delta") {
           fullContent += data.delta.text as string;
+        } else if (data.type === "message_start") {
+          if (typeof data.message?.model === "string") {
+            streamedModel = data.message.model;
+          }
+          if (data.message?.usage) {
+            usage = {
+              input: data.message.usage.input_tokens ?? 0,
+              output: data.message.usage.output_tokens ?? 0,
+            };
+          }
         } else if (data.type === "message_delta" && data.usage) {
+          const prevInput: number = usage ? usage.input : 0;
+          const prevOutput: number = usage ? usage.output : 0;
           usage = {
-            input: data.usage.input_tokens ?? 0,
-            output: data.usage.output_tokens ?? 0,
+            input: data.usage.input_tokens ?? prevInput,
+            output: data.usage.output_tokens ?? prevOutput,
           };
         }
       } catch {
@@ -479,6 +567,17 @@ async function processStreamingResponse(
   // Skip client-side PromptLayer logging — the edge function handles it for all providers.
   // Previously needed because Deno's streaming finally block was unreliable, but the
   // edge function now also wraps non-streaming providers as fake SSE, so it always logs.
+
+  const { provider, model } = resolveProviderAndModel(plMeta, body, streamedModel);
+  if (provider === "anthropic") {
+    await logToPromptLayerFromClient(
+      systemPrompt,
+      messages,
+      fullContent,
+      usage,
+      { provider, model, ...plMeta },
+    );
+  }
 
   return { content: fullContent, usage };
 }
@@ -505,8 +604,14 @@ async function logToPromptLayerFromClient(
   }
 
   const body = {
-    provider: "anthropic",
-    model: "claude-sonnet-4-6",
+    provider: meta.provider ?? detectProviderFromModel(meta.model),
+    model:
+      meta.model ??
+      ((meta.provider ?? detectProviderFromModel(meta.model)) === "openai"
+        ? "o3"
+        : (meta.provider ?? detectProviderFromModel(meta.model)) === "google"
+          ? "gemini-2.5-pro"
+          : "claude-sonnet-4-6"),
     function_name: functionName,
     input: {
       type: "chat",

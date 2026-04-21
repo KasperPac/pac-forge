@@ -10,7 +10,6 @@
  * prune — the "FB assignment pending" state is visually reserved for a
  * future enrichment pass.)
  */
-import * as React from "react";
 import { useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Check, ChevronsUpDown, ShieldAlert } from "lucide-react";

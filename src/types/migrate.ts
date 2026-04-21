@@ -83,6 +83,8 @@ export interface FlaggedDecision {
 export interface MigratedBlock {
   name: string;
   block_type: "FB" | "FC" | "OB" | "DB" | "UDT";
+  /** Source programming language — set when the original was not SCL (e.g. "LAD", "FBD", "STL", "GRAPH") */
+  original_language?: string;
   original_scl: string;
   migrated_scl: string;
   approved: boolean;

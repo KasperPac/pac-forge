@@ -21,7 +21,7 @@ import type {
   FdsAssemblySession,
   FdsConversationTurn,
 } from "@/types/spec-builder";
-import type { SequentialStateV2 } from "@/types/spec-contract-v2";
+import type { PermissiveCondition, SequentialStateV2 } from "@/types/spec-contract-v2";
 import { ensureV2 } from "@/lib/spec-builder/sequence-legacy-shim";
 
 interface UseFdsConversationOptions {
@@ -58,7 +58,10 @@ export function useFdsConversation({
   const buildSystemPrompt = useCallback(() => {
     return buildFdsInterviewSystemPrompt(
       assembly, subsystem, allTags,
-      session.static_states, session.sequential_states, allStates,
+      session.static_states,
+      // Shim cast: prompt builder still expects legacy SequentialStateData shape
+      session.sequential_states as unknown as Record<string, import("@/types/spec-builder").SequentialStateData>,
+      allStates,
     );
   }, [assembly, subsystem, allTags, session.static_states, session.sequential_states, allStates]);
 
@@ -79,13 +82,15 @@ export function useFdsConversation({
   );
 
   const persistTurn = useCallback(
-    async (turn: FdsConversationTurn, tableUpdate?: { state_id: string; data: SequentialStateV2 }) => {
+    async (turn: FdsConversationTurn, tableUpdates?: Array<{ state_id: string; data: SequentialStateV2 }>) => {
       const conversation = [...session.conversation, turn];
       const update: Record<string, unknown> = { conversation };
 
-      if (tableUpdate) {
+      if (tableUpdates && tableUpdates.length > 0) {
         const existing = { ...session.sequential_states };
-        existing[tableUpdate.state_id] = tableUpdate.data;
+        for (const { state_id, data } of tableUpdates) {
+          existing[state_id] = data;
+        }
         update.sequential_states = existing;
         if (session.status === "static_confirmed") update.status = "in_progress";
       }
@@ -100,35 +105,42 @@ export function useFdsConversation({
     [session, queryClient],
   );
 
-  const processAiResponse = useCallback(
-    (fullText: string): { state_id: string; data: SequentialStateV2 } | undefined => {
-      const extracted = extractJsonFromResponse(fullText);
-      if (!extracted) return undefined;
-
-      const rawId = extracted.state_id as string | undefined;
-      let stateId = rawId && sequentialStates.some((s) => s.state_id === rawId) ? rawId : undefined;
-      if (!stateId && rawId) {
-        const byName = sequentialStates.find(
-          (s) => s.state_name.toLowerCase() === rawId.toLowerCase() || s.state_id.toLowerCase() === rawId.toLowerCase(),
-        );
-        stateId = byName?.state_id;
-      }
-      if (!stateId) stateId = sequentialStates[0]?.state_id;
-      if (!stateId) return undefined;
-
-      const existing = session.sequential_states[stateId] ?? { permissives: [], steps: [], notes: null };
-
-      // Merge AI output (v1-shaped) over existing, then upgrade to v2 via shim.
-      const merged: SequentialStateV2 = {
-        ...existing,
-        permissives: (extracted.permissives as string[]) ?? existing.permissives,
-        steps: (extracted.steps as SequentialStateV2["steps"]) ?? existing.steps,
-        notes: (extracted.notes as string | null) ?? existing.notes,
-      };
-
-      return { state_id: stateId, data: ensureV2(merged, stateId) };
+  const resolveStateId = useCallback(
+    (rawId: string | undefined): string | undefined => {
+      if (!rawId) return sequentialStates[0]?.state_id;
+      if (sequentialStates.some((s) => s.state_id === rawId)) return rawId;
+      const byName = sequentialStates.find(
+        (s) => s.state_name.toLowerCase() === rawId.toLowerCase() || s.state_id.toLowerCase() === rawId.toLowerCase(),
+      );
+      return byName?.state_id ?? sequentialStates[0]?.state_id;
     },
-    [sequentialStates, session.sequential_states],
+    [sequentialStates],
+  );
+
+  const processAiResponse = useCallback(
+    (fullText: string): Array<{ state_id: string; data: SequentialStateV2 }> => {
+      // Shim cast: extractJsonFromResponse currently typed as Record,
+      // but during SFC v2 migration it yields an array of delta blocks.
+      const extracted = extractJsonFromResponse(fullText) as unknown as Array<Record<string, unknown>> | null;
+      if (!extracted || extracted.length === 0) return [];
+
+      const results: Array<{ state_id: string; data: SequentialStateV2 }> = [];
+      for (const block of extracted) {
+        const stateId = resolveStateId(block.state_id as string | undefined);
+        if (!stateId) continue;
+
+        const existing = session.sequential_states[stateId] ?? { permissives: [], steps: [], notes: null };
+        const merged: SequentialStateV2 = {
+          ...existing,
+          permissives: (block.permissives as PermissiveCondition[]) ?? existing.permissives,
+          steps: (block.steps as SequentialStateV2["steps"]) ?? existing.steps,
+          notes: (block.notes as string | null) ?? existing.notes,
+        };
+        results.push({ state_id: stateId, data: ensureV2(merged, stateId) });
+      }
+      return results;
+    },
+    [resolveStateId, session.sequential_states],
   );
 
   const sendMessage = useCallback(
@@ -141,13 +153,19 @@ export function useFdsConversation({
       abortRef.current = new AbortController();
 
       try {
-        // Persist user turn
         const userTurn: FdsConversationTurn = {
           role: "user",
           content: text.trim(),
           timestamp: new Date().toISOString(),
         };
-        await persistTurn(userTurn);
+
+        // Snapshot conversation with user turn so the assistant persist
+        // doesn't overwrite it (session.conversation is a stale closure).
+        const conversationWithUser = [...session.conversation, userTurn];
+        await supabase
+          .from("fds_assembly_sessions")
+          .update({ conversation: conversationWithUser })
+          .eq("id", session.id);
 
         // Stream AI response
         const systemPrompt = buildSystemPrompt();
@@ -171,17 +189,33 @@ export function useFdsConversation({
           plMeta,
         );
 
-        // Extract JSON and persist assistant turn
-        const tableUpdate = processAiResponse(fullText);
+        // Extract JSON (may contain multiple states) and persist assistant turn
+        const tableUpdates = processAiResponse(fullText);
         const proseContent = stripJsonFromResponse(fullText);
 
         const assistantTurn: FdsConversationTurn = {
           role: "assistant",
           content: proseContent,
           timestamp: new Date().toISOString(),
-          table_delta: tableUpdate?.data,
+          table_delta: tableUpdates[0]?.data,
         };
-        await persistTurn(assistantTurn, tableUpdate);
+
+        // Build on conversationWithUser (not stale session.conversation)
+        const conversationWithBoth = [...conversationWithUser, assistantTurn];
+        const update: Record<string, unknown> = { conversation: conversationWithBoth };
+        if (tableUpdates.length > 0) {
+          const existing = { ...session.sequential_states };
+          for (const { state_id, data } of tableUpdates) {
+            existing[state_id] = data;
+          }
+          update.sequential_states = existing;
+          if (session.status === "static_confirmed") update.status = "in_progress";
+        }
+        await supabase
+          .from("fds_assembly_sessions")
+          .update(update)
+          .eq("id", session.id);
+        queryClient.invalidateQueries({ queryKey: ["fds_assembly_sessions"] });
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
         setError(err instanceof Error ? err.message : "Conversation failed");

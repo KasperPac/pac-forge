@@ -39,13 +39,6 @@ const STATUS_COLOR: Record<FdsSessionStatus, string> = {
   complete: "text-green-400",
 };
 
-const STATUS_LABEL: Record<FdsSessionStatus, string> = {
-  not_started: "Not started",
-  static_confirmed: "Static confirmed",
-  in_progress: "In progress",
-  complete: "Complete",
-};
-
 export function FdsAssemblySidebar({
   subsystems,
   sessions,

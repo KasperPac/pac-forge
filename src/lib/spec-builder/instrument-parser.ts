@@ -247,6 +247,7 @@ const DEVICE_TYPE_MAP: Array<{ pattern: RegExp; device_class: InstrumentTag["dev
   { pattern: /level\s*switch|level\s*sensor/i, device_class: "sensor_level" },
   { pattern: /weight\s*transmitter/i, device_class: "sensor_weight" },
   { pattern: /flow\s*transmitter|flow\s*meter/i, device_class: "sensor_flow" },
+  { pattern: /photo.?electric|photoeye|photo.?eye|photo.?sensor/i, device_class: "sensor_position" },
   { pattern: /position|proximity|limit\s*switch/i, device_class: "sensor_position" },
   { pattern: /^pb$|push\s*button/i, device_class: "push_button" },
   { pattern: /emergency\s*stop|e-?stop/i, device_class: "emergency_stop", is_safety: true },
@@ -265,8 +266,9 @@ const TAG_SUFFIX_MAP: Array<{ pattern: RegExp; device_class: InstrumentTag["devi
   { pattern: /^TT\d|_TT$|_TEMP$/i, device_class: "sensor_temperature", signal_direction: "AI" },
   { pattern: /^PT\d|^PIT\d|_PT$|_PIT$/i, device_class: "sensor_pressure", signal_direction: "AI" },
   { pattern: /^LS\d|_LS$|_LSH$|_LSL$/i, device_class: "sensor_level", signal_direction: "DI" },
+  { pattern: /^PE\d+|_PE\d+$/i, device_class: "sensor_position", signal_direction: "DI" },
   { pattern: /^PB_|^PB\d/i, device_class: "push_button", signal_direction: "DI" },
-  { pattern: /^ESTOP$|^E_STOP$/i, device_class: "emergency_stop", signal_direction: "DI", is_safety: true },
+  { pattern: /^ESTOP$|^E_STOP$|^ES\d+$/i, device_class: "emergency_stop", signal_direction: "DI", is_safety: true },
 ];
 
 const SIGNAL_TYPE_MAP: Record<string, InstrumentTag["signal_direction"]> = {
@@ -384,10 +386,10 @@ export function groupSubsystems(tags: InstrumentTag[]): SubsystemSummary[] {
  *    IS the assembly (single-assembly subsystem).
  */
 
-const SIGNAL_SUFFIXES = /[_.](?:CMD|FB|RUN|RUNNING|START|STOP|FWD|REV|OL|FAULT|TRIP|SPD|SPEED|HZ|FREQ|LSH|LSL|ZSH|ZSL|SP|PV|AO|AI|DI|DO|EN|ALARM|STATUS|STATE|ACK|RESET)$/i;
+const SIGNAL_SUFFIXES = /[_.](?:CMD|FB|RUN|RUNNING|START|STOP|FWD|REV|OL|FAULT|TRIP|SPD|SPEED|HZ|FREQ|LSH|LSL|ZSH|ZSL|SP|PV|AO|AI|DI|DO|EN|ALARM|STATUS|STATE|ACK|RESET|OPN|CLS|OPEN|CLOSE|SET|RST)$/i;
 
 function extractDevicePrefix(tag: string, subsystem: string): string {
-  // Strip subsystem prefix if tag starts with it
+  // Strip subsystem prefix if tag starts with it (by name match)
   let rest = tag;
   if (subsystem && rest.toUpperCase().startsWith(subsystem.toUpperCase())) {
     rest = rest.slice(subsystem.length).replace(/^[_.\-]/, "");
@@ -395,9 +397,18 @@ function extractDevicePrefix(tag: string, subsystem: string): string {
 
   // Strip signal suffix to get device base
   const base = rest.replace(SIGNAL_SUFFIXES, "");
+  const result = base || rest || tag;
 
-  // If nothing left after stripping, use the full rest
-  return base || rest || tag;
+  // Strip leading pure-alphabetic subsystem code segment if present (e.g. "FIL_", "INF_", "OUT_").
+  // These are tag-level subsystem codes — distinguishable from real equipment prefixes which
+  // always contain digits (e.g. "CAP01", "LFT01"). Stripping them lets extractAssemblyPrefix
+  // correctly identify the assembly segment that follows.
+  const parts = result.split("_");
+  if (parts.length >= 2 && /^[A-Za-z]+$/.test(parts[0])) {
+    return parts.slice(1).join("_");
+  }
+
+  return result;
 }
 
 function extractAssemblyPrefix(devicePrefix: string): string {
@@ -405,6 +416,28 @@ function extractAssemblyPrefix(devicePrefix: string): string {
   // Take everything up to and including the first number group
   const match = devicePrefix.match(/^([A-Za-z]+\d+)/);
   return match ? match[1] : devicePrefix;
+}
+
+/**
+ * Infer a human-readable assembly name from device descriptions.
+ * Strips common device-type keywords from the front of each description,
+ * finds the most common meaningful prefix, and returns it.
+ * Falls back to the tag-based asmPrefix if nothing useful is found.
+ */
+const DEVICE_KEYWORD_RE = /\b(motor|contactor|overload|relay|sensor|photoelectric|solenoid|valve|switch|transmitter|encoder|feedback|run|stop|start|command|fault|trip|speed|jam|presence|position|proximity)\b.*/i;
+
+function suggestAssemblyName(descriptions: string[], fallback: string): string {
+  const candidates = descriptions
+    .map((d) => d.replace(DEVICE_KEYWORD_RE, "").trim())
+    .filter((d) => d.length > 0 && d !== fallback);
+
+  if (candidates.length === 0) return fallback;
+
+  // Return the most common non-empty candidate
+  const counts = new Map<string, number>();
+  for (const c of candidates) counts.set(c, (counts.get(c) ?? 0) + 1);
+  const best = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+  return best?.[0] || fallback;
 }
 
 export function buildHierarchyFromTags(tags: InstrumentTag[]): SubsystemConfig[] {
@@ -459,9 +492,10 @@ export function buildHierarchyFromTags(tags: InstrumentTag[]): SubsystemConfig[]
         });
       }
 
+      const allDescriptions = devices.map((d) => d.description).filter(Boolean);
       assemblies.push({
         assembly_id: asmPrefix,
-        assembly_name: asmPrefix,
+        assembly_name: suggestAssemblyName(allDescriptions, asmPrefix),
         description: "",
         devices: devices.sort((a, b) => a.device_id.localeCompare(b.device_id)),
       });

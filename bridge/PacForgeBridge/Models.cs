@@ -575,6 +575,53 @@ namespace PacForgeBridge
         public string XmlContent { get; set; }
     }
 
+    // --- Migration Tag Creation ---
+
+    public class MigrationTagDto
+    {
+        /// <summary>Symbolic tag name, e.g. ABS_M10_0</summary>
+        public string Name { get; set; }
+        /// <summary>S7-1500 data type, e.g. Bool, Word, DWord, Byte, Int</summary>
+        public string DataType { get; set; }
+        /// <summary>Absolute address in TIA notation, e.g. %M10.0, %MW10</summary>
+        public string Address { get; set; }
+    }
+
+    public class CreateMigrationTagsRequest
+    {
+        /// <summary>Tags to create in TIA Portal's tag table.</summary>
+        public List<MigrationTagDto> Tags { get; set; } = new List<MigrationTagDto>();
+        /// <summary>Tag table name to create/use. Defaults to "Migration Tags".</summary>
+        public string TableName { get; set; } = "Migration Tags";
+    }
+
+    public class CreateMigrationTagsResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+        public List<string> Created { get; set; } = new List<string>();
+        public List<string> Skipped { get; set; } = new List<string>();
+        public List<string> Errors { get; set; } = new List<string>();
+    }
+
+    // --- Migration Block Reimport ---
+
+    public class ReimportMigrationBlocksRequest
+    {
+        /// <summary>Map of block name → fixed SimaticML XML to reimport.</summary>
+        public Dictionary<string, string> Blocks { get; set; } = new Dictionary<string, string>();
+        /// <summary>If true, compile all blocks after reimport.</summary>
+        public bool Compile { get; set; } = false;
+    }
+
+    public class ReimportMigrationBlocksResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+        public List<string> Imported { get; set; } = new List<string>();
+        public List<string> Errors { get; set; } = new List<string>();
+    }
+
     public class DownloadResultDto
     {
         public bool Success { get; set; }
@@ -645,5 +692,126 @@ namespace PacForgeBridge
         public bool Success { get; set; }
         public string FilePath { get; set; }
         public string FileName { get; set; }
+    }
+
+    // ============================================================
+    // Directory listing (local filesystem)
+    // ============================================================
+
+    public class ListDirectoryRequest
+    {
+        public string Path { get; set; }
+    }
+
+    public class ListDirectoryResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+        public List<DirectoryEntryDto> Entries { get; set; } = new List<DirectoryEntryDto>();
+    }
+
+    public class DirectoryEntryDto
+    {
+        public string Name { get; set; }
+        public string Path { get; set; }
+        public string Type { get; set; } // "directory" or "file"
+    }
+
+    // ============================================================
+    // Pac-Audit: Full project extraction DTOs
+    // ============================================================
+
+    public class ProjectInfoResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+        public string ProjectName { get; set; }
+        public string ProjectPath { get; set; }
+        public string TiaVersion { get; set; }
+        public string CpuFamily { get; set; }
+        public string CpuOrderNumber { get; set; }
+        public int BlockCount { get; set; }
+        public int UdtCount { get; set; }
+        public int TagTableCount { get; set; }
+        public int HmiScreenCount { get; set; }
+        public int DeviceCount { get; set; }
+    }
+
+    public class ExtractProjectResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+        public List<ExtractedFolderDto> Folders { get; set; } = new List<ExtractedFolderDto>();
+        public List<ExtractedBlockDto> Blocks { get; set; } = new List<ExtractedBlockDto>();
+        public List<ExtractedTagTableDto> TagTables { get; set; } = new List<ExtractedTagTableDto>();
+        public ExtractedHardwareDto Hardware { get; set; }
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    public class ExtractedFolderDto
+    {
+        public string Id { get; set; }
+        public string ParentId { get; set; }
+        public string Name { get; set; }
+        public string FolderType { get; set; }
+        public string Path { get; set; }
+        public int Depth { get; set; }
+    }
+
+    public class ExtractedBlockDto
+    {
+        public string Name { get; set; }
+        public string BlockType { get; set; }
+        public int? BlockNumber { get; set; }
+        public string ProgrammingLanguage { get; set; }
+        public string SourceCode { get; set; }
+        public string SourceFormat { get; set; }
+        public string FolderPath { get; set; }
+        public string FolderId { get; set; }
+        public int? LineCount { get; set; }
+    }
+
+    public class ExtractedTagTableDto
+    {
+        public string Name { get; set; }
+        public List<ExtractedTagDto> Tags { get; set; } = new List<ExtractedTagDto>();
+    }
+
+    public class ExtractedTagDto
+    {
+        public string Name { get; set; }
+        public string DataType { get; set; }
+        public string Address { get; set; }
+        public string Comment { get; set; }
+    }
+
+    public class ExtractedHardwareDto
+    {
+        public List<ExtractedDeviceDto> Devices { get; set; } = new List<ExtractedDeviceDto>();
+        public List<ExtractedIoModuleDto> IoModules { get; set; } = new List<ExtractedIoModuleDto>();
+        public List<ExtractedNetworkDto> Networks { get; set; } = new List<ExtractedNetworkDto>();
+    }
+
+    public class ExtractedDeviceDto
+    {
+        public string Name { get; set; }
+        public string TypeId { get; set; }
+        public string OrderNumber { get; set; }
+        public string FirmwareVersion { get; set; }
+    }
+
+    public class ExtractedIoModuleDto
+    {
+        public string Name { get; set; }
+        public string TypeId { get; set; }
+        public int Rack { get; set; }
+        public int Slot { get; set; }
+    }
+
+    public class ExtractedNetworkDto
+    {
+        public string Name { get; set; }
+        public string Type { get; set; }
+        public List<string> Devices { get; set; } = new List<string>();
     }
 }

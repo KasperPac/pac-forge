@@ -1,3 +1,4 @@
+#if !TIA_V18
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -560,3 +561,4 @@ namespace PacForgeBridge
         [JsonProperty("timeout_ms")] public int TimeoutMs { get; set; }
     }
 }
+#endif // !TIA_V18

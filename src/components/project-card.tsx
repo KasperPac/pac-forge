@@ -1,9 +1,11 @@
 import { useNavigate } from "react-router";
-import { Cpu, Clock, Trash2, Wand2 } from "lucide-react";
+import { Cpu, Clock, Trash2, CheckCircle2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useUiStore } from "@/stores/ui-store";
 import type { Project } from "@/types";
+import { cn } from "@/lib/utils";
 
 interface ProjectCardProps {
   project: Project;
@@ -12,15 +14,28 @@ interface ProjectCardProps {
 
 export function ProjectCard({ project, onDelete }: ProjectCardProps) {
   const navigate = useNavigate();
+  const { activeProjectId, setActiveProjectId } = useUiStore();
+  const isActive = activeProjectId === project.id;
 
   return (
     <Card
-      className="group cursor-pointer p-4 transition-colors hover:bg-accent/30"
+      className={cn(
+        "group cursor-pointer p-4 transition-colors hover:bg-accent/30",
+        isActive && "border-green-500/50 bg-green-500/5"
+      )}
       onClick={() => navigate(`/projects/${project.id}`)}
     >
       <div className="flex items-start justify-between">
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-sm font-semibold">{project.client_name}</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="truncate text-sm font-semibold">{project.client_name}</h3>
+            {isActive && (
+              <Badge variant="outline" className="border-green-500/50 font-mono text-[9px] text-green-400">
+                <CheckCircle2 className="mr-1 h-2.5 w-2.5" />
+                Active
+              </Badge>
+            )}
+          </div>
           {project.project_number && (
             <div className="font-mono text-xs text-muted-foreground">{project.project_number}</div>
           )}
@@ -65,15 +80,20 @@ export function ProjectCard({ project, onDelete }: ProjectCardProps) {
         </div>
         <Button
           size="sm"
-          variant="outline"
-          className="h-6 gap-1 px-2 font-mono text-[10px] opacity-0 group-hover:opacity-100"
+          variant={isActive ? "secondary" : "outline"}
+          className={cn(
+            "h-6 gap-1 px-2 font-mono text-[10px]",
+            isActive
+              ? "border-green-500/40 text-green-400"
+              : "opacity-0 group-hover:opacity-100"
+          )}
           onClick={(e) => {
             e.stopPropagation();
-            navigate(`/forge?projectId=${project.id}`);
+            setActiveProjectId(isActive ? null : project.id);
           }}
         >
-          <Wand2 className="h-3 w-3" />
-          Wizard
+          <CheckCircle2 className="h-3 w-3" />
+          {isActive ? "Active" : "Select"}
         </Button>
       </div>
     </Card>

@@ -8,10 +8,15 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
+    // Race getSession() against a 5-second timeout so a hung auth lock never
+    // leaves the page stuck on "Loading..." indefinitely.
+    const timeout = new Promise<void>((resolve) => setTimeout(resolve, 5000));
+    Promise.race([
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        setUser(session?.user ?? null);
+      }),
+      timeout,
+    ]).finally(() => setLoading(false));
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {

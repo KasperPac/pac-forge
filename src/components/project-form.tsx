@@ -3,13 +3,14 @@ import type { ProjectCreate, ProjectUpdate, CpuType } from "@/types";
 import { PLC_BRANDS, CPU_TYPES } from "@/types";
 import { useDesignProfiles } from "@/hooks/use-design-profiles";
 import { useClients, useCreateClient } from "@/hooks/use-clients";
-import { useDropboxConnection, useSuggestProjectNumber } from "@/hooks/use-dropbox";
+import { useDropboxConnection, useSuggestProjectNumber, useListDropboxFolder } from "@/hooks/use-dropbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Plus } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Loader2, Plus, FolderOpen } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -17,6 +18,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 const TIA_VERSIONS = ["V17", "V18", "V19", "V20"] as const;
 const SAFETY_LEVELS = ["None", "SIL 1", "SIL 2", "SIL 3"] as const;
@@ -74,10 +80,14 @@ export function ProjectForm({
   // Dropbox auto-suggest project number
   const { data: dropboxConn } = useDropboxConnection();
   const suggestNumber = useSuggestProjectNumber();
+  const listFolder = useListDropboxFolder();
   const suggestNumberRef = useRef(suggestNumber);
   suggestNumberRef.current = suggestNumber;
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isConnected = !!dropboxConn?.connected;
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const [browseFolders, setBrowseFolders] = useState<Array<{ name: string; path: string }>>([]);
+  const [browseLoading, setBrowseLoading] = useState(false);
 
   const fetchSuggestion = useCallback(
     (name: string) => {
@@ -102,6 +112,41 @@ export function ProjectForm({
     } else {
       setClientName("");
     }
+  }
+
+  function handleBrowseExisting() {
+    const name = clientId !== "none"
+      ? (clients?.find((c) => c.id === clientId)?.name ?? clientName)
+      : clientName;
+    if (!name.trim() || !isConnected) return;
+
+    setBrowseLoading(true);
+    setBrowseFolders([]);
+    setBrowseOpen(true);
+
+    listFolder.mutate(`/Pac/Jobs/${name.trim()}`, {
+      onSuccess: (entries) => {
+        setBrowseFolders(
+          entries.filter((e) => e.tag === "folder").sort((a, b) => b.name.localeCompare(a.name))
+        );
+        setBrowseLoading(false);
+      },
+      onError: () => {
+        setBrowseLoading(false);
+      },
+    });
+  }
+
+  function handleSelectExistingFolder(folderName: string) {
+    // Parse "ProjectNumber - Description" pattern
+    const dashIndex = folderName.indexOf(" - ");
+    if (dashIndex > 0) {
+      setProjectNumber(folderName.substring(0, dashIndex));
+      setDescriptionShort(folderName.substring(dashIndex + 3));
+    } else {
+      setProjectNumber(folderName);
+    }
+    setBrowseOpen(false);
   }
 
   // Also fetch on mount if editing and client name exists
@@ -209,12 +254,64 @@ export function ProjectForm({
 
         <div>
           <Label className="font-mono text-xs">Project Number</Label>
-          <Input
-            value={projectNumber}
-            onChange={(e) => setProjectNumber(e.target.value)}
-            placeholder="e.g. CVL-2601"
-            className="mt-1 font-mono"
-          />
+          <div className="mt-1 flex gap-1.5">
+            <Input
+              value={projectNumber}
+              onChange={(e) => setProjectNumber(e.target.value)}
+              placeholder="e.g. CVL-2601"
+              className="flex-1 font-mono"
+            />
+            {isConnected && hasClient && (
+              <Popover open={browseOpen} onOpenChange={setBrowseOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    className="h-9 w-9 shrink-0"
+                    onClick={handleBrowseExisting}
+                    title="Browse existing Dropbox folders"
+                  >
+                    <FolderOpen className="h-4 w-4" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-80 p-0" align="end">
+                  <div className="border-b border-border px-3 py-2">
+                    <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                      Existing Folders
+                    </div>
+                  </div>
+                  {browseLoading && (
+                    <div className="flex items-center justify-center py-6">
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    </div>
+                  )}
+                  {!browseLoading && browseFolders.length === 0 && (
+                    <div className="py-4 text-center text-xs text-muted-foreground">
+                      No folders found
+                    </div>
+                  )}
+                  {!browseLoading && browseFolders.length > 0 && (
+                    <ScrollArea className="h-[200px]">
+                      <div className="space-y-0.5 p-1">
+                        {browseFolders.map((f) => (
+                          <button
+                            key={f.path}
+                            type="button"
+                            onClick={() => handleSelectExistingFolder(f.name)}
+                            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent/50"
+                          >
+                            <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            <span className="truncate font-mono text-xs">{f.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  )}
+                </PopoverContent>
+              </Popover>
+            )}
+          </div>
           {suggestNumber.isPending && (
             <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" />

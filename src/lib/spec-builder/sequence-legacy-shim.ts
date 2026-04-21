@@ -22,7 +22,12 @@ import type {
   ActionV2,
   BranchV2,
   CompletionCriterion,
+  FaultRef,
+  FaultSeverity,
   MonitorV2,
+  PermissiveCondition,
+  PermissiveOperator,
+  PermissiveValue,
   SequentialStateV2,
   StepV2,
   TransitionV2,
@@ -71,6 +76,46 @@ function transitionIdFor(stateId: string, stepNumber: number, suffix: string): s
   return uuidish(`trans::${stateId}::${stepNumber}::${suffix}`);
 }
 
+/**
+ * Parse a legacy free-text permissive string into a structured PermissiveCondition.
+ * Handles forms like: "TAG = TRUE", "TAG != FALSE", "TAG > 50", "TAG = P_TRIG".
+ * Returns null if the string can't be parsed (will be dropped).
+ */
+function parseStringPermissive(s: string): PermissiveCondition | null {
+  const m = s.match(/^(\S+)\s*(>=|<=|!=|=|>|<)\s*(\S+)/);
+  if (!m) return null;
+  const [, tag, operator, rawValue] = m;
+  let value: PermissiveValue;
+  const upper = rawValue.toUpperCase();
+  if (upper === "TRUE") value = true;
+  else if (upper === "FALSE") value = false;
+  else if (upper === "P_TRIG") value = "P_TRIG";
+  else if (upper === "N_TRIG") value = "N_TRIG";
+  else {
+    const n = Number(rawValue);
+    if (!isNaN(n)) value = n;
+    else return null;
+  }
+  return { tag, operator: operator as PermissiveOperator, value };
+}
+
+/** Migrate a permissives array — converts legacy strings to PermissiveCondition objects. */
+function migratePermissives(
+  raw: unknown,
+): PermissiveCondition[] {
+  if (!Array.isArray(raw)) return [];
+  const result: PermissiveCondition[] = [];
+  for (const item of raw) {
+    if (typeof item === "string") {
+      const parsed = parseStringPermissive(item);
+      if (parsed) result.push(parsed);
+    } else if (item && typeof item === "object" && "tag" in item && "operator" in item && "value" in item) {
+      result.push(item as PermissiveCondition);
+    }
+  }
+  return result;
+}
+
 function isV2Step(step: StepV2): boolean {
   return (
     typeof step.step_id === "string" &&
@@ -80,16 +125,101 @@ function isV2Step(step: StepV2): boolean {
   );
 }
 
+// AI emits this v2-authoring shape per the FDS interview system prompt:
+//   step.outputs[]  = [{ tag, value }]
+//   step.branches[] = [{ conditions: [{ tag, op, value, within_ms?, on_fail_code?, on_fail_severity? }], next_step }]
+// next_step === 0 means end-of-state (DONE) — encoded as target_step_id: "".
+interface AiAuthoringOutput {
+  tag: string;
+  value: unknown;
+}
+interface AiAuthoringCondition {
+  tag: string;
+  op?: string;
+  value: unknown;
+  within_ms?: number;
+  on_fail_code?: string;
+  on_fail_severity?: FaultSeverity;
+}
+interface AiAuthoringBranch {
+  conditions?: AiAuthoringCondition[];
+  next_step?: number;
+}
+
+function coerceLiteral(raw: unknown): string | number | boolean {
+  if (typeof raw === "boolean" || typeof raw === "number") return raw;
+  const s = String(raw ?? "").trim();
+  const upper = s.toUpperCase();
+  if (upper === "TRUE") return true;
+  if (upper === "FALSE") return false;
+  const n = Number(s);
+  if (!Number.isNaN(n) && s !== "") return n;
+  return s;
+}
+
+function literalValueType(v: string | number | boolean): "string" | "number" | "boolean" {
+  if (typeof v === "boolean") return "boolean";
+  if (typeof v === "number") return "number";
+  return "string";
+}
+
+function aiOutputToAssignAction(
+  out: AiAuthoringOutput,
+  stateId: string,
+  stepNum: number,
+  outIdx: number,
+): ActionV2 {
+  const value = coerceLiteral(out.value);
+  return {
+    kind: "assign",
+    action_id: uuidish(`assign::${stateId}::${stepNum}::${outIdx}::${out.tag}`),
+    target_tag: String(out.tag ?? ""),
+    source: { kind: "literal", value, value_type: literalValueType(value) },
+    prose: `${out.tag} := ${out.value}`,
+  };
+}
+
+function aiConditionToCriterion(c: AiAuthoringCondition): CompletionCriterion {
+  const value = coerceLiteral(c.value);
+  const on_fail: FaultRef | undefined = c.on_fail_code
+    ? { fault_code: c.on_fail_code, severity: c.on_fail_severity ?? "fault" }
+    : undefined;
+  const op = c.op ?? "=";
+  // Numeric comparisons → tag_compare; equality / inequality / unset → tag_equals (with text fallback for !=).
+  if ((op === ">" || op === ">=" || op === "<" || op === "<=") && typeof value === "number") {
+    return { kind: "tag_compare", tag: c.tag, op, value, within_ms: c.within_ms, on_fail };
+  }
+  if (op === "!=") {
+    // No tag_not_equals variant — encode as expression so semantics survive.
+    return {
+      kind: "expression",
+      text: `${c.tag} != ${typeof value === "string" ? value : JSON.stringify(value)}`,
+      referenced_tags: [c.tag],
+      within_ms: c.within_ms,
+      on_fail,
+    };
+  }
+  return { kind: "tag_equals", tag: c.tag, value, within_ms: c.within_ms, on_fail };
+}
+
+function hasAiAuthoringFields(step: unknown): step is { outputs?: AiAuthoringOutput[]; branches?: AiAuthoringBranch[] } {
+  if (!step || typeof step !== "object") return false;
+  const s = step as Record<string, unknown>;
+  return Array.isArray(s.outputs) || Array.isArray(s.branches);
+}
+
 /**
- * Detect legacy v1 shape. A state is legacy if:
- *   - sequence_model_version !== 2, AND
- *   - first step is missing step_id OR transitions.
+ * Detect when steps need upgrading.
+ *
+ * The version flag alone isn't sufficient: each AI turn replaces `steps[]`
+ * with fresh authoring-shape entries (no step_id / transitions / actions),
+ * but `sequence_model_version` carries over from the previous merge. So we
+ * upgrade whenever the first step actually lacks v2 fields, regardless of
+ * the marker.
  */
 function needsUpgrade(state: SequentialStateV2): boolean {
-  if (state.sequence_model_version === 2) return false;
   if (!Array.isArray(state.steps) || state.steps.length === 0) {
-    // Empty sequential state — still upgrade metadata.
-    return true;
+    return state.sequence_model_version !== 2;
   }
   return !isV2Step(state.steps[0]);
 }
@@ -103,7 +233,10 @@ export function ensureV2(
   stateId = "inline",
 ): SequentialStateV2 {
   if (!needsUpgrade(state)) {
-    return state;
+    // Still migrate permissives in case they're legacy strings in an otherwise v2 state.
+    const migratedPerms = migratePermissives(state.permissives);
+    if (migratedPerms === state.permissives) return state;
+    return { ...state, permissives: migratedPerms };
   }
 
   const legacySteps = Array.isArray(state.steps) ? state.steps : [];
@@ -125,18 +258,51 @@ export function ensureV2(
       ? [{ kind: "expression", text: step.completion_criteria as unknown as string, referenced_tags: [] }]
       : [];
 
-    const actions: ActionV2[] = [
-      {
-        kind: "manual_prose",
-        action_id: actionIdFor(stateId, stepNum),
-        text: step.action ?? "",
-        referenced_tags: [],
-        prose: step.action ?? "",
-      },
-    ];
+    const aiAuthored = hasAiAuthoringFields(step);
+    const aiOutputs = aiAuthored && Array.isArray(step.outputs) ? step.outputs : [];
+    const aiBranches = aiAuthored && Array.isArray(step.branches) ? step.branches : [];
+
+    const actions: ActionV2[] = [];
+    actions.push({
+      kind: "manual_prose",
+      action_id: actionIdFor(stateId, stepNum),
+      text: step.action ?? "",
+      referenced_tags: [],
+      prose: step.action ?? "",
+    });
+    aiOutputs.forEach((out, outIdx) => {
+      actions.push(aiOutputToAssignAction(out, stateId, stepNum, outIdx));
+    });
 
     const transitions: TransitionV2[] = [];
-    if (nextStepId) {
+    if (aiBranches.length > 0) {
+      // resolveTarget: 0 → "" (DONE), known step number → its step_id, unknown → ""
+      const stepNumbers = new Set(legacySteps.map((s, i) => s.step ?? i + 1));
+      aiBranches.forEach((br, brIdx) => {
+        const guard = (br.conditions ?? []).map(aiConditionToCriterion);
+        const next = br.next_step;
+        const target = !next || next === 0
+          ? ""
+          : stepNumbers.has(next)
+          ? stepIdFor(stateId, next)
+          : "";
+        // Pull on_fail off the first condition that has one — it lives on the transition in v2.
+        const onFailCond = (br.conditions ?? []).find((c) => !!c.on_fail_code);
+        const on_fail: FaultRef | undefined = onFailCond?.on_fail_code
+          ? { fault_code: onFailCond.on_fail_code, severity: onFailCond.on_fail_severity ?? "fault" }
+          : undefined;
+        transitions.push({
+          transition_id: transitionIdFor(stateId, stepNum, `br${brIdx}`),
+          kind: "single",
+          target_step_id: target,
+          guard,
+          priority: brIdx,
+          is_default: brIdx === 0,
+          ...(on_fail ? { on_fail } : {}),
+          notes: null,
+        });
+      });
+    } else if (nextStepId) {
       const happy: TransitionV2 = {
         transition_id: transitionIdFor(stateId, stepNum, "happy"),
         kind: "single",
@@ -221,6 +387,7 @@ export function ensureV2(
 
   return {
     ...state,
+    permissives: migratePermissives(state.permissives),
     steps: newSteps,
     branches: Array.isArray(state.branches) ? state.branches : branches,
     state_monitors: stateMonitors,

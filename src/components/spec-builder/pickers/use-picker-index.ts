@@ -77,7 +77,7 @@ export interface IndexedState {
 export interface IndexedFault {
   fault_code: string;
   description: string;
-  severity: "warning" | "fault";
+  severity: "warning" | "fault" | "critical";
   affected_devices: string[];
   searchKey: string;
 }

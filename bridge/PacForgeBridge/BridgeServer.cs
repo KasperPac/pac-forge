@@ -18,7 +18,9 @@ namespace PacForgeBridge
         private readonly JobExecutor _jobExecutor;
         private readonly WebSocketHandler _wsHandler;
         private readonly TiaPortalService _tiaService;
+#if !TIA_V18
         private readonly PlcsimService _plcsimService;
+#endif
         private CancellationTokenSource _cts;
 
         public BridgeServer(int port, JobExecutor jobExecutor, WebSocketHandler wsHandler, TiaPortalService tiaService)
@@ -28,7 +30,9 @@ namespace PacForgeBridge
             _jobExecutor = jobExecutor;
             _wsHandler = wsHandler;
             _tiaService = tiaService;
+#if !TIA_V18
             _plcsimService = new PlcsimService();
+#endif
         }
 
         public void Start()
@@ -133,6 +137,27 @@ namespace PacForgeBridge
                     return;
                 }
 
+                // Route: POST /tia/list-directory
+                if (method == "POST" && path == "/tia/list-directory")
+                {
+                    await HandleListDirectory(req, res);
+                    return;
+                }
+
+                // Route: GET /tia/project-info  (Pac-Audit)
+                if (method == "GET" && path == "/tia/project-info")
+                {
+                    await HandleGetProjectInfo(res);
+                    return;
+                }
+
+                // Route: POST /tia/extract-project  (Pac-Audit)
+                if (method == "POST" && path == "/tia/extract-project")
+                {
+                    await HandleExtractProject(res);
+                    return;
+                }
+
                 // Route: POST /tia/export-sources
                 if (method == "POST" && path == "/tia/export-sources")
                 {
@@ -147,6 +172,7 @@ namespace PacForgeBridge
                     return;
                 }
 
+#if !TIA_V18
                 // Route: POST /tia/hmi/export-reference
                 // Exports all Unified HMI screens + tag tables + PLC UDTs as SimaticML to a directory.
                 // Used to seed Pac-Forge's HMI XML builder and UDT catalog from real Siemens patterns.
@@ -164,6 +190,7 @@ namespace PacForgeBridge
                     await HandleCreateUnifiedScreen(req, res);
                     return;
                 }
+#endif // !TIA_V18
 
                 // Route: POST /tia/export-block-xml
                 if (method == "POST" && path == "/tia/export-block-xml")
@@ -176,6 +203,20 @@ namespace PacForgeBridge
                 if (method == "POST" && path == "/tia/import-lad")
                 {
                     await HandleImportLad(req, res);
+                    return;
+                }
+
+                // Route: POST /tia/migration/create-tags
+                if (method == "POST" && path == "/tia/migration/create-tags")
+                {
+                    await HandleCreateMigrationTags(req, res);
+                    return;
+                }
+
+                // Route: POST /tia/migration/reimport-blocks
+                if (method == "POST" && path == "/tia/migration/reimport-blocks")
+                {
+                    await HandleReimportMigrationBlocks(req, res);
                     return;
                 }
 
@@ -313,6 +354,7 @@ namespace PacForgeBridge
                 }
 
                 // ── PLCSIM Advanced endpoints ──────────────────────────────
+#if !TIA_V18
 
                 // Route: POST /tia/plcsim/start
                 if (method == "POST" && path == "/tia/plcsim/start")
@@ -396,6 +438,8 @@ namespace PacForgeBridge
                     await WriteJson(res, result.Success ? 200 : 500, result);
                     return;
                 }
+
+#endif // !TIA_V18
 
                 // 404
                 await WriteJson(res, 404, new { error = "Not found" });
@@ -904,6 +948,108 @@ namespace PacForgeBridge
             }
         }
 
+        private async Task HandleListDirectory(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            try
+            {
+                string body = await ReadBody(req);
+                var request = Json.Deserialize<ListDirectoryRequest>(body);
+
+                if (request == null || string.IsNullOrEmpty(request.Path))
+                {
+                    await WriteJson(res, 400, new ListDirectoryResponse { Success = false, Message = "path required" });
+                    return;
+                }
+
+                if (!Directory.Exists(request.Path))
+                {
+                    await WriteJson(res, 404, new ListDirectoryResponse { Success = false, Message = $"Directory not found: {request.Path}" });
+                    return;
+                }
+
+                var result = new ListDirectoryResponse { Success = true };
+
+                foreach (string dir in Directory.GetDirectories(request.Path))
+                {
+                    result.Entries.Add(new DirectoryEntryDto
+                    {
+                        Name = Path.GetFileName(dir),
+                        Path = dir,
+                        Type = "directory"
+                    });
+                }
+
+                result.Entries.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+                result.Message = $"{result.Entries.Count} entries";
+                await WriteJson(res, 200, result);
+            }
+            catch (Exception ex)
+            {
+                await WriteJson(res, 500, new ListDirectoryResponse { Success = false, Message = ex.Message });
+            }
+        }
+
+        private async Task HandleGetProjectInfo(HttpListenerResponse res)
+        {
+            try
+            {
+                if (!_tiaService.IsProjectOpen)
+                    _tiaService.Connect(preferAttach: true);
+
+                if (!_tiaService.IsProjectOpen)
+                {
+                    await WriteJson(res, 400, new ProjectInfoResponse { Success = false, Message = "No TIA Portal project open" });
+                    return;
+                }
+
+                var info = _tiaService.GetProjectInfo();
+                await WriteJson(res, 200, info);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Audit] GetProjectInfo failed: {ex.Message}");
+                await WriteJson(res, 500, new ProjectInfoResponse { Success = false, Message = ex.Message });
+            }
+        }
+
+        private async Task HandleExtractProject(HttpListenerResponse res)
+        {
+            ExtractProjectResponse result = null;
+            Exception extractEx = null;
+
+            try
+            {
+                if (!_tiaService.IsProjectOpen)
+                    _tiaService.Connect(preferAttach: true);
+
+                if (!_tiaService.IsProjectOpen)
+                {
+                    await WriteJson(res, 400, new ExtractProjectResponse { Success = false, Message = "No TIA Portal project open" });
+                    return;
+                }
+
+                Console.WriteLine("[Audit] Starting full project extraction...");
+                result = _tiaService.ExtractProject();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Audit] Project extraction failed: {ex.Message}");
+                extractEx = ex;
+            }
+
+            try
+            {
+                if (extractEx != null)
+                    await WriteJson(res, 500, new ExtractProjectResponse { Success = false, Message = extractEx.Message });
+                else
+                    await WriteJson(res, 200, result);
+            }
+            catch (Exception writeEx)
+            {
+                Console.WriteLine($"[HTTP] Extract response write failed (client likely timed out): {writeEx.Message}");
+            }
+        }
+
         private async Task HandleExportSources(HttpListenerResponse res)
         {
             ExportSourcesResponse result = null;
@@ -1028,6 +1174,68 @@ namespace PacForgeBridge
             }
         }
 
+        private async Task HandleCreateMigrationTags(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            try
+            {
+                string body = await ReadBody(req);
+                var request = Json.Deserialize<CreateMigrationTagsRequest>(body);
+                if (request == null || request.Tags == null || request.Tags.Count == 0)
+                {
+                    await WriteJson(res, 400, new CreateMigrationTagsResponse
+                    {
+                        Success = false,
+                        Message = "No tags provided"
+                    });
+                    return;
+                }
+
+                Console.WriteLine($"[Tags] Creating {request.Tags.Count} migration tag(s) in '{request.TableName}'...");
+                var result = _tiaService.CreateMigrationTags(request);
+                await WriteJson(res, 200, result);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Tags] create-tags failed: {ex.Message}");
+                await WriteJson(res, 500, new CreateMigrationTagsResponse
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+        }
+
+        private async Task HandleReimportMigrationBlocks(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            try
+            {
+                string body = await ReadBody(req);
+                var request = Json.Deserialize<ReimportMigrationBlocksRequest>(body);
+                if (request == null || request.Blocks == null || request.Blocks.Count == 0)
+                {
+                    await WriteJson(res, 400, new ReimportMigrationBlocksResponse
+                    {
+                        Success = false,
+                        Message = "No blocks provided"
+                    });
+                    return;
+                }
+
+                Console.WriteLine($"[Reimport] Reimporting {request.Blocks.Count} migration block(s)...");
+                var result = _tiaService.ReimportMigrationBlocks(request);
+                await WriteJson(res, 200, result);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Reimport] reimport-blocks failed: {ex.Message}");
+                await WriteJson(res, 500, new ReimportMigrationBlocksResponse
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+        }
+
         private async Task HandleImportHmi(HttpListenerRequest req, HttpListenerResponse res)
         {
             try
@@ -1078,6 +1286,7 @@ namespace PacForgeBridge
             }
         }
 
+#if !TIA_V18
         private async Task HandleExportReference(HttpListenerRequest req, HttpListenerResponse res)
         {
             try
@@ -1139,6 +1348,7 @@ namespace PacForgeBridge
                 });
             }
         }
+#endif // !TIA_V18
 
         private async Task HandleExportHmiGraphics(HttpListenerRequest req, HttpListenerResponse res)
         {

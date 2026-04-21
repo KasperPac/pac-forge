@@ -243,6 +243,23 @@ export function useAppendConversationTurn() {
   });
 }
 
+/** Delete a session entirely — triggers re-creation via useEnsureFdsSession on next load */
+export function useDeleteFdsSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { id: string; spec_project_id: string }) => {
+      const { error } = await supabase
+        .from("fds_assembly_sessions")
+        .delete()
+        .eq("id", input.id);
+      if (error) throw error;
+    },
+    onSuccess: (_, input) => {
+      queryClient.invalidateQueries({ queryKey: fdsSessionsKey(input.spec_project_id) });
+    },
+  });
+}
+
 /** Mark session as complete */
 export function useCompleteFdsSession() {
   const queryClient = useQueryClient();
@@ -318,14 +335,14 @@ export function useDuplicateFdsSession() {
         }
 
         // Apply remap to sequential states
-        const remappedSequential: Record<string, SequentialStateData> = {};
-        for (const [stateId, data] of Object.entries(source.sequential_states as Record<string, SequentialStateData>)) {
+        const remappedSequential: Record<string, SequentialStateV2> = {};
+        for (const [stateId, data] of Object.entries(source.sequential_states as Record<string, SequentialStateV2>)) {
           remappedSequential[stateId] = {
-            permissives: data.permissives.map((p: string) => applyRemap(p, target.tag_remap)),
-            steps: data.steps.map((s: { step: number; action: string; completion_criteria: string }) => ({
-              step: s.step,
-              action: applyRemap(s.action, target.tag_remap),
-              completion_criteria: applyRemap(s.completion_criteria, target.tag_remap),
+            permissives: data.permissives.map((p) => ({ ...p, tag: applyRemap(p.tag, target.tag_remap) })),
+            steps: data.steps.map((s) => ({
+              ...s,
+              action: applyRemap(s.action ?? "", target.tag_remap),
+              completion_criteria_text: applyRemap(s.completion_criteria_text ?? "", target.tag_remap),
             })),
             notes: data.notes ? applyRemap(data.notes, target.tag_remap) : null,
           };

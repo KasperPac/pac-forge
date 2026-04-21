@@ -11,6 +11,12 @@ import type {
   StepEntry,
   FunctionalDescriptionContent,
 } from "@/types/spec-builder";
+import type { PermissiveCondition } from "@/types/spec-contract-v2";
+
+function serializePermissive(p: PermissiveCondition): string {
+  const val = p.value === true ? "TRUE" : p.value === false ? "FALSE" : String(p.value);
+  return `${p.tag} ${p.operator} ${val}`;
+}
 
 /**
  * Compose all assembly sessions for a subsystem into spec_sections rows.
@@ -50,15 +56,15 @@ export async function composeFdsToSections(
         spec_project_id: specProjectId,
         section_type: "functional_description",
         subsystem_id: subsystem.subsystem_id,
-        assembly_id: session.assembly_id,
-        state_id: state.state_id,
-        state_pattern: "static",
-        granularity: "assembly_state",
-        state_name: state.state_id,
+        state_name: `${state.state_name} — ${session.assembly_id}`,
         content_json: content,
+        content_markdown: null,
         model_used: "co-authored",
         generation_prompt: null,
         token_usage: {},
+        approved: false,
+        reviewed_by: null,
+        review_notes: null,
       });
     }
   }
@@ -97,7 +103,10 @@ export async function composeFdsToSections(
       const data = session.sequential_states[state.state_id];
       if (!data) continue;
 
-      const perAssemblyPerms: string[] = [...(seq?.shared_permissives ?? []), ...data.permissives];
+      const perAssemblyPerms: string[] = [
+        ...(seq?.shared_permissives ?? []),
+        ...data.permissives.map(serializePermissive),
+      ];
       const interlocks = interlocksByTarget.get(session.assembly_id) ?? [];
       for (const il of interlocks) {
         if (!perAssemblyPerms.includes(il)) perAssemblyPerms.push(il);
@@ -106,7 +115,10 @@ export async function composeFdsToSections(
       const content: FunctionalDescriptionContent = {
         pattern: "sequential",
         permissives: perAssemblyPerms,
-        steps: data.steps,
+        // Shim cast: legacy StepEntry expects completion_criteria:string while
+        // StepV2 carries CompletionCriterion[]. DOCX renderer reads the legacy
+        // field via completion_criteria_text during the SFC v2 migration.
+        steps: data.steps as unknown as StepEntry[],
         notes: data.notes ?? undefined,
       };
 
@@ -114,15 +126,15 @@ export async function composeFdsToSections(
         spec_project_id: specProjectId,
         section_type: "functional_description",
         subsystem_id: subsystem.subsystem_id,
-        assembly_id: session.assembly_id,
-        state_id: state.state_id,
-        state_pattern: "sequential",
-        granularity: "assembly_state",
-        state_name: state.state_id,
+        state_name: `${state.state_name} — ${session.assembly_id}`,
         content_json: content,
+        content_markdown: null,
         model_used: "co-authored",
         generation_prompt: null,
         token_usage: {},
+        approved: false,
+        reviewed_by: null,
+        review_notes: null,
       });
     }
   }

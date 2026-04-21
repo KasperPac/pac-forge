@@ -137,6 +137,7 @@ export default function ReferenceLibraryPage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
   const [uploadLanguage, setUploadLanguage] = useState<"LAD" | "SCL" | "GENERAL">("GENERAL");
+  const [uploadContext, setUploadContext] = useState<"SIEMENS_TIA" | "SIEMENS_MIGRATION">("SIEMENS_TIA");
   const [visionProgress, setVisionProgress] = useState<{
     current: number;
     total: number;
@@ -173,6 +174,7 @@ export default function ReferenceLibraryPage() {
           sourceFilename: file.name,
           fileType,
           programmingLanguage: uploadLanguage,
+          plcBrand: uploadContext,
         });
       } catch (err) {
         setUploadError(
@@ -183,7 +185,7 @@ export default function ReferenceLibraryPage() {
         if (fileInputRef.current) fileInputRef.current.value = "";
       }
     },
-    [uploadDoc, uploadLanguage],
+    [uploadDoc, uploadLanguage, uploadContext],
   );
 
   const handleVisionFileSelect = useCallback(async (file: File) => {
@@ -222,6 +224,7 @@ export default function ReferenceLibraryPage() {
         title,
         chunkSize: safeChunkSize,
         programmingLanguage: uploadLanguage,
+        plcBrand: uploadContext,
         signal: abort.signal,
         onProgress: (current, total, status) => {
           setVisionProgress({ current, total, status });
@@ -235,7 +238,7 @@ export default function ReferenceLibraryPage() {
       visionAbortRef.current = null;
       setVisionProgress(null);
     }
-  }, [visionConfig, visionUpload, uploadLanguage]);
+  }, [visionConfig, visionUpload, uploadLanguage, uploadContext]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -296,6 +299,36 @@ export default function ReferenceLibraryPage() {
                 {lang}
               </button>
             ))}
+          </div>
+          {/* Context selector — controls which pipeline sees this doc */}
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono text-[10px] text-muted-foreground uppercase tracking-wide">Use for</span>
+            <button
+              type="button"
+              onClick={() => setUploadContext("SIEMENS_TIA")}
+              className={cn(
+                "rounded px-2 py-0.5 font-mono text-[10px] transition-colors",
+                uploadContext === "SIEMENS_TIA"
+                  ? "bg-primary text-primary-foreground"
+                  : "border border-border text-muted-foreground hover:text-foreground hover:bg-accent/50",
+              )}
+              disabled={uploading || !!visionProgress}
+            >
+              Generation
+            </button>
+            <button
+              type="button"
+              onClick={() => setUploadContext("SIEMENS_MIGRATION")}
+              className={cn(
+                "rounded px-2 py-0.5 font-mono text-[10px] transition-colors",
+                uploadContext === "SIEMENS_MIGRATION"
+                  ? "bg-amber-600 text-white"
+                  : "border border-border text-muted-foreground hover:text-foreground hover:bg-accent/50",
+              )}
+              disabled={uploading || !!visionProgress}
+            >
+              Migration only
+            </button>
           </div>
           {/* Upload buttons */}
           <div className="flex gap-2">
@@ -531,6 +564,14 @@ export default function ReferenceLibraryPage() {
                             className="shrink-0 px-1.5 py-0 font-mono text-[9px] border-primary/40 text-primary"
                           >
                             {doc.programming_language}
+                          </Badge>
+                        )}
+                        {doc.plc_brand === "SIEMENS_MIGRATION" && (
+                          <Badge
+                            variant="outline"
+                            className="shrink-0 px-1.5 py-0 font-mono text-[9px] border-amber-500/60 text-amber-500"
+                          >
+                            MIGRATION
                           </Badge>
                         )}
                       </div>

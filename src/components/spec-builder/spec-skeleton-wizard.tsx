@@ -31,7 +31,7 @@ import type {
   OperatingState,
   AlarmTier,
 } from "@/types/spec-builder";
-import { migrateSubsystemConfig, migrateOperatingStates, getSubsystemTagCount, getSubsystemDeviceCount, inferStatePattern } from "@/types/spec-builder";
+import { migrateSubsystemConfig, migrateOperatingStates, getSubsystemDeviceCount, inferStatePattern } from "@/types/spec-builder";
 import type { StatePattern } from "@/types/spec-builder";
 import { buildHierarchyFromTags } from "@/lib/spec-builder/instrument-parser";
 import { MachineHierarchyTable } from "./machine-hierarchy-table";
@@ -459,8 +459,6 @@ function StepOperatingModes({
   onInfer: () => void;
   inferring: boolean;
 }) {
-  const [editIdx, setEditIdx] = useState<number | null>(null);
-
   const updateAt = (idx: number, patch: Partial<OperatingState>) => {
     const next = [...states];
     next[idx] = { ...next[idx], ...patch };

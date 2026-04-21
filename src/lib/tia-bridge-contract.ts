@@ -335,6 +335,18 @@ export const DEFAULT_BRIDGE_CONFIG: BridgeConfig = {
   timeout: 5000,
 };
 
+export const BRIDGE_CONFIG_V18: BridgeConfig = {
+  baseUrl: "http://localhost:5103",
+  wsUrl: "ws://localhost:5103/tia/ws",
+  timeout: 5000,
+};
+
+/** Return the correct bridge config for a given TIA Portal version string (e.g. "V18", "V20"). */
+export function getBridgeConfigForVersion(tiaVersion: string | null | undefined): BridgeConfig {
+  if (tiaVersion && tiaVersion.includes("18")) return BRIDGE_CONFIG_V18;
+  return DEFAULT_BRIDGE_CONFIG;
+}
+
 // --- Provision Project ---
 
 export interface IoModuleDto {
@@ -454,3 +466,162 @@ export interface PlcsimDownloadResponse {
   warnings?: number;
   errors?: number;
 }
+
+// ─── Migration: tag creation + block reimport ──────────────────────────────────
+
+export interface MigrationTagDto {
+  name: string;
+  dataType: string;
+  /** TIA Portal absolute address notation e.g. %M10.0, %MW10 */
+  address: string;
+}
+
+/** POST /tia/migration/create-tags */
+export interface CreateMigrationTagsRequest {
+  tags: MigrationTagDto[];
+  /** Tag table name — defaults to "Migration Tags" */
+  tableName?: string;
+}
+
+export interface CreateMigrationTagsResponse {
+  success: boolean;
+  message: string;
+  created: string[];
+  skipped: string[];
+  errors: string[];
+}
+
+/** POST /tia/migration/reimport-blocks */
+export interface ReimportMigrationBlocksRequest {
+  /** blockName → fixed SimaticML XML */
+  blocks: Record<string, string>;
+  compile?: boolean;
+}
+
+export interface ReimportMigrationBlocksResponse {
+  success: boolean;
+  message: string;
+  imported: string[];
+  errors: string[];
+}
+
+// ============================================================
+// Directory listing (local filesystem via bridge)
+// ============================================================
+
+/**
+ * POST /tia/list-directory
+ * List subdirectories of a local path.
+ */
+export interface ListDirectoryRequest {
+  path: string;
+}
+
+export interface ListDirectoryResponse {
+  success: boolean;
+  message: string;
+  entries: DirectoryEntry[];
+}
+
+export interface DirectoryEntry {
+  name: string;
+  path: string;
+  type: "directory" | "file";
+}
+
+// ============================================================
+// Pac-Audit: Full project extraction
+// ============================================================
+
+/**
+ * GET /tia/project-info
+ * Quick metadata about the open TIA project.
+ */
+export interface ProjectInfoResponse {
+  success: boolean;
+  message?: string;
+  project_name: string;
+  project_path: string;
+  tia_version: string | null;
+  cpu_family: string | null;
+  cpu_order_number: string | null;
+  block_count: number;
+  udt_count: number;
+  tag_table_count: number;
+  hmi_screen_count: number;
+  device_count: number;
+}
+
+/**
+ * POST /tia/extract-project
+ * Full project extraction — blocks with folder hierarchy, UDTs, tags, HW.
+ */
+export interface ExtractProjectResponse {
+  success: boolean;
+  message: string;
+  folders: ExtractedFolder[];
+  blocks: ExtractedBlock[];
+  tag_tables: ExtractedTagTable[];
+  hardware: ExtractedHardware;
+  warnings: string[];
+}
+
+export interface ExtractedFolder {
+  id: string;
+  parent_id: string | null;
+  name: string;
+  folder_type: string;
+  path: string;
+  depth: number;
+}
+
+export interface ExtractedBlock {
+  name: string;
+  block_type: string;
+  block_number: number | null;
+  programming_language: string;
+  source_code: string | null;
+  source_format: string;
+  folder_path: string;
+  folder_id: string;
+  line_count: number | null;
+}
+
+export interface ExtractedTagTable {
+  name: string;
+  tags: ExtractedTag[];
+}
+
+export interface ExtractedTag {
+  name: string;
+  data_type: string;
+  address: string | null;
+  comment: string | null;
+}
+
+export interface ExtractedHardware {
+  devices: ExtractedDevice[];
+  io_modules: ExtractedIoModule[];
+  networks: ExtractedNetwork[];
+}
+
+export interface ExtractedDevice {
+  name: string;
+  type_id: string;
+  order_number?: string;
+  firmware_version?: string;
+}
+
+export interface ExtractedIoModule {
+  name: string;
+  type_id: string;
+  rack: number;
+  slot: number;
+}
+
+export interface ExtractedNetwork {
+  name: string;
+  type: string;
+  devices: string[];
+}
+

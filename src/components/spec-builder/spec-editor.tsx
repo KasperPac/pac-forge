@@ -870,7 +870,7 @@ function AlarmSpecEditor({ content, set }: EditorProps) {
     <div className="space-y-6">
       <AlarmEditor content={content} set={set} />
       {/* Cause & Effect Matrix is read-only in the editor for now */}
-      {(content.cause_effect_matrix as Record<string, unknown>)?.causes && (
+      {Boolean((content.cause_effect_matrix as Record<string, unknown>)?.causes) && (
         <Field label="Cause & Effect Matrix">
           <div className="border rounded-md overflow-hidden">
             <table className="w-full text-xs">
@@ -902,7 +902,7 @@ function AlarmSpecEditor({ content, set }: EditorProps) {
   );
 }
 
-function HmiSpecEditor({ content, set }: EditorProps) {
+function HmiSpecEditor({ content }: EditorProps) {
   return (
     <div className="space-y-4">
       <Field label="Screen Hierarchy">

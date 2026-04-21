@@ -600,7 +600,6 @@ function HierarchyRow({
   onAddAssembly,
   onAddDevice,
   onAddIoSignal,
-  onRemoveSubsystem,
   onRemoveAssembly,
   onRemoveDevice,
 }: RowProps) {

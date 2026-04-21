@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import { DEFAULT_BRIDGE_CONFIG } from "@/lib/tia-bridge-contract";
+import { DEFAULT_BRIDGE_CONFIG, BRIDGE_CONFIG_V18 } from "@/lib/tia-bridge-contract";
 import type { TiaJob, TiaJobType, TiaManifest, Artifact } from "@/types";
 import type { SubmitJobResponse, BridgeStatusEvent } from "@/lib/tia-bridge-contract";
 import { generateExportBundle } from "@/lib/tia-export";
@@ -132,11 +132,19 @@ export function useSubmitTiaJob() {
  * - `tiaConnected`: the bridge has attached to / started a TIA Portal instance
  * - `projectOpen`: a TIA project is currently open
  */
+async function probeBridge(baseUrl: string): Promise<BridgeStatusEvent["data"] | null> {
+  try {
+    const response = await fetch(`${baseUrl}/tia/status`, { signal: AbortSignal.timeout(4_000) });
+    if (response.ok) return (await response.json()) as BridgeStatusEvent["data"];
+  } catch { /* offline */ }
+  return null;
+}
+
 export function useBridgeStatus() {
   return useQuery({
     queryKey: ["tia-bridge-status"],
     queryFn: async (): Promise<{
-      connected: boolean;        // legacy — true when bridge is reachable (kept for compat)
+      connected: boolean;
       bridgeOnline: boolean;
       tiaConnected: boolean;
       projectOpen: boolean;
@@ -144,27 +152,27 @@ export function useBridgeStatus() {
       bridgeVersion: string | null;
       sourcePlcFamily: string | null;
       sourceCpuTypeId: string | null;
+      activePort: number | null;
     }> => {
-      try {
-        const response = await fetch(
-          `${DEFAULT_BRIDGE_CONFIG.baseUrl}/tia/status`,
-          { signal: AbortSignal.timeout(DEFAULT_BRIDGE_CONFIG.timeout) }
-        );
-        if (response.ok) {
-          const data = (await response.json()) as BridgeStatusEvent["data"];
-          return {
-            connected: true,
-            bridgeOnline: true,
-            tiaConnected: data.connected ?? false,
-            projectOpen: data.tia_project_open ?? false,
-            version: data.tia_version,
-            bridgeVersion: data.bridge_version ?? null,
-            sourcePlcFamily: data.source_plc_family ?? null,
-            sourceCpuTypeId: data.source_cpu_type_id ?? null,
-          };
-        }
-      } catch {
-        // Bridge offline
+      // Check V20 (5102) and V18 (5103) in parallel; prefer whichever responds
+      const [v20, v18] = await Promise.all([
+        probeBridge(DEFAULT_BRIDGE_CONFIG.baseUrl),
+        probeBridge(BRIDGE_CONFIG_V18.baseUrl),
+      ]);
+      const data = v20 ?? v18;
+      const activePort = v20 ? 5102 : v18 ? 5103 : null;
+      if (data) {
+        return {
+          connected: true,
+          bridgeOnline: true,
+          tiaConnected: data.connected ?? false,
+          projectOpen: data.tia_project_open ?? false,
+          version: data.tia_version,
+          bridgeVersion: data.bridge_version ?? null,
+          sourcePlcFamily: data.source_plc_family ?? null,
+          sourceCpuTypeId: data.source_cpu_type_id ?? null,
+          activePort,
+        };
       }
       return {
         connected: false,
@@ -175,10 +183,15 @@ export function useBridgeStatus() {
         bridgeVersion: null,
         sourcePlcFamily: null,
         sourceCpuTypeId: null,
+        activePort: null,
       };
     },
-    refetchInterval: 10_000, // Check every 10s for snappier status updates
+    refetchInterval: 10_000,
     retry: false,
+    // Keep the last known good status during long TIA Portal operations (project creation,
+    // compile, import) — the bridge HTTP server may not respond within 5s while TIA is busy,
+    // but the bridge is still alive. Don't flash "offline" while a job is running.
+    placeholderData: (prev) => prev,
   });
 }
 

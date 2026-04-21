@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { AlertCircle, CheckCircle2, Circle, Loader2, ChevronDown, Info } from "lucide-react";
+import { AlertCircle, CheckCircle2, Circle, Loader2, ChevronDown, Info, Tag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -15,6 +15,9 @@ import {
   detectSourceFamily,
   ALL_S7_1500_TARGETS,
 } from "@/lib/migrate-cpu-mapping";
+import { replaceAbsoluteAddressesInXml } from "@/lib/migrate-abs-address";
+import { parseLadXml } from "@/lib/migrate-lad-parser";
+import { parseGraphXml } from "@/lib/migrate-graph-parser";
 import { useMigratePipeline } from "@/hooks/use-migrate-pipeline";
 import type { CompileErrorEntry } from "@/hooks/use-migrate-pipeline";
 import type { MigrationSession, MigratedBlock } from "@/types";
@@ -57,6 +60,7 @@ export function MigrateCompile({ session, onSessionUpdate }: MigrateCompileProps
   const [submitting, setSubmitting] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string>("");
   const [fixResult, setFixResult] = useState<{ fixedCount: number; patternsSaved: number; couldNotFix: string[] } | null>(null);
+  const [reimportResult, setReimportResult] = useState<{ imported: string[]; errors: string[]; tagsCreated: string[]; tagErrors: string[] } | null>(null);
 
   const pipeline = useMigratePipeline();
 
@@ -209,10 +213,16 @@ export function MigrateCompile({ session, onSessionUpdate }: MigrateCompileProps
     const approved = session.migrated_blocks.filter((b) => b.approved);
     if (approved.length === 0) return;
 
+    // Split into SCL/STL blocks (go into the import bundle) vs LAD/FBD/GRAPH (reimport as XML)
+    const LAD_GRAPH_LANGS = new Set(["LAD", "FBD", "GRAPH"]);
+    const sclBlocks = approved.filter((b) => !LAD_GRAPH_LANGS.has(b.original_language ?? ""));
+    const xmlBlocks = approved.filter((b) => LAD_GRAPH_LANGS.has(b.original_language ?? ""));
+
     setCompileLog([]);
     setCompileErrors([]);
     compileErrorsRef.current = [];
     setCompileSuccess(null);
+    setReimportResult(null);
     setSubmitting(true);
 
     try {
@@ -228,7 +238,7 @@ export function MigrateCompile({ session, onSessionUpdate }: MigrateCompileProps
           project_name: projectName,
           cpu_order_number: selectedOrderNumber,
         }),
-        signal: AbortSignal.timeout(120_000), // project creation can take ~60s
+        signal: AbortSignal.timeout(300_000), // 5 min — TIA Portal project creation can be slow
       });
 
       if (!provisionRes.ok) {
@@ -244,7 +254,6 @@ export function MigrateCompile({ session, onSessionUpdate }: MigrateCompileProps
       const newProjectPath = provision.project_file_path;
       setCompileLog([`Project created: ${newProjectPath}`]);
 
-      // Save target path to session
       await updateSession.mutateAsync({
         id: session.id,
         updates: {
@@ -253,9 +262,91 @@ export function MigrateCompile({ session, onSessionUpdate }: MigrateCompileProps
         },
       });
 
-      // ── Step 2: Build artifact bundle ────────────────────────────────────
-      setStatusMsg("Preparing artifacts…");
-      const artifacts: Artifact[] = approved.map((b) => ({
+      // ── Step 2: Reimport LAD/FBD/GRAPH blocks + create ABS_ tags ────────
+      // Done before the SCL compile job so ABS_ tags are in place for any
+      // SCL blocks that reference LAD/GRAPH-sourced symbolic names.
+      const reimportSummary: typeof reimportResult = { imported: [], errors: [], tagsCreated: [], tagErrors: [] };
+
+      if (xmlBlocks.length > 0) {
+        setStatusMsg(`Reimporting ${xmlBlocks.length} LAD/FBD/GRAPH block(s) into TIA Portal…`);
+
+        // Recompute fixed XML from original_scl — deterministic, no need to persist it in the session.
+        // parseLadXml / parseGraphXml apply ABS_ substitution + S5TIME fixes to the SimaticML XML.
+        const blocksPayload: Record<string, string> = {};
+        for (const b of xmlBlocks) {
+          try {
+            const lang = b.original_language ?? "LAD";
+            const fixedXml = lang === "GRAPH"
+              ? parseGraphXml(b.name, b.original_scl).fixedXml
+              : parseLadXml(b.name, b.original_scl, lang).fixedXml;
+            if (fixedXml) blocksPayload[b.name] = fixedXml;
+          } catch { /* skip — block stays in TIA as-is */ }
+        }
+
+        try {
+          const reimportRes = await fetch(`${DEFAULT_BRIDGE_CONFIG.baseUrl}/tia/migration/reimport-blocks`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ blocks: blocksPayload, compile: false }),
+            signal: AbortSignal.timeout(300_000), // 5 min — large block reimports take time
+          });
+          const rd = await reimportRes.json() as { success: boolean; message: string; imported: string[]; errors: string[] };
+          reimportSummary.imported = rd.imported ?? [];
+          reimportSummary.errors = rd.errors ?? [];
+          setCompileLog((prev) => [...prev, `LAD/GRAPH reimport: ${rd.message}`]);
+        } catch (e) {
+          reimportSummary.errors.push(`Reimport call failed: ${e instanceof Error ? e.message : String(e)}`);
+        }
+
+        // Collect ABS_ tags from original XML of all LAD/GRAPH blocks (not just approved)
+        // so any tags referenced by SCL blocks are also created.
+        const allAbsTags = new Map<string, { symbolicName: string; dataType: string; address: string }>();
+        for (const b of session.migrated_blocks) {
+          if (!LAD_GRAPH_LANGS.has(b.original_language ?? "")) continue;
+          try {
+            const { tags } = replaceAbsoluteAddressesInXml(b.original_scl);
+            for (const [key, tag] of tags) {
+              if (!allAbsTags.has(key)) allAbsTags.set(key, tag);
+            }
+          } catch { /* skip unparseable blocks */ }
+        }
+
+        if (allAbsTags.size > 0) {
+          setStatusMsg(`Creating ${allAbsTags.size} ABS_ tag(s) in TIA Portal…`);
+          const tagList = Array.from(allAbsTags.values()).map((t) => ({
+            name: t.symbolicName,
+            dataType: t.dataType,
+            address: t.address,
+          }));
+          try {
+            const tagRes = await fetch(`${DEFAULT_BRIDGE_CONFIG.baseUrl}/tia/migration/create-tags`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ tags: tagList, tableName: "Migration Tags" }),
+              signal: AbortSignal.timeout(60_000),
+            });
+            const td = await tagRes.json() as { success: boolean; message: string; created: string[]; skipped: string[]; errors: string[] };
+            reimportSummary.tagsCreated = td.created ?? [];
+            reimportSummary.tagErrors = td.errors ?? [];
+            setCompileLog((prev) => [...prev, `ABS_ tags: ${td.message}`]);
+          } catch (e) {
+            reimportSummary.tagErrors.push(`Tag creation failed: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
+
+        setReimportResult(reimportSummary);
+      }
+
+      // ── Step 3: Build SCL artifact bundle ────────────────────────────────
+      // Only SCL/STL/DB blocks — LAD/GRAPH blocks were handled above via XML reimport.
+      if (sclBlocks.length === 0) {
+        setStatusMsg("");
+        setCompileSuccess(reimportSummary.errors.length === 0 && reimportSummary.tagErrors.length === 0);
+        return;
+      }
+
+      setStatusMsg("Preparing SCL artifacts…");
+      const artifacts: Artifact[] = sclBlocks.map((b) => ({
         id: b.name,
         project_id: session.id,
         session_id: session.id,
@@ -287,7 +378,7 @@ export function MigrateCompile({ session, onSessionUpdate }: MigrateCompileProps
         new Uint8Array(buffer).reduce((s, b) => s + String.fromCharCode(b), "")
       );
 
-      // ── Step 3: Submit import+compile job ────────────────────────────────
+      // ── Step 4: Submit import+compile job ────────────────────────────────
       setStatusMsg("Submitting import & compile job…");
       const migrationJobId = `migrate_${session.id}`;
 
@@ -301,7 +392,7 @@ export function MigrateCompile({ session, onSessionUpdate }: MigrateCompileProps
           artifact_bundle: artifactBundle,
           tia_project_path: newProjectPath,
         }),
-        signal: AbortSignal.timeout(DEFAULT_BRIDGE_CONFIG.timeout),
+        signal: AbortSignal.timeout(30_000), // 30s — bridge may still be settling after provision
       });
 
       if (!jobRes.ok) {
@@ -328,7 +419,10 @@ export function MigrateCompile({ session, onSessionUpdate }: MigrateCompileProps
     onSessionUpdate();
   }
 
+  const LAD_GRAPH_LANGS = new Set(["LAD", "FBD", "GRAPH"]);
   const approvedCount = session.migrated_blocks.filter((b) => b.approved).length;
+  const approvedXmlCount = session.migrated_blocks.filter((b) => b.approved && LAD_GRAPH_LANGS.has(b.original_language ?? "")).length;
+  const approvedSclCount = approvedCount - approvedXmlCount;
   const isRunning = submitting || (!!jobId && compileSuccess === null);
 
   // Build manual checklist from accepted flags on excluded DB blocks
@@ -520,6 +614,12 @@ export function MigrateCompile({ session, onSessionUpdate }: MigrateCompileProps
           <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
             Blocks to Import ({approvedCount})
           </span>
+          {approvedSclCount > 0 && (
+            <span className="font-mono text-[9px] text-green-400/70">{approvedSclCount} SCL</span>
+          )}
+          {approvedXmlCount > 0 && (
+            <span className="font-mono text-[9px] text-amber-400/70">{approvedXmlCount} LAD/FBD/GRAPH</span>
+          )}
           {manualItems.length > 0 && (
             <span className="font-mono text-[10px] text-amber-400/70">
               + {manualItems.length} excluded (manual setup)
@@ -629,6 +729,44 @@ export function MigrateCompile({ session, onSessionUpdate }: MigrateCompileProps
           <div className="text-muted-foreground text-[10px]">
             Re-run "Create S7-1500 Project &amp; Import" to compile the fixed code.
           </div>
+        </div>
+      )}
+
+      {/* LAD/GRAPH reimport result */}
+      {reimportResult && (
+        <div className={`rounded-md border px-3 py-2.5 space-y-1.5 text-xs ${
+          reimportResult.errors.length > 0 || reimportResult.tagErrors.length > 0
+            ? "border-amber-500/40 bg-amber-500/5"
+            : "border-green-500/30 bg-green-500/5"
+        }`}>
+          <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider">
+            <Tag className="h-3 w-3" />
+            <span className={reimportResult.errors.length > 0 || reimportResult.tagErrors.length > 0 ? "text-amber-400" : "text-green-400"}>
+              LAD/FBD/GRAPH Reimport
+            </span>
+          </div>
+          {reimportResult.imported.length > 0 && (
+            <div className="text-muted-foreground">
+              Reimported: <span className="text-foreground">{reimportResult.imported.join(", ")}</span>
+            </div>
+          )}
+          {reimportResult.tagsCreated.length > 0 && (
+            <div className="text-muted-foreground">
+              ABS_ tags created in &quot;Migration Tags&quot; table: <span className="text-foreground">{reimportResult.tagsCreated.length}</span>
+            </div>
+          )}
+          {reimportResult.errors.map((e, i) => (
+            <div key={i} className="flex items-start gap-1.5 text-amber-300/80">
+              <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+              {e}
+            </div>
+          ))}
+          {reimportResult.tagErrors.map((e, i) => (
+            <div key={i} className="flex items-start gap-1.5 text-amber-300/80">
+              <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+              {e}
+            </div>
+          ))}
         </div>
       )}
 

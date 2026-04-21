@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -15,6 +15,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useUpdateMigrationSession } from "@/hooks/use-migrate-session";
+import { useMigrateStore } from "@/stores/migrate-store";
 import type { MigrationSession, MigrationPlanStep, MigrationSeverity } from "@/types";
 
 interface MigrateApprovePlanProps {
@@ -53,7 +54,9 @@ export function MigrateApprovePlan({ session, onSessionUpdate }: MigrateApproveP
   const [plan, setPlan] = useState<MigrationPlanStep[]>(session.migration_plan ?? []);
   const [showSkipWarning, setShowSkipWarning] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
+  const store = useMigrateStore();
   const updateSession = useUpdateMigrationSession();
 
   function toggleApprove(id: string) {
@@ -93,12 +96,19 @@ export function MigrateApprovePlan({ session, onSessionUpdate }: MigrateApproveP
 
   async function savePlan() {
     setSaving(true);
+    setSaveError(null);
     try {
       await updateSession.mutateAsync({
         id: session.id,
         updates: { migration_plan: plan, current_step: "transform" },
       });
+      // Update store directly — don't rely on refetch→useEffect chain
+      store.setCurrentStep("transform");
+      store.setStepStatus("approve_plan", "completed");
+      store.setStepStatus("transform", "active");
       onSessionUpdate();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
@@ -190,6 +200,13 @@ export function MigrateApprovePlan({ session, onSessionUpdate }: MigrateApproveP
           ))}
         </div>
       </ScrollArea>
+
+      {saveError && (
+        <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span className="break-all">{saveError}</span>
+        </div>
+      )}
 
       <div className="flex justify-end">
         <Button onClick={handleProceed} disabled={saving || approvedCount === 0}>

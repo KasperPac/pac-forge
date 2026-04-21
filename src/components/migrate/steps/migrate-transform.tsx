@@ -23,6 +23,9 @@ export function MigrateTransform({ session, onSessionUpdate }: MigrateTransformP
   const [selectedIdx, setSelectedIdx] = useState<number>(0);
   const [blocks, setBlocks] = useState<MigratedBlock[]>(session.migrated_blocks ?? []);
   const [view, setView] = useState<"diff" | "flags">("diff");
+  // Naming flags are advisory style-guide suggestions — default off for migration-only work.
+  // Engineers can enable them when a naming cleanup is also in scope.
+  const [showNaming, setShowNaming] = useState(false);
 
   const { running, currentBlockName, scanProgress, totalBlocks, error, runTransform } = useMigratePipeline();
   const updateSession = useUpdateMigrationSession();
@@ -38,7 +41,15 @@ export function MigrateTransform({ session, onSessionUpdate }: MigrateTransformP
   const allFlags: Array<FlaggedDecision & { block_name: string }> = blocks.flatMap((b) =>
     (b.flagged_decisions ?? []).map((f) => ({ ...f, block_name: b.name }))
   );
-  const pendingFlags = allFlags.filter((f) => f.accepted === null);
+
+  // NAMING flags are advisory style-guide suggestions — filterable independently
+  const isNamingFlag = (f: FlaggedDecision) =>
+    /\[NAMING\]/i.test(f.location ?? "") || /\[NAMING\]/i.test(f.id ?? "");
+
+  const namingFlagCount = allFlags.filter(isNamingFlag).length;
+  const visibleFlags = showNaming ? allFlags : allFlags.filter((f) => !isNamingFlag(f));
+
+  const pendingFlags = visibleFlags.filter((f) => f.accepted === null);
   const hasPendingFlags = pendingFlags.length > 0;
 
   async function handleRunTransform() {
@@ -160,13 +171,26 @@ export function MigrateTransform({ session, onSessionUpdate }: MigrateTransformP
             ? "border-amber-500/40 bg-amber-500/5"
             : "border-green-500/30 bg-green-500/5"
         )}>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Flag className={cn("h-3.5 w-3.5 shrink-0", hasPendingFlags ? "text-amber-400" : "text-green-400")} />
             <span className={cn("text-xs font-medium", hasPendingFlags ? "text-amber-300" : "text-green-400")}>
               {hasPendingFlags
                 ? `${pendingFlags.length} flagged decision${pendingFlags.length !== 1 ? "s" : ""} require your review`
                 : "All flagged decisions resolved"}
             </span>
+            {namingFlagCount > 0 && (
+              <button
+                onClick={() => setShowNaming((v) => !v)}
+                className={cn(
+                  "rounded border px-2 py-0.5 font-mono text-[10px] transition-colors",
+                  showNaming
+                    ? "border-blue-500/50 bg-blue-500/15 text-blue-300"
+                    : "border-border/40 bg-muted/10 text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {showNaming ? "✓" : ""} NAMING ({namingFlagCount})
+              </button>
+            )}
             <div className="ml-auto flex gap-2">
               {hasPendingFlags && (
                 <>
@@ -186,7 +210,7 @@ export function MigrateTransform({ session, onSessionUpdate }: MigrateTransformP
                 className="h-6 px-2 text-[10px]"
                 onClick={() => setView(view === "flags" ? "diff" : "flags")}
               >
-                {view === "flags" ? "Show Diff" : `Review Flags (${allFlags.length})`}
+                {view === "flags" ? "Show Diff" : `Review Flags (${visibleFlags.length}${namingFlagCount > 0 && !showNaming ? `+${namingFlagCount} naming` : ""})`}
               </Button>
             </div>
           </div>
@@ -199,7 +223,7 @@ export function MigrateTransform({ session, onSessionUpdate }: MigrateTransformP
             /* Flagged decisions panel */
             <ScrollArea className="min-h-0 flex-1 rounded-md border border-border/60">
               <div className="space-y-3 p-3">
-                {allFlags.map((flag) => (
+                {visibleFlags.map((flag) => (
                   <div
                     key={`${flag.block_name}-${flag.id}`}
                     className={cn(
@@ -289,6 +313,9 @@ export function MigrateTransform({ session, onSessionUpdate }: MigrateTransformP
                             {pendingBlockFlags > 0 && (
                               <Flag className="h-3 w-3 shrink-0 text-amber-400" />
                             )}
+                            {block.original_language && (
+                              <Badge variant="outline" className="font-mono text-[9px] shrink-0 border-blue-500/40 text-blue-400/80">{block.original_language}</Badge>
+                            )}
                             <Badge variant="outline" className="font-mono text-[9px] shrink-0">{block.block_type}</Badge>
                           </button>
                         );
@@ -306,6 +333,11 @@ export function MigrateTransform({ session, onSessionUpdate }: MigrateTransformP
                     <>
                       <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
                         <span className="font-mono text-xs text-muted-foreground">{selected.name}</span>
+                        {selected.original_language && (
+                          <Badge variant="outline" className="font-mono text-[10px] border-blue-500/50 text-blue-400">
+                            {selected.original_language}
+                          </Badge>
+                        )}
                         {selected.changes_applied.length > 0 && (
                           <Badge variant="outline" className="font-mono text-[10px] border-green-500/50 text-green-400">
                             {selected.changes_applied.length} changes
@@ -318,8 +350,14 @@ export function MigrateTransform({ session, onSessionUpdate }: MigrateTransformP
                           </Badge>
                         )}
                       </div>
-                      <div className="min-h-0 flex-1">
-                        <DiffView original={selected.original_scl} modified={selected.migrated_scl} />
+                      <div className="min-h-0 flex-1 overflow-auto">
+                        {["LAD", "FBD", "GRAPH"].includes(selected.original_language ?? "") ? (
+                          <pre className="h-full whitespace-pre-wrap break-words p-4 font-mono text-xs text-foreground/80">
+                            {selected.migrated_scl}
+                          </pre>
+                        ) : (
+                          <DiffView original={selected.original_scl} modified={selected.migrated_scl} />
+                        )}
                       </div>
                     </>
                   ) : (
@@ -351,8 +389,8 @@ export function MigrateTransform({ session, onSessionUpdate }: MigrateTransformP
       {!hasBlocks && !running && (
         <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-md border border-border/50 bg-muted/10 p-8 text-center">
           <p className="text-sm text-muted-foreground">
-            Transform the {Object.keys(session.source_blocks ?? {}).length} exported blocks to
-            S7-1500 compatible SCL based on your approved migration plan.
+            Process {Object.keys(session.source_blocks ?? {}).length} exported blocks — SCL/STL
+            converted to S7-1500 SCL, LAD/GRAPH analysed and flagged for TIA Portal recompile.
           </p>
           <Button onClick={handleRunTransform} disabled={running} className="gap-2">
             {running && <Loader2 className="h-3.5 w-3.5 animate-spin" />}

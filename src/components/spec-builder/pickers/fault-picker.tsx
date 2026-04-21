@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 export interface ResolvedFault {
   fault_code: string;
   description: string;
-  severity: "warning" | "fault";
+  severity: "warning" | "fault" | "critical";
 }
 
 export interface FaultPickerProps {

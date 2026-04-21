@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, AlertCircle, CheckCircle2, Plug, ArrowRight } from "lucide-react";
+import { Loader2, AlertCircle, CheckCircle2, Plug, ArrowRight, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useBridgeStatus } from "@/hooks/use-tia-jobs";
@@ -27,11 +27,47 @@ export function MigrateConnect({ session, onSessionUpdate }: MigrateConnectProps
   );
   const [exportError, setExportError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [exportWarnings, setExportWarnings] = useState<string[]>([]);
+  const xmlInputRef = useRef<HTMLInputElement>(null);
 
   const queryClient = useQueryClient();
   const { data: bridgeStatus } = useBridgeStatus();
   const exportMutation = useExportFromTia();
   const updateSession = useUpdateMigrationSession();
+
+  // Manually upload SimaticML XML files for blocks that couldn't be auto-exported
+  const handleManualXmlUpload = useCallback(async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const added: Record<string, string> = {};
+    const addedLangs: Record<string, string> = {};
+
+    await Promise.all(Array.from(files).map((file) => new Promise<void>((resolve) => {
+      const name = file.name.replace(/\.xml$/i, "");
+      const reader = new FileReader();
+      reader.onload = () => {
+        const content = reader.result as string;
+        added[name] = content;
+        if (content.includes("FlgNet") || content.includes("LADSource")) addedLangs[name] = "LAD";
+        else if (content.includes("FBDSource") || content.includes("FBNetwork")) addedLangs[name] = "FBD";
+        else addedLangs[name] = "LAD";
+        resolve();
+      };
+      reader.readAsText(file);
+    })));
+
+    const mergedBlocks = { ...exportedBlocks, ...added };
+    const mergedLangs = { ...exportedLangs, ...addedLangs };
+    setExportedBlocks(mergedBlocks);
+    setExportedLangs(mergedLangs);
+    void updateSession.mutateAsync({
+      id: session.id,
+      updates: {
+        source_blocks: mergedBlocks,
+        source_block_count: Object.keys(mergedBlocks).length,
+        source_block_languages: mergedLangs,
+      },
+    });
+  }, [session.id, exportedBlocks, exportedLangs, updateSession]);
 
   const connectMutation = useMutation({
     mutationFn: async () => {
@@ -77,6 +113,7 @@ export function MigrateConnect({ session, onSessionUpdate }: MigrateConnectProps
   async function handleExport() {
     setExportError(null);
     setSaveError(null);
+    setExportWarnings([]);
     let blocks: Record<string, string> = {};
     let exportResult: Awaited<ReturnType<typeof exportMutation.mutateAsync>> | null = null;
     try {
@@ -84,6 +121,7 @@ export function MigrateConnect({ session, onSessionUpdate }: MigrateConnectProps
       blocks = exportResult.sources ?? {};
       setExportedBlocks(blocks);
       setExportedLangs(exportResult.source_languages ?? {});
+      if (exportResult.warnings?.length) setExportWarnings(exportResult.warnings);
     } catch (err) {
       const msg =
         err instanceof Error
@@ -179,6 +217,9 @@ export function MigrateConnect({ session, onSessionUpdate }: MigrateConnectProps
             </div>
             {(bridgeStatus.sourcePlcFamily || bridgeStatus.sourceCpuTypeId) && (() => {
               const rec = getRecommendedTargets(bridgeStatus.sourceCpuTypeId);
+              const rawTypeId = bridgeStatus.sourceCpuTypeId?.replace("OrderNumber:", "") ?? "";
+              // Detect generic/wildcard TIA Portal placeholder (e.g. "6ES7 3xx-xxxx")
+              const isGenericCpu = /x{2,}/i.test(rawTypeId);
               return (
                 <div className="rounded-md border border-border/40 bg-muted/10 px-3 py-2.5 space-y-2">
                   <div className="flex items-center gap-2">
@@ -187,14 +228,26 @@ export function MigrateConnect({ session, onSessionUpdate }: MigrateConnectProps
                     </span>
                     <span className="font-mono text-xs text-amber-300">
                       {bridgeStatus.sourcePlcFamily ?? ""}
-                      {bridgeStatus.sourceCpuTypeId ? ` — ${bridgeStatus.sourceCpuTypeId.replace("OrderNumber:", "")}` : ""}
+                      {rawTypeId && !isGenericCpu ? ` — ${rawTypeId}` : ""}
                     </span>
+                    {isGenericCpu && (
+                      <span className="font-mono text-[10px] text-amber-500 italic">
+                        — generic placeholder ({rawTypeId}) — exact model unknown
+                      </span>
+                    )}
                     {rec.matched && (
                       <Badge variant="outline" className="ml-auto font-mono text-[9px] border-amber-500/40 text-amber-400">
                         {rec.sourceName}
                       </Badge>
                     )}
                   </div>
+                  {isGenericCpu && (
+                    <p className="font-mono text-[10px] text-muted-foreground">
+                      TIA Portal reported a generic CPU type. This happens when the hardware
+                      wasn't fully specified after migration. You can select the target CPU
+                      manually in the Compile step.
+                    </p>
+                  )}
                   <div className="flex items-start gap-2">
                     <ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
                     <div className="flex-1">
@@ -300,6 +353,73 @@ export function MigrateConnect({ session, onSessionUpdate }: MigrateConnectProps
         <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
           <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span className="break-all">{saveError}</span>
+        </div>
+      )}
+
+      {/* Export warnings — blocks that failed to export */}
+      {exportWarnings.length > 0 && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2.5 space-y-2">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+            <span className="font-mono text-[10px] uppercase tracking-wider text-amber-400">
+              {exportWarnings.length} block{exportWarnings.length > 1 ? "s" : ""} could not be auto-exported
+            </span>
+          </div>
+          <ul className="space-y-0.5 pl-5">
+            {exportWarnings.map((w, i) => (
+              <li key={i} className="font-mono text-[10px] text-amber-300/80 break-all">{w}</li>
+            ))}
+          </ul>
+          <div className="border-t border-amber-500/20 pt-2 space-y-1.5">
+            <p className="font-mono text-[10px] text-muted-foreground">
+              <strong className="text-amber-300">Standard library blocks</strong> (DEADBAND, INTEG etc.) — know-how protected, skip these.
+              Equivalent S7-1500 blocks exist in the TIA Portal library catalog.
+            </p>
+            <p className="font-mono text-[10px] text-muted-foreground">
+              <strong className="text-amber-300">Inconsistent custom blocks</strong> (SEQ blocks etc.) — export manually from TIA Portal:
+              right-click the block → <em>Export</em> → choose SimaticML format → upload the .xml file below.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5 font-mono text-[10px] border-amber-500/40 text-amber-300 hover:bg-amber-500/10"
+              onClick={() => xmlInputRef.current?.click()}
+            >
+              <Upload className="h-3 w-3" />
+              Upload block .xml files manually
+            </Button>
+            <input
+              ref={xmlInputRef}
+              type="file"
+              accept=".xml"
+              multiple
+              className="hidden"
+              onChange={(e) => handleManualXmlUpload(e.target.files)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Manual XML upload — also available when no auto-export warnings */}
+      {exportWarnings.length === 0 && blockNames.length > 0 && (
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 gap-1.5 font-mono text-[10px] text-muted-foreground"
+            onClick={() => xmlInputRef.current?.click()}
+          >
+            <Upload className="h-3 w-3" />
+            Add missing blocks via .xml
+          </Button>
+          <input
+            ref={xmlInputRef}
+            type="file"
+            accept=".xml"
+            multiple
+            className="hidden"
+            onChange={(e) => handleManualXmlUpload(e.target.files)}
+          />
         </div>
       )}
 

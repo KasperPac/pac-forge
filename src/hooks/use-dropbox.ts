@@ -130,6 +130,16 @@ export function useSuggestProjectNumber() {
   });
 }
 
+/** Mutation: list folders under a Dropbox path. */
+export function useListDropboxFolder() {
+  return useMutation({
+    mutationFn: async (path: string): Promise<Array<{ name: string; path: string; tag: string }>> => {
+      const result = await invokeDropbox("list-folder", { path });
+      return (result.entries as Array<{ name: string; path: string; tag: string }>) ?? [];
+    },
+  });
+}
+
 /** Mutation: full folder setup — check client folder, create if needed, copy template. */
 export function useSetupProjectFolder() {
   return useMutation({

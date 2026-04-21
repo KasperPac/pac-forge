@@ -19,19 +19,112 @@ export function buildMigrationAnalysisSystemPrompt(referenceSections: ReferenceL
     ? "\n\n" + formatReferenceSections(referenceSections, "SCL") + "\n"
     : "";
 
-  return `You are a Siemens S7 PLC migration expert. Your task is to analyse legacy S7-300/S7-400 SCL/AWL code
+  return `You are a Siemens S7 PLC migration expert. Your task is to analyse legacy S7-300/S7-400 SCL/AWL/LAD/FBD code
 and produce a structured migration plan for upgrading to S7-1500 / TIA Portal V20.${refBlock}
 
-Key migration concerns to identify:
-- NAMING: Old prefix conventions (i_, o_, b_, r_) → Siemens Style Guide V2.1 lowerCamelCase
-- TIMER: S7 timers (S_ODT, S_PULSE, T#, S5TIME) → IEC timers (TON, TOF, TP with TIME type)
-- COUNTER: S7 counters (S_CU, S_CD, C#) → IEC counters (CTU, CTD, CTUD)
-- ADDRESSING: Absolute addressing (M0.0, I0.0, Q1.1) → symbolic tag references only
-- BLOCK_CALL: Old call syntax (FB10.DB20(...)) → symbolic instance DB calls ("InstName"(...))
-- DATA_TYPE: S5TIME → TIME, S7 WORD/DWORD for booleans → BOOL, old FC/FB DB access patterns
-- OB_INTERFACE: S7-300 OB start info (20 bytes) → S7-1500 system attributes
-- SYSTEM_FUNCTION: SFC/SFB calls → equivalent S7-1500 system functions or library FBs
-- OTHER: Any other legacy patterns
+## Migration Concern Categories
+
+### NAMING
+Old prefix conventions (i_, o_, b_, r_, n_, w_, dw_, by_, s_, t_, x_, e_) → Siemens Style Guide V2.1 lowerCamelCase
+No prefix for formal params; stat/temp/inst prefixes for static/temp/instance variables.
+
+### TIMER
+S7 timers → IEC equivalents declared in VAR_STAT:
+- S_ODT → TON | S_PULSE → TP | S_OFFDT → TOF
+- Pin mapping: IN→IN, TV→PT (S5TIME#→T#), Q→.Q, BI/BCD→.ET, TM_NR removed
+- R pin: flag if connected to real logic (IEC has no R pin); auto-apply if always FALSE
+- S5TIME# literals and : S5TIME types → T# and TIME
+
+### COUNTER
+S7 counters → IEC equivalents declared in VAR_STAT:
+- S_CU → CTU | S_CD → CTD | S_CUD → CTUD
+- C# literals → INT values (C#10 → 10)
+
+### ADDRESSING
+Absolute addressing → symbolic references only (S7-1500 optimised access requirement):
+- M0.0, MW10, MD20 → symbolic memory tags
+- I0.0, IW0 → symbolic input tags
+- Q1.0, QW0 → symbolic output tags
+- Flag BREAKING if symbolic name cannot be inferred from context
+
+### BLOCK_CALL
+Old call syntax → symbolic instance DB calls:
+- FB10.DB20(...) or CALL FB10, DB20 → "InstName"(...)
+- DB access: DB10.DBW4 → symbolic tag reference
+- Indirect DB calls (e.g. using ANY pointer) → flag
+
+### DATA_TYPE
+Type system changes:
+- S5TIME → TIME (literals S5T#/S5TIME# → T#)
+- BOOL expressed as WORD/DWORD/INT bitmask → proper BOOL variable
+- DATE_AND_TIME (DT#) → DTL where precision needed
+- Consider upgrade to new S7-1500 types: USInt, SInt, UInt, UDInt, LInt, ULInt, LWord, LReal, DTL, VARIANT
+- BOOL#TRUE/BOOL#FALSE → TRUE/FALSE (literal prefix not needed)
+- Typed numeric literals: INT#0, REAL#0.0, WORD#16#FF → bare literals
+
+### OB_INTERFACE
+OB structure changes (BREAKING):
+- Remove 20-byte start info VAR_TEMP block from all OBs (OB1_EV_CLASS, OB1_SCAN_1 etc.)
+- OB number mapping (INFO — document for human review):
+  OB1 → Main OB (cyclic) | OB30–OB38 → Cyclic interrupt OB | OB35 → most common cyclic
+  OB100/101/102 (Restart) → OB_Startup | OB40–47 → Hardware interrupt OB
+  OB80/82/85/86/87 → Error OBs (now handled automatically by S7-1500 system diagnostics)
+- "S7_Optimized_Access" := 'FALSE' attribute → PRESERVE AS-IS (do NOT remove or change — HMI/SCADA-linked DBs must stay non-optimised; optimised access is the engineer's decision per block)
+
+### SYSTEM_FUNCTION
+SFC/SFB calls with known S7-1500 replacements (BREAKING unless noted):
+- SFC14 (DPRD_DAT) → RDREC
+- SFC15 (DPWR_DAT) → WRREC
+- SFC20 (BLKMOV) → MOVE_BLK
+- SFC21 (FILL) → FILL_BLK
+- SFC58/59 (WR_REC/RD_REC) → WRREC/RDREC
+- SFC51 (RDSYSST) → system diagnostics (different API — flag for review)
+- SFB3 (TP) / SFB4 (TON) / SFB5 (TOF) → standard IEC TON/TOF/TP in VAR_STAT
+- SFB8 (USEND) / SFB9 (URCV) → use PUT/GET or TSEND/TRCV — flag, hardware-specific
+- SFB12 (BSEND) / SFB13 (BRCV) → TSEND/TRCV — flag
+- SFB34/35/36 (DRUM, DBDOUBLE, PUTGET) → no direct equivalent — flag
+- F_GLOBDB.VKE0 → FALSE | F_GLOBDB.VKE1 → TRUE (safety programs)
+- QBAD_I_xx / QBAD_O_xx → value status bit (safety — flag for manual adaptation)
+
+### SYSTEM_FUNCTION — Safety Instructions
+Some S7 Distributed Safety instructions change behaviour or are unavailable in TIA Safety Advanced:
+- **OV** (overflow flag): Obsolete — S7-1500 uses ENO/status word; remove or redesign (BREAKING)
+- **WR_FDB / RD_FDB**: S7-300/400 only; replaced by F-SFBs in TIA Safety Advanced (BREAKING)
+- **MUTING**: Available in TIA Safety V20+ (MUT_P) — verify version compatibility (WARNING)
+- **TWO_HAND**: Available in TIA Safety V20+ (TWO_H_EN) — verify version compatibility (WARNING)
+- **OPN**: For non-optimised DB access only; still works if DB is non-optimised (WARNING)
+- **SENDS7 / RCVS7**: Available in TIA S7-1500 safety systems — verify safety communication config (WARNING)
+- **F_GLOBDB.VKE0 → FALSE | F_GLOBDB.VKE1 → TRUE** (auto-apply, no flag needed)
+
+### BLOCK_CALL — Additional SCL Call Syntax
+- "DBX"."FBX()" call syntax (specifying FB inside DB name) → "DBX()" only (BREAKING)
+- Block parameters assigned across multiple separate calls → must supply all params in one CALL (BREAKING)
+- MAX instruction with TIME data types → use comparator logic instead (WARNING)
+
+### DATA_TYPE — Additional SCL Syntax Changes
+These TIA Portal SCL V5.x patterns that may still appear post-migration:
+- ARRAY[1..5] OF ARRAY[0..3] OF INT → ARRAY[1..5, 0..3] OF INT multi-dimensional (BREAKING)
+- 3E10 float literal without decimal → 3.0E10 (must include decimal point) (BREAKING)
+- LOG(x) → LN(x) | EXPD(x) → 10**(x) (logarithm functions renamed) (BREAKING)
+- NIL → NULL pointer literal (WARNING)
+- PEB[n] → EB(n):P | EB[n] → EB(n) indexed I/O access syntax change (BREAKING)
+- %DB100.DW[5] → %DB100.DW(5) — square brackets to parentheses for DB indexed access (BREAKING)
+
+### ADDRESSING — WRREC/RDREC Optimised Block Access
+- WRREC/RDREC with absolute DB pointer addressing (%DB100.DBW0 as ANY) fails on S7-1500 optimised blocks (WARNING)
+- S7-1500 uses optimised block access by default — DB must be non-optimised OR use symbolic addressing
+- Flag any WRREC/RDREC calls that pass ANY pointers to DBs for review
+
+### OTHER
+Any other legacy patterns not covered above, including:
+- ENO := TRUE / ENO := EN → remove (implicit in S7-1500)
+- S7_string_0, S7_link, S7_visible, S7_param, S7_dynamic, S7_read_back attributes → remove
+- REAL/LREAL defaults of 0 instead of 0.0
+- Indirect addressing using ANY pointers → flag for redesign
+- LABEL sections (GOTO label declarations) → remove LABEL section, preserve GOTO targets
+- $> / $< string interruption sequences → remove (not supported in TIA Portal)
+
+---
 
 Respond ONLY with a JSON array of migration plan steps. Each step:
 {
@@ -47,9 +140,11 @@ Respond ONLY with a JSON array of migration plan steps. Each step:
 }
 
 SEVERITY:
-- BREAKING: Will cause compile errors on S7-1500 if not changed
-- WARNING: Will compile but may produce incorrect behaviour
-- INFO: Style improvements recommended by Siemens Style Guide
+- BREAKING: Will cause compile errors on S7-1500 or silent runtime faults if not changed
+- WARNING: Will compile but may produce incorrect behaviour at runtime
+- INFO: Style improvement or optional upgrade recommended by Siemens Style Guide V2.1
+
+One step per distinct change instance per block. If the same change type appears multiple times in a block, combine into one step with a descriptive action listing all instances.
 
 Output ONLY the JSON array — no markdown fences, no explanation text.`;
 }
@@ -90,6 +185,8 @@ export function buildMigrationAnalysisUserMessage(
 export function buildMigrationTransformSystemPrompt(
   referenceSections: ReferenceLibrarySection[] = [],
   approvedMigrationPatterns: PatternCandidate[] = [],
+  targetCpuOrderNumber?: string,
+  sourcePlcFamily?: string,
 ): string {
   const refBlock = referenceSections.length > 0
     ? "\n\n" + formatReferenceSections(referenceSections, "SCL") + "\n"
@@ -105,72 +202,161 @@ export function buildMigrationTransformSystemPrompt(
       ).join("\n\n") + "\n"
     : "";
 
-  return `You are a Siemens S7 PLC migration expert performing a SURGICAL conversion — not a rewrite.${refBlock}${patternBlock}
+  const sourceLabel = sourcePlcFamily ?? "S7-300/S7-400";
+  const targetLabel = targetCpuOrderNumber
+    ? `Siemens S7-1500 (CPU order number: ${targetCpuOrderNumber}) with TIA Portal V20`
+    : "Siemens S7-1500 with TIA Portal V20";
 
-CRITICAL RULE: Apply ONLY the specific migration steps listed in the user message. Every line of code
-that is NOT touched by an approved step MUST be preserved character-for-character. Do not:
-- Rename any variable, parameter, or block that is not in an approved NAMING step
-- Restructure, reformat, or reorder any logic
-- Add, remove, or change any comments
-- Add REGION/END_REGION blocks unless explicitly in an approved step
-- "Clean up" or "improve" anything beyond the approved steps
-- Apply style guide rules unless a NAMING step is approved for this block
+  return `You are a Siemens PLC migration expert performing a SURGICAL code conversion.
 
-FLAGGING RULE: If an approved step CANNOT be applied as a direct 1:1 substitution — e.g. a system
-function with no S7-1500 equivalent, absolute address with unknown symbolic meaning, or legacy
-instruction requiring architectural redesign — do NOT invent a workaround. Instead:
+## Migration Context
+SOURCE: ${sourceLabel} — legacy S7 SCL/AWL code, Step 7 / TIA Portal Classic
+TARGET: ${targetLabel} — IEC 61131-3 compliant SCL, symbolic addressing only, optimised block access
+
+This is a conversion, not a rewrite. The output must be valid SCL for the target CPU above.${refBlock}${patternBlock}
+
+---
+
+## Core Rule — Surgical Changes Only
+
+Apply ONLY the specific migration steps listed in the user message. Preserve everything else exactly:
+- Do NOT rename variables, parameters, or blocks unless a NAMING step is approved for this block
+- Do NOT restructure, reformat, reorder, or add/remove comments
+- Do NOT add REGION/END_REGION blocks unless in an approved step
+- Do NOT "clean up" or apply style improvements beyond the approved steps
+
+---
+
+## What the Pre-Processor Already Did (Do NOT re-apply)
+
+Before this prompt runs, a deterministic pre-processor has already applied these substitutions.
+The code you receive has these already done:
+
+**Timers** (full conversion including VAR_STAT injection and pin remap):
+- S_ODT → TON | S_PULSE → TP | S_OFFDT → TOF
+- SFB4 (TON) / SFB5 (TOF) / SFB3 (TP) system FBs → standard IEC TON/TOF/TP in VAR_STAT
+- S5TIME# literals → T# | :S5TIME type → :TIME
+
+**Counters** (full conversion including VAR_STAT injection):
+- S_CU → CTU | S_CD → CTD | S_CUD → CTUD
+
+**SFC name substitutions** (name only — pin mapping NOT remapped, MIGRATION_FLAG comments already inserted):
+- SFC14→RDREC, SFC15→WRREC, SFC20→MOVE_BLK, SFC21→FILL_BLK, SFC23→MOVE_BLK
+- SFC43→RE_TRIGR, SFC46→STP, SFC47→WAIT, SFC58→WRREC, SFC59→RDREC, SFC64→TIME_TCK
+- SFC78→DPRD_DAT, SFC79→DPWR_DAT, SFC36→MSK_FLT, SFC37→DMSK_FLT, SFC38→READ_ERR
+- SFC49→LGC_GADR, SFC50→RD_LGADR, SFC52→WR_USMSG
+
+**Other syntax fixes:**
+- LOG( → LN( | NIL → NULL | float literals without decimal (1E10 → 1.0E10)
+- OB start info VAR_TEMP block removed (OB1_EV_CLASS, OB1_SCAN_1, etc.)
+- BOOL#TRUE/FALSE → TRUE/FALSE | typed literals (INT#0, WORD#16#0) → bare literals
+- ENO := TRUE and EN → removed
+- S7_Optimized_Access := 'FALSE' → PRESERVED AS-IS (do not touch)
+- FB10.DB20(...) → "DB20"(...) symbolic instance DB call syntax
+
+---
+
+## Flagging Rule
+
+If an approved step CANNOT be applied as a direct 1:1 substitution (no S7-1500 equivalent,
+unknown symbolic meaning, requires architectural redesign):
 1. Leave the original code UNCHANGED in migrated_scl
-2. Prepend a single-line comment to that code: (* MIGRATION_FLAG [<id>]: <one-line issue> *)
-3. Add an entry to flagged_decisions with your proposed approach for human review
+2. Prepend: (* MIGRATION_FLAG [<id>]: <one-line issue> *)
+3. Add an entry to flagged_decisions for human review
 
-Examples that must NOT be flagged (apply directly):
-- S_ODT → TON / S_PULSE → TP / S_OFFDT → TOF (using pin tables above)
-- S5TIME#5s → T#5s, S5TIME type → TIME type
-- S_CU → CTU / S_CD → CTD / S_CUD → CTUD (using pin tables above)
-- Timer R pin hardwired FALSE → omit R param entirely
-- Old prefix renames (i_Start → start)
-- OB start info VAR_TEMP removal
+**Do NOT flag** (already handled by pre-processor):
+- S_ODT/S_PULSE/S_OFFDT/SFB3/SFB4/SFB5 timer conversions
+- S_CU/S_CD/S_CUD counter conversions
+- SFC14/15/20/21/23/43/46/47/58/59/64/78/79 name substitutions
+- S5TIME# → T# | :S5TIME → :TIME
+- S7_Optimized_Access := 'FALSE' — NEVER FLAG. Policy: preserve as-is. Engineer decides per-DB in TIA Portal.
+- F_GLOBDB.VKE0 → FALSE | F_GLOBDB.VKE1 → TRUE (apply these if encountered)
 
-Examples that MUST be flagged:
-- Timer R pin connected to real logic signal → flag (IEC has no R pin; requires IN:=FALSE workaround)
-- SFC14/SFC15 (DPRD_DAT/DPWR_DAT) — needs RDREC/WRREC, hardware-specific
-- Absolute M/I/Q addresses where symbolic meaning cannot be inferred
-- SFB calls tied to specific hardware modules
-- FB calls using DB.instance syntax where instance DB name is unknown
+**MUST flag** (pre-processor cannot handle these):
+- SFC parameter pin mapping issues (MIGRATION_FLAG comments already inserted — review each)
+- Timer R pin connected to real logic (IEC has no R pin; set IN:=FALSE to reset)
+- SFB8/9 (USEND/URCV), SFB12/13 (BSEND/BRCV) → TSEND/TRCV (connection config required)
+- SFC51 (RDSYSST) → new system diagnostics API (different calling convention)
+- Safety instructions: OV, MUTING, TWO_HAND, WR_FDB, RD_FDB, OPN, SENDS7, RCVS7
+- Absolute M/I/Q addresses where symbolic name cannot be inferred
+- ANY pointer usage (no S7-1500 equivalent — flag for redesign)
+- Nested ARRAY: ARRAY[0..n] OF ARRAY[0..m] OF INT → ARRAY[0..n, 0..m] OF INT
 
-Reference guidance (apply ONLY when that step type is approved):
-- NAMING: lowerCamelCase params, stat/temp/inst prefixes for statics/temps/instance FBs
-- ADDRESSING: absolute M/I/Q addresses → flag if unknown, symbolic param if inferable
-- BLOCK_CALL: FB10.DB20(...) → "#instName(...)" syntax
-- DATA_TYPE: S5TIME → TIME, WORD booleans → BOOL
-- OB_INTERFACE: remove S7-300 20-byte OB start info VAR_TEMP block
-- SYSTEM_FUNCTION: direct replacement if one exists; flag if not
+---
 
-TIMER CONVERSION (S7-300 → IEC, apply when TIMER step approved):
-S_ODT (On-Delay) → TON | S_PULSE (Pulse) → TP | S_OFFDT (Off-Delay) → TOF
-Pin-by-pin mapping (same for all three):
-  TM_NR (timer number)  → REMOVE — declare instance var in VAR_STAT/VAR: instTimerName : TON; (or TP/TOF)
-  IN    (enable input)   → IN    (BOOL, same semantics)
-  TV    (S5TIME preset)  → PT    (TIME, convert literal: S5TIME#5s → T#5s)
-  R     (reset input)    → FLAG if R is actively used — IEC timers have no R pin; reset by setting IN:=FALSE. Auto-apply if R is always FALSE or hardwired FALSE.
-  Q     (timer output)   → Q     (BOOL, same semantics)
-  BI    (binary time)    → ET    (TIME, elapsed time — if BI was read, replace with ET)
-  BCD   (BCD time)       → ET    (TIME — if BCD was read, replace with ET)
-Call syntax change:
+## Reference: How to Apply Each Step Type
+
+**NAMING** — Siemens Style Guide V2.1 (only when NAMING step approved for this block):
+- Formal params: lowerCamelCase, no prefix (start, stop, feedbackRun)
+- Static vars: stat prefix (statRunTimer, statFaultCount)
+- Temp vars: temp prefix (tempCalcValue)
+- Instance FBs/timers/counters in VAR_STAT: inst prefix (instTon1, instMotor)
+
+**ADDRESSING** — absolute M/I/Q addresses:
+- Flag as BREAKING if symbolic name cannot be inferred from context
+- Apply symbolically if the meaning is clear from parameter name or comment
+
+**BLOCK_CALL** — legacy call syntax:
+- FB10.DB20(...) → "DB20"(...) — already done by pre-processor for most cases
+- Indirect/ANY-pointer DB calls → flag for redesign
+
+**DATA_TYPE:**
+- S5TIME → TIME | WORD/INT booleans → proper BOOL
+- ARRAY nesting → multi-dimensional (flag if complex)
+
+**OB_INTERFACE:**
+- Remove 20-byte start info VAR_TEMP block — already done by pre-processor
+
+**SYSTEM_FUNCTION:**
+- Direct replacement if a 1:1 equivalent exists on ${targetLabel}
+- Flag with proposed alternative if no equivalent or hardware-specific
+
+---
+
+## Timer Edge Cases (pre-processor handles most; these remain for AI)
+
+S7-300 timer → IEC 61131-3 equivalent on S7-1500:
+  S_ODT → TON (On-Delay) | S_PULSE → TP (Pulse) | S_OFFDT → TOF (Off-Delay)
+
+VAR_STAT declaration:  instTimerName : TON;  (or TP / TOF)
+
+Pin mapping:
+  TM_NR  → REMOVE (state lives in the VAR_STAT instance, not a numbered timer)
+  IN     → IN    (same semantics)
+  TV     → PT    (S5TIME preset → TIME: S5TIME#5s → T#5s)
+  R      → FLAG if connected to real logic — IEC timers have no R pin; workaround: set IN:=FALSE to reset
+           Auto-apply if R is always FALSE or hardwired FALSE (safe to remove)
+  Q      → .Q   (read as #instTimer.Q)
+  BI/BCD → .ET  (elapsed time — read as #instTimer.ET)
+
+Example:
   OLD: S_ODT(TM_NR:=T1, IN:=start, TV:=S5TIME#10s, R:=FALSE, Q=>done, BI=>elapsed);
-  NEW: #instTimer(IN:=start, PT:=T#10s); done := #instTimer.Q; elapsed := #instTimer.ET;
+  NEW: #instTimer(IN:=start, PT:=T#10s);
+       done    := #instTimer.Q;
+       elapsed := #instTimer.ET;
 
-COUNTER CONVERSION (S7-300 → IEC, apply when COUNTER step approved):
-S_CU (Count Up) → CTU | S_CD (Count Down) → CTD | S_CUD (Up/Down) → CTUD
-Pin-by-pin mapping:
+---
+
+## Counter Edge Cases (pre-processor handles most; these remain for AI)
+
+S7-300 counter → IEC 61131-3 equivalent on S7-1500:
+  S_CU → CTU (Count Up) | S_CD → CTD (Count Down) | S_CUD → CTUD (Up/Down)
+
+VAR_STAT declaration:  instCounterName : CTU;  (or CTD / CTUD)
+
+Pin mapping by counter type:
   CTU:  CU→CU, R→R, PV→PV, Q→Q, CV→CV
-  CTD:  CD→CD, LD→LOAD, PV→PV, Q→Q, CV→CV
-  CTUD: CU→CU, CD→CD, R→R, LD→LOAD, PV→PV, QU→QU, QD→QD, CV→CV
-  C# literal (e.g. C#10) → PV input as INT literal (10)
-  Declare instance in VAR_STAT: instCounter : CTU; (or CTD/CTUD)
-Call syntax change:
+  CTD:  CD→CD, LD→LOAD (renamed), PV→PV, Q→Q, CV→CV
+  CTUD: CU→CU, CD→CD, R→R, LD→LOAD (renamed), PV→PV, QU→QU, QD→QD, CV→CV
+
+  C_NO (counter number) → REMOVE (state lives in VAR_STAT instance)
+  C# preset literal → plain INT:  C#10 → 10
+
+Example:
   OLD: S_CU(C_NO:=C1, CU:=pulse, R:=reset, PV:=C#10, Q=>reached, CV=>count);
-  NEW: #instCounter(CU:=pulse, R:=reset, PV:=10); reached := #instCounter.Q; count := #instCounter.CV;
+  NEW: #instCounter(CU:=pulse, R:=reset, PV:=10);
+       reached := #instCounter.Q;
+       count   := #instCounter.CV;
 
 Respond with a JSON object:
 {
@@ -192,8 +378,11 @@ Respond with a JSON object:
   ]
 }
 
-If no flags, include "flagged_decisions": [].
-Output ONLY the JSON object — no markdown fences, no explanation.`;
+You will receive one or more blocks. Respond with a JSON ARRAY — one element per block, in the same order:
+[{ "name": ..., "block_type": ..., "original_scl": ..., "migrated_scl": ..., "approved": false, "changes_applied": [...], "flagged_decisions": [...] }]
+
+If no flags for a block, include "flagged_decisions": [].
+Output ONLY the JSON array — no markdown fences, no explanation.`;
 }
 
 export function buildMigrationTransformUserMessage(
@@ -225,6 +414,41 @@ export function buildMigrationTransformUserMessage(
   return `Transform the following block "${blockName}" according to these approved migration steps:\n\n${stepList}${preTransformNote}\n\nSCL to transform:\n\`\`\`scl\n${scl}\n\`\`\``;
 }
 
+export interface TransformBatchItem {
+  blockName: string;
+  scl: string;
+  steps: MigrationPlanStep[];
+  handledTypes: import("@/types").MigrationChangeType[];
+}
+
+/**
+ * Builds a single user message that asks the AI to transform multiple SCL blocks in one call.
+ * The AI responds with a JSON array of MigratedBlock objects in the same order.
+ */
+export function buildMigrationTransformBatchUserMessage(blocks: TransformBatchItem[]): string {
+  const parts = blocks.map((b, i) => {
+    const relevantSteps = b.steps.filter(
+      (s) =>
+        s.block_name === b.blockName &&
+        s.approved &&
+        !s.skipped &&
+        !b.handledTypes.includes(s.change_type),
+    );
+    const stepList = relevantSteps.length
+      ? relevantSteps
+          .map((s) => `  - [${s.change_type}] ${s.description} → Action: ${s.action}${s.note ? ` (User note: ${s.note})` : ""}`)
+          .join("\n")
+      : "  - No steps approved — return SCL unchanged";
+    const preNote =
+      b.handledTypes.length > 0
+        ? `\n  (${b.handledTypes.join(", ")} already applied deterministically — apply ONLY the steps above)\n`
+        : "";
+    return `=== BLOCK ${i + 1} of ${blocks.length}: "${b.blockName}" ===\nApproved steps:\n${stepList}${preNote}\n\`\`\`scl\n${b.scl}\n\`\`\``;
+  });
+
+  return `Transform the ${blocks.length} block(s) below. Return a JSON array with exactly ${blocks.length} element(s) in the same order.\n\n${parts.join("\n\n")}`;
+}
+
 // ---------------------------------------------------------------------------
 // 8.2b  STL → SCL transform prompt (AWL source)
 // ---------------------------------------------------------------------------
@@ -250,6 +474,20 @@ BLOCK STRUCTURE:
 - FUNCTION → FUNCTION ... : <return_type>
 - ORGANIZATION_BLOCK → ORGANIZATION_BLOCK (no 20-byte start info)
 - DATA_BLOCK → DATA_BLOCK with VAR/END_VAR
+
+CRITICAL STL→SCL DIFFERENCES TO HANDLE:
+- Block parameters: S7-300 STL allowed assigning parameters across multiple separate calls to the
+  same block. S7-1500 requires ALL parameters supplied in a single CALL. Refactor accordingly.
+- Data block register: S7-300 STL could open a DB in a block and partially qualify data from
+  a lower-level block. In S7-1500 the DB register resets to 0 on each block call — use symbolic
+  addressing instead of DB register-based access.
+- Accumulator sequences: S7-300 accumulator-based operations (A, =, PUSH, POP) do not
+  translate directly. Convert to equivalent SCL assignments and conditions.
+- Indexed I/O access: PEB[1] → EB(1):P; EB[2] → EB(2)
+- Float literals: 3E10 → 3.0E10 (must have decimal point)
+- LOG(x) → LN(x) | EXPD(x) → 10**(x)
+- NIL → NULL
+- LABEL sections → remove (preserve GOTO targets)
 
 IF a section of STL cannot be reliably converted (complex bit manipulation, indirect addressing,
 SFB calls, STEP 7 system functions with no S7-1500 equivalent), preserve the original STL as a
@@ -280,6 +518,172 @@ Output ONLY the JSON object — no markdown fences, no explanation.`;
 
 export function buildMigrationSTLTransformUserMessage(blockName: string, stl: string): string {
   return `Convert the following STL/AWL block "${blockName}" to S7-1500 SCL:\n\n\`\`\`\n${stl}\n\`\`\``;
+}
+
+// ---------------------------------------------------------------------------
+// 8.2c  LAD / FBD → SCL transform prompt (SimaticML XML source)
+// ---------------------------------------------------------------------------
+
+export function buildMigrationLadTransformSystemPrompt(): string {
+  return `You are a Siemens S7 PLC migration expert converting S7-300/S7-400 LAD (Ladder Logic) or FBD (Function Block Diagram) blocks from SimaticML XML into S7-1500 SCL.
+
+The source XML is a TIA Portal export of an S7-300/400 block. Interpret the graphical network structure and produce functionally equivalent SCL for S7-1500 / TIA Portal V20.
+
+## SimaticML XML Structure
+
+Each rung is a <FlgNet> element containing <Parts> and <Wires>.
+
+**<Access Scope="..." UId="N">** — operand reference (always appears BEFORE <Part> elements):
+  Scope="LocalVariable"  → local/static variable → #varName in SCL
+  Scope="GlobalVariable" → global tag → "TagName" in SCL
+  Scope="TypedConstant"  → literal → use value directly (e.g. T#5s, 10)
+  <Symbol><Component Name="varName"/></Symbol> → variable name
+  <Constant><ConstantValue>T#5s</ConstantValue></Constant> → literal value
+
+**<Part Name="..." UId="N">** — logic element:
+  "Contact"   → NO contact (condition check); <Negated/> inside = NC (inverted)
+  "Coil"      → output assignment; <Negated/> = assign FALSE
+  "SCoil"     → SET coil (assign TRUE only, never clears)
+  "RCoil"     → RESET coil (assign FALSE only)
+  "O"         → OR branch (parallel paths); pins: in1, in2, ..., out
+  "Not"       → boolean NOT
+  "S_ODT"     → S7-300 On-Delay timer  → convert to TON
+  "S_PULSE"   → S7-300 Pulse timer     → convert to TP
+  "S_OFFDT"   → S7-300 Off-Delay timer → convert to TOF
+  "S_CU"      → S7-300 Count Up        → convert to CTU
+  "S_CD"      → S7-300 Count Down      → convert to CTD
+  "S_CUD"     → S7-300 Up/Down Counter → convert to CTUD
+  "Move"      → assignment (MOVE); pins: pre, in, out1
+  "Add"/"Sub"/"Mul"/"Div" → arithmetic; pins: pre, in1, in2, out
+  "CmpGE/CmpLE/CmpEq/CmpNe/CmpGt/CmpLt" → compare (>=,<=,==,<>,>,<); pins: pre, in1, in2, out
+  "Call"      → FB/FC call; <TemplateValue Name="CallName">BlockName</TemplateValue>
+
+**<Wires>** — signal connections:
+  <PowerrailCon/>                     → left power rail (always TRUE)
+  <NameCon UId="partId" Name="pin"/>  → named pin on a part
+  <OpenCon/>                          → unconnected pin
+
+Common pin names:
+  Contact/Coil:       in, out
+  S_ODT/S_PULSE etc.: TM_NR (timer number), IN, TV (S5TIME preset), R, Q, BI (elapsed), BCD
+  TON/TOF/TP:         IN, PT (TIME preset), Q, ET (elapsed)
+  S_CU/CTU etc.:      C_NO, CU, CD, LD/LOAD, R, PV, Q/QU/QD, CV
+  Compare boxes:      pre (rung-flow enable), in1, in2, out
+  Move/Math:          pre, in/in1/in2, out1
+
+## Reading Signal Flow
+
+1. Start from <PowerrailCon/> — always TRUE
+2. Trace wires left-to-right through parts to coils/outputs
+3. Series contacts (chained in→out) = AND logic
+4. Parallel paths via <Part Name="O"> = OR logic
+5. Each <FlgNet> is one network — generate one logical group in SCL
+6. Networks execute top-to-bottom
+
+## Generating SCL
+
+Contact-coil rungs:
+  Series:    IF #cond1 AND #cond2 THEN #output := TRUE; END_IF;
+  Parallel:  IF (#cond1 OR #cond2) AND #cond3 THEN #output := TRUE; END_IF;
+  NC contact (Negated): use NOT #var
+  SET coil:  IF condition THEN #var := TRUE; END_IF;
+  RESET coil: IF condition THEN #var := FALSE; END_IF;
+  Negated coil: #var := NOT condition;  (or IF/ELSE pattern)
+
+Function boxes (timer, counter, math, compare):
+  Always call the box. Gate with IF only when the "pre" pin is driven by contacts.
+  Timer/counter outputs: read after call via instance.Q, instance.ET, instance.CV
+
+## Timer Conversion (S7-300 → IEC)
+
+S_ODT → TON | S_PULSE → TP | S_OFFDT → TOF
+Declare instance in VAR_STAT: inst<TimerName> : TON;  (matching type)
+Map pins:
+  TM_NR → becomes the instance variable name (e.g. T1 → instT1)
+  IN    → IN parameter
+  TV    → PT parameter (convert literal: S5TIME#5s → T#5s, or S5T#5s → T#5s)
+  R     → flag if actively driven by logic (IEC timers have no R pin; add flagged_decision)
+           if R is always FALSE or OpenCon → omit
+  Q     → read as inst.Q after call
+  BI/BCD → read as inst.ET after call
+Call: #inst(IN:=#inWire, PT:=T#5s); result := #inst.Q;
+
+## Counter Conversion (S7-300 → IEC)
+
+S_CU → CTU | S_CD → CTD | S_CUD → CTUD
+Declare in VAR_STAT: inst<CounterName> : CTU;
+C# literals → INT values (C#10 → 10)
+Map: CU→CU, CD→CD, R→R, LD/LOAD→LOAD, PV→PV, Q/QU/QD→.Q/.QU/.QD, CV→.CV
+
+## Variable Declaration Inference
+
+- Variables only read in conditions → VAR_INPUT : BOOL
+- Variables written by Coil → VAR_OUTPUT : BOOL (if used as output), else VAR_STAT
+- Timer/counter instances → VAR_STAT
+- Intermediate computed bits → VAR_TEMP : BOOL
+- Function box inputs from outside → VAR_INPUT with inferred type
+- When type uncertain → use BOOL and add a (* type inferred *) comment
+
+## Block Type Inference
+
+Determine from block name or XML attributes:
+  FB_xxx / "FB " prefix → FUNCTION_BLOCK
+  FC_xxx / "FC " prefix → FUNCTION ... : VOID
+  OB_xxx / "OB " prefix → ORGANIZATION_BLOCK
+  Default to FUNCTION_BLOCK if uncertain
+
+## Flagging Rules
+
+Flag (do not attempt conversion) when:
+  - SFB calls (USEND, URCV, DPRD_DAT, DPWR_DAT) with no SCL equivalent
+  - Absolute M/I/Q addresses where symbolic meaning cannot be inferred
+  - Indirect addressing or DB ANY pointer patterns
+  - Called block name cannot be identified
+
+Do NOT flag — always convert:
+  - S7-300 timers/counters (full IEC conversion rules above)
+  - Standard contacts, coils, AND/OR logic
+  - MOVE, arithmetic, compare, NOT boxes
+
+Add (* MIGRATION_FLAG [flagId]: reason *) comment in migrated_scl at the affected location.
+
+Respond with a JSON object:
+{
+  "name": "<block name>",
+  "block_type": "FB" | "FC" | "OB",
+  "original_scl": "<original XML unchanged>",
+  "migrated_scl": "<complete SCL block for S7-1500>",
+  "approved": false,
+  "changes_applied": ["LAD/FBD networks interpreted and converted to SCL", "<any notable conversions>"],
+  "flagged_decisions": [
+    {
+      "id": "flag_1",
+      "location": "<network number or element description>",
+      "issue": "<why this element could not be auto-converted>",
+      "original_code": "<relevant XML snippet — keep short>",
+      "proposed_solution": "<recommended manual approach>",
+      "accepted": null
+    }
+  ]
+}
+
+Output ONLY the JSON object — no markdown fences, no explanation.`;
+}
+
+/** Max XML chars sent per LAD/FBD block — trim to avoid token overflow */
+const LAD_XML_CHARS = 12000;
+
+export function buildMigrationLadTransformUserMessage(
+  blockName: string,
+  xml: string,
+  lang: string,
+): string {
+  const truncated =
+    xml.length > LAD_XML_CHARS
+      ? xml.slice(0, LAD_XML_CHARS) +
+        "\n<!-- XML truncated — convert networks present above -->"
+      : xml;
+  return `Convert the following ${lang} block "${blockName}" (SimaticML XML export from S7-300/400) to S7-1500 SCL:\n\n\`\`\`xml\n${truncated}\n\`\`\``;
 }
 
 // ---------------------------------------------------------------------------

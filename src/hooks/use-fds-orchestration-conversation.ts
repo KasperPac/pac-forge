@@ -67,18 +67,29 @@ export function useFdsOrchestrationConversation({
     });
 
   const buildSystemPrompt = useCallback(() => {
-    return buildFdsOrchestrationSystemPrompt(subsystem, assemblySummaries, sequentialStates);
+    // Shim cast: orchestration prompt builder still expects legacy SequentialStateData shape
+    return buildFdsOrchestrationSystemPrompt(
+      subsystem,
+      assemblySummaries as unknown as Array<{
+        assembly_name: string;
+        assembly_id: string;
+        sequential_states: Record<string, import("@/types/spec-builder").SequentialStateData>;
+      }>,
+      sequentialStates,
+    );
   }, [subsystem, assemblySummaries, sequentialStates]);
 
   const conversation = orchestration?.conversation ?? [];
 
   const persistTurn = useCallback(
-    async (turn: FdsConversationTurn, stateUpdate?: { state_id: string; sequence: SubsystemStateSequence }) => {
+    async (turn: FdsConversationTurn, stateUpdates?: Array<{ state_id: string; sequence: SubsystemStateSequence }>) => {
       const updatedConversation = [...conversation, turn];
-      const existing = orchestration?.state_sequences ?? {};
-      const state_sequences = stateUpdate
-        ? { ...existing, [stateUpdate.state_id]: stateUpdate.sequence }
-        : existing;
+      const existing = { ...(orchestration?.state_sequences ?? {}) };
+      if (stateUpdates && stateUpdates.length > 0) {
+        for (const { state_id, sequence } of stateUpdates) {
+          existing[state_id] = sequence;
+        }
+      }
 
       await supabase
         .from("fds_subsystem_orchestrations")
@@ -86,7 +97,7 @@ export function useFdsOrchestrationConversation({
           {
             spec_project_id: specProjectId,
             subsystem_id: subsystem.subsystem_id,
-            state_sequences,
+            state_sequences: existing,
             conversation: updatedConversation,
           },
           { onConflict: "spec_project_id,subsystem_id" },
@@ -97,33 +108,51 @@ export function useFdsOrchestrationConversation({
     [conversation, orchestration, specProjectId, subsystem.subsystem_id, queryClient],
   );
 
-  const processAiResponse = useCallback(
-    (fullText: string): { state_id: string; sequence: SubsystemStateSequence } | undefined => {
-      const extracted = extractJsonFromResponse(fullText);
-      if (!extracted) return undefined;
-
-      const stateId = (extracted.state_id as string) ?? sequentialStates[0]?.state_id;
-      if (!stateId) return undefined;
-
-      const existing = orchestration?.state_sequences[stateId] ?? {
-        assembly_order: [],
-        shared_permissives: [],
-        inter_assembly_interlocks: [],
-        notes: null,
-      };
-
-      return {
-        state_id: stateId,
-        sequence: {
-          assembly_order: (extracted.assembly_order as string[]) ?? existing.assembly_order,
-          shared_permissives: (extracted.shared_permissives as string[]) ?? existing.shared_permissives,
-          inter_assembly_interlocks:
-            (extracted.inter_assembly_interlocks as InterAssemblyInterlock[]) ?? existing.inter_assembly_interlocks,
-          notes: (extracted.notes as string | null) ?? existing.notes,
-        },
-      };
+  const resolveStateId = useCallback(
+    (rawId: string | undefined): string | undefined => {
+      if (!rawId) return sequentialStates[0]?.state_id;
+      if (sequentialStates.some((s) => s.state_id === rawId)) return rawId;
+      const byName = sequentialStates.find(
+        (s) => s.state_name.toLowerCase() === rawId.toLowerCase() || s.state_id.toLowerCase() === rawId.toLowerCase(),
+      );
+      return byName?.state_id ?? sequentialStates[0]?.state_id;
     },
-    [sequentialStates, orchestration],
+    [sequentialStates],
+  );
+
+  const processAiResponse = useCallback(
+    (fullText: string): Array<{ state_id: string; sequence: SubsystemStateSequence }> => {
+      // Shim cast: extractJsonFromResponse currently typed as Record,
+      // but during SFC v2 migration it yields an array of delta blocks.
+      const extracted = extractJsonFromResponse(fullText) as unknown as Array<Record<string, unknown>> | null;
+      if (!extracted || extracted.length === 0) return [];
+
+      const results: Array<{ state_id: string; sequence: SubsystemStateSequence }> = [];
+      for (const block of extracted) {
+        const stateId = resolveStateId(block.state_id as string | undefined);
+        if (!stateId) continue;
+
+        const existing = orchestration?.state_sequences[stateId] ?? {
+          assembly_order: [],
+          shared_permissives: [],
+          inter_assembly_interlocks: [],
+          notes: null,
+        };
+
+        results.push({
+          state_id: stateId,
+          sequence: {
+            assembly_order: (block.assembly_order as string[]) ?? existing.assembly_order,
+            shared_permissives: (block.shared_permissives as string[]) ?? existing.shared_permissives,
+            inter_assembly_interlocks:
+              (block.inter_assembly_interlocks as InterAssemblyInterlock[]) ?? existing.inter_assembly_interlocks,
+            notes: (block.notes as string | null) ?? existing.notes,
+          },
+        });
+      }
+      return results;
+    },
+    [resolveStateId, orchestration],
   );
 
   const sendMessage = useCallback(
@@ -169,7 +198,7 @@ export function useFdsOrchestrationConversation({
           plMeta,
         );
 
-        const stateUpdate = processAiResponse(fullText);
+        const stateUpdates = processAiResponse(fullText);
         const proseContent = stripJsonFromResponse(fullText);
 
         const assistantTurn: FdsConversationTurn = {
@@ -177,7 +206,7 @@ export function useFdsOrchestrationConversation({
           content: proseContent,
           timestamp: new Date().toISOString(),
         };
-        await persistTurn(assistantTurn, stateUpdate);
+        await persistTurn(assistantTurn, stateUpdates.length > 0 ? stateUpdates : undefined);
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
         setError(err instanceof Error ? err.message : "Conversation failed");

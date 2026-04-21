@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router";
-import { FolderOpen, Bot, Terminal, BookOpen, GraduationCap, Layers, SlidersHorizontal, FileText, Library, LogOut, User, Sun, Moon, Monitor, ChevronRight, MessageSquare, Blocks, PanelLeftClose, PanelLeftOpen, GitBranchPlus, Wand2, ArrowRightLeft, BookPlus, Building2, Cpu, FlaskConical, LayoutDashboard, ClipboardList } from "lucide-react";
+import { FolderOpen, Bot, Terminal, BookOpen, GraduationCap, Layers, SlidersHorizontal, FileText, Library, LogOut, User, Sun, Moon, Monitor, ChevronRight, PanelLeftClose, PanelLeftOpen, Wand2, BookPlus, Building2, Cpu, FlaskConical, LayoutDashboard, ClipboardList, SearchCode } from "lucide-react";
 import { AgentChatFab } from "@/components/agent-chat/agent-chat-fab";
 import pacLogo from "@/../media/logos/PacTechnologiesEdit_White.png";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -16,10 +16,11 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { useAuth } from "@/hooks/use-auth";
 import { useProfile } from "@/hooks/use-profile";
-import { useGlobalActiveSession } from "@/hooks/use-sessions";
+// useGlobalActiveSession removed — replaced by global activeProjectId in ui-store
 import { useProject } from "@/hooks/use-projects";
 import { usePendingPatternCount } from "@/hooks/use-patterns";
 import { useBridgeStatus } from "@/hooks/use-tia-jobs";
+import { useSupabaseStatus } from "@/hooks/use-supabase-status";
 import { useUiStore } from "@/stores/ui-store";
 import { cn } from "@/lib/utils";
 
@@ -27,6 +28,7 @@ interface NavItem {
   to: string;
   label: string;
   icon: typeof FolderOpen;
+  requiresProject?: boolean;
 }
 
 interface NavGroup {
@@ -35,30 +37,23 @@ interface NavGroup {
   items: NavItem[];
 }
 
+const PROJECT_SCOPED_ROUTES = new Set(["/forge", "/pac-audit", "/specs", "/hmi-editor"]);
+
 const NAV_GROUPS: NavGroup[] = [
   {
     items: [
       { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-      { to: "/clients", label: "Clients", icon: Building2 },
       { to: "/projects", label: "Projects", icon: FolderOpen },
-      { to: "/forge", label: "Project Wizard", icon: Wand2 },
-      { to: "/specs", label: "Spec Builder", icon: ClipboardList },
-    ],
-  },
-  {
-    label: "Code Tools",
-    items: [
-      { to: "/hmi-builder", label: "HMI Builder (V20)", icon: Monitor },
-      { to: "/hmi-editor", label: "HMI Editor (Comfort)", icon: Monitor },
-      { to: "/pac-lad", label: "Pac-LAD", icon: GitBranchPlus },
-      { to: "/pac-st/fb-builder", label: "FB Builder", icon: Blocks },
-      { to: "/pac-st/chat", label: "Pac-ST Chat", icon: MessageSquare },
-      { to: "/migrate", label: "Migration Wizard", icon: ArrowRightLeft },
+      { to: "/forge", label: "Project Wizard", icon: Wand2, requiresProject: true },
+      { to: "/pac-audit", label: "Pac-Audit", icon: SearchCode, requiresProject: true },
+      { to: "/specs", label: "Spec Builder", icon: ClipboardList, requiresProject: true },
+      { to: "/hmi-editor", label: "HMI Editor", icon: Monitor, requiresProject: true },
     ],
   },
   {
     label: "Configuration",
     items: [
+      { to: "/clients", label: "Clients", icon: Building2 },
       { to: "/profiles", label: "Profiles", icon: SlidersHorizontal },
       { to: "/fb-library", label: "FB Library", icon: Layers },
       { to: "/test-templates", label: "Test Templates", icon: FlaskConical },
@@ -89,10 +84,12 @@ function NavGroupSection({
   group,
   collapsed,
   pendingPatternCount,
+  hasActiveProject,
 }: {
   group: NavGroup;
   collapsed: boolean;
   pendingPatternCount?: number;
+  hasActiveProject: boolean;
 }) {
   const location = useLocation();
   const isAnyActive = group.items.some((item) => location.pathname.startsWith(item.to));
@@ -103,26 +100,39 @@ function NavGroupSection({
   const itemsVisible = !group.collapsible || expanded;
 
   if (collapsed) {
-    // Collapsed sidebar: just icons, no headers
     return (
       <>
-        {group.items.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            title={item.label}
-            className={({ isActive }) =>
-              cn(
-                "flex items-center justify-center rounded-md p-2 transition-colors",
-                isActive
-                  ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-              )
-            }
-          >
-            <item.icon className="h-4 w-4" />
-          </NavLink>
-        ))}
+        {group.items.map((item) => {
+          const disabled = item.requiresProject && !hasActiveProject;
+          if (disabled) {
+            return (
+              <div
+                key={item.to}
+                title="Select a project first"
+                className="flex items-center justify-center rounded-md p-2 text-muted-foreground/30 cursor-not-allowed"
+              >
+                <item.icon className="h-4 w-4" />
+              </div>
+            );
+          }
+          return (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              title={item.label}
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center justify-center rounded-md p-2 transition-colors",
+                  isActive
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                )
+              }
+            >
+              <item.icon className="h-4 w-4" />
+            </NavLink>
+          );
+        })}
       </>
     );
   }
@@ -169,7 +179,7 @@ function NavGroupSection({
           <div className="overflow-hidden">
             <div className="space-y-0.5">
               {group.items.map((item) => (
-                <NavItem key={item.to} item={item} pendingPatternCount={pendingPatternCount} />
+                <NavItem key={item.to} item={item} pendingPatternCount={pendingPatternCount} hasActiveProject={hasActiveProject} />
               ))}
             </div>
           </div>
@@ -177,7 +187,7 @@ function NavGroupSection({
       ) : (
         <div className="space-y-0.5">
           {group.items.map((item) => (
-            <NavItem key={item.to} item={item} pendingPatternCount={pendingPatternCount} />
+            <NavItem key={item.to} item={item} pendingPatternCount={pendingPatternCount} hasActiveProject={hasActiveProject} />
           ))}
         </div>
       )}
@@ -185,7 +195,21 @@ function NavGroupSection({
   );
 }
 
-function NavItem({ item, pendingPatternCount }: { item: NavItem; pendingPatternCount?: number }) {
+function NavItem({ item, pendingPatternCount, hasActiveProject }: { item: NavItem; pendingPatternCount?: number; hasActiveProject: boolean }) {
+  const disabled = item.requiresProject && !hasActiveProject;
+
+  if (disabled) {
+    return (
+      <div
+        className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground/40 cursor-not-allowed"
+        title="Select a project first"
+      >
+        <item.icon className="h-4 w-4 shrink-0" />
+        {item.label}
+      </div>
+    );
+  }
+
   return (
     <NavLink
       to={item.to}
@@ -211,7 +235,8 @@ function NavItem({ item, pendingPatternCount }: { item: NavItem; pendingPatternC
 
 function Sidebar() {
   const { data: pendingCount } = usePendingPatternCount();
-  const { sidebarCollapsed, toggleSidebar } = useUiStore();
+  const { sidebarCollapsed, toggleSidebar, activeProjectId } = useUiStore();
+  const hasActiveProject = !!activeProjectId;
 
   return (
     <aside
@@ -247,23 +272,15 @@ function Sidebar() {
       <Separator />
 
       <nav className={cn("flex-1 overflow-y-auto", sidebarCollapsed ? "space-y-1 p-1" : "p-2")}>
-        {NAV_GROUPS.map((group, i) =>
-          sidebarCollapsed ? (
-            <NavGroupSection
-              key={i}
-              group={group}
-              collapsed={true}
-              pendingPatternCount={pendingCount ?? undefined}
-            />
-          ) : (
-            <NavGroupSection
-              key={i}
-              group={group}
-              collapsed={false}
-              pendingPatternCount={pendingCount ?? undefined}
-            />
-          )
-        )}
+        {NAV_GROUPS.map((group, i) => (
+          <NavGroupSection
+            key={i}
+            group={group}
+            collapsed={sidebarCollapsed}
+            pendingPatternCount={pendingCount ?? undefined}
+            hasActiveProject={hasActiveProject}
+          />
+        ))}
       </nav>
     </aside>
   );
@@ -283,6 +300,29 @@ function getInitials(displayName: string | undefined, email: string | undefined)
 
 const THEME_ICON = { light: Sun, dark: Moon, system: Monitor } as const;
 
+function SupabaseStatusIndicator() {
+  const { data: health } = useSupabaseStatus();
+
+  const dot =
+    health === "healthy"  ? "bg-green-500" :
+    health === "degraded" ? "bg-amber-500" :
+    health === "offline"  ? "bg-red-500 animate-pulse" :
+    "bg-zinc-500";
+
+  const label =
+    health === "healthy"  ? "Supabase healthy" :
+    health === "degraded" ? "Supabase degraded" :
+    health === "offline"  ? "Supabase offline" :
+    "Supabase checking…";
+
+  return (
+    <div className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground" title={label}>
+      <span className={cn("inline-block h-2 w-2 rounded-full", dot)} />
+      <span>{label}</span>
+    </div>
+  );
+}
+
 function BridgeStatusIndicator() {
   const { data: status } = useBridgeStatus();
   const [starting, setStarting] = useState(false);
@@ -290,13 +330,15 @@ function BridgeStatusIndicator() {
   const tiaOn = status?.tiaConnected ?? false;
   const projectOn = status?.projectOpen ?? false;
 
+  const activePort = status?.activePort;
+  const versionTag = activePort ? ` [V${activePort === 5103 ? "18" : "20"}]` : "";
   const label = !bridgeOn
     ? "Bridge offline"
     : !tiaOn
-      ? "Bridge online"
+      ? `Bridge online${versionTag}`
       : projectOn
-        ? "TIA connected"
-        : "TIA connected (no project)";
+        ? `TIA connected${versionTag}`
+        : `TIA connected${versionTag} (no project)`;
 
   const dotColor = !bridgeOn
     ? "bg-zinc-500"
@@ -306,26 +348,26 @@ function BridgeStatusIndicator() {
 
   async function handleStartBridge() {
     setStarting(true);
-    try {
-      const resp = await fetch("http://localhost:5102/tia/status", { signal: AbortSignal.timeout(2000) });
-      if (resp.ok) return; // already running
-    } catch {
-      // Expected — bridge is offline, try to start it
+    // Check if any bridge is already online
+    for (const port of [5102, 5103]) {
+      try {
+        const resp = await fetch(`http://localhost:${port}/tia/status`, { signal: AbortSignal.timeout(2000) });
+        if (resp.ok) { setStarting(false); return; }
+      } catch { /* offline */ }
     }
     try {
-      // POST to dev server's bridge launcher endpoint
       await fetch("/__bridge/start", { method: "POST", signal: AbortSignal.timeout(5000) });
     } catch {
-      // Fallback: copy command to clipboard
       await navigator.clipboard.writeText("dotnet run --project bridge/PacForgeBridge");
     }
-    // Poll for bridge to come online
     for (let i = 0; i < 15; i++) {
       await new Promise(r => setTimeout(r, 2000));
-      try {
-        const resp = await fetch("http://localhost:5102/tia/status", { signal: AbortSignal.timeout(2000) });
-        if (resp.ok) { setStarting(false); return; }
-      } catch { /* still starting */ }
+      for (const port of [5102, 5103]) {
+        try {
+          const resp = await fetch(`http://localhost:${port}/tia/status`, { signal: AbortSignal.timeout(2000) });
+          if (resp.ok) { setStarting(false); return; }
+        } catch { /* still starting */ }
+      }
     }
     setStarting(false);
   }
@@ -351,10 +393,9 @@ function BridgeStatusIndicator() {
 function TopBar() {
   const { user, signOut } = useAuth();
   const { data: profile } = useProfile();
-  const { data: activeSession } = useGlobalActiveSession();
-  const { data: sessionProject } = useProject(activeSession?.project_id);
   const navigate = useNavigate();
-  const { theme, cycleTheme } = useUiStore();
+  const { theme, cycleTheme, activeProjectId, setActiveProjectId } = useUiStore();
+  const { data: activeProject } = useProject(activeProjectId ?? undefined);
 
   const initials = getInitials(profile?.display_name, user?.email ?? undefined);
   const ThemeIcon = THEME_ICON[theme];
@@ -363,15 +404,30 @@ function TopBar() {
     <header className="flex h-14 items-center justify-between border-b bg-background px-4">
       <div className="flex items-center gap-4 font-mono text-xs text-muted-foreground">
         <div className="flex items-center gap-2">
-          {activeSession ? (
-            <>
+          {activeProject ? (
+            <button
+              onClick={() => navigate(`/projects/${activeProject.id}`)}
+              className="flex items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-accent/50"
+            >
               <span className="inline-block h-2 w-2 rounded-full bg-green-500" />
-              <span>Session: <span className="text-foreground">{sessionProject?.client_name ?? "Loading..."}</span></span>
-            </>
+              <FolderOpen className="h-3 w-3" />
+              <span className="text-foreground">{activeProject.client_name}</span>
+              {activeProject.project_number && (
+                <span className="text-muted-foreground/70">{activeProject.project_number}</span>
+              )}
+            </button>
           ) : (
-            <span>No active session</span>
+            <button
+              onClick={() => navigate("/projects")}
+              className="flex items-center gap-2 rounded-md px-2 py-1 text-amber-400 transition-colors hover:bg-accent/50"
+            >
+              <span className="inline-block h-2 w-2 rounded-full bg-amber-500" />
+              <span>No project selected</span>
+            </button>
           )}
         </div>
+        <Separator orientation="vertical" className="h-4" />
+        <SupabaseStatusIndicator />
         <Separator orientation="vertical" className="h-4" />
         <BridgeStatusIndicator />
       </div>

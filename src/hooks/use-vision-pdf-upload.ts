@@ -198,11 +198,12 @@ export function useVisionPdfUpload() {
 
       if (!docId) throw new Error("No content could be extracted from the PDF");
 
-      // Update final counts on the doc
-      await supabase
+      // Update final counts on the doc (trigger also handles this, but belt-and-suspenders)
+      const { error: updateErr } = await supabase
         .from("reference_library_docs")
         .update({ section_count: totalSections, total_chars: totalChars })
         .eq("id", docId);
+      if (updateErr) console.warn("[Vision PDF] Failed to update doc counts:", updateErr);
 
       onProgress?.(pageCount, pageCount, "Done!");
 

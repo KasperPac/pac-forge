@@ -157,7 +157,7 @@ function renderTitleBlock(spec: SpecProject): Paragraph[] {
 }
 
 function renderDocumentControl(section: SpecSection): (Paragraph | Table)[] {
-  const c = section.content_json as DocControlContent;
+  const c = section.content_json as unknown as DocControlContent;
   const children: (Paragraph | Table)[] = [];
 
   children.push(heading("0. Document Control", HeadingLevel.HEADING_1));
@@ -226,7 +226,7 @@ function renderDocumentControl(section: SpecSection): (Paragraph | Table)[] {
 }
 
 function renderSystemOverview(section: SpecSection): (Paragraph | Table)[] {
-  const c = section.content_json as SystemOverviewContent;
+  const c = section.content_json as unknown as SystemOverviewContent;
   const children: (Paragraph | Table)[] = [];
 
   children.push(heading("1. System Overview", HeadingLevel.HEADING_1));
@@ -447,7 +447,7 @@ function hashTo12Hex(input: string): string {
 }
 
 function renderControlPhilosophy(section: SpecSection): (Paragraph | Table)[] {
-  const c = section.content_json as ControlPhilosophyContent;
+  const c = section.content_json as unknown as ControlPhilosophyContent;
   const children: (Paragraph | Table)[] = [];
 
   children.push(heading("2. Control Philosophy", HeadingLevel.HEADING_1));
@@ -511,7 +511,7 @@ function renderFunctionalDescriptions(
       spec.confirmed_subsystems.find((s) => s.subsystem_id === eq.subsystem_id)?.subsystem_name ??
       eq.subsystem_id ?? "Unknown";
 
-    const eqContent = eq.content_json as EquipmentDescriptionContent;
+    const eqContent = eq.content_json as unknown as EquipmentDescriptionContent;
 
     // Subsystem heading + equipment prose
     children.push(heading(`3.${idx + 1} ${subsystemName}`, HeadingLevel.HEADING_2));
@@ -541,7 +541,7 @@ function renderFunctionalDescriptions(
     const subFuncDescs = funcDescSections.filter((s) => s.subsystem_id === eq.subsystem_id);
     subFuncDescs.forEach((fd, sIdx) => {
       const stateName = states.find((s) => s.state_id === fd.state_name)?.state_name ?? fd.state_name ?? "";
-      const fdContent = fd.content_json as FunctionalDescriptionContent;
+      const fdContent = fd.content_json as unknown as FunctionalDescriptionContent;
 
       children.push(heading(`3.${idx + 1}.${sIdx + 1} ${stateName}`, HeadingLevel.HEADING_3));
 
@@ -618,7 +618,7 @@ function renderFunctionalDescriptions(
 }
 
 function renderIoList(section: SpecSection): (Paragraph | Table)[] {
-  const c = section.content_json as IoListContent;
+  const c = section.content_json as unknown as IoListContent;
   const children: (Paragraph | Table)[] = [];
 
   children.push(heading("4. I/O List", HeadingLevel.HEADING_1));
@@ -649,7 +649,7 @@ function renderIoList(section: SpecSection): (Paragraph | Table)[] {
 }
 
 function renderAlarmSpecification(section: SpecSection): (Paragraph | Table)[] {
-  const c = section.content_json as AlarmSpecificationContent;
+  const c = section.content_json as unknown as AlarmSpecificationContent;
   const children: (Paragraph | Table)[] = [];
 
   children.push(heading("5. Alarm Specification", HeadingLevel.HEADING_1));
@@ -708,7 +708,7 @@ function renderAlarmSpecification(section: SpecSection): (Paragraph | Table)[] {
 }
 
 function renderHmiSpecification(section: SpecSection): (Paragraph | Table)[] {
-  const c = section.content_json as HmiSpecificationContent;
+  const c = section.content_json as unknown as HmiSpecificationContent;
   const children: (Paragraph | Table)[] = [];
 
   children.push(heading("6. HMI Specification", HeadingLevel.HEADING_1));
@@ -785,7 +785,7 @@ function renderInterfaces(section: SpecSection): (Paragraph | Table)[] {
 }
 
 function renderTestingFat(section: SpecSection): (Paragraph | Table)[] {
-  const c = section.content_json as TestingFatContent;
+  const c = section.content_json as unknown as TestingFatContent;
   const children: (Paragraph | Table)[] = [];
 
   children.push(heading("8. Factory Acceptance Test (FAT)", HeadingLevel.HEADING_1));
@@ -843,7 +843,7 @@ function renderLegacyEquipmentGroup(
       spec.confirmed_subsystems.find((s) => s.subsystem_id === eq.subsystem_id)?.subsystem_name ??
       eq.subsystem_id ?? "Unknown";
 
-    const c = eq.content_json as EquipmentDescriptionContent;
+    const c = eq.content_json as unknown as EquipmentDescriptionContent;
     children.push(heading(`${startIdx}.${idx + 1} ${subsystemName}`, HeadingLevel.HEADING_2));
     if (c.prose) children.push(p(c.prose));
 
@@ -887,7 +887,7 @@ function renderLegacyAlarms(section: SpecSection, sectionIdx: number): (Paragrap
   const children: (Paragraph | Table)[] = [];
   children.push(heading(`${sectionIdx}. Alarms`, HeadingLevel.HEADING_1));
 
-  const c = section.content_json as AlarmSpecificationContent;
+  const c = section.content_json as unknown as AlarmSpecificationContent;
   const tiers = c.alarm_tiers ?? [];
 
   tiers.forEach((tier, tIdx) => {

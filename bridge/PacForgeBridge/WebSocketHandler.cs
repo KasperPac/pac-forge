@@ -49,6 +49,24 @@ namespace PacForgeBridge
             }
         }
 
+        public void BroadcastLog(string message)
+        {
+            if (_clients.IsEmpty) return;
+            string escaped = Newtonsoft.Json.JsonConvert.SerializeObject(message);
+            string json = $"{{\"type\":\"bridge_log\",\"message\":{escaped}}}";
+            var bytes = Encoding.UTF8.GetBytes(json);
+            var segment = new ArraySegment<byte>(bytes);
+            foreach (var kvp in _clients)
+            {
+                try
+                {
+                    if (kvp.Value.State == WebSocketState.Open)
+                        kvp.Value.SendAsync(segment, WebSocketMessageType.Text, true, CancellationToken.None);
+                }
+                catch { }
+            }
+        }
+
         public async Task Broadcast(BridgeEvent bridgeEvent)
         {
             if (_clients.IsEmpty) return;

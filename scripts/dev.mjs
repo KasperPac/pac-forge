@@ -6,10 +6,13 @@ import net from "node:net";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, "..");
 
-const KANBAN_DIR = "C:\\Users\\kaspe\\Documents\\VSCode Apps\\Kaban\\cyanluna.skills\\kanban-board";
-const KANBAN_PORT = 5176;
-const BRIDGE_PORT = 5102;
-const BRIDGE_SLN = path.join(PROJECT_ROOT, "bridge", "PacForgeBridge.sln");
+// Two csproj files exist: V18 (for TIA Portal V18) and V20 (default, for V20).
+// Override via BRIDGE_CSPROJ env var if needed.
+const BRIDGE_CSPROJ =
+  process.env.BRIDGE_CSPROJ ||
+  "bridge/PacForgeBridge/PacForgeBridge.V18.csproj";
+// V18 bridge listens on 5103, V20 bridge on 5102 (see Program.cs TIA_V18 block)
+const BRIDGE_PORT = BRIDGE_CSPROJ.includes("V18") ? 5103 : 5102;
 
 function isPortOpen(port) {
   return new Promise((resolve) => {
@@ -27,28 +30,16 @@ function isPortOpen(port) {
 }
 
 async function main() {
-  // ── Kanban ──
-  const kanbanRunning = await isPortOpen(KANBAN_PORT);
-  if (kanbanRunning) {
-    console.log(`[kanban] already running on http://localhost:${KANBAN_PORT}/`);
-  } else {
-    console.log("[kanban] starting...");
-    spawn(
-      "cmd.exe",
-      ["/c", "pnpm", "--dir", KANBAN_DIR, "dev", "--", "--port", String(KANBAN_PORT)],
-      { stdio: "inherit", windowsHide: true }
-    );
-  }
-
   // ── TIA Bridge ──
   const bridgeRunning = await isPortOpen(BRIDGE_PORT);
   if (bridgeRunning) {
     console.log(`[bridge] already running on http://localhost:${BRIDGE_PORT}/`);
   } else {
     console.log("[bridge] starting .NET TIA bridge...");
+    console.log(`[bridge] using ${BRIDGE_CSPROJ}`);
     const bridge = spawn(
       "cmd.exe",
-      ["/c", "dotnet", "run", "--project", "bridge/PacForgeBridge"],
+      ["/c", "dotnet", "run", "--project", BRIDGE_CSPROJ],
       { stdio: "inherit", windowsHide: true, cwd: PROJECT_ROOT }
     );
     bridge.on("error", (err) => {

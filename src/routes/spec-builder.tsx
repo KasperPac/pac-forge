@@ -6,6 +6,7 @@ import {
   Trash2,
   Loader2,
   ChevronRight,
+  ChevronDown,
   Clock,
   CheckCircle2,
   Pencil,
@@ -16,6 +17,7 @@ import {
   ArrowDownToLine,
   History,
   MoreVertical,
+  Lock,
 } from "lucide-react";
 import { useSpecIngest } from "@/hooks/use-spec-ingest";
 import { RevisionsPanel } from "@/components/spec-builder/revisions-panel";
@@ -64,7 +66,7 @@ import { InstrumentRegisterUpload } from "@/components/spec-builder/instrument-r
 import { SpecSkeletonWizard } from "@/components/spec-builder/spec-skeleton-wizard";
 import { useNextSpecDocCode } from "@/hooks/use-spec-doc-number";
 import { useSpecSections, useSpecExports } from "@/hooks/use-spec-projects";
-import { useFdsSessionsForProject } from "@/hooks/use-fds-session";
+import { useFdsSessionsForProject, useFdsOrchestrationsForProject, useComposeFds } from "@/hooks/use-fds-session";
 import {
   computeCoAuthorStatus,
   computeEditorStatus,
@@ -440,11 +442,30 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
   const { data: sections } = useSpecSections(spec.id);
   const { data: exports } = useSpecExports(spec.id);
   const { data: fdsSessions } = useFdsSessionsForProject(spec.id);
+  const { data: orchestrations } = useFdsOrchestrationsForProject(spec.id);
+  const composeFds = useComposeFds();
   const hasRegister = !!register && (register.tags?.length ?? 0) > 0;
   const hasWizardData = spec.confirmed_subsystems.length > 0 && spec.confirmed_states.length > 0;
   const hasSections = (sections?.length ?? 0) > 0;
   const allApproved = hasSections && (sections ?? []).every((s) => s.approved);
   const hasExports = (exports?.length ?? 0) > 0;
+  const states = useMemo(() => migrateOperatingStates(spec.confirmed_states), [spec.confirmed_states]);
+
+  // All assemblies complete when every session across all subsystems is "complete"
+  const totalAssemblies = spec.confirmed_subsystems.reduce((n, s) => n + (s.assemblies?.length ?? 0), 0);
+  const completedSessions = (fdsSessions ?? []).filter((s) => s.status === "complete").length;
+  const allSessionsComplete = totalAssemblies > 0 && completedSessions >= totalAssemblies;
+
+  const handleCompose = async () => {
+    for (const subsystem of spec.confirmed_subsystems) {
+      const sessions = (fdsSessions ?? []).filter((s) => s.subsystem_id === subsystem.subsystem_id);
+      const orchestration = (orchestrations ?? []).find((o) => o.subsystem_id === subsystem.subsystem_id) ?? null;
+      await composeFds.mutateAsync({ spec_project_id: spec.id, subsystem, sessions, orchestration, allStates: states });
+    }
+  };
+
+  // Collapse register section once uploaded — engineer doesn't need to see the full tag list while working through later phases
+  const [registerExpanded, setRegisterExpanded] = useState(!hasRegister);
 
   const projectIdForNav = spec.project_id ?? "";
 
@@ -470,11 +491,28 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
       <Separator />
 
       {/* Phase 1 — Instrument Register */}
-      <PhaseHeader number={1} title="Instrument Register" done={hasRegister} />
-      <p className="text-xs text-muted-foreground">
-        Upload the instrument register (Excel/CSV) to extract tags and subsystems.
-      </p>
-      <InstrumentRegisterUpload specProjectId={spec.id} />
+      <div className="flex items-center justify-between">
+        <PhaseHeader number={1} title="Instrument Register" done={hasRegister} />
+        {hasRegister && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-xs text-muted-foreground"
+            onClick={() => setRegisterExpanded((v) => !v)}
+          >
+            {registerExpanded ? <ChevronDown className="h-3.5 w-3.5 mr-1" /> : <ChevronRight className="h-3.5 w-3.5 mr-1" />}
+            {registerExpanded ? "Collapse" : `${register?.tags?.length ?? 0} tags`}
+          </Button>
+        )}
+      </div>
+      {(!hasRegister || registerExpanded) && (
+        <>
+          <p className="text-xs text-muted-foreground">
+            Upload the instrument register (Excel/CSV) to extract tags and subsystems.
+          </p>
+          <InstrumentRegisterUpload specProjectId={spec.id} onParsed={() => setRegisterExpanded(false)} />
+        </>
+      )}
 
       {/* Phase 2 — Spec Skeleton Wizard (only after register uploaded) */}
       <Separator />
@@ -490,7 +528,7 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
           />
         </>
       ) : (
-        <PhaseStub number={2} title="Spec Skeleton Wizard" locked />
+        <PhaseStub number={2} title="Spec Skeleton Wizard" locked lockedReason="Upload instrument register first" />
       )}
 
       {/* Phase 3 — FDS Authoring */}
@@ -501,19 +539,53 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
           title="FDS Authoring"
           description="Co-Author each assembly through static + sequential state building."
           status={computeCoAuthorStatus(spec, fdsSessions)}
-          done={hasSections}
+          done={allSessionsComplete}
           ctaLabel="Open Co-Author"
           to={`/specs/${projectIdForNav}/${spec.id}/co-author`}
         />
       ) : (
-        <PhaseStub number={3} title="FDS Authoring" locked />
+        <PhaseStub number={3} title="FDS Authoring" locked lockedReason="Complete the Skeleton Wizard first" />
       )}
 
-      {/* Phase 4 — Structured Spec Editor */}
+      {/* Phase 4 — System Orchestration (before compose — orchestration data feeds into sections) */}
       <Separator />
-      {hasSections ? (
+      {hasWizardData ? (
         <PhaseLaunchCard
           number={4}
+          title="System Orchestration"
+          description="Define cross-subsystem interlocks, shared permissives and startup order."
+          status={spec.confirmed_subsystems.length > 1 ? `${spec.confirmed_subsystems.length} subsystems` : "No subsystems yet"}
+          ctaLabel="Open Orchestration"
+          to={`/specs/${projectIdForNav}/${spec.id}/system-orchestration`}
+        />
+      ) : (
+        <PhaseStub number={4} title="System Orchestration" locked lockedReason="Complete the Skeleton Wizard first" />
+      )}
+
+      {/* Phase 5 — Structured Spec Editor (unlocked after sections composed) */}
+      <Separator />
+      {allSessionsComplete && hasWizardData && (
+        <>
+          {!hasSections && (
+            <Button
+              size="sm"
+              className="mb-2"
+              onClick={handleCompose}
+              disabled={composeFds.isPending}
+            >
+              {composeFds.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <ArrowDownToLine className="h-3.5 w-3.5 mr-1.5" />
+              )}
+              {composeFds.isPending ? "Generating sections…" : "Generate Spec Sections"}
+            </Button>
+          )}
+        </>
+      )}
+      {hasSections ? (
+        <PhaseLaunchCard
+          number={5}
           title="Structured Spec Editor"
           description="Review and edit each section. Approve before export."
           status={computeEditorStatus(sections)}
@@ -522,14 +594,14 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
           to={`/specs/${projectIdForNav}/${spec.id}/editor`}
         />
       ) : (
-        <PhaseStub number={4} title="Structured Spec Editor" locked={!hasSections} />
+        <PhaseStub number={5} title="Structured Spec Editor" locked={!hasSections} lockedReason="Complete FDS authoring then Generate Spec Sections" />
       )}
 
-      {/* Phase 5 — DOCX Export */}
+      {/* Phase 6 — DOCX Export */}
       <Separator />
       {hasSections ? (
         <PhaseLaunchCard
-          number={5}
+          number={6}
           title="DOCX Export"
           description="Render the spec to Word. Optionally upload to Dropbox."
           status={computeExportStatus(exports)}
@@ -538,22 +610,7 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
           to={`/specs/${projectIdForNav}/${spec.id}/export`}
         />
       ) : (
-        <PhaseStub number={5} title="DOCX Export" locked />
-      )}
-
-      {/* Phase 6 — System Orchestration */}
-      <Separator />
-      {hasWizardData ? (
-        <PhaseLaunchCard
-          number={6}
-          title="System Orchestration"
-          description="Define cross-subsystem interlocks, shared permissives and startup order."
-          status={spec.confirmed_subsystems.length > 1 ? `${spec.confirmed_subsystems.length} subsystems` : "No subsystems yet"}
-          ctaLabel="Open Orchestration"
-          to={`/specs/${projectIdForNav}/${spec.id}/system-orchestration`}
-        />
-      ) : (
-        <PhaseStub number={6} title="System Orchestration" locked />
+        <PhaseStub number={6} title="DOCX Export" locked lockedReason="Complete FDS authoring first" />
       )}
     </div>
   );
@@ -625,11 +682,17 @@ function PhaseHeader({ title, done }: { number?: number; title: string; done?: b
   );
 }
 
-function PhaseStub({ title, locked }: { number?: number; title: string; locked?: boolean }) {
+function PhaseStub({ title, locked, lockedReason }: { number?: number; title: string; locked?: boolean; lockedReason?: string }) {
   return (
-    <div className={cn("flex items-center gap-3 py-2", locked ? "opacity-30" : "opacity-50")}>
+    <div
+      className={cn("flex items-center gap-2.5 py-2 cursor-not-allowed select-none", locked ? "opacity-30" : "opacity-50")}
+      title={locked && lockedReason ? lockedReason : undefined}
+    >
+      {locked && <Lock className="h-3 w-3 text-muted-foreground shrink-0" />}
       <span className="text-sm">{title}</span>
-      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground ml-auto" />
+      {lockedReason && (
+        <span className="text-[10px] text-muted-foreground ml-1">— {lockedReason}</span>
+      )}
     </div>
   );
 }

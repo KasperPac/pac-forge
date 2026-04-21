@@ -6,6 +6,7 @@ type ResolvedTheme = "light" | "dark";
 
 const THEME_KEY = "pac-forge-theme";
 const DROPBOX_ROOT_KEY = "pac-forge-dropbox-root";
+const ACTIVE_PROJECT_KEY = "pac-forge-active-project";
 
 function getSystemTheme(): ResolvedTheme {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
@@ -33,6 +34,8 @@ interface UiState {
   resolvedTheme: ResolvedTheme;
   /** Dropbox root folder cached locally and hydrated from the user profile when available. */
   dropboxRoot: string;
+  /** Global active project ID — persisted to localStorage */
+  activeProjectId: string | null;
 
   toggleSidebar: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
@@ -41,6 +44,7 @@ interface UiState {
   setTheme: (theme: ThemePreference) => void;
   cycleTheme: () => void;
   setDropboxRoot: (path: string) => void;
+  setActiveProjectId: (id: string | null) => void;
 }
 
 const initialTheme = loadThemePreference();
@@ -65,6 +69,7 @@ export const useUiStore = create<UiState>((set, get) => {
     theme: initialTheme,
     resolvedTheme: initialResolved,
     dropboxRoot: localStorage.getItem(DROPBOX_ROOT_KEY) ?? "",
+    activeProjectId: localStorage.getItem(ACTIVE_PROJECT_KEY) ?? null,
 
     toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
     setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
@@ -88,6 +93,12 @@ export const useUiStore = create<UiState>((set, get) => {
     setDropboxRoot: (path) => {
       localStorage.setItem(DROPBOX_ROOT_KEY, path);
       set({ dropboxRoot: path });
+    },
+
+    setActiveProjectId: (id) => {
+      if (id) localStorage.setItem(ACTIVE_PROJECT_KEY, id);
+      else localStorage.removeItem(ACTIVE_PROJECT_KEY);
+      set({ activeProjectId: id });
     },
   };
 });

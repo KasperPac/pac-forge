@@ -1,15 +1,69 @@
 using System;
+using System.IO;
+using System.Text;
 using System.Threading;
 
 namespace PacForgeBridge
 {
+    /// <summary>
+    /// Wraps the original Console.Out writer and forwards each complete line
+    /// to the WebSocket handler so the frontend can show a live log panel.
+    /// </summary>
+    class ConsoleBroadcastWriter : TextWriter
+    {
+        private readonly TextWriter _inner;
+        private readonly WebSocketHandler _ws;
+        private readonly StringBuilder _buf = new StringBuilder();
+
+        public ConsoleBroadcastWriter(TextWriter inner, WebSocketHandler ws)
+        {
+            _inner = inner;
+            _ws = ws;
+        }
+
+        public override Encoding Encoding => _inner.Encoding;
+
+        public override void WriteLine(string value)
+        {
+            _inner.WriteLine(value);
+            _ws.BroadcastLog(value ?? "");
+        }
+
+        public override void Write(char value)
+        {
+            _inner.Write(value);
+            if (value == '\n')
+            {
+                string line = _buf.ToString().TrimEnd('\r');
+                _buf.Clear();
+                if (line.Length > 0) _ws.BroadcastLog(line);
+            }
+            else
+            {
+                _buf.Append(value);
+            }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) _inner.Dispose();
+            base.Dispose(disposing);
+        }
+    }
+
     class Program
     {
         private static readonly ManualResetEvent ShutdownEvent = new ManualResetEvent(false);
 
         static void Main(string[] args)
         {
+#if TIA_V18
+            int port = 5103;
+            string bridgeVersion = "V18";
+#else
             int port = 5102;
+            string bridgeVersion = "V20";
+#endif
 
             // Parse command-line arguments
             for (int i = 0; i < args.Length - 1; i++)
@@ -19,7 +73,7 @@ namespace PacForgeBridge
             }
 
             Console.WriteLine("==============================================");
-            Console.WriteLine("  PacForge TIA Bridge v1.0");
+            Console.WriteLine($"  PacForge TIA Bridge v1.0  [{bridgeVersion}]");
             Console.WriteLine("==============================================");
             Console.WriteLine();
 
@@ -28,6 +82,9 @@ namespace PacForgeBridge
             var wsHandler = new WebSocketHandler();
             var jobExecutor = new JobExecutor(tiaService, wsHandler);
             var server = new BridgeServer(port, jobExecutor, wsHandler, tiaService);
+
+            // Redirect Console.Out so every WriteLine is also broadcast over WebSocket
+            Console.SetOut(new ConsoleBroadcastWriter(Console.Out, wsHandler));
 
             // Handle Ctrl+C gracefully
             Console.CancelKeyPress += (s, e) =>

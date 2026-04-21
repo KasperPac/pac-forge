@@ -1,5 +1,5 @@
 // Spec Builder types — functional specification document generation
-import type { SequentialStateV2 } from "./spec-contract-v2";
+import type { PermissiveCondition, SequentialStateV2 } from "./spec-contract-v2";
 
 // --- Spec Project ---
 
@@ -508,7 +508,7 @@ export interface FdsAssemblySession {
 }
 
 export interface SequentialStateData {
-  permissives: string[];
+  permissives: PermissiveCondition[];
   steps: StepEntry[];
   notes: string | null;
 }
@@ -518,7 +518,7 @@ export interface FdsConversationTurn {
   content: string;
   timestamp: string;
   state_context?: string;
-  table_delta?: Partial<SequentialStateData>;
+  table_delta?: Partial<SequentialStateV2>;
 }
 
 /** Subsystem-level orchestration — how assemblies coordinate */

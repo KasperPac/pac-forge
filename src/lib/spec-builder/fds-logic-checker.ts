@@ -8,12 +8,12 @@ import type {
   OperatingState,
   InstrumentTag,
   DeviceStateEntry,
-  SequentialStateData,
   FdsValidationResult,
   FdsValidationIssue,
   SubsystemOrchestration,
   FdsAssemblySession,
 } from "@/types/spec-builder";
+import type { SequentialStateV2 } from "@/types/spec-contract-v2";
 
 // ---------------------------------------------------------------------------
 // Assembly-level validation
@@ -22,7 +22,7 @@ import type {
 export function validateAssembly(
   assembly: AssemblyConfig,
   staticStates: Record<string, DeviceStateEntry[]>,
-  sequentialStates: Record<string, SequentialStateData>,
+  sequentialStates: Record<string, SequentialStateV2>,
   allStates: OperatingState[],
   allTags: InstrumentTag[],
 ): FdsValidationResult {
@@ -38,7 +38,6 @@ export function validateAssembly(
 
   const assemblyTags = allTags.filter((t) => assemblyTagNames.has(t.tag));
   const outputTags = assemblyTags.filter((t) => t.signal_direction === "DO" || t.signal_direction === "AO");
-  const inputTags = assemblyTags.filter((t) => t.signal_direction === "DI" || t.signal_direction === "AI");
   const allTagNames = new Set(allTags.map((t) => t.tag));
 
   const staticStateIds = allStates.filter((s) => s.state_pattern === "static");
@@ -79,12 +78,19 @@ export function validateAssembly(
 
     // --- Check 3: Permissive tag references ---
     for (const perm of data.permissives) {
-      const referencedTags = extractTagReferences(perm, allTagNames);
-      if (referencedTags.length === 0) {
+      if (perm.tag && !allTagNames.has(perm.tag)) {
         issues.push({
           severity: "warning",
           category: "permissive_ref",
-          message: `Permissive "${truncate(perm)}" doesn't reference any known tag`,
+          message: `Permissive tag "${perm.tag}" is not in the instrument register`,
+          assembly_id: assembly.assembly_id,
+          state_id: state.state_id,
+        });
+      } else if (!perm.tag) {
+        issues.push({
+          severity: "warning",
+          category: "permissive_ref",
+          message: "Permissive has no tag selected",
           assembly_id: assembly.assembly_id,
           state_id: state.state_id,
         });
@@ -93,8 +99,17 @@ export function validateAssembly(
 
     // --- Check 4: Completion criteria tag references + timeouts ---
     for (const step of data.steps) {
-      const referencedTags = extractTagReferences(step.completion_criteria, allTagNames);
-      if (referencedTags.length === 0) {
+      // Extract tags from structured criteria (tag_equals / tag_compare) or referenced_tags arrays
+      const structuredTags: string[] = [];
+      for (const c of step.completion_criteria ?? []) {
+        if ("tag" in c && typeof c.tag === "string") structuredTags.push(c.tag);
+        if ("referenced_tags" in c && Array.isArray(c.referenced_tags)) structuredTags.push(...c.referenced_tags);
+      }
+      const knownStructured = structuredTags.filter((t) => allTagNames.has(t));
+      const criteriaText = step.completion_criteria_text ?? "";
+      const textTags = extractTagReferences(criteriaText, allTagNames);
+
+      if (knownStructured.length === 0 && textTags.length === 0) {
         issues.push({
           severity: "warning",
           category: "completion_ref",
@@ -104,8 +119,9 @@ export function validateAssembly(
         });
       }
 
-      // Check for timeout specification
-      if (!hasTimeoutSpec(step.completion_criteria)) {
+      // Check for timeout — within_ms on any criterion, or text fallback
+      const hasStructuredTimeout = step.completion_criteria?.some((c) => "within_ms" in c && (c as { within_ms?: number }).within_ms != null);
+      if (!hasStructuredTimeout && !hasTimeoutSpec(criteriaText)) {
         issues.push({
           severity: "warning",
           category: "completion_ref",
@@ -115,8 +131,9 @@ export function validateAssembly(
         });
       }
 
-      // --- Check 5: Failure path ---
-      if (!hasFailurePath(step.completion_criteria)) {
+      // --- Check 5: Failure path — on_fail on any criterion, or text fallback ---
+      const hasStructuredFault = step.completion_criteria?.some((c) => "on_fail" in c && c.on_fail != null);
+      if (!hasStructuredFault && !hasFailurePath(criteriaText)) {
         issues.push({
           severity: "warning",
           category: "missing_failure_path",
@@ -309,6 +326,3 @@ function detectCircularInterlocks(
   return issues;
 }
 
-function truncate(s: string, max = 60): string {
-  return s.length > max ? s.slice(0, max) + "..." : s;
-}
