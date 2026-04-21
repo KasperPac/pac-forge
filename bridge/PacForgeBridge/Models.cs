@@ -814,4 +814,28 @@ namespace PacForgeBridge
         public string Type { get; set; }
         public List<string> Devices { get; set; } = new List<string>();
     }
+
+    // --- Pac-Audit Openness API spike (Step 0) ---
+
+    public class AuditSpikeResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+        public string OutputDirectory { get; set; }
+        public string RunAt { get; set; }
+        public string TiaVersion { get; set; }
+        public string ProjectName { get; set; }
+        public List<SpikeFinding> Findings { get; set; } = new List<SpikeFinding>();
+    }
+
+    public class SpikeFinding
+    {
+        public string Category { get; set; }
+        public string Name { get; set; }
+        public bool Success { get; set; }
+        public int? ItemCount { get; set; }
+        public double ElapsedMs { get; set; }
+        public string SampleFile { get; set; }
+        public string Notes { get; set; }
+    }
 }

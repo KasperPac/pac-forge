@@ -692,24 +692,54 @@ If deep divergence emerges later, extract shared components to `src/components/m
 
 The entire Trace approach depends on populating `audit_cross_references` during Extract. Today that table is schema-only. All other changes in this plan are downstream of this.
 
+### 12.0 Step 0 spike findings (V18, 2026-04-21)
+
+Exploratory spike (`TiaPortalService.AuditSpike.cs` + `GET /tia/audit-spike`) ran against a real V18 project — 338 blocks (79 LAD, 39 SCL, 204 DB, 16 safety), 43 devices, 82 Sinamics G120C drives, one Comfort HMI. V1+V2 probes answered most §12.4 questions; a V3 round is scoped in §16.
+
+**Cross-reference API — confirmed shape** (`Siemens.Engineering.CrossReference` namespace):
+
+```
+CrossReferenceService                                          // acquired via block.GetService<T>()
+  .GetCrossReferences(CrossReferenceFilter filterType)         // single overload
+    → CrossReferenceResult
+        .Sources : SourceObjectComposition
+          SourceObject { Name, Path, Address, TypeName, Device, UnderlyingObject, Children, References }
+            .References : ReferenceObjectComposition
+              ReferenceObject { Name, Path, Address, TypeName, Device, Locations }
+                .Locations : LocationComposition
+                  Location {
+                    Access,            // enum, 38 values
+                    Address,
+                    Name,
+                    ReferenceLocation, // human-readable, e.g. "@CALL_SENSORS ▶ NW4 (Function Block SENSOR_FB)"
+                    ReferenceType,     // enum, 13 values — relationship metadata
+                    ReferencedAs,      // IEngineeringObject — live pointer to referenced thing
+                    ReferencedAsName,
+                    TypeName
+                  }
+```
+
+Key observations from real cross-ref data:
+- `Access` is the **kind of memory access** — `Read`, `Write`, `RW`, `Call`, `InstanceDB`, `Multiinstance`, `Interface`, `Definition`, `Jump`, `Modify`, `Force`, `Monitor`, `Interlock`, plus `*AndSymbol` variants.
+- `ReferenceType` is the **relationship direction** — `Uses`, `UsedBy`, `TypeInstance`, `InstanceType`, `Assigns`, `Defines`, `DefinedBy`, `OverlapsWith`, `Scope`, etc. Store both separately in `audit_cross_references`.
+- `ReferenceLocation` gives rich text like `"@CALL_SENSORS ▶ NW4 (Function Block SENSOR_FB)"` — save verbatim; no further parsing needed for display.
+- `ReferencedAs` returns a **live `IEngineeringObject`** — Trace can follow it to the actual target object instead of re-resolving by string.
+- **Service scope:** `block.GetService<>()` returns a service enumerating *that block's* outbound refs. Per-block call ~71ms; 338 blocks × per-block = ~24s worst-case. Bulk path via `plcSoftware.GetService<CrossReferenceService>()` untested — if it works, single call for the whole PLC; V3 validates.
+
+Other confirmed facts:
+- `_project.LastModified` (DateTime) — the stale-snapshot timestamp. Not `ModifiedDate` or `LastModifiedAt`.
+- `_project.HmiTargets` property **absent on V18** — must use the existing `GetHmiTarget()` device-walk. Real project exposed a Comfort HMI (`ScreenFolder`, `TagFolder`, `GraphicLists`, `TextLists`, `VBScriptFolder`).
+- **GSDML is project-local**, at `<project_dir>/AdditionalFiles/GSD/` — not a shared AppData cache. The GSDML parser loads from there.
+- `IEngineeringObject.GetAttributeInfos()` exposes **all supported attributes** per object — discovery-friendly; use it instead of hard-coded attribute-name lists.
+- **Drive-device `Comment` attribute is the physical-device label**: e.g. `"FREEZER Pallet Chain conveyor 1500L-01A Ground Level"`. This should be the primary signal for §12.6 physical-device attribution, outranking name-string heuristics.
+
+**Drive-parameter access** (revises §12.6 original approach):
+
+Raw `drive.GetAttribute("P304")` etc. returns "not supported" — plain Openness attributes don't expose Sinamics parameters. One service out of 68 candidates returned non-null on the drive: `Siemens.Engineering.MC.Drives.DriveObjectContainer` with property `DriveObjects` (collection of `DriveObject`). Drive parameters live under this MC namespace. Exact walk depth (`DriveObject` → parameters) TBD in V3.
+
 ### 12.1 New Openness surface to exercise
 
-TIA Openness exposes the engineering framework's cross-reference provider. The exact API surface depends on Openness version (confirm against V18 and V20 since both are supported):
-
-- **Cross-reference aggregation per project** — enumerate all refs in one pass (preferred for bulk)
-- **Cross-references per object** — used for the optional "refresh" path
-
-The provider returns reference objects shaped roughly like:
-
-```
-{
-  SourceObject,              // block / FC / FB / OB / tag / UDT
-  SourceLocation,            // network/rung/statement path inside source
-  TargetObject,              // block / tag / address / UDT
-  ReferenceType,             // call | instantiate | read | write | type_use | ...
-  AccessMode,                // symbolic | absolute
-}
-```
+~~The exact API surface depends on Openness version~~ — V18 surface now known (§12.0). V20 differences still TBD. Bulk-extract path for `audit_cross_references`: iterate blocks, acquire `CrossReferenceService` per block, flatten `SourceObject.References[].Locations[]` → one row per `(source, referenced_object, location)` triple. If V3 confirms the `PlcSoftware`-level service returns project-wide data, swap to that in a single pass.
 
 ### 12.2 Bridge changes
 
@@ -725,20 +755,35 @@ public List<ExtractedCrossReferenceDto> ExtractCrossReferences()
 }
 ```
 
-**`Models.cs`** — add `ExtractedCrossReferenceDto`:
+**`Models.cs`** — add `ExtractedCrossReferenceDto` (revised per §12.0 findings):
 
 ```csharp
 public class ExtractedCrossReferenceDto {
-    public string SourceObjectType { get; set; }   // "block" | "tag" | "udt"
-    public string SourceObjectName { get; set; }   // e.g. block name; frontend resolves to UUID
-    public string SourceLocation { get; set; }     // "Network 3 / Rung 1" if available
-    public string TargetObjectType { get; set; }
-    public string TargetObjectName { get; set; }
-    public string ReferenceType { get; set; }      // maps to audit_cross_references.reference_type
-    public string AccessMode { get; set; }         // "symbolic" | "absolute"
-    public Dictionary<string, object> Details { get; set; }  // → reference_details jsonb
+    // Source side — mirrors SourceObject
+    public string SourceName { get; set; }           // e.g. "SENSOR_FB"
+    public string SourcePath { get; set; }           // e.g. "CVL_2129_5002_PLC_1\Program blocks\DEVICE\FB"
+    public string SourceAddress { get; set; }        // e.g. "%FB2" (blocks) — nullable for variables
+    public string SourceTypeName { get; set; }       // e.g. "LAD-Function block"
+    public string SourceDevice { get; set; }         // e.g. "CVL_2129_5002_PLC_1"
+
+    // Reference target side — mirrors ReferenceObject
+    public string TargetName { get; set; }
+    public string TargetPath { get; set; }
+    public string TargetAddress { get; set; }
+    public string TargetTypeName { get; set; }
+
+    // Location — per-occurrence inside source
+    public string Access { get; set; }               // Access enum as string (Read/Write/Call/…)
+    public string ReferenceType { get; set; }        // ReferenceType enum as string (Uses/UsedBy/…)
+    public string ReferenceLocation { get; set; }    // e.g. "@CALL_SENSORS ▶ NW4 (Function Block SENSOR_FB)"
+    public string ReferencedAsName { get; set; }
+    public string LocationAddress { get; set; }      // absolute/symbolic address at the location (when applicable)
+
+    public Dictionary<string, object> Details { get; set; }  // future-proofing → reference_details jsonb
 }
 ```
+
+One row per `(Source → Reference → Location)` triple. Typical project: 10k–50k rows expected; persisted in batches of 500.
 
 **`BridgeServer.cs`** — extend `/tia/extract-project`:
 
@@ -749,7 +794,7 @@ Add `CrossReferences: ExtractedCrossReferenceDto[]` to `ExtractProjectResponse`.
 ```csharp
 public ProjectInfoResponse GetProjectInfo() {
     // existing fields...
-    LastModifiedAt = _project.ModifiedDate,  // or similar Openness property
+    LastModifiedAt = _project.LastModified,  // confirmed V18; DateTime
 }
 ```
 
@@ -774,14 +819,16 @@ Batch inserts in chunks of 500 rows — typical projects hit 10k–50k refs.
 
 ### 12.4 Openness API verification
 
-Before implementing, we need a quick spike to confirm:
+**Status after Step 0 V1+V2 (2026-04-21, V18):**
 
-1. **What the cross-ref provider actually returns** for SCL / LAD / FBD / GRAPH blocks — does it resolve literal UDT array indices, or do we get `MOT[*]`?
-2. **Performance** — how long does a full-project enumeration take on a 100-block project? If unacceptable, fall back to per-block enumeration during the existing block walk.
-3. **Coverage** — does it capture reads/writes to global DBs through UDT paths? Through ANY / pointer types?
-4. **V18 vs V20 differences** — Openness API has evolved between versions.
+| # | Question | Status |
+|---|---|---|
+| 1 | What cross-ref provider returns for different block types — UDT array indices resolved as `MOT[5]` or `MOT[*]`? | **Partial.** Shape confirmed via `SourceObject → References → Locations`. Sample block (SENSOR_FB) only touched scalar vars — array-index behaviour still unknown. V3: probe a block that writes `MOT[n]`. |
+| 2 | Performance — full-project enumeration time | **Per-block confirmed: 71ms.** 338-block project → ~24s worst-case if per-block is the only path. Bulk path via `plcSoftware.GetService<CrossReferenceService>()` untested. V3 attempts it. |
+| 3 | Coverage — reads/writes to global DBs through UDT paths, ANY/pointer types | **Untested.** Need a block that uses these patterns. V3. |
+| 4 | V18 vs V20 differences | **V18 done. V20 untested.** V3 (or separate session with V20 project). |
 
-Spike: 1–2 hours with TIA Portal + a known test project. Output: confirm API surface, sample response shapes, perf characteristics. This gates everything else.
+Spike code lives in `bridge/PacForgeBridge/TiaPortalService.AuditSpike.cs` (15 probes, all green). Output dumps stashed at `%TEMP%\PacForge\audit_spike_<stamp>\`. V3 extends the same file with three more probes.
 
 ### 12.5 Stale-snapshot detection
 
@@ -808,14 +855,32 @@ A 32-channel analog card has ~32 rows; typical project has hundreds of channels 
 Projects are Sinamics-exclusive, so scope tight. Covers G120, G120C, S120, S210, V90. All PROFIdrive over PROFINET.
 
 Extract per drive:
-- Drive family + order number (MLFB)
-- Motor nameplate (kW, A, rpm, V) — parameters P304/P305/P311
-- Ramp times — P1120 (up), P1121 (down), P1135 (OFF3)
-- Telegram selection — P922 + derived word structure from GSDML
-- IP + PROFINET station name
-- **Mapping to motor tag** — heuristic: look for `VFD` (case-insensitive) anywhere in the station name as a token or substring; remove it plus surrounding separators (`_`, `-`); match the remainder against motor tag naming in IO. Project-configurable pattern if a site uses a different convention. Fall through to engineer confirmation when the heuristic doesn't resolve.
+- Drive family + order number (MLFB) — from `DeviceItem.TypeIdentifier` (e.g. `OrderNumber:6SL3210-1KE18-8AF1/4.7.13`) and `TypeName` attribute (e.g. `G120C PN`).
+- **Physical device label** — from `DeviceItem.GetAttribute("Comment")` — real projects use this field for the engineer's human label (e.g. `"FREEZER Pallet Chain conveyor 1500L-01A Ground Level"`). **Primary** attribution source (see §12.0 + revised rule below).
+- Motor nameplate (kW, A, rpm, V) — parameters P304/P305/P311, via `DriveObjectContainer` (see path below).
+- Ramp times — P1120 (up), P1121 (down), P1135 (OFF3).
+- Telegram selection — P922 + derived word structure from GSDML.
+- IP + PROFINET station name — from the `PROFINET interface` child `DeviceItem`; attributes include `InterfaceOperatingMode`, `MediaRedundancyRole`, `Label` (e.g. `X150`).
 
-Parameter access via `IDeviceItem.GetService<DataProvider>()`. Some params only available if the project was downloaded with Startdrive integration — detect absence gracefully.
+**Parameter access — updated from Step 0 findings:**
+
+Plain `IDeviceItem.GetAttribute("P304")` **fails** — those P-numbers aren't surfaced at the hardware-item attribute layer. The working path (1 hit out of 68 probed service types on the real project):
+
+```csharp
+var container = driveItem.GetService<Siemens.Engineering.MC.Drives.DriveObjectContainer>();
+foreach (var driveObj in container.DriveObjects) {
+    // DriveObject is the motion-control representation; exact parameter-read path
+    // TBD in V3 spike (walk its members to find the parameter accessor)
+}
+```
+
+The MC drive namespace also exposes `DriveObject`, `DriveObjectCategory`, `DriveObjectCollection` in `Siemens.Engineering.MC.DriveConfiguration`. Some params only available if the project was downloaded with Startdrive integration — detect absence gracefully. Spike output `UsedProducts` confirmed Startdrive is present for the test project.
+
+**Mapping to motor tag** — revised heuristic:
+
+1. **First:** `Comment` attribute on the drive `DeviceItem`. Parse the engineer's label to extract the device tag (e.g. `"1500L-01A"` from `"FREEZER Pallet Chain conveyor 1500L-01A Ground Level"`). Project-configurable regex; default extracts alphanumeric tag-like tokens.
+2. **Fallback:** station name pattern match — look for `VFD` (case-insensitive) anywhere in the station name as a token or substring; remove it plus surrounding separators (`_`, `-`); match the remainder against motor tag naming in IO.
+3. **Last resort:** engineer confirmation during Verify.
 
 Matches the `VfdParams` + `MotorNameplate` shapes already defined in `spec-contract-v2.ts`.
 
@@ -864,6 +929,10 @@ Store within the existing `audit_hardware_config.devices[]` array with `device_k
 #### GSDML parser — shared infrastructure
 
 One bridge-side (C#) GSDML parser serves drives, roller cards, load cells, IO-Link masters, and partner PN devices. GSDML schema is public (PROFINET consortium); library scope ~500–800 lines.
+
+**Source location** — confirmed in Step 0 spike: GSDML files are **project-local at `<project_dir>/AdditionalFiles/GSD/`**, not in a shared AppData cache. The real test project carried 7 GSDML files there (G120C, Beckhoff EL6631 variants, Murrelektronik Impact67). `%AppData%\Siemens\Automation\` contained none; `%ProgramData%\Siemens\Automation\` returned access-denied.
+
+Parser load strategy: iterate `<project_dir>/AdditionalFiles/GSD/GSDML-*.xml` on Extract. Also check `<project_dir>/AdditionalFiles/IODD/*.xml` for IO-Link IODDs (the test project had zero — IO-Link not in scope for the CVL-2129 machine).
 
 Extract per GSDML:
 - `DeviceIdentity` (vendor, product, order number, category hint)
@@ -1022,8 +1091,13 @@ src/lib/tia-bridge-contract.ts                     # add ExtractedCrossReference
 
 Deterministic foundation first. AI layers land on top once the deterministic outputs are verified against a pilot project. T-shirt sizes attached.
 
-0. **Openness API spike** (S) — confirm cross-reference provider API + hardware extraction APIs on V18 + V20. Sample response shapes for SCL/LAD/FBD/GRAPH blocks, Sinamics drive parameters, GSDML cache location, HMI target walk. Gates everything else.
-1. **Bridge: cross-ref extraction** (M) — `ExtractCrossReferences()` + modified-at timestamp in `GetProjectInfo`. Both V18 and V20 csprojs.
+0. **Openness API spike — V1+V2 (DONE, V18 only; see §12.0)** — cross-ref API fully mapped, per-block timing measured, Sinamics drive service path identified, `Comment`-as-physical-label pattern confirmed, GSDML cache location confirmed project-local, `_project.LastModified` confirmed as stale-snapshot timestamp. Real project: 338 blocks / 43 devices / 82 drives / one Comfort HMI.
+0b. **Openness API spike — V3** (S) — three residual probes:
+   - Invoke `plcSoftware.GetService<CrossReferenceService>()` for **bulk enumeration timing** (vs 24s worst-case per-block).
+   - Walk a block that writes to a **UDT array element** (e.g. `gDB.MOT[5].CTRL.RunFwd`) to resolve §12.4 Q1 — do we get literal `[5]` or `[*]`?
+   - Traverse `drive.GetService<DriveObjectContainer>().DriveObjects[…]` to find the concrete Sinamics **parameter accessor** (P304, P922, etc.).
+0c. **V20 Openness spike** (S) — re-run V1+V2+V3 probes against a V20 project to catch API drift. Separate session; requires a V20 project open.
+1. **Bridge: cross-ref extraction** (M) — `ExtractCrossReferences()` + modified-at timestamp in `GetProjectInfo`. Both V18 and V20 csprojs. DTO shape per §12.2 revised.
 2. **Bridge: GSDML + IODD parsers** (M) — standalone parsers (`GsdmlParser.cs`, `IoddParser.cs`). Cache by SHA. Essential infrastructure for all hardware extraction beyond CPU/IO-module basics.
 3. **Bridge: hardware extraction expansion — Phase 1** (M) — `ExtractModuleChannels()`, `ExtractHmiTargets()`. Covers the "easy wins" (channel detail + HMI linkage) that don't need GSDML interpretation.
 4. **Bridge: hardware extraction expansion — Phase 2** (M) — `ExtractDriveDetails()` (Sinamics), `RollerCardClassifier`, load cell categorisation via GSDML parser. Vendor-specific interpretation on top of generic GSDML.

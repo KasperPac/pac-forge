@@ -158,6 +158,13 @@ namespace PacForgeBridge
                     return;
                 }
 
+                // Route: GET /tia/audit-spike  (Pac-Audit Step 0 — Openness API discovery)
+                if (method == "GET" && path == "/tia/audit-spike")
+                {
+                    await HandleAuditSpike(res);
+                    return;
+                }
+
                 // Route: POST /tia/export-sources
                 if (method == "POST" && path == "/tia/export-sources")
                 {
@@ -1009,6 +1016,45 @@ namespace PacForgeBridge
             {
                 Console.WriteLine($"[Audit] GetProjectInfo failed: {ex.Message}");
                 await WriteJson(res, 500, new ProjectInfoResponse { Success = false, Message = ex.Message });
+            }
+        }
+
+        private async Task HandleAuditSpike(HttpListenerResponse res)
+        {
+            AuditSpikeResponse result = null;
+            Exception spikeEx = null;
+            try
+            {
+                if (!_tiaService.IsProjectOpen)
+                    _tiaService.Connect(preferAttach: true);
+
+                if (!_tiaService.IsProjectOpen)
+                {
+                    await WriteJson(res, 400, new AuditSpikeResponse { Success = false, Message = "No TIA Portal project open" });
+                    return;
+                }
+
+                Console.WriteLine("[AuditSpike] Running Openness API discovery probes...");
+                result = _tiaService.RunAuditSpike();
+                Console.WriteLine($"[AuditSpike] Complete. Output: {result.OutputDirectory}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[AuditSpike] Failed: {ex.Message}");
+                Console.WriteLine($"[AuditSpike] Stack: {ex.StackTrace}");
+                spikeEx = ex;
+            }
+
+            try
+            {
+                if (spikeEx != null)
+                    await WriteJson(res, 500, new AuditSpikeResponse { Success = false, Message = spikeEx.Message });
+                else
+                    await WriteJson(res, 200, result);
+            }
+            catch (Exception writeEx)
+            {
+                Console.WriteLine($"[HTTP] Audit-spike response write failed: {writeEx.Message}");
             }
         }
 

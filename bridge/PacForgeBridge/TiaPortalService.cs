@@ -34,7 +34,7 @@ using Newtonsoft.Json.Linq;
 
 namespace PacForgeBridge
 {
-    public class TiaPortalService : IDisposable
+    public partial class TiaPortalService : IDisposable
     {
         private TiaPortal _tiaPortal;
         private Project _project;
