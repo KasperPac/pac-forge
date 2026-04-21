@@ -42,6 +42,8 @@ const SpecEditorRoute = lazy(() => import("@/routes/spec-editor"));
 const SpecExportPage = lazy(() => import("@/routes/spec-export"));
 const SpecSystemOrchestrationPage = lazy(() => import("@/routes/spec-system-orchestration"));
 const DashboardPage = lazy(() => import("@/routes/dashboard"));
+const PacAuditPage = lazy(() => import("@/routes/pac-audit"));
+const PacAuditWorkspacePage = lazy(() => import("@/routes/pac-audit-workspace"));
 
 function LazyRoute({ children }: { children: React.ReactNode }) {
   return (
@@ -68,6 +70,8 @@ const router = createBrowserRouter([
           { path: "clients", element: <LazyRoute><ClientsPage /></LazyRoute> },
           { path: "forge", element: <LazyRoute><ForgePage /></LazyRoute> },
           { path: "migrate", element: <LazyRoute><MigratePage /></LazyRoute> },
+          { path: "pac-audit", element: <LazyRoute><PacAuditPage /></LazyRoute> },
+          { path: "pac-audit/:sessionId/workspace", element: <LazyRoute><PacAuditWorkspacePage /></LazyRoute> },
           { path: "projects/:id", element: <LazyRoute><ProjectDetailPage /></LazyRoute> },
           { path: "pac-st", element: <Navigate to="/pac-st/chat" replace /> },
           { path: "pac-st/chat", element: <LazyRoute><PacStPage /></LazyRoute> },
