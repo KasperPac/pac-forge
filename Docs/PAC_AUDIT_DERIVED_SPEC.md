@@ -361,7 +361,13 @@ Actual implementation: exact recursion depends on what shape TIA Openness return
 
 ### 6.3 UDT array indices (the edge case)
 
-Cross-refs from TIA Openness usually capture literal array indices (`MOT[5]`). When the index is a runtime variable (e.g., from HMI selection or an FB's state counter), the cross-ref will point to `MOT[*]` — all elements possible. Walk returns `walk_status = 'indirect'` and engineer resolves in Trace review panel.
+**V3-confirmed behaviour** (see §12.0): cross-refs capture *both* literal and wildcard array indices, in `Location.Name`:
+
+- **Compile-time constant index** → literal `[n]`, one `Location` per distinct element: `"DB_SENSORS".SENSOR_FB[15]._ClearDly`, `[16]`, `[22]`, etc. Walk follows the literal to a specific device-FB instance.
+- **Runtime-variable index** (loop counter, HMI selector, state counter) → wildcard `[*]`: `"DB_VSD_MOTOR".MOTOR_G120C_FB[*]._OUT_Flt_Not_Run`. Walk returns `walk_status = 'indirect'` and engineer resolves in Trace review panel.
+- **Array-type references** (e.g. `SENSOR_FB[*]` as a multiinstance data type, not an element access) also use `[*]` — but `Access == Multiinstance` distinguishes these from element-level reads/writes. Ignore for device-attribution purposes.
+
+Classification for trace: if bracket content matches `\d+` → literal (follow); `*` → indirect (flag); anything else (e.g. `[V1.0]` library version suffix) → ignore as non-array.
 
 ### 6.4 Physical device attribution
 
@@ -694,7 +700,7 @@ The entire Trace approach depends on populating `audit_cross_references` during 
 
 ### 12.0 Step 0 spike findings (V18, 2026-04-21)
 
-Exploratory spike (`TiaPortalService.AuditSpike.cs` + `GET /tia/audit-spike`) ran against a real V18 project — 338 blocks (79 LAD, 39 SCL, 204 DB, 16 safety), 43 devices, 82 Sinamics G120C drives, one Comfort HMI. V1+V2 probes answered most §12.4 questions; a V3 round is scoped in §16.
+Exploratory spike (`TiaPortalService.AuditSpike.cs` + `GET /tia/audit-spike`) ran against a real V18 project — 338 blocks (79 LAD, 39 SCL, 204 DB, 16 safety), 43 devices, 82 Sinamics G120C drives, one Comfort HMI. V1+V2+V3 complete; V20 parity still pending (§16 step 0c).
 
 **Cross-reference API — confirmed shape** (`Siemens.Engineering.CrossReference` namespace):
 
@@ -724,7 +730,12 @@ Key observations from real cross-ref data:
 - `ReferenceType` is the **relationship direction** — `Uses`, `UsedBy`, `TypeInstance`, `InstanceType`, `Assigns`, `Defines`, `DefinedBy`, `OverlapsWith`, `Scope`, etc. Store both separately in `audit_cross_references`.
 - `ReferenceLocation` gives rich text like `"@CALL_SENSORS ▶ NW4 (Function Block SENSOR_FB)"` — save verbatim; no further parsing needed for display.
 - `ReferencedAs` returns a **live `IEngineeringObject`** — Trace can follow it to the actual target object instead of re-resolving by string.
-- **Service scope:** `block.GetService<>()` returns a service enumerating *that block's* outbound refs. Per-block call ~71ms; 338 blocks × per-block = ~24s worst-case. Bulk path via `plcSoftware.GetService<CrossReferenceService>()` untested — if it works, single call for the whole PLC; V3 validates.
+- **Service scope:** `block.GetService<>()` returns a service enumerating *that block's* outbound refs. Per-block call ~71ms; 338 blocks × per-block = ~24s worst-case. **Bulk path NOT supported on V18** — V3 confirmed `GetService<CrossReferenceService>()` returns null on `PlcSoftware`, `BlockGroup`, `TypeGroup`, `TagTableGroup`, and `Project`. Per-block iteration is the only V18 path.
+- **Array-index resolution** (V3, §6.3 now concrete): both literal and wildcard forms appear in `Location.Name`, context-driven:
+  - Compile-time constant index → literal: `"DB_SENSORS".SENSOR_FB[15]._ClearDly`, `[16]`, `[22]`, each a separate `Location`. Trace walk follows directly.
+  - Runtime-variable index (loops, HMI-driven) → `[*]`: `"DB_VSD_MOTOR".MOTOR_G120C_FB[*]._OUT_Flt_Not_Run`. Single `Location` represents all possible elements; Trace flags as `walk_status='indirect'`.
+  - Distinguishable deterministically: integer inside brackets → literal; `*` → wildcard. Filter out `[V\d+\.\d+]` library version suffixes (e.g. `TON [V1.0]`) to avoid false positives.
+  - Also: array-TYPE references (multiinstance FB arrays like `SENSOR_FB[*]` as a data type) use `[*]` in the `ReferenceObject.Name` — different from per-element access. Classify via `Access` enum: `Multiinstance` → type reference, `Read`/`Write` → element access.
 
 Other confirmed facts:
 - `_project.LastModified` (DateTime) — the stale-snapshot timestamp. Not `ModifiedDate` or `LastModifiedAt`.
@@ -733,9 +744,27 @@ Other confirmed facts:
 - `IEngineeringObject.GetAttributeInfos()` exposes **all supported attributes** per object — discovery-friendly; use it instead of hard-coded attribute-name lists.
 - **Drive-device `Comment` attribute is the physical-device label**: e.g. `"FREEZER Pallet Chain conveyor 1500L-01A Ground Level"`. This should be the primary signal for §12.6 physical-device attribution, outranking name-string heuristics.
 
-**Drive-parameter access** (revises §12.6 original approach):
+**Drive-parameter access — V3 confirmed path:**
 
-Raw `drive.GetAttribute("P304")` etc. returns "not supported" — plain Openness attributes don't expose Sinamics parameters. One service out of 68 candidates returned non-null on the drive: `Siemens.Engineering.MC.Drives.DriveObjectContainer` with property `DriveObjects` (collection of `DriveObject`). Drive parameters live under this MC namespace. Exact walk depth (`DriveObject` → parameters) TBD in V3.
+Raw `drive.GetAttribute("P304")` etc. returns "not supported" — plain Openness attributes don't expose Sinamics parameters. The working walk (V3 validated on real G120C):
+
+```csharp
+var container = driveItem.GetService<Siemens.Engineering.MC.Drives.DriveObjectContainer>();
+foreach (DriveObject driveObj in container.DriveObjects) {
+    foreach (DriveParameter param in driveObj.Parameters) {
+        // param.Name ("p304", "r18", "p922"), .Number (int), .ParameterText (human label),
+        // .Value (object), .Unit ("rpm"/"V"/"Arms"/""),
+        // .ArrayIndex, .ArrayLength, .EnumValueList, .MinValue, .MaxValue, .Bits
+    }
+    foreach (Telegram telegram in driveObj.Telegrams) {
+        // telegram.TelegramNumber (30 = PROFIsafe, 352 = G120 Standard, ...),
+        // .Type ("SafetyTelegram" / "MainTelegram"),
+        // .Addresses (input/output address range), .PKW
+    }
+}
+```
+
+Spike F_PCC_01A yielded 2 telegrams (PROFIsafe #30 + Main #352) and dozens of parameters including `r18` ("Control Unit firmware version"), `r20-r27` (speed/voltage/current monitoring), `p10` (commissioning parameter filter). Motor nameplate (P304/P305/P311) and ramps (P1120/P1121/P1135) are in this collection, keyed by `Number`. Telegram selection (P922) is redundant with the `Telegrams` collection's `TelegramNumber` — prefer the latter.
 
 ### 12.1 New Openness surface to exercise
 
@@ -819,16 +848,16 @@ Batch inserts in chunks of 500 rows — typical projects hit 10k–50k refs.
 
 ### 12.4 Openness API verification
 
-**Status after Step 0 V1+V2 (2026-04-21, V18):**
+**Status after Step 0 V1+V2+V3 (2026-04-21, V18):**
 
 | # | Question | Status |
 |---|---|---|
-| 1 | What cross-ref provider returns for different block types — UDT array indices resolved as `MOT[5]` or `MOT[*]`? | **Partial.** Shape confirmed via `SourceObject → References → Locations`. Sample block (SENSOR_FB) only touched scalar vars — array-index behaviour still unknown. V3: probe a block that writes `MOT[n]`. |
-| 2 | Performance — full-project enumeration time | **Per-block confirmed: 71ms.** 338-block project → ~24s worst-case if per-block is the only path. Bulk path via `plcSoftware.GetService<CrossReferenceService>()` untested. V3 attempts it. |
-| 3 | Coverage — reads/writes to global DBs through UDT paths, ANY/pointer types | **Untested.** Need a block that uses these patterns. V3. |
-| 4 | V18 vs V20 differences | **V18 done. V20 untested.** V3 (or separate session with V20 project). |
+| 1 | What cross-ref provider returns for different block types — UDT array indices resolved as `MOT[5]` or `MOT[*]`? | **Resolved.** Both forms appear, context-driven: literal `[5]` when index is a compile-time constant (separate Location per element), `[*]` when index is runtime-variable. Distinguishable by parsing the bracket content. Deterministic trace is feasible for the literal-index case (common); `[*]` case handled as `walk_status='indirect'` (§6.3). |
+| 2 | Performance — full-project enumeration time | **Resolved.** Per-block: ~71ms × 338 blocks ≈ 24s. **Bulk path via container parents is NOT supported on V18** — `GetService<CrossReferenceService>()` returns null on `PlcSoftware`, `BlockGroup`, `TypeGroup`, `TagTableGroup`, and `Project`. Per-block iteration is the only path. 24s is acceptable for Extract. |
+| 3 | Coverage — reads/writes to global DBs through UDT paths, ANY/pointer types | **Partial (UDT path confirmed).** Real refs traversed UDT paths cleanly — e.g. `"DB_VSD_MOTOR".MOTOR_G120C_FB[31].VSD_Raw_Min` captured as a single `Location.Name` with full symbolic path. ANY/pointer coverage not exercised in the V18 test project. |
+| 4 | V18 vs V20 differences | **V18 done. V20 untested.** Queued as §16 step 0c (requires a V20 project). |
 
-Spike code lives in `bridge/PacForgeBridge/TiaPortalService.AuditSpike.cs` (15 probes, all green). Output dumps stashed at `%TEMP%\PacForge\audit_spike_<stamp>\`. V3 extends the same file with three more probes.
+Spike code lives in `bridge/PacForgeBridge/TiaPortalService.AuditSpike.cs` (18 probes total — V1/V2/V3 — all green). Output dumps stashed at `%TEMP%\PacForge\audit_spike_<stamp>\`.
 
 ### 12.5 Stale-snapshot detection
 
@@ -862,19 +891,28 @@ Extract per drive:
 - Telegram selection — P922 + derived word structure from GSDML.
 - IP + PROFINET station name — from the `PROFINET interface` child `DeviceItem`; attributes include `InterfaceOperatingMode`, `MediaRedundancyRole`, `Label` (e.g. `X150`).
 
-**Parameter access — updated from Step 0 findings:**
+**Parameter access — V3 confirmed:**
 
-Plain `IDeviceItem.GetAttribute("P304")` **fails** — those P-numbers aren't surfaced at the hardware-item attribute layer. The working path (1 hit out of 68 probed service types on the real project):
+Plain `IDeviceItem.GetAttribute("P304")` **fails** — those P-numbers aren't surfaced at the hardware-item attribute layer. V3 walked the full `DriveObject` shape (see §12.0 for the structural dump). Concrete extraction:
 
 ```csharp
 var container = driveItem.GetService<Siemens.Engineering.MC.Drives.DriveObjectContainer>();
-foreach (var driveObj in container.DriveObjects) {
-    // DriveObject is the motion-control representation; exact parameter-read path
-    // TBD in V3 spike (walk its members to find the parameter accessor)
+foreach (DriveObject driveObj in container.DriveObjects) {
+    var byNumber = driveObj.Parameters.ToDictionary(p => p.Number);
+    // Motor nameplate
+    double? kw   = (byNumber.TryGetValue(304, out var p304) ? p304.Value as double? : null);
+    double? amps = (byNumber.TryGetValue(305, out var p305) ? p305.Value as double? : null);
+    double? rpm  = (byNumber.TryGetValue(311, out var p311) ? p311.Value as double? : null);
+    // Ramps
+    double? rampUp    = (byNumber.TryGetValue(1120, out var p1120) ? p1120.Value as double? : null);
+    double? rampDown  = (byNumber.TryGetValue(1121, out var p1121) ? p1121.Value as double? : null);
+    // Telegram (prefer Telegrams collection over P922)
+    var mainTelegram = driveObj.Telegrams.FirstOrDefault(t => t.Type == "MainTelegram");
+    int? telegramNumber = mainTelegram?.TelegramNumber;  // 352 = G120 Standard etc.
 }
 ```
 
-The MC drive namespace also exposes `DriveObject`, `DriveObjectCategory`, `DriveObjectCollection` in `Siemens.Engineering.MC.DriveConfiguration`. Some params only available if the project was downloaded with Startdrive integration — detect absence gracefully. Spike output `UsedProducts` confirmed Startdrive is present for the test project.
+Some params only available if the project was downloaded with Startdrive integration — detect absence gracefully (`byNumber.TryGetValue`). Spike output `UsedProducts` confirmed Startdrive is present for the test project, and all probed parameters returned non-null values.
 
 **Mapping to motor tag** — revised heuristic:
 
@@ -1091,13 +1129,9 @@ src/lib/tia-bridge-contract.ts                     # add ExtractedCrossReference
 
 Deterministic foundation first. AI layers land on top once the deterministic outputs are verified against a pilot project. T-shirt sizes attached.
 
-0. **Openness API spike — V1+V2 (DONE, V18 only; see §12.0)** — cross-ref API fully mapped, per-block timing measured, Sinamics drive service path identified, `Comment`-as-physical-label pattern confirmed, GSDML cache location confirmed project-local, `_project.LastModified` confirmed as stale-snapshot timestamp. Real project: 338 blocks / 43 devices / 82 drives / one Comfort HMI.
-0b. **Openness API spike — V3** (S) — three residual probes:
-   - Invoke `plcSoftware.GetService<CrossReferenceService>()` for **bulk enumeration timing** (vs 24s worst-case per-block).
-   - Walk a block that writes to a **UDT array element** (e.g. `gDB.MOT[5].CTRL.RunFwd`) to resolve §12.4 Q1 — do we get literal `[5]` or `[*]`?
-   - Traverse `drive.GetService<DriveObjectContainer>().DriveObjects[…]` to find the concrete Sinamics **parameter accessor** (P304, P922, etc.).
-0c. **V20 Openness spike** (S) — re-run V1+V2+V3 probes against a V20 project to catch API drift. Separate session; requires a V20 project open.
-1. **Bridge: cross-ref extraction** (M) — `ExtractCrossReferences()` + modified-at timestamp in `GetProjectInfo`. Both V18 and V20 csprojs. DTO shape per §12.2 revised.
+0. **Openness API spike — V1+V2+V3 (DONE, V18 only; see §12.0)** — cross-ref API fully mapped (per-block only, bulk unsupported on V18, per-block ~71ms × 338 blocks ≈ 24s); UDT array-index resolution confirmed (literal when index is compile-time constant, `[*]` when runtime-variable, distinguishable); Sinamics drive parameters + telegrams accessible via `DriveObjectContainer → DriveObjects → Parameters/Telegrams`; `Comment`-as-physical-label pattern confirmed; GSDML project-local at `<project>/AdditionalFiles/GSD/`; `_project.LastModified` = stale-snapshot timestamp. Real project: 338 blocks / 43 devices / 82 drives / one Comfort HMI.
+0c. **V20 Openness spike** (S) — re-run the V1+V2+V3 probes against a V20 project to catch API drift. Separate session; requires a V20 project open. The bulk-enum negative result especially should be re-verified on V20 — it may differ.
+1. **Bridge: cross-ref extraction** (M) — `ExtractCrossReferences()` per-block loop + modified-at timestamp in `GetProjectInfo`. Both V18 and V20 csprojs. DTO shape per §12.2 revised.
 2. **Bridge: GSDML + IODD parsers** (M) — standalone parsers (`GsdmlParser.cs`, `IoddParser.cs`). Cache by SHA. Essential infrastructure for all hardware extraction beyond CPU/IO-module basics.
 3. **Bridge: hardware extraction expansion — Phase 1** (M) — `ExtractModuleChannels()`, `ExtractHmiTargets()`. Covers the "easy wins" (channel detail + HMI linkage) that don't need GSDML interpretation.
 4. **Bridge: hardware extraction expansion — Phase 2** (M) — `ExtractDriveDetails()` (Sinamics), `RollerCardClassifier`, load cell categorisation via GSDML parser. Vendor-specific interpretation on top of generic GSDML.

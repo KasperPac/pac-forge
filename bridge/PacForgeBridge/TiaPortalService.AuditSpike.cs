@@ -66,6 +66,11 @@ namespace PacForgeBridge
             RunProbe(resp, "hardware_v2", "drive_data_provider", outDir, Probe_DriveDataProvider);
             RunProbe(resp, "hardware_v2", "drive_child_type_scan", outDir, Probe_DriveChildTypeScan);
 
+            // ── V3 probes: residuals from step 0 ──
+            RunProbe(resp, "cross_references_v3", "plc_software_bulk_enum", outDir, Probe_PlcSoftwareBulkCrossRef);
+            RunProbe(resp, "cross_references_v3", "udt_array_resolution", outDir, Probe_UdtArrayResolution);
+            RunProbe(resp, "hardware_v3", "drive_object_walk", outDir, Probe_DriveObjectWalk);
+
             File.WriteAllText(Path.Combine(outDir, "_summary.json"), Json.Serialize(resp));
             resp.Message = $"Spike complete — {resp.Findings.Count} probes, output at {outDir}";
             return resp;
@@ -1337,6 +1342,480 @@ namespace PacForgeBridge
                 list.Add(new { reflection_error = ex.Message });
             }
             return list;
+        }
+
+        // ── V3 probes ──────────────────────────────────────────────────────
+
+        private ProbeResult Probe_PlcSoftwareBulkCrossRef(string outDir)
+        {
+            Type svcType = FindTypeByName("Siemens.Engineering.CrossReference.CrossReferenceService");
+            Type filterEnum = FindTypeByName("Siemens.Engineering.CrossReference.CrossReferenceFilter");
+            if (svcType == null || filterEnum == null)
+                return new ProbeResult { Data = new { error = "required types not found" }, Notes = "types missing" };
+
+            PlcSoftware plc = GetPlcSoftware();
+            var getServiceGeneric = typeof(IEngineeringServiceProvider)
+                .GetMethods().FirstOrDefault(m => m.Name == "GetService" && m.IsGenericMethodDefinition);
+
+            // Try acquiring on several parents, in order of preference for bulk enumeration
+            var parents = new (string label, IEngineeringServiceProvider target)[]
+            {
+                ("plc_software", plc),
+                ("block_group_root", plc.BlockGroup),
+                ("type_group_root", plc.TypeGroup),
+                ("tag_table_group", plc.TagTableGroup),
+                ("project", _project),
+            };
+
+            var attempts = new List<object>();
+            object bestResult = null;
+            string bestParent = null;
+            int bestSourceCount = 0;
+            double bestEnumMs = 0;
+
+            foreach (var p in parents)
+            {
+                try
+                {
+                    var gm = getServiceGeneric.MakeGenericMethod(svcType);
+                    var svc = gm.Invoke(p.target, null);
+                    if (svc == null) { attempts.Add(new { parent = p.label, acquired = false }); continue; }
+
+                    // Invoke GetCrossReferences(AllObjects) and time it
+                    var enumMethod = svcType.GetMethods().FirstOrDefault(m => m.Name == "GetCrossReferences");
+                    var filterVal = Enum.Parse(filterEnum, "AllObjects");
+                    var sw = Stopwatch.StartNew();
+                    object result = null;
+                    Exception callEx = null;
+                    try { result = enumMethod.Invoke(svc, new object[] { filterVal }); }
+                    catch (Exception ex) { callEx = ex.InnerException ?? ex; }
+                    sw.Stop();
+
+                    if (callEx != null)
+                    {
+                        attempts.Add(new { parent = p.label, acquired = true, invoke_error = callEx.Message, elapsed_ms = sw.Elapsed.TotalMilliseconds });
+                        continue;
+                    }
+
+                    // Count sources without walking deep
+                    int sourceCount = 0;
+                    try
+                    {
+                        var sourcesProp = result.GetType().GetProperty("Sources");
+                        var sources = sourcesProp?.GetValue(result) as IEnumerable;
+                        if (sources != null)
+                        {
+                            foreach (var _ in sources) sourceCount++;
+                        }
+                    }
+                    catch { }
+
+                    attempts.Add(new
+                    {
+                        parent = p.label,
+                        acquired = true,
+                        service_type = svc.GetType().FullName,
+                        result_type = result?.GetType().FullName,
+                        source_count = sourceCount,
+                        elapsed_ms = sw.Elapsed.TotalMilliseconds,
+                    });
+
+                    if (sourceCount > bestSourceCount)
+                    {
+                        bestResult = result;
+                        bestParent = p.label;
+                        bestSourceCount = sourceCount;
+                        bestEnumMs = sw.Elapsed.TotalMilliseconds;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    attempts.Add(new { parent = p.label, outer_error = ex.InnerException?.Message ?? ex.Message });
+                }
+            }
+
+            var data = new Dictionary<string, object>
+            {
+                ["attempts"] = attempts,
+                ["best_parent"] = bestParent,
+                ["best_source_count"] = bestSourceCount,
+                ["best_enum_ms"] = bestEnumMs,
+            };
+
+            if (bestResult != null)
+            {
+                // Walk a short sample of the bulk result
+                try { data["sample"] = WalkCrossRefResult(bestResult, maxSources: 3, maxRefsPerSource: 3, maxLocations: 2); }
+                catch (Exception ex) { data["walk_error"] = ex.Message; }
+
+                // Stash the bulk result for Probe_UdtArrayResolution
+                _spikeBulkCrossRefResult = bestResult;
+            }
+
+            return new ProbeResult
+            {
+                Data = data,
+                ItemCount = bestSourceCount,
+                Notes = bestResult != null
+                    ? $"bulk enum via '{bestParent}': {bestSourceCount} sources in {bestEnumMs:F0}ms"
+                    : "no parent yielded a usable bulk enumeration",
+            };
+        }
+
+        private object _spikeBulkCrossRefResult;
+
+        private ProbeResult Probe_UdtArrayResolution(string outDir)
+        {
+            // Strategy: scan the bulk result (or per-block results) for any Name/Path/ReferencedAsName
+            // containing '[' — those are array-indexed access paths. Dump the exact shape verbatim.
+            // Keep the first N hits and classify as literal-index vs wildcard.
+            var hits = new List<object>();
+            int scannedSources = 0;
+            int scannedRefs = 0;
+            int scannedLocations = 0;
+
+            object resultToScan = _spikeBulkCrossRefResult;
+            if (resultToScan == null)
+            {
+                // Fallback: build our own per-block list by iterating FBs/FCs
+                PlcSoftware plc = GetPlcSoftware();
+                Type svcType = FindTypeByName("Siemens.Engineering.CrossReference.CrossReferenceService");
+                Type filterEnum = FindTypeByName("Siemens.Engineering.CrossReference.CrossReferenceFilter");
+                var getServiceGeneric = typeof(IEngineeringServiceProvider)
+                    .GetMethods().FirstOrDefault(m => m.Name == "GetService" && m.IsGenericMethodDefinition);
+
+                var blocks = new List<PlcBlock>();
+                CollectBlocks(plc.BlockGroup, blocks);
+                // Prefer LAD/SCL blocks over DBs — code blocks are where array writes happen
+                var codeBlocks = blocks.Where(b => b is FB || b is FC).Take(80).ToList();
+
+                int blocksScanned = 0;
+                foreach (var b in codeBlocks)
+                {
+                    if (hits.Count >= 20) break;
+                    blocksScanned++;
+                    try
+                    {
+                        var gm = getServiceGeneric.MakeGenericMethod(svcType);
+                        var svc = gm.Invoke(b, null);
+                        if (svc == null) continue;
+                        var m = svcType.GetMethods().First(x => x.Name == "GetCrossReferences");
+                        var result = m.Invoke(svc, new object[] { Enum.Parse(filterEnum, "AllObjects") });
+                        ScanForArrayAccess(result, hits, ref scannedSources, ref scannedRefs, ref scannedLocations, b.Name);
+                    }
+                    catch { }
+                }
+                return new ProbeResult
+                {
+                    Data = new Dictionary<string, object>
+                    {
+                        ["strategy"] = "per-block-scan (bulk result unavailable)",
+                        ["blocks_scanned"] = blocksScanned,
+                        ["sources_scanned"] = scannedSources,
+                        ["references_scanned"] = scannedRefs,
+                        ["locations_scanned"] = scannedLocations,
+                        ["array_access_hits"] = hits,
+                        ["hit_classification"] = ClassifyArrayHits(hits),
+                    },
+                    ItemCount = hits.Count,
+                    Notes = $"scanned {blocksScanned} blocks, {hits.Count} array-access hits",
+                };
+            }
+
+            ScanForArrayAccess(resultToScan, hits, ref scannedSources, ref scannedRefs, ref scannedLocations, null);
+
+            return new ProbeResult
+            {
+                Data = new Dictionary<string, object>
+                {
+                    ["strategy"] = "bulk-result-scan",
+                    ["sources_scanned"] = scannedSources,
+                    ["references_scanned"] = scannedRefs,
+                    ["locations_scanned"] = scannedLocations,
+                    ["array_access_hits"] = hits,
+                    ["hit_classification"] = ClassifyArrayHits(hits),
+                },
+                ItemCount = hits.Count,
+                Notes = $"{hits.Count} array-access hits from {scannedRefs} refs in bulk result",
+            };
+        }
+
+        private void ScanForArrayAccess(object result, List<object> hits, ref int scannedSources, ref int scannedRefs, ref int scannedLocations, string sourceBlockHint)
+        {
+            var resultType = result.GetType();
+            var sourcesProp = resultType.GetProperty("Sources");
+            var sources = sourcesProp?.GetValue(result) as IEnumerable;
+            if (sources == null) sources = result as IEnumerable;
+            if (sources == null) return;
+
+            foreach (var src in sources)
+            {
+                scannedSources++;
+                if (hits.Count >= 20) return;
+                var st = src.GetType();
+                string srcName = SafeCall(() => st.GetProperty("Name")?.GetValue(src)?.ToString()) as string;
+                string srcPath = SafeCall(() => st.GetProperty("Path")?.GetValue(src)?.ToString()) as string;
+
+                var refsProp = st.GetProperty("References");
+                var refs = refsProp?.GetValue(src) as IEnumerable;
+                if (refs == null) continue;
+
+                foreach (var r in refs)
+                {
+                    scannedRefs++;
+                    if (hits.Count >= 20) return;
+                    var rt = r.GetType();
+                    string refName = SafeCall(() => rt.GetProperty("Name")?.GetValue(r)?.ToString()) as string;
+                    string refPath = SafeCall(() => rt.GetProperty("Path")?.GetValue(r)?.ToString()) as string;
+                    string refAddress = SafeCall(() => rt.GetProperty("Address")?.GetValue(r)?.ToString()) as string;
+
+                    bool refHasBracket =
+                        (refName != null && refName.IndexOf('[') >= 0) ||
+                        (refPath != null && refPath.IndexOf('[') >= 0);
+
+                    var locsProp = rt.GetProperty("Locations");
+                    var locs = locsProp?.GetValue(r) as IEnumerable;
+                    if (locs == null && !refHasBracket) continue;
+
+                    var matchingLocs = new List<object>();
+                    if (locs != null)
+                    {
+                        foreach (var loc in locs)
+                        {
+                            scannedLocations++;
+                            var lt = loc.GetType();
+                            string locName = SafeCall(() => lt.GetProperty("Name")?.GetValue(loc)?.ToString()) as string;
+                            string locAddr = SafeCall(() => lt.GetProperty("Address")?.GetValue(loc)?.ToString()) as string;
+                            string locRefAs = SafeCall(() => lt.GetProperty("ReferencedAsName")?.GetValue(loc)?.ToString()) as string;
+                            string locRefLoc = SafeCall(() => lt.GetProperty("ReferenceLocation")?.GetValue(loc)?.ToString()) as string;
+
+                            bool locHasBracket =
+                                (locName != null && locName.IndexOf('[') >= 0) ||
+                                (locAddr != null && locAddr.IndexOf('[') >= 0) ||
+                                (locRefAs != null && locRefAs.IndexOf('[') >= 0) ||
+                                (locRefLoc != null && locRefLoc.IndexOf('[') >= 0);
+
+                            if (locHasBracket || refHasBracket)
+                            {
+                                matchingLocs.Add(new
+                                {
+                                    access = SafeCall(() => lt.GetProperty("Access")?.GetValue(loc)?.ToString()),
+                                    reference_type = SafeCall(() => lt.GetProperty("ReferenceType")?.GetValue(loc)?.ToString()),
+                                    reference_location = locRefLoc,
+                                    name = locName,
+                                    address = locAddr,
+                                    referenced_as_name = locRefAs,
+                                });
+                            }
+                        }
+                    }
+
+                    if (matchingLocs.Count > 0 || refHasBracket)
+                    {
+                        hits.Add(new
+                        {
+                            source_block = sourceBlockHint ?? srcName,
+                            source_path = srcPath,
+                            ref_name = refName,
+                            ref_path = refPath,
+                            ref_address = refAddress,
+                            matching_locations = matchingLocs,
+                        });
+                    }
+                }
+            }
+        }
+
+        private static object ClassifyArrayHits(List<object> hits)
+        {
+            int literal = 0, wildcard = 0, other = 0;
+            var samples = new { literal = new List<string>(), wildcard = new List<string>() };
+            foreach (var h in hits)
+            {
+                // Pull strings that might contain array indices
+                var t = h.GetType();
+                string name = (string)t.GetProperty("ref_name")?.GetValue(h);
+                string path = (string)t.GetProperty("ref_path")?.GetValue(h);
+                string candidate = name ?? path ?? "";
+                int lb = candidate.IndexOf('[');
+                int rb = lb >= 0 ? candidate.IndexOf(']', lb) : -1;
+                if (lb < 0 || rb < 0) { other++; continue; }
+                string inside = candidate.Substring(lb + 1, rb - lb - 1).Trim();
+                if (inside == "*" || inside == "")
+                {
+                    wildcard++;
+                    if (samples.wildcard.Count < 5) samples.wildcard.Add(candidate);
+                }
+                else if (int.TryParse(inside, out _))
+                {
+                    literal++;
+                    if (samples.literal.Count < 5) samples.literal.Add(candidate);
+                }
+                else
+                {
+                    other++;
+                }
+            }
+            return new
+            {
+                literal_index_count = literal,
+                wildcard_count = wildcard,
+                other_count = other,
+                samples_literal = samples.literal,
+                samples_wildcard = samples.wildcard,
+            };
+        }
+
+        private ProbeResult Probe_DriveObjectWalk(string outDir)
+        {
+            Type containerType = FindTypeByName("Siemens.Engineering.MC.Drives.DriveObjectContainer");
+            if (containerType == null)
+                return new ProbeResult { Data = new { error = "DriveObjectContainer type not found" }, Notes = "type missing" };
+
+            DeviceItem drive = null;
+            foreach (Device dev in _project.Devices)
+            {
+                drive = FindSinamicsIn(dev.DeviceItems);
+                if (drive != null) break;
+            }
+            if (drive == null)
+                return new ProbeResult { Data = new { warning = "no Sinamics device found" }, Notes = "no Sinamics" };
+
+            var getServiceGeneric = typeof(IEngineeringServiceProvider)
+                .GetMethods().FirstOrDefault(m => m.Name == "GetService" && m.IsGenericMethodDefinition);
+            var gm = getServiceGeneric.MakeGenericMethod(containerType);
+            object container = gm.Invoke(drive, null);
+            if (container == null)
+                return new ProbeResult { Data = new { warning = "container returned null" }, Notes = "null container" };
+
+            // Dump container members + DriveObjects collection contents
+            var data = new Dictionary<string, object>
+            {
+                ["drive_name"] = drive.Name,
+                ["container_type"] = container.GetType().FullName,
+                ["container_properties"] = SafeReflectAllProps(container, maxDepth: 1),
+            };
+
+            // Enumerate DriveObjects
+            var driveObjectsProp = container.GetType().GetProperty("DriveObjects");
+            var driveObjectsList = new List<object>();
+            int driveObjectCount = 0;
+            if (driveObjectsProp != null)
+            {
+                var coll = driveObjectsProp.GetValue(container) as IEnumerable;
+                if (coll != null)
+                {
+                    foreach (var driveObj in coll)
+                    {
+                        driveObjectCount++;
+                        if (driveObjectsList.Count >= 5) continue;  // keep dump bounded
+                        driveObjectsList.Add(ReflectDriveObject(driveObj));
+                    }
+                }
+            }
+            data["drive_object_count"] = driveObjectCount;
+            data["drive_object_samples"] = driveObjectsList;
+
+            // Also reflect on DriveObject type statically to catalog its methods/properties
+            Type driveObjectType = FindTypeByName("Siemens.Engineering.MC.Drives.DriveObject")
+                                ?? FindTypeByName("Siemens.Engineering.MC.DriveConfiguration.DriveObject");
+            if (driveObjectType != null)
+            {
+                data["drive_object_type"] = driveObjectType.FullName;
+                data["drive_object_static_members"] = driveObjectType
+                    .GetMembers(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+                    .Select(m => new
+                    {
+                        kind = m.MemberType.ToString(),
+                        name = m.Name,
+                        detail = (m is MethodInfo mi) ? $"({string.Join(",", mi.GetParameters().Select(p => p.ParameterType.Name))}) -> {mi.ReturnType.Name}"
+                               : (m is PropertyInfo pi) ? pi.PropertyType.FullName
+                               : ""
+                    })
+                    .ToList();
+            }
+
+            return new ProbeResult
+            {
+                Data = data,
+                ItemCount = driveObjectCount,
+                Notes = $"{driveObjectCount} DriveObjects on {drive.Name}",
+            };
+        }
+
+        private object ReflectDriveObject(object driveObj)
+        {
+            if (driveObj == null) return null;
+            var t = driveObj.GetType();
+            var result = new Dictionary<string, object>
+            {
+                ["__type"] = t.FullName,
+                ["properties"] = SafeReflectAllProps(driveObj, maxDepth: 1),
+            };
+
+            // GetAttributeInfos to discover actual attribute names + values
+            var attrInfos = new List<object>();
+            try
+            {
+                var getAttrInfos = t.GetMethod("GetAttributeInfos", Type.EmptyTypes);
+                if (getAttrInfos != null)
+                {
+                    var infos = getAttrInfos.Invoke(driveObj, null) as IEnumerable;
+                    if (infos != null)
+                    {
+                        foreach (var info in infos)
+                        {
+                            try
+                            {
+                                var it = info.GetType();
+                                string name = it.GetProperty("Name")?.GetValue(info)?.ToString();
+                                if (string.IsNullOrEmpty(name)) continue;
+                                object val = null;
+                                try
+                                {
+                                    var getAttrMethod = t.GetMethod("GetAttribute", new[] { typeof(string) });
+                                    val = getAttrMethod?.Invoke(driveObj, new object[] { name });
+                                }
+                                catch { }
+                                attrInfos.Add(new { name, value = val?.ToString(), type = val?.GetType().FullName });
+                            }
+                            catch { }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) { attrInfos.Add(new { error = ex.Message }); }
+            result["attributes_via_getattributeinfos"] = attrInfos;
+
+            // Walk nested engineering objects — DriveObject might have Telegrams / Parameters collection
+            try
+            {
+                foreach (var propName in new[] { "Telegrams", "Parameters", "Submodules", "DriveObjects", "Items", "DeviceItems" })
+                {
+                    var p = t.GetProperty(propName);
+                    if (p == null) continue;
+                    var val = p.GetValue(driveObj);
+                    if (val == null) { result[$"prop_{propName}"] = null; continue; }
+                    if (val is IEnumerable en)
+                    {
+                        var n = 0;
+                        var previews = new List<object>();
+                        foreach (var x in en)
+                        {
+                            if (n++ >= 5) { previews.Add("… truncated"); break; }
+                            previews.Add(new { type = x?.GetType().FullName, name = SafeCall(() => x?.GetType().GetProperty("Name")?.GetValue(x)?.ToString()) });
+                        }
+                        result[$"prop_{propName}"] = new { count = n, preview = previews };
+                    }
+                    else
+                    {
+                        result[$"prop_{propName}"] = val.GetType().FullName;
+                    }
+                }
+            }
+            catch (Exception ex) { result["nested_walk_error"] = ex.Message; }
+
+            return result;
         }
     }
 }
