@@ -16,9 +16,17 @@ import { supabase } from "@/lib/supabase";
 import { callNonStreaming } from "@/hooks/use-generation";
 import { useUpdateAuditProject } from "@/hooks/use-audit-session";
 import { useAuditStore } from "@/stores/audit-store";
-import { buildBlockAnalysisSystemPrompt } from "@/lib/audit-analysis-prompt";
-import type { AuditProject } from "@/types/audit";
+import {
+  analyzeBlocks,
+  type BlockUnderstandingResult,
+  type OrchestratorBlockInput,
+} from "@/lib/audit-analysis/analysis-orchestrator";
+import type { AuditCrossReference, AuditProject } from "@/types/audit";
 import { cn } from "@/lib/utils";
+
+const ANALYSIS_CONCURRENCY = 4;
+const ANALYSIS_MODEL_ID = "claude-sonnet-4-6";
+const ANALYSIS_MAX_TOKENS = 4096;
 
 interface AuditAnalyzeProps {
   session: AuditProject;
@@ -41,46 +49,6 @@ interface BlockState {
 
 
 type Phase = "idle" | "running" | "complete" | "cancelled";
-
-// ---------------------------------------------------------------------------
-// JSON extraction helper
-// ---------------------------------------------------------------------------
-
-function extractJson(text: string): string {
-  // Strip ```json ... ``` or ``` ... ``` fences if present
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const raw = fenced ? fenced[1].trim() : text.trim();
-
-  const start = raw.indexOf("{");
-  if (start === -1) return raw;
-
-  // Walk forward tracking brace depth to find the true root closing brace,
-  // not just the last } in the string (which may be a nested closer in truncated output)
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-  let end = -1;
-
-  for (let i = start; i < raw.length; i++) {
-    const ch = raw[i];
-    if (escape) { escape = false; continue; }
-    if (ch === "\\" && inString) { escape = true; continue; }
-    if (ch === '"') { inString = !inString; continue; }
-    if (inString) continue;
-    if (ch === "{") depth++;
-    else if (ch === "}") {
-      depth--;
-      if (depth === 0) { end = i; break; }
-    }
-  }
-
-  // Fully balanced — return exact slice
-  if (end !== -1) return raw.slice(start, end + 1);
-
-  // Truncated response — return what we have; caller will get a parse error
-  // and the block will be marked failed, which is correct
-  return raw.slice(start);
-}
 
 // ---------------------------------------------------------------------------
 // Status icon
@@ -209,142 +177,143 @@ export function AuditAnalyze({ session, onSessionUpdate }: AuditAnalyzeProps) {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
-    // Build project name set once — used post-analysis to classify called_blocks.kind
     const projectNames = projectBlockNames();
-    const systemPrompt = buildBlockAnalysisSystemPrompt();
+
+    // Gather cross-refs for every selected block up front — the
+    // data-flow extractor keys off `source_block_id`.
+    const analyzableBlockIds = blocks
+      .filter((b) => b.status !== "skipped")
+      .map((b) => b.id);
+
+    const xrefByBlock = new Map<string, AuditCrossReference[]>();
+    if (analyzableBlockIds.length > 0) {
+      const { data: xrefRows, error: xrefErr } = await supabase
+        .from("audit_cross_references")
+        .select("*")
+        .eq("audit_project_id", session.id)
+        .in("source_block_id", analyzableBlockIds);
+      if (xrefErr) {
+        setError(`Failed to load cross-references: ${xrefErr.message}`);
+        setPhase("idle");
+        return;
+      }
+      for (const row of (xrefRows ?? []) as AuditCrossReference[]) {
+        const list = xrefByBlock.get(row.source_block_id) ?? [];
+        list.push(row);
+        xrefByBlock.set(row.source_block_id, list);
+      }
+    }
+
+    const orchestratorInputs: OrchestratorBlockInput[] = blocks
+      .filter((b) => b.status !== "skipped")
+      .map((b) => ({
+        id: b.id,
+        name: b.name,
+        block_type: b.blockType,
+        programming_language: b.language,
+        source_code: b.sourceCode,
+        folder_path: b.folderPath,
+        line_count: b.lineCount,
+      }));
 
     let doneCount = 0;
     let failCount = 0;
     const skippedCount = blocks.filter((b) => b.status === "skipped").length;
 
-    for (const block of blocks) {
-      if (ctrl.signal.aborted) {
-        setPhase("cancelled");
-        return;
-      }
-      if (block.status === "skipped") continue;
+    const persistResult = async (result: BlockUnderstandingResult) => {
+      const u = result.understanding;
 
-      updateBlock(block.id, { status: "analyzing" });
+      await supabase
+        .from("audit_block_understanding")
+        .update({ is_current: false })
+        .eq("block_id", result.blockId)
+        .eq("is_current", true);
 
-      try {
-        // Cap source at 40KB — very large LAD/FBD blocks (10k+ lines of XML) consume
-        // most of the context window and leave insufficient room for the JSON response.
-        const MAX_SOURCE_CHARS = 40_000;
-        const rawSource = block.sourceCode ?? "";
-        const truncated = rawSource.length > MAX_SOURCE_CHARS;
-        const source = truncated
-          ? rawSource.slice(0, MAX_SOURCE_CHARS) +
-            `\n\n[TRUNCATED: source is ${rawSource.length} chars, showing first ${MAX_SOURCE_CHARS}. Analyse what is visible; note truncation in confidence_notes.]`
-          : rawSource;
-
-        const userMessage = [
-          `Block Name: ${block.name}`,
-          `Block Type: ${block.blockType}`,
-          `Programming Language: ${block.language}`,
-          `Folder Path: ${block.folderPath ?? "Program blocks (root)"}`,
-          `Line Count: ${block.lineCount ?? "unknown"}`,
-          ``,
-          `--- SOURCE CODE ---`,
-          source,
-        ].join("\n");
-
-        const result = await callNonStreaming(
-          systemPrompt,
-          [{ role: "user", content: userMessage }],
-          ctrl.signal,
-          8192,
-        );
-
-        // Parse JSON from response
-        let analysis: Record<string, unknown>;
-        try {
-          analysis = JSON.parse(extractJson(result.content)) as Record<string, unknown>;
-        } catch {
-          throw new Error(`JSON parse failed: ${result.content.slice(0, 200)}`);
-        }
-
-        // Mark any previous understanding as not current
-        await supabase
-          .from("audit_block_understanding")
-          .update({ is_current: false })
-          .eq("block_id", block.id)
-          .eq("is_current", true);
-
-        // Enrich called_blocks with kind — deterministic set lookup, no AI needed
-        type CalledBlock = { name: string; call_context: string; kind?: string };
-        const dataFlow = analysis.data_flow as { called_blocks?: CalledBlock[] } | null ?? {};
-        if (dataFlow.called_blocks) {
-          for (const cb of dataFlow.called_blocks) {
-            cb.kind = projectNames.has(cb.name) ? "project" : "library";
-          }
-        }
-
-        // Insert new understanding — map new prompt schema to DB columns
-        // complexity_rating: not produced by new prompt, pass null (CHECK allows null)
-        // has_state_machine: derived from state_machine field
-        // fault_handling: new prompt returns string, wrap for jsonb column
-        // timing: stored in timing_analysis column
-        // members + confidence: folded into interface_contract and code_quality columns
-        const stateMachine = analysis.state_machine as object | null ?? null;
-        const interfaceContract = {
-          ...(analysis.interface_contract as object ?? {}),
-          // members for DB/UDT blocks lives alongside inputs/outputs/in_out
-        };
-        const codeQuality = {
-          ...(analysis.code_quality as object ?? {}),
-          analysis_confidence: (analysis.analysis_confidence as string) ?? null,
-          confidence_notes: (analysis.confidence_notes as string) ?? null,
-        };
-        const faultHandling =
-          typeof analysis.fault_handling === "string"
-            ? { description: analysis.fault_handling }
-            : (analysis.fault_handling as object) ?? {};
-
-        const { error: insertErr } = await supabase.from("audit_block_understanding").insert({
-          block_id: block.id,
+      const { error: insertErr } = await supabase
+        .from("audit_block_understanding")
+        .insert({
+          block_id: result.blockId,
           audit_project_id: session.id,
-          purpose: (analysis.purpose as string) ?? null,
-          category: (analysis.category as string) ?? null,
+          purpose: u.purpose,
+          category: u.category,
           complexity_rating: null,
-          has_state_machine: stateMachine !== null,
-          state_machine: stateMachine,
-          data_flow: (dataFlow as object) ?? {},
-          timing_analysis: (analysis.timing as object) ?? {},
-          fault_handling: faultHandling,
-          interface_contract: interfaceContract,
-          code_quality: codeQuality,
-          detailed_notes: (analysis.detailed_notes as string) ?? null,
-          model_used: "claude-sonnet-4-6",
-          token_usage: result.usage ?? {},
+          has_state_machine: u.has_state_machine,
+          state_machine: u.state_machine,
+          data_flow: u.data_flow,
+          timing_analysis: u.timing_analysis,
+          fault_handling: u.fault_handling,
+          interface_contract: u.interface_contract,
+          code_quality: u.code_quality,
+          detailed_notes: u.detailed_notes,
+          model_used: u.model_used,
+          token_usage: u.token_usage,
           is_current: true,
         });
-        if (insertErr) throw new Error(insertErr.message);
+      if (insertErr) throw new Error(insertErr.message);
 
-        // Update block analysis status
-        await supabase
-          .from("audit_blocks")
-          .update({ analysis_status: "understood", analyzed_at: new Date().toISOString() })
-          .eq("id", block.id);
+      await supabase
+        .from("audit_blocks")
+        .update({ analysis_status: "understood", analyzed_at: new Date().toISOString() })
+        .eq("id", result.blockId);
+    };
 
-        updateBlock(block.id, { status: "done" });
-        doneCount++;
-      } catch (err) {
-        if (ctrl.signal.aborted) {
-          setPhase("cancelled");
+    await analyzeBlocks(
+      orchestratorInputs,
+      {
+        crossReferencesByBlockId: xrefByBlock,
+        projectBlockNames: projectNames,
+        modelId: ANALYSIS_MODEL_ID,
+        aiCall: async (system, user, signal) => {
+          const r = await callNonStreaming(
+            system,
+            [{ role: "user", content: user }],
+            signal,
+            ANALYSIS_MAX_TOKENS,
+          );
+          return { content: r.content, usage: r.usage };
+        },
+      },
+      ctrl.signal,
+      ANALYSIS_CONCURRENCY,
+      async (event) => {
+        if (event.status === "started") {
+          updateBlock(event.blockId, { status: "analyzing" });
           return;
         }
-        const msg = err instanceof Error ? err.message : String(err);
-        await supabase
-          .from("audit_blocks")
-          .update({ analysis_status: "failed", analysis_error: msg })
-          .eq("id", block.id);
+        if (event.status === "completed" && event.result) {
+          try {
+            await persistResult(event.result);
+            updateBlock(event.blockId, { status: "done" });
+            doneCount++;
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            await supabase
+              .from("audit_blocks")
+              .update({ analysis_status: "failed", analysis_error: msg })
+              .eq("id", event.blockId);
+            updateBlock(event.blockId, { status: "failed", error: msg });
+            failCount++;
+          }
+          return;
+        }
+        if (event.status === "failed") {
+          const msg = event.error ?? "analysis failed";
+          await supabase
+            .from("audit_blocks")
+            .update({ analysis_status: "failed", analysis_error: msg })
+            .eq("id", event.blockId);
+          updateBlock(event.blockId, { status: "failed", error: msg });
+          failCount++;
+          return;
+        }
+      },
+    );
 
-        updateBlock(block.id, { status: "failed", error: msg });
-        failCount++;
-      }
+    if (ctrl.signal.aborted) {
+      setPhase("cancelled");
+      return;
     }
 
-    // Update analysis_progress on session
     try {
       await updateProject.mutateAsync({
         id: session.id,
@@ -372,11 +341,11 @@ export function AuditAnalyze({ session, onSessionUpdate }: AuditAnalyzeProps) {
     try {
       await updateProject.mutateAsync({
         id: session.id,
-        updates: { current_step: "review" },
+        updates: { current_step: "classify" },
       });
       store.setStepStatus("analyze", "completed");
-      store.setCurrentStep("review");
-      store.setStepStatus("review", "active");
+      store.setCurrentStep("classify");
+      store.setStepStatus("classify", "active");
       onSessionUpdate();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -542,7 +511,7 @@ export function AuditAnalyze({ session, onSessionUpdate }: AuditAnalyzeProps) {
             )}
             <Button onClick={() => void handleProceed()} className="gap-2">
               <ArrowRight className="h-3.5 w-3.5" />
-              Proceed to Review
+              Proceed to Classify
             </Button>
           </>
         )}

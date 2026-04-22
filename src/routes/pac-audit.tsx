@@ -19,6 +19,7 @@ import { AuditConnect } from "@/components/pac-audit/steps/audit-connect";
 import { AuditExtract } from "@/components/pac-audit/steps/audit-extract";
 import { AuditSelect } from "@/components/pac-audit/steps/audit-select";
 import { AuditAnalyze } from "@/components/pac-audit/steps/audit-analyze";
+import { AuditClassify } from "@/components/pac-audit/steps/audit-classify";
 import { AuditReview } from "@/components/pac-audit/steps/audit-review";
 import { AuditReady } from "@/components/pac-audit/steps/audit-ready";
 import { useAuditStore } from "@/stores/audit-store";
@@ -128,10 +129,16 @@ function AuditStepContent({
       return <AuditSelect session={session} onSessionUpdate={onSessionUpdate} />;
     case "analyze":
       return <AuditAnalyze session={session} onSessionUpdate={onSessionUpdate} />;
+    case "classify":
+      return <AuditClassify session={session} onSessionUpdate={onSessionUpdate} />;
     case "review":
       return <AuditReview session={session} onSessionUpdate={onSessionUpdate} />;
     case "ready":
       return <AuditReady session={session} onSessionUpdate={onSessionUpdate} />;
+    // `trace` and `verify` land in later steps of the plan; default guards
+    // against legacy step strings still present in some sessions.
+    default:
+      return <AuditConnect session={session} onSessionUpdate={onSessionUpdate} />;
   }
 }
 

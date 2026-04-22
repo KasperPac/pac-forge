@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Text;
 using System.Threading;
+using PacForgeBridge.HardwareExtractors;
 
 namespace PacForgeBridge
 {
@@ -70,6 +71,11 @@ namespace PacForgeBridge
             {
                 if (args[i] == "--port" && int.TryParse(args[i + 1], out int p))
                     port = p;
+                if (args[i] == "--validate-hardware-parsers")
+                {
+                    HardwareParserValidator.Run(args[i + 1]);
+                    return;
+                }
             }
 
             Console.WriteLine("==============================================");

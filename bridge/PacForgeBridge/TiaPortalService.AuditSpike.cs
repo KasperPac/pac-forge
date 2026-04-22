@@ -71,6 +71,9 @@ namespace PacForgeBridge
             RunProbe(resp, "cross_references_v3", "udt_array_resolution", outDir, Probe_UdtArrayResolution);
             RunProbe(resp, "hardware_v3", "drive_object_walk", outDir, Probe_DriveObjectWalk);
 
+            // ── V4 probe: unreachable-devices hunt (PROFINET IO slaves, ET200SP, Beckhoff, etc.) ──
+            RunProbe(resp, "hardware_v4", "all_device_collections", outDir, Probe_AllDeviceCollections);
+
             File.WriteAllText(Path.Combine(outDir, "_summary.json"), Json.Serialize(resp));
             resp.Message = $"Spike complete — {resp.Findings.Count} probes, output at {outDir}";
             return resp;
@@ -1816,6 +1819,210 @@ namespace PacForgeBridge
             catch (Exception ex) { result["nested_walk_error"] = ex.Message; }
 
             return result;
+        }
+
+        // V4 — hunt for PROFINET IO slaves / ET200SP / Beckhoff couplers that don't surface
+        // through `_project.Devices`. Systematically enumerate every Device-bearing collection
+        // reachable from `_project` via reflection, plus walk `DeviceGroups` recursively.
+        private ProbeResult Probe_AllDeviceCollections(string outDir)
+        {
+            var data = new Dictionary<string, object>();
+
+            // 1. Canonical path — _project.Devices.Count + names (for baseline diff)
+            var canonicalNames = new List<string>();
+            int canonicalCount = 0;
+            try
+            {
+                foreach (Device d in _project.Devices)
+                {
+                    canonicalCount++;
+                    if (canonicalNames.Count < 200) canonicalNames.Add(d.Name + " | " + (SafeCall(() => d.TypeIdentifier) as string ?? "?"));
+                }
+            }
+            catch (Exception ex) { data["project_devices_error"] = ex.Message; }
+            data["project_devices_count"] = canonicalCount;
+            data["project_devices_names"] = canonicalNames;
+
+            // 2. _project.DeviceGroups recursive walk
+            var groupedDevices = new List<string>();
+            int groupedCount = 0;
+            try { WalkDeviceGroups(_project.DeviceGroups, groupedDevices, ref groupedCount); }
+            catch (Exception ex) { data["device_groups_error"] = ex.Message; }
+            data["device_groups_device_count"] = groupedCount;
+            data["device_groups_sample"] = groupedDevices.Take(200).ToList();
+
+            // 2b. UngroupedDevicesGroup — the special project-level "Ungrouped devices" folder
+            //     where PROFINET I/O slaves (ET200SP heads, Beckhoff couplers, etc.) often land
+            //     on V20.
+            var ungroupedNames = new List<string>();
+            int ungroupedCount = 0;
+            try
+            {
+                var ugProp = _project.GetType().GetProperty("UngroupedDevicesGroup");
+                object ug = ugProp?.GetValue(_project);
+                if (ug != null)
+                {
+                    data["ungrouped_group_runtime_type"] = ug.GetType().FullName;
+                    var devicesProp = ug.GetType().GetProperty("Devices");
+                    var groupsProp = ug.GetType().GetProperty("Groups");
+                    if (devicesProp != null)
+                    {
+                        var devEn = devicesProp.GetValue(ug) as IEnumerable;
+                        if (devEn != null)
+                        {
+                            foreach (Device d in devEn)
+                            {
+                                ungroupedCount++;
+                                if (ungroupedNames.Count < 200)
+                                    ungroupedNames.Add(d.Name + " | " + (SafeCall(() => d.TypeIdentifier) as string ?? "?"));
+                            }
+                        }
+                    }
+                    // Recurse into sub-groups if any.
+                    if (groupsProp != null)
+                    {
+                        WalkDeviceGroups(groupsProp.GetValue(ug), ungroupedNames, ref ungroupedCount);
+                    }
+                }
+            }
+            catch (Exception ex) { data["ungrouped_group_error"] = ex.Message; }
+            data["ungrouped_devices_count"] = ungroupedCount;
+            data["ungrouped_devices_sample"] = ungroupedNames.Take(200).ToList();
+
+            // 3. Reflection sweep — every public property on Project returning IEnumerable<Device>
+            //    or containing something called "Ungrouped" / "IoDevice" / "Slave"
+            var reflectionHits = new List<object>();
+            try
+            {
+                var projType = _project.GetType();
+                foreach (var prop in projType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                {
+                    object val = null;
+                    try { val = prop.GetValue(_project); } catch { continue; }
+                    if (val == null) continue;
+
+                    string typeName = val.GetType().FullName ?? "";
+                    bool looksLikeDeviceBag =
+                        typeName.Contains("Device") ||
+                        prop.Name.IndexOf("Ungrouped", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        prop.Name.IndexOf("Slave", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        prop.Name.IndexOf("IoDevice", StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (!looksLikeDeviceBag) continue;
+
+                    var hit = new Dictionary<string, object>
+                    {
+                        ["property"] = prop.Name,
+                        ["declared_type"] = prop.PropertyType.FullName,
+                        ["runtime_type"] = typeName,
+                    };
+
+                    var en = val as IEnumerable;
+                    if (en != null && !(val is string))
+                    {
+                        int i = 0;
+                        var preview = new List<string>();
+                        foreach (var item in en)
+                        {
+                            i++;
+                            if (preview.Count < 10)
+                            {
+                                string nm = SafeCall(() => item?.GetType().GetProperty("Name")?.GetValue(item)?.ToString()) as string;
+                                string tid = SafeCall(() => item?.GetType().GetProperty("TypeIdentifier")?.GetValue(item)?.ToString()) as string;
+                                preview.Add($"{nm} | {tid}");
+                            }
+                        }
+                        hit["count"] = i;
+                        hit["preview"] = preview;
+                    }
+                    reflectionHits.Add(hit);
+                }
+            }
+            catch (Exception ex) { data["reflection_sweep_error"] = ex.Message; }
+            data["reflection_hits"] = reflectionHits;
+
+            // 4. Scan the CPU station's DeviceItems for PROFINET IO-system children (some
+            //    Openness versions expose IO slaves as sub-items of the master's interface).
+            var cpuChildHits = new List<object>();
+            try
+            {
+                foreach (Device d in _project.Devices)
+                {
+                    foreach (DeviceItem item in d.DeviceItems)
+                    {
+                        CollectIoDeviceCandidates(item, cpuChildHits, depth: 0);
+                    }
+                }
+            }
+            catch (Exception ex) { data["cpu_child_walk_error"] = ex.Message; }
+            data["cpu_child_io_candidate_count"] = cpuChildHits.Count;
+            data["cpu_child_io_candidates"] = cpuChildHits.Take(100).ToList();
+
+            return new ProbeResult
+            {
+                Data = data,
+                ItemCount = canonicalCount,
+                Notes = $"_project.Devices={canonicalCount}, DeviceGroups devices={groupedCount}, UngroupedDevicesGroup.Devices={ungroupedCount}, reflection hits={reflectionHits.Count}, CPU-child IO candidates={cpuChildHits.Count}",
+            };
+        }
+
+        private void WalkDeviceGroups(object groups, List<string> namesSink, ref int count)
+        {
+            if (groups == null) return;
+            var en = groups as IEnumerable;
+            if (en == null) return;
+            foreach (var g in en)
+            {
+                if (g == null) continue;
+                string groupName = (SafeCall(() => g.GetType().GetProperty("Name")?.GetValue(g)?.ToString()) as string) ?? "?";
+
+                var devicesProp = g.GetType().GetProperty("Devices");
+                if (devicesProp != null)
+                {
+                    var devEn = devicesProp.GetValue(g) as IEnumerable;
+                    if (devEn != null)
+                    {
+                        foreach (Device d in devEn)
+                        {
+                            count++;
+                            if (namesSink.Count < 200)
+                                namesSink.Add($"[{groupName}] {d.Name} | {SafeCall(() => d.TypeIdentifier) as string ?? "?"}");
+                        }
+                    }
+                }
+
+                var nestedProp = g.GetType().GetProperty("Groups");
+                if (nestedProp != null)
+                {
+                    WalkDeviceGroups(nestedProp.GetValue(g), namesSink, ref count);
+                }
+            }
+        }
+
+        private void CollectIoDeviceCandidates(DeviceItem item, List<object> sink, int depth)
+        {
+            if (item == null || depth > 6) return;
+            string cls = SafeCall(() => item.GetType().GetProperty("Classification")?.GetValue(item)?.ToString()) as string;
+            string tid = SafeCall(() => item.TypeIdentifier) as string;
+            // Anything not CPU/HM/None that has OrderNumber/GSD and lives under an interface is a candidate.
+            bool interesting = tid != null && (tid.Contains("OrderNumber:") || tid.Contains("GSD:"))
+                            && (cls == null || (cls != "CPU" && cls != "HM" && cls != "None"));
+            if (interesting)
+            {
+                sink.Add(new
+                {
+                    name = item.Name,
+                    type_id = tid,
+                    classification = cls,
+                    depth,
+                    parent_name = SafeCall(() => item.Parent?.GetType().GetProperty("Name")?.GetValue(item.Parent)?.ToString()) as string,
+                });
+            }
+            try
+            {
+                foreach (DeviceItem child in item.DeviceItems)
+                    CollectIoDeviceCandidates(child, sink, depth + 1);
+            }
+            catch { }
         }
     }
 }

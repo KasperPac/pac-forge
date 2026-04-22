@@ -735,6 +735,8 @@ namespace PacForgeBridge
         public int TagTableCount { get; set; }
         public int HmiScreenCount { get; set; }
         public int DeviceCount { get; set; }
+        /// <summary>ISO-8601 timestamp from _project.LastModified. Used for stale-snapshot detection.</summary>
+        public string LastModifiedAt { get; set; }
     }
 
     public class ExtractProjectResponse
@@ -745,6 +747,18 @@ namespace PacForgeBridge
         public List<ExtractedBlockDto> Blocks { get; set; } = new List<ExtractedBlockDto>();
         public List<ExtractedTagTableDto> TagTables { get; set; } = new List<ExtractedTagTableDto>();
         public ExtractedHardwareDto Hardware { get; set; }
+        public List<ExtractedCrossReferenceDto> CrossReferences { get; set; } = new List<ExtractedCrossReferenceDto>();
+        /// <summary>Per-channel IO detail for Trace joins. One row per channel. See PAC_AUDIT_DERIVED_SPEC §12.6.</summary>
+        public List<ExtractedModuleChannelDto> ModuleChannels { get; set; } = new List<ExtractedModuleChannelDto>();
+        /// <summary>HMI panels linked to the project with nested screen + tag-table inventory.</summary>
+        public List<ExtractedHmiTargetDto> HmiTargets { get; set; } = new List<ExtractedHmiTargetDto>();
+        /// <summary>
+        /// Per-drive Sinamics detail (nameplate, ramps, telegrams). One row per drive device
+        /// classified as `drive.sinamics.*` in ExtractedDeviceDto.Category. See §12.6 / §16 step 4.
+        /// </summary>
+        public List<ExtractedDriveDetailDto> DriveDetails { get; set; } = new List<ExtractedDriveDetailDto>();
+        /// <summary>ISO-8601 timestamp captured at extract time. Persisted to audit_projects.tia_project_modified_at for stale detection.</summary>
+        public string LastModifiedAt { get; set; }
         public List<string> Warnings { get; set; } = new List<string>();
     }
 
@@ -798,12 +812,45 @@ namespace PacForgeBridge
         public string TypeId { get; set; }
         public string OrderNumber { get; set; }
         public string FirmwareVersion { get; set; }
+        /// <summary>
+        /// Engineer's physical-device label from DeviceItem.GetAttribute("Comment") — e.g.
+        /// "FREEZER Pallet Chain conveyor 1500L-01A Ground Level". Primary source for §12.6
+        /// physical-device attribution on drives; populated opportunistically for every device
+        /// that exposes the attribute. Null when absent.
+        /// </summary>
+        public string Comment { get; set; }
+        /// <summary>
+        /// Classification label from GSDML VendorName + family heuristics (§16 step 4). Uses
+        /// dot-notation: "drive.sinamics.g120c", "roller_card.interroll", "load_cell.siwarex",
+        /// "hmi", "io_module.generic", "other.pn_device". Null when classification found no
+        /// matching rule (e.g. CPUs — handled outside the GSDML path).
+        /// </summary>
+        public string Category { get; set; }
+        /// <summary>
+        /// Vendor name from the matched GSDML (e.g. "SIEMENS AG", "Interroll Engineering GmbH",
+        /// "Pulseroller", "Itoh Denki Co., Ltd."). Null when no GSDML matched.
+        /// </summary>
+        public string VendorName { get; set; }
+        /// <summary>
+        /// GSDML filename the device resolved to (e.g. "GSDML-V2.31-Siemens-SINAMICS_G120C-...xml").
+        /// Parsed out of the TypeIdentifier `GSD:&lt;filename&gt;/...` prefix where present.
+        /// Null when the device uses an `OrderNumber:` identifier (catalog-only, no GSDML).
+        /// </summary>
+        public string GsdmlFilename { get; set; }
+        /// <summary>Primary IP address on the device's PROFINET interface. Null when not discoverable.</summary>
+        public string IpAddress { get; set; }
+        /// <summary>PROFINET station name. Null when not set.</summary>
+        public string StationName { get; set; }
     }
 
     public class ExtractedIoModuleDto
     {
         public string Name { get; set; }
         public string TypeId { get; set; }
+        /// <summary>Parsed catalog number from TypeId (e.g. "6ES7 521-1BH50-0AA0"). Primary handle for GSDML / HSP lookup.</summary>
+        public string Mlfb { get; set; }
+        /// <summary>Parsed firmware version from TypeId (e.g. "V1.2").</summary>
+        public string FirmwareVersion { get; set; }
         public int Rack { get; set; }
         public int Slot { get; set; }
     }
@@ -813,6 +860,175 @@ namespace PacForgeBridge
         public string Name { get; set; }
         public string Type { get; set; }
         public List<string> Devices { get; set; } = new List<string>();
+    }
+
+    /// <summary>
+    /// One row per (source-block → referenced-object → location) triple, flattened from Openness
+    /// CrossReferenceService.GetCrossReferences(AllObjects). Persisted to audit_cross_references.
+    /// See PAC_AUDIT_DERIVED_SPEC.md §12.0 + §12.2.
+    /// </summary>
+    public class ExtractedCrossReferenceDto
+    {
+        // Source side — mirrors SourceObject
+        public string SourceName { get; set; }
+        public string SourcePath { get; set; }
+        public string SourceAddress { get; set; }
+        public string SourceTypeName { get; set; }
+        public string SourceDevice { get; set; }
+
+        // Reference target side — mirrors ReferenceObject
+        public string TargetName { get; set; }
+        public string TargetPath { get; set; }
+        public string TargetAddress { get; set; }
+        public string TargetTypeName { get; set; }
+        public string TargetDevice { get; set; }
+
+        // Location — per-occurrence inside source
+        public string Access { get; set; }            // Access enum — Read/Write/RW/Call/InstanceDB/Multiinstance/Interface/Definition/...
+        public string ReferenceType { get; set; }     // ReferenceType enum — Uses/UsedBy/TypeInstance/InstanceType/Assigns/...
+        public string ReferenceLocation { get; set; } // human-readable, e.g. "@CALL_SENSORS ▶ NW4 (Function Block SENSOR_FB)"
+        public string ReferencedAsName { get; set; }
+        public string LocationAddress { get; set; }
+        public string LocationName { get; set; }      // the symbolic path at the site, e.g. "DB_SENSORS.SENSOR_FB[15]._ClearDly"
+        public string LocationTypeName { get; set; }
+    }
+
+    /// <summary>
+    /// One row per physical IO channel, derived from walking Device.DeviceItems and unrolling
+    /// module-level `StartAddress` across the module's channel count. See PAC_AUDIT_DERIVED_SPEC
+    /// §12.6. Populated by ExtractModuleChannels; persisted to audit_module_channels.
+    /// </summary>
+    public class ExtractedModuleChannelDto
+    {
+        /// <summary>Parent IO module name — joins to ExtractedIoModuleDto.Name.</summary>
+        public string ModuleName { get; set; }
+        /// <summary>Parent module catalog number (e.g. "6ES7 521-1BH50-0AA0"). Copied from ExtractedIoModuleDto.Mlfb; the authoritative handle for GSDML/HSP lookup.</summary>
+        public string ModuleMlfb { get; set; }
+        /// <summary>Zero-based channel index within the module.</summary>
+        public int ChannelNumber { get; set; }
+        /// <summary>Absolute TIA address, e.g. "%I0.0", "%Q1.3", "%IW256", "%QW256".</summary>
+        public string IoAddress { get; set; }
+        /// <summary>DI / DO / AI / AO / DIQ / RS485 / other — inferred from address prefix + module TypeIdentifier.</summary>
+        public string SignalType { get; set; }
+        /// <summary>Symbolic tag, joined from the project tag tables by address. Null when no tag binds this address.</summary>
+        public string SymbolicTag { get; set; }
+        /// <summary>True when the module's TypeIdentifier/name marks it as F-I/O (e.g. FDI, FDO, SM 336F).</summary>
+        public bool IsSafety { get; set; }
+        /// <summary>Channel-level comment when available (often null on V18 for non-safety modules).</summary>
+        public string ChannelComment { get; set; }
+        /// <summary>How this channel's count was derived — for provenance/debug. One of: "length_in_bits", "length_bytes", "name_pattern", "single_row".</summary>
+        public string ChannelCountSource { get; set; }
+        public int Rack { get; set; }
+        public int Slot { get; set; }
+    }
+
+    /// <summary>
+    /// One row per HMI panel linked to the project. _project.HmiTargets is not surfaced on V18;
+    /// this is populated by walking Devices for HmiTarget software containers. See §12.6.
+    /// </summary>
+    public class ExtractedHmiTargetDto
+    {
+        /// <summary>HmiTarget.Name.</summary>
+        public string Name { get; set; }
+        /// <summary>Parent Device.Name.</summary>
+        public string DeviceName { get; set; }
+        /// <summary>Device.TypeIdentifier, e.g. "OrderNumber:6AV2124-0MC01-0AX0/15.1.0.0".</summary>
+        public string TypeId { get; set; }
+        /// <summary>Parsed MLFB from TypeId, e.g. "6AV2124-0MC01-0AX0".</summary>
+        public string OrderNumber { get; set; }
+        /// <summary>Parsed firmware version from TypeId.</summary>
+        public string FirmwareVersion { get; set; }
+        /// <summary>HmiTarget model class name, e.g. "ComfortPanel", "BasicPanel", "UnifiedComfortPanel".</summary>
+        public string PanelClass { get; set; }
+        /// <summary>Primary IP address if a PROFINET interface is discoverable.</summary>
+        public string IpAddress { get; set; }
+        /// <summary>PROFINET station name if present.</summary>
+        public string StationName { get; set; }
+        public int ScreenCount { get; set; }
+        public int TagTableCount { get; set; }
+        public List<ExtractedHmiScreenDto> Screens { get; set; } = new List<ExtractedHmiScreenDto>();
+    }
+
+    public class ExtractedHmiScreenDto
+    {
+        public string Name { get; set; }
+        /// <summary>Forward-slash separated folder path under ScreenFolder root.</summary>
+        public string FolderPath { get; set; }
+        public int? Number { get; set; }
+    }
+
+    /// <summary>
+    /// Per-drive Sinamics detail captured via Siemens.Engineering.MC.Drives.DriveObjectContainer.
+    /// One row per drive device (matched to ExtractedDeviceDto.Name). Parameters below are
+    /// nullable because Startdrive integration is optional — a project downloaded without
+    /// Startdrive will return nulls for nameplate/ramp fields. See PAC_AUDIT_DERIVED_SPEC §12.6.
+    /// </summary>
+    public class ExtractedDriveDetailDto
+    {
+        /// <summary>Joins back to ExtractedDeviceDto.Name.</summary>
+        public string DeviceName { get; set; }
+        /// <summary>Engineer's physical-device label from DeviceItem.GetAttribute("Comment"). Primary attribution signal per §12.6.</summary>
+        public string Comment { get; set; }
+        /// <summary>Drive family derived from MLFB/TypeIdentifier — "G120C", "G120", "S120", "S210", "V90", or null when unrecognised.</summary>
+        public string DriveFamily { get; set; }
+        /// <summary>MLFB / order number (e.g. "6SL3210-1KE18-8AF1").</summary>
+        public string Mlfb { get; set; }
+        /// <summary>Firmware version suffix (e.g. "4.7.13").</summary>
+        public string FirmwareVersion { get; set; }
+        public string IpAddress { get; set; }
+        public string StationName { get; set; }
+
+        // Motor nameplate — P304/P305/P311. Values are doubles where present.
+        public double? MotorRatedPowerKw { get; set; }      // P304
+        public double? MotorRatedCurrentA { get; set; }     // P305
+        public double? MotorRatedSpeedRpm { get; set; }     // P311
+        public double? MotorRatedVoltageV { get; set; }     // P304 sibling (P304[V] on some drives); nullable
+
+        // Ramps — P1120 / P1121 / P1135. Seconds.
+        public double? RampUpSeconds { get; set; }          // P1120
+        public double? RampDownSeconds { get; set; }        // P1121
+        public double? RampOffStopSeconds { get; set; }     // P1135
+
+        /// <summary>Telegram number of the PROFIdrive main telegram (e.g. 352 = G120 Standard, 1 = Std msg 1). From Telegrams collection Type="MainTelegram".</summary>
+        public int? MainTelegramNumber { get; set; }
+        /// <summary>Telegram number of the PROFIsafe telegram (30 = PROFIsafe standard). From Telegrams collection Type="SafetyTelegram".</summary>
+        public int? SafetyTelegramNumber { get; set; }
+        public List<ExtractedDriveTelegramDto> Telegrams { get; set; } = new List<ExtractedDriveTelegramDto>();
+
+        /// <summary>Populated only for parameters the extractor explicitly probes (nameplate + ramps + P922). Keyed snapshot useful for debugging missing values.</summary>
+        public List<ExtractedDriveParameterDto> SelectedParameters { get; set; } = new List<ExtractedDriveParameterDto>();
+
+        /// <summary>"starter" when any parameter values returned non-null; "partial" when some returned null; "not_available" when the DriveObjectContainer was absent entirely; "gsdml" reserved for future GSDML-only fallback path.</summary>
+        public string ParameterSource { get; set; }
+
+        /// <summary>Per-drive warnings surfaced during extraction (API errors, missing collections, etc.).</summary>
+        public List<string> Warnings { get; set; } = new List<string>();
+    }
+
+    public class ExtractedDriveParameterDto
+    {
+        /// <summary>Parameter number (e.g. 304 for P304, 20 for r20).</summary>
+        public int Number { get; set; }
+        /// <summary>Short name from Openness (e.g. "p304", "r18").</summary>
+        public string Name { get; set; }
+        /// <summary>Human-readable description (e.g. "Rated motor power").</summary>
+        public string Text { get; set; }
+        /// <summary>Value as string — nameplate params are doubles, others vary (ints, enums, FW-version codes).</summary>
+        public string Value { get; set; }
+        /// <summary>Engineering unit (e.g. "kW", "A", "rpm", "V", "s", "Hz"); empty when unitless.</summary>
+        public string Unit { get; set; }
+    }
+
+    public class ExtractedDriveTelegramDto
+    {
+        /// <summary>PROFIdrive telegram number (30 = PROFIsafe, 352 = G120 standard, 1 = Std msg 1, …).</summary>
+        public int TelegramNumber { get; set; }
+        /// <summary>"MainTelegram" or "SafetyTelegram".</summary>
+        public string Type { get; set; }
+        /// <summary>Formatted input address range if present (e.g. "%IW256..%IW267").</summary>
+        public string InputAddress { get; set; }
+        /// <summary>Formatted output address range if present.</summary>
+        public string OutputAddress { get; set; }
     }
 
     // --- Pac-Audit Openness API spike (Step 0) ---

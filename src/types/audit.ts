@@ -1,14 +1,24 @@
 // Types for the Pac-Audit reverse-engineering module
 
+import type { SpecContractV2 } from "@/types/spec-contract-v2";
+
 // ---------------------------------------------------------------------------
 // Wizard steps
 // ---------------------------------------------------------------------------
 
+// CLASSIFY / TRACE / VERIFY added for the derived-spec pipeline
+// (see Docs/PAC_AUDIT_DERIVED_SPEC.md §4.1). The legacy REVIEW step is
+// retained during the transitional period — navigation ordering still
+// routes analyze → review → ready until the Verify UI lands (step 21 of
+// §16); hooks/stores can reference CLASSIFY/TRACE/VERIFY today.
 export const AUDIT_STEPS = {
   CONNECT: "connect",
   EXTRACT: "extract",
   SELECT: "select",
   ANALYZE: "analyze",
+  CLASSIFY: "classify",
+  TRACE: "trace",
+  VERIFY: "verify",
   REVIEW: "review",
   READY: "ready",
 } as const;
@@ -20,6 +30,9 @@ export const AUDIT_STEP_LABELS: Record<AuditStep, string> = {
   extract: "Extract",
   select: "Select",
   analyze: "Analyze",
+  classify: "Classify",
+  trace: "Trace",
+  verify: "Verify",
   review: "Review",
   ready: "Ready",
 };
@@ -29,6 +42,7 @@ export const AUDIT_STEP_ORDER: AuditStep[] = [
   "extract",
   "select",
   "analyze",
+  "classify",
   "review",
   "ready",
 ];
@@ -151,6 +165,12 @@ export interface AuditProject {
   current_step: AuditStep;
   step_statuses: Record<AuditStep, string>;
   analysis_progress: AnalysisProgress;
+  // Derived-spec layer (migration 073). See PAC_AUDIT_DERIVED_SPEC.md §3.1.
+  derived_spec: DerivedSpec | Record<string, never>;
+  derived_spec_version: number;
+  spec_provenance: SpecProvenanceMap;
+  tia_project_modified_at: string | null;
+  cross_refs_extracted_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -273,12 +293,42 @@ export interface CodeQualityAnalysis {
   confidence_notes?: string | null;
 }
 
+/**
+ * One row per Openness `(SourceObject → ReferenceObject → Location)` triple.
+ * Reshaped in migration 073 to match the bridge DTO. `target_block_id` is
+ * nullable because many references target tags or absolute addresses.
+ * `access` / `reference_type` are free-form strings carrying the Openness
+ * `Access` and `ReferenceType` enums respectively — no CHECK constraint
+ * (see PAC_AUDIT_DERIVED_SPEC.md §12.0).
+ */
 export interface AuditCrossReference {
   id: string;
   audit_project_id: string;
   source_block_id: string;
-  target_block_id: string;
-  reference_type: CrossReferenceType;
+  target_block_id: string | null;
+
+  // Openness enums — widened beyond the legacy CrossReferenceType union.
+  access: string | null;
+  reference_type: string | null;
+
+  source_name: string | null;
+  source_path: string | null;
+  source_address: string | null;
+  source_type_name: string | null;
+  source_device: string | null;
+
+  target_name: string | null;
+  target_path: string | null;
+  target_address: string | null;
+  target_type_name: string | null;
+  target_device: string | null;
+
+  reference_location: string | null;
+  referenced_as_name: string | null;
+  location_address: string | null;
+  location_name: string | null;
+  location_type_name: string | null;
+
   reference_details: Record<string, unknown>;
   reference_count: number;
   created_at: string;
@@ -570,4 +620,221 @@ export interface AuditBlockTreeNode {
   analysisStatus?: BlockAnalysisStatus;
   lineCount?: number;
   children: AuditBlockTreeNode[];
+}
+
+// ---------------------------------------------------------------------------
+// Derived spec (migration 073) — alias onto SpecContractV2.
+// Pac-Audit and the FDS Builder converge on the same shape; we don't need a
+// separate `core/` type layer yet (§2, §14).
+// ---------------------------------------------------------------------------
+
+export type DerivedSpec = SpecContractV2;
+
+export type SpecProvenanceValue =
+  | "extracted"
+  | "classified"
+  | "traced"
+  | "doc_ingest"
+  | "interview"
+  | "engineer_edit";
+
+/** Maps spec paths ("hierarchy.subsystems.0.assemblies.0.devices.0") → source. */
+export type SpecProvenanceMap = Record<string, SpecProvenanceValue>;
+
+// ---------------------------------------------------------------------------
+// FB classifications — per-block role assignment. See §3.3, §5.
+// ---------------------------------------------------------------------------
+
+export const FB_ROLES = [
+  "device",
+  "io_mapper",
+  "dispatcher",
+  "assembly",
+  "subsystem",
+  "sequence",
+  "utility",
+  "safety",
+  "comms",
+  "fault",
+  "logic",
+  "ob",
+  "unknown",
+] as const;
+
+export type FbRole = (typeof FB_ROLES)[number];
+
+export interface HierarchyAssignment {
+  subsystem_id?: string;
+  assembly_id?: string;
+  device_id?: string;
+}
+
+export interface AuditFbClassification {
+  id: string;
+  audit_project_id: string;
+  block_id: string;
+  role: FbRole;
+  auto_confidence: number | null;
+  auto_reason: string | null;
+  engineer_confirmed: boolean;
+  engineer_override_role: FbRole | null;
+  hierarchy_assignment: HierarchyAssignment | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AuditFbClassificationInsert {
+  audit_project_id: string;
+  block_id: string;
+  role: FbRole;
+  auto_confidence?: number | null;
+  auto_reason?: string | null;
+  engineer_confirmed?: boolean;
+  engineer_override_role?: FbRole | null;
+  hierarchy_assignment?: HierarchyAssignment | null;
+}
+
+// ---------------------------------------------------------------------------
+// IO-to-FB link (materialised walk cache). See §3.3, §6.
+// ---------------------------------------------------------------------------
+
+export type IoDirection = "input" | "output";
+
+export type WalkStatus =
+  | "resolved"
+  | "multiple_writers"
+  | "indirect"
+  | "unclassified"
+  | "unresolved";
+
+export type PhysicalDeviceSource = "hw_config" | "doc_ingest" | "engineer";
+
+export interface WalkHop {
+  block_id: string;
+  /** kind of hop: `writer` (direct writer), `dispatcher` (intermediate coordinator),
+   *  `udt_owner` (walked through a UDT field), `fb_instance` (hit an FB instance). */
+  kind: "writer" | "dispatcher" | "udt_owner" | "fb_instance";
+  /** Human-readable edge label, e.g. "M03_CMD := MOT[5].CTRL.RunFwd". */
+  via: string;
+}
+
+export interface AuditIoFbLink {
+  id: string;
+  audit_project_id: string;
+  io_address: string;
+  io_module_ref: string | null;
+  symbolic_tag: string | null;
+  direction: IoDirection;
+  device_fb_block_id: string | null;
+  device_fb_instance_path: string | null;
+  walk_path: WalkHop[] | null;
+  walk_status: WalkStatus;
+  walk_notes: string | null;
+  physical_device_guess: string | null;
+  physical_device_source: PhysicalDeviceSource | null;
+  engineer_verified: boolean;
+  engineer_override_device_fb_block_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Reference docs (uploaded priors). See §3.3, §9.
+// ---------------------------------------------------------------------------
+
+export type ReferenceDocType =
+  | "fds"
+  | "io_list"
+  | "p_and_id"
+  | "electrical_schematic"
+  | "commissioning_notes"
+  | "hmi_export"
+  | "other";
+
+export type ReferenceDocParseStatus = "pending" | "parsed" | "failed";
+
+export interface ReferenceDocPriors {
+  devices?: Array<{ name: string; tag?: string; description?: string }>;
+  tags?: Array<{
+    tag: string;
+    address?: string;
+    physical_device?: string;
+    description?: string;
+  }>;
+  states?: Array<{ state_id?: string; state_name: string; description?: string }>;
+  alarms?: Array<{ tag: string; description: string; tier?: string }>;
+  prose?: string;
+}
+
+export interface AuditReferenceDoc {
+  id: string;
+  audit_project_id: string;
+  doc_type: ReferenceDocType;
+  filename: string;
+  storage_path: string | null;
+  raw_text: string | null;
+  parsed_priors: ReferenceDocPriors;
+  parse_status: ReferenceDocParseStatus;
+  parse_error: string | null;
+  uploaded_at: string;
+  uploaded_by: string | null;
+}
+
+export interface AuditReferenceDocInsert {
+  audit_project_id: string;
+  doc_type: ReferenceDocType;
+  filename: string;
+  storage_path?: string | null;
+  raw_text?: string | null;
+  parsed_priors?: ReferenceDocPriors;
+  parse_status?: ReferenceDocParseStatus;
+  parse_error?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Module channels (per-channel IO detail). See §12.6.
+// ---------------------------------------------------------------------------
+
+export type IoSignalType = "DI" | "DO" | "AI" | "AO" | "DIQ" | "RS485" | "other";
+
+export type ChannelCountSource =
+  | "length_in_bits"
+  | "length_bytes"
+  | "name_pattern"
+  | "single_row";
+
+export interface AuditModuleChannel {
+  id: string;
+  audit_project_id: string;
+  module_name: string;
+  module_mlfb: string | null;
+  channel_number: number;
+  io_address: string | null;
+  signal_type: IoSignalType | null;
+  symbolic_tag: string | null;
+  is_safety: boolean;
+  channel_comment: string | null;
+  channel_count_source: ChannelCountSource | null;
+  rack: number | null;
+  slot: number | null;
+  created_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// IO-Link devices (master-port-device hierarchy). See §12.6.
+// ---------------------------------------------------------------------------
+
+export interface AuditIoLinkDevice {
+  id: string;
+  audit_project_id: string;
+  master_module_name: string;
+  port_number: number;
+  vendor_id: string;
+  product_id: string;
+  product_name: string | null;
+  iodd_sha: string | null;
+  process_data_in: Record<string, unknown> | null;
+  process_data_out: Record<string, unknown> | null;
+  parameters: Record<string, unknown> | null;
+  created_at: string;
 }

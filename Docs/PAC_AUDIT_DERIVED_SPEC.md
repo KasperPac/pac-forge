@@ -256,34 +256,73 @@ No confidence scoring: the walk is either resolved (deterministic) or flagged (e
 **Output:** confirmed / corrected derived_spec.
 **Engineer can:** edit the spec directly through the existing FDS table-pane components — not only through the interview.
 
-## 5. FB classification
+## 5. FB/FC classification
 
-Rules first, AI only for genuine tiebreakers. Run in three deterministic passes; fall back to AI (or engineer) only on residual ambiguity.
+Rules first, AI only for genuine tiebreakers. Run in two deterministic passes; fall back to AI (or engineer) only on residual ambiguity.
+
+### 5.0 Role taxonomy (13 values)
+
+`device | io_mapper | dispatcher | assembly | subsystem | sequence | utility | safety | comms | fault | logic | ob | unknown`
+
+The `_fb` suffix was dropped in the 074 migration — roles describe what the block *does*, and the same semantics apply whether the block is an FB or FC. The `audit_blocks.block_type` column still distinguishes FB vs FC vs OB at display time.
+
+Role meanings — drawn from Pac Technologies' modern Siemens codebase patterns:
+
+- **`device`** — logical device FB/FC (motor, valve, sensor) that owns a device instance. Legacy-style devices also read/write a small number of absolute IO addresses; modern devices touch UDT slices of their DB and route IO through mappers.
+- **`io_mapper`** — flat rung-per-channel translation between `%I`/`%Q` and UDT slices (or DI/DO abstraction blocks). Name pattern (`FC_IO_DIGITAL_INPUTS`, `IO_MAP`, etc.) or count-based (>10 distinct absolute IO addresses + no state machine).
+- **`dispatcher`** — bulk caller that instantiates ≥3 peer FBs by device type (`CALL_SENSORS`, `CALL_MOTORS`, `CALL_VALVES`). No state machine, no direct IO.
+- **`assembly`** — coordinated group of devices representing a physical machine (conveyor, lift table, elevator). In modern codebases assemblies write to device UDT command slices from their own coordination logic; they *do not* instantiate device FBs. Detection is partial today (R09 legacy heuristic) — full assembly detection requires UDT-slice fan-out analysis, deferred until R07 UDT tuning lands.
+- **`subsystem`** — top-level OB-called block that coordinates one or more assemblies.
+- **`sequence`** — state-machine-driven logic (CASE-on-variable, step counter, seal-in latch chain).
+- **`utility`** — reusable library helper. Includes channel abstractions (DI_FB, DO_FB, AI_FB, AO_FB, DIGITAL_INPUT_FB, DIGITAL_OUTPUT_FB) alongside classic math helpers (PID, Scale, Ramp, Norm, Lim, Avg).
+- **`safety`** — reads safety-named inputs (ESTOP, DOOR, LIGHT_CURTAIN, GUARD).
+- **`comms`** — HMI/data exchange wrapper (`HMI_`, `DATA_EXCH_`, `COMMS_` name prefix).
+- **`fault`** — writes fault/alarm signals to fault DBs or fault-named tags (≥2 signals to avoid false positives on single-bit fault wiring).
+- **`logic`** — active project glue (has callers or outbound calls) that didn't match any specific rule. Soft fallback before `unknown` — surfaces as "probably fine, flag for review" rather than "no rule fired".
+- **`ob`** — organisation block (block_type=OB).
+- **`unknown`** — truly orphaned blocks (no callers, no outbound signal). Engineer must resolve.
 
 ### 5.1 Deterministic rules (primary path)
 
 Run in order; first rule to match wins.
 
+**Pass 1 — intrinsic signals:**
+
 | Rule | Signal source | Role |
 |---|---|---|
-| `block_type = 'OB'` | `audit_blocks.block_type` | `ob` |
-| FB in folder path `/Library/`, `/Utilities/`, `/Utility/` | `audit_folders.path` | `utility_fb` |
-| Name matches standardised utility patterns (`PID_`, `Scale_`, `Ramp_`, `Norm_`, `Lim_`, `Avg_`) | `audit_blocks.name` regex | `utility_fb` |
-| Reads safety-named tags (regex: `ESTOP\|E_STOP\|DOOR_\|LIGHT_CURTAIN\|GUARD_\|SAFETY_`) | `audit_cross_references` + `audit_tag_tables` | `safety_fb` |
-| Has state variable + CASE statement | `audit_block_understanding.state_machine.mechanism='case_on_variable'` | `sequence_fb` |
-| Has `step_counter` or `seal_in_latch_chain` mechanism | `audit_block_understanding.state_machine.mechanism` | `sequence_fb` |
-| Has IO-direct interface params (reads/writes `%I`/`%Q` directly) | `audit_cross_references` with `target='absolute_address'` | `device_fb` |
-| Instantiates ≥2 FBs that have already been classified as `device_fb` (second pass) | `audit_cross_references` `reference_type='instantiates'` | `assembly_fb` |
-| Name matches comms/HMI patterns (`HMI_`, `DATA_EXCH_`, `COMMS_`) | `audit_blocks.name` regex | `comms_fb` |
-| Called once, only from an OB, and instantiates ≥1 `assembly_fb` | call graph from cross-refs | `subsystem_fb` |
-| Called once, only from an OB, no assembly_fb children | call graph | `sequence_fb` (tentative — flag for review) |
+| R01 `block_type = 'OB'` | `audit_blocks.block_type` | `ob` |
+| R02 FB/FC in folder path `/Library/`, `/Libraries/`, `/Utilities/`, `/Utility/` | `audit_folders.path` | `utility` |
+| R03 Name matches utility regex (`PID_`, `Scale_`, `Ramp_`, `Norm_`, `Lim_`, `Avg_`, `DI_FB`, `DO_FB`, `AI_FB`, `AO_FB`, `DIGITAL_INPUT_FB`, `DIGITAL_OUTPUT_FB`) | `audit_blocks.name` regex | `utility` |
+| R04 Reads safety-named tags (`ESTOP\|E_STOP\|DOOR_\|LIGHT_CURTAIN\|GUARD_\|SAFETY_`) | `audit_cross_references` | `safety` |
+| R04b Writes ≥2 fault/alarm signals or touches a fault DB | `audit_cross_references` + source via `detectFaultHandling` | `fault` |
+| R05 Has state variable + CASE statement | `audit_block_understanding.state_machine.mechanism='case_on_variable'` | `sequence` |
+| R06 Has `step_counter` or `seal_in_latch_chain` mechanism | `audit_block_understanding.state_machine.mechanism` | `sequence` |
+| R07a Name matches IO-mapping regex (`IO_MAP\|MAP_IO\|IO_HANDLER\|IO_DIGITAL\|IO_ANALOG\|MAP_INPUTS\|MAP_OUTPUTS\|FC_IO*`) | `audit_blocks.name` regex | `io_mapper` |
+| R07b >10 distinct `%I`/`%Q` addresses touched + no state machine | `audit_cross_references` | `io_mapper` |
+| R07c 1–10 distinct `%I`/`%Q` addresses touched | `audit_cross_references` | `device` (legacy) |
+| R08 Name matches comms/HMI patterns (`HMI_`, `DATA_EXCH_`, `COMMS_`) | `audit_blocks.name` regex | `comms` |
 
-Every deterministic match is 100% confident in the attribution — no fractional confidence scoring. The rule either fires or it doesn't. The **engineer review panel** (§11.2) surfaces the rule that matched, so the engineer sees why.
+**Pass 2 — containers + fallback:**
+
+| Rule | Signal source | Role |
+|---|---|---|
+| R09 Instantiates ≥2 blocks classified as `device` | call graph from cross-refs | `assembly` (legacy heuristic) |
+| R12 Instantiates ≥3 peer FBs, no state machine, no direct IO | call graph | `dispatcher` |
+| R10 Called once, only from an OB, and instantiates ≥1 `assembly` | call graph | `subsystem` |
+| R11 Called once, only from an OB, no `assembly` children | call graph | `sequence` (tentative — flag for review) |
+| R13 Has ≥1 caller OR ≥1 outbound call | call graph | `logic` (soft fallback) |
+| R00 No rule fired — orphan block | — | `unknown` |
+
+**Known gaps** (tracked with R07 UDT-slice tuning):
+- **Modern assembly pattern**: assemblies that write to device UDT command slices without instantiating device FBs are not caught by R09. They land as `logic` until UDT-slice fan-out detection is added.
+- **Modern device pattern**: device FBs that only touch UDT slices (never `%I`/`%Q` directly) are missed by R07c. They also land as `logic`.
+
+Every deterministic match is 100% confident — no fractional confidence scoring. The engineer review panel (§11.2) surfaces the rule that matched so the engineer sees why.
 
 ### 5.2 Two-pass ordering
 
-- **Pass 1**: OB, utility, safety, comms, device, sequence (all leaves based on intrinsic properties)
-- **Pass 2**: assembly, subsystem (depend on what their children were classified as)
+- **Pass 1**: OB, utility, safety, fault, sequence, io_mapper, device (legacy), comms — leaves with intrinsic signals.
+- **Pass 2**: assembly (legacy), dispatcher, subsystem / tentative sequence, logic fallback, unknown — containers + fallback, depend on pass-1 roles.
 
 ### 5.3 Residual ambiguity
 
@@ -855,9 +894,69 @@ Batch inserts in chunks of 500 rows — typical projects hit 10k–50k refs.
 | 1 | What cross-ref provider returns for different block types — UDT array indices resolved as `MOT[5]` or `MOT[*]`? | **Resolved.** Both forms appear, context-driven: literal `[5]` when index is a compile-time constant (separate Location per element), `[*]` when index is runtime-variable. Distinguishable by parsing the bracket content. Deterministic trace is feasible for the literal-index case (common); `[*]` case handled as `walk_status='indirect'` (§6.3). |
 | 2 | Performance — full-project enumeration time | **Resolved.** Per-block: ~71ms × 338 blocks ≈ 24s. **Bulk path via container parents is NOT supported on V18** — `GetService<CrossReferenceService>()` returns null on `PlcSoftware`, `BlockGroup`, `TypeGroup`, `TagTableGroup`, and `Project`. Per-block iteration is the only path. 24s is acceptable for Extract. |
 | 3 | Coverage — reads/writes to global DBs through UDT paths, ANY/pointer types | **Partial (UDT path confirmed).** Real refs traversed UDT paths cleanly — e.g. `"DB_VSD_MOTOR".MOTOR_G120C_FB[31].VSD_Raw_Min` captured as a single `Location.Name` with full symbolic path. ANY/pointer coverage not exercised in the V18 test project. |
-| 4 | V18 vs V20 differences | **V18 done. V20 untested.** Queued as §16 step 0c (requires a V20 project). |
+| 4 | V18 vs V20 differences | **Resolved (2026-04-22).** V20 spike re-run against same project — all 18 probes green. See §12.0a below. No action required for bridge code; V18 assumptions carry forward. |
 
 Spike code lives in `bridge/PacForgeBridge/TiaPortalService.AuditSpike.cs` (18 probes total — V1/V2/V3 — all green). Output dumps stashed at `%TEMP%\PacForge\audit_spike_<stamp>\`.
+
+### 12.0b Step 3 — V20 findings + hardware extraction gaps closed (2026-04-22)
+
+Side-by-side V20 extract revealed two Openness traps that had been silently dropping entire device categories and all channel detail. Both are now fixed.
+
+**Trap #1 — `_project.Devices` is not the full device list.** On V20 (and likely V18+), Openness splits devices across three collections:
+
+| Collection | Contains |
+|---|---|
+| `Project.Devices` | Stations added via catalog (S7-1500, SINAMICS, PCs) |
+| `Project.UngroupedDevicesGroup.Devices` | PROFINET I/O slaves (ET200SP heads, Beckhoff couplers), GSD-imported devices |
+| `Project.DeviceGroups[*].Devices/Groups` | User-organized folders (recursive) |
+
+The V20 test project had 43 devices in `Project.Devices` (1 CPU station + 41 drives + 1 HMI PC) but 2 devices in `UngroupedDevicesGroup.Devices` (the Siemens `RIO_01` IM 155-6 PN ST head and a Beckhoff EL6631-0010 EtherCAT coupler — each hosting ~18+ IO modules). Walking only `Project.Devices` misses all remote IO. Fixed by `EnumerateAllTopLevelDevices()` in `TiaPortalService.AuditHardware.cs` which unions all three.
+
+**Trap #2 — IO module addresses live in `DeviceItem.Addresses`, not `GetAttribute("StartAddress")`.** The legacy path using `GetAttribute("StartAddress")` + `GetAttribute("LengthInBits")` returns null for ET200SP IO cards (works only for PROFINET drive submodules). The proper path is the `DeviceItem.Addresses` collection (IEnumerable of `HW.Address` with `.StartAddress` byte offset, `.Length` bit count, `.IoType` Input/Output/None). F-I/O modules expose multiple Address entries per module (data frame + PROFIsafe ACK frame); summing all addresses over-counts channels — use the first Address per IoType, capped by MLFB/name-based channel count.
+
+**Result on the 338-block V20 test project:**
+
+| Extract metric | Before fix | After fix |
+|---|---|---|
+| Top-level devices in extract | 43 | 45 (includes RIO_01 + Beckhoff) |
+| IO modules (`hardware.io_modules`) | 87 (drives + CPU + HMI only) | 154 (adds ET200SP cards + Beckhoff submodules) |
+| `module_channels` rows | 0 | 14,960 |
+| Safety channels flagged | 0 | 16 (F-DI / F-DQ data + ACK) |
+| Symbolic tag matches | 0 | 161 |
+
+### 12.0a Step 0c — V20 Openness parity check (2026-04-22)
+
+Side-by-side run against the same 338-block project on V18 (`:5103`) and V20 (`:5200`). Same spike binary rebuilt for each target (`Siemens.Engineering` reference swap; PLCSIM 6.0 runtime installed to unblock V20 build). Dumps: V18 `audit_spike_20260421_200754`, V20 `audit_spike_20260422_111036` + `audit_spike_20260422_111xxx` (second run, warmed cache).
+
+**No API drift.** Every V1+V2+V3 finding carries over:
+
+| Probe | V18 | V20 | Delta |
+|---|---|---|---|
+| `hmi.targets_walk` — `HmiTargets` property on `_project` | absent | absent | None — must walk `_project.Devices` for legacy `Siemens.Engineering.Hmi.HmiTarget` (found `CVL_2403_HMI_RT` via `SoftwareContainer` in both). |
+| `cross_references_v3.plc_software_bulk_enum` — any container with `CrossReferenceService` | all 5 parents `acquired: false` | all 5 parents `acquired: false` | None — bulk-enum still unsupported on V20. Per-block path stays. |
+| `cross_references_v2.service_acquisition` — `GetService<CrossReferenceService>()` on `FB` | works | works | None. |
+| `cross_references_v2.method_signatures` — `CrossReferenceService` method surface | 11 methods | 12 methods | V20 adds one overload with `attributeAccessOptions` parameter (on `GetAttributes`/`SetAttributes`). `GetCrossReferences(CrossReferenceFilter)` signature unchanged. |
+| `cross_references_v2.sample_enumeration` — per-block `GetCrossReferences` result shape | 6 refs on `SENSOR_FB`, full `SourceObject`/`ReferenceObject`/`Location` tree with UDT paths | byte-identical | None. |
+| `cross_references_v3.udt_array_resolution` — literal `[5]` vs `[*]` | 20 hits across 14 blocks | 20 hits across 14 blocks | None — same literal/indirect split. |
+| `hardware_v3.drive_object_walk` — `DriveObjectContainer` → `DriveObject` tree | 1 DriveObject with `Parameters`/`ReadParameters`/`Telegrams`; `get_DriveObjectNumber` throws | byte-identical, same `get_DriveObjectNumber` error | None. |
+| `hardware.device_reflection` — 43 devices, 82 Sinamics candidates | confirmed | confirmed | None. |
+
+**Performance — cold-run headline: 63× slowdown on first `GetCrossReferences`, but it's JIT warmup, not a real regression.**
+
+Measured `sample_enumeration` (single block, `SENSOR_FB`):
+
+| | V18 cold | V20 cold | V20 warm (2nd spike run) |
+|---|---|---|---|
+| Probe elapsed_ms | 107ms | 1504ms (14×) | 120ms (1.1×) |
+| Inner `GetCrossReferences` call | 15ms | 935ms (63×) | ~similar to V18 once warm |
+
+Implication for 338-block extract: projected total still in the **30–60s range** on V20 once the service is warm, vs ~24s on V18. Acceptable — no architectural change needed. The first `GetCrossReferences` call post-connect should be treated as warmup (possibly preceded by a throwaway call on a small block to absorb the cost).
+
+**V20-specific follow-ups (non-blocking for step 1):**
+
+1. `get_DriveObjectNumber` on `DriveObject` throws "Drive object number could not be retrieved" — same error in both V18 and V20. Pre-existing bug in Openness MC.Drives, not a V20 regression. Read via reflected attribute or live in `Parameters[]` if needed.
+2. V20 `CrossReferenceService` gained an `attributeAccessOptions` overload parameter on `GetAttributes`/`SetAttributes`. Not used by the audit path — flagged only for reference.
+3. V20 cold-path probes ~2-3× slower across the board (reflection + first service acquisition). Fully warms after first access to each subsystem. No code change required, but the Extract endpoint should accept that first-run latency on V20 is higher.
 
 ### 12.5 Stale-snapshot detection
 
@@ -1130,18 +1229,21 @@ src/lib/tia-bridge-contract.ts                     # add ExtractedCrossReference
 Deterministic foundation first. AI layers land on top once the deterministic outputs are verified against a pilot project. T-shirt sizes attached.
 
 0. **Openness API spike — V1+V2+V3 (DONE, V18 only; see §12.0)** — cross-ref API fully mapped (per-block only, bulk unsupported on V18, per-block ~71ms × 338 blocks ≈ 24s); UDT array-index resolution confirmed (literal when index is compile-time constant, `[*]` when runtime-variable, distinguishable); Sinamics drive parameters + telegrams accessible via `DriveObjectContainer → DriveObjects → Parameters/Telegrams`; `Comment`-as-physical-label pattern confirmed; GSDML project-local at `<project>/AdditionalFiles/GSD/`; `_project.LastModified` = stale-snapshot timestamp. Real project: 338 blocks / 43 devices / 82 drives / one Comfort HMI.
-0c. **V20 Openness spike** (S) — re-run the V1+V2+V3 probes against a V20 project to catch API drift. Separate session; requires a V20 project open. The bulk-enum negative result especially should be re-verified on V20 — it may differ.
+0c. **V20 Openness spike** (S) — ✅ **Resolved 2026-04-22.** Re-ran all 18 probes against the same 338-block project on V20 side-by-side with V18. No API drift; all V1+V2+V3 findings carry forward. Bulk-enum negative confirmed on V20 (all 5 parent candidates `acquired: false`). Cold-path performance 2-3× slower on first access (JIT warmup), back to V18 numbers once warm. See §12.0a for details. Unblocks step 1 onwards.
 1. **Bridge: cross-ref extraction** (M) — `ExtractCrossReferences()` per-block loop + modified-at timestamp in `GetProjectInfo`. Both V18 and V20 csprojs. DTO shape per §12.2 revised.
 2. **Bridge: GSDML + IODD parsers** (M) — standalone parsers (`GsdmlParser.cs`, `IoddParser.cs`). Cache by SHA. Essential infrastructure for all hardware extraction beyond CPU/IO-module basics.
 3. **Bridge: hardware extraction expansion — Phase 1** (M) — `ExtractModuleChannels()`, `ExtractHmiTargets()`. Covers the "easy wins" (channel detail + HMI linkage) that don't need GSDML interpretation.
-4. **Bridge: hardware extraction expansion — Phase 2** (M) — `ExtractDriveDetails()` (Sinamics), `RollerCardClassifier`, load cell categorisation via GSDML parser. Vendor-specific interpretation on top of generic GSDML.
+4. **Bridge: hardware extraction expansion — Phase 2** (M) — ✅ **Landed + live-tested on V20, 2026-04-22.** `DriveExtractor.cs` reads Sinamics drives via `DriveObjectContainer → DriveObjects → Parameters/Telegrams` (nameplate P304/P305/P311, ramps P1120/P1121/P1135, main + safety telegram numbers + address ranges). `RollerCardClassifier.cs` tags devices into `drive.sinamics.<family>` / `roller_card.{interroll,pulse_roller,itoh_denki}` / `load_cell.{siwarex,mettler_toledo,hbm}` / `hmi` / `io_module.generic` / `other.pn_device` via GSDML `VendorName` + `OrderNumber` prefix; subfamily upgrade pass uses the drive-item MLFB since GSDML first-DAP OrderNumbers often don't pin a frame size. `GsdmlLoader.cs` indexes `<project>/AdditionalFiles/GSD/*.xml` on Extract (filename + every DAP's OrderNumber). `ExtractedDeviceDto` gains `Comment` / `Category` / `VendorName` / `GsdmlFilename` / `IpAddress` / `StationName`; new `ExtractedDriveDetailDto` + `ExtractedDriveTelegramDto` + `ExtractedDriveParameterDto` on `ExtractProjectResponse.DriveDetails`. Wired into `ClassifyAndExtractDrives()` on the main `ExtractProject()` flow. V18 + V20 compile clean. **Live test (CVL-2129 V20, 41 drives, 45 devices, 359 blocks, 134s)**: 41/41 drives classified as `drive.sinamics.g120c`, 41/41 have main (352) + safety (30) telegrams with address ranges, Comment-attribute physical labels flow through for all drives ("FREEZER Pallet Chain conveyor 1500L-01A Ground Level" etc.), Beckhoff EL6631 → `io_module.generic` with vendor "Beckhoff Automation" + GSDML filename. **Known follow-up (non-blocking)**: P-parameter *values* (nameplate + ramps) return null on this project — params are enumerated (text + unit populated) but `Value` is null offline; `parameter_source="not_available"` flag correctly surfaces this. Worth a pilot-time investigation into `DriveObject.ReadParameters` collection or project-online-read paths; §12.6 anticipated this mode.
 5. **Bridge: hardware extraction expansion — Phase 3** (M) — `IoLinkMasterWalker()`, `PartnerPlcExtractor()`. IO-Link hierarchy + iDevice partner inventory.
 6. **Migration + types + basic CRUD hooks** (M) — DB foundation (including new `audit_module_channels` + `audit_io_link_devices` tables), xref indexes, audit-store step enum, hooks scaffolded.
 7. **Extract step: persist cross-refs + hardware expansion** (S) — extend `persistExtraction()` to batch-insert cross-references, module channels, IO-Link devices; widen drive/partner jsonb shapes.
 8. **Deterministic Analyze refactor — Phase 1** (M) — `interface-extractor`, `data-flow-extractor`, `timing-extractor`, `fault-handling-detector`.
 9. **Deterministic Analyze refactor — Phase 2** (M) — `state-machine-detector` + `state-machine-case-parser`.
-10. **Analysis orchestrator** (S) — wires deterministic passes + minimal AI call.
-11. **Classify: deterministic rules + UI** (M) — rule engine + engineer review panel. No AI in common path. **Must land before Trace** — Trace walks terminate on classifications.
+10. **Analysis orchestrator** (S) — ✅ **Landed 2026-04-22.** `src/lib/audit-analysis/analysis-orchestrator.ts` runs the six deterministic extractors (interface, data-flow, timing, fault-handling, state-machine detector, CASE parser) and only calls the AI for residue fields (purpose, category, detailed_notes, non-standard state-machine transitions, fault description, timing notes, code_quality risks + analysis_confidence; plus interface_contract as fallback for LAD/FBD/GRAPH where the SCL parser returns empty). Residue prompt (`residue-prompt.ts`) injects the deterministic output verbatim so the model doesn't re-derive facts — per-block token budget capped at 4096. Batch runner uses serial-with-cap concurrency (default 4). `audit-analyze.tsx` rewired to fetch all cross-refs for selected blocks up front into a `Map<block_id, AuditCrossReference[]>`, then delegates to `analyzeBlocks()`; UI + DB persistence unchanged. Typecheck + lint clean.
+11. **Classify: deterministic rules + UI** (M) — ✅ **Landed 2026-04-22.** Shipped in two phases:
+    - Phase 1: `src/lib/audit-classify.ts` — 9-rule cascade in two passes (leaves: OB, utility-folder, utility-name, safety-tag-reads, CASE, step-counter/seal-in, absolute-IO, comms-name; containers: assembly-via-device-children, subsystem-or-tentative-sequence). Unmatched blocks emit `unknown` with rule_id `R00_no_match`. DBs/UDTs skipped. `src/hooks/use-audit-classify-run.ts` fetches inputs + runs engine + upserts via existing `useUpsertAuditClassifications` (engineer overrides preserved across re-runs — payload contains only auto_* fields).
+    - Phase 2: `src/components/pac-audit/steps/audit-classify.tsx` — wizard step card with role-count grid, filter pills (all / unresolved / overridden), row-level role override dropdown, bulk-confirm for selected rows, Sheet-drawer inspector showing source + understanding + auto_reason trace. Auto-runs the engine on first open when no classifications exist. `classify` wedged into `AUDIT_STEP_ORDER` between `analyze` and `review`; `pac-audit.tsx` wired. audit-analyze.tsx proceed-button routes to Classify.
+    - No AI anywhere. Engineer review handles residual ambiguity per §5.3. Typecheck + lint clean.
 12. **Trace: RPC + SQL walk** (M) — `trace_io_to_device_fb()` recursive CTE; reads `audit_fb_classifications` as termination contract.
 13. **Trace: materialise to audit_io_fb_links + review UI** (M).
 14. **Candidate hierarchy derivation** (M) — roll classifications + IO links up into `derived_spec.hierarchy`. Drive/partner-PLC details carry through as device context.

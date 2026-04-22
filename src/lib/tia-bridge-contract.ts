@@ -550,11 +550,13 @@ export interface ProjectInfoResponse {
   tag_table_count: number;
   hmi_screen_count: number;
   device_count: number;
+  /** ISO-8601 UTC from `_project.LastModified` (V18-confirmed). Used for stale-snapshot detection. Omitted when unreadable. */
+  last_modified_at?: string;
 }
 
 /**
  * POST /tia/extract-project
- * Full project extraction — blocks with folder hierarchy, UDTs, tags, HW.
+ * Full project extraction — blocks with folder hierarchy, UDTs, tags, HW, cross-refs.
  */
 export interface ExtractProjectResponse {
   success: boolean;
@@ -563,6 +565,18 @@ export interface ExtractProjectResponse {
   blocks: ExtractedBlock[];
   tag_tables: ExtractedTagTable[];
   hardware: ExtractedHardware;
+  cross_references: ExtractedCrossReference[];
+  /** Per-channel IO detail — one row per channel, unrolled from module StartAddress. Persists to audit_module_channels. */
+  module_channels: ExtractedModuleChannel[];
+  /** HMI panels linked to the project with nested screen inventory. */
+  hmi_targets: ExtractedHmiTarget[];
+  /**
+   * Per-drive Sinamics detail — nameplate, ramps, telegrams. One row per drive device
+   * classified as `drive.sinamics.*` in `ExtractedDevice.category`. See §12.6 / §16 step 4.
+   */
+  drive_details: ExtractedDriveDetail[];
+  /** ISO-8601 UTC timestamp at extract time — persists to audit_projects.tia_project_modified_at. Omitted when unreadable. */
+  last_modified_at?: string;
   warnings: string[];
 }
 
@@ -610,11 +624,36 @@ export interface ExtractedDevice {
   type_id: string;
   order_number?: string;
   firmware_version?: string;
+  /**
+   * Engineer's physical-device label from `DeviceItem.GetAttribute("Comment")` —
+   * e.g. "FREEZER Pallet Chain conveyor 1500L-01A Ground Level". Primary source
+   * for §12.6 physical-device attribution on drives.
+   */
+  comment?: string | null;
+  /**
+   * Classification label from GSDML VendorName + family heuristics (§16 step 4).
+   * Dot-notation: "drive.sinamics.g120c" / "roller_card.interroll" /
+   * "load_cell.siwarex" / "hmi" / "io_module.generic" / "other.pn_device".
+   * Null when no classification rule matched.
+   */
+  category?: string | null;
+  /** Vendor name from matched GSDML. Null when no GSDML matched. */
+  vendor_name?: string | null;
+  /** GSDML filename the device resolved to. Null when TypeIdentifier is `OrderNumber:` (catalog-only). */
+  gsdml_filename?: string | null;
+  /** Primary IP address on the device's PROFINET interface. */
+  ip_address?: string | null;
+  /** PROFINET station name. */
+  station_name?: string | null;
 }
 
 export interface ExtractedIoModule {
   name: string;
   type_id: string;
+  /** Parsed catalog number from `type_id` (e.g. "6ES7 521-1BH50-0AA0"). Primary handle for GSDML / HSP lookup. */
+  mlfb?: string;
+  /** Parsed firmware version from `type_id` (e.g. "V1.2"). */
+  firmware_version?: string;
   rack: number;
   slot: number;
 }
@@ -623,5 +662,175 @@ export interface ExtractedNetwork {
   name: string;
   type: string;
   devices: string[];
+}
+
+/**
+ * One row per (source-block → referenced-object → location) triple, flattened from
+ * Openness `CrossReferenceService.GetCrossReferences(AllObjects)`. Rows persist to
+ * `audit_cross_references`. See PAC_AUDIT_DERIVED_SPEC.md §12.0 + §12.2.
+ */
+export interface ExtractedCrossReference {
+  source_name: string | null;
+  source_path: string | null;
+  source_address: string | null;
+  source_type_name: string | null;
+  source_device: string | null;
+
+  target_name: string | null;
+  target_path: string | null;
+  target_address: string | null;
+  target_type_name: string | null;
+  target_device: string | null;
+
+  /** Kind of memory access — Read/Write/RW/Call/InstanceDB/Multiinstance/Interface/Definition/... */
+  access: string | null;
+  /** Relationship direction — Uses/UsedBy/TypeInstance/InstanceType/Assigns/... */
+  reference_type: string | null;
+  /** Human-readable location, e.g. "@CALL_SENSORS ▶ NW4 (Function Block SENSOR_FB)". */
+  reference_location: string | null;
+  referenced_as_name: string | null;
+  location_address: string | null;
+  /** Symbolic path at the occurrence, e.g. "DB_SENSORS.SENSOR_FB[15]._ClearDly". */
+  location_name: string | null;
+  location_type_name: string | null;
+}
+
+/**
+ * One row per physical IO channel, produced by walking `Device.DeviceItems` and unrolling
+ * each IO module's `StartAddress` across its channel count. See PAC_AUDIT_DERIVED_SPEC §12.6.
+ * Persisted to `audit_module_channels`.
+ */
+export interface ExtractedModuleChannel {
+  /** Parent IO module name — joins to `ExtractedIoModule.name`. */
+  module_name: string;
+  /** Parent module catalog number (e.g. "6ES7 521-1BH50-0AA0"). Copied from `ExtractedIoModule.mlfb`. */
+  module_mlfb?: string;
+  /** Zero-based channel index within the module. */
+  channel_number: number;
+  /** Absolute TIA address, e.g. "%I0.0", "%Q1.3", "%IW256", "%QW256". Null if unresolvable. */
+  io_address: string | null;
+  /** Inferred signal type — address-prefix driven. */
+  signal_type: "DI" | "DO" | "AI" | "AO" | "DIQ" | "RS485" | "other";
+  /** Symbolic tag joined from project tag tables by address. Null if no tag binds the address. */
+  symbolic_tag: string | null;
+  /** True when the module's TypeIdentifier/name marks it as F-I/O. */
+  is_safety: boolean;
+  /** Channel-level comment when available (often null on V18 for non-safety modules). */
+  channel_comment: string | null;
+  /** How the channel count was derived — for provenance/debug. */
+  channel_count_source?: "length_in_bits" | "length_bytes" | "name_pattern" | "single_row";
+  rack: number;
+  slot: number;
+}
+
+/**
+ * One row per HMI panel linked to the project. `_project.HmiTargets` is absent on V18
+ * (spike §12.0), so the bridge walks all Devices + DeviceItems for an `HmiTarget` software
+ * container — same path the legacy `GetHmiTarget()` already uses.
+ */
+export interface ExtractedHmiTarget {
+  /** HmiTarget.Name. */
+  name: string;
+  /** Parent Device.Name. */
+  device_name: string;
+  /** Device.TypeIdentifier, e.g. "OrderNumber:6AV2124-0MC01-0AX0/15.1.0.0". */
+  type_id: string | null;
+  /** Parsed MLFB from type_id (e.g. "6AV2124-0MC01-0AX0"). */
+  order_number?: string;
+  /** Parsed firmware version from type_id. */
+  firmware_version?: string;
+  /** HmiTarget class name — "ComfortPanel" / "BasicPanel" / "UnifiedComfortPanel" etc. */
+  panel_class: string | null;
+  ip_address?: string;
+  station_name?: string;
+  screen_count: number;
+  tag_table_count: number;
+  screens: ExtractedHmiScreen[];
+}
+
+export interface ExtractedHmiScreen {
+  name: string;
+  /** Forward-slash separated folder path under ScreenFolder root. Empty for root-level screens. */
+  folder_path: string;
+  number: number | null;
+}
+
+/**
+ * Per-drive Sinamics detail extracted via `Siemens.Engineering.MC.Drives.DriveObjectContainer`
+ * — nameplate (P304/P305/P311), ramps (P1120/P1121/P1135), and PROFIdrive telegrams.
+ * One row per drive device (joined to `ExtractedDevice.name`). All numeric fields are
+ * nullable because Startdrive integration is optional; non-Startdrive projects return
+ * nulls — `parameter_source` reflects that.
+ *
+ * See PAC_AUDIT_DERIVED_SPEC.md §12.6.
+ */
+export interface ExtractedDriveDetail {
+  /** Joins back to `ExtractedDevice.name`. */
+  device_name: string;
+  /** Engineer's physical-device label from the drive's `Comment` attribute. */
+  comment: string | null;
+  /** Drive family derived from MLFB/TypeIdentifier — "G120C"/"G120"/"S120"/"S210"/"V90"/null. */
+  drive_family: string | null;
+  /** MLFB / order number (e.g. "6SL3210-1KE18-8AF1"). */
+  mlfb: string | null;
+  firmware_version: string | null;
+  ip_address: string | null;
+  station_name: string | null;
+
+  // Motor nameplate — P304/P305/P311. Null when the drive isn't Startdrive-integrated.
+  motor_rated_power_kw: number | null;   // P304
+  motor_rated_current_a: number | null;  // P305
+  motor_rated_speed_rpm: number | null;  // P311
+  motor_rated_voltage_v: number | null;  // P304 sibling; null when unreadable
+
+  // Ramps — seconds.
+  ramp_up_seconds: number | null;        // P1120
+  ramp_down_seconds: number | null;      // P1121
+  ramp_off_stop_seconds: number | null;  // P1135
+
+  /** PROFIdrive main telegram number (e.g. 352 = G120 Standard, 1 = Std msg 1). */
+  main_telegram_number: number | null;
+  /** PROFIsafe telegram number (30 = PROFIsafe standard). */
+  safety_telegram_number: number | null;
+  telegrams: ExtractedDriveTelegram[];
+
+  /** Per-parameter snapshot (always probed: P304/P305/P311/P1120/P1121/P1135/P922). */
+  selected_parameters: ExtractedDriveParameter[];
+
+  /**
+   * Completeness hint for nameplate / ramp reads:
+   *   `"starter"` — all probed params had values (project downloaded with Startdrive)
+   *   `"partial"` — some params had values, others null
+   *   `"not_available"` — container missing or every probe returned null (post-download commissioning only)
+   *   `"gsdml"` — reserved for future GSDML-only fallback
+   */
+  parameter_source: "starter" | "partial" | "not_available" | "gsdml" | null;
+
+  /** Per-drive warnings from extraction. */
+  warnings: string[];
+}
+
+export interface ExtractedDriveParameter {
+  /** Parameter number (e.g. 304 for P304, 20 for r20). */
+  number: number;
+  /** Short name from Openness (e.g. "p304", "r18"). Null if the parameter wasn't found on the drive. */
+  name: string | null;
+  /** Human-readable description (e.g. "Rated motor power"). */
+  text: string | null;
+  /** Value as string (invariant culture); null when the parameter wasn't found. */
+  value: string | null;
+  /** Engineering unit (e.g. "kW", "A", "rpm", "V", "s", "Hz"); empty when unitless. */
+  unit: string | null;
+}
+
+export interface ExtractedDriveTelegram {
+  /** PROFIdrive telegram number (30 = PROFIsafe, 352 = G120 standard, …). */
+  telegram_number: number;
+  /** "MainTelegram" | "SafetyTelegram". */
+  type: string | null;
+  /** Formatted input address range (e.g. "%IW256..%IW267"). */
+  input_address: string | null;
+  /** Formatted output address range. */
+  output_address: string | null;
 }
 

@@ -4651,6 +4651,8 @@ END_ORGANIZATION_BLOCK
             string tiaVersion = null;
             try { tiaVersion = DetectInstalledVersion(); } catch { }
 
+            string lastModifiedAt = TryGetProjectLastModifiedIso();
+
             return new ProjectInfoResponse
             {
                 Success = true,
@@ -4663,8 +4665,29 @@ END_ORGANIZATION_BLOCK
                 UdtCount = udts.Count,
                 TagTableCount = tagTableCount,
                 HmiScreenCount = hmiScreenCount,
-                DeviceCount = deviceCount
+                DeviceCount = deviceCount,
+                LastModifiedAt = lastModifiedAt
             };
+        }
+
+        /// <summary>
+        /// Reads _project.LastModified (V18-confirmed property) and returns ISO-8601 UTC string.
+        /// Reflection-based to survive possible V20 rename (probe in step 0c).
+        /// Returns null if the property is missing or unreadable.
+        /// </summary>
+        private string TryGetProjectLastModifiedIso()
+        {
+            if (_project == null) return null;
+            try
+            {
+                var prop = _project.GetType().GetProperty("LastModified");
+                if (prop == null) return null;
+                object val = prop.GetValue(_project);
+                if (val is DateTime dt)
+                    return dt.ToUniversalTime().ToString("o");
+            }
+            catch { }
+            return null;
         }
 
         /// <summary>
@@ -4774,10 +4797,63 @@ END_ORGANIZATION_BLOCK
                 Console.WriteLine("[Audit] Extracting hardware configuration...");
                 result.Hardware = ExtractHardwareConfig();
 
+                // ── 5. Extract cross-references (per-block walk, §12.0) ──
+                Console.WriteLine("[Audit] Extracting cross-references...");
+                try
+                {
+                    var blocksForXref = new List<PlcBlock>();
+                    CollectBlocks(plcSoftware.BlockGroup, blocksForXref);
+                    result.CrossReferences = ExtractCrossReferences(plcSoftware, blocksForXref, result.Warnings);
+                }
+                catch (Exception ex)
+                {
+                    result.Warnings.Add($"Cross-reference extraction failed: {ex.Message}");
+                }
+
+                // ── 6. Extract per-channel IO detail (§16 step 3, §12.6) ────
+                Console.WriteLine("[Audit] Extracting module channels...");
+                try
+                {
+                    result.ModuleChannels = ExtractModuleChannels(result.TagTables, result.Warnings);
+                }
+                catch (Exception ex)
+                {
+                    result.Warnings.Add($"Module channel extraction failed: {ex.Message}");
+                }
+
+                // ── 7. Extract HMI panels + screen inventory (§16 step 3, §12.6) ──
+                Console.WriteLine("[Audit] Extracting HMI targets...");
+                try
+                {
+                    result.HmiTargets = ExtractHmiTargetsForAudit(result.Warnings);
+                }
+                catch (Exception ex)
+                {
+                    result.Warnings.Add($"HMI target extraction failed: {ex.Message}");
+                }
+
+                // ── 8. Classify devices + extract drive details (§16 step 4, §12.6) ──
+                Console.WriteLine("[Audit] Classifying devices + extracting drive details...");
+                try
+                {
+                    ClassifyAndExtractDrives(result.Hardware, result.DriveDetails, result.Warnings);
+                }
+                catch (Exception ex)
+                {
+                    result.Warnings.Add($"Device classification / drive extraction failed: {ex.Message}");
+                }
+
+                // ── 9. Capture project-last-modified for stale-snapshot detection ──
+                result.LastModifiedAt = TryGetProjectLastModifiedIso();
+
                 int blockCount = result.Blocks.Count;
                 int folderCount = result.Folders.Count;
                 int tagTableCount = result.TagTables.Count;
-                result.Message = $"Extracted {blockCount} blocks, {folderCount} folders, {tagTableCount} tag tables";
+                int xrefCount = result.CrossReferences.Count;
+                int chanCount = result.ModuleChannels.Count;
+                int hmiCount = result.HmiTargets.Count;
+                int driveCount = result.DriveDetails.Count;
+                result.Message = $"Extracted {blockCount} blocks, {folderCount} folders, {tagTableCount} tag tables, {xrefCount} cross-refs, {chanCount} channels, {hmiCount} HMI panels, {driveCount} drives";
                 Console.WriteLine($"[Audit] {result.Message}, {result.Warnings.Count} warnings");
             }
             finally
@@ -4992,7 +5068,9 @@ END_ORGANIZATION_BLOCK
 
             try
             {
-                foreach (Device device in _project.Devices)
+                // Walk all top-level devices including UngroupedDevicesGroup (holds PROFINET I/O
+                // slaves like ET200SP heads and GSD-imported devices that Project.Devices misses).
+                foreach (Device device in EnumerateAllTopLevelDevices())
                 {
                     hw.Devices.Add(new ExtractedDeviceDto
                     {
@@ -5048,6 +5126,8 @@ END_ORGANIZATION_BLOCK
                     {
                         Name = item.Name,
                         TypeId = typeId,
+                        Mlfb = ParseMlfb(typeId),
+                        FirmwareVersion = ParseFirmwareVersion(typeId),
                         Rack = rack,
                         Slot = itemSlot
                     });

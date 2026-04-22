@@ -80,6 +80,9 @@ function createInitialStatuses(): Record<AuditStep, AuditStepStatus> {
     extract: "pending",
     select: "pending",
     analyze: "pending",
+    classify: "pending",
+    trace: "pending",
+    verify: "pending",
     review: "pending",
     ready: "pending",
   };
