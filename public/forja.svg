@@ -1,0 +1,5 @@
+<svg viewBox="0 0 420 140" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Forja">
+  <path d="M 30 120 C 30 55 65 30 125 30" fill="none" stroke="#3B82F6" stroke-width="28" stroke-linecap="round"/>
+  <circle cx="125" cy="30" r="25" fill="#3B82F6"/>
+  <text x="170" y="110" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif" font-weight="900" font-size="100" letter-spacing="-3" fill="#141413">Forja</text>
+</svg>

@@ -2,7 +2,6 @@ import { useState } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router";
 import { FolderOpen, Bot, Terminal, BookOpen, GraduationCap, Layers, SlidersHorizontal, FileText, Library, LogOut, User, Sun, Moon, Monitor, ChevronRight, PanelLeftClose, PanelLeftOpen, Wand2, BookPlus, Building2, Cpu, FlaskConical, LayoutDashboard, ClipboardList, SearchCode } from "lucide-react";
 import { AgentChatFab } from "@/components/agent-chat/agent-chat-fab";
-import pacLogo from "@/../media/logos/PacTechnologiesEdit_White.png";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -253,9 +252,9 @@ function Sidebar() {
         ) : (
           <>
             <img
-              src={pacLogo}
-              alt="Pac Technologies"
-              className="h-10 w-auto object-contain invert dark:invert-0"
+              src="/forja.svg"
+              alt="Forja"
+              className="h-10 w-auto object-contain"
             />
             <Button
               variant="ghost"
