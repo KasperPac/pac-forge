@@ -254,7 +254,7 @@ function Sidebar() {
             <img
               src="/forja.svg"
               alt="Forja"
-              className="h-10 w-auto object-contain"
+              className="h-10 w-auto object-contain dark:invert"
             />
             <Button
               variant="ghost"
