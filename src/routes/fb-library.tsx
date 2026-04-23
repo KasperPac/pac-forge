@@ -85,6 +85,13 @@ import type {
   FbTemplateVersion,
   FbBlockType,
 } from "@/types";
+import {
+  EMPTY_INTERFACE_CONTRACT,
+  isContractPopulated,
+  normaliseInterfaceContract,
+  type FbInterfaceContract,
+} from "@/types/fb-interface-contract";
+import { InterfaceContractEditor } from "@/components/fb-library/interface-contract-editor";
 
 const BLOCK_TYPE_LABELS: Record<FbBlockType, string> = {
   FB: "FB",
@@ -111,6 +118,8 @@ interface FormState {
   blocks: BlockFormEntry[];
   profile_ids: string[];
   is_assembly: boolean;
+  interface_contract: FbInterfaceContract;
+  deprecated: boolean;
 }
 
 const EMPTY_BLOCK: BlockFormEntry = {
@@ -131,6 +140,8 @@ function emptyForm(): FormState {
     blocks: [{ ...EMPTY_BLOCK }],
     profile_ids: [],
     is_assembly: false,
+    interface_contract: { ...EMPTY_INTERFACE_CONTRACT },
+    deprecated: false,
   };
 }
 
@@ -235,6 +246,8 @@ export default function FbLibraryPage() {
           : [{ ...EMPTY_BLOCK }],
       profile_ids: template.profile_ids ?? [],
       is_assembly: template.is_assembly ?? false,
+      interface_contract: normaliseInterfaceContract(template.interface_contract),
+      deprecated: template.deprecated ?? false,
     });
     setTagInput(template.tags.join(", "));
     setActiveBlockIdx(0);
@@ -263,6 +276,8 @@ export default function FbLibraryPage() {
       })),
       profile_ids: form.profile_ids,
       is_assembly: form.is_assembly,
+      interface_contract: form.interface_contract,
+      deprecated: form.deprecated,
     };
 
     const errorHandler = (err: Error) => {
@@ -1219,10 +1234,33 @@ export default function FbLibraryPage() {
             {/* Variable table (parsed from all blocks' SCL interface) */}
             {form.blocks.some((b) => b.scl_code.trim()) && (
               <div className="space-y-1">
-                <label className="font-mono text-xs text-muted-foreground">Interface Variables</label>
+                <label className="font-mono text-xs text-muted-foreground">Interface Variables (parsed from SCL)</label>
                 <VariableTable blocks={form.blocks} />
               </div>
             )}
+
+            {/* Interface contract editor (Phase 2) — structured declaration that
+                drives the Spec Builder Co-Author wiring form when this template
+                is bound to an assembly. */}
+            <InterfaceContractEditor
+              contract={form.interface_contract}
+              onChange={(next) => setForm((f) => ({ ...f, interface_contract: next }))}
+            />
+
+            {/* Deprecation toggle */}
+            <div className="flex items-center gap-2 rounded-md border border-border/30 bg-muted/10 px-2 py-1.5">
+              <Switch
+                checked={form.deprecated}
+                onCheckedChange={(checked) => setForm((f) => ({ ...f, deprecated: checked }))}
+                id="deprecated-toggle"
+              />
+              <label htmlFor="deprecated-toggle" className="font-mono text-xs text-muted-foreground cursor-pointer">
+                Deprecated
+              </label>
+              <span className="font-mono text-[10px] text-muted-foreground/60">
+                When on, new specs cannot bind to this template; existing bindings keep working.
+              </span>
+            </div>
           </div>
 
           <DialogFooter className="flex-col items-end gap-1.5 sm:flex-col">
@@ -1352,6 +1390,16 @@ function TemplateCard({
         {template.is_assembly && (
           <Badge variant="outline" className="shrink-0 font-mono text-[10px] px-1 py-0 border-blue-500/40 text-blue-400">
             assembly
+          </Badge>
+        )}
+        {isContractPopulated(normaliseInterfaceContract(template.interface_contract)) && (
+          <Badge variant="outline" className="shrink-0 font-mono text-[10px] px-1 py-0 border-emerald-500/40 text-emerald-400" title="Interface contract populated — Co-Author can render structured wiring form">
+            iface
+          </Badge>
+        )}
+        {template.deprecated && (
+          <Badge variant="outline" className="shrink-0 font-mono text-[10px] px-1 py-0 border-orange-500/40 text-orange-400" title="Deprecated — new specs cannot bind to this template">
+            deprecated
           </Badge>
         )}
         {template.source === "library" && (
