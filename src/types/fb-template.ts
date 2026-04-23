@@ -1,3 +1,5 @@
+import type { FbInterfaceContract } from "./fb-interface-contract";
+
 export const FB_BLOCK_TYPES = {
   FB: "FB",
   FC: "FC",
@@ -60,6 +62,14 @@ export interface FbTemplate {
   documentation: string | null;
   /** HMI faceplate type name from the library (e.g. "udtHMI_MotorControl") — used by HMI screen generators */
   hmi_faceplate_type: string | null;
+  /**
+   * Structured declaration of how this template is parameterised + wired.
+   * Empty `{}` = contract not yet authored; Co-Author falls back to free-form authoring.
+   * See src/types/fb-interface-contract.ts and migration 075.
+   */
+  interface_contract: FbInterfaceContract | Record<string, never>;
+  /** When true, new specs cannot bind to this template; existing bindings keep working. */
+  deprecated: boolean;
   created_by: string | null;
   updated_at: string;
   created_at: string;
@@ -67,7 +77,7 @@ export interface FbTemplate {
   profile_ids?: string[];
 }
 
-export type FbTemplateCreate = Omit<FbTemplate, "id" | "created_at" | "updated_at" | "created_by" | "blocks" | "profile_ids" | "version" | "ai_summary" | "diagram_chart" | "diagram_generated_at" | "flow_diagram_json" | "flow_diagram_generated_at" | "source" | "library_name" | "is_enabled" | "is_assembly" | "documentation" | "hmi_faceplate_type"> & {
+export type FbTemplateCreate = Omit<FbTemplate, "id" | "created_at" | "updated_at" | "created_by" | "blocks" | "profile_ids" | "version" | "ai_summary" | "diagram_chart" | "diagram_generated_at" | "flow_diagram_json" | "flow_diagram_generated_at" | "source" | "library_name" | "is_enabled" | "is_assembly" | "documentation" | "hmi_faceplate_type" | "interface_contract" | "deprecated"> & {
   blocks: Array<{ block_name: string; block_type: FbBlockType; scl_code: string; sort_order: number; block_xml?: string | null; programming_language?: FbBlockLanguage }>;
   profile_ids?: string[];
   source?: FbTemplateSource;
@@ -76,6 +86,8 @@ export type FbTemplateCreate = Omit<FbTemplate, "id" | "created_at" | "updated_a
   is_assembly?: boolean;
   documentation?: string | null;
   hmi_faceplate_type?: string | null;
+  interface_contract?: FbInterfaceContract;
+  deprecated?: boolean;
 };
 
 export type FbTemplateUpdate = Partial<FbTemplateCreate>;

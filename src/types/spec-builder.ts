@@ -190,6 +190,24 @@ export interface AssemblyConfig {
   assembly_name: string;
   description: string;
   devices: DeviceConfig[];
+  /**
+   * Library binding — set when an FbTemplate has been picked for this assembly.
+   * Null = unmatched / authored greenfield (today's flow remains as fallback).
+   * See Docs/ASSEMBLY_FB_LIBRARY_PLAN.md §3.3.
+   */
+  fb_template_id?: string | null;
+  /** fb_templates.version pinned at the time of binding (plan §3.5). */
+  fb_template_version?: number | null;
+  /** Map of role-slot-name → register tag name (or named expression). */
+  instance_params?: Record<string, string>;
+  /** Optional per-instance overrides (timeouts, ramp rates, setpoints). */
+  instance_overrides?: Record<string, unknown>;
+  /**
+   * Plan §3.7 / PILOT-001-011 hook — 1-2 sentences explaining this assembly's
+   * role in the overall process. DOCX exporter ignores in v1; populated now
+   * to avoid backfill debt later.
+   */
+  process_intent?: string | null;
 }
 
 export interface SubsystemConfig {

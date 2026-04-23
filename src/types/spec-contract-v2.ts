@@ -222,6 +222,13 @@ export const AssemblyV2Schema = z.object({
   assembly_name: z.string(),
   description: z.string(),
   devices: z.array(DeviceV2Schema),
+  // --- Library binding (plan §3.3) ---
+  fb_template_id: UuidSchema.nullable().optional(),
+  fb_template_version: z.number().int().nullable().optional(),
+  instance_params: z.record(z.string(), z.string()).optional(),
+  instance_overrides: z.record(z.string(), z.unknown()).optional(),
+  // --- Process intent hook (plan §3.7 / PILOT-001-011) ---
+  process_intent: z.string().nullable().optional(),
 });
 export type AssemblyV2 = z.infer<typeof AssemblyV2Schema>;
 
