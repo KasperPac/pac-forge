@@ -122,6 +122,11 @@ export interface FbInterfaceInput {
   udt_name?: string;
   role: InterfaceInputRole;
   description: string;
+  /**
+   * Long-form description used when the template is loaded into an
+   * agent prompt — purpose, expected range, failure modes, etc. Optional.
+   */
+  agent_description?: string;
   /** SCL literal (e.g. "TRUE", "T#5s", "100"). Optional. */
   default_value?: string;
   required: boolean;
@@ -134,6 +139,8 @@ export interface FbInterfaceOutput {
   udt_name?: string;
   role: InterfaceOutputRole;
   description: string;
+  /** Long-form description for agent prompts. Optional. */
+  agent_description?: string;
 }
 
 export interface FbIoSlot {
@@ -142,6 +149,8 @@ export interface FbIoSlot {
   signal_type: SignalType;
   role: IoSlotRole;
   description: string;
+  /** Long-form description for agent prompts. Optional. */
+  agent_description?: string;
   cardinality: SlotCardinality;
 }
 

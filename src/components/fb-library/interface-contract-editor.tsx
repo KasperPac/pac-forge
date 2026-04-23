@@ -1,9 +1,11 @@
 import { useMemo } from "react";
-import { Plus, Trash2, ArrowDownToLine, ArrowUpFromLine, Cable, Database, Wand2 } from "lucide-react";
+import { Plus, Trash2, ArrowDownToLine, ArrowUpFromLine, Cable, Database, Wand2, Bot, MoveRight, MoveLeft } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
 import { prefillContractFromScl } from "@/lib/fb-library/scl-interface-parser";
 import {
@@ -27,7 +29,21 @@ import {
   type FbInterfaceInput,
   type FbInterfaceOutput,
   type FbIoSlot,
+  type InterfaceDataType,
+  type SignalType,
 } from "@/types/fb-interface-contract";
+
+// Default signal type when promoting an input/output row into an IO slot.
+function defaultSignalTypeForInput(dt: InterfaceDataType): SignalType {
+  if (dt === "BOOL") return "DI";
+  if (dt === "INT" || dt === "DINT" || dt === "REAL" || dt === "WORD" || dt === "DWORD") return "AI";
+  return "DI";
+}
+function defaultSignalTypeForOutput(dt: InterfaceDataType): SignalType {
+  if (dt === "BOOL") return "DO";
+  if (dt === "INT" || dt === "DINT" || dt === "REAL" || dt === "WORD" || dt === "DWORD") return "AO";
+  return "DO";
+}
 
 /**
  * Interface contract editor for an FbTemplate.
@@ -56,6 +72,85 @@ export function InterfaceContractEditor({ contract: rawContract, onChange, sclBl
 
   function update(patch: Partial<FbInterfaceContract>) {
     onChange({ ...contract, ...patch });
+  }
+
+  function moveInputToSlot(idx: number) {
+    const row = contract.inputs[idx];
+    if (!row) return;
+    const slot: FbIoSlot = {
+      slot_name: row.tia_name || row.name,
+      signal_type: defaultSignalTypeForInput(row.data_type),
+      role: "other",
+      description: row.description,
+      cardinality: "one",
+      ...(row.agent_description ? { agent_description: row.agent_description } : {}),
+    };
+    onChange({
+      ...contract,
+      inputs: contract.inputs.filter((_, i) => i !== idx),
+      io_slots: [...contract.io_slots, slot],
+    });
+    toast({ title: "Moved to IO Slots", description: `${slot.slot_name} (${slot.signal_type}) — relabel role + cardinality on the IO Slots tab.` });
+  }
+
+  function moveSlotBack(idx: number) {
+    const slot = contract.io_slots[idx];
+    if (!slot) return;
+    const goesToInputs = slot.signal_type === "DI" || slot.signal_type === "AI";
+    const dataType: InterfaceDataType =
+      slot.signal_type === "DI" || slot.signal_type === "DO" ? "BOOL" : "REAL";
+    const nextSlots = contract.io_slots.filter((_, i) => i !== idx);
+    if (goesToInputs) {
+      const row: FbInterfaceInput = {
+        name: slot.slot_name,
+        tia_name: slot.slot_name,
+        data_type: dataType,
+        role: "other",
+        description: slot.description,
+        required: false,
+        ...(slot.agent_description ? { agent_description: slot.agent_description } : {}),
+      };
+      onChange({
+        ...contract,
+        io_slots: nextSlots,
+        inputs: [...contract.inputs, row],
+      });
+      toast({ title: "Moved back to Inputs", description: `${row.tia_name} — data type defaulted to ${dataType}, relabel role on the Inputs tab.` });
+    } else {
+      const row: FbInterfaceOutput = {
+        name: slot.slot_name,
+        tia_name: slot.slot_name,
+        data_type: dataType,
+        role: "other",
+        description: slot.description,
+        ...(slot.agent_description ? { agent_description: slot.agent_description } : {}),
+      };
+      onChange({
+        ...contract,
+        io_slots: nextSlots,
+        outputs: [...contract.outputs, row],
+      });
+      toast({ title: "Moved back to Outputs", description: `${row.tia_name} — data type defaulted to ${dataType}, relabel role on the Outputs tab.` });
+    }
+  }
+
+  function moveOutputToSlot(idx: number) {
+    const row = contract.outputs[idx];
+    if (!row) return;
+    const slot: FbIoSlot = {
+      slot_name: row.tia_name || row.name,
+      signal_type: defaultSignalTypeForOutput(row.data_type),
+      role: "other",
+      description: row.description,
+      cardinality: "one",
+      ...(row.agent_description ? { agent_description: row.agent_description } : {}),
+    };
+    onChange({
+      ...contract,
+      outputs: contract.outputs.filter((_, i) => i !== idx),
+      io_slots: [...contract.io_slots, slot],
+    });
+    toast({ title: "Moved to IO Slots", description: `${slot.slot_name} (${slot.signal_type}) — relabel role + cardinality on the IO Slots tab.` });
   }
 
   function handlePrefill() {
@@ -134,6 +229,7 @@ export function InterfaceContractEditor({ contract: rawContract, onChange, sclBl
           <InputsTable
             rows={contract.inputs}
             onChange={(rows) => update({ inputs: rows })}
+            onMoveToSlot={moveInputToSlot}
           />
         </TabsContent>
 
@@ -141,6 +237,7 @@ export function InterfaceContractEditor({ contract: rawContract, onChange, sclBl
           <OutputsTable
             rows={contract.outputs}
             onChange={(rows) => update({ outputs: rows })}
+            onMoveToSlot={moveOutputToSlot}
           />
         </TabsContent>
 
@@ -148,6 +245,7 @@ export function InterfaceContractEditor({ contract: rawContract, onChange, sclBl
           <IoSlotsTable
             rows={contract.io_slots}
             onChange={(rows) => update({ io_slots: rows })}
+            onMoveBack={moveSlotBack}
           />
         </TabsContent>
 
@@ -199,6 +297,81 @@ function RemoveRowButton({ onClick }: { onClick: () => void }) {
   );
 }
 
+function MoveToSlotButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+      onClick={onClick}
+      title="Move this row to IO Slots — this pin is physical wiring, not a coordination signal"
+    >
+      <MoveRight className="h-3 w-3" />
+    </Button>
+  );
+}
+
+function MoveBackButton({ target, onClick }: { target: "Inputs" | "Outputs"; onClick: () => void }) {
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+      onClick={onClick}
+      title={`Move this slot back to ${target} — it's a coordination signal, not physical wiring`}
+    >
+      <MoveLeft className="h-3 w-3" />
+    </Button>
+  );
+}
+
+/**
+ * Popover trigger + textarea for the long-form `agent_description` field.
+ * Goes into agent prompts when the template is consumed.
+ */
+function AgentDescriptionButton({
+  value,
+  onChange,
+  rowLabel,
+}: {
+  value: string | undefined;
+  onChange: (v: string | undefined) => void;
+  rowLabel: string;
+}) {
+  const hasValue = !!value?.trim();
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className={`h-6 w-6 p-0 ${hasValue ? "text-primary" : "text-muted-foreground"} hover:text-foreground`}
+          title={hasValue ? "Edit agent description" : "Add agent description (long-form notes for AI prompts)"}
+        >
+          <Bot className="h-3 w-3" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-96" align="end">
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-xs font-semibold">Agent description</span>
+            <span className="font-mono text-[10px] text-muted-foreground">{rowLabel}</span>
+          </div>
+          <p className="font-mono text-[10px] text-muted-foreground/80">
+            Long-form notes for AI agents — purpose, expected range, failure modes, wiring gotchas. Injected when the template is loaded into a Co-Author or Spec Builder prompt.
+          </p>
+          <Textarea
+            value={value ?? ""}
+            onChange={(e) => onChange(e.target.value || undefined)}
+            placeholder="Describe what this signal represents, when it fires, what a typical value looks like, and what conditions make it significant to the orchestration…"
+            className="min-h-[140px] font-mono text-xs"
+          />
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function EmptyTableRow({ colSpan, hint }: { colSpan: number; hint: string }) {
   return (
     <tr>
@@ -225,9 +398,11 @@ const EMPTY_INPUT: FbInterfaceInput = {
 function InputsTable({
   rows,
   onChange,
+  onMoveToSlot,
 }: {
   rows: FbInterfaceInput[];
   onChange: (rows: FbInterfaceInput[]) => void;
+  onMoveToSlot: (idx: number) => void;
 }) {
   function patch(idx: number, p: Partial<FbInterfaceInput>) {
     onChange(rows.map((r, i) => (i === idx ? { ...r, ...p } : r)));
@@ -253,7 +428,7 @@ function InputsTable({
               <th className={TH}>Default</th>
               <th className={`${TH} w-[60px]`}>Req?</th>
               <th className={TH}>Description</th>
-              <th className={`${TH} w-[40px]`}></th>
+              <th className={`${TH} w-[90px]`}></th>
             </tr>
           </thead>
           <tbody>
@@ -312,7 +487,13 @@ function InputsTable({
                       placeholder="What this input does"
                     />
                   </td>
-                  <td className={`${TD} text-right`}>
+                  <td className={`${TD} text-right whitespace-nowrap`}>
+                    <AgentDescriptionButton
+                      value={row.agent_description}
+                      onChange={(v) => patch(idx, { agent_description: v })}
+                      rowLabel={row.name || row.tia_name || "(unnamed input)"}
+                    />
+                    <MoveToSlotButton onClick={() => onMoveToSlot(idx)} />
                     <RemoveRowButton onClick={() => remove(idx)} />
                   </td>
                 </tr>
@@ -341,9 +522,11 @@ const EMPTY_OUTPUT: FbInterfaceOutput = {
 function OutputsTable({
   rows,
   onChange,
+  onMoveToSlot,
 }: {
   rows: FbInterfaceOutput[];
   onChange: (rows: FbInterfaceOutput[]) => void;
+  onMoveToSlot: (idx: number) => void;
 }) {
   function patch(idx: number, p: Partial<FbInterfaceOutput>) {
     onChange(rows.map((r, i) => (i === idx ? { ...r, ...p } : r)));
@@ -367,7 +550,7 @@ function OutputsTable({
               <th className={TH}>UDT</th>
               <th className={TH}>Role</th>
               <th className={TH}>Description</th>
-              <th className={`${TH} w-[40px]`}></th>
+              <th className={`${TH} w-[90px]`}></th>
             </tr>
           </thead>
           <tbody>
@@ -411,7 +594,13 @@ function OutputsTable({
                       placeholder="What this output reports"
                     />
                   </td>
-                  <td className={`${TD} text-right`}>
+                  <td className={`${TD} text-right whitespace-nowrap`}>
+                    <AgentDescriptionButton
+                      value={row.agent_description}
+                      onChange={(v) => patch(idx, { agent_description: v })}
+                      rowLabel={row.name || row.tia_name || "(unnamed output)"}
+                    />
+                    <MoveToSlotButton onClick={() => onMoveToSlot(idx)} />
                     <RemoveRowButton onClick={() => remove(idx)} />
                   </td>
                 </tr>
@@ -440,9 +629,11 @@ const EMPTY_SLOT: FbIoSlot = {
 function IoSlotsTable({
   rows,
   onChange,
+  onMoveBack,
 }: {
   rows: FbIoSlot[];
   onChange: (rows: FbIoSlot[]) => void;
+  onMoveBack: (idx: number) => void;
 }) {
   function patch(idx: number, p: Partial<FbIoSlot>) {
     onChange(rows.map((r, i) => (i === idx ? { ...r, ...p } : r)));
@@ -465,7 +656,7 @@ function IoSlotsTable({
               <th className={TH}>Role</th>
               <th className={TH}>Cardinality</th>
               <th className={TH}>Description</th>
-              <th className={`${TH} w-[40px]`}></th>
+              <th className={`${TH} w-[90px]`}></th>
             </tr>
           </thead>
           <tbody>
@@ -505,7 +696,16 @@ function IoSlotsTable({
                       placeholder="Discharge package-detect photoeye"
                     />
                   </td>
-                  <td className={`${TD} text-right`}>
+                  <td className={`${TD} text-right whitespace-nowrap`}>
+                    <AgentDescriptionButton
+                      value={row.agent_description}
+                      onChange={(v) => patch(idx, { agent_description: v })}
+                      rowLabel={row.slot_name || "(unnamed slot)"}
+                    />
+                    <MoveBackButton
+                      target={row.signal_type === "DI" || row.signal_type === "AI" ? "Inputs" : "Outputs"}
+                      onClick={() => onMoveBack(idx)}
+                    />
                     <RemoveRowButton onClick={() => remove(idx)} />
                   </td>
                 </tr>
