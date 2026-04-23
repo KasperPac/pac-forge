@@ -1245,6 +1245,7 @@ export default function FbLibraryPage() {
             <InterfaceContractEditor
               contract={form.interface_contract}
               onChange={(next) => setForm((f) => ({ ...f, interface_contract: next }))}
+              sclBlocks={form.blocks}
             />
 
             {/* Deprecation toggle */}

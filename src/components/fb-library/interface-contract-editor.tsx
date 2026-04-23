@@ -1,9 +1,11 @@
 import { useMemo } from "react";
-import { Plus, Trash2, ArrowDownToLine, ArrowUpFromLine, Cable, Database } from "lucide-react";
+import { Plus, Trash2, ArrowDownToLine, ArrowUpFromLine, Cable, Database, Wand2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
+import { prefillContractFromScl } from "@/lib/fb-library/scl-interface-parser";
 import {
   Select,
   SelectContent,
@@ -41,19 +43,46 @@ import {
 interface InterfaceContractEditorProps {
   contract: FbInterfaceContract | Record<string, never>;
   onChange: (next: FbInterfaceContract) => void;
+  /** SCL blocks from the enclosing template, used to power "Pre-fill from SCL". */
+  sclBlocks?: Array<{ scl_code: string }>;
 }
 
-export function InterfaceContractEditor({ contract: rawContract, onChange }: InterfaceContractEditorProps) {
+export function InterfaceContractEditor({ contract: rawContract, onChange, sclBlocks }: InterfaceContractEditorProps) {
   const contract = useMemo(() => normaliseInterfaceContract(rawContract), [rawContract]);
   const populated = isContractPopulated(contract);
+  const { toast } = useToast();
+
+  const hasScl = !!sclBlocks?.some((b) => b.scl_code?.trim());
 
   function update(patch: Partial<FbInterfaceContract>) {
     onChange({ ...contract, ...patch });
   }
 
+  function handlePrefill() {
+    if (!sclBlocks) return;
+    const result = prefillContractFromScl(contract, sclBlocks);
+    onChange(result.contract);
+    const added = result.addedInputs + result.addedOutputs;
+    const skipped = result.skippedInputs + result.skippedOutputs;
+    if (added === 0 && skipped === 0) {
+      toast({
+        title: "Nothing to pre-fill",
+        description: "No VAR_INPUT or VAR_OUTPUT declarations found in the SCL.",
+      });
+      return;
+    }
+    toast({
+      title: added > 0 ? "Pre-filled from SCL" : "Contract already in sync",
+      description:
+        `Added ${result.addedInputs} input${result.addedInputs === 1 ? "" : "s"}, ` +
+        `${result.addedOutputs} output${result.addedOutputs === 1 ? "" : "s"}` +
+        (skipped > 0 ? ` — ${skipped} already present (kept existing roles).` : "."),
+    });
+  }
+
   return (
     <div className="space-y-2 rounded-md border border-border/40 bg-muted/10 p-2">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="font-mono text-xs font-semibold">Interface Contract</span>
           <Badge
@@ -63,9 +92,22 @@ export function InterfaceContractEditor({ contract: rawContract, onChange }: Int
             {populated ? "populated" : "empty"}
           </Badge>
         </div>
-        <span className="font-mono text-[10px] text-muted-foreground/70">
-          Spec Builder Co-Author renders the structured wiring form when populated; otherwise falls back to free-form authoring.
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="hidden font-mono text-[10px] text-muted-foreground/70 md:inline">
+            Spec Builder Co-Author renders the structured wiring form when populated; otherwise falls back to free-form authoring.
+          </span>
+          {hasScl && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 gap-1 px-2 font-mono text-xs"
+              onClick={handlePrefill}
+              title="Parse VAR_INPUT / VAR_OUTPUT from the SCL blocks and add any missing rows. Existing rows are preserved."
+            >
+              <Wand2 className="h-3 w-3" /> Pre-fill from SCL
+            </Button>
+          )}
+        </div>
       </div>
 
       <Tabs defaultValue="inputs">
