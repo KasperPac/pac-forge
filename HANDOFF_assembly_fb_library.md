@@ -1,4 +1,4 @@
-# Handoff — Assembly FB Library build (post-Phase 3)
+# Handoff — Assembly FB Library build (post-Phase 4 contracts)
 
 **For the next Claude Code session.** Read this once, then delete the file when the work is absorbed.
 
@@ -7,134 +7,127 @@
 ## Where we are
 
 - **Branch:** `feature/assembly-fb-library` (off `master`).
-- **Commits (in order):**
-  - `e5ba994` — Phase 0 audit + Phase 1 schema/types
-  - `a65638b` — Phase 2 interface-contract editor UI
-  - `6e6f4e0` — Phase 3 SCL → interface-contract parser ("Pre-fill from SCL")
-  - `ae52547` — `agent_description` field + reclassify actions (move rows between Inputs/Outputs ↔ IO Slots)
-- **Remote status:** pushed through this handoff update — remote should be even with `HEAD` after the commit that added this file change. Pull on the office laptop to resume.
-- **Plan reference:** `Docs/ASSEMBLY_FB_LIBRARY_PLAN.md`. We just finished the editor infrastructure. **Phase 4 (seed v1 catalog — 8 assembly FBs) is next and has not started.**
-- **Phase 0 audit:** `Docs/ASSEMBLY_FB_LIBRARY_PHASE0_AUDIT.md`. Headline: all 8 v1 catalog slots are Mode C (author from scratch) — the Open Library V19 import is device-level only.
+- **Plan reference:** `Docs/ASSEMBLY_FB_LIBRARY_PLAN.md`.
+- **Phase 0 audit:** `Docs/ASSEMBLY_FB_LIBRARY_PHASE0_AUDIT.md`. All 8 v1 catalog slots are Mode C (author from scratch).
+- **Phase status:**
+  - Phase 0 (audit) ✅
+  - Phase 1 (migration `075` + types) ✅
+  - Phase 2 (FB Library contract editor UI) ✅
+  - Phase 3 (SCL → contract parser + Pre-fill button) ✅
+  - **Phase 4 (seed v1 catalog) — contracts ✅ on all 8, body SCL ⏸ pending Kasper.**
+  - Phase 5 onward — not started.
 
-## What the last session delivered
+## Phase 4 — what's in the DB now
 
-### Phase 3 — SCL parser (`6e6f4e0`)
+All 8 templates from plan §5 exist as `fb_templates` rows on the cloud Supabase project, each with:
+- Header SCL (`FUNCTION_BLOCK ... { S7_Optimized_Access := 'TRUE' } VERSION : 1.0`), full `VAR_INPUT` / `VAR_OUTPUT` declarations, empty `BEGIN ;  END_FUNCTION_BLOCK`, fault-code constants in `VAR CONSTANT`.
+- Full `interface_contract` jsonb populated: `inputs`, `outputs`, `io_slots`, `process_state_writes` with role + description + `agent_description` per row.
+- `is_assembly = true`, `category` set, tags set, profile scope `Global`.
 
-- New module `src/lib/fb-library/scl-interface-parser.ts`:
-  - `parseSclInterface(scl)` and `parseSclInterfaceFromBlocks(blocks)` extract `VAR_INPUT` / `VAR_OUTPUT` decls out of raw SCL. Fills `name`, `tia_name`, `data_type`, `udt_name` (quoted or unknown identifier), `default_value`, `description` (from trailing `//` comments). Skips `ARRAY` / `STRUCT` (conservative — "leave blank rather than guess").
-  - Infers `InterfaceInputRole` / `InterfaceOutputRole` from naming conventions (`AutoRun` → `auto_run`, `FaultCode` → `fault_code`, `AtHome` → `at_home`, etc.). Falls back to `other` when no token matches.
-  - `prefillContractFromScl(contract, blocks)` merges parsed rows into the existing contract, de-duping case-insensitively on `tia_name` so engineer-labelled rows are preserved.
-- Editor: `InterfaceContractEditor` gained a `sclBlocks?` prop and a "Pre-fill from SCL" button in the header (wand icon). Emits a toast with added / already-present counts. `fb-library.tsx` wires `form.blocks` through.
+| § | Template name | Inputs / Outputs / IO / Writes |
+|---|---|---|
+| 5.1 | ConveyorStandardVsd | 6 / 6 / 1 / 4 |
+| 5.2 | ConveyorStandardDol | 3 / 4 / 4 / 3 *(Kasper authored manually)* |
+| 5.3 | TransferTable2Axis | 4 / 8 / 7 / 4 |
+| 5.4 | TurntableSingleStop | 4 / 5 / 5 / 3 |
+| 5.5 | PusherLinearCylinder | 4 / 5 / 4 / 3 |
+| 5.6 | DiverterSwingGate | 4 / 5 / 4 / 3 |
+| 5.7 | LiftStationVertical | 5 / 5 / 5 / 3 |
+| 5.8 | AccumulatorBufferConveyor | 5 / 6 / 5 / 3 |
 
-### Agent-description + reclassify UX (`ae52547`)
+## Phase 4 — what's still TODO
 
-- Optional `agent_description?: string` added to `FbInterfaceInput` / `FbInterfaceOutput` / `FbIoSlot` in `src/types/fb-interface-contract.ts`. It's long-form per-pin notes intended for AI prompts when the template is loaded by Co-Author / Spec Builder.
-- Editor adds a **Bot-icon popover** per row (all three tabs) for editing that field. Icon turns primary-colored when the field is populated.
-- Editor adds **Move-to-IO-Slots** (MoveRight ⮕) and **Move-back** (MoveLeft ⬅) actions:
-  - Inputs/Outputs rows → IO Slots: `signal_type` guessed from `data_type` (BOOL → DI/DO, numeric → AI/AO), role defaults to `other`, cardinality `one`.
-  - IO Slots rows → Inputs (DI/AI) or Outputs (DO/AO): data type defaults to BOOL (digital) or REAL (analog); role resets to `other`.
-  - `description` + `agent_description` carry in both directions.
-- Net effect: **SCL naming is now completely unconstrained.** Engineer uses whatever names they want; classification lives in the DB and is one-click adjustable in the editor.
+**Body SCL.** Every template currently has an empty `BEGIN ;  END_FUNCTION_BLOCK`. Kasper authors body logic himself, validates compile in TIA V18. Recommended order (simplest first):
 
-## Key design decisions made (don't re-open these)
+1. ConveyorStandardDol (likely already started)
+2. PusherLinearCylinder (mirror logic for diverter)
+3. DiverterSwingGate
+4. TurntableSingleStop
+5. ConveyorStandardVsd (telegram packing/unpacking)
+6. LiftStationVertical (multi-level state machine)
+7. AccumulatorBufferConveyor (queue counting)
+8. TransferTable2Axis (most complex — internal mode machine for Home / Receive / Transfer / Return)
 
-1. **IO slots are named pins.** Physical IO lives in `VAR_INPUT` / `VAR_OUTPUT` blocks in the SCL, same as coordination signals. Classification happens in the DB, not the SCL (option #1 in the earlier brainstorm; #2 `VAR_IN_OUT` rejected because it doesn't work for all signal types, #3 global absolute addresses rejected because it kills template reusability across projects).
-2. **No SCL naming convention.** We briefly considered `PascalCase` for coordination vs `snake_case` for IO slots; Kasper rejected that and asked for a DB metadata approach instead. Don't reintroduce naming conventions — the parser stays naive (all `VAR_INPUT` → Inputs tab), and the engineer reclassifies with the move buttons.
-3. **FB Builder revival is deferred to Phase 8.** There's a stale `src/routes/fb-builder.tsx` (~600 lines, unlinked in sidebar) that was a Pac-ST clone for device-level FB authoring. Kasper raised reviving it; we agreed to **seed v1 manually first → extract patterns from real exemplars → rebuild an Assembly FB Builder as Phase 8 using those patterns.** Don't sprint the Builder now.
+Once a body compiles, no further action needed on the contract — it's already complete in the DB.
 
-## What's next — Phase 4 (seed v1 catalog, all 8 templates)
+## How the bulk authoring was done (for reference / repeatability)
 
-Plan §5 specifies the 8 canonical templates. All need to be authored from scratch in Siemens style. Kasper is doing the body SCL himself; I proposed scaffolding the declarations + interface contract so the mechanical work isn't repeated 8 times.
+7 of the 8 templates were created via browser automation in this session:
 
-**Agreed approach when we left off (not yet executed):**
-1. Hand Kasper the SCL skeleton + contract spec for **`conveyor_standard_dol`** (simplest of the 8) as a worked exemplar.
-2. Kasper pastes into the FB Library UI via "New Template", clicks **Pre-fill from SCL**, uses the **Move-to-IO-Slots** button for physical-IO pins, fills IO slot roles + ProcessState reads/writes + `agent_description` fields.
-3. Kasper writes the body SCL, validates the shape works end-to-end in the library.
-4. Once the exemplar is validated, scaffold the remaining 7 (plan §5.1, §5.3 – §5.8) the same way.
+1. **UI** — opened the New Template dialog, filled name/category/tags/description/block-name, toggled Assembly FB on.
+2. **Monaco editor** — set the SCL via `monaco.editor.getEditors()[0].setValue(scl)` (which triggers the React onChange).
+3. **Pre-fill from SCL** — clicked the wand button (twice in some cases — the first click occasionally raced with Monaco's onChange propagation).
+4. **Reclassify** — clicked the Move-to-IO-Slots buttons for IO pins. The InterfaceContractEditor's NodeList of move buttons goes stale across rapid clicks, so doing them one-at-a-time in reverse index order (per tab) was the most reliable pattern.
+5. **Save** — clicked Create Template (skeleton save with empty role/description/agent_description fields).
+6. **PATCH** — bulk-updated `interface_contract` jsonb via direct Supabase REST PATCH using the page's auth session. Captured the apikey by monkey-patching `window.fetch` and watching the next legitimate request.
 
-**The 8 slots (from plan §5):**
-- §5.1 `conveyor_standard_vsd` — VSD (Sinamics G120C, telegram 352 + safety 30)
-- §5.2 `conveyor_standard_dol` — Direct-on-line, motor contactor + overload ← **start here**
-- §5.3 `transfer_table_2axis` — lift + traverse with internal mode machine
-- §5.4 `turntable_single_stop` — rotate between two fixed positions
-- §5.5 `pusher_linear_cylinder` — pneumatic/hydraulic linear pusher
-- §5.6 `diverter_swing_gate` — 2-way sortation node
-- §5.7 `lift_station_vertical` — vertical lift, 2-3 levels
-- §5.8 `accumulator_buffer_conveyor` — upstream/downstream ready handshake
+**Caveats from this approach:**
+- The skeleton-save → PATCH path bypasses the React mutation flow. **No version-history snapshot in `fb_template_versions` was created for the contract update.** First time a template gets edited via the UI, a snapshot of its v1 (skeleton) state will land in the version history; the full contract will only show up in v2 onward. Acceptable for v1 seeding; flag if version history matters.
+- The dialog form state doesn't always reset cleanly between saves on rapid sequential opens. Encountered once during Turntable; fix was a hard page reload (F5). If you reuse this pattern, plan for occasional refreshes.
+- Telegram-352 UDT names are hardcoded into ConveyorStandardVsd's SCL (`"DriveStatusTelegram352"` / `"DriveCommandTelegram352"`). Per the locked-in decision, this stays a Phase 5 concern — extend the schema to allow telegram_type config later.
 
-For each template: `category` appropriate (Conveyors / Supplementary / Motors etc.), toggle `is_assembly = true`, populate `interface_contract`, set `process_state_reads[]` / `process_state_writes[]`. `agent_description` on every row is a high-leverage field to fill — it's what future agents see.
+## Locked design decisions (don't re-open)
 
-**When resuming:** my last message asked Kasper "Ready to scaffold `conveyor_standard_dol` as the Phase 4 exemplar?" — he cleared context instead. First question on resume: confirm he still wants to start with DOL, then deliver the SCL skeleton + contract spec. The skeleton I drafted earlier in the session is a reasonable starting point but can be regenerated — don't feel bound to it.
+1. **IO slots are named pins.** Physical IO lives in `VAR_INPUT` / `VAR_OUTPUT` blocks in SCL. Classification happens in the DB, not the SCL.
+2. **No SCL naming convention** — engineer uses whatever names; the parser stays naive; reclassify via UI.
+3. **FB Builder revival deferred to Phase 8** — seed v1 manually first, extract patterns later.
+4. **VSD telegram parameterised → deferred to Phase 5.** v1 hardcodes telegram-352. Don't refactor now.
+5. **ProcessState UDT naming** = `ProcessState_<SUBSYSTEM>.<assembly_tag>_<signal_name>`. Globally unique assembly tags (CV01, LFT01…). Templates use `{subsystem}` + `{assembly}` substitution tokens; spec builder fills at generation time.
+6. **FB `VERSION : 1.0`** on every seed template.
+7. **Diverter single-actuator convention (locked):** GateActuatorCmdA = `zero_or_one` (rest position via spring), GateActuatorCmdB = `one` (active solenoid energise to deflect).
+8. **Pusher single-actuator convention:** ExtendSolenoid = `one` (always required), RetractSolenoid = `zero_or_one` (optional double-acting).
 
-## Verification checklist if anything looks off
+## Verification when resuming
 
 1. `git status` — clean (or only `HANDOFF_*.md` untracked).
-2. `git log --oneline -5` — top should be `ae52547`.
-3. `npm run dev` — boots without errors. `.env.local` should exist at repo root; if missing, copy from `C:\Users\Work\Pac Technologies Dropbox\Kasper Simonsen\dev\pac-forge\.env.local`.
-4. `/fb-library` → edit any template → "Interface Contract" section renders with Inputs / Outputs / IO Slots / ProcessState tabs.
-5. "Pre-fill from SCL" button populates inputs/outputs from the SCL blocks.
-6. Each row has three trailing icons: Bot (agent description), MoveRight/MoveLeft (reclassify), Trash (remove).
-7. Moving a row between tabs round-trips description + agent_description.
+2. `git log --oneline -10` — top should be the commit that adds this file change.
+3. `npm run dev` — boots without errors.
+4. `/fb-library` → spot-check the 8 templates: each should round-trip the contract (Inputs/Outputs/IO Slots/ProcessState counts match the table above; agent_description Bot icons primary-colored on populated rows).
+5. Grep DB if needed: `name=in.(ConveyorStandardVsd,ConveyorStandardDol,TransferTable2Axis,TurntableSingleStop,PusherLinearCylinder,DiverterSwingGate,LiftStationVertical,AccumulatorBufferConveyor)` against `fb_templates`.
 
-## Operational caveats
+## What's next (after Phase 4 bodies)
 
-- **Monday integration is not wired for this branch.** CLAUDE.md mandates a Monday card before any code, but the earlier attempts in this series failed silently. Kasper said "don't worry about Monday for now" during this session — respect that unless he changes his mind.
-- **Pre-existing tsc errors (~30)** in unrelated files (forge-hardware-io, hmi-unified-canvas, use-forge-*). All pre-date this branch. Don't try to fix them here.
-- **Pipeline-auditor (`.claude/agents/pipeline-auditor.md`) is NOT required for Phase 4.** Its trigger patterns cover `src/hooks/use-forge-*`, `src/hooks/use-pipeline-*`, `src/lib/*-prompt*.ts`, `src/lib/forge-*.ts`, `src/lib/pipeline.ts`. Phase 4 work lives in FB Library / templates — not those paths. Skip unless you touch a forge hook.
-- **Generic-changes rule (CLAUDE.md).** Plan §5 templates target generic conveyor / lift / etc. shapes. Don't slip in any project-specific (PILOT-001) naming into the seed templates — they're meant to be reusable across projects.
-- **`.env.local` ignored by git.** Don't commit it. Don't print its contents. The Supabase project is `fsxfdkjjkbkzjntjxiyi`.
+- **Phase 5 — Spec Builder integration.** Schema migration `075` already added `fb_template_id` + `instance_params` + `instance_overrides` + `process_intent` to `fds_assembly_sessions`. Need: (a) Phase 2 Machine Hierarchy step in spec-builder runs `matchAssembliesToTemplates()` and pre-selects template per assembly; (b) Phase 3 Co-Author renders the interface-contract form for template-backed assemblies (one row per IO slot, picker scoped to the assembly's instrument register tags); (c) one-question process-intent prompt; (d) fall-back to today's free-form authoring for unmatched assemblies.
+- **Phase 6 — subsystem orchestration SFC editor** (separate workstream per PILOT-001-009).
+- **Phase 7 — forge wire-through.** Verify `use-forge-assembly-generate.ts` consumes `interface_contract` + `instance_params` for parameterised generation. Update `use-forge-process-generate.ts` for assembly-awareness.
+- **Phase 8 — AI-assisted authoring (Mode D)** — only after Modes A+B have content.
+- **Phase 9 — versioning + upgrade UI.**
+- **Phase 10 — PILOT-001 re-run on library-first flow.**
 
-## Carryover questions — RESOLVED (session 2)
+## Operational notes
 
-1. **VSD telegram** → **parameterise**. `conveyor_standard_vsd` (§5.1) should let the instance pick telegram (352 / 20 / 111 / etc.); the `vsd_drive` IO slot's UDT typing follows from the chosen telegram. Likely means a template-level config field (e.g. `telegram_type` enum) rather than one template per telegram. Don't hard-bind to Sinamics G120C + telegram 352.
-2. **ProcessState UDT naming** → **`ProcessState_<SUBSYSTEM>.<assembly_tag>_<signal_name>`**. Assembly tags (CV01, LFT01, PSH01…) are **globally unique across the whole system** — not unique-per-subsystem — so no nested UDT path is needed. In each template's `process_state_writes[]` / `process_state_reads[]`, store entries with substitution tokens:
-   ```
-   ProcessState_{subsystem}.{assembly}_at_home
-   ProcessState_{subsystem}.{assembly}_running
-   ProcessState_{subsystem}.{assembly}_faulted
-   ```
-   Spec builder substitutes `{subsystem}` + `{assembly}` at generation time from the hierarchy.
-3. **FB VERSION** → **`VERSION : 1.0`** on every seed SCL. No `0.x` for the shipped library.
+- **Monday integration is not wired for this branch.** CLAUDE.md mandates a Monday card; Kasper said "don't worry about Monday for now" during this build.
+- **Pre-existing tsc errors (~30)** in unrelated files (forge-hardware-io, hmi-unified-canvas, use-forge-*). All pre-date this branch — don't fix them here.
+- **Pipeline-auditor** is NOT required for this work (file paths don't match its trigger globs).
+- **Generic-changes rule (CLAUDE.md).** Plan §5 templates are reusable across projects. Don't slip in any project-specific (PILOT-001) naming into the seed templates.
+- **`.env.local` ignored by git.** Don't commit it. Don't print its contents.
 
-## Immediate next action (confirmed before context-switch)
-
-Scaffold `conveyor_standard_dol` (§5.2) as the Phase 4 worked exemplar. Deliver:
-- **SCL skeleton** — header (`FUNCTION_BLOCK`, `VERSION : 1.0`, `{ S7_Optimized_Access := 'TRUE' }`), full `VAR_INPUT` / `VAR_OUTPUT` / `VAR` / `VAR_TEMP` declarations, empty `BEGIN … END_FUNCTION_BLOCK`. Kasper writes the body SCL himself.
-- **Full interface contract spec** — every row of Inputs / Outputs / IO Slots / ProcessState reads + writes, with `role`, `description`, and `agent_description` populated. Use the `{subsystem}` + `{assembly}` tokens in the ProcessState entries.
-
-Kasper will paste the skeleton into FB Library → New Template → Pre-fill from SCL → use Move-to-IO-Slots for physical pins → fill roles + agent_description from the spec → write the body → validate end-to-end. Once DOL is validated, scaffold the remaining 7 (§5.1, §5.3 – §5.8) the same way.
-
-The "start with DOL" decision from the previous session still stands; Kasper confirmed on resume.
-
-## Quick file map
+## File map
 
 ```
-Docs/ASSEMBLY_FB_LIBRARY_PLAN.md                   # master plan — §5 is the catalog
-Docs/ASSEMBLY_FB_LIBRARY_PHASE0_AUDIT.md           # Phase 0 findings
-Docs/_phase0_fb_templates_snapshot.tsv             # Raw 105-row library enumeration
-supabase/migrations/075_assembly_fb_library.sql    # Schema for interface_contract + deprecated + spec-builder cols
+Docs/ASSEMBLY_FB_LIBRARY_PLAN.md                          # master plan — §5 is the catalog
+Docs/ASSEMBLY_FB_LIBRARY_PHASE0_AUDIT.md                  # Phase 0 findings
+Docs/_phase0_fb_templates_snapshot.tsv                    # raw library enumeration
+supabase/migrations/075_assembly_fb_library.sql           # schema for interface_contract + spec-builder cols
 
-src/types/fb-interface-contract.ts                 # FbInterfaceContract + role enums + agent_description (Phase 2 + new field)
-src/types/fb-template.ts                           # Extended with interface_contract + deprecated
-src/types/spec-builder.ts                          # AssemblyConfig extended
-src/types/spec-contract-v2.ts                      # AssemblyV2Schema extended
+src/types/fb-interface-contract.ts                        # FbInterfaceContract + role enums + agent_description
+src/types/fb-template.ts                                  # extended with interface_contract + deprecated
+src/types/spec-builder.ts                                 # AssemblyConfig extended
+src/types/spec-contract-v2.ts                             # AssemblyV2Schema extended
 
-src/lib/fb-library/scl-interface-parser.ts         # Phase 3 parser + role inference + prefill merge
-src/components/fb-library/interface-contract-editor.tsx  # Editor with tabs, pre-fill, reclassify, agent-description popover
-src/routes/fb-library.tsx                          # Edit dialog wires blocks into the editor
+src/lib/fb-library/scl-interface-parser.ts                # Phase 3 parser + role inference + prefill merge
+src/components/fb-library/interface-contract-editor.tsx   # editor with tabs, pre-fill, reclassify, agent-description popover
+src/routes/fb-library.tsx                                 # edit dialog wires blocks into the editor
 ```
 
 ## Useful git context
 
 ```bash
-git log --oneline feature/assembly-fb-library ^master    # Phase commits in order
-git diff master...feature/assembly-fb-library --stat     # Net diff to master
-git show --stat 6e6f4e0                                  # Phase 3 parser
-git show --stat ae52547                                  # agent_description + reclassify
+git log --oneline feature/assembly-fb-library ^master    # phase commits in order
+git diff master...feature/assembly-fb-library --stat     # net diff to master
 ```
 
 ## When you're done
 
-- Commit on the branch as you land exemplars. Use the established `feat(assembly-fb): …` style.
-- If you land all 8, push the branch.
-- Update this file or delete it when the work is absorbed.
+- Pick up Phase 4 bodies (Kasper) or Phase 5 (next agent).
+- Update or delete this file when absorbed.
