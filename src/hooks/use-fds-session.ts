@@ -412,13 +412,18 @@ export function useUpdateAssemblyContractAndScl() {
       spec_project_id: string;
       interface_contract: FbInterfaceContract;
       generated_scl_blocks: AssemblyGeneratedSclBlock[];
+      process_intent?: string | null; // optional — only updates when provided
     }) => {
+      const updatePayload: Record<string, unknown> = {
+        interface_contract: input.interface_contract,
+        generated_scl_blocks: input.generated_scl_blocks,
+      };
+      if (input.process_intent !== undefined) {
+        updatePayload.process_intent = input.process_intent;
+      }
       const { data, error } = await supabase
         .from("fds_assembly_sessions")
-        .update({
-          interface_contract: input.interface_contract,
-          generated_scl_blocks: input.generated_scl_blocks,
-        })
+        .update(updatePayload)
         .eq("id", input.id)
         .select()
         .single();

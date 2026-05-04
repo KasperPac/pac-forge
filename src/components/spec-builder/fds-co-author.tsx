@@ -157,13 +157,14 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
 
   // Persist interface_contract + generated_scl_blocks changes from contract panel
   const handleSessionContractChange = useCallback(
-    (updates: Partial<Pick<FdsAssemblySession, "interface_contract" | "generated_scl_blocks">>) => {
+    (updates: Partial<Pick<FdsAssemblySession, "interface_contract" | "generated_scl_blocks" | "process_intent">>) => {
       if (!activeSession) return;
       updateContractAndScl.mutate({
         id: activeSession.id,
         spec_project_id: activeSession.spec_project_id,
         interface_contract: updates.interface_contract ?? activeSession.interface_contract,
         generated_scl_blocks: updates.generated_scl_blocks ?? activeSession.generated_scl_blocks,
+        process_intent: updates.process_intent,  // optional — only set when explicitly updated
       });
     },
     [activeSession, updateContractAndScl],

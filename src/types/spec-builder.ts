@@ -1,5 +1,6 @@
 // Spec Builder types — functional specification document generation
 import type { PermissiveCondition, SequentialStateV2 } from "./spec-contract-v2";
+import type { FbInterfaceContract } from "@/types/fb-interface-contract";
 
 // --- Spec Project ---
 
@@ -533,8 +534,10 @@ export interface FdsAssemblySession {
   token_usage: TokenUsage;
   // Generated SCL blocks (Phase 5 — custom-path generation)
   generated_scl_blocks: AssemblyGeneratedSclBlock[];
+  // Per-session process intent hook (Phase 5, migration 075)
+  process_intent?: string | null;
   // Authored interface contract for custom-path assemblies (Phase 5 — migration 077)
-  interface_contract: import("@/types/fb-interface-contract").FbInterfaceContract;
+  interface_contract: FbInterfaceContract;
   created_at: string;
   updated_at: string;
 }

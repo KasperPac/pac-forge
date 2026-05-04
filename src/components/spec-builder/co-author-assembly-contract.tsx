@@ -70,7 +70,7 @@ export interface CoAuthorAssemblyContractProps {
   deviceArtifacts?: ForgeArtifact[];
   onSessionChange: (
     updates: Partial<
-      Pick<FdsAssemblySession, "interface_contract" | "generated_scl_blocks">
+      Pick<FdsAssemblySession, "interface_contract" | "generated_scl_blocks" | "process_intent">
     >,
   ) => void;
   onPromoteToLibrary?: () => void;
@@ -179,9 +179,13 @@ function buildStubProfile(): DesignProfile {
 function LibraryContractPanel({
   assembly,
   template,
+  session,
+  onSessionChange,
 }: {
   assembly: AssemblyConfig;
   template: FbTemplate;
+  session: FdsAssemblySession;
+  onSessionChange: CoAuthorAssemblyContractProps["onSessionChange"];
 }) {
   const contract = useMemo(
     () => normaliseInterfaceContract(template.interface_contract),
@@ -193,11 +197,16 @@ function LibraryContractPanel({
     [assembly.instance_params],
   );
 
-  const processIntent = assembly.process_intent ?? "";
+  const [localIntent, setLocalIntent] = useState(session.process_intent ?? assembly.process_intent ?? "");
 
-  // process_intent lives on AssemblyConfig JSONB, not on FdsAssemblySession.
-  // In the library path we show it as an informational annotation.
-  const [localIntent, setLocalIntent] = useState(processIntent);
+  // Save on blur (not on every keystroke to avoid DB spam)
+  const handleIntentBlur = useCallback(() => {
+    onSessionChange({
+      interface_contract: normaliseInterfaceContract(template.interface_contract),
+      generated_scl_blocks: session.generated_scl_blocks,
+      process_intent: localIntent,
+    });
+  }, [localIntent, onSessionChange, session, template]);
 
   return (
     <div className="space-y-4">
@@ -214,9 +223,9 @@ function LibraryContractPanel({
         <Button
           size="sm"
           variant="ghost"
-          className="h-6 text-[10px] px-2 text-muted-foreground hover:text-foreground shrink-0"
+          className="h-6 text-[10px] px-2 text-muted-foreground"
+          disabled
           title="To change the template, use the Assembly step in the forge wizard"
-          onClick={() => {/* deferred to assembly-picker in forge step */}}
         >
           Change
         </Button>
@@ -236,10 +245,11 @@ function LibraryContractPanel({
                 </span>
                 <Badge variant="outline" className="text-[9px] shrink-0">{slot.signal_type}</Badge>
                 <Input
-                  className="h-7 text-xs font-mono flex-1"
+                  className="h-7 text-xs font-mono flex-1 opacity-70"
                   placeholder={`Tag for ${slot.slot_name}`}
                   defaultValue={instanceParams[slot.slot_name] ?? ""}
-                  title={slot.description}
+                  readOnly
+                  title="Tag wiring is configured in the forge step. This shows the current binding."
                 />
               </div>
             ))}
@@ -282,6 +292,7 @@ function LibraryContractPanel({
           placeholder="1–2 sentences: what role does this assembly play in the overall process?"
           value={localIntent}
           onChange={(e) => setLocalIntent(e.target.value)}
+          onBlur={handleIntentBlur}
         />
         <p className="text-[10px] text-muted-foreground px-1">
           This annotation travels with the assembly into the forge step and process code.
@@ -415,7 +426,8 @@ function CustomContractPanel({
 
   const canPromote =
     hasSclContent &&
-    processIntent.trim().length > 0;
+    processIntent.trim().length > 0 &&
+    !loading;
 
   return (
     <div className="space-y-5">
@@ -517,7 +529,7 @@ function CustomContractPanel({
               <DriftChip drift={driftReport} />
             </div>
           </div>
-          <div className="border rounded-md overflow-hidden" style={{ height: 300 }}>
+          <div className="border rounded-md overflow-hidden h-[300px]">
             <Editor
               language="scl"
               theme="vs-dark"
@@ -649,6 +661,8 @@ export function CoAuthorAssemblyContract({
             <LibraryContractPanel
               assembly={assembly}
               template={matchedTemplate!}
+              session={session}
+              onSessionChange={onSessionChange}
             />
           ) : (
             <CustomContractPanel
