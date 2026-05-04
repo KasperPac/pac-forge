@@ -234,7 +234,7 @@ export function isContractPopulated(contract: FbInterfaceContract): boolean {
 const CUSTOM_ROLE_NAME_RE = /^[a-z][a-z0-9_]*$/;
 
 export function isCustomRole(role: string): role is CustomRoleValue {
-  return role.startsWith("custom:");
+  return role.startsWith("custom:") && role.length > "custom:".length;
 }
 
 /** Format a custom role for display: "custom:my_thing" → "My Thing (custom)" */

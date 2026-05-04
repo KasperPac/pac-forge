@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Plus, Trash2, ArrowDownToLine, ArrowUpFromLine, Cable, Database, Wand2, Bot, MoveRight, MoveLeft } from "lucide-react";
+import { Plus, Trash2, ArrowDownToLine, ArrowUpFromLine, Cable, Database, Wand2, Bot, MoveRight, MoveLeft, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -411,8 +411,9 @@ function InputsTable({
   onChange: (rows: FbInterfaceInput[]) => void;
   onMoveToSlot: (idx: number) => void;
 }) {
-  const [customRolesSeen, setCustomRolesSeen] = useState<Set<string>>(
+  const customRolesSeen = useMemo(
     () => new Set(rows.filter((r) => isCustomRole(r.role)).map((r) => r.role)),
+    [rows],
   );
 
   function patch(idx: number, p: Partial<FbInterfaceInput>) {
@@ -475,7 +476,6 @@ function InputsTable({
                       onValueChange={(v) => patch(idx, { role: v as InterfaceInputRole })}
                       options={INTERFACE_INPUT_ROLES}
                       customRolesSeen={customRolesSeen}
-                      onCustomRoleAdded={(r) => setCustomRolesSeen((prev) => new Set([...prev, r]))}
                     />
                   </td>
                   <td className={TD}>
@@ -541,8 +541,9 @@ function OutputsTable({
   onChange: (rows: FbInterfaceOutput[]) => void;
   onMoveToSlot: (idx: number) => void;
 }) {
-  const [customRolesSeen, setCustomRolesSeen] = useState<Set<string>>(
+  const customRolesSeen = useMemo(
     () => new Set(rows.filter((r) => isCustomRole(r.role)).map((r) => r.role)),
+    [rows],
   );
 
   function patch(idx: number, p: Partial<FbInterfaceOutput>) {
@@ -603,7 +604,6 @@ function OutputsTable({
                       onValueChange={(v) => patch(idx, { role: v as InterfaceOutputRole })}
                       options={INTERFACE_OUTPUT_ROLES}
                       customRolesSeen={customRolesSeen}
-                      onCustomRoleAdded={(r) => setCustomRolesSeen((prev) => new Set([...prev, r]))}
                     />
                   </td>
                   <td className={TD}>
@@ -654,8 +654,9 @@ function IoSlotsTable({
   onChange: (rows: FbIoSlot[]) => void;
   onMoveBack: (idx: number) => void;
 }) {
-  const [customRolesSeen, setCustomRolesSeen] = useState<Set<string>>(
+  const customRolesSeen = useMemo(
     () => new Set(rows.filter((r) => isCustomRole(r.role)).map((r) => r.role)),
+    [rows],
   );
 
   function patch(idx: number, p: Partial<FbIoSlot>) {
@@ -704,7 +705,6 @@ function IoSlotsTable({
                       onValueChange={(v) => patch(idx, { role: v as IoSlotRole })}
                       options={IO_SLOT_ROLES}
                       customRolesSeen={customRolesSeen}
-                      onCustomRoleAdded={(r) => setCustomRolesSeen((prev) => new Set([...prev, r]))}
                     />
                   </td>
                   <td className={TD}>
@@ -829,13 +829,11 @@ function RoleSelect({
   onValueChange,
   options,
   customRolesSeen,
-  onCustomRoleAdded,
 }: {
   value: string;
   onValueChange: (v: string) => void;
   options: readonly string[];
   customRolesSeen: Set<string>;
-  onCustomRoleAdded: (role: CustomRoleValue) => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
@@ -861,7 +859,6 @@ function RoleSelect({
                 });
                 return;
               }
-              onCustomRoleAdded(v);
               onValueChange(v);
               setAdding(false);
               setDraft("");
@@ -885,7 +882,6 @@ function RoleSelect({
               });
               return;
             }
-            onCustomRoleAdded(v);
             onValueChange(v);
             setAdding(false);
             setDraft("");
@@ -897,12 +893,13 @@ function RoleSelect({
           size="sm"
           variant="ghost"
           className="h-6 px-2 font-mono text-xs"
+          title="Cancel"
           onClick={() => {
             setAdding(false);
             setDraft("");
           }}
         >
-          ✕
+          <X className="h-3 w-3" />
         </Button>
       </div>
     );
