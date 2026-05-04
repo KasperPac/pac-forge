@@ -217,6 +217,13 @@ export const DeviceV2Schema = z.object({
 });
 export type DeviceV2 = z.infer<typeof DeviceV2Schema>;
 
+const AssemblyGeneratedSclBlockSchema = z.object({
+  block_name: z.string(),
+  block_type: z.enum(["FB", "FC", "DB", "UDT"]),
+  scl_code: z.string(),
+  sort_order: z.number().int(),
+});
+
 export const AssemblyV2Schema = z.object({
   assembly_id: UuidSchema,
   assembly_name: z.string(),
@@ -229,6 +236,8 @@ export const AssemblyV2Schema = z.object({
   instance_overrides: z.record(z.string(), z.unknown()).optional(),
   // --- Process intent hook (plan §3.7 / PILOT-001-011) ---
   process_intent: z.string().nullable().optional(),
+  // --- Generated SCL blocks (Phase 5 / custom-path generation) ---
+  generated_scl_blocks: z.array(AssemblyGeneratedSclBlockSchema).default([]),
 });
 export type AssemblyV2 = z.infer<typeof AssemblyV2Schema>;
 

@@ -308,6 +308,7 @@ export function MachineHierarchyTable({
         assembly_name: "New Assembly",
         description: "",
         devices: [],
+        generated_scl_blocks: [],
       });
       next[si] = sub;
       onChange(next);

@@ -18,14 +18,22 @@ import { ensureV2Record } from "@/lib/spec-builder/sequence-legacy-shim";
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Run legacy v1→v2 SFC shim on a session's sequential_states at read time. */
+/** Run legacy v1→v2 SFC shim on a session's sequential_states at read time.
+ *  Also backfills generated_scl_blocks for rows written before migration 076. */
 function applyShim(session: FdsAssemblySession): FdsAssemblySession {
-  if (!session.sequential_states) return session;
+  const shimmed = session.sequential_states
+    ? {
+        ...session,
+        sequential_states: ensureV2Record(
+          session.sequential_states as Record<string, SequentialStateV2>,
+        ),
+      }
+    : session;
   return {
-    ...session,
-    sequential_states: ensureV2Record(
-      session.sequential_states as Record<string, SequentialStateV2>,
-    ),
+    ...shimmed,
+    generated_scl_blocks: Array.isArray(shimmed.generated_scl_blocks)
+      ? shimmed.generated_scl_blocks
+      : [],
   };
 }
 

@@ -396,6 +396,7 @@ export function useRandomFdsGenerate() {
                     description: io.description ?? "",
                   })) satisfies IoSignal[],
                 })) satisfies DeviceConfig[],
+                generated_scl_blocks: [],
               };
             }) satisfies AssemblyConfig[],
           };

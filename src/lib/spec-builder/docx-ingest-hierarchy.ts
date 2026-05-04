@@ -158,6 +158,7 @@ export function parseHierarchyTable(
         assembly_name: asy.text,
         description: "",
         devices: [],
+        generated_scl_blocks: [],
       };
       assemblyMap.set(asy.uuid, assembly);
       subsystem.assemblies.push(assembly);

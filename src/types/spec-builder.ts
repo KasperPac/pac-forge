@@ -185,6 +185,13 @@ export interface DeviceConfig {
   io_signals: IoSignal[];
 }
 
+export interface AssemblyGeneratedSclBlock {
+  block_name: string;
+  block_type: "FB" | "FC" | "DB" | "UDT";
+  scl_code: string;
+  sort_order: number;
+}
+
 export interface AssemblyConfig {
   assembly_id: string;
   assembly_name: string;
@@ -208,6 +215,9 @@ export interface AssemblyConfig {
    * to avoid backfill debt later.
    */
   process_intent?: string | null;
+  /** SCL blocks produced by AI-against-contract generation (Phase 5). Empty for
+   *  library-bound assemblies (SCL comes from fb_templates at forge time). */
+  generated_scl_blocks: AssemblyGeneratedSclBlock[];
 }
 
 export interface SubsystemConfig {
@@ -521,6 +531,8 @@ export interface FdsAssemblySession {
   // Validation
   validation_results: FdsValidationResult | null;
   token_usage: TokenUsage;
+  // Generated SCL blocks (Phase 5 — custom-path generation)
+  generated_scl_blocks: AssemblyGeneratedSclBlock[];
   created_at: string;
   updated_at: string;
 }

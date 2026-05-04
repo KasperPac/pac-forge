@@ -410,6 +410,7 @@ function hierarchyToContractShape(
         assembly_id: a.assembly_id ?? `00000000-0000-0000-0000-${hashTo12Hex(a.assembly_name)}`,
         assembly_name: a.assembly_name,
         description: a.description ?? "",
+        generated_scl_blocks: [],
         devices: a.devices.map((d) => ({
           device_id: d.device_id ?? `00000000-0000-0000-0000-${hashTo12Hex(d.device_name)}`,
           device_name: d.device_name,

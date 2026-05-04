@@ -498,6 +498,7 @@ export function buildHierarchyFromTags(tags: InstrumentTag[]): SubsystemConfig[]
         assembly_name: suggestAssemblyName(allDescriptions, asmPrefix),
         description: "",
         devices: devices.sort((a, b) => a.device_id.localeCompare(b.device_id)),
+        generated_scl_blocks: [],
       });
     }
 

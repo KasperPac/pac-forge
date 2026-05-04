@@ -335,6 +335,7 @@ function buildHierarchyFromLegacy(
         assembly_name: String(a.assembly_name ?? ""),
         description: String(a.description ?? ""),
         devices,
+        generated_scl_blocks: Array.isArray(a.generated_scl_blocks) ? a.generated_scl_blocks : [],
       };
     });
     return {
