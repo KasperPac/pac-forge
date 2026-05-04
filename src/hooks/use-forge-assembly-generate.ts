@@ -207,6 +207,36 @@ export function useForgeAssemblyGenerate() {
         ? `${baseUserMessage}\n\n## Engineer Instructions\n${instructions}`
         : baseUserMessage;
 
+      // No contract or empty contract — single call, no drift detection (today's behaviour unchanged)
+      if (!contract || !isContractPopulated(contract)) {
+        const controller = new AbortController();
+        const { content } = await callNonStreaming(
+          systemPrompt,
+          [{ role: "user", content: userMessage }],
+          controller.signal,
+          16384,
+          { prompt_name: "forge-assembly-fb", agent_role: "code_architect", pipeline_step: "assembly_fb" },
+        );
+        const artifacts = parseSclArtifacts(content, "assembly_fb");
+        log("info", `${assembly.tag}: generated ${artifacts.length} artifacts`);
+        return artifacts;
+      }
+
+      // Resolve {subsystem}/{assembly} tokens in process_state_writes/reads before drift check
+      const resolvedContract: FbInterfaceContract = {
+        ...contract,
+        process_state_writes: contract.process_state_writes.map(w =>
+          w
+            .replace(/\{subsystem\}/g, subsystem ?? "")
+            .replace(/\{assembly\}/g, assembly.tag)
+        ),
+        process_state_reads: contract.process_state_reads.map(r =>
+          r
+            .replace(/\{subsystem\}/g, subsystem ?? "")
+            .replace(/\{assembly\}/g, assembly.tag)
+        ),
+      };
+
       let lastReport: DriftReport = { hardDrifts: [], softDrifts: [], hasHardDrift: false };
       let lastContent = "";
       let attempts = 0;
@@ -223,15 +253,8 @@ export function useForgeAssemblyGenerate() {
 
         lastContent = content;
 
-        // No contract or contract is empty — skip drift detection entirely
-        if (!contract || !isContractPopulated(contract)) {
-          const artifacts = parseSclArtifacts(content, "assembly_fb");
-          log("info", `${assembly.tag}: generated ${artifacts.length} artifacts`);
-          return artifacts;
-        }
-
         const parsed = parseDeclaredInterface(content);
-        lastReport = compareToContract(parsed, contract);
+        lastReport = compareToContract(parsed, resolvedContract);
 
         if (!lastReport.hasHardDrift) {
           const artifacts = parseSclArtifacts(content, "assembly_fb");
