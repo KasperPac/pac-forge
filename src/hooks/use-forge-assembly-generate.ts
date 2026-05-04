@@ -13,7 +13,6 @@ import {
 } from "@/lib/forge-prompts";
 import type { AssemblyGenContext } from "@/lib/forge-prompts";
 import { loadPlatformRules } from "@/lib/platform-rules";
-import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 import type {
   ForgeSession,
   ForgeArtifact,
@@ -120,7 +119,6 @@ const MAX_DRIFT_RETRIES = 2;
 // ---------------------------------------------------------------------------
 
 export function useForgeAssemblyGenerate() {
-  const { data: promptSections } = useActivePromptSections();
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<AssemblyGenProgress>({ current: 0, total: 0, assemblyTag: "" });
   const [error, setError] = useState<string | null>(null);
@@ -201,7 +199,7 @@ export function useForgeAssemblyGenerate() {
         subsystem,
       };
 
-      const systemPrompt = buildAssemblySclPrompt(assembly, context, promptSections ?? undefined);
+      const systemPrompt = buildAssemblySclPrompt(assembly, context);
       const baseUserMessage = buildAssemblySclUserMessage(assembly);
       let userMessage = instructions
         ? `${baseUserMessage}\n\n## Engineer Instructions\n${instructions}`
@@ -278,7 +276,7 @@ export function useForgeAssemblyGenerate() {
       }
       return artifacts;
     },
-    [promptSections, log],
+    [log],
   );
 
   /**

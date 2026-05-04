@@ -4,7 +4,7 @@
 -- forge step, and feeds the Promote-to-library workflow.
 
 ALTER TABLE fds_assembly_sessions
-  ADD COLUMN generated_scl_blocks jsonb NOT NULL DEFAULT '[]';
+  ADD COLUMN IF NOT EXISTS generated_scl_blocks jsonb NOT NULL DEFAULT '[]';
 
 COMMENT ON COLUMN fds_assembly_sessions.generated_scl_blocks IS
   'Array of {block_name, block_type, scl_code, sort_order} entries produced by AI-against-contract generation in the spec wizard. Empty for library-bound assemblies (SCL comes from fb_templates.blocks at forge time). Empty for custom assemblies before the engineer clicks Generate SCL.';

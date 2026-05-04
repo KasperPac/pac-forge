@@ -563,7 +563,6 @@ function buildFdsBehavioralSection(brief: import("@/types/forge-brief").Assembly
 export function buildAssemblySclPrompt(
   assembly: ForgeAssemblyEntry,
   context: AssemblyGenContext,
-  promptSections?: Record<string, string>,
 ): string {
   const { profile, platformRules, patterns, constituentDevices, deviceArtifacts } = context;
 
@@ -592,8 +591,6 @@ export function buildAssemblySclPrompt(
   const alarmsSection = context.alarms && context.alarms.length > 0
     ? `## Relevant Alarms\n${context.alarms.map((a) => `- **${a.name}** [${a.severity}]: ${a.description}${a.trigger_condition ? ` — trigger: ${a.trigger_condition}` : ""}`).join("\n")}\n\n`
     : "";
-
-  const _identity = resolveSection(promptSections, "forge_assembly_generate", "identity");
 
   // Build FDS behavioral spec section when brief is available
   const fdsBehavioralSection = context.brief ? buildFdsBehavioralSection(context.brief) : "";

@@ -480,6 +480,7 @@ function CustomContractPanel({
           placeholder="1–2 sentences: what role does this assembly play in the overall process?"
           value={processIntent}
           onChange={(e) => setProcessIntent(e.target.value)}
+          onBlur={() => onSessionChange({ process_intent: processIntent })}
         />
       </div>
 
