@@ -26,11 +26,13 @@ import {
   RotateCcw,
   ChevronLeft,
   ChevronRight,
+  FileCode2,
 } from "lucide-react";
 import { FdsAssemblySidebar } from "./fds-assembly-sidebar";
 import { FdsStaticReview } from "./fds-static-review";
 import { FdsTablePane } from "./fds-table-pane";
 import { FdsDuplicateDialog } from "./fds-duplicate-dialog";
+import { CoAuthorAssemblyContract } from "./co-author-assembly-contract";
 import {
   useFdsSessionsForProject,
   useEnsureFdsSession,
@@ -39,7 +41,9 @@ import {
   useCompleteFdsSession,
   useDeleteFdsSession,
   useSaveValidationResults,
+  useUpdateAssemblyContractAndScl,
 } from "@/hooks/use-fds-session";
+import { useFbTemplates } from "@/hooks/use-fb-templates";
 import { useFdsConversation } from "@/hooks/use-fds-conversation";
 import { useFdsOrchestrationConversation } from "@/hooks/use-fds-orchestration-conversation";
 import { useFdsOrchestration } from "@/hooks/use-fds-session";
@@ -67,12 +71,14 @@ interface Props {
 
 export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
   const { data: sessions = [] } = useFdsSessionsForProject(spec.id);
+  const { data: allTemplates = [] } = useFbTemplates();
   const ensureSession = useEnsureFdsSession();
   const confirmStatic = useConfirmStaticStates();
   const updateSequential = useUpdateSequentialState();
   const completeSession = useCompleteFdsSession();
   const deleteSession = useDeleteFdsSession();
   const saveValidation = useSaveValidationResults();
+  const updateContractAndScl = useUpdateAssemblyContractAndScl();
 
   const states = useMemo(() => migrateOperatingStates(spec.confirmed_states), [spec.confirmed_states]);
   const staticStates = useMemo(() => states.filter((s) => s.state_pattern === "static"), [states]);
@@ -84,6 +90,8 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
   const [orchestrationSubsystemId, setOrchestrationSubsystemId] = useState<string | null>(null);
   const [showDuplicate, setShowDuplicate] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // Contract panel toggle — "interview" | "contract"
+  const [assemblyView, setAssemblyView] = useState<"interview" | "contract">("interview");
 
   // Find current assembly and session
   const activeSubsystem = spec.confirmed_subsystems.find((s) => s.subsystem_id === selectedSubsystemId);
@@ -146,6 +154,20 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
       spec_project_id: activeSession.spec_project_id,
     });
   }, [activeSession, deleteSession]);
+
+  // Persist interface_contract + generated_scl_blocks changes from contract panel
+  const handleSessionContractChange = useCallback(
+    (updates: Partial<Pick<FdsAssemblySession, "interface_contract" | "generated_scl_blocks">>) => {
+      if (!activeSession) return;
+      updateContractAndScl.mutate({
+        id: activeSession.id,
+        spec_project_id: activeSession.spec_project_id,
+        interface_contract: updates.interface_contract ?? activeSession.interface_contract,
+        generated_scl_blocks: updates.generated_scl_blocks ?? activeSession.generated_scl_blocks,
+      });
+    },
+    [activeSession, updateContractAndScl],
+  );
 
   // Mark assembly complete
   const handleComplete = useCallback(async () => {
@@ -250,6 +272,34 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
+                {/* View toggle — Interview / Contract */}
+                <div className="flex items-center border rounded-md overflow-hidden shrink-0">
+                  <button
+                    className={cn(
+                      "px-2 py-1 text-[10px] font-medium transition-colors",
+                      assemblyView === "interview"
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+                    )}
+                    onClick={() => setAssemblyView("interview")}
+                    title="Interview + sequence tables"
+                  >
+                    Interview
+                  </button>
+                  <button
+                    className={cn(
+                      "px-2 py-1 text-[10px] font-medium transition-colors flex items-center gap-1",
+                      assemblyView === "contract"
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+                    )}
+                    onClick={() => setAssemblyView("contract")}
+                    title="Interface contract + SCL generation"
+                  >
+                    <FileCode2 className="h-3 w-3" />
+                    Contract
+                  </button>
+                </div>
                 {activeSession.status === "complete" && (
                   <Button
                     size="sm"
@@ -293,8 +343,18 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
               </div>
             </div>
 
-            {/* Stage content */}
-            {!activeSession.static_confirmed ? (
+            {/* Contract view */}
+            {assemblyView === "contract" ? (
+              <div className="flex-1 overflow-auto p-4">
+                <CoAuthorAssemblyContract
+                  assembly={activeAssembly}
+                  session={activeSession}
+                  subsystemName={activeSubsystem?.subsystem_name ?? ""}
+                  templates={allTemplates}
+                  onSessionChange={handleSessionContractChange}
+                />
+              </div>
+            ) : !activeSession.static_confirmed ? (
               // Stage 1 — Static state review
               <div className="flex-1 overflow-auto p-4">
                 <FdsStaticReview

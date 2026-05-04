@@ -533,6 +533,8 @@ export interface FdsAssemblySession {
   token_usage: TokenUsage;
   // Generated SCL blocks (Phase 5 — custom-path generation)
   generated_scl_blocks: AssemblyGeneratedSclBlock[];
+  // Authored interface contract for custom-path assemblies (Phase 5 — migration 077)
+  interface_contract: import("@/types/fb-interface-contract").FbInterfaceContract;
   created_at: string;
   updated_at: string;
 }

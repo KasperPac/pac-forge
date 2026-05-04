@@ -5,12 +5,15 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type {
   FdsAssemblySession,
+  AssemblyGeneratedSclBlock,
   SubsystemOrchestration,
   DeviceStateEntry,
   FdsConversationTurn,
   FdsValidationResult,
   FdsSessionStatus,
 } from "@/types/spec-builder";
+import type { FbInterfaceContract } from "@/types/fb-interface-contract";
+import { normaliseInterfaceContract } from "@/types/fb-interface-contract";
 import type { SequentialStateV2 } from "@/types/spec-contract-v2";
 import { ensureV2Record } from "@/lib/spec-builder/sequence-legacy-shim";
 
@@ -19,7 +22,8 @@ import { ensureV2Record } from "@/lib/spec-builder/sequence-legacy-shim";
 // ---------------------------------------------------------------------------
 
 /** Run legacy v1→v2 SFC shim on a session's sequential_states at read time.
- *  Also backfills generated_scl_blocks for rows written before migration 076. */
+ *  Also backfills generated_scl_blocks for rows written before migration 076,
+ *  and normalises interface_contract for rows written before migration 077. */
 function applyShim(session: FdsAssemblySession): FdsAssemblySession {
   const shimmed = session.sequential_states
     ? {
@@ -34,6 +38,9 @@ function applyShim(session: FdsAssemblySession): FdsAssemblySession {
     generated_scl_blocks: Array.isArray(shimmed.generated_scl_blocks)
       ? shimmed.generated_scl_blocks
       : [],
+    interface_contract: normaliseInterfaceContract(
+      (shimmed as FdsAssemblySession & { interface_contract?: unknown }).interface_contract,
+    ),
   };
 }
 
@@ -392,6 +399,35 @@ export function useDuplicateFdsSession() {
     },
     onSuccess: (_, input) => {
       queryClient.invalidateQueries({ queryKey: fdsSessionsKey(input.spec_project_id) });
+    },
+  });
+}
+
+/** Update interface_contract and generated_scl_blocks on a session (custom-path generation) */
+export function useUpdateAssemblyContractAndScl() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      id: string;
+      spec_project_id: string;
+      interface_contract: FbInterfaceContract;
+      generated_scl_blocks: AssemblyGeneratedSclBlock[];
+    }) => {
+      const { data, error } = await supabase
+        .from("fds_assembly_sessions")
+        .update({
+          interface_contract: input.interface_contract,
+          generated_scl_blocks: input.generated_scl_blocks,
+        })
+        .eq("id", input.id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as FdsAssemblySession;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: fdsSessionsKey(data.spec_project_id) });
+      queryClient.invalidateQueries({ queryKey: fdsSessionKey(data.id) });
     },
   });
 }
