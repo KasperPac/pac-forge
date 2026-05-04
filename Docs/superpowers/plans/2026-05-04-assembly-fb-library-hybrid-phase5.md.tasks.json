@@ -4,57 +4,57 @@
     {
       "id": 10,
       "subject": "Task 0: Migration 076 + AssemblyConfig type extension",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Persist generated SCL blocks alongside the contract on each assembly session, so custom-path SCL survives wizard reloads, drives the forge step, and is available when promoting to library.\n\n**Files:**\n- Create: `supabase/migrations/076_assembly_custom_scl.sql`\n- Modify: `src/types/spec-builder.ts`\n- Modify: `src/types/spec-contract-v2.ts`\n- Modify: `src/hooks/use-fds-session.ts`\n\n```json:metadata\n{\"files\": [\"supabase/migrations/076_assembly_custom_scl.sql\", \"src/types/spec-builder.ts\", \"src/types/spec-contract-v2.ts\", \"src/hooks/use-fds-session.ts\"], \"verifyCommand\": \"npx supabase db push --local && npm run build && npm run lint\", \"acceptanceCriteria\": [\"migration applies\", \"AssemblyConfig.generated_scl_blocks typed correctly\", \"AssemblyV2Schema mirrors field\", \"read sites default to []\"]}\n```"
     },
     {
       "id": 11,
       "subject": "Task 1: Pre-flight — SFC call shape sketch",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Define the typed boundary that Phase 6 will consume from the assembly contract. Types only — no implementation.\n\n**Files:**\n- Create: `src/types/sfc-call-shape.ts`\n\n```json:metadata\n{\"files\": [\"src/types/sfc-call-shape.ts\"], \"verifyCommand\": \"npm run build && npm run lint\", \"acceptanceCriteria\": [\"AssemblySfcCallSpec defined\", \"AssemblyCallSite defined\", \"JSDoc on each field\", \"no runtime imports\"]}\n```"
     },
     {
       "id": 12,
       "subject": "Task 2: Role-enum custom escape hatch",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Allow engineers to declare project-specific role values via `custom:<name>` strings without breaking the closed enum union.\n\n**Files:**\n- Modify: `src/types/fb-interface-contract.ts`\n- Modify: `src/components/fb-library/interface-contract-editor.tsx`\n\n```json:metadata\n{\"files\": [\"src/types/fb-interface-contract.ts\", \"src/components/fb-library/interface-contract-editor.tsx\"], \"verifyCommand\": \"npm run build && npm run lint\", \"acceptanceCriteria\": [\"role union accepts custom: values\", \"helpers exposed\", \"editor adds custom-role affordance\", \"seeded templates unchanged\"]}\n```"
     },
     {
       "id": 13,
       "subject": "Task 3: Contract-as-constraint prompt block builder",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Pure function rendering FbInterfaceContract as a structured 'MUST MATCH EXACTLY' prompt fragment.\n\n**Files:**\n- Create: `src/lib/forge-assembly-contract-prompt.ts`\n\n```json:metadata\n{\"files\": [\"src/lib/forge-assembly-contract-prompt.ts\"], \"verifyCommand\": \"npm run build && npm run lint\", \"acceptanceCriteria\": [\"buildContractConstraintBlock signature\", \"empty contract → empty string\", \"token substitution works\", \"custom roles rendered as markers\", \"pure function (no React)\"]}\n```"
     },
     {
       "id": 14,
       "subject": "Task 4: Drift detection — compareToContract",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Pure function comparing parsed SCL interface against contract; returns DriftReport.\n\n**Files:**\n- Create: `src/lib/fb-library/contract-drift.ts`\n- Modify: `src/lib/fb-library/scl-interface-parser.ts`\n\n```json:metadata\n{\"files\": [\"src/lib/fb-library/contract-drift.ts\", \"src/lib/fb-library/scl-interface-parser.ts\"], \"verifyCommand\": \"npm run build && npm run lint\", \"acceptanceCriteria\": [\"DriftReport type\", \"compareToContract detects all drift kinds\", \"formatDriftFeedback rendering\", \"parseDeclaredInterface helper\", \"pure functions\"]}\n```"
     },
     {
       "id": 15,
       "subject": "Task 5: Generate hook — contract injection + drift retry loop",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [10, 13, 14],
       "description": "**Goal:** Modify use-forge-assembly-generate.ts so AI generation uses the contract as a structural constraint, validates output, and retries up to 2x with drift feedback.\n\n**Files:**\n- Modify: `src/hooks/use-forge-assembly-generate.ts`\n- Modify: `src/lib/forge-prompts.ts`\n- Modify: `src/types/forge.ts`\n\n```json:metadata\n{\"files\": [\"src/hooks/use-forge-assembly-generate.ts\", \"src/lib/forge-prompts.ts\", \"src/types/forge.ts\"], \"verifyCommand\": \"npm run build && npm run lint\", \"acceptanceCriteria\": [\"library path unchanged\", \"AI path injects contract\", \"drift retry loop max 2\", \"persistent drift surfaced\", \"retries logged\", \"pipeline-auditor passes\"]}\n```"
     },
     {
       "id": 16,
       "subject": "Task 6: Skeleton picker — 5 starter contract shapes",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Hardcoded library of 5 starter contract shapes plus from_scratch.\n\n**Files:**\n- Create: `src/lib/fb-library/contract-skeletons.ts`\n\n```json:metadata\n{\"files\": [\"src/lib/fb-library/contract-skeletons.ts\"], \"verifyCommand\": \"npm run build && npm run lint\", \"acceptanceCriteria\": [\"6 skeletons exported\", \"common inputs/outputs in each\", \"generic names only\", \"getSkeleton helper\"]}\n```"
     },
     {
       "id": 17,
       "subject": "Task 7: Co-Author contract panel — library + custom paths",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [10, 12, 13, 14, 15, 16],
       "description": "**Goal:** New wizard panel hosting the contract editor inline. Library + custom path UX.\n\n**Files:**\n- Create: `src/components/spec-builder/co-author-assembly-contract.tsx`\n- Modify: `src/components/spec-builder/fds-co-author.tsx`\n\n```json:metadata\n{\"files\": [\"src/components/spec-builder/co-author-assembly-contract.tsx\", \"src/components/spec-builder/fds-co-author.tsx\"], \"verifyCommand\": \"npm run build && npm run lint\", \"acceptanceCriteria\": [\"library + custom views\", \"skeleton picker wired\", \"Generate triggers contract-bound generation\", \"Monaco pane shows SCL\", \"drift chip with popover\", \"promote button gated on clean SCL + non-empty intent\", \"pipeline-auditor passes\"]}\n```"
     },
     {
       "id": 18,
       "subject": "Task 8: Phase 5.5 — Promote-to-library hook + dialog",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [17],
       "description": "**Goal:** 'Save as library template' mints a new fb_template row from a custom assembly's contract+SCL.\n\n**Files:**\n- Create: `src/hooks/use-promote-to-library.ts`\n- Create: `src/components/spec-builder/promote-to-library-dialog.tsx`\n- Optional: `supabase/migrations/077_fb_template_staged.sql`\n\n```json:metadata\n{\"files\": [\"src/hooks/use-promote-to-library.ts\", \"src/components/spec-builder/promote-to-library-dialog.tsx\", \"src/components/spec-builder/fds-co-author.tsx\"], \"verifyCommand\": \"npm run build && npm run lint\", \"acceptanceCriteria\": [\"mutation creates template + blocks\", \"is_assembly + source + version set\", \"scope mechanism chosen and applied\", \"name uniqueness check\", \"blocked when SCL missing or drift unresolved\", \"toast on success\"]}\n```"
     },
@@ -66,5 +66,5 @@
       "description": "**Goal:** Validate spec §9 success criteria with end-to-end wizard run on a real project. No new code.\n\n**Files:**\n- Create: `Docs/superpowers/plans/2026-05-04-assembly-fb-library-hybrid-phase5.acceptance.md`\n\n```json:metadata\n{\"files\": [\"Docs/superpowers/plans/2026-05-04-assembly-fb-library-hybrid-phase5.acceptance.md\"], \"verifyCommand\": \"manual\", \"acceptanceCriteria\": [\"library path exercised\", \"custom path exercised\", \"drift retry exercised\", \"promote-to-library exercised\", \"no free-form fallback\", \"findings documented\"]}\n```"
     }
   ],
-  "lastUpdated": "2026-05-04T00:00:00Z"
+  "lastUpdated": "2026-05-04T13:00:00Z"
 }
