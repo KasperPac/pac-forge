@@ -1,6 +1,7 @@
 import type { ProcessLinkageMatrix } from "@/types/forge-matrix";
 import type { HmiPanelConfig } from "@/types/hmi-panel";
 import type { InterfaceContractMap } from "@/types/forge-contract";
+import type { DriftReport } from "@/lib/fb-library/contract-drift";
 
 // Wave 5: re-export contract-v2 types so forge consumers can reach them
 // without importing from @/types/spec-contract-v2 directly.
@@ -180,6 +181,12 @@ export interface ForgeArtifact {
    * since the compiler output is structurally correct by construction.
    */
   deterministic?: boolean;
+  /**
+   * Set when AI-against-contract generation produced unresolved drift after
+   * the retry budget was exhausted. UI surfaces this for engineer review.
+   * Library-path and contract-clean AI artifacts have this undefined.
+   */
+  drift?: DriftReport;
 }
 
 // ---------------------------------------------------------------------------

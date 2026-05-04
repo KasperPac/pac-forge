@@ -23,6 +23,11 @@ import type { DesignProfile } from "@/types/design-profile";
 import type { FbTemplate } from "@/types/fb-template";
 import type { PatternCandidate } from "@/types";
 import type { AssemblyBrief } from "@/types/forge-brief";
+import { parseDeclaredInterface } from "@/lib/fb-library/scl-interface-parser";
+import { compareToContract, formatDriftFeedback } from "@/lib/fb-library/contract-drift";
+import type { DriftReport } from "@/lib/fb-library/contract-drift";
+import type { FbInterfaceContract } from "@/types/fb-interface-contract";
+import { isContractPopulated } from "@/types/fb-interface-contract";
 
 // ---------------------------------------------------------------------------
 // Artifact parser (duplicated from use-forge-device-generate — pure function)
@@ -105,6 +110,12 @@ export interface AssemblyGenLogEntry {
 }
 
 // ---------------------------------------------------------------------------
+// Drift retry budget
+// ---------------------------------------------------------------------------
+
+const MAX_DRIFT_RETRIES = 2;
+
+// ---------------------------------------------------------------------------
 // Main hook
 // ---------------------------------------------------------------------------
 
@@ -136,8 +147,10 @@ export function useForgeAssemblyGenerate() {
       patterns: PatternCandidate[],
       brief?: AssemblyBrief,
       instructions?: string,
+      contract?: FbInterfaceContract,
+      subsystem?: string,
     ): Promise<ForgeArtifact[]> => {
-      // Check for library template match
+      // Check for library template match — contract is ignored for library path
       const matchedTemplate = assembly.fb_template_id
         ? fbTemplates.find((t) => t.id === assembly.fb_template_id) ?? null
         : null;
@@ -148,7 +161,7 @@ export function useForgeAssemblyGenerate() {
       }
 
       // AI generation
-      log("info", `${assembly.tag}: generating via AI${brief ? " (FDS-driven)" : ""}`);
+      log("info", `${assembly.tag}: generating via AI${brief ? " (FDS-driven)" : ""}${contract && isContractPopulated(contract) ? " (contract-constrained)" : ""}`);
       const platformRules = await loadPlatformRules();
 
       const constituentDevices = (session.device_list ?? []).filter(
@@ -184,26 +197,62 @@ export function useForgeAssemblyGenerate() {
         interlocks: relevantInterlocks,
         alarms: relevantAlarms,
         brief,
+        contract,
+        subsystem,
       };
 
       const systemPrompt = buildAssemblySclPrompt(assembly, context, promptSections ?? undefined);
+      const baseUserMessage = buildAssemblySclUserMessage(assembly);
+      let userMessage = instructions
+        ? `${baseUserMessage}\n\n## Engineer Instructions\n${instructions}`
+        : baseUserMessage;
 
-      let userMessage = buildAssemblySclUserMessage(assembly);
-      if (instructions) {
-        userMessage += `\n\n## Engineer Instructions\n${instructions}`;
+      let lastReport: DriftReport = { hardDrifts: [], softDrifts: [], hasHardDrift: false };
+      let lastContent = "";
+      let attempts = 0;
+
+      while (attempts <= MAX_DRIFT_RETRIES) {
+        const controller = new AbortController();
+        const { content } = await callNonStreaming(
+          systemPrompt,
+          [{ role: "user", content: userMessage }],
+          controller.signal,
+          16384,
+          { prompt_name: "forge-assembly-fb", agent_role: "code_architect", pipeline_step: "assembly_fb" },
+        );
+
+        lastContent = content;
+
+        // No contract or contract is empty — skip drift detection entirely
+        if (!contract || !isContractPopulated(contract)) {
+          const artifacts = parseSclArtifacts(content, "assembly_fb");
+          log("info", `${assembly.tag}: generated ${artifacts.length} artifacts`);
+          return artifacts;
+        }
+
+        const parsed = parseDeclaredInterface(content);
+        lastReport = compareToContract(parsed, contract);
+
+        if (!lastReport.hasHardDrift) {
+          const artifacts = parseSclArtifacts(content, "assembly_fb");
+          log("info", `${assembly.tag}: generated ${artifacts.length} artifacts${attempts > 0 ? ` (after ${attempts} drift retries)` : ""}`);
+          return artifacts;
+        }
+
+        attempts += 1;
+        if (attempts > MAX_DRIFT_RETRIES) break;
+
+        log("warn", `${assembly.tag}: retry ${attempts}/${MAX_DRIFT_RETRIES} — ${lastReport.hardDrifts.length} hard drifts`);
+        userMessage = `${formatDriftFeedback(lastReport)}\n\n${baseUserMessage}${instructions ? `\n\n## Engineer Instructions\n${instructions}` : ""}`;
       }
 
-      const controller = new AbortController();
-      const { content } = await callNonStreaming(
-        systemPrompt,
-        [{ role: "user", content: userMessage }],
-        controller.signal,
-        16384,
-        { prompt_name: "forge-assembly-fb", agent_role: "code_architect", pipeline_step: "assembly_fb" },
-      );
-
-      const artifacts = parseSclArtifacts(content, "assembly_fb");
-      log("info", `${assembly.tag}: generated ${artifacts.length} artifacts`);
+      // Persistent drift after retry budget exhausted — surface to caller
+      const artifacts = parseSclArtifacts(lastContent, "assembly_fb");
+      log("error", `${assembly.tag}: persistent drift after ${MAX_DRIFT_RETRIES} retries — ${lastReport.hardDrifts.length} unresolved drifts`);
+      if (artifacts.length > 0) {
+        const primaryFb = artifacts.find(a => a.type === "FB") ?? artifacts[0];
+        primaryFb.drift = lastReport;
+      }
       return artifacts;
     },
     [promptSections, log],
@@ -221,6 +270,8 @@ export function useForgeAssemblyGenerate() {
       fbTemplates: FbTemplate[],
       patterns: PatternCandidate[],
       briefs?: Record<string, AssemblyBrief>,
+      contracts?: Record<string, FbInterfaceContract>,
+      subsystems?: Record<string, string>,
     ): Promise<ForgeArtifact[]> => {
       setLoading(true);
       setError(null);
@@ -239,6 +290,9 @@ export function useForgeAssemblyGenerate() {
             fbTemplates,
             patterns,
             briefs?.[asm.id],
+            undefined,
+            contracts?.[asm.id],
+            subsystems?.[asm.id],
           );
           allArtifacts.push(...arts);
         }

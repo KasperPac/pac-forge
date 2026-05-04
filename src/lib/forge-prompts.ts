@@ -24,6 +24,8 @@ import { parseProcessRules } from "@/lib/design-profile-schemas";
 import { formatDesignProfile, formatInstructions } from "@/lib/prompt-builder";
 import { resolveSection } from "@/lib/prompt-defaults";
 import { buildWiringContext } from "@/lib/wiring-context";
+import type { FbInterfaceContract } from "@/types/fb-interface-contract";
+import { buildContractConstraintBlock } from "@/lib/forge-assembly-contract-prompt";
 
 // ---------------------------------------------------------------------------
 // Step/Action DB pattern rules (injected when profile enables this pattern)
@@ -457,6 +459,10 @@ export interface AssemblyGenContext {
   instructions?: Instruction[];
   /** FDS-derived behavioral brief — when present, the AI implements the FDS spec */
   brief?: import("@/types/forge-brief").AssemblyBrief;
+  /** Contract injected as structural constraint when populated */
+  contract?: FbInterfaceContract;
+  /** Subsystem tag for {subsystem} substitution in process_state declarations */
+  subsystem?: string;
 }
 
 /**
@@ -592,6 +598,14 @@ export function buildAssemblySclPrompt(
   // Build FDS behavioral spec section when brief is available
   const fdsBehavioralSection = context.brief ? buildFdsBehavioralSection(context.brief) : "";
 
+  // Build contract constraint block when contract is populated
+  const contractSection = context.contract
+    ? buildContractConstraintBlock(context.contract, {
+        subsystem: context.subsystem,
+        assemblyTag: assembly.tag,
+      }) + "\n\n"
+    : "";
+
   return `You are a Code Architect generating an Assembly Function Block in SCL for Siemens S7-1200/S7-1500.
 
 ## What is an Assembly FB?
@@ -606,7 +620,7 @@ An Assembly FB coordinates a group of physical devices that work together as a f
 
 The assembly FB does NOT read physical IO directly — it reads device status from its input parameters, which are wired by the call FC.
 
-## Assembly: ${assembly.name}
+${contractSection}## Assembly: ${assembly.name}
 - **Tag:** ${assembly.tag}
 - **Type:** ${assembly.assembly_type}
 - **Description:** ${assembly.description}
