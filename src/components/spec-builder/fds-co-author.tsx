@@ -33,6 +33,7 @@ import { FdsStaticReview } from "./fds-static-review";
 import { FdsTablePane } from "./fds-table-pane";
 import { FdsDuplicateDialog } from "./fds-duplicate-dialog";
 import { CoAuthorAssemblyContract } from "./co-author-assembly-contract";
+import { PromoteToLibraryDialog } from "./promote-to-library-dialog";
 import {
   useFdsSessionsForProject,
   useEnsureFdsSession,
@@ -92,6 +93,8 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   // Contract panel toggle — "interview" | "contract"
   const [assemblyView, setAssemblyView] = useState<"interview" | "contract">("interview");
+  // Promote-to-library dialog target
+  const [promoteAssembly, setPromoteAssembly] = useState<{ assembly: AssemblyConfig; session: FdsAssemblySession } | null>(null);
 
   // Find current assembly and session
   const activeSubsystem = spec.confirmed_subsystems.find((s) => s.subsystem_id === selectedSubsystemId);
@@ -249,6 +252,18 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
         />
       )}
 
+      {/* Promote-to-library dialog */}
+      {promoteAssembly && (
+        <PromoteToLibraryDialog
+          open={promoteAssembly !== null}
+          onOpenChange={(open) => { if (!open) setPromoteAssembly(null); }}
+          assembly={promoteAssembly.assembly}
+          session={promoteAssembly.session}
+          existingTemplates={allTemplates}
+          projectProfileId={spec.design_profile_id}
+        />
+      )}
+
       {/* Main workspace */}
       <div className="flex-1 flex flex-col min-w-0">
         {!activeAssembly && !orchestrationSubsystemId ? (
@@ -353,6 +368,7 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
                   subsystemName={activeSubsystem?.subsystem_name ?? ""}
                   templates={allTemplates}
                   onSessionChange={handleSessionContractChange}
+                  onPromoteToLibrary={() => setPromoteAssembly({ assembly: activeAssembly, session: activeSession })}
                 />
               </div>
             ) : !activeSession.static_confirmed ? (
