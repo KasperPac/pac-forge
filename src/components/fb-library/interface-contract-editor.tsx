@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Plus, Trash2, ArrowDownToLine, ArrowUpFromLine, Cable, Database, Wand2, Bot, MoveRight, MoveLeft } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -25,11 +25,18 @@ import {
   EMPTY_INTERFACE_CONTRACT,
   normaliseInterfaceContract,
   isContractPopulated,
+  isCustomRole,
+  customRoleLabel,
+  buildCustomRoleValue,
+  type CustomRoleValue,
   type FbInterfaceContract,
   type FbInterfaceInput,
   type FbInterfaceOutput,
   type FbIoSlot,
   type InterfaceDataType,
+  type InterfaceInputRole,
+  type InterfaceOutputRole,
+  type IoSlotRole,
   type SignalType,
 } from "@/types/fb-interface-contract";
 
@@ -404,6 +411,10 @@ function InputsTable({
   onChange: (rows: FbInterfaceInput[]) => void;
   onMoveToSlot: (idx: number) => void;
 }) {
+  const [customRolesSeen, setCustomRolesSeen] = useState<Set<string>>(
+    () => new Set(rows.filter((r) => isCustomRole(r.role)).map((r) => r.role)),
+  );
+
   function patch(idx: number, p: Partial<FbInterfaceInput>) {
     onChange(rows.map((r, i) => (i === idx ? { ...r, ...p } : r)));
   }
@@ -459,10 +470,12 @@ function InputsTable({
                     />
                   </td>
                   <td className={TD}>
-                    <CellSelect
+                    <RoleSelect
                       value={row.role}
-                      onValueChange={(v) => patch(idx, { role: v as typeof row.role })}
+                      onValueChange={(v) => patch(idx, { role: v as InterfaceInputRole })}
                       options={INTERFACE_INPUT_ROLES}
+                      customRolesSeen={customRolesSeen}
+                      onCustomRoleAdded={(r) => setCustomRolesSeen((prev) => new Set([...prev, r]))}
                     />
                   </td>
                   <td className={TD}>
@@ -528,6 +541,10 @@ function OutputsTable({
   onChange: (rows: FbInterfaceOutput[]) => void;
   onMoveToSlot: (idx: number) => void;
 }) {
+  const [customRolesSeen, setCustomRolesSeen] = useState<Set<string>>(
+    () => new Set(rows.filter((r) => isCustomRole(r.role)).map((r) => r.role)),
+  );
+
   function patch(idx: number, p: Partial<FbInterfaceOutput>) {
     onChange(rows.map((r, i) => (i === idx ? { ...r, ...p } : r)));
   }
@@ -581,10 +598,12 @@ function OutputsTable({
                     />
                   </td>
                   <td className={TD}>
-                    <CellSelect
+                    <RoleSelect
                       value={row.role}
-                      onValueChange={(v) => patch(idx, { role: v as typeof row.role })}
+                      onValueChange={(v) => patch(idx, { role: v as InterfaceOutputRole })}
                       options={INTERFACE_OUTPUT_ROLES}
+                      customRolesSeen={customRolesSeen}
+                      onCustomRoleAdded={(r) => setCustomRolesSeen((prev) => new Set([...prev, r]))}
                     />
                   </td>
                   <td className={TD}>
@@ -635,6 +654,10 @@ function IoSlotsTable({
   onChange: (rows: FbIoSlot[]) => void;
   onMoveBack: (idx: number) => void;
 }) {
+  const [customRolesSeen, setCustomRolesSeen] = useState<Set<string>>(
+    () => new Set(rows.filter((r) => isCustomRole(r.role)).map((r) => r.role)),
+  );
+
   function patch(idx: number, p: Partial<FbIoSlot>) {
     onChange(rows.map((r, i) => (i === idx ? { ...r, ...p } : r)));
   }
@@ -676,10 +699,12 @@ function IoSlotsTable({
                     />
                   </td>
                   <td className={TD}>
-                    <CellSelect
+                    <RoleSelect
                       value={row.role}
-                      onValueChange={(v) => patch(idx, { role: v as typeof row.role })}
+                      onValueChange={(v) => patch(idx, { role: v as IoSlotRole })}
                       options={IO_SLOT_ROLES}
+                      customRolesSeen={customRolesSeen}
+                      onCustomRoleAdded={(r) => setCustomRolesSeen((prev) => new Set([...prev, r]))}
                     />
                   </td>
                   <td className={TD}>
@@ -796,6 +821,129 @@ function CellInput({
       disabled={disabled}
       className="h-6 px-1.5 font-mono text-xs"
     />
+  );
+}
+
+function RoleSelect({
+  value,
+  onValueChange,
+  options,
+  customRolesSeen,
+  onCustomRoleAdded,
+}: {
+  value: string;
+  onValueChange: (v: string) => void;
+  options: readonly string[];
+  customRolesSeen: Set<string>;
+  onCustomRoleAdded: (role: CustomRoleValue) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState("");
+  const { toast } = useToast();
+
+  if (adding) {
+    return (
+      <div className="flex gap-1 items-center">
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="lowercase_name"
+          className="h-6 px-1.5 font-mono text-xs w-32"
+          autoFocus
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              const v = buildCustomRoleValue(draft);
+              if (!v) {
+                toast({
+                  title: "Invalid name",
+                  description: "Use lowercase letters, digits, underscores. Must start with a letter.",
+                  variant: "destructive",
+                });
+                return;
+              }
+              onCustomRoleAdded(v);
+              onValueChange(v);
+              setAdding(false);
+              setDraft("");
+            }
+            if (e.key === "Escape") {
+              setAdding(false);
+              setDraft("");
+            }
+          }}
+        />
+        <Button
+          size="sm"
+          className="h-6 px-2 font-mono text-xs"
+          onClick={() => {
+            const v = buildCustomRoleValue(draft);
+            if (!v) {
+              toast({
+                title: "Invalid name",
+                description: "Use lowercase letters, digits, underscores. Must start with a letter.",
+                variant: "destructive",
+              });
+              return;
+            }
+            onCustomRoleAdded(v);
+            onValueChange(v);
+            setAdding(false);
+            setDraft("");
+          }}
+        >
+          Add
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 px-2 font-mono text-xs"
+          onClick={() => {
+            setAdding(false);
+            setDraft("");
+          }}
+        >
+          ✕
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <Select
+      value={value}
+      onValueChange={(v) => {
+        if (v === "__add_custom__") {
+          setAdding(true);
+          return;
+        }
+        onValueChange(v);
+      }}
+    >
+      <SelectTrigger className="h-6 px-1.5 font-mono text-xs">
+        {isCustomRole(value) ? (
+          <Badge variant="secondary" className="font-mono text-[10px] px-1 py-0">
+            {customRoleLabel(value as CustomRoleValue)}
+          </Badge>
+        ) : (
+          <SelectValue />
+        )}
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((o) => (
+          <SelectItem key={o} value={o} className="font-mono text-xs">
+            {o}
+          </SelectItem>
+        ))}
+        {[...customRolesSeen].map((r) => (
+          <SelectItem key={r} value={r} className="font-mono text-xs">
+            {customRoleLabel(r as CustomRoleValue)}
+          </SelectItem>
+        ))}
+        <SelectItem value="__add_custom__" className="font-mono text-xs text-muted-foreground">
+          + Add custom role…
+        </SelectItem>
+      </SelectContent>
+    </Select>
   );
 }
 

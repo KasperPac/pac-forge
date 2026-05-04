@@ -11,7 +11,7 @@
  */
 
 // ---------------------------------------------------------------------------
-// Role enums (closed sets — extended over time; v1 has no `custom:*` escape)
+// Role enums (closed sets — extended over time; custom:* escape hatch below)
 // ---------------------------------------------------------------------------
 
 export const INTERFACE_INPUT_ROLES = [
@@ -30,7 +30,11 @@ export const INTERFACE_INPUT_ROLES = [
   "command_extend",
   "other",
 ] as const;
-export type InterfaceInputRole = (typeof INTERFACE_INPUT_ROLES)[number];
+export type CustomRoleValue = `custom:${string}`;
+
+export type InterfaceInputRole =
+  | (typeof INTERFACE_INPUT_ROLES)[number]
+  | CustomRoleValue;
 
 export const INTERFACE_OUTPUT_ROLES = [
   "running",
@@ -57,7 +61,9 @@ export const INTERFACE_OUTPUT_ROLES = [
   "emergency_descend_active",
   "other",
 ] as const;
-export type InterfaceOutputRole = (typeof INTERFACE_OUTPUT_ROLES)[number];
+export type InterfaceOutputRole =
+  | (typeof INTERFACE_OUTPUT_ROLES)[number]
+  | CustomRoleValue;
 
 export const IO_SLOT_ROLES = [
   "discharge_sensor",
@@ -83,7 +89,9 @@ export const IO_SLOT_ROLES = [
   "brake_release",
   "other",
 ] as const;
-export type IoSlotRole = (typeof IO_SLOT_ROLES)[number];
+export type IoSlotRole =
+  | (typeof IO_SLOT_ROLES)[number]
+  | CustomRoleValue;
 
 // ---------------------------------------------------------------------------
 // Data types accepted in interface declarations
@@ -217,4 +225,34 @@ export function isContractPopulated(contract: FbInterfaceContract): boolean {
     contract.process_state_reads.length > 0 ||
     contract.process_state_writes.length > 0
   );
+}
+
+// ---------------------------------------------------------------------------
+// Custom role helpers
+// ---------------------------------------------------------------------------
+
+const CUSTOM_ROLE_NAME_RE = /^[a-z][a-z0-9_]*$/;
+
+export function isCustomRole(role: string): role is CustomRoleValue {
+  return role.startsWith("custom:");
+}
+
+/** Format a custom role for display: "custom:my_thing" → "My Thing (custom)" */
+export function customRoleLabel(role: CustomRoleValue): string {
+  const name = role.slice("custom:".length);
+  const titled = name
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+  return `${titled} (custom)`;
+}
+
+/**
+ * Validate and normalise a user-typed custom role name into a CustomRoleValue.
+ * Returns null when the name is invalid (must match [a-z][a-z0-9_]*).
+ */
+export function buildCustomRoleValue(rawName: string): CustomRoleValue | null {
+  const cleaned = rawName.trim().toLowerCase().replace(/\s+/g, "_");
+  if (!CUSTOM_ROLE_NAME_RE.test(cleaned)) return null;
+  return `custom:${cleaned}` as CustomRoleValue;
 }
