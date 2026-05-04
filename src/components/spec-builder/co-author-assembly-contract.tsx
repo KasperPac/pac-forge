@@ -33,7 +33,13 @@ import {
   Sparkles,
   BookOpen,
   Pencil,
+  AlertTriangle,
 } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import Editor from "@monaco-editor/react";
 import { InterfaceContractEditor } from "@/components/fb-library/interface-contract-editor";
 import { CONTRACT_SKELETONS, getSkeleton } from "@/lib/fb-library/contract-skeletons";
@@ -47,6 +53,7 @@ import type { AssemblyConfig, FdsAssemblySession, AssemblyGeneratedSclBlock } fr
 import type { FbTemplate } from "@/types/fb-template";
 import type { ForgeSession, ForgeAssemblyEntry, ForgeArtifact } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
+import type { DriftReport } from "@/lib/fb-library/contract-drift";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -204,6 +211,15 @@ function LibraryContractPanel({
           </p>
         </div>
         <Badge variant="outline" className="text-[10px] shrink-0">Library bound</Badge>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 text-[10px] px-2 text-muted-foreground hover:text-foreground shrink-0"
+          title="To change the template, use the Assembly step in the forge wizard"
+          onClick={() => {/* deferred to assembly-picker in forge step */}}
+        >
+          Change
+        </Button>
       </div>
 
       {/* IO slot wiring */}
@@ -323,6 +339,7 @@ function CustomContractPanel({
   const [skeletonId, setSkeletonId] = useState<string>("from_scratch");
   const [processIntent, setProcessIntent] = useState(assembly.process_intent ?? "");
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const [driftReport, setDriftReport] = useState<DriftReport | null>(null);
 
   // SCL blocks from session (persisted) — display
   const sclBlocks: AssemblyGeneratedSclBlock[] = session.generated_scl_blocks ?? [];
@@ -338,6 +355,7 @@ function CustomContractPanel({
   // Skeleton picker handler
   const handleSkeletonChange = useCallback((id: string) => {
     setSkeletonId(id);
+    setDriftReport(null); // reset drift on contract change
     const skeleton = getSkeleton(id);
     if (skeleton) {
       setContract(skeleton);
@@ -348,12 +366,14 @@ function CustomContractPanel({
   // Contract editor change handler
   const handleContractChange = useCallback((next: FbInterfaceContract) => {
     setContract(next);
+    setDriftReport(null); // reset drift on contract edit
     onSessionChange({ interface_contract: next });
   }, [onSessionChange]);
 
   // Generate SCL from contract
   const handleGenerate = useCallback(async () => {
     setGenerateError(null);
+    setDriftReport(null); // clear stale drift before new generation
     try {
       const forgeEntry = buildForgeAssemblyEntry(assembly, subsystemName);
       const session_ = forgeSession ?? buildStubForgeSession(session, deviceArtifacts);
@@ -371,6 +391,11 @@ function CustomContractPanel({
         contract,
         subsystemName,
       );
+
+      // Extract drift from the primary FB artifact
+      const primaryFb = artifacts.find((a) => a.type === "FB") ?? artifacts[0];
+      const drift = (primaryFb as { drift?: DriftReport } | undefined)?.drift ?? null;
+      setDriftReport(drift);
 
       // Map ForgeArtifact[] → AssemblyGeneratedSclBlock[]
       const blocks: AssemblyGeneratedSclBlock[] = artifacts.map((a, idx) => ({
@@ -489,9 +514,7 @@ function CustomContractPanel({
               Generated SCL
             </p>
             <div className="flex items-center gap-1.5">
-              {/* Drift chip — placeholder: drift info from artifacts isn't re-surfaced here
-                  without re-running compareToContract. Show chip only when blocks present. */}
-              <DriftChip blocks={sclBlocks} />
+              <DriftChip drift={driftReport} />
             </div>
           </div>
           <div className="border rounded-md overflow-hidden" style={{ height: 300 }}>
@@ -537,21 +560,40 @@ function CustomContractPanel({
 }
 
 // ---------------------------------------------------------------------------
-// Drift chip — decorative for now; real drift is computed during generation
+// Drift chip — reflects actual contract drift from the last generation run
 // ---------------------------------------------------------------------------
 
-function DriftChip({ blocks }: { blocks: AssemblyGeneratedSclBlock[] }) {
-  if (blocks.length === 0) return null;
+function DriftChip({ drift }: { drift: DriftReport | null }) {
+  if (drift === null) return null; // not yet generated
 
-  // We don't re-run drift post-generation in this panel (that happens during generateSingle).
-  // Show a "clean" chip when SCL is present (drift would have been shown at generation time).
+  if (!drift.hasHardDrift) {
+    return (
+      <Badge variant="outline" className="text-[9px] text-green-400 border-green-500/30">
+        Contract matched
+      </Badge>
+    );
+  }
+
   return (
-    <Badge
-      variant="outline"
-      className="text-[9px] text-green-400 border-green-500/30"
-    >
-      Contract matched
-    </Badge>
+    <Popover>
+      <PopoverTrigger asChild>
+        <Badge
+          variant="destructive"
+          className="cursor-pointer text-[9px] gap-1"
+        >
+          <AlertTriangle className="h-3 w-3" />
+          {drift.hardDrifts.length} drift{drift.hardDrifts.length !== 1 ? "s" : ""}
+        </Badge>
+      </PopoverTrigger>
+      <PopoverContent className="w-80">
+        <p className="text-xs font-semibold mb-2">Unresolved contract drift</p>
+        <ul className="list-disc pl-4 space-y-1">
+          {drift.hardDrifts.map((d, i) => (
+            <li key={i} className="text-xs text-muted-foreground">{d.message}</li>
+          ))}
+        </ul>
+      </PopoverContent>
+    </Popover>
   );
 }
 
