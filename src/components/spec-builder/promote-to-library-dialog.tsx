@@ -20,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Loader2, BookMarked } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 import { usePromoteToLibrary } from "@/hooks/use-promote-to-library";
 import type { FbTemplate } from "@/types/fb-template";
 import type { AssemblyConfig, FdsAssemblySession } from "@/types/spec-builder";
@@ -88,8 +89,7 @@ export function PromoteToLibraryDialog({
         projectProfileId,
       });
       toast({
-        title: "Saved as library template",
-        description: "Available for future assemblies",
+        title: "Saved as library template — available for future assemblies",
       });
       onOpenChange(false);
     } catch (err) {
@@ -185,7 +185,7 @@ export function PromoteToLibraryDialog({
                 />
                 <Label
                   htmlFor="ptl-scope-project"
-                  className={`text-xs font-normal cursor-pointer ${!projectProfileId ? "text-muted-foreground" : ""}`}
+                  className={cn("text-xs font-normal cursor-pointer", !projectProfileId && "text-muted-foreground")}
                 >
                   Project-scoped — restricted to this project's design profile
                   {!projectProfileId && (

@@ -4,7 +4,7 @@
  *
  * Phase 5, Task 8.
  */
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { useCreateFbTemplate } from "@/hooks/use-fb-templates";
 import type { FbInterfaceContract } from "@/types/fb-interface-contract";
 import type { AssemblyGeneratedSclBlock } from "@/types/spec-builder";
@@ -31,7 +31,6 @@ export interface PromoteRequest {
 }
 
 export function usePromoteToLibrary() {
-  const queryClient = useQueryClient();
   const createTemplate = useCreateFbTemplate();
 
   return useMutation({
@@ -43,7 +42,7 @@ export function usePromoteToLibrary() {
 
       const blocks = req.generatedSclBlocks.map((b, i) => ({
         block_name: b.block_name,
-        block_type: b.block_type as "FB" | "FC" | "DB" | "UDT",
+        block_type: b.block_type,
         scl_code: b.scl_code,
         sort_order: b.sort_order ?? i,
         programming_language: "SCL" as const,
@@ -61,9 +60,6 @@ export function usePromoteToLibrary() {
         blocks,
         profile_ids: profileIds,
       });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["fb-templates"] });
     },
   });
 }
