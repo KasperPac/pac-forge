@@ -6,6 +6,7 @@ import {
   type InterfaceInputRole,
   type InterfaceOutputRole,
 } from "@/types/fb-interface-contract";
+import type { ParsedDeclaredInterface } from "./contract-drift";
 
 /**
  * Parse VAR_INPUT / VAR_OUTPUT declarations out of raw SCL source.
@@ -333,4 +334,47 @@ export function prefillContractFromScl(
     skippedInputs,
     skippedOutputs,
   };
+}
+
+/**
+ * Parse SCL into the raw declared interface shape used by drift detection.
+ * Thinner than prefillContractFromScl — no role inference, no description
+ * extraction. Used to compare AI output against the contract.
+ */
+export function parseDeclaredInterface(scl: string): ParsedDeclaredInterface {
+  const inputs: ParsedDeclaredInterface["inputs"] = [];
+  const outputs: ParsedDeclaredInterface["outputs"] = [];
+  const internal_names: string[] = [];
+  const detected_process_state_writes: string[] = [];
+
+  const blockRe = /VAR_(INPUT|OUTPUT|TEMP|CONSTANT)\b([\s\S]*?)END_VAR/gi;
+  let bm: RegExpExecArray | null;
+  while ((bm = blockRe.exec(scl)) !== null) {
+    const section = bm[1].toUpperCase();
+    const body = bm[2];
+    const declRe = /^\s*(\w+)\s*:\s*(?:"([^"]+)"|(\w+))(?:\s*\[\s*\d+\s*(?:\.\.\s*\d+)?\s*\])?/gm;
+    let dm: RegExpExecArray | null;
+    while ((dm = declRe.exec(body)) !== null) {
+      const name = dm[1];
+      const udt = dm[2];
+      const type = dm[3];
+      const data_type = udt ? "UDT" : (type ?? "");
+      const udt_name = udt;
+      if (section === "INPUT") {
+        inputs.push(udt_name ? { tia_name: name, data_type, udt_name } : { tia_name: name, data_type });
+      } else if (section === "OUTPUT") {
+        outputs.push(udt_name ? { tia_name: name, data_type, udt_name } : { tia_name: name, data_type });
+      } else {
+        internal_names.push(name);
+      }
+    }
+  }
+
+  const writeRe = /(ProcessState_\w+\.\w+)\s*:=/g;
+  let wm: RegExpExecArray | null;
+  while ((wm = writeRe.exec(scl)) !== null) {
+    detected_process_state_writes.push(wm[1]);
+  }
+
+  return { inputs, outputs, internal_names, detected_process_state_writes };
 }
