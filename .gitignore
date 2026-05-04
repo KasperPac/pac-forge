@@ -34,6 +34,9 @@ supabase/.temp/
 # Claude Code
 .claude/
 
+# Superpowers brainstorming visual companion
+.superpowers/
+
 # Siemens PDF manuals (large binaries, keep local)
 Tia Portal Docs/*.pdf
 Tia Portal Docs/**/*.pdf
