@@ -223,7 +223,7 @@ export async function getAuthToken(): Promise<string> {
   const token = authSession?.access_token;
   if (!token) throw new Error("Not authenticated");
   _cachedToken = token;
-  _cachedTokenExp = (authSession.expires_at ?? 0) * 1000;
+  _cachedTokenExp = (authSession!.expires_at ?? 0) * 1000;
   return token;
 }
 

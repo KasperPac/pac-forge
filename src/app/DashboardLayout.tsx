@@ -36,7 +36,6 @@ interface NavGroup {
   items: NavItem[];
 }
 
-const _PROJECT_SCOPED_ROUTES = new Set(["/forge", "/pac-audit", "/specs", "/hmi-editor"]);
 
 const NAV_GROUPS: NavGroup[] = [
   {

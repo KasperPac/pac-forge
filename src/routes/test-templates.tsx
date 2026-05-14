@@ -256,7 +256,7 @@ function TemplateEditor({
 
   // AI suggestions — two-step: list suggestions, then generate selected one
   const { suggest, generateOne, loading: suggesting, generating, error: suggestError } = useTestTemplateSuggest();
-  const { data: linkedFb } = useFbTemplate(local.fb_template_id);
+  const { data: linkedFb } = useFbTemplate(local.fb_template_id ?? undefined);
   const [suggestions, setSuggestions] = useState<TestSuggestion[] | null>(null);
 
   async function handleSuggest() {

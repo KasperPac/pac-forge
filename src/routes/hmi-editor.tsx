@@ -614,9 +614,8 @@ ${libraryCatalog.items.map((item) => {
   );
 
   /** Handle a generated SVG graphic being saved */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleGeneratedGraphicSaved = useCallback(
-    (_graphic: GeneratedSvgGraphic) => {
+    (_graphic: GeneratedSvgGraphic) => { // eslint-disable-line @typescript-eslint/no-unused-vars
       setGeneratedGraphicsRefreshKey((k) => k + 1);
     },
     [],

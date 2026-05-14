@@ -557,7 +557,7 @@ function buildFdsBehavioralSection(brief: import("@/types/forge-brief").Assembly
 export function buildAssemblySclPrompt(
   assembly: ForgeAssemblyEntry,
   context: AssemblyGenContext,
-  promptSections?: Record<string, string>,
+  _promptSections?: Record<string, string>, // eslint-disable-line @typescript-eslint/no-unused-vars
 ): string {
   const { profile, platformRules, patterns, constituentDevices, deviceArtifacts } = context;
 
@@ -3603,7 +3603,7 @@ export function buildSequencesUserMessage(
             .join("\n");
           const perms = (seq.permissives ?? []).length > 0 ? `\n    Permissives: ${(seq.permissives ?? []).join(", ")}` : "";
           const shutdown = seq.shutdown_behaviour ? `\n    Shutdown: ${seq.shutdown_behaviour}` : "";
-          const related = (seq.related_sequences ?? []).length > 0 ? `\n    Related: ${seq.related_sequences.join(", ")}` : "";
+          const related = (seq.related_sequences ?? []).length > 0 ? `\n    Related: ${seq.related_sequences?.join(", ")}` : "";
           return `  **${seq.name}** (${seq.subsystem})${perms}${shutdown}${related}\n${steps}`;
         })
         .join("\n\n")

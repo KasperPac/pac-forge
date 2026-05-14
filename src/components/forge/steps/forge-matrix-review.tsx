@@ -756,7 +756,7 @@ export function ForgeMatrixReview({ session, fbTemplates, profile, patterns, age
                       onChange={e => {
                         setSelectedIssueIds(prev => {
                           const next = new Set(prev);
-                          e.target.checked ? next.add(issue.id) : next.delete(issue.id);
+                          if (e.target.checked) { next.add(issue.id); } else { next.delete(issue.id); }
                           return next;
                         });
                       }}
@@ -1314,6 +1314,7 @@ interface SignalChain {
   instanceDb: string;
   globalField: string | null;
   globalDb: string | null;
+  globalRef: string | null;
   seqUsages: Array<{ seqName: string; step: number; role: "condition" | "output"; text: string }>;
   broken: boolean;
   direction: "in" | "out";
@@ -1400,7 +1401,7 @@ function buildSignalChains(
   return chains;
 }
 
-function ChainRow({ chain }: { chain: SignalChain & { globalRef: string | null } }) {
+function ChainRow({ chain }: { chain: SignalChain }) {
   const arrow = "→";
   const isBroken = chain.broken;
 

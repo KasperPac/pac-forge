@@ -216,7 +216,7 @@ export async function classifyTags(
       const parsed = JSON.parse(result.content) as TagClassification[];
       allClassifications.push(...parsed);
     } catch {
-      for (const _ of batch) {
+      for (let k = 0; k < batch.length; k++) {
         allClassifications.push({
           device_class: "other",
           signal_direction: "internal",

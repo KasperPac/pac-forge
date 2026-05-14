@@ -51,8 +51,8 @@ async function hydrateTemplates(
     ...t,
     profile_ids: profileMap.get(t.id) ?? [],
     fb_template_name: t.fb_template_id
-      ? fbNameMap.get(t.fb_template_id) ?? null
-      : null,
+      ? fbNameMap.get(t.fb_template_id) ?? undefined
+      : undefined,
   }));
 }
 

@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Edit3, X, Upload, Code2, AlertTriangle, CheckCircle2 } from "lucide-react";
-import Editor, { type Monaco } from "@monaco-editor/react";
+import Editor from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
