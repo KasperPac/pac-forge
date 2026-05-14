@@ -1,0 +1,187 @@
+{
+  "planPath": "Docs/superpowers/plans/2026-05-14-pac-quote-builder-v1.md",
+  "tasks": [
+    {
+      "id": 0,
+      "subject": "Task 0: Vitest + Testing Library scaffolding",
+      "status": "pending",
+      "description": "**Goal:** Install and wire a unit test runner so subsequent tasks can follow TDD.\n\n**Files:** vitest.config.ts, src/test/setup.ts, package.json, tsconfig.json, src/lib/__tests__/sanity.test.ts\n\n**Verify:** npm run lint && npm run build && npm run test -- --run\n\n```json:metadata\n{\"files\":[\"vitest.config.ts\",\"src/test/setup.ts\",\"package.json\",\"tsconfig.json\",\"src/lib/__tests__/sanity.test.ts\"],\"verifyCommand\":\"npm run lint && npm run build && npm run test -- --run\",\"acceptanceCriteria\":[\"npm run test -- --run exits 0\",\"sanity test green\",\"RTL renders without error\",\"build/lint still pass\"]}\n```"
+    },
+    {
+      "id": 1,
+      "subject": "Task 1: Migration 075 — customers table",
+      "status": "pending",
+      "blockedBy": [0],
+      "description": "**Goal:** Persist customer entity.\n\n**Files:** supabase/migrations/075_pac_quote_customers.sql, src/types/customer.ts, src/types/index.ts\n\n**Verify:** npx supabase db push && npm run lint && npm run build\n\n```json:metadata\n{\"files\":[\"supabase/migrations/075_pac_quote_customers.sql\",\"src/types/customer.ts\",\"src/types/index.ts\"],\"verifyCommand\":\"npx supabase db push && npm run lint && npm run build\",\"acceptanceCriteria\":[\"customers table created with unique display_code\",\"RLS authenticated CRUD\",\"Customer type exported\"]}\n```"
+    },
+    {
+      "id": 2,
+      "subject": "Task 2: Migration 076 — quotes / quote_revisions / variations + project.stage",
+      "status": "pending",
+      "blockedBy": [1],
+      "description": "**Goal:** Core lifecycle tables and projects extension.\n\n**Files:** supabase/migrations/076_pac_quote_core.sql, src/types/quote.ts, src/types/project.ts, src/types/index.ts\n\n**Verify:** npx supabase db push && npm run lint && npm run build\n\n```json:metadata\n{\"files\":[\"supabase/migrations/076_pac_quote_core.sql\",\"src/types/quote.ts\",\"src/types/project.ts\",\"src/types/index.ts\"],\"verifyCommand\":\"npx supabase db push && npm run lint && npm run build\",\"acceptanceCriteria\":[\"projects has stage/customer_id/job_code/project_name/awarded_quote_id\",\"quotes table unique (project_id, number)\",\"quote_revisions unique (quote_id, rev_number)\",\"variations table schema-only\"]}\n```"
+    },
+    {
+      "id": 3,
+      "subject": "Task 3: Migration 077 — doc content + assumption library seed",
+      "status": "pending",
+      "blockedBy": [2],
+      "description": "**Goal:** Polymorphic content tables (scope/inclusions/exclusions/assumptions/line_items/commercial_terms) + assumption_library seed.\n\n**Files:** supabase/migrations/077_pac_quote_doc_content.sql, src/types/doc-content.ts, src/types/index.ts\n\n**Verify:** npx supabase db push && npm run lint && npm run build\n\n```json:metadata\n{\"files\":[\"supabase/migrations/077_pac_quote_doc_content.sql\",\"src/types/doc-content.ts\",\"src/types/index.ts\"],\"verifyCommand\":\"npx supabase db push && npm run lint && npm run build\",\"acceptanceCriteria\":[\"parent_type check-constrained\",\"composite index on (parent_type, parent_id, ordering) each table\",\"doc_commercial_terms unique per doc\",\"assumption_library seeded with 8 entries\"]}\n```"
+    },
+    {
+      "id": 4,
+      "subject": "Task 4: Migration 078 — T&Cs tables",
+      "status": "pending",
+      "blockedBy": [3],
+      "description": "**Goal:** Templates, clauses, per-doc selections, override blob.\n\n**Files:** supabase/migrations/078_pac_quote_tnc.sql, src/types/tnc.ts, src/types/index.ts\n\n**Verify:** npx supabase db push && npm run lint && npm run build\n\n```json:metadata\n{\"files\":[\"supabase/migrations/078_pac_quote_tnc.sql\",\"src/types/tnc.ts\",\"src/types/index.ts\"],\"verifyCommand\":\"npx supabase db push && npm run lint && npm run build\",\"acceptanceCriteria\":[\"tnc_templates with partial unique index on is_default\",\"tnc_clauses with template_id cascade\",\"doc_tnc_selections unique per doc\",\"doc_tnc_override unique per doc\"]}\n```"
+    },
+    {
+      "id": 5,
+      "subject": "Task 5: Migration 079 — audit log + legacy stub + branding singleton",
+      "status": "pending",
+      "blockedBy": [4],
+      "description": "**Goal:** Cross-cutting tables.\n\n**Files:** supabase/migrations/079_pac_quote_audit_and_legacy_stubs.sql, src/types/audit.ts, src/types/index.ts\n\n**Verify:** npx supabase db push && npm run lint && npm run build\n\n```json:metadata\n{\"files\":[\"supabase/migrations/079_pac_quote_audit_and_legacy_stubs.sql\",\"src/types/audit.ts\",\"src/types/index.ts\"],\"verifyCommand\":\"npx supabase db push && npm run lint && npm run build\",\"acceptanceCriteria\":[\"issue_audit_log with target index\",\"legacy_doc_imports stub\",\"company_branding singleton with default Pac Technologies row\"]}\n```"
+    },
+    {
+      "id": 6,
+      "subject": "Task 6: useCustomers hook + test",
+      "status": "pending",
+      "blockedBy": [5],
+      "description": "**Goal:** TanStack Query hooks for customers, mirroring use-projects.ts.\n\n**Files:** src/hooks/use-customers.ts, src/hooks/__tests__/use-customers.test.ts\n\n**Verify:** npm run test -- --run src/hooks/__tests__/use-customers.test.ts\n\n```json:metadata\n{\"files\":[\"src/hooks/use-customers.ts\",\"src/hooks/__tests__/use-customers.test.ts\"],\"verifyCommand\":\"npm run test -- --run src/hooks/__tests__/use-customers.test.ts && npm run lint && npm run build\",\"acceptanceCriteria\":[\"list/get/create/update/delete hooks\",\"mutations invalidate ['customers']\",\"unit test mocks supabase\"]}\n```"
+    },
+    {
+      "id": 7,
+      "subject": "Task 7: useQuotes + useQuoteRevisions + clone-as-draft",
+      "status": "pending",
+      "blockedBy": [6],
+      "description": "**Goal:** Quote and revision CRUD plus clone-from-issued helper.\n\n**Files:** src/hooks/use-quotes.ts, src/hooks/__tests__/use-quotes.test.ts\n\n**Verify:** npm run test -- --run src/hooks/__tests__/use-quotes.test.ts\n\n```json:metadata\n{\"files\":[\"src/hooks/use-quotes.ts\",\"src/hooks/__tests__/use-quotes.test.ts\"],\"verifyCommand\":\"npm run test -- --run src/hooks/__tests__/use-quotes.test.ts && npm run lint && npm run build\",\"acceptanceCriteria\":[\"useQuotesForProject + useQuote + useQuoteRevisions + useQuoteRevision\",\"useCreateQuote also creates initial rev 1 + empty commercial_terms\",\"useCloneRevisionAsDraft copies all polymorphic content rows\",\"clone enforces prev status === issued\"]}\n```"
+    },
+    {
+      "id": 8,
+      "subject": "Task 8: useDocContent polymorphic CRUD",
+      "status": "pending",
+      "blockedBy": [7],
+      "description": "**Goal:** Typed CRUD factory for polymorphic content tables.\n\n**Files:** src/hooks/use-doc-content.ts, src/hooks/__tests__/use-doc-content.test.ts\n\n**Verify:** npm run test -- --run src/hooks/__tests__/use-doc-content.test.ts\n\n```json:metadata\n{\"files\":[\"src/hooks/use-doc-content.ts\",\"src/hooks/__tests__/use-doc-content.test.ts\"],\"verifyCommand\":\"npm run test -- --run src/hooks/__tests__/use-doc-content.test.ts && npm run lint && npm run build\",\"acceptanceCriteria\":[\"scopeItems/inclusions/exclusions/assumptions/lineItems factories\",\"useCommercialTerms single-row + upsert\",\"keys include parent_type and parent_id\"]}\n```"
+    },
+    {
+      "id": 9,
+      "subject": "Task 9: T&Cs / assumption-library / branding hooks",
+      "status": "pending",
+      "blockedBy": [8],
+      "description": "**Goal:** Plain CRUD for the supporting libraries.\n\n**Files:** src/hooks/use-tnc-templates.ts, src/hooks/use-tnc-clauses.ts, src/hooks/use-assumption-library.ts, src/hooks/use-company-branding.ts\n\n**Verify:** npm run lint && npm run build\n\n```json:metadata\n{\"files\":[\"src/hooks/use-tnc-templates.ts\",\"src/hooks/use-tnc-clauses.ts\",\"src/hooks/use-assumption-library.ts\",\"src/hooks/use-company-branding.ts\"],\"verifyCommand\":\"npm run lint && npm run build\",\"acceptanceCriteria\":[\"setDefault uses two updates\",\"reorderClauses patches each row's ordering\",\"branding is singleton get+update\"]}\n```"
+    },
+    {
+      "id": 10,
+      "subject": "Task 10: Quote numbering helpers (pure)",
+      "status": "pending",
+      "blockedBy": [5],
+      "description": "**Goal:** nextQuoteNumber, nextRevNumber, nextDocNumber as pure functions with full tests.\n\n**Files:** src/lib/quote-numbering.ts, src/lib/__tests__/quote-numbering.test.ts\n\n**Verify:** npm run test -- --run src/lib/__tests__/quote-numbering.test.ts\n\n```json:metadata\n{\"files\":[\"src/lib/quote-numbering.ts\",\"src/lib/__tests__/quote-numbering.test.ts\"],\"verifyCommand\":\"npm run test -- --run src/lib/__tests__/quote-numbering.test.ts\",\"acceptanceCriteria\":[\"Q01 starting point\",\"increment past max\",\"ignore other job prefixes\"]}\n```"
+    },
+    {
+      "id": 11,
+      "subject": "Task 11: Quote totals computation (pure)",
+      "status": "pending",
+      "blockedBy": [5],
+      "description": "**Goal:** Pure functions for line subtotal, category aggregation, grand total.\n\n**Files:** src/lib/quote-totals.ts, src/lib/__tests__/quote-totals.test.ts\n\n**Verify:** npm run test -- --run src/lib/__tests__/quote-totals.test.ts\n\n```json:metadata\n{\"files\":[\"src/lib/quote-totals.ts\",\"src/lib/__tests__/quote-totals.test.ts\"],\"verifyCommand\":\"npm run test -- --run src/lib/__tests__/quote-totals.test.ts\",\"acceptanceCriteria\":[\"qty*unit_price or hours*rate*multiplier; null when neither fully present\",\"aggregateByCategory has onlyCustomerVisible toggle\",\"grandTotal ignores show flag\"]}\n```"
+    },
+    {
+      "id": 12,
+      "subject": "Task 12: Pre-issue validation (pure)",
+      "status": "pending",
+      "blockedBy": [11],
+      "description": "**Goal:** validateForIssue returning structured errors.\n\n**Files:** src/lib/quote-validation.ts, src/lib/__tests__/quote-validation.test.ts\n\n**Verify:** npm run test -- --run src/lib/__tests__/quote-validation.test.ts\n\n```json:metadata\n{\"files\":[\"src/lib/quote-validation.ts\",\"src/lib/__tests__/quote-validation.test.ts\"],\"verifyCommand\":\"npm run test -- --run src/lib/__tests__/quote-validation.test.ts\",\"acceptanceCriteria\":[\"errors for missing customer_id/job_code/project_name/scope/total/tnc/commercial\",\"override blob satisfies tnc requirement\",\"happy path returns ok:true\"]}\n```"
+    },
+    {
+      "id": 13,
+      "subject": "Task 13: Snapshot builder + tests + sanity thread",
+      "status": "pending",
+      "blockedBy": [11],
+      "description": "**Goal:** buildSnapshot — the defensibility instrument. T&Cs clauses inlined, line item subtotals precomputed, schema_version: 1.\n\n**Files:** src/types/quote-snapshot.ts, src/lib/quote-snapshot.ts, src/lib/__tests__/quote-snapshot.test.ts, src/lib/__tests__/quote-snapshot.sanity.test.ts\n\n**Verify:** npm run test -- --run \"src/lib/__tests__/quote-snapshot\"\n\n```json:metadata\n{\"files\":[\"src/types/quote-snapshot.ts\",\"src/lib/quote-snapshot.ts\",\"src/lib/__tests__/quote-snapshot.test.ts\",\"src/lib/__tests__/quote-snapshot.sanity.test.ts\"],\"verifyCommand\":\"npm run test -- --run src/lib/__tests__/quote-snapshot\",\"acceptanceCriteria\":[\"snapshot is deterministic\",\"line item subtotals inlined\",\"tnc clauses inlined and renumbered after omits + customs\",\"totals.by_category_customer_visible filters show_in_customer_doc\"]}\n```"
+    },
+    {
+      "id": 14,
+      "subject": "Task 14: PDF render service (Node + Puppeteer + Fastify)",
+      "status": "pending",
+      "blockedBy": [13],
+      "description": "**Goal:** Standalone service rendering snapshot JSON to PDF via Puppeteer.\n\n**Files:** services/pdf-renderer/* (server.ts, render.ts, auth.ts, templates/, Dockerfile, README, tests)\n\n**Verify:** cd services/pdf-renderer && npm install && npm test\n\n```json:metadata\n{\"files\":[\"services/pdf-renderer/package.json\",\"services/pdf-renderer/src/server.ts\",\"services/pdf-renderer/src/render.ts\",\"services/pdf-renderer/src/auth.ts\",\"services/pdf-renderer/src/templates/pac-quote.html\",\"services/pdf-renderer/src/templates/pac-quote.css\",\"services/pdf-renderer/Dockerfile\"],\"verifyCommand\":\"cd services/pdf-renderer && npm install && npm test\",\"acceptanceCriteria\":[\"POST /render returns application/pdf when bearer token valid\",\"GET /healthz returns ok\",\"A4 25mm margins\",\"Inter+JetBrains Mono via Google Fonts\",\"page 1 has full lockup, p2+ mark-only\",\"by_category_customer_visible only when subtotal_only\"]}\n```"
+    },
+    {
+      "id": 15,
+      "subject": "Task 15: Edge function quote-render-pdf + storage bucket",
+      "status": "pending",
+      "blockedBy": [14],
+      "description": "**Goal:** App-side proxy + Supabase Storage upload.\n\n**Files:** supabase/functions/quote-render-pdf/index.ts, supabase/migrations/080_pac_quote_storage_bucket.sql\n\n**Verify:** npx supabase functions deploy quote-render-pdf && npx supabase db push\n\n```json:metadata\n{\"files\":[\"supabase/functions/quote-render-pdf/index.ts\",\"supabase/migrations/080_pac_quote_storage_bucket.sql\"],\"verifyCommand\":\"npx supabase functions deploy quote-render-pdf && npx supabase db push\",\"acceptanceCriteria\":[\"requires bearer auth\",\"dry_run returns PDF bytes\",\"non-dry_run uploads to quote-pdfs bucket and returns storage_key\",\"PDF_RENDER_URL and PDF_RENDER_SECRET come from secrets\"]}\n```"
+    },
+    {
+      "id": 16,
+      "subject": "Task 16: PDF preview hook + iframe pane",
+      "status": "pending",
+      "blockedBy": [15],
+      "description": "**Goal:** Live preview in right rail.\n\n**Files:** src/hooks/use-pdf-preview.ts, src/components/quotes/preview-pane.tsx, src/components/quotes/__tests__/preview-pane.test.tsx\n\n**Verify:** npm run test -- --run src/components/quotes/__tests__/preview-pane.test.tsx\n\n```json:metadata\n{\"files\":[\"src/hooks/use-pdf-preview.ts\",\"src/components/quotes/preview-pane.tsx\",\"src/components/quotes/__tests__/preview-pane.test.tsx\"],\"verifyCommand\":\"npm run test -- --run src/components/quotes/__tests__/preview-pane.test.tsx && npm run lint && npm run build\",\"acceptanceCriteria\":[\"800ms debounce on snapshot change\",\"blob URL revoked on unmount\",\"Refresh button forces re-render\",\"empty state when no snapshot\"]}\n```"
+    },
+    {
+      "id": 17,
+      "subject": "Task 17: Builder shell + section navigator + Zustand store",
+      "status": "pending",
+      "blockedBy": [13, 16],
+      "description": "**Goal:** Three-column layout, navigator, footer, route registration.\n\n**Files:** src/stores/quote-builder-store.ts, src/components/quotes/builder/builder-layout.tsx, src/components/quotes/builder/section-navigator.tsx, src/components/quotes/builder/builder-footer.tsx, src/routes/quote-builder.tsx, src/App.tsx\n\n**Verify:** npm run lint && npm run build\n\n```json:metadata\n{\"files\":[\"src/stores/quote-builder-store.ts\",\"src/components/quotes/builder/builder-layout.tsx\",\"src/components/quotes/builder/section-navigator.tsx\",\"src/components/quotes/builder/builder-footer.tsx\",\"src/routes/quote-builder.tsx\",\"src/App.tsx\"],\"verifyCommand\":\"npm run lint && npm run build\",\"acceptanceCriteria\":[\"/quotes/:revId/edit route\",\"active section highlighted in Pac Blue 600\",\"preview pane driven by snapshot\",\"footer shows total + disabled Issue button\"]}\n```"
+    },
+    {
+      "id": 18,
+      "subject": "Task 18: Section editors — scope, inclusions, exclusions, assumptions, line items",
+      "status": "pending",
+      "blockedBy": [17],
+      "description": "**Goal:** Centre-pane editors for the five content sections.\n\n**Files:** src/components/quotes/builder/_ordered-list-editor.tsx, section-scope.tsx, section-inclusions.tsx, section-exclusions.tsx, section-assumptions.tsx, section-line-items.tsx, __tests__/section-line-items.test.tsx\n\n**Verify:** npm run test -- --run src/components/quotes/builder/__tests__/section-line-items.test.tsx\n\n```json:metadata\n{\"files\":[\"src/components/quotes/builder/_ordered-list-editor.tsx\",\"src/components/quotes/builder/section-scope.tsx\",\"src/components/quotes/builder/section-inclusions.tsx\",\"src/components/quotes/builder/section-exclusions.tsx\",\"src/components/quotes/builder/section-assumptions.tsx\",\"src/components/quotes/builder/section-line-items.tsx\",\"src/components/quotes/builder/__tests__/section-line-items.test.tsx\"],\"verifyCommand\":\"npm run test -- --run src/components/quotes/builder/__tests__/section-line-items.test.tsx && npm run lint && npm run build\",\"acceptanceCriteria\":[\"add/edit/delete/reorder per section\",\"assumptions has library picker\",\"line items table with calc mode + customer-visible toggle\",\"subtotal cell shows computeLineSubtotal\"]}\n```"
+    },
+    {
+      "id": 19,
+      "subject": "Task 19: Section editors — Commercial Terms + T&Cs",
+      "status": "pending",
+      "blockedBy": [18, 9],
+      "description": "**Goal:** Last two builder sections + T&Cs hooks.\n\n**Files:** src/hooks/use-doc-tnc.ts, src/components/quotes/builder/section-commercial.tsx, src/components/quotes/builder/section-tnc.tsx, src/routes/quote-builder.tsx (wire tnc into buildSnapshot)\n\n**Verify:** npm run test -- --run src/components/quotes/builder/__tests__/section-tnc.test.tsx\n\n```json:metadata\n{\"files\":[\"src/hooks/use-doc-tnc.ts\",\"src/components/quotes/builder/section-commercial.tsx\",\"src/components/quotes/builder/section-tnc.tsx\",\"src/routes/quote-builder.tsx\"],\"verifyCommand\":\"npm run test -- --run src/components/quotes/builder/__tests__/section-tnc.test.tsx && npm run lint && npm run build\",\"acceptanceCriteria\":[\"useCommercialTerms upsert pattern\",\"template radio picker defaulting to is_default\",\"clause omit/include checklist\",\"+ custom clause append\",\"override blob replaces structured\"]}\n```"
+    },
+    {
+      "id": 20,
+      "subject": "Task 20: Issue flow — atomic transaction (CRITICAL)",
+      "status": "pending",
+      "blockedBy": [13, 15, 19, 12],
+      "description": "**Goal:** Snapshot + render + RPC + audit, all atomic.\n\n**Files:** src/hooks/use-issue-quote.ts, src/hooks/__tests__/use-issue-quote.test.ts, supabase/migrations/081_pac_quote_issue_rpc.sql, src/components/quotes/builder/builder-footer.tsx, src/components/quotes/issue-confirm-dialog.tsx\n\n**Verify:** npx supabase db push && npm run test -- --run src/hooks/__tests__/use-issue-quote.test.ts\n\n```json:metadata\n{\"files\":[\"src/hooks/use-issue-quote.ts\",\"src/hooks/__tests__/use-issue-quote.test.ts\",\"supabase/migrations/081_pac_quote_issue_rpc.sql\",\"src/components/quotes/builder/builder-footer.tsx\",\"src/components/quotes/issue-confirm-dialog.tsx\"],\"verifyCommand\":\"npx supabase db push && npm run test -- --run src/hooks/__tests__/use-issue-quote.test.ts && npm run lint && npm run build\",\"acceptanceCriteria\":[\"validateForIssue called before render\",\"render fail leaves DB untouched\",\"RPC atomically: supersedes prior, writes snapshot, sets pdf_storage_key, audit log\",\"draft-only precondition in RPC\",\"event_type='issued' with quote_number/rev_number/total in details_json\"]}\n```"
+    },
+    {
+      "id": 21,
+      "subject": "Task 21: Read-only issued view + new-revision clone",
+      "status": "pending",
+      "blockedBy": [20, 7],
+      "description": "**Goal:** Locked view rendered from snapshot_json with PDF iframe from signed Storage URL.\n\n**Files:** src/routes/quote-view.tsx, src/routes/quote-builder.tsx (redirect non-draft), src/App.tsx\n\n**Verify:** npm run lint && npm run build\n\n```json:metadata\n{\"files\":[\"src/routes/quote-view.tsx\",\"src/routes/quote-builder.tsx\",\"src/App.tsx\"],\"verifyCommand\":\"npm run lint && npm run build\",\"acceptanceCriteria\":[\"renders from snapshot_json not live tables\",\"PDF iframe via signed URL (5 min)\",\"Start new revision calls useCloneRevisionAsDraft\",\"builder redirects to view when status !== draft\"]}\n```"
+    },
+    {
+      "id": 22,
+      "subject": "Task 22: Award + mark-lost flows",
+      "status": "pending",
+      "blockedBy": [21],
+      "description": "**Goal:** Project lifecycle transitions wired to a rev.\n\n**Files:** supabase/migrations/082_pac_quote_award_rpc.sql, src/hooks/use-award-quote.ts, src/routes/quote-view.tsx\n\n**Verify:** npx supabase db push && npm run lint && npm run build\n\n```json:metadata\n{\"files\":[\"supabase/migrations/082_pac_quote_award_rpc.sql\",\"src/hooks/use-award-quote.ts\",\"src/routes/quote-view.tsx\"],\"verifyCommand\":\"npx supabase db push && npm run lint && npm run build\",\"acceptanceCriteria\":[\"award_quote_revision atomically sets rev.status, quote.status, project.stage, project.awarded_quote_id\",\"mark_quote_revision_lost sets quote.status='lost'\",\"issue_quote_revision blocks if project.stage='awarded'\",\"audit log entries for both\"]}\n```"
+    },
+    {
+      "id": 23,
+      "subject": "Task 23: T&Cs admin route",
+      "status": "pending",
+      "blockedBy": [9],
+      "description": "**Goal:** /tnc route — manage templates and clauses.\n\n**Files:** src/routes/tnc-library.tsx, src/components/tnc/{tnc-template-list, tnc-template-form, tnc-clause-editor}.tsx, src/App.tsx, src/app/DashboardLayout.tsx\n\n**Verify:** npm run lint && npm run build\n\n```json:metadata\n{\"files\":[\"src/routes/tnc-library.tsx\",\"src/components/tnc/tnc-template-list.tsx\",\"src/components/tnc/tnc-template-form.tsx\",\"src/components/tnc/tnc-clause-editor.tsx\",\"src/App.tsx\",\"src/app/DashboardLayout.tsx\"],\"verifyCommand\":\"npm run lint && npm run build\",\"acceptanceCriteria\":[\"create/rename/archive/setDefault templates\",\"add/edit/delete/reorder clauses\",\"sidebar entry 'T&Cs'\"]}\n```"
+    },
+    {
+      "id": 24,
+      "subject": "Task 24: Quotes list + project Commercial tab + sidebar",
+      "status": "pending",
+      "blockedBy": [21],
+      "description": "**Goal:** Discoverability — global list and per-project view.\n\n**Files:** src/routes/quotes.tsx, src/components/quotes/quote-card.tsx, src/routes/project-detail.tsx, src/app/DashboardLayout.tsx, src/App.tsx\n\n**Verify:** npm run lint && npm run build\n\n```json:metadata\n{\"files\":[\"src/routes/quotes.tsx\",\"src/components/quotes/quote-card.tsx\",\"src/routes/project-detail.tsx\",\"src/app/DashboardLayout.tsx\",\"src/App.tsx\"],\"verifyCommand\":\"npm run lint && npm run build\",\"acceptanceCriteria\":[\"/quotes table filterable by stage/status/customer\",\"project Commercial tab lists quotes+revs\",\"Variations/Legacy placeholder cards labelled 'v2'\",\"Quotes sidebar entry between Projects and Pac-ST\"]}\n```"
+    },
+    {
+      "id": 25,
+      "subject": "Task 25: End-to-end sanity integration test",
+      "status": "pending",
+      "blockedBy": [22, 24],
+      "description": "**Goal:** Integration test through the real vertical slice with fetch mocked.\n\n**Files:** src/lib/__tests__/issue-flow.integration.test.ts, src/lib/__tests__/quote-snapshot.sanity.test.ts (expanded)\n\n**Verify:** npm run test -- --run\n\n```json:metadata\n{\"files\":[\"src/lib/__tests__/issue-flow.integration.test.ts\",\"src/lib/__tests__/quote-snapshot.sanity.test.ts\"],\"verifyCommand\":\"npm run test -- --run\",\"acceptanceCriteria\":[\"creates customer/project/quote/rev and 1 of each content row\",\"issue mutation flips status to issued\",\"snapshot_json persisted\",\"pdf_storage_key set\",\"issue_audit_log row created\",\"full suite green\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-05-14T00:00:00.000Z"
+}
