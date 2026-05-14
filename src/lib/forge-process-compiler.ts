@@ -297,14 +297,6 @@ function parseConditionBranches(raw: string, rowLabel: string): ConditionAtom[][
   return [parseAndAtoms(trimmed, rowLabel)];
 }
 
-function parseFaultConditionAtoms(raw: string, rowLabel: string): ConditionAtom[] {
-  const branches = parseConditionBranches(raw.trim(), rowLabel);
-  if (branches.length !== 1) {
-    throw new Error(`${rowLabel}: fault conditions cannot contain XOR/OR branches yet`);
-  }
-  return branches[0];
-}
-
 /**
  * Normalize AI-generated condition text before parsing.
  * Transforms pseudo-variables into real DB operands.
@@ -346,7 +338,6 @@ function compilePlan(input: DeterministicCompilerInput): DeterministicPlan {
   }));
 
   const orderedSteps = [...new Set(normalizedRows.map((row) => row.step))].sort((a, b) => a - b);
-  const entryStep = orderedSteps[0];
 
   // fault_exit rows are skipped — permissives are compiled separately
   const compiledRows: CompiledRow[] = normalizedRows

@@ -31,7 +31,7 @@ function applyColorClasses(chart: string): string {
     .join("\n");
 
   // Collect all node IDs from the chart
-  const nodeIdRe = /\b([a-zA-Z_]\w*)\s*[\[{(]/g;
+  const nodeIdRe = /\b([a-zA-Z_]\w*)\s*[[{(]/g;
   const allIds = new Set<string>();
   let m: RegExpExecArray | null;
   while ((m = nodeIdRe.exec(stripped)) !== null) allIds.add(m[1]);
@@ -82,7 +82,7 @@ function removeOrphanNodes(chart: string): string {
   // Drop lines that are standalone node definitions whose ID is never in an edge.
   // A standalone node def looks like:   nodeId["..."]  nodeId{...}  nodeId([...])
   // It does NOT contain --> or ---.
-  const standaloneNodeDef = /^\s{2,}([a-zA-Z_]\w*)\s*[\[{(]/;
+  const standaloneNodeDef = /^\s{2,}([a-zA-Z_]\w*)\s*[[{(]/;
 
   return lines
     .filter((line) => {

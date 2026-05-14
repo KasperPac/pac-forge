@@ -246,7 +246,7 @@ Return ONLY a JSON array of state objects. No preamble.
 
       const parsed = migrateOperatingStates(JSON.parse(result.content));
       setStates(parsed);
-    } catch (err) {
+    } catch {
       // Fallback to standard ISA-88 states
       setStates([
         { state_id: "idle", state_name: "Idle", state_pattern: "static", description: "Machine not running, all outputs in safe state" },

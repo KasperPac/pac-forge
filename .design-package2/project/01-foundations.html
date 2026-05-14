@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8" />
+<title>01 — Foundations · Pac Technologies</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" href="assets/favicon.png" />
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="components.css" />
+<style>
+  body { padding: 56px 0 96px; }
+  .page-header { margin-bottom: 56px; }
+  .section { margin-top: 64px; }
+  .section__head { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin-bottom: 24px; padding-bottom: 12px; border-bottom: 1px solid var(--pac-line-200); }
+  .section__head .t-h2 { letter-spacing: -0.015em; }
+  .grid { display: grid; gap: 16px; }
+  .grid-3 { grid-template-columns: repeat(3, 1fr); }
+  .grid-4 { grid-template-columns: repeat(4, 1fr); }
+  .grid-6 { grid-template-columns: repeat(6, 1fr); }
+
+  /* color swatches */
+  .sw { display: flex; flex-direction: column; }
+  .sw__chip { aspect-ratio: 4 / 3; border-radius: var(--radius-md); border: 1px solid var(--pac-line-200); position: relative; overflow: hidden; }
+  .sw__chip[data-light="true"]::after {
+    content: ""; position: absolute; inset: auto 0 0 0; height: 1px; background: rgba(15,30,61,.06);
+  }
+  .sw__meta { padding: 12px 4px 0; }
+  .sw__name { font-weight: 600; font-size: var(--type-body-sm); color: var(--pac-ink-900); }
+  .sw__hex  { font-family: var(--font-mono); font-size: var(--type-caption); color: var(--pac-ink-500); margin-top: 2px; }
+
+  /* type specimen */
+  .spec { display: grid; grid-template-columns: 88px 1fr 96px; gap: 24px; padding: 18px 0; border-top: 1px solid var(--pac-line-200); align-items: baseline; }
+  .spec:first-of-type { border-top: 0; }
+  .spec__label { font-family: var(--font-mono); font-size: var(--type-caption); color: var(--pac-ink-500); letter-spacing: 0.04em; text-transform: uppercase; }
+  .spec__meta  { font-family: var(--font-mono); font-size: var(--type-caption); color: var(--pac-ink-500); text-align: right; }
+
+  /* spacing scale */
+  .sp { display: grid; grid-template-columns: 56px 1fr 80px; align-items: center; gap: 16px; padding: 8px 0; border-top: 1px solid var(--pac-line-200); }
+  .sp:first-of-type { border-top: 0; }
+  .sp__label { font-family: var(--font-mono); font-size: var(--type-caption); color: var(--pac-ink-500); }
+  .sp__bar  { height: 8px; background: var(--pac-blue-600); border-radius: 2px; }
+  .sp__val  { font-family: var(--font-mono); font-size: var(--type-caption); color: var(--pac-ink-700); text-align: right; }
+
+  /* radii */
+  .rd { display: grid; gap: 12px; place-items: center; }
+  .rd__box { width: 96px; height: 96px; background: var(--pac-blue-100); border: 1px solid var(--pac-blue-300); }
+  .rd__meta { font-family: var(--font-mono); font-size: var(--type-caption); color: var(--pac-ink-500); text-align: center; }
+
+  /* shadow */
+  .sh { aspect-ratio: 4 / 3; background: var(--pac-paper); border: 1px solid var(--pac-line-200); border-radius: var(--radius-md); display: grid; place-items: center; font-family: var(--font-mono); font-size: var(--type-caption); color: var(--pac-ink-500); }
+  .sh-1 { box-shadow: var(--shadow-1); }
+  .sh-2 { box-shadow: var(--shadow-2); }
+  .sh-3 { box-shadow: var(--shadow-3); }
+
+  .legend { display: grid; gap: 4px; padding-top: 8px; }
+  .legend code { font-family: var(--font-mono); font-size: var(--type-caption); color: var(--pac-blue-700); background: var(--pac-blue-50); padding: 1px 6px; border-radius: 3px; }
+
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+</style>
+</head>
+<body>
+  <div class="container">
+    <header class="page-header">
+      <p class="t-eyebrow">01 / Foundations</p>
+      <h1 class="t-h1" style="margin-top: 8px;">Color, type, spacing, radius, shadow.</h1>
+      <p class="t-body-lg measure" style="margin-top: 12px;">The numerical primitives — every component in the system is built from these. If you find yourself reaching for a value not on this page, stop and ask whether the system is missing a token, or you are.</p>
+    </header>
+
+    <!-- ===================================================== COLOR -->
+    <section class="section">
+      <div class="section__head">
+        <h2 class="t-h2">Color</h2>
+        <p class="t-caption">Pac Blue 600 is the brand. Signal triplet is reserved for state.</p>
+      </div>
+
+      <p class="t-eyebrow">Brand · blue ramp</p>
+      <div class="grid grid-6" style="margin-top: 12px;">
+        <div class="sw"><div class="sw__chip" style="background:#0F1E3D"></div><div class="sw__meta"><div class="sw__name">Blue 900</div><div class="sw__hex">#0F1E3D</div></div></div>
+        <div class="sw"><div class="sw__chip" style="background:#1F3878"></div><div class="sw__meta"><div class="sw__name">Blue 700</div><div class="sw__hex">#1F3878</div></div></div>
+        <div class="sw"><div class="sw__chip" style="background:#3050A0; outline: 2px solid var(--pac-blue-600); outline-offset: -1px;"></div><div class="sw__meta"><div class="sw__name">Blue 600 ·&nbsp;brand</div><div class="sw__hex">#3050A0</div></div></div>
+        <div class="sw"><div class="sw__chip" style="background:#5874BC"></div><div class="sw__meta"><div class="sw__name">Blue 500</div><div class="sw__hex">#5874BC</div></div></div>
+        <div class="sw"><div class="sw__chip" style="background:#A6B6DD"></div><div class="sw__meta"><div class="sw__name">Blue 300</div><div class="sw__hex">#A6B6DD</div></div></div>
+        <div class="sw"><div class="sw__chip" style="background:#E5EBF6" data-light="true"></div><div class="sw__meta"><div class="sw__name">Blue 100</div><div class="sw__hex">#E5EBF6</div></div></div>
+      </div>
+
+      <p class="t-eyebrow" style="margin-top: 32px;">Ink · text</p>
+      <div class="grid grid-6" style="margin-top: 12px;">
+        <div class="sw"><div class="sw__chip" style="background:#0E1116"></div><div class="sw__meta"><div class="sw__name">Ink 900</div><div class="sw__hex">#0E1116</div></div></div>
+        <div class="sw"><div class="sw__chip" style="background:#3A434E"></div><div class="sw__meta"><div class="sw__name">Ink 700</div><div class="sw__hex">#3A434E</div></div></div>
+        <div class="sw"><div class="sw__chip" style="background:#6B7785"></div><div class="sw__meta"><div class="sw__name">Ink 500</div><div class="sw__hex">#6B7785</div></div></div>
+        <div class="sw"><div class="sw__chip" style="background:#B0B9C5"></div><div class="sw__meta"><div class="sw__name">Ink 300</div><div class="sw__hex">#B0B9C5</div></div></div>
+        <div class="sw"><div class="sw__chip" style="background:#D9DEE5" data-light="true"></div><div class="sw__meta"><div class="sw__name">Line 300</div><div class="sw__hex">#D9DEE5</div></div></div>
+        <div class="sw"><div class="sw__chip" style="background:#E8EBF0" data-light="true"></div><div class="sw__meta"><div class="sw__name">Line 200</div><div class="sw__hex">#E8EBF0</div></div></div>
+      </div>
+
+      <p class="t-eyebrow" style="margin-top: 32px;">Surface</p>
+      <div class="grid grid-4" style="margin-top: 12px;">
+        <div class="sw"><div class="sw__chip" style="background:#FFFFFF" data-light="true"></div><div class="sw__meta"><div class="sw__name">Paper</div><div class="sw__hex">#FFFFFF</div></div></div>
+        <div class="sw"><div class="sw__chip" style="background:#FAFBFD" data-light="true"></div><div class="sw__meta"><div class="sw__name">Bg 50</div><div class="sw__hex">#FAFBFD</div></div></div>
+        <div class="sw"><div class="sw__chip" style="background:#F4F6FA" data-light="true"></div><div class="sw__meta"><div class="sw__name">Bg 100</div><div class="sw__hex">#F4F6FA</div></div></div>
+        <div class="sw"><div class="sw__chip" style="background:#F2F5FB" data-light="true"></div><div class="sw__meta"><div class="sw__name">Blue 50</div><div class="sw__hex">#F2F5FB</div></div></div>
+      </div>
+
+      <p class="t-eyebrow" style="margin-top: 32px;">Signal · reserved for state, never decoration</p>
+      <div class="grid grid-3" style="margin-top: 12px;">
+        <div class="sw"><div class="sw__chip" style="background:#1F8A4C"></div><div class="sw__meta"><div class="sw__name">Signal · Green · OK / running</div><div class="sw__hex">#1F8A4C</div></div></div>
+        <div class="sw"><div class="sw__chip" style="background:#C7821B"></div><div class="sw__meta"><div class="sw__name">Signal · Amber · warning</div><div class="sw__hex">#C7821B</div></div></div>
+        <div class="sw"><div class="sw__chip" style="background:#B83227"></div><div class="sw__meta"><div class="sw__name">Signal · Red · fault / stopped</div><div class="sw__hex">#B83227</div></div></div>
+      </div>
+
+      <div class="alert alert--amber" style="margin-top: 32px;">
+        <svg class="alert__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <div>
+          <div class="alert__title">Signal colour is operational</div>
+          <div class="alert__body">Don't tint or repurpose green, amber, or red. A green that isn't <em>the</em> green stops meaning "running." For decorative variety, extend the blue ramp first, then introduce neutrals.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================================================== TYPE -->
+    <section class="section">
+      <div class="section__head">
+        <h2 class="t-h2">Type</h2>
+        <p class="t-caption">Inter for everything; JetBrains Mono for tags, addresses, values.</p>
+      </div>
+
+      <div class="card" style="padding: 32px 32px 16px;">
+        <div class="spec">
+          <div class="spec__label">display</div>
+          <div style="font-size: var(--type-display); line-height: var(--type-display-lh); font-weight: 600; letter-spacing: -0.02em; color: var(--pac-blue-900);">Process under control.</div>
+          <div class="spec__meta">56 / 60<br/>600</div>
+        </div>
+        <div class="spec">
+          <div class="spec__label">h1</div>
+          <div class="t-h1">Capability statement, March 2026.</div>
+          <div class="spec__meta">40 / 48<br/>600</div>
+        </div>
+        <div class="spec">
+          <div class="spec__label">h2</div>
+          <div class="t-h2">Water &amp; wastewater integration.</div>
+          <div class="spec__meta">28 / 36<br/>600</div>
+        </div>
+        <div class="spec">
+          <div class="spec__label">h3</div>
+          <div class="t-h3">Citect SCADA migration, v7.20 → 2018.</div>
+          <div class="spec__meta">20 / 28<br/>600</div>
+        </div>
+        <div class="spec">
+          <div class="spec__label">eyebrow</div>
+          <div><span class="t-eyebrow">Case study · Werribee STP</span></div>
+          <div class="spec__meta">12 / 16<br/>600 · +0.14em</div>
+        </div>
+        <div class="spec">
+          <div class="spec__label">body-lg</div>
+          <div class="t-body-lg measure">We integrate PLC, SCADA, HMI, motor control, and field instrumentation into systems that run for twenty years without a thought.</div>
+          <div class="spec__meta">18 / 28<br/>400</div>
+        </div>
+        <div class="spec">
+          <div class="spec__label">body</div>
+          <div class="t-body measure">Migrated a Citect SCADA from v7.20 to 2018 with zero unplanned downtime over a 36-hour cutover. Three operators trained on-site; the printed runbook was left in the panel.</div>
+          <div class="spec__meta">16 / 24<br/>400</div>
+        </div>
+        <div class="spec">
+          <div class="spec__label">body-sm</div>
+          <div class="t-body-sm">AS/NZS 3000 compliant, IP66 enclosure, 24 V DC loop-powered. Tag <span class="tag">FIT_3201</span> mapped to <span class="tag">%MD120</span>.</div>
+          <div class="spec__meta">14 / 20<br/>400</div>
+        </div>
+        <div class="spec">
+          <div class="spec__label">caption</div>
+          <div class="t-caption">Last commissioned 2026-02-14 · Pac Technologies, Melbourne</div>
+          <div class="spec__meta">12 / 16<br/>500</div>
+        </div>
+        <div class="spec">
+          <div class="spec__label">mono</div>
+          <div class="t-mono">FIT_3201&nbsp;&nbsp;4–20 mA&nbsp;&nbsp;%MD120&nbsp;&nbsp;Modbus TCP/502</div>
+          <div class="spec__meta">14 / 20<br/>500</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================================================== SPACING -->
+    <section class="section">
+      <div class="section__head">
+        <h2 class="t-h2">Spacing</h2>
+        <p class="t-caption">A 4 px grid. Everything snaps.</p>
+      </div>
+      <div class="card">
+        <div class="sp"><div class="sp__label">space-1</div><div class="sp__bar" style="width:4px"></div><div class="sp__val">4 px</div></div>
+        <div class="sp"><div class="sp__label">space-2</div><div class="sp__bar" style="width:8px"></div><div class="sp__val">8 px</div></div>
+        <div class="sp"><div class="sp__label">space-3</div><div class="sp__bar" style="width:12px"></div><div class="sp__val">12 px</div></div>
+        <div class="sp"><div class="sp__label">space-4</div><div class="sp__bar" style="width:16px"></div><div class="sp__val">16 px</div></div>
+        <div class="sp"><div class="sp__label">space-5</div><div class="sp__bar" style="width:20px"></div><div class="sp__val">20 px</div></div>
+        <div class="sp"><div class="sp__label">space-6</div><div class="sp__bar" style="width:24px"></div><div class="sp__val">24 px</div></div>
+        <div class="sp"><div class="sp__label">space-8</div><div class="sp__bar" style="width:32px"></div><div class="sp__val">32 px</div></div>
+        <div class="sp"><div class="sp__label">space-10</div><div class="sp__bar" style="width:40px"></div><div class="sp__val">40 px</div></div>
+        <div class="sp"><div class="sp__label">space-12</div><div class="sp__bar" style="width:48px"></div><div class="sp__val">48 px</div></div>
+        <div class="sp"><div class="sp__label">space-16</div><div class="sp__bar" style="width:64px"></div><div class="sp__val">64 px</div></div>
+        <div class="sp"><div class="sp__label">space-24</div><div class="sp__bar" style="width:96px"></div><div class="sp__val">96 px</div></div>
+        <div class="sp"><div class="sp__label">space-32</div><div class="sp__bar" style="width:128px"></div><div class="sp__val">128 px</div></div>
+      </div>
+    </section>
+
+    <!-- ===================================================== RADIUS + SHADOW -->
+    <section class="section">
+      <div class="section__head">
+        <h2 class="t-h2">Radius &amp; elevation</h2>
+        <p class="t-caption">Restrained. We are not making a consumer app.</p>
+      </div>
+
+      <div class="pair">
+        <div class="card">
+          <p class="t-eyebrow">Radius</p>
+          <div class="grid grid-4" style="margin-top: 16px;">
+            <div class="rd"><div class="rd__box" style="border-radius: 0"></div><div class="rd__meta">none<br/>0</div></div>
+            <div class="rd"><div class="rd__box" style="border-radius: var(--radius-sm)"></div><div class="rd__meta">sm<br/>4 px</div></div>
+            <div class="rd"><div class="rd__box" style="border-radius: var(--radius-md)"></div><div class="rd__meta">md<br/>8 px</div></div>
+            <div class="rd"><div class="rd__box" style="border-radius: var(--radius-lg)"></div><div class="rd__meta">lg<br/>12 px</div></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <p class="t-eyebrow">Elevation</p>
+          <div class="grid grid-3" style="margin-top: 16px;">
+            <div class="sh sh-1">shadow-1</div>
+            <div class="sh sh-2">shadow-2</div>
+            <div class="sh sh-3">shadow-3</div>
+          </div>
+          <div class="legend" style="margin-top: 16px;">
+            <div class="t-caption"><code>shadow-1</code> resting card</div>
+            <div class="t-caption"><code>shadow-2</code> hover / active</div>
+            <div class="t-caption"><code>shadow-3</code> modal / popover</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================================================== MOTION -->
+    <section class="section">
+      <div class="section__head">
+        <h2 class="t-h2">Motion</h2>
+        <p class="t-caption">Functional. Easing <code style="font-family: var(--font-mono); font-size: var(--type-caption); background: var(--pac-blue-50); padding: 1px 6px; border-radius: 3px;">cubic-bezier(.2,.7,.2,1)</code></p>
+      </div>
+      <div class="grid grid-3">
+        <div class="card"><div class="t-eyebrow">fast</div><div class="t-h3" style="margin-top: 8px;">120 ms</div><p class="t-body-sm" style="margin-top: 8px;">State changes — hover, focus, press.</p></div>
+        <div class="card"><div class="t-eyebrow">base</div><div class="t-h3" style="margin-top: 8px;">200 ms</div><p class="t-body-sm" style="margin-top: 8px;">Entries — popovers, banners, drawers.</p></div>
+        <div class="card"><div class="t-eyebrow">slow</div><div class="t-h3" style="margin-top: 8px;">320 ms</div><p class="t-body-sm" style="margin-top: 8px;">Layout shifts and route transitions.</p></div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

@@ -235,7 +235,7 @@ Rules:
   /** Handle screens imported from TIA dialog */
   const handleTiaImportScreens = useCallback(
     (data: { screens: Record<string, string> }) => {
-      const parsed = Object.entries(data.screens).map(([_name, xml]) =>
+      const parsed = Object.entries(data.screens).map(([, xml]) =>
         parseScreenXml(xml),
       );
       if (parsed.length > 0) {
@@ -614,6 +614,7 @@ ${libraryCatalog.items.map((item) => {
   );
 
   /** Handle a generated SVG graphic being saved */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleGeneratedGraphicSaved = useCallback(
     (_graphic: GeneratedSvgGraphic) => {
       setGeneratedGraphicsRefreshKey((k) => k + 1);

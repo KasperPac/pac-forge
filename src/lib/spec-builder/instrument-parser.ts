@@ -216,7 +216,7 @@ export async function classifyTags(
       const parsed = JSON.parse(result.content) as TagClassification[];
       allClassifications.push(...parsed);
     } catch {
-      for (const _row of batch) {
+      for (const _ of batch) {
         allClassifications.push({
           device_class: "other",
           signal_direction: "internal",
@@ -392,7 +392,7 @@ function extractDevicePrefix(tag: string, subsystem: string): string {
   // Strip subsystem prefix if tag starts with it (by name match)
   let rest = tag;
   if (subsystem && rest.toUpperCase().startsWith(subsystem.toUpperCase())) {
-    rest = rest.slice(subsystem.length).replace(/^[_.\-]/, "");
+    rest = rest.slice(subsystem.length).replace(/^[_.-]/, "");
   }
 
   // Strip signal suffix to get device base

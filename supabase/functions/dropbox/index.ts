@@ -34,6 +34,7 @@ interface TokenRow {
 
 async function getValidToken(
   supabase: ReturnType<typeof createClient>,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _userId: string
 ): Promise<{ token: string; rootNamespaceId?: string; error?: string }> {
   // Shared connection — get the single team connection (no user_id filter)
@@ -244,6 +245,7 @@ async function handleExchangeCode(
 
 async function handleCheckConnection(
   supabase: ReturnType<typeof createClient>,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _userId: string
 ): Promise<Response> {
   // Shared connection — check if ANY connection exists (not per-user)
@@ -269,6 +271,7 @@ async function handleCheckConnection(
 
 async function handleDisconnect(
   supabase: ReturnType<typeof createClient>,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _userId: string
 ): Promise<Response> {
   // Shared connection — delete all connections (any user can disconnect)

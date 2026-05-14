@@ -401,6 +401,7 @@ void extractFaultFieldsFromSequences;
 void deriveFaultCondition;
 void slugToTag;
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function deriveFaultMatrix(_sequences: ProcessSequence[]): FaultMatrixEntry[] {
   // Wave 5: contract.faults is now the canonical fault source. The regex
   // sweep over AI-generated sequence text has been removed — it is

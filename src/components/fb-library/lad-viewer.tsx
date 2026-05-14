@@ -3,7 +3,7 @@
  * Parses SimaticML XML and renders using the existing LAD canvas.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { parseLadXml } from "@/lib/lad-xml-parser";
 import { LadCanvas } from "@/components/lad-editor/lad-canvas";
 import { Loader2 } from "lucide-react";
@@ -17,8 +17,6 @@ interface LadViewerProps {
 }
 
 export function LadViewer({ xml, className }: LadViewerProps) {
-  const [_selected, _setSelected] = useState<string | null>(null);
-
   const parseResult = useMemo((): { program: LadProgram | null; error: string | null } => {
     try {
       const program = parseLadXml(xml);

@@ -628,6 +628,7 @@ export function generateDeviceChecklist(
   config: HmiPanelConfig,
   deviceType: string,
   devices: ForgeDeviceEntry[],
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _catalogEntry: FaceplateCatalogEntry | undefined,
 ): HmiScreenSpec {
   const elements: HmiElement[] = [];

@@ -1,6 +1,7 @@
 // Supabase Edge Function: Multi-provider AI proxy for PLC code generation
 // Supports Anthropic (Claude), OpenAI (o3/GPT-4o), and Google (Gemini).
 // Deployed with --no-verify-jwt; auth verified internally.
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 

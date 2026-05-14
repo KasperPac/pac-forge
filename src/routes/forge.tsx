@@ -205,6 +205,7 @@ export default function ForgePage() {
   }
 
   // Per-step handlers
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async function handleQaComplete(updatedAnalysis: SpecAnalysis, _messages: QaMessage[]) {
     await saveSession({ spec_analysis: updatedAnalysis, current_step: "project_setup" });
     completeStep("qa_review");

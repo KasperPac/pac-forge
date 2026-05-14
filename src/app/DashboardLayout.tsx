@@ -36,7 +36,7 @@ interface NavGroup {
   items: NavItem[];
 }
 
-const PROJECT_SCOPED_ROUTES = new Set(["/forge", "/pac-audit", "/specs", "/hmi-editor"]);
+const _PROJECT_SCOPED_ROUTES = new Set(["/forge", "/pac-audit", "/specs", "/hmi-editor"]);
 
 const NAV_GROUPS: NavGroup[] = [
   {
@@ -393,7 +393,7 @@ function TopBar() {
   const { user, signOut } = useAuth();
   const { data: profile } = useProfile();
   const navigate = useNavigate();
-  const { theme, cycleTheme, activeProjectId, setActiveProjectId } = useUiStore();
+  const { theme, cycleTheme, activeProjectId } = useUiStore();
   const { data: activeProject } = useProject(activeProjectId ?? undefined);
 
   const initials = getInitials(profile?.display_name, user?.email ?? undefined);

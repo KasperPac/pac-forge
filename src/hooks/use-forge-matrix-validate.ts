@@ -186,8 +186,8 @@ export function useForgeMatrixValidate() {
         const findings = content
           .split(/\n/)
           .map(l => l.trim())
-          .filter(l => /^\d+[\.\)]/.test(l) || /^[-•*]/.test(l))
-          .map(l => l.replace(/^\d+[\.\)]\s*/, "").replace(/^[-•*]\s*/, "").trim())
+          .filter(l => /^\d+[.)]/.test(l) || /^[-•*]/.test(l))
+          .map(l => l.replace(/^\d+[.)]\s*/, "").replace(/^[-•*]\s*/, "").trim())
           .filter(l => l.length > 10)
           .slice(0, 10);
 

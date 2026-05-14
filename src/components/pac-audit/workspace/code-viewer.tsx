@@ -80,7 +80,7 @@ export function CodeViewer({ sessionId, session }: CodeViewerProps) {
     ? (pendingEdits[activeBlockId] ?? activeBlock?.source_code ?? "")
     : "";
 
-  function handleEditorMount(ed: editor.IStandaloneCodeEditor, _monaco: Monaco) {
+  function handleEditorMount(ed: editor.IStandaloneCodeEditor) {
     editorRef.current = ed;
   }
 

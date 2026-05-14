@@ -11,7 +11,7 @@ export interface ForgeSpecUploadProps {
   fbTemplates?: FbTemplate[];
 }
 
-export function ForgeSpecUpload(_props: ForgeSpecUploadProps) {
+export function ForgeSpecUpload(_props: ForgeSpecUploadProps) { // eslint-disable-line @typescript-eslint/no-unused-vars
   throw new Error(
     "ForgeSpecUpload has been removed. Forge now requires an approved spec revision — open the Spec Builder instead.",
   );

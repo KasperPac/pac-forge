@@ -587,8 +587,6 @@ export function buildAssemblySclPrompt(
     ? `## Relevant Alarms\n${context.alarms.map((a) => `- **${a.name}** [${a.severity}]: ${a.description}${a.trigger_condition ? ` — trigger: ${a.trigger_condition}` : ""}`).join("\n")}\n\n`
     : "";
 
-  const _identity = resolveSection(promptSections, "forge_assembly_generate", "identity");
-
   // Build FDS behavioral spec section when brief is available
   const fdsBehavioralSection = context.brief ? buildFdsBehavioralSection(context.brief) : "";
 
@@ -2633,7 +2631,7 @@ Return raw JSON only — no markdown fences. Use this EXACT schema:
             { "type": "series", "nodes": [contact_fault_condition] },
             { "type": "series", "nodes": [contact_self_seal, nc_contact_reset] }
           ]},
-          { "type": "element", "element": { "id": "e5", "type": "OUTPUT_COIL", "operand": "\"DB_Faults\".F001", "dataType": "Bool" } }
+          { "type": "element", "element": { "id": "e5", "type": "OUTPUT_COIL", "operand": ""DB_Faults".F001", "dataType": "Bool" } }
         ]
       }
     }

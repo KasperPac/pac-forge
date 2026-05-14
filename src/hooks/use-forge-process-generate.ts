@@ -28,7 +28,7 @@ import type { PatternCandidate, Instruction } from "@/types";
 import type { ProcessLinkageMatrix, ProcessSequence, SequenceRow } from "@/types/forge-matrix";
 import type { AgentKnowledgeDoc } from "@/types";
 import { useActivePromptSections } from "@/hooks/use-prompt-sections";
-import { fetchInstructionsForPrompt, PROCESS_CODE_CATEGORIES } from "@/hooks/use-instructions";
+import { PROCESS_CODE_CATEGORIES } from "@/hooks/use-instructions";
 import { lookupInstructions } from "@/lib/instruction-lookup";
 import { getRelevantReferenceSections, formatReferenceSections } from "@/lib/reference-lookup";
 import {

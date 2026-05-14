@@ -142,8 +142,6 @@ export function useForgeChunkedAnalysis() {
         // ── Build chunks ─────────────────────────────────────────────
         const chunks = buildChunksFromSurvey(specText, surveyResult);
 
-        const isSingleChunk = chunks.length === 1 && chunks[0].targetId === "FULL";
-
         setProgress({
           stage: "extracting",
           currentChunk: 0,

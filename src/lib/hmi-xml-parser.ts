@@ -76,7 +76,7 @@ export function parseScreenXml(xml: string): HmiScreenSpec {
 export function parseHmiExport(exportData: {
   screens: Record<string, string>;
 }): HmiScreenSpec[] {
-  return Object.entries(exportData.screens).map(([_name, xml]) =>
+  return Object.entries(exportData.screens).map(([, xml]) =>
     parseScreenXml(xml),
   );
 }

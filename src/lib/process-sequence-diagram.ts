@@ -86,6 +86,7 @@ function cleanLabel(desc: string): string {
 /**
  * Reduce a verbose action description to a short imperative phrase (≤30 chars).
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function summarizeAction(description: string, _deviceName?: string | null): string {
   const s = cleanLabel(description);
 

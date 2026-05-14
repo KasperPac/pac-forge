@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8" />
+<title>Pac Technologies — Process Automation Control</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" href="assets/favicon.png" />
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="components.css" />
+<style>
+  body { background: var(--pac-paper); }
+  main { display: block; }
+
+  /* Hero */
+  .hero {
+    position: relative;
+    padding: 96px 0 80px;
+    background:
+      radial-gradient(ellipse at 85% 0%, var(--pac-blue-50) 0%, transparent 60%),
+      var(--pac-paper);
+    border-bottom: 1px solid var(--pac-line-200);
+    overflow: hidden;
+  }
+  .hero__grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 64px; align-items: center; }
+  .hero h1 {
+    font-size: clamp(36px, 5vw, 64px);
+    line-height: 1.05;
+    letter-spacing: -0.025em;
+    color: var(--pac-blue-900);
+    font-weight: 600;
+    margin: 0;
+  }
+  .hero h1 em { font-style: normal; color: var(--pac-blue-600); }
+  .hero__lede { margin-top: 24px; max-width: 52ch; }
+  .hero__cta { margin-top: 40px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .hero__meta { margin-top: 56px; display: flex; gap: 40px; flex-wrap: wrap; }
+  .hero__meta-item .num { font-family: var(--font-mono); font-size: 28px; font-weight: 600; color: var(--pac-blue-900); line-height: 1; }
+  .hero__meta-item .lbl { font-size: var(--type-caption); color: var(--pac-ink-500); margin-top: 6px; letter-spacing: 0.04em; text-transform: uppercase; }
+
+  /* SCADA panel illustration */
+  .scada {
+    position: relative;
+    background: var(--pac-paper);
+    border: 1px solid var(--pac-line-200);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-2);
+    padding: 20px;
+    aspect-ratio: 4 / 3.2;
+  }
+  .scada__bar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding-bottom: 12px; border-bottom: 1px solid var(--pac-line-200); margin-bottom: 16px;
+  }
+  .scada__title { font-family: var(--font-mono); font-size: 11px; color: var(--pac-ink-500); letter-spacing: 0.04em; }
+  .scada__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pac-signal-green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pac-signal-green) 25%, transparent); animation: pulse 2.4s var(--ease) infinite; }
+  .scada__diagram { position: relative; height: calc(100% - 80px); }
+  .scada__svg { width: 100%; height: 100%; }
+  .scada__legend { position: absolute; left: 20px; right: 20px; bottom: 16px; display: flex; gap: 16px; font-family: var(--font-mono); font-size: 10px; color: var(--pac-ink-500); }
+  .scada__legend span::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 2px; vertical-align: 1px; }
+  .scada__legend .ok::before    { background: var(--pac-signal-green); }
+  .scada__legend .warn::before  { background: var(--pac-signal-amber); }
+  .scada__legend .flow::before  { background: var(--pac-blue-600); }
+
+  /* Trust strip */
+  .trust { padding: 32px 0; background: var(--pac-bg-50); border-bottom: 1px solid var(--pac-line-200); }
+  .trust__row { display: flex; align-items: center; justify-content: space-between; gap: 32px; flex-wrap: wrap; }
+  .trust__lbl { font-size: var(--type-caption); color: var(--pac-ink-500); letter-spacing: 0.06em; text-transform: uppercase; }
+  .trust__logos { display: flex; gap: 40px; flex: 1; flex-wrap: wrap; }
+  .trust__logo { font-family: 'Inter'; font-weight: 600; font-size: 15px; color: var(--pac-ink-500); letter-spacing: -0.01em; }
+
+  /* Section primitives */
+  .sec { padding: 96px 0; }
+  .sec--alt { background: var(--pac-bg-50); border-block: 1px solid var(--pac-line-200); }
+  .sec__head { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: end; margin-bottom: 56px; }
+  .sec__head h2 { font-size: 44px; line-height: 1.1; letter-spacing: -0.02em; color: var(--pac-blue-900); margin: 8px 0 0; font-weight: 600; }
+
+  /* Capability grid */
+  .caps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .cap { background: var(--pac-paper); border: 1px solid var(--pac-line-200); border-radius: var(--radius-lg); padding: 32px; transition: border-color var(--dur-base) var(--ease), box-shadow var(--dur-base) var(--ease), transform var(--dur-base) var(--ease); }
+  .cap:hover { border-color: var(--pac-blue-300); box-shadow: var(--shadow-2); transform: translateY(-2px); }
+  .cap__ic { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--pac-blue-50); color: var(--pac-blue-700); display: grid; place-items: center; margin-bottom: 24px; }
+  .cap__ic svg { width: 22px; height: 22px; }
+  .cap h3 { font-size: 20px; font-weight: 600; color: var(--pac-blue-900); margin: 0 0 8px; letter-spacing: -0.005em; }
+  .cap p { font-size: 15px; line-height: 1.55; color: var(--pac-ink-700); margin: 0; }
+  .cap__list { list-style: none; padding: 16px 0 0; margin: 16px 0 0; border-top: 1px solid var(--pac-line-200); display: grid; gap: 6px; }
+  .cap__list li { font-family: var(--font-mono); font-size: 12px; color: var(--pac-ink-500); display: flex; gap: 8px; }
+  .cap__list li::before { content: "·"; color: var(--pac-blue-500); }
+
+  /* Sectors */
+  .sectors { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1px; background: var(--pac-line-200); border: 1px solid var(--pac-line-200); border-radius: var(--radius-lg); overflow: hidden; }
+  .sector { background: var(--pac-paper); padding: 32px 24px; transition: background var(--dur-base) var(--ease); cursor: pointer; }
+  .sector:hover { background: var(--pac-blue-50); }
+  .sector__ic { color: var(--pac-blue-700); margin-bottom: 24px; }
+  .sector__ic svg { width: 32px; height: 32px; }
+  .sector h3 { font-size: 17px; font-weight: 600; color: var(--pac-blue-900); margin: 0 0 4px; }
+  .sector p { font-size: 13px; line-height: 1.5; color: var(--pac-ink-500); margin: 0; }
+  .sector__num { font-family: var(--font-mono); font-size: 11px; color: var(--pac-blue-600); letter-spacing: 0.04em; margin-top: 16px; }
+
+  /* Project */
+  .proj { display: grid; grid-template-columns: 1.1fr 1fr; gap: 48px; align-items: center; }
+  .proj__plate {
+    background: var(--pac-blue-700);
+    color: white;
+    border-radius: var(--radius-lg);
+    padding: 48px;
+    aspect-ratio: 4/3;
+    position: relative;
+    overflow: hidden;
+  }
+  .proj__plate::before {
+    content: ""; position: absolute; inset: 0;
+    background:
+      linear-gradient(transparent 95%, rgba(255,255,255,.05) 100%) 0 0/40px 40px,
+      linear-gradient(90deg, transparent 95%, rgba(255,255,255,.05) 100%) 0 0/40px 40px;
+  }
+  .proj__plate img { position: absolute; right: -20px; bottom: -20px; height: 70%; width: auto; opacity: .12; filter: brightness(0) invert(1); }
+  .proj__plate .num { font-family: var(--font-mono); font-size: 12px; opacity: .6; letter-spacing: 0.06em; }
+  .proj__plate h3 { font-size: 32px; font-weight: 600; line-height: 1.15; margin: 16px 0 0; letter-spacing: -0.015em; }
+  .proj__plate dl { position: absolute; left: 48px; right: 48px; bottom: 48px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+  .proj__plate dt { font-size: 11px; opacity: .65; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 4px; }
+  .proj__plate dd { font-family: var(--font-mono); font-size: 22px; font-weight: 500; margin: 0; }
+
+  /* Quote section */
+  .testimonial { padding: 96px 0; background: var(--pac-blue-700); color: white; }
+  .testimonial blockquote { margin: 0; font-size: 32px; line-height: 1.3; font-weight: 500; letter-spacing: -0.015em; max-width: 22ch; }
+  .testimonial blockquote .open { color: var(--pac-blue-300); }
+  .testimonial cite { display: block; margin-top: 32px; font-style: normal; font-size: 14px; line-height: 1.5; }
+  .testimonial cite strong { display: block; font-weight: 600; }
+  .testimonial cite span { color: var(--pac-blue-300); }
+  .testimonial__grid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 64px; align-items: center; }
+  .testimonial__stats { display: grid; grid-template-columns: 1fr; gap: 24px; }
+  .testimonial__stat { padding: 16px 0; border-top: 1px solid rgba(255,255,255,.15); }
+  .testimonial__stat .num { font-family: var(--font-mono); font-size: 36px; font-weight: 500; color: white; line-height: 1; }
+  .testimonial__stat .lbl { font-size: 12px; color: var(--pac-blue-300); margin-top: 6px; letter-spacing: 0.04em; text-transform: uppercase; }
+
+  /* Contact */
+  .contact { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: start; }
+  .contact__info dl { display: grid; grid-template-columns: 120px 1fr; gap: 12px 16px; margin: 32px 0 0; }
+  .contact__info dt { font-size: 13px; color: var(--pac-ink-500); letter-spacing: 0.04em; text-transform: uppercase; padding-top: 2px; }
+  .contact__info dd { margin: 0; font-size: 15px; color: var(--pac-ink-900); }
+
+  /* Footer */
+  footer { background: var(--pac-blue-900); color: rgba(255,255,255,.7); padding: 64px 0 32px; }
+  footer .row1 { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 48px; padding-bottom: 48px; border-bottom: 1px solid rgba(255,255,255,.12); }
+  footer .row1 img { height: 36px; width: auto; margin-bottom: 16px; }
+  footer h4 { font-size: 13px; font-weight: 600; color: white; letter-spacing: 0.04em; text-transform: uppercase; margin: 0 0 16px; }
+  footer ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+  footer a { color: rgba(255,255,255,.7); text-decoration: none; font-size: 14px; transition: color var(--dur-fast) var(--ease); }
+  footer a:hover { color: white; }
+  footer .row2 { display: flex; justify-content: space-between; padding-top: 32px; font-size: 12px; color: rgba(255,255,255,.5); }
+</style>
+</head>
+<body>
+  <!-- NAV -->
+  <header style="background: var(--pac-paper); border-bottom: 1px solid var(--pac-line-200); position: sticky; top: 0; z-index: 10;">
+    <div class="container" style="display: flex; align-items: center; justify-content: space-between; height: 80px;">
+      <a href="#" style="display: flex; align-items: center; gap: 12px; text-decoration: none;">
+        <img src="assets/logo-horizontal.png" alt="Pac Technologies" style="height: 40px; width: auto;" />
+      </a>
+      <nav style="display: flex; gap: 4px; align-items: center;">
+        <a class="navbar__link" href="#capability">Capability</a>
+        <a class="navbar__link" href="#sectors" aria-current="page">Sectors</a>
+        <a class="navbar__link" href="#projects">Projects</a>
+        <a class="navbar__link" href="#about">About</a>
+        <a class="navbar__link" href="#contact">Contact</a>
+        <a class="btn btn--primary btn--sm" href="#contact" style="margin-left: 16px;">Request quote</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <!-- HERO -->
+    <section class="hero">
+      <div class="container">
+        <div class="hero__grid">
+          <div>
+            <span class="t-eyebrow">Process Automation Control · Melbourne</span>
+            <h1 style="margin-top: 16px;">Twenty‑year systems, <em>built to disappear.</em></h1>
+            <p class="t-body-lg hero__lede">We integrate PLC, SCADA, HMI, motor control, and field instrumentation into plant that runs without a thought — across water, mining, food &amp; beverage, pharma, and energy.</p>
+            <div class="hero__cta">
+              <a href="#contact" class="btn btn--primary btn--lg">Request a quote</a>
+              <a href="#projects" class="btn btn--ghost btn--lg">
+                See projects
+                <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+              </a>
+            </div>
+            <div class="hero__meta">
+              <div class="hero__meta-item"><div class="num">23 yrs</div><div class="lbl">delivering control systems</div></div>
+              <div class="hero__meta-item"><div class="num">240+</div><div class="lbl">commissioned projects</div></div>
+              <div class="hero__meta-item"><div class="num">&lt; 1 hr</div><div class="lbl">on-call response</div></div>
+            </div>
+          </div>
+
+          <!-- SCADA mock -->
+          <div>
+            <div class="scada">
+              <div class="scada__bar">
+                <div class="scada__title">WERRIBEE STP · MAIN OVERVIEW · 2026-03-07 14:22</div>
+                <div style="display: flex; align-items: center; gap: 8px;"><div class="scada__dot"></div><span class="scada__title" style="color: var(--pac-signal-green);">RUNNING</span></div>
+              </div>
+              <div class="scada__diagram">
+                <svg class="scada__svg" viewBox="0 0 400 240" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                  <!-- pipes -->
+                  <path d="M0 60 L120 60 L120 120 L240 120 L240 80 L400 80" stroke="#5874BC" stroke-width="3" />
+                  <path d="M0 180 L80 180 L80 200 L400 200" stroke="#5874BC" stroke-width="3" stroke-dasharray="4 4" />
+                  <!-- flow arrows -->
+                  <polygon points="60,55 70,60 60,65" fill="#3050A0" />
+                  <polygon points="200,115 210,120 200,125" fill="#3050A0" />
+                  <polygon points="340,75 350,80 340,85" fill="#3050A0" />
+                  <!-- tank 1 -->
+                  <rect x="100" y="40" width="40" height="40" stroke="#3A434E" stroke-width="1.5" />
+                  <text x="120" y="32" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#6B7785">T-101</text>
+                  <!-- pump -->
+                  <circle cx="180" cy="120" r="14" stroke="#3A434E" stroke-width="1.5" />
+                  <polyline points="170,113 187,120 170,127" stroke="#3A434E" stroke-width="1.5" fill="none"/>
+                  <text x="180" y="148" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#1F8A4C">P-201 ON</text>
+                  <!-- tank 2 -->
+                  <rect x="280" y="58" width="50" height="44" stroke="#3A434E" stroke-width="1.5" />
+                  <rect x="280" y="76" width="50" height="26" fill="#E5EBF6" stroke="none" />
+                  <text x="305" y="50" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#6B7785">T-204</text>
+                  <text x="305" y="92" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#3050A0" font-weight="600">62%</text>
+                  <!-- valve -->
+                  <polygon points="60,170 70,180 60,190 50,180" stroke="#C7821B" stroke-width="1.5" fill="none" />
+                  <text x="60" y="208" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#C7821B">V-302 50%</text>
+                  <!-- aerator -->
+                  <circle cx="320" cy="200" r="12" stroke="#3A434E" stroke-width="1.5" />
+                  <circle cx="320" cy="200" r="3" fill="#1F8A4C" />
+                  <text x="320" y="226" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#6B7785">A-401</text>
+                  <!-- readouts -->
+                  <g font-family="JetBrains Mono" font-size="10">
+                    <text x="20" y="50" fill="#3050A0" font-weight="600">FIT_3201</text>
+                    <text x="20" y="62" fill="#0E1116">182.4 L/s</text>
+                    <text x="20" y="170" fill="#3050A0" font-weight="600">PIT_3210</text>
+                    <text x="20" y="182" fill="#C7821B">412 kPa</text>
+                  </g>
+                </svg>
+              </div>
+              <div class="scada__legend">
+                <span class="ok">Running</span>
+                <span class="warn">Warning</span>
+                <span class="flow">Flow direction</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TRUST -->
+    <section class="trust">
+      <div class="container trust__row">
+        <span class="trust__lbl">Trusted by Australian process operators</span>
+        <div class="trust__logos">
+          <span class="trust__logo">Yarra Valley Water</span>
+          <span class="trust__logo">South32</span>
+          <span class="trust__logo">CSL Behring</span>
+          <span class="trust__logo">Lion</span>
+          <span class="trust__logo">SA Water</span>
+          <span class="trust__logo">Goulburn Valley</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- CAPABILITY -->
+    <section class="sec" id="capability">
+      <div class="container">
+        <div class="sec__head">
+          <div>
+            <span class="t-eyebrow">Capability</span>
+            <h2>Six things, done properly. Nothing else.</h2>
+          </div>
+          <p class="t-body-lg" style="margin: 0; max-width: 50ch;">We don't sell software, we don't sell hardware, and we don't sell hours. We deliver working systems with one engineer of record from kickoff to handover.</p>
+        </div>
+
+        <div class="caps">
+          <article class="cap">
+            <div class="cap__ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
+            <h3>SCADA &amp; HMI</h3>
+            <p>Citect, FactoryTalk, Wonderware, Ignition. Migrations, greenfield, and the awkward ones in between.</p>
+            <ul class="cap__list"><li>Citect 7.20 → 2018</li><li>FactoryTalk View SE</li><li>Ignition 8</li></ul>
+          </article>
+          <article class="cap">
+            <div class="cap__ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="8" y2="14.01"/><line x1="12" y1="14" x2="12" y2="14.01"/><line x1="16" y1="14" x2="16" y2="14.01"/></svg></div>
+            <h3>PLC programming</h3>
+            <p>Rockwell, Siemens, Schneider, Mitsubishi. Code your next engineer can read on a Sunday at 2 am.</p>
+            <ul class="cap__list"><li>RSLogix 5000</li><li>TIA Portal</li><li>Unity Pro / EcoStruxure</li></ul>
+          </article>
+          <article class="cap">
+            <div class="cap__ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="1"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="11" x2="16" y2="11"/><circle cx="12" cy="16" r="2"/></svg></div>
+            <h3>Control panel build</h3>
+            <p>In-house wiring and assembly to AS/NZS 61439. IP66 enclosures, fully tested before they leave.</p>
+            <ul class="cap__list"><li>Form 3b / 4b</li><li>Arc-flash assessed</li><li>FAT witness packs</li></ul>
+          </article>
+          <article class="cap">
+            <div class="cap__ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="3" x2="12" y2="21"/><path d="M3 12 a9 9 0 0 0 18 0"/></svg></div>
+            <h3>Field instrumentation</h3>
+            <p>Calibration, loop checks, and replacement programs that match the plant — not just the drawings.</p>
+            <ul class="cap__list"><li>4–20 mA loop integrity</li><li>HART configuration</li><li>NATA-traceable cal.</li></ul>
+          </article>
+          <article class="cap">
+            <div class="cap__ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12 h4 l2-7 4 14 2-7 h6"/></svg></div>
+            <h3>Data &amp; reporting</h3>
+            <p>Historians, KPI dashboards, regulator-ready reports. The numbers your plant manager needs, no more.</p>
+            <ul class="cap__list"><li>OSIsoft PI</li><li>InfluxDB / Grafana</li><li>EPA reporting templates</li></ul>
+          </article>
+          <article class="cap">
+            <div class="cap__ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 a10 10 0 1 0 10 10"/><path d="M22 12 a10 10 0 0 0 -10 -10"/><line x1="12" y1="6" x2="12" y2="12" /><line x1="12" y1="12" x2="16" y2="14" /></svg></div>
+            <h3>24/7 support</h3>
+            <p>Engineer of record on call within an hour, anywhere east of Adelaide. Site within four hours.</p>
+            <ul class="cap__list"><li>Service contracts</li><li>Spares stocking</li><li>Annual audit</li></ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTORS -->
+    <section class="sec sec--alt" id="sectors">
+      <div class="container">
+        <div class="sec__head">
+          <div>
+            <span class="t-eyebrow">Sectors</span>
+            <h2>Where we work.</h2>
+          </div>
+          <p class="t-body-lg" style="margin: 0; max-width: 50ch;">Five regulated industries, each with their own rituals and reporting. We've earned the right to read your P&amp;IDs in all of them.</p>
+        </div>
+
+        <div class="sectors">
+          <div class="sector">
+            <div class="sector__ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 c4 5 7 9 7 13 a7 7 0 0 1 -14 0 c0 -4 3 -8 7 -13z"/></svg></div>
+            <h3>Water &amp; wastewater</h3>
+            <p>STPs, pump stations, network telemetry. EPA compliance reporting.</p>
+            <div class="sector__num">94 projects</div>
+          </div>
+          <div class="sector">
+            <div class="sector__ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21 L12 6 L21 21z"/><line x1="8" y1="14" x2="16" y2="14"/></svg></div>
+            <h3>Mining &amp; minerals</h3>
+            <p>Conveyor control, dust suppression, plant-floor MCCs.</p>
+            <div class="sector__num">62 projects</div>
+          </div>
+          <div class="sector">
+            <div class="sector__ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8 c0 -3 3 -5 7 -5 s7 2 7 5 v8 c0 3 -3 5 -7 5 s-7 -2 -7 -5z"/><line x1="5" y1="12" x2="19" y2="12"/></svg></div>
+            <h3>Food &amp; beverage</h3>
+            <p>CIP/SIP, batch control, traceability for HACCP audits.</p>
+            <div class="sector__num">48 projects</div>
+          </div>
+          <div class="sector">
+            <div class="sector__ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="3" width="12" height="18" rx="2"/><line x1="6" y1="9" x2="18" y2="9"/><line x1="12" y1="13" x2="12" y2="17"/><line x1="10" y1="15" x2="14" y2="15"/></svg></div>
+            <h3>Pharmaceuticals</h3>
+            <p>GAMP 5 deliverables. Validation packs that pass on the first walkthrough.</p>
+            <div class="sector__num">21 projects</div>
+          </div>
+          <div class="sector">
+            <div class="sector__ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 2 4 14 12 14 11 22 20 10 12 10 13 2"/></svg></div>
+            <h3>Energy &amp; utilities</h3>
+            <p>Substation HMI, BESS controls, distributed generation telemetry.</p>
+            <div class="sector__num">15 projects</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PROJECT -->
+    <section class="sec" id="projects">
+      <div class="container">
+        <div class="sec__head">
+          <div>
+            <span class="t-eyebrow">Recent project</span>
+            <h2>Werribee STP — Citect 2018 cutover.</h2>
+          </div>
+          <p class="t-body-lg" style="margin: 0; max-width: 50ch;">Migrated 1,840 tags, 220 alarms, and 47 reports from v7.20 to 2018 with zero unplanned downtime over a 36-hour cutover window.</p>
+        </div>
+
+        <div class="proj">
+          <div class="proj__plate">
+            <img src="assets/mark-white.png" alt="" />
+            <div class="num">CASE STUDY · 2025</div>
+            <h3>1,840 tags. 220 alarms. <br/>Zero unplanned downtime.</h3>
+            <dl>
+              <div><dt>Cutover</dt><dd>36 h</dd></div>
+              <div><dt>Downtime</dt><dd>0 min</dd></div>
+              <div><dt>Standard</dt><dd>WSA 04</dd></div>
+            </dl>
+          </div>
+          <div>
+            <p class="t-body-lg" style="color: var(--pac-ink-800);">"They named the standard, the protocol, the vendor, and the unit in the first hour. Then they did exactly what they said for nine months."</p>
+            <p class="t-body" style="margin-top: 16px;">The Werribee migration was a brownfield Citect upgrade with hot-standby redundancy maintained throughout. We worked off the existing P&amp;ID set, corrected 73 documentation drift items, and left the printed runbook in the panel — wiring colours called out, not just terminal numbers.</p>
+            <div style="margin-top: 32px; display: flex; gap: 12px; flex-wrap: wrap;">
+              <span class="tag">Citect 2018</span>
+              <span class="tag">RSLogix 5000</span>
+              <span class="tag">Modbus TCP/502</span>
+              <span class="tag">WSA 04</span>
+              <span class="tag">EPA Vic</span>
+            </div>
+            <a href="#" class="link link--arrow" style="margin-top: 32px; display: inline-block; font-size: 15px; font-weight: 500;">Read the full case study</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TESTIMONIAL -->
+    <section class="testimonial">
+      <div class="container testimonial__grid">
+        <div>
+          <span class="t-eyebrow" style="color: var(--pac-blue-300);">In their words</span>
+          <blockquote style="margin-top: 24px;"><span class="open">"</span>Quiet systems are good systems. Pac left us one we don't notice — which means it works.<span class="open">"</span></blockquote>
+          <cite>
+            <strong>Daniel Kowal</strong>
+            <span>Operations Manager · Werribee Treatment Plant</span>
+          </cite>
+        </div>
+        <div class="testimonial__stats">
+          <div class="testimonial__stat"><div class="num">98.4%</div><div class="lbl">on-time commissioning, last 5 years</div></div>
+          <div class="testimonial__stat"><div class="num">0</div><div class="lbl">lost-time incidents on site, FY24</div></div>
+          <div class="testimonial__stat"><div class="num">12</div><div class="lbl">customers in continuous service ≥ 10 yrs</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CONTACT -->
+    <section class="sec sec--alt" id="contact">
+      <div class="container">
+        <div class="contact">
+          <div class="contact__info">
+            <span class="t-eyebrow">Contact</span>
+            <h2 style="font-size: 44px; font-weight: 600; line-height: 1.1; letter-spacing: -0.02em; color: var(--pac-blue-900); margin: 8px 0 16px;">Tell us what you need to control.</h2>
+            <p class="t-body-lg" style="max-width: 44ch;">We'll come back inside two business days with a scoping call booked, or a quote, depending on what you sent.</p>
+            <dl>
+              <dt>Office</dt><dd>Level 2, 14 Riggall Street, Broadmeadows VIC 3047</dd>
+              <dt>Phone</dt><dd class="t-mono">+61 3 9000 0000</dd>
+              <dt>After-hours</dt><dd class="t-mono">+61 3 9000 0001</dd>
+              <dt>Email</dt><dd>contact@pac-technologies.com.au</dd>
+              <dt>ABN</dt><dd class="t-mono">12 345 678 901</dd>
+            </dl>
+          </div>
+
+          <form class="card card--feature" onsubmit="event.preventDefault(); this.querySelector('button[type=submit]').textContent='Sent — we\\'ll be in touch';">
+            <div style="display: grid; gap: 16px;">
+              <div class="field">
+                <label class="field__label" for="cf-name">Full name <span class="req">*</span></label>
+                <input id="cf-name" class="input" placeholder="Jane Watson" required />
+              </div>
+              <div class="field">
+                <label class="field__label" for="cf-co">Organisation</label>
+                <input id="cf-co" class="input" placeholder="Yarra Valley Water" />
+              </div>
+              <div class="field">
+                <label class="field__label" for="cf-em">Work email <span class="req">*</span></label>
+                <input id="cf-em" class="input" type="email" placeholder="jane@example.com.au" required />
+              </div>
+              <div class="field">
+                <label class="field__label" for="cf-sec">Sector</label>
+                <select id="cf-sec" class="select">
+                  <option>Water &amp; wastewater</option>
+                  <option>Mining &amp; minerals</option>
+                  <option>Food &amp; beverage</option>
+                  <option>Pharmaceuticals</option>
+                  <option>Energy &amp; utilities</option>
+                  <option>Other</option>
+                </select>
+              </div>
+              <div class="field">
+                <label class="field__label" for="cf-msg">Tell us about the project</label>
+                <textarea id="cf-msg" class="textarea" placeholder="Plant, scope, control system, target dates."></textarea>
+              </div>
+              <label class="check"><input type="checkbox" required /> <span>I'm authorised to share these details on my organisation's behalf.</span></label>
+              <button type="submit" class="btn btn--primary btn--lg" style="margin-top: 8px;">Send enquiry</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <div class="row1">
+        <div>
+          <img src="assets/logo-horizontal-white.png" alt="Pac Technologies" />
+          <p style="font-size: 14px; line-height: 1.6; max-width: 36ch; margin-top: 8px;">Process Automation Control. A specialist control and instrumentation firm based in Melbourne, working across Australian process industries since 2003.</p>
+        </div>
+        <div>
+          <h4>Capability</h4>
+          <ul>
+            <li><a href="#">SCADA &amp; HMI</a></li>
+            <li><a href="#">PLC programming</a></li>
+            <li><a href="#">Control panel build</a></li>
+            <li><a href="#">Field instrumentation</a></li>
+            <li><a href="#">Data &amp; reporting</a></li>
+            <li><a href="#">24/7 support</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Sectors</h4>
+          <ul>
+            <li><a href="#">Water &amp; wastewater</a></li>
+            <li><a href="#">Mining &amp; minerals</a></li>
+            <li><a href="#">Food &amp; beverage</a></li>
+            <li><a href="#">Pharmaceuticals</a></li>
+            <li><a href="#">Energy &amp; utilities</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Company</h4>
+          <ul>
+            <li><a href="#">About</a></li>
+            <li><a href="#">Projects</a></li>
+            <li><a href="#">Careers</a></li>
+            <li><a href="#">Contact</a></li>
+            <li><a href="#">Capability statement (PDF)</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="row2">
+        <span>© 2026 Pac Technologies Pty Ltd · ABN 12 345 678 901</span>
+        <span>AS/NZS 3000 · AS/NZS 61439 · GAMP 5 · WSA 04</span>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

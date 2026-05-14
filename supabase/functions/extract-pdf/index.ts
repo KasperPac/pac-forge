@@ -2,7 +2,7 @@
 // Accepts a multipart form upload with a PDF file, extracts text using unpdf,
 // and returns the plain text. Fixes client-side OOM on large PDFs.
 
-// @ts-ignore — unpdf is a runtime import; no local type stubs
+// @ts-expect-error — unpdf is a runtime import; no local type stubs
 import { extractText } from "npm:unpdf";
 
 const CORS = {

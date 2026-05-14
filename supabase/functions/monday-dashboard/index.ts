@@ -33,16 +33,6 @@ const GROUP_LABELS: Record<string, string> = {
   group_mm0zcw7h: "Complete",
 };
 
-const STATUS_LABELS: Record<string, string> = {
-  "0": "Working on it",
-  "1": "Done",
-  "2": "Test Failed",
-  "4": "Awaiting Testing",
-  "7": "Task Created",
-  "17": "Planned",
-  "19": "Fixing",
-};
-
 const STATUS_COLORS: Record<string, string> = {
   "Working on it": "#fdab3d",
   "Done": "#00c875",
@@ -53,12 +43,6 @@ const STATUS_COLORS: Record<string, string> = {
   "Fixing": "#ff6d3b",
 };
 
-const PRIORITY_LABELS: Record<string, string> = {
-  "0": "Medium",
-  "2": "Low",
-  "3": "Critical",
-  "4": "High",
-};
 
 const PRIORITY_COLORS: Record<string, string> = {
   "Critical": "#e8384f",

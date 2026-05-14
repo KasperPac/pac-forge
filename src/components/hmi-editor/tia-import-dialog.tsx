@@ -42,7 +42,7 @@ export function TiaImportDialog({
   const [projectPath, setProjectPath] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [statusText, setStatusText] = useState("");
-  const [_screenCount, setScreenCount] = useState(0);
+  const [, setScreenCount] = useState(0);
   const [parsedScreens, setParsedScreens] = useState<import("@/types/hmi-screen").HmiScreenSpec[]>([]);
 
   const callBridge = async (

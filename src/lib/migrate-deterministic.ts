@@ -610,7 +610,7 @@ function transformLegacyFbCalls(scl: string): {
   });
 
   if (count > 0)
-    changesApplied.push(`Replaced ${count} legacy FB\#.DB\# call(s) with symbolic instance DB syntax`);
+    changesApplied.push(`Replaced ${count} legacy FB#.DB# call(s) with symbolic instance DB syntax`);
 
   return { scl: result, changesApplied };
 }
@@ -688,7 +688,7 @@ function transformOtherPatterns(scl: string): { scl: string; changesApplied: str
         return `${lp}0.0${rp}`;
       });
       // Bare 0 not followed by a dot (avoids touching 0.5 etc.)
-      fixed = fixed.replace(/\b0\b(?!\.)/g, (_m: string) => { realCount.n++; return "0.0"; });
+      fixed = fixed.replace(/\b0\b(?!\.)/g, () => { realCount.n++; return "0.0"; });
       return `${pre}${fixed}${close}`;
     },
   );
