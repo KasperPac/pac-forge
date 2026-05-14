@@ -59,7 +59,7 @@ function scanBlockInfo(scl: string): { blockType: string; description: string } 
   // First block comment (* ... *) or line comment // ...
   const blockComment = scl.match(/\(\*\s*([\s\S]*?)\s*\*\)/);
   const lineComment = scl.match(/\/\/\s*(.+)/);
-  let description = blockComment
+  const description = blockComment
     ? blockComment[1].replace(/\s+/g, " ").trim().slice(0, 120)
     : lineComment
     ? lineComment[1].trim().slice(0, 120)

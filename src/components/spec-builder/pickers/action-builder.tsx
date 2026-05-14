@@ -429,7 +429,7 @@ function CallFbFields({
     onChange({ ...a, params: next });
   };
   const addParam = () => {
-    let base = "param";
+    const base = "param";
     let i = 1;
     while (a.params[`${base}${i}`] !== undefined) i += 1;
     setParam(

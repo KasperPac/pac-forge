@@ -566,7 +566,7 @@ export function CompileFixChat({
         },
       );
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
     [reimportCompile, onCompileResultUpdate, askAI, setAutoRunningSync],
   );
 

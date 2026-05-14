@@ -1083,7 +1083,7 @@ export async function writeSpecContract(
   const derivedIgnored: (keyof SpecContractPatch)[] = ["io_list", "faults"];
   const derivedProvided = derivedIgnored.filter((k) => parsed[k] !== undefined);
   if (derivedProvided.length > 0) {
-    // eslint-disable-next-line no-console
+     
     console.warn(
       `writeSpecContract: [${derivedProvided.join(
         ", ",

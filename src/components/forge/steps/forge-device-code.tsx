@@ -395,7 +395,7 @@ export function ForgeDeviceCode({
     setPreRewriteArtifacts(artifacts);
 
     try {
-      let currentArtifacts = [...artifacts];
+      const currentArtifacts = [...artifacts];
 
       // Fix one finding at a time — focused, reliable rewrites
       for (let i = 0; i < selected.length; i++) {
@@ -523,7 +523,7 @@ export function ForgeDeviceCode({
     setPreRewriteArtifacts(artifacts);
 
     try {
-      let currentArtifacts = [...artifacts];
+      const currentArtifacts = [...artifacts];
 
       for (let i = 0; i < selected.length; i++) {
         const finding = selected[i];
@@ -637,7 +637,7 @@ export function ForgeDeviceCode({
     if (!preRewriteArtifacts) setPreRewriteArtifacts(artifacts);
 
     try {
-      let currentArtifacts = [...artifacts];
+      const currentArtifacts = [...artifacts];
 
       for (let i = 0; i < selectedFindings.length; i++) {
         const finding = selectedFindings[i];

@@ -274,7 +274,7 @@ export function ForgeProcessCode({
     setPreRewriteArtifacts(artifacts);
 
     try {
-      let currentArtifacts = [...artifacts];
+      const currentArtifacts = [...artifacts];
 
       for (let i = 0; i < selectedFindings.length; i++) {
         const finding = selectedFindings[i];
@@ -393,7 +393,7 @@ export function ForgeProcessCode({
     if (!preRewriteArtifacts) setPreRewriteArtifacts(artifacts);
 
     try {
-      let currentArtifacts = [...artifacts];
+      const currentArtifacts = [...artifacts];
 
       for (let i = 0; i < selectedFindings.length; i++) {
         const finding = selectedFindings[i];
@@ -500,7 +500,7 @@ export function ForgeProcessCode({
     if (!preRewriteArtifacts) setPreRewriteArtifacts(artifacts);
 
     try {
-      let currentArtifacts = [...artifacts];
+      const currentArtifacts = [...artifacts];
       const allArtifacts = [...(session.device_artifacts ?? []), ...currentArtifacts];
 
       for (let i = 0; i < selectedFindings.length; i++) {

@@ -233,13 +233,13 @@ export function useForgeProvision() {
       setStatus(prev => ({ ...prev, phase: isOffline ? "skipped" : "error", message: displayMsg }));
       return null;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, []);
 
   const reset = useCallback(() => {
     closeWs();
     setStatus({ phase: "idle", steps: [] });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, []);
 
   return { provision, status, reset };

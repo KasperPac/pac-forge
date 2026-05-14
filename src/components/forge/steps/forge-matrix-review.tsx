@@ -1489,7 +1489,7 @@ function buildSignalChains(
       const globalDb = isGlobal ? wire.connectedTo?.split(".")?.[0] ?? null : null;
 
       // For output wires going to global DBs, look up sequence usages of that field
-      let globalRef = isGlobal ? wire.connectedTo : null;
+      const globalRef = isGlobal ? wire.connectedTo : null;
       // For output wires going to IO, the signal chain ends at the physical output
       const usages = globalRef ? (seqFieldUsages.get(`db_${globalRef}`.toLowerCase()) ?? seqFieldUsages.get(globalRef.toLowerCase()) ?? []) : [];
 

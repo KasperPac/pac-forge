@@ -87,7 +87,7 @@ function cleanLabel(desc: string): string {
  * Reduce a verbose action description to a short imperative phrase (≤30 chars).
  */
 function summarizeAction(description: string, _deviceName?: string | null): string {
-  let s = cleanLabel(description);
+  const s = cleanLabel(description);
 
   // --- Semantic shortcuts for common automation phrases ---
   if (/\b(evaluat|check)\w*\s+(all\s+)?permissiv/i.test(s)) return "Check permissives";
