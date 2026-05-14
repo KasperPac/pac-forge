@@ -10,7 +10,7 @@
     {
       "id": 1,
       "subject": "Task 1: Migration 075 — customers table",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [0],
       "description": "**Goal:** Persist customer entity.\n\n**Files:** supabase/migrations/075_pac_quote_customers.sql, src/types/customer.ts, src/types/index.ts\n\n**Verify:** npx supabase db push && npm run lint && npm run build\n\n```json:metadata\n{\"files\":[\"supabase/migrations/075_pac_quote_customers.sql\",\"src/types/customer.ts\",\"src/types/index.ts\"],\"verifyCommand\":\"npx supabase db push && npm run lint && npm run build\",\"acceptanceCriteria\":[\"customers table created with unique display_code\",\"RLS authenticated CRUD\",\"Customer type exported\"]}\n```"
     },
@@ -183,5 +183,5 @@
       "description": "**Goal:** Integration test through the real vertical slice with fetch mocked.\n\n**Files:** src/lib/__tests__/issue-flow.integration.test.ts, src/lib/__tests__/quote-snapshot.sanity.test.ts (expanded)\n\n**Verify:** npm run test -- --run\n\n```json:metadata\n{\"files\":[\"src/lib/__tests__/issue-flow.integration.test.ts\",\"src/lib/__tests__/quote-snapshot.sanity.test.ts\"],\"verifyCommand\":\"npm run test -- --run\",\"acceptanceCriteria\":[\"creates customer/project/quote/rev and 1 of each content row\",\"issue mutation flips status to issued\",\"snapshot_json persisted\",\"pdf_storage_key set\",\"issue_audit_log row created\",\"full suite green\"]}\n```"
     }
   ],
-  "lastUpdated": "2026-05-14T13:45:00.000Z"
+  "lastUpdated": "2026-05-14T18:47:00.000Z"
 }
