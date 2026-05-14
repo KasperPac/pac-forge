@@ -42,3 +42,7 @@ tasks/tasks.json
 # Large HMI/Template downloads (binary blobs, keep local only)
 Docs/Downloads/
 
+# Design system handoff bundles (extracted from claude.ai/design exports)
+.design-package/
+.design-package2/
+
