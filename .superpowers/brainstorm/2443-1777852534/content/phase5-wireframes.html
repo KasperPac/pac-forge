@@ -1,0 +1,107 @@
+<h2>Section 3 — Phase 5 redesign</h2>
+<p class="subtitle">Spec wizard Co-Author step, library vs custom path</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">Library-bound assembly (template matched)</div>
+    <div class="mockup-body" style="padding: 16px; font-family: monospace; font-size: 11px; line-height: 1.5;">
+<pre style="margin: 0; color: #e5e7eb;">
+┌────────────────────────────────────────────────┐
+│ <span style="color: #4ade80;">●</span> CV01 Infeed Conveyor                       │
+│   <span class="label">TEMPLATE</span> conveyor_standard_dol  v1   <span style="color: #60a5fa;">change</span> │
+│   <span class="label">CONFIDENCE</span> exact (96%)                       │
+├────────────────────────────────────────────────┤
+│ <span style="color: #9ca3af;">Process intent</span>                                 │
+│ ┌────────────────────────────────────────────┐ │
+│ │ Feeds packages from infeed PE to lift...   │ │
+│ └────────────────────────────────────────────┘ │
+│                                                │
+│ <span style="color: #9ca3af;">IO Slots — wire to instrument register</span>        │
+│ ┌────────────────────────────────────────────┐ │
+│ │ discharge_photoeye   [PE_CV01_DIS  ▼]      │ │
+│ │ motor_contactor_cmd  [DO_CV01_RUN  ▼]      │ │
+│ │ motor_running_fbk    [DI_CV01_RUN  ▼]      │ │
+│ │ overload_relay_fault [DI_CV01_OL   ▼]      │ │
+│ └────────────────────────────────────────────┘ │
+│                                                │
+│ <span style="color: #9ca3af;">Instance params</span>                                │
+│ ┌────────────────────────────────────────────┐ │
+│ │ run_timeout_ms  [3000]                     │ │
+│ │ jam_timeout_ms  [8000]                     │ │
+│ └────────────────────────────────────────────┘ │
+│                                                │
+│ <span style="color: #4ade80;">SCL pre-filled from template — read only</span>       │
+│ <span style="color: #60a5fa;">[ View SCL ]  [ Save assembly ]</span>                │
+└────────────────────────────────────────────────┘
+</pre>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">Custom assembly (no template match)</div>
+    <div class="mockup-body" style="padding: 16px; font-family: monospace; font-size: 11px; line-height: 1.5;">
+<pre style="margin: 0; color: #e5e7eb;">
+┌────────────────────────────────────────────────┐
+│ <span style="color: #fbbf24;">●</span> RX01 Robotic Pick Cell                     │
+│   <span class="label">TEMPLATE</span> none — author custom   <span style="color: #60a5fa;">match again</span> │
+├────────────────────────────────────────────────┤
+│ <span style="color: #9ca3af;">Start from skeleton</span>                            │
+│ [from scratch ▼]                               │
+│   from scratch · single-actuator               │
+│   two-actuator · rotary · lift · accumulator   │
+│                                                │
+│ <span style="color: #9ca3af;">Process intent</span>  <span style="color: #f87171;">required</span>                    │
+│ ┌────────────────────────────────────────────┐ │
+│ │ Picks parts from infeed conveyor and...    │ │
+│ └────────────────────────────────────────────┘ │
+│                                                │
+│ <span style="color: #9ca3af;">Contract — Inputs / Outputs / IO Slots / Writes</span>│
+│ ┌────────────────────────────────────────────┐ │
+│ │ <em>(Same editor as FB Library)</em>             │ │
+│ │ Inputs:  AutoRun, CmdPick, ...             │ │
+│ │ Outputs: PartGripped, Faulted, ...         │ │
+│ │ IO Slots: gripper_solenoid, prox_grip...   │ │
+│ └────────────────────────────────────────────┘ │
+│                                                │
+│ <span style="color: #60a5fa;">[ Generate SCL from contract ]</span>                 │
+│   ↓                                            │
+│ <span style="color: #fbbf24;">SCL — AI generated, editable</span>                   │
+│ ┌────────────────────────────────────────────┐ │
+│ │ FUNCTION_BLOCK "RoboticPickCell_RX01"      │ │
+│ │ ...                                        │ │
+│ └────────────────────────────────────────────┘ │
+│ <span style="color: #60a5fa;">[ Regenerate ] [ Save assembly ]</span>               │
+│ <span style="color: #60a5fa;">[ ★ Save as library template ]</span>                 │
+└────────────────────────────────────────────────┘
+</pre>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 24px;">
+  <h3>What's added vs current Phase 5</h3>
+  <div class="pros-cons">
+    <div class="pros">
+      <h4>Reused (Phases 1–4 work)</h4>
+      <ul>
+        <li><code>InterfaceContractEditor</code> component — embedded in wizard</li>
+        <li>Migration 075 columns (<code>fb_template_id</code>, <code>instance_params</code>, <code>process_intent</code>)</li>
+        <li>Type extensions (<code>AssemblyConfig</code>, <code>AssemblyV2Schema</code>)</li>
+        <li><code>matchAssembliesToTemplates</code> in Phase 2</li>
+        <li>SCL parser (Phase 3) — used to validate AI output against contract</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>New work</h4>
+      <ul>
+        <li>Skeleton-picker dropdown (5 starter shapes)</li>
+        <li>"Generate SCL from contract" button + flow</li>
+        <li>Modified <code>use-forge-assembly-generate.ts</code> — contract as constraint</li>
+        <li>Modified <code>forge-assembly-prompts.ts</code> — contract block in system prompt</li>
+        <li>Output validation: parse generated SCL, compare interface to contract, flag drift</li>
+        <li>SCL review/edit pane in wizard (Monaco)</li>
+        <li>"Save as library template" button + dialog</li>
+      </ul>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,59 @@
+<h2>Section 1 — Architecture</h2>
+<p class="subtitle">Contract is the universal unit. SCL source (library / AI / hand-written) is interchangeable.</p>
+
+<div class="mockup">
+  <div class="mockup-header">Authoring flow — both paths converge on the same contract+SCL artifact</div>
+  <div class="mockup-body" style="padding: 24px; font-family: monospace; font-size: 13px; line-height: 1.6;">
+<pre style="margin: 0; color: #e5e7eb;">
+                    ┌──────────────────────────────────────────────┐
+                    │  Spec → assemblies (one per machine element) │
+                    └──────────────────┬───────────────────────────┘
+                                       │
+                       matchAssembliesToTemplates()
+                                       │
+                ┌──────────────────────┴──────────────────────┐
+                │                                             │
+        <span style="color: #4ade80;">confidence ≥ probable</span>                       <span style="color: #fbbf24;">confidence = none</span>
+                │                                             │
+                ▼                                             ▼
+   ┌─────────────────────────┐                  ┌─────────────────────────────┐
+   │  Library path           │                  │  Custom path                │
+   │  ─────────────          │                  │  ─────────────              │
+   │  • Template picked      │                  │  • Engineer authors         │
+   │  • Contract pre-filled  │                  │    contract (form):         │
+   │  • SCL copied from      │                  │    inputs / outputs /       │
+   │    template blocks      │                  │    io_slots / state writes  │
+   │                         │                  │  • AI generates SCL         │
+   │  Engineer task:         │                  │    constrained BY contract  │
+   │  ─ wire IO slots        │                  │                             │
+   │  ─ set instance params  │                  │  Engineer task:             │
+   │                         │                  │  ─ author contract          │
+   │                         │                  │  ─ wire IO slots            │
+   │                         │                  │  ─ review &amp; approve SCL     │
+   │                         │                  │  ─ optional: "Save to lib"  │
+   └────────────┬────────────┘                  └──────────────┬──────────────┘
+                │                                              │
+                └──────────────────────┬───────────────────────┘
+                                       ▼
+                    ┌──────────────────────────────────────┐
+                    │  Bound AssemblyConfig                │
+                    │  • interface_contract  (always)      │
+                    │  • SCL blocks          (always)      │
+                    │  • instance_params     (always)      │
+                    │  • fb_template_id      (only if lib) │
+                    └──────────────────┬───────────────────┘
+                                       ▼
+                    [Phase 6 — subsystem SFC orchestration]
+                    [Phase 7 — forge generation, unchanged]
+</pre>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 24px;">
+  <h3>Three load-bearing principles</h3>
+  <ol>
+    <li><strong>Contract is universal.</strong> Every assembly carries a complete <code>interface_contract</code> regardless of whether it came from a library template or was authored in the wizard. Downstream consumers (SFC orchestration, forge generation, ProcessState UDT assembly, Pac-Audit) only consume the contract — they don't care about origin.</li>
+    <li><strong>Contract precedes SCL.</strong> For custom assemblies the contract is authored <em>before</em> AI generates SCL. AI receives the contract as a structural constraint in its prompt — it must produce SCL whose <code>VAR_INPUT</code>/<code>VAR_OUTPUT</code>/IO bindings/UDT writes match the contract.</li>
+    <li><strong>Promotion is one-click.</strong> A custom assembly's contract+SCL combo can be saved to the library as a new template with one button, after engineer review. The library grows project-by-project as recurring patterns crystallise.</li>
+  </ol>
+</div>
