@@ -118,7 +118,7 @@ src/test/
 - **Type-only imports.** `import type { Foo }` per `verbatimModuleSyntax`.
 - **No enums.** Use `as const` objects.
 - **UI.** Tailwind utilities only. Dark shell preserved. Pac Blue 600 (`#3050A0`) used via a new CSS var `--pac-blue-600` declared in `index.css`; JetBrains Mono only for technical metadata.
-- **Verify commands.** Each task ends with `npm run lint && npm run build && npm run test -- --run --reporter=verbose <test-path>` unless stated otherwise.
+- **Verify commands.** Each task ends with `npm run test -- --run <test-path>` plus a targeted `tsc --noEmit` on the touched files. **Do not gate on the global `npm run build` or `npm run lint`** — those have pre-existing failures (24 TS errors + 38 lint errors as of 2026-05-14, all design-drift in unrelated forge-* code; Monday tickets 2915240021 and 2915301112 cover the worst real bugs the cleanup pass surfaced). A task passes if (a) its tests are green, (b) the files it touched have no new TS errors compared to baseline, and (c) lint is no worse on touched files.
 - **Commit format.** Conventional commits: `feat(pac-quote): …` / `feat(pac-quote-pdf): …` / `feat(tnc): …` / `chore(test): …`.
 
 ---

@@ -4,7 +4,7 @@
     {
       "id": 0,
       "subject": "Task 0: Vitest + Testing Library scaffolding",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Install and wire a unit test runner so subsequent tasks can follow TDD.\n\n**Files:** vitest.config.ts, src/test/setup.ts, package.json, tsconfig.json, src/lib/__tests__/sanity.test.ts\n\n**Verify:** npm run lint && npm run build && npm run test -- --run\n\n```json:metadata\n{\"files\":[\"vitest.config.ts\",\"src/test/setup.ts\",\"package.json\",\"tsconfig.json\",\"src/lib/__tests__/sanity.test.ts\"],\"verifyCommand\":\"npm run lint && npm run build && npm run test -- --run\",\"acceptanceCriteria\":[\"npm run test -- --run exits 0\",\"sanity test green\",\"RTL renders without error\",\"build/lint still pass\"]}\n```"
     },
     {
@@ -183,5 +183,5 @@
       "description": "**Goal:** Integration test through the real vertical slice with fetch mocked.\n\n**Files:** src/lib/__tests__/issue-flow.integration.test.ts, src/lib/__tests__/quote-snapshot.sanity.test.ts (expanded)\n\n**Verify:** npm run test -- --run\n\n```json:metadata\n{\"files\":[\"src/lib/__tests__/issue-flow.integration.test.ts\",\"src/lib/__tests__/quote-snapshot.sanity.test.ts\"],\"verifyCommand\":\"npm run test -- --run\",\"acceptanceCriteria\":[\"creates customer/project/quote/rev and 1 of each content row\",\"issue mutation flips status to issued\",\"snapshot_json persisted\",\"pdf_storage_key set\",\"issue_audit_log row created\",\"full suite green\"]}\n```"
     }
   ],
-  "lastUpdated": "2026-05-14T00:00:00.000Z"
+  "lastUpdated": "2026-05-14T13:45:00.000Z"
 }
