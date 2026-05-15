@@ -368,17 +368,9 @@ against the current codebase. Report findings. Block if FAIL.
 
 ## Monday Integration
 
-See `CLAUDE.monday.md` for monday.com task sync rules.
+**DISABLED until further notice.** Do NOT create, update, or sync Monday tasks for any work. Skip step 1 of the previous mandatory flow — no Monday task is required before code changes. Use plan/task tracking files (`tasks.json` next to plans, native TaskCreate) and git commits as the audit trail instead.
 
-**MANDATORY — follow this exact order for EVERY task (no exceptions, even small fixes):**
-1. **BEFORE writing any code**: Create the Monday task (or find existing) with `--status "Working on it"` and a description of what you're about to do
-2. **Do the work**: Implement the fix/feature
-3. **AFTER the work is done**: Update the Monday task to `--status "Awaiting Testing"` with a summary of what was changed in `--comments`
-4. **Ask the user to test**: Ask if the fix works. If yes → update to `--status "Done"`. If no → update back to `--status "Fixing"` and continue working on it.
-
-This applies to bug fixes, features, improvements — everything. Never skip step 1. The task must exist in Monday BEFORE the first line of code is written.
-
-**Monday tooling**: Monday MCP is configured at `https://mcp.monday.com/mcp` — use MCP tools directly when available. Fallback: `python scripts/task_create.py --title "..." --status "Working on it" --group "..."` and `python scripts/task_update.py --task-id <id> --status "..."`. Board ID: `5092432355`. Status column: `status_cdbba809`.
+When the user is ready to re-enable Monday, restore the workflow from git history (`git log -p -- CLAUDE.md`). Reference docs: `CLAUDE.monday.md`, `scripts/task_create.py`, `scripts/task_update.py`. Monday MCP: `https://mcp.monday.com/mcp`. Board ID: `5092432355`. Status column: `status_cdbba809`.
 ## Pipeline Integrity (MANDATORY)
 
 After completing ANY task that modifies hooks, prompt builders, or pipeline logic, 
