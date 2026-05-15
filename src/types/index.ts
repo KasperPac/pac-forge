@@ -21,3 +21,4 @@ export * from "./instruction";
 export * from "./customer";
 export * from "./quote";
 export * from "./doc-content";
+export * from "./tnc";
