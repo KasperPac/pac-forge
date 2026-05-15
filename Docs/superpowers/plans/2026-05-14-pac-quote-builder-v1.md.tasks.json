@@ -17,7 +17,7 @@
     {
       "id": 2,
       "subject": "Task 2: Migration 076 — quotes / quote_revisions / variations + project.stage",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [1],
       "description": "**Goal:** Core lifecycle tables and projects extension.\n\n**Files:** supabase/migrations/076_pac_quote_core.sql, src/types/quote.ts, src/types/project.ts, src/types/index.ts\n\n**Verify:** npx supabase db push && npm run lint && npm run build\n\n```json:metadata\n{\"files\":[\"supabase/migrations/076_pac_quote_core.sql\",\"src/types/quote.ts\",\"src/types/project.ts\",\"src/types/index.ts\"],\"verifyCommand\":\"npx supabase db push && npm run lint && npm run build\",\"acceptanceCriteria\":[\"projects has stage/customer_id/job_code/project_name/awarded_quote_id\",\"quotes table unique (project_id, number)\",\"quote_revisions unique (quote_id, rev_number)\",\"variations table schema-only\"]}\n```"
     },
@@ -183,5 +183,5 @@
       "description": "**Goal:** Integration test through the real vertical slice with fetch mocked.\n\n**Files:** src/lib/__tests__/issue-flow.integration.test.ts, src/lib/__tests__/quote-snapshot.sanity.test.ts (expanded)\n\n**Verify:** npm run test -- --run\n\n```json:metadata\n{\"files\":[\"src/lib/__tests__/issue-flow.integration.test.ts\",\"src/lib/__tests__/quote-snapshot.sanity.test.ts\"],\"verifyCommand\":\"npm run test -- --run\",\"acceptanceCriteria\":[\"creates customer/project/quote/rev and 1 of each content row\",\"issue mutation flips status to issued\",\"snapshot_json persisted\",\"pdf_storage_key set\",\"issue_audit_log row created\",\"full suite green\"]}\n```"
     }
   ],
-  "lastUpdated": "2026-05-14T18:47:00.000Z"
+  "lastUpdated": "2026-05-15T00:00:00.000Z"
 }
