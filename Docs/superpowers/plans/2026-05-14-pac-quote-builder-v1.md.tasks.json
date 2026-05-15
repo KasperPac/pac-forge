@@ -24,7 +24,7 @@
     {
       "id": 3,
       "subject": "Task 3: Migration 077 — doc content + assumption library seed",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [2],
       "description": "**Goal:** Polymorphic content tables (scope/inclusions/exclusions/assumptions/line_items/commercial_terms) + assumption_library seed.\n\n**Files:** supabase/migrations/077_pac_quote_doc_content.sql, src/types/doc-content.ts, src/types/index.ts\n\n**Verify:** npx supabase db push && npm run lint && npm run build\n\n```json:metadata\n{\"files\":[\"supabase/migrations/077_pac_quote_doc_content.sql\",\"src/types/doc-content.ts\",\"src/types/index.ts\"],\"verifyCommand\":\"npx supabase db push && npm run lint && npm run build\",\"acceptanceCriteria\":[\"parent_type check-constrained\",\"composite index on (parent_type, parent_id, ordering) each table\",\"doc_commercial_terms unique per doc\",\"assumption_library seeded with 8 entries\"]}\n```"
     },
