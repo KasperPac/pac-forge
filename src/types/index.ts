@@ -19,3 +19,4 @@ export * from "./migrate";
 export * from "./client";
 export * from "./instruction";
 export * from "./customer";
+export * from "./quote";

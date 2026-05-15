@@ -1,3 +1,5 @@
+import type { ProjectStage } from "./quote";
+
 export const PLC_BRANDS = {
   SIEMENS_TIA: "SIEMENS_TIA",
 } as const;
@@ -74,11 +76,30 @@ export interface Project {
   dropbox_folder_path: string | null;
   github_repo_url: string | null;
   github_repo_name: string | null;
+  customer_id: string | null;
+  job_code: string | null;
+  project_name: string | null;
+  stage: ProjectStage;
+  awarded_quote_id: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;
 }
 
-export type ProjectCreate = Omit<Project, "id" | "created_at" | "updated_at" | "created_by">;
+export type ProjectCreate = Omit<
+  Project,
+  | "id"
+  | "created_at"
+  | "updated_at"
+  | "created_by"
+  | "customer_id"
+  | "job_code"
+  | "project_name"
+  | "stage"
+  | "awarded_quote_id"
+>;
 
-export type ProjectUpdate = Partial<ProjectCreate>;
+export type ProjectUpdate = Partial<
+  ProjectCreate &
+    Pick<Project, "customer_id" | "job_code" | "project_name" | "stage" | "awarded_quote_id">
+>;
