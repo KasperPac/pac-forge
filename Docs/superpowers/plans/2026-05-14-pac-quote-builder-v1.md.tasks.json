@@ -38,7 +38,7 @@
     {
       "id": 5,
       "subject": "Task 5: Migration 079 — audit log + legacy stub + branding singleton",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [4],
       "description": "**Goal:** Cross-cutting tables.\n\n**Files:** supabase/migrations/079_pac_quote_audit_and_legacy_stubs.sql, src/types/audit.ts, src/types/index.ts\n\n**Verify:** npx supabase db push && npm run lint && npm run build\n\n```json:metadata\n{\"files\":[\"supabase/migrations/079_pac_quote_audit_and_legacy_stubs.sql\",\"src/types/audit.ts\",\"src/types/index.ts\"],\"verifyCommand\":\"npx supabase db push && npm run lint && npm run build\",\"acceptanceCriteria\":[\"issue_audit_log with target index\",\"legacy_doc_imports stub\",\"company_branding singleton with default Pac Technologies row\"]}\n```"
     },
