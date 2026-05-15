@@ -31,7 +31,7 @@
     {
       "id": 4,
       "subject": "Task 4: Migration 078 — T&Cs tables",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [3],
       "description": "**Goal:** Templates, clauses, per-doc selections, override blob.\n\n**Files:** supabase/migrations/078_pac_quote_tnc.sql, src/types/tnc.ts, src/types/index.ts\n\n**Verify:** npx supabase db push && npm run lint && npm run build\n\n```json:metadata\n{\"files\":[\"supabase/migrations/078_pac_quote_tnc.sql\",\"src/types/tnc.ts\",\"src/types/index.ts\"],\"verifyCommand\":\"npx supabase db push && npm run lint && npm run build\",\"acceptanceCriteria\":[\"tnc_templates with partial unique index on is_default\",\"tnc_clauses with template_id cascade\",\"doc_tnc_selections unique per doc\",\"doc_tnc_override unique per doc\"]}\n```"
     },
