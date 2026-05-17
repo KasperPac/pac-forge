@@ -164,7 +164,7 @@
     {
       "id": 23,
       "subject": "Task 23: T&Cs admin route",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [9],
       "description": "**Goal:** /tnc route — manage templates and clauses.\n\n**Files:** src/routes/tnc-library.tsx, src/components/tnc/{tnc-template-list, tnc-template-form, tnc-clause-editor}.tsx, src/App.tsx, src/app/DashboardLayout.tsx\n\n**Verify:** npm run lint && npm run build\n\n```json:metadata\n{\"files\":[\"src/routes/tnc-library.tsx\",\"src/components/tnc/tnc-template-list.tsx\",\"src/components/tnc/tnc-template-form.tsx\",\"src/components/tnc/tnc-clause-editor.tsx\",\"src/App.tsx\",\"src/app/DashboardLayout.tsx\"],\"verifyCommand\":\"npm run lint && npm run build\",\"acceptanceCriteria\":[\"create/rename/archive/setDefault templates\",\"add/edit/delete/reorder clauses\",\"sidebar entry 'T&Cs'\"]}\n```"
     },
