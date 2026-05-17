@@ -129,7 +129,7 @@
     {
       "id": 18,
       "subject": "Task 18: Section editors — scope, inclusions, exclusions, assumptions, line items",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [17],
       "description": "**Goal:** Centre-pane editors for the five content sections.\n\n**Files:** src/components/quotes/builder/_ordered-list-editor.tsx, section-scope.tsx, section-inclusions.tsx, section-exclusions.tsx, section-assumptions.tsx, section-line-items.tsx, __tests__/section-line-items.test.tsx\n\n**Verify:** npm run test -- --run src/components/quotes/builder/__tests__/section-line-items.test.tsx\n\n```json:metadata\n{\"files\":[\"src/components/quotes/builder/_ordered-list-editor.tsx\",\"src/components/quotes/builder/section-scope.tsx\",\"src/components/quotes/builder/section-inclusions.tsx\",\"src/components/quotes/builder/section-exclusions.tsx\",\"src/components/quotes/builder/section-assumptions.tsx\",\"src/components/quotes/builder/section-line-items.tsx\",\"src/components/quotes/builder/__tests__/section-line-items.test.tsx\"],\"verifyCommand\":\"npm run test -- --run src/components/quotes/builder/__tests__/section-line-items.test.tsx && npm run lint && npm run build\",\"acceptanceCriteria\":[\"add/edit/delete/reorder per section\",\"assumptions has library picker\",\"line items table with calc mode + customer-visible toggle\",\"subtotal cell shows computeLineSubtotal\"]}\n```"
     },
