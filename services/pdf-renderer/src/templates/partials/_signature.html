@@ -1,0 +1,12 @@
+<div class="signature">
+  <div class="sig-block">
+    <div class="name">Pac Technologies</div>
+    <div>Issued by {{#if snapshot.issued_by_email}}{{snapshot.issued_by_email}}{{else}}—{{/if}}</div>
+    <div>{{displayDate snapshot.issued_at}}</div>
+  </div>
+  <div class="sig-block">
+    <div class="name">{{snapshot.project.customer.name}}</div>
+    <div>Authorised signature</div>
+    <div>Date</div>
+  </div>
+</div>

@@ -1,0 +1,102 @@
+/*
+ * Print component primitives — kept minimal and self-contained so the
+ * renderer is independent of the app's Tailwind utilities.
+ */
+
+.doc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 2px solid var(--pac-blue-600);
+  padding-bottom: 12px;
+  margin-bottom: 24px;
+}
+
+.doc-header .brand {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.doc-header .brand-name {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 18px;
+  color: var(--pac-blue-900);
+  letter-spacing: 0.02em;
+}
+
+.doc-header .brand-mark {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--pac-ink-500);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.doc-header .doc-meta {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  text-align: right;
+  color: var(--pac-ink-700);
+  line-height: 1.55;
+}
+
+.doc-header .doc-meta .mono {
+  font-family: var(--font-mono);
+  color: var(--pac-blue-900);
+  font-weight: 500;
+  font-size: 11px;
+}
+
+.doc-footer {
+  border-top: 1px solid var(--pac-line-200);
+  padding-top: 8px;
+  margin-top: 24px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--pac-ink-500);
+  display: flex;
+  justify-content: space-between;
+}
+
+.tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--pac-blue-100);
+  color: var(--pac-blue-800);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.callout {
+  background: var(--pac-blue-50);
+  border-left: 3px solid var(--pac-blue-600);
+  padding: 12px 16px;
+  margin: 16px 0;
+  color: var(--pac-ink-800);
+  font-size: 11px;
+}
+
+.section-title {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--pac-blue-900);
+  margin: 0 0 8px 0;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--pac-line-200);
+}
+
+.list-tight {
+  padding-left: 18px;
+  margin: 0;
+}
+
+.list-tight li {
+  margin: 4px 0;
+  line-height: 1.5;
+}

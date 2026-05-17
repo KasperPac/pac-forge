@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>{{snapshot.quote_number}} Rev {{snapshot.rev_number}} — {{snapshot.project.customer.name}}</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      {{{_tokensCss}}}
+      {{{_componentsCss}}}
+      {{{_quoteCss}}}
+    </style>
+  </head>
+  <body>
+    {{> header}}
+
+    <section class="cover-block">
+      <div class="tag">Quotation</div>
+      <h1>{{snapshot.project.project_name}}</h1>
+      <div class="project-line">{{snapshot.project.job_code}}</div>
+      <div class="customer-line">Prepared for {{snapshot.project.customer.name}}</div>
+    </section>
+
+    {{#if snapshot.summary}}
+      <section class="section">
+        <h2 class="section-title">Executive Summary</h2>
+        <div>{{markdown snapshot.summary}}</div>
+      </section>
+    {{/if}}
+
+    {{#if snapshot.scope.length}}
+      <section class="section">
+        <h2 class="section-title">Scope of Work</h2>
+        {{#each snapshot.scope}}
+          <div class="scope-item">
+            <div class="scope-title">{{this.title}}</div>
+            {{#if this.body}}<div class="scope-body">{{markdown this.body}}</div>{{/if}}
+          </div>
+        {{/each}}
+      </section>
+    {{/if}}
+
+    {{#if snapshot.inclusions.length}}
+      <section class="section">
+        <h2 class="section-title">Inclusions</h2>
+        <ul class="list-tight">
+          {{#each snapshot.inclusions}}
+            <li>
+              <strong>{{this.title}}</strong>
+              {{#if this.body}}<div class="scope-body">{{markdown this.body}}</div>{{/if}}
+            </li>
+          {{/each}}
+        </ul>
+      </section>
+    {{/if}}
+
+    {{#if snapshot.exclusions.length}}
+      <section class="section">
+        <h2 class="section-title">Exclusions</h2>
+        <ul class="list-tight">
+          {{#each snapshot.exclusions}}
+            <li>
+              <strong>{{this.title}}</strong>
+              {{#if this.body}}<div class="scope-body">{{markdown this.body}}</div>{{/if}}
+            </li>
+          {{/each}}
+        </ul>
+      </section>
+    {{/if}}
+
+    {{#if snapshot.assumptions.length}}
+      <section class="section">
+        <h2 class="section-title">Assumptions</h2>
+        <ul class="list-tight">
+          {{#each snapshot.assumptions}}
+            <li>
+              {{#if this.title}}<strong>{{this.title}}</strong>{{/if}}
+              {{#if this.value}} — {{this.value}}{{/if}}
+              {{#if this.notes}}<div class="scope-body">{{markdown this.notes}}</div>{{/if}}
+            </li>
+          {{/each}}
+        </ul>
+      </section>
+    {{/if}}
+
+    <section class="section">
+      <h2 class="section-title">Pricing</h2>
+      {{#if (eq snapshot.pricing_presentation.show_pricing_breakdown_detail "subtotal_only")}}
+        {{#if snapshot.totals.by_category_customer_visible.length}}
+          <table class="line-items">
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th class="right">Subtotal</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{#each snapshot.totals.by_category_customer_visible}}
+                <tr>
+                  <td>{{this.category}}</td>
+                  <td class="right money">{{money this.subtotal}}</td>
+                </tr>
+              {{/each}}
+            </tbody>
+          </table>
+        {{/if}}
+      {{else}}
+        {{#if snapshot.line_items.length}}
+          <table class="line-items">
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th>Description</th>
+                <th class="right">Qty</th>
+                {{#if (eq snapshot.pricing_presentation.show_pricing_breakdown_detail "full")}}
+                  <th class="right">Unit</th>
+                  <th class="right">Hours</th>
+                  <th class="right">Rate</th>
+                {{/if}}
+                <th class="right">Subtotal</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{#each snapshot.line_items}}
+                {{#if this.show_in_customer_doc}}
+                  <tr>
+                    <td>{{this.category}}</td>
+                    <td>
+                      {{#if this.customer_doc_label}}{{this.customer_doc_label}}{{else}}{{this.description}}{{/if}}
+                    </td>
+                    <td class="right">{{#if this.qty}}{{this.qty}}{{/if}}</td>
+                    {{#if (eq @root.snapshot.pricing_presentation.show_pricing_breakdown_detail "full")}}
+                      <td class="right money">{{money this.unit_price}}</td>
+                      <td class="right">{{#if this.hours}}{{this.hours}}{{/if}}</td>
+                      <td class="right money">{{money this.hour_rate}}</td>
+                    {{/if}}
+                    <td class="right money">{{money this.subtotal}}</td>
+                  </tr>
+                {{/if}}
+              {{/each}}
+            </tbody>
+          </table>
+        {{/if}}
+      {{/if}}
+      <div class="grand-total">
+        <span class="label">Grand Total (excl. GST)</span>
+        <span class="money">{{money snapshot.totals.grand_total}}</span>
+      </div>
+    </section>
+
+    {{#if snapshot.commercial_terms}}
+      <section class="section">
+        <h2 class="section-title">Commercial Terms</h2>
+        <div class="commercial-grid">
+          {{#if snapshot.commercial_terms.payment_schedule}}
+            <div class="label">Payment Schedule</div>
+            <div class="value">{{markdown snapshot.commercial_terms.payment_schedule}}</div>
+          {{/if}}
+          {{#if snapshot.commercial_terms.validity_period}}
+            <div class="label">Validity Period</div>
+            <div class="value">{{snapshot.commercial_terms.validity_period}}</div>
+          {{/if}}
+          {{#if snapshot.commercial_terms.gst_treatment}}
+            <div class="label">GST Treatment</div>
+            <div class="value">{{snapshot.commercial_terms.gst_treatment}}</div>
+          {{/if}}
+          {{#if snapshot.commercial_terms.currency}}
+            <div class="label">Currency</div>
+            <div class="value">{{snapshot.commercial_terms.currency}}</div>
+          {{/if}}
+          {{#if snapshot.commercial_terms.notes}}
+            <div class="label">Notes</div>
+            <div class="value">{{markdown snapshot.commercial_terms.notes}}</div>
+          {{/if}}
+        </div>
+      </section>
+    {{/if}}
+
+    {{#if snapshot.tnc}}
+      <section class="section">
+        <h2 class="section-title">Terms &amp; Conditions</h2>
+        {{#if (eq snapshot.tnc.kind "structured")}}
+          {{#each snapshot.tnc.clauses}}
+            <div class="tnc-clause">
+              <div class="clause-head">
+                <span class="clause-number">{{this.clause_number}}</span>{{this.title}}
+              </div>
+              <div class="clause-body">{{markdown this.body_markdown}}</div>
+            </div>
+          {{/each}}
+        {{else}}
+          <div class="tnc-override">{{markdown snapshot.tnc.body_markdown}}</div>
+        {{/if}}
+      </section>
+    {{/if}}
+
+    {{> signature}}
+
+    {{> footer}}
+  </body>
+</html>

@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router";
-import { ArrowLeft, Play, Save, Plus, Trash2, ChevronDown, ChevronRight, Upload, X, FileText, Cpu, Wand2, FolderOpen, Pencil, Check, ClipboardList } from "lucide-react";
+import { ArrowLeft, Play, Save, Plus, Trash2, ChevronDown, ChevronRight, Upload, X, FileText, Cpu, Wand2, FolderOpen, Pencil, Check, ClipboardList, Receipt } from "lucide-react";
+import { ProjectCommercialTab } from "@/components/quotes/project-commercial-tab";
 import { DropboxFolderDialog } from "@/components/dropbox-folder-dialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -613,6 +614,10 @@ export default function ProjectDetailPage() {
           <TabsTrigger value="documents" className="font-mono text-xs">
             Documents
           </TabsTrigger>
+          <TabsTrigger value="commercial" className="font-mono text-xs">
+            <Receipt className="mr-1 h-3 w-3" />
+            Commercial
+          </TabsTrigger>
           <TabsTrigger value="revision-log" className="font-mono text-xs">
             Revision Log
           </TabsTrigger>
@@ -759,6 +764,13 @@ export default function ProjectDetailPage() {
                 ))}
               </div>
             )}
+          </Card>
+        </TabsContent>
+
+        {/* Commercial */}
+        <TabsContent value="commercial">
+          <Card className="p-4">
+            <ProjectCommercialTab project={project} />
           </Card>
         </TabsContent>
       </Tabs>

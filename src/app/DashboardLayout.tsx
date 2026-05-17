@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router";
-import { FolderOpen, Bot, Terminal, BookOpen, GraduationCap, Layers, SlidersHorizontal, FileText, Library, LogOut, User, Sun, Moon, Monitor, ChevronRight, PanelLeftClose, PanelLeftOpen, Wand2, BookPlus, Building2, Cpu, FlaskConical, LayoutDashboard, ClipboardList, SearchCode } from "lucide-react";
+import { FolderOpen, Bot, Terminal, BookOpen, GraduationCap, Layers, SlidersHorizontal, FileText, Library, LogOut, User, Sun, Moon, Monitor, ChevronRight, PanelLeftClose, PanelLeftOpen, Wand2, BookPlus, Building2, Cpu, FlaskConical, LayoutDashboard, ClipboardList, SearchCode, Receipt, ScrollText } from "lucide-react";
 import { AgentChatFab } from "@/components/agent-chat/agent-chat-fab";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,8 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
       { to: "/projects", label: "Projects", icon: FolderOpen },
+      { to: "/quotes", label: "Quotes", icon: Receipt },
+      { to: "/tnc", label: "T&Cs", icon: ScrollText },
       { to: "/forge", label: "Project Wizard", icon: Wand2, requiresProject: true },
       { to: "/pac-audit", label: "Pac-Audit", icon: SearchCode, requiresProject: true },
       { to: "/specs", label: "Spec Builder", icon: ClipboardList, requiresProject: true },

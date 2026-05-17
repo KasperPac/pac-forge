@@ -1,0 +1,73 @@
+<h2>Three architectural alternatives</h2>
+<p class="subtitle">All three keep Phases 1–4 (schema + editor + parser + 8 seed templates). They diverge on what Phase 5 onward looks like.</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 24px; background: #1f2937;">
+      <div style="font-family: monospace; font-size: 12px; color: #9ca3af;">
+        <div style="margin-bottom: 8px;"><strong style="color: #4ade80;">Library hits (27–80%)</strong></div>
+        <div style="margin-left: 12px;">→ Copy template SCL</div>
+        <div style="margin-left: 12px;">→ Form: wire IO slots</div>
+        <div style="margin-left: 12px;">→ Done</div>
+        <div style="margin-top: 12px; margin-bottom: 8px;"><strong style="color: #f87171;">Custom (20–73%)</strong></div>
+        <div style="margin-left: 12px;">→ Today's free-form path</div>
+        <div style="margin-left: 12px;">→ AI generates from prose</div>
+        <div style="margin-left: 12px;">→ <span style="color: #f87171;">Inconsistent output</span></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. Pure Library (current plan)</h3>
+      <p><strong>What it is:</strong> Ship the plan as written. Library covers what it covers; everything else uses the existing wizard authoring path.</p>
+      <p><strong>Bet:</strong> Library will grow over time and 27% becomes 60% becomes 90%.</p>
+      <p><strong>Verdict:</strong> Cheapest, least risky to current investment. But ignores the 73% problem on complex projects today, and "library will grow" depends on a promote-from-custom workflow that isn't in the plan.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 24px; background: #1f2937;">
+      <div style="font-family: monospace; font-size: 12px; color: #9ca3af;">
+        <div style="margin-bottom: 8px;"><strong style="color: #4ade80;">Library hits</strong></div>
+        <div style="margin-left: 12px;">→ Copy template SCL</div>
+        <div style="margin-left: 12px;">→ Form: wire IO slots</div>
+        <div style="margin-top: 12px; margin-bottom: 8px;"><strong style="color: #fbbf24;">Custom — contract first</strong></div>
+        <div style="margin-left: 12px;">→ Engineer authors contract</div>
+        <div style="margin-left: 12px;">  (inputs / outputs / IO slots)</div>
+        <div style="margin-left: 12px;">→ AI generates SCL <em>against</em></div>
+        <div style="margin-left: 12px;">  the contract as constraint</div>
+        <div style="margin-left: 12px;">→ <span style="color: #4ade80;">Structural consistency</span></div>
+        <div style="margin-top: 12px; margin-bottom: 8px;"><strong style="color: #60a5fa;">Promote</strong></div>
+        <div style="margin-left: 12px;">→ "Save to library" button</div>
+        <div style="margin-left: 12px;">→ Becomes a new template</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. Contract-as-Constraint Hybrid <span style="color: #4ade80;">(my recommendation)</span></h3>
+      <p><strong>What it is:</strong> Interface contract is the universal authoring unit, not just for library assemblies. Custom assemblies = engineer authors the contract first, then AI fills in body SCL constrained by it. Library assemblies = template SCL pre-filled, contract already in DB.</p>
+      <p><strong>Bet:</strong> The contract is what makes output consistent — the SCL underneath can be library-copied OR AI-generated. Same form in the wizard, same downstream consumers, same ProcessState wiring.</p>
+      <p><strong>Verdict:</strong> Solves the 73% problem (custom gets the same structural rigour as library). Adds a "promote to library" path so the library grows project-by-project. Phase 5 stays mostly the same; new work is the AI-against-contract path + promote button.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 24px; background: #1f2937;">
+      <div style="font-family: monospace; font-size: 12px; color: #9ca3af;">
+        <div style="margin-bottom: 8px;"><strong style="color: #4ade80;">All assemblies</strong></div>
+        <div style="margin-left: 12px;">→ Pick base template +</div>
+        <div style="margin-left: 12px;">  variant layer (additive)</div>
+        <div style="margin-left: 12px;">→ Variant overrides specific</div>
+        <div style="margin-left: 12px;">  contract slots / SCL fragments</div>
+        <div style="margin-left: 12px;">→ AI ONLY for layers, not whole FB</div>
+        <div style="margin-top: 12px; margin-bottom: 8px;"><strong>Example:</strong></div>
+        <div style="margin-left: 12px;">conveyor_dol</div>
+        <div style="margin-left: 12px;">  + reverse-jog layer</div>
+        <div style="margin-left: 12px;">  + zone-blocking layer</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. Base + Variant Layers</h3>
+      <p><strong>What it is:</strong> Templates aren't atomic — they're a base + composable layers. A "weird conveyor" is conveyor_dol + 2 named layers. Layers are themselves library entries with their own contract patches and SCL fragments.</p>
+      <p><strong>Bet:</strong> Most "custom" assemblies are 80% standard + a feature or two. Layers compose to cover the long tail without exploding template count.</p>
+      <p><strong>Verdict:</strong> Most powerful conceptually but heavy lift. SCL composition is hard (variable scope clashes, ordering). Probably right for v2 but premature now — would delay shipping by months.</p>
+    </div>
+  </div>
+</div>

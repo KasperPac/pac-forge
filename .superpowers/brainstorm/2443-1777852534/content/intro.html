@@ -1,0 +1,32 @@
+<h2>Assembly FB Library — Approach Critique</h2>
+<p class="subtitle">Pressure-testing the library-first design before sinking Phase 5+</p>
+
+<div class="section">
+  <p>We're going to walk through the existing plan's bets one by one, look at alternative architectures, and decide for each: <strong>Go / Modify / Pivot</strong>. Output is a critique design doc that becomes the input to a Phase-5 plan (or a redesign).</p>
+</div>
+
+<div class="section">
+  <h3>What I already know</h3>
+  <ul>
+    <li><strong>Plan</strong> (<code>Docs/ASSEMBLY_FB_LIBRARY_PLAN.md</code>) — 10 phases, library-first, structured <code>interface_contract</code> jsonb, role-enum-driven IO slots</li>
+    <li><strong>Phase 0 audit</strong> — 0 of 8 v1 templates retrofittable; all are author-from-scratch (plan §3.2 hypothesis was 60–80% retrofit — wrong)</li>
+    <li><strong>Phases 1–4 done</strong> except Phase 4 body SCL (your authoring work in TIA V18)</li>
+    <li><strong>Prior architecture doc</strong> (<code>Docs/forge-plan/ASSEMBLY_ARCHITECTURE.md</code>) explicitly recommended the OPPOSITE — "start with AI generation, build library from approved outputs over time"</li>
+    <li><strong>Matcher</strong> — name + summary affinity scoring (no interface coverage, since assemblies have no IO signal list of their own)</li>
+    <li><strong>1 functional spec in repo</strong> — <code>PAC-EFD-020 InfeedConveyor_Elevator</code></li>
+  </ul>
+</div>
+
+<div class="section">
+  <h3>Bets on the table to pressure-test</h3>
+  <ol>
+    <li><strong>Composition fit</strong> — do 8 templates actually cover real Pac projects?</li>
+    <li><strong>Closed role enums scale</strong> — InterfaceInputRole / OutputRole / IoSlotRole stay tractable as catalog grows?</li>
+    <li><strong>"No per-assembly sequence authoring"</strong> — really tenable when complex assemblies have internal mode machines?</li>
+    <li><strong>Matcher accuracy</strong> — name+summary scoring reliable enough that the UX feels automatic?</li>
+    <li><strong>Phase 5 ↔ Phase 6 coupling</strong> — can Phase 5 ship without Phase 6 (subsystem SFC) being designed?</li>
+    <li><strong>Bonus:</strong> AI-first vs library-first — was the prior recommendation explicitly overturned, or orphaned?</li>
+  </ol>
+</div>
+
+<p class="subtitle">Continuing in terminal — I'll push visuals when they help.</p>
