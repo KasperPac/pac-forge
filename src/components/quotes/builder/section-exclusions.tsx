@@ -1,11 +1,15 @@
-import { SectionStub } from "./_section-stub";
+import { exclusions } from "@/hooks/use-doc-content";
+import { ScopeLikeEditor } from "./_scope-like-editor";
 
 export function SectionExclusions() {
   return (
-    <SectionStub
+    <ScopeLikeEditor
+      crud={exclusions}
       title="Exclusions"
       description="Items explicitly outside the quoted price."
-      taskRef="Task 18"
+      emptyHint="No exclusions yet. Spell out what isn't covered."
+      addLabel="Add exclusion"
+      defaultTitle="New exclusion"
     />
   );
 }

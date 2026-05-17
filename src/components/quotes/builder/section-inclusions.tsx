@@ -1,11 +1,15 @@
-import { SectionStub } from "./_section-stub";
+import { inclusions } from "@/hooks/use-doc-content";
+import { ScopeLikeEditor } from "./_scope-like-editor";
 
 export function SectionInclusions() {
   return (
-    <SectionStub
+    <ScopeLikeEditor
+      crud={inclusions}
       title="Inclusions"
       description="Items explicitly inside the quoted price."
-      taskRef="Task 18"
+      emptyHint="No inclusions yet. Add what is explicitly included."
+      addLabel="Add inclusion"
+      defaultTitle="New inclusion"
     />
   );
 }
