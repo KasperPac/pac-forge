@@ -1,0 +1,211 @@
+/*
+ * Page rules for the quote PDF. Puppeteer applies @page margins via the
+ * pdf() option; the @page rule here remains for completeness when the
+ * HTML is rendered outside Puppeteer (preview).
+ */
+
+@page {
+  size: A4;
+  margin: 25mm;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--pac-ink-900);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.mono, .money {
+  font-family: var(--font-mono);
+}
+
+h1, h2, h3 {
+  color: var(--pac-blue-900);
+  page-break-after: avoid;
+  margin: 0;
+}
+
+h1 {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 12px 0 4px 0;
+}
+
+h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+}
+
+.cover-block {
+  margin: 8px 0 24px 0;
+}
+
+.cover-block .project-line {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--pac-ink-700);
+  margin-top: 4px;
+}
+
+.cover-block .customer-line {
+  font-size: 13px;
+  color: var(--pac-ink-800);
+  margin-top: 2px;
+}
+
+.section {
+  margin-top: var(--section-gap);
+  page-break-inside: avoid-if-possible;
+}
+
+.section + .section {
+  margin-top: var(--section-gap);
+}
+
+.scope-item {
+  margin: 8px 0;
+}
+
+.scope-item .scope-title {
+  font-weight: 600;
+  color: var(--pac-ink-900);
+}
+
+.scope-item .scope-body {
+  margin-top: 2px;
+  color: var(--pac-ink-700);
+}
+
+table.line-items {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  margin-top: 8px;
+}
+
+table.line-items th {
+  text-align: left;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 10px;
+  color: var(--pac-ink-600);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--pac-blue-600);
+}
+
+table.line-items td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--pac-line-200);
+  vertical-align: top;
+}
+
+table.line-items td.right,
+table.line-items th.right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+table.line-items tfoot td {
+  font-weight: 600;
+  border-top: 2px solid var(--pac-blue-600);
+  border-bottom: none;
+}
+
+.grand-total {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+  gap: 24px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--pac-blue-900);
+  font-weight: 600;
+}
+
+.grand-total .label {
+  color: var(--pac-ink-600);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 10px;
+  align-self: center;
+}
+
+.commercial-grid {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 6px 16px;
+  margin-top: 8px;
+}
+
+.commercial-grid .label {
+  color: var(--pac-ink-500);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.commercial-grid .value {
+  color: var(--pac-ink-900);
+}
+
+.tnc-clause {
+  margin: 12px 0;
+  page-break-inside: avoid;
+}
+
+.tnc-clause .clause-head {
+  font-weight: 600;
+  color: var(--pac-blue-900);
+  font-size: 12px;
+  margin-bottom: 2px;
+}
+
+.tnc-clause .clause-head .clause-number {
+  font-family: var(--font-mono);
+  color: var(--pac-blue-600);
+  margin-right: 6px;
+}
+
+.tnc-clause .clause-body p {
+  margin: 4px 0;
+  color: var(--pac-ink-800);
+}
+
+.tnc-override {
+  color: var(--pac-ink-800);
+}
+
+.tnc-override p {
+  margin: 6px 0;
+}
+
+.signature {
+  margin-top: 48px;
+  page-break-inside: avoid;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+.signature .sig-block {
+  border-top: 1px solid var(--pac-ink-400);
+  padding-top: 6px;
+  font-size: 10px;
+  color: var(--pac-ink-600);
+}
+
+.signature .sig-block .name {
+  color: var(--pac-ink-900);
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}

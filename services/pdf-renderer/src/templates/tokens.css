@@ -1,0 +1,50 @@
+/*
+ * Pac Technologies design tokens — print-safe subset.
+ * Mirrors src/index.css plus the Pac Blue brand palette from the spec
+ * (Pac Blue 600 = #3050A0).
+ */
+
+:root {
+  /* Brand — Pac Blue */
+  --pac-blue-50:  #F4F7FC;
+  --pac-blue-100: #E2EAF7;
+  --pac-blue-200: #C2D1EE;
+  --pac-blue-300: #94AEDF;
+  --pac-blue-400: #6685C8;
+  --pac-blue-500: #3F61B0;
+  --pac-blue-600: #3050A0;
+  --pac-blue-700: #243F80;
+  --pac-blue-800: #1B2F60;
+  --pac-blue-900: #122044;
+
+  /* Ink — neutral text greys (warm) */
+  --pac-ink-50:  #FAFAF9;
+  --pac-ink-100: #F1F1EF;
+  --pac-ink-200: #DBDBD8;
+  --pac-ink-300: #B8B7B3;
+  --pac-ink-400: #8C8B86;
+  --pac-ink-500: #5F5E5A;
+  --pac-ink-600: #45443F;
+  --pac-ink-700: #2F2E2A;
+  --pac-ink-800: #1C1B18;
+  --pac-ink-900: #0F0E0C;
+
+  /* Lines / dividers */
+  --pac-line-100: #EFEFEC;
+  --pac-line-200: #DEDED9;
+  --pac-line-300: #C5C4BE;
+
+  /* Status */
+  --pac-success: #2F7D4A;
+  --pac-warn:    #B26A0C;
+  --pac-error:   #B5341F;
+
+  /* Typography */
+  --font-sans: 'Inter', system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+
+  /* Layout */
+  --page-pad-x: 0;
+  --section-gap: 24px;
+  --block-gap: 12px;
+}
