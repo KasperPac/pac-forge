@@ -66,7 +66,7 @@
     {
       "id": 9,
       "subject": "Task 9: T&Cs / assumption-library / branding hooks",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [8],
       "description": "**Goal:** Plain CRUD for the supporting libraries.\n\n**Files:** src/hooks/use-tnc-templates.ts, src/hooks/use-tnc-clauses.ts, src/hooks/use-assumption-library.ts, src/hooks/use-company-branding.ts\n\n**Verify:** npm run lint && npm run build\n\n```json:metadata\n{\"files\":[\"src/hooks/use-tnc-templates.ts\",\"src/hooks/use-tnc-clauses.ts\",\"src/hooks/use-assumption-library.ts\",\"src/hooks/use-company-branding.ts\"],\"verifyCommand\":\"npm run lint && npm run build\",\"acceptanceCriteria\":[\"setDefault uses two updates\",\"reorderClauses patches each row's ordering\",\"branding is singleton get+update\"]}\n```"
     },
