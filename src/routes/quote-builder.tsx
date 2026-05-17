@@ -1,4 +1,4 @@
-import { useMemo, type ComponentType } from "react";
+import { useMemo, useState, type ComponentType } from "react";
 import { useParams, Link } from "react-router";
 import { useQuoteRevision, useQuote } from "@/hooks/use-quotes";
 import { useProject } from "@/hooks/use-projects";
@@ -18,7 +18,9 @@ import { useTncClauses } from "@/hooks/use-tnc-clauses";
 import { useQuoteBuilderStore } from "@/stores/quote-builder-store";
 import { buildSnapshot, type BuildSnapshotTnc } from "@/lib/quote-snapshot";
 import { grandTotal } from "@/lib/quote-totals";
+import { validateForIssue } from "@/lib/quote-validation";
 import { BuilderLayout } from "@/components/quotes/builder/builder-layout";
+import { IssueConfirmDialog } from "@/components/quotes/issue-confirm-dialog";
 import { SectionScope } from "@/components/quotes/builder/section-scope";
 import { SectionInclusions } from "@/components/quotes/builder/section-inclusions";
 import { SectionExclusions } from "@/components/quotes/builder/section-exclusions";
@@ -113,6 +115,32 @@ export default function QuoteBuilderRoute() {
 
   const total = grandTotal(lis);
 
+  // Cheap client-side gate for the Issue button. The real authority is the
+  // re-validation inside useIssueRevision against fresh DB rows.
+  const canIssue = useMemo(() => {
+    if (!project) return false;
+    return validateForIssue({
+      project: {
+        customer_id: project.customer_id,
+        job_code: project.job_code,
+        project_name: project.project_name,
+      },
+      scope,
+      lineItems: lis,
+      tncSelection: tncSelection
+        ? { template_id: tncSelection.template_id }
+        : null,
+      tncOverride: tncOverride
+        ? { body_markdown: tncOverride.body_markdown }
+        : null,
+      commercial: commercial
+        ? { payment_schedule: commercial.payment_schedule }
+        : null,
+    }).ok;
+  }, [project, scope, lis, tncSelection, tncOverride, commercial]);
+
+  const [issueOpen, setIssueOpen] = useState(false);
+
   const header =
     quote && project ? (
       <div className="flex items-center justify-between">
@@ -172,14 +200,29 @@ export default function QuoteBuilderRoute() {
   }
 
   return (
-    <BuilderLayout
-      editor={<Editor />}
-      snapshot={snapshot}
-      total={total}
-      header={header}
-      status={`Draft · last edited ${
-        rev.updated_at ? new Date(rev.updated_at).toLocaleString() : "—"
-      }`}
-    />
+    <>
+      <BuilderLayout
+        editor={<Editor />}
+        snapshot={snapshot}
+        total={total}
+        header={header}
+        status={`Draft · last edited ${
+          rev.updated_at ? new Date(rev.updated_at).toLocaleString() : "—"
+        }`}
+        canIssue={canIssue}
+        onIssue={() => setIssueOpen(true)}
+      />
+      {quote && customer && (
+        <IssueConfirmDialog
+          open={issueOpen}
+          onOpenChange={setIssueOpen}
+          revId={revId}
+          quoteNumber={quote.number}
+          revNumber={rev.rev_number}
+          customerName={customer.name}
+          total={total}
+        />
+      )}
+    </>
   );
 }

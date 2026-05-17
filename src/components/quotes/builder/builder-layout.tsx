@@ -9,6 +9,8 @@ interface BuilderLayoutProps {
   total: number;
   status?: string | null;
   header?: ReactNode;
+  canIssue?: boolean;
+  onIssue?: () => void;
 }
 
 export function BuilderLayout({
@@ -17,6 +19,8 @@ export function BuilderLayout({
   total,
   status,
   header,
+  canIssue,
+  onIssue,
 }: BuilderLayoutProps) {
   return (
     <div className="grid grid-rows-[auto_1fr_auto] h-full min-h-0">
@@ -36,7 +40,12 @@ export function BuilderLayout({
         </main>
         <PreviewPane snapshot={snapshot} />
       </div>
-      <BuilderFooter total={total} status={status} />
+      <BuilderFooter
+        total={total}
+        status={status}
+        canIssue={canIssue}
+        onIssue={onIssue}
+      />
     </div>
   );
 }
