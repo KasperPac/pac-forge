@@ -122,7 +122,7 @@
     {
       "id": 17,
       "subject": "Task 17: Builder shell + section navigator + Zustand store",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [13, 16],
       "description": "**Goal:** Three-column layout, navigator, footer, route registration.\n\n**Files:** src/stores/quote-builder-store.ts, src/components/quotes/builder/builder-layout.tsx, src/components/quotes/builder/section-navigator.tsx, src/components/quotes/builder/builder-footer.tsx, src/routes/quote-builder.tsx, src/App.tsx\n\n**Verify:** npm run lint && npm run build\n\n```json:metadata\n{\"files\":[\"src/stores/quote-builder-store.ts\",\"src/components/quotes/builder/builder-layout.tsx\",\"src/components/quotes/builder/section-navigator.tsx\",\"src/components/quotes/builder/builder-footer.tsx\",\"src/routes/quote-builder.tsx\",\"src/App.tsx\"],\"verifyCommand\":\"npm run lint && npm run build\",\"acceptanceCriteria\":[\"/quotes/:revId/edit route\",\"active section highlighted in Pac Blue 600\",\"preview pane driven by snapshot\",\"footer shows total + disabled Issue button\"]}\n```"
     },
