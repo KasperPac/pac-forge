@@ -94,7 +94,7 @@
     {
       "id": 13,
       "subject": "Task 13: Snapshot builder + tests + sanity thread",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [11],
       "description": "**Goal:** buildSnapshot — the defensibility instrument. T&Cs clauses inlined, line item subtotals precomputed, schema_version: 1.\n\n**Files:** src/types/quote-snapshot.ts, src/lib/quote-snapshot.ts, src/lib/__tests__/quote-snapshot.test.ts, src/lib/__tests__/quote-snapshot.sanity.test.ts\n\n**Verify:** npm run test -- --run \"src/lib/__tests__/quote-snapshot\"\n\n```json:metadata\n{\"files\":[\"src/types/quote-snapshot.ts\",\"src/lib/quote-snapshot.ts\",\"src/lib/__tests__/quote-snapshot.test.ts\",\"src/lib/__tests__/quote-snapshot.sanity.test.ts\"],\"verifyCommand\":\"npm run test -- --run src/lib/__tests__/quote-snapshot\",\"acceptanceCriteria\":[\"snapshot is deterministic\",\"line item subtotals inlined\",\"tnc clauses inlined and renumbered after omits + customs\",\"totals.by_category_customer_visible filters show_in_customer_doc\"]}\n```"
     },
