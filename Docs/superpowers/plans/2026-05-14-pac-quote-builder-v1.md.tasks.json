@@ -115,7 +115,7 @@
     {
       "id": 16,
       "subject": "Task 16: PDF preview hook + iframe pane",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [15],
       "description": "**Goal:** Live preview in right rail.\n\n**Files:** src/hooks/use-pdf-preview.ts, src/components/quotes/preview-pane.tsx, src/components/quotes/__tests__/preview-pane.test.tsx\n\n**Verify:** npm run test -- --run src/components/quotes/__tests__/preview-pane.test.tsx\n\n```json:metadata\n{\"files\":[\"src/hooks/use-pdf-preview.ts\",\"src/components/quotes/preview-pane.tsx\",\"src/components/quotes/__tests__/preview-pane.test.tsx\"],\"verifyCommand\":\"npm run test -- --run src/components/quotes/__tests__/preview-pane.test.tsx && npm run lint && npm run build\",\"acceptanceCriteria\":[\"800ms debounce on snapshot change\",\"blob URL revoked on unmount\",\"Refresh button forces re-render\",\"empty state when no snapshot\"]}\n```"
     },
