@@ -73,7 +73,7 @@
     {
       "id": 10,
       "subject": "Task 10: Quote numbering helpers (pure)",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [5],
       "description": "**Goal:** nextQuoteNumber, nextRevNumber, nextDocNumber as pure functions with full tests.\n\n**Files:** src/lib/quote-numbering.ts, src/lib/__tests__/quote-numbering.test.ts\n\n**Verify:** npm run test -- --run src/lib/__tests__/quote-numbering.test.ts\n\n```json:metadata\n{\"files\":[\"src/lib/quote-numbering.ts\",\"src/lib/__tests__/quote-numbering.test.ts\"],\"verifyCommand\":\"npm run test -- --run src/lib/__tests__/quote-numbering.test.ts\",\"acceptanceCriteria\":[\"Q01 starting point\",\"increment past max\",\"ignore other job prefixes\"]}\n```"
     },
