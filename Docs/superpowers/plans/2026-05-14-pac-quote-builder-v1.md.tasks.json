@@ -171,7 +171,7 @@
     {
       "id": 24,
       "subject": "Task 24: Quotes list + project Commercial tab + sidebar",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [21],
       "description": "**Goal:** Discoverability — global list and per-project view.\n\n**Files:** src/routes/quotes.tsx, src/components/quotes/quote-card.tsx, src/routes/project-detail.tsx, src/app/DashboardLayout.tsx, src/App.tsx\n\n**Verify:** npm run lint && npm run build\n\n```json:metadata\n{\"files\":[\"src/routes/quotes.tsx\",\"src/components/quotes/quote-card.tsx\",\"src/routes/project-detail.tsx\",\"src/app/DashboardLayout.tsx\",\"src/App.tsx\"],\"verifyCommand\":\"npm run lint && npm run build\",\"acceptanceCriteria\":[\"/quotes table filterable by stage/status/customer\",\"project Commercial tab lists quotes+revs\",\"Variations/Legacy placeholder cards labelled 'v2'\",\"Quotes sidebar entry between Projects and Pac-ST\"]}\n```"
     },
