@@ -12,8 +12,11 @@ import {
   useCommercialTerms,
   type ParentRef,
 } from "@/hooks/use-doc-content";
+import { useTncSelection, useTncOverride } from "@/hooks/use-doc-tnc";
+import { useTncTemplate } from "@/hooks/use-tnc-templates";
+import { useTncClauses } from "@/hooks/use-tnc-clauses";
 import { useQuoteBuilderStore } from "@/stores/quote-builder-store";
-import { buildSnapshot } from "@/lib/quote-snapshot";
+import { buildSnapshot, type BuildSnapshotTnc } from "@/lib/quote-snapshot";
 import { grandTotal } from "@/lib/quote-totals";
 import { BuilderLayout } from "@/components/quotes/builder/builder-layout";
 import { SectionScope } from "@/components/quotes/builder/section-scope";
@@ -53,6 +56,26 @@ export default function QuoteBuilderRoute() {
   const { data: asms = [] } = assumptions.useList(ref);
   const { data: lis = [] } = lineItems.useList(ref);
   const { data: commercial = null } = useCommercialTerms(ref);
+  const { data: tncSelection = null } = useTncSelection(ref);
+  const { data: tncOverride = null } = useTncOverride(ref);
+  const { data: tncTemplate } = useTncTemplate(
+    tncSelection?.template_id ?? undefined,
+  );
+  const { data: tncClauses = [] } = useTncClauses(
+    tncSelection?.template_id ?? undefined,
+  );
+
+  const tncForSnap = useMemo<BuildSnapshotTnc>(() => {
+    if (tncOverride) return { override: tncOverride };
+    if (tncSelection && tncTemplate) {
+      return {
+        template: tncTemplate,
+        clauses: tncClauses,
+        selection: tncSelection,
+      };
+    }
+    return null;
+  }, [tncOverride, tncSelection, tncTemplate, tncClauses]);
 
   const activeSection = useQuoteBuilderStore((s) => s.activeSection);
   const Editor = SECTION_EDITORS[activeSection];
@@ -72,7 +95,7 @@ export default function QuoteBuilderRoute() {
       assumptions: asms,
       line_items: lis,
       commercial,
-      tnc: null,
+      tnc: tncForSnap,
     });
   }, [
     rev,
@@ -85,6 +108,7 @@ export default function QuoteBuilderRoute() {
     asms,
     lis,
     commercial,
+    tncForSnap,
   ]);
 
   const total = grandTotal(lis);
