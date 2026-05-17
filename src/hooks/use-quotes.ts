@@ -29,6 +29,20 @@ function stripMeta<T extends Record<string, unknown>>(
   return out;
 }
 
+export function useAllQuotes() {
+  return useQuery({
+    queryKey: ["quotes"],
+    queryFn: async (): Promise<Quote[]> => {
+      const { data, error } = await supabase
+        .from("quotes")
+        .select("*")
+        .order("updated_at", { ascending: false });
+      if (error) throw error;
+      return data as Quote[];
+    },
+  });
+}
+
 export function useQuotesForProject(projectId: string | undefined) {
   return useQuery({
     queryKey: ["quotes", projectId],
