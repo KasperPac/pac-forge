@@ -108,7 +108,7 @@
     {
       "id": 15,
       "subject": "Task 15: Edge function quote-render-pdf + storage bucket",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [14],
       "description": "**Goal:** App-side proxy + Supabase Storage upload.\n\n**Files:** supabase/functions/quote-render-pdf/index.ts, supabase/migrations/080_pac_quote_storage_bucket.sql\n\n**Verify:** npx supabase functions deploy quote-render-pdf && npx supabase db push\n\n```json:metadata\n{\"files\":[\"supabase/functions/quote-render-pdf/index.ts\",\"supabase/migrations/080_pac_quote_storage_bucket.sql\"],\"verifyCommand\":\"npx supabase functions deploy quote-render-pdf && npx supabase db push\",\"acceptanceCriteria\":[\"requires bearer auth\",\"dry_run returns PDF bytes\",\"non-dry_run uploads to quote-pdfs bucket and returns storage_key\",\"PDF_RENDER_URL and PDF_RENDER_SECRET come from secrets\"]}\n```"
     },
