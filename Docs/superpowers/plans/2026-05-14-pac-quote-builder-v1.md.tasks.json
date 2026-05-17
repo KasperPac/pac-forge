@@ -143,7 +143,7 @@
     {
       "id": 20,
       "subject": "Task 20: Issue flow — atomic transaction (CRITICAL)",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [13, 15, 19, 12],
       "description": "**Goal:** Snapshot + render + RPC + audit, all atomic.\n\n**Files:** src/hooks/use-issue-quote.ts, src/hooks/__tests__/use-issue-quote.test.ts, supabase/migrations/081_pac_quote_issue_rpc.sql, src/components/quotes/builder/builder-footer.tsx, src/components/quotes/issue-confirm-dialog.tsx\n\n**Verify:** npx supabase db push && npm run test -- --run src/hooks/__tests__/use-issue-quote.test.ts\n\n```json:metadata\n{\"files\":[\"src/hooks/use-issue-quote.ts\",\"src/hooks/__tests__/use-issue-quote.test.ts\",\"supabase/migrations/081_pac_quote_issue_rpc.sql\",\"src/components/quotes/builder/builder-footer.tsx\",\"src/components/quotes/issue-confirm-dialog.tsx\"],\"verifyCommand\":\"npx supabase db push && npm run test -- --run src/hooks/__tests__/use-issue-quote.test.ts && npm run lint && npm run build\",\"acceptanceCriteria\":[\"validateForIssue called before render\",\"render fail leaves DB untouched\",\"RPC atomically: supersedes prior, writes snapshot, sets pdf_storage_key, audit log\",\"draft-only precondition in RPC\",\"event_type='issued' with quote_number/rev_number/total in details_json\"]}\n```"
     },
