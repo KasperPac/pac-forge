@@ -45,7 +45,7 @@
     {
       "id": 6,
       "subject": "Task 6: useCustomers hook + test",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [5],
       "description": "**Goal:** TanStack Query hooks for customers, mirroring use-projects.ts.\n\n**Files:** src/hooks/use-customers.ts, src/hooks/__tests__/use-customers.test.ts\n\n**Verify:** npm run test -- --run src/hooks/__tests__/use-customers.test.ts\n\n```json:metadata\n{\"files\":[\"src/hooks/use-customers.ts\",\"src/hooks/__tests__/use-customers.test.ts\"],\"verifyCommand\":\"npm run test -- --run src/hooks/__tests__/use-customers.test.ts && npm run lint && npm run build\",\"acceptanceCriteria\":[\"list/get/create/update/delete hooks\",\"mutations invalidate ['customers']\",\"unit test mocks supabase\"]}\n```"
     },
