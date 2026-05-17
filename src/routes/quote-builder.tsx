@@ -1,5 +1,5 @@
-import { useMemo, useState, type ComponentType } from "react";
-import { useParams, Link } from "react-router";
+import { useEffect, useMemo, useState, type ComponentType } from "react";
+import { useNavigate, useParams } from "react-router";
 import { useQuoteRevision, useQuote } from "@/hooks/use-quotes";
 import { useProject } from "@/hooks/use-projects";
 import { useCustomer } from "@/hooks/use-customers";
@@ -42,6 +42,7 @@ const SECTION_EDITORS: Record<BuilderSection, ComponentType> = {
 
 export default function QuoteBuilderRoute() {
   const { revId } = useParams<{ revId: string }>();
+  const navigate = useNavigate();
   const ref: ParentRef | undefined = revId
     ? { parent_type: "quote_revision", parent_id: revId }
     : undefined;
@@ -141,6 +142,12 @@ export default function QuoteBuilderRoute() {
 
   const [issueOpen, setIssueOpen] = useState(false);
 
+  useEffect(() => {
+    if (rev && rev.status !== "draft" && revId) {
+      navigate(`/quotes/${revId}/view`, { replace: true });
+    }
+  }, [rev, revId, navigate]);
+
   const header =
     quote && project ? (
       <div className="flex items-center justify-between">
@@ -184,17 +191,11 @@ export default function QuoteBuilderRoute() {
   }
 
   if (rev.status !== "draft") {
+    // Effect above handles the redirect; render a brief placeholder so we
+    // don't flash the editor while react-router transitions.
     return (
-      <div className="p-6 text-sm font-mono text-zinc-400 space-y-3">
-        <p>This revision is {rev.status} and cannot be edited.</p>
-        <p className="text-xs">
-          <Link
-            to={`/quotes/${revId}`}
-            className="text-[#3050A0] hover:underline"
-          >
-            Open read-only view →
-          </Link>
-        </p>
+      <div className="p-6 text-sm font-mono text-zinc-500">
+        Redirecting to read-only view…
       </div>
     );
   }
