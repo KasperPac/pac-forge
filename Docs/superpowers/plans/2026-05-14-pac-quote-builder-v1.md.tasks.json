@@ -136,7 +136,7 @@
     {
       "id": 19,
       "subject": "Task 19: Section editors — Commercial Terms + T&Cs",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [18, 9],
       "description": "**Goal:** Last two builder sections + T&Cs hooks.\n\n**Files:** src/hooks/use-doc-tnc.ts, src/components/quotes/builder/section-commercial.tsx, src/components/quotes/builder/section-tnc.tsx, src/routes/quote-builder.tsx (wire tnc into buildSnapshot)\n\n**Verify:** npm run test -- --run src/components/quotes/builder/__tests__/section-tnc.test.tsx\n\n```json:metadata\n{\"files\":[\"src/hooks/use-doc-tnc.ts\",\"src/components/quotes/builder/section-commercial.tsx\",\"src/components/quotes/builder/section-tnc.tsx\",\"src/routes/quote-builder.tsx\"],\"verifyCommand\":\"npm run test -- --run src/components/quotes/builder/__tests__/section-tnc.test.tsx && npm run lint && npm run build\",\"acceptanceCriteria\":[\"useCommercialTerms upsert pattern\",\"template radio picker defaulting to is_default\",\"clause omit/include checklist\",\"+ custom clause append\",\"override blob replaces structured\"]}\n```"
     },
