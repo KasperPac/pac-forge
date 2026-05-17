@@ -157,7 +157,7 @@
     {
       "id": 22,
       "subject": "Task 22: Award + mark-lost flows",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [21],
       "description": "**Goal:** Project lifecycle transitions wired to a rev.\n\n**Files:** supabase/migrations/082_pac_quote_award_rpc.sql, src/hooks/use-award-quote.ts, src/routes/quote-view.tsx\n\n**Verify:** npx supabase db push && npm run lint && npm run build\n\n```json:metadata\n{\"files\":[\"supabase/migrations/082_pac_quote_award_rpc.sql\",\"src/hooks/use-award-quote.ts\",\"src/routes/quote-view.tsx\"],\"verifyCommand\":\"npx supabase db push && npm run lint && npm run build\",\"acceptanceCriteria\":[\"award_quote_revision atomically sets rev.status, quote.status, project.stage, project.awarded_quote_id\",\"mark_quote_revision_lost sets quote.status='lost'\",\"issue_quote_revision blocks if project.stage='awarded'\",\"audit log entries for both\"]}\n```"
     },
