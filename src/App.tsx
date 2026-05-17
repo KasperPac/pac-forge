@@ -44,6 +44,7 @@ const SpecSystemOrchestrationPage = lazy(() => import("@/routes/spec-system-orch
 const DashboardPage = lazy(() => import("@/routes/dashboard"));
 const PacAuditPage = lazy(() => import("@/routes/pac-audit"));
 const PacAuditWorkspacePage = lazy(() => import("@/routes/pac-audit-workspace"));
+const QuoteBuilderPage = lazy(() => import("@/routes/quote-builder"));
 
 function LazyRoute({ children }: { children: React.ReactNode }) {
   return (
@@ -73,6 +74,7 @@ const router = createBrowserRouter([
           { path: "pac-audit", element: <LazyRoute><PacAuditPage /></LazyRoute> },
           { path: "pac-audit/:sessionId/workspace", element: <LazyRoute><PacAuditWorkspacePage /></LazyRoute> },
           { path: "projects/:id", element: <LazyRoute><ProjectDetailPage /></LazyRoute> },
+          { path: "quotes/:revId/edit", element: <LazyRoute><QuoteBuilderPage /></LazyRoute> },
           { path: "pac-st", element: <Navigate to="/pac-st/chat" replace /> },
           { path: "pac-st/chat", element: <LazyRoute><PacStPage /></LazyRoute> },
           { path: "pac-st/fb-builder", element: <LazyRoute><FbBuilderPage /></LazyRoute> },
