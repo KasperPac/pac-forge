@@ -59,7 +59,7 @@
     {
       "id": 8,
       "subject": "Task 8: useDocContent polymorphic CRUD",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [7],
       "description": "**Goal:** Typed CRUD factory for polymorphic content tables.\n\n**Files:** src/hooks/use-doc-content.ts, src/hooks/__tests__/use-doc-content.test.ts\n\n**Verify:** npm run test -- --run src/hooks/__tests__/use-doc-content.test.ts\n\n```json:metadata\n{\"files\":[\"src/hooks/use-doc-content.ts\",\"src/hooks/__tests__/use-doc-content.test.ts\"],\"verifyCommand\":\"npm run test -- --run src/hooks/__tests__/use-doc-content.test.ts && npm run lint && npm run build\",\"acceptanceCriteria\":[\"scopeItems/inclusions/exclusions/assumptions/lineItems factories\",\"useCommercialTerms single-row + upsert\",\"keys include parent_type and parent_id\"]}\n```"
     },
