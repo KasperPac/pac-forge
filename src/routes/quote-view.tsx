@@ -1,9 +1,22 @@
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, ExternalLink, FilePlus } from "lucide-react";
+import { ArrowLeft, Award, ExternalLink, FilePlus, XCircle } from "lucide-react";
 import { useQuoteRevision, useQuote, useCloneRevisionAsDraft } from "@/hooks/use-quotes";
 import { useProject } from "@/hooks/use-projects";
 import { useCustomer } from "@/hooks/use-customers";
+import {
+  useAwardQuoteRevision,
+  useMarkRevisionLost,
+} from "@/hooks/use-award-quote";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import type {
@@ -35,6 +48,27 @@ export default function QuoteViewRoute() {
   const { data: project } = useProject(quote?.project_id);
   const { data: customer } = useCustomer(project?.customer_id ?? undefined);
   const clone = useCloneRevisionAsDraft();
+  const award = useAwardQuoteRevision();
+  const markLost = useMarkRevisionLost();
+
+  type ConfirmKind = "award" | "lost" | null;
+  const [confirm, setConfirm] = useState<ConfirmKind>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  async function runConfirm() {
+    if (!revId || !confirm) return;
+    setActionError(null);
+    try {
+      if (confirm === "award") {
+        await award.mutateAsync(revId);
+      } else {
+        await markLost.mutateAsync(revId);
+      }
+      setConfirm(null);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e));
+    }
+  }
 
   // Sign the PDF URL fresh each time the storage key changes; 5-minute TTL.
   // Re-fetch every 4 minutes to keep the iframe alive on long sessions.
@@ -122,10 +156,36 @@ export default function QuoteViewRoute() {
               {project?.project_name ?? project?.job_code ?? "Project"}
               {customer ? ` · ${customer.name}` : ""}
             </div>
+            {rev.status === "issued" && quote?.status === "issued" && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setConfirm("award")}
+                  disabled={award.isPending}
+                  className="inline-flex items-center gap-1 text-xs font-mono px-3 py-1.5 rounded bg-emerald-700 text-white hover:bg-emerald-600 disabled:opacity-50"
+                >
+                  <Award className="h-3 w-3" />
+                  Mark as Awarded
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirm("lost")}
+                  disabled={markLost.isPending}
+                  className="inline-flex items-center gap-1 text-xs font-mono px-3 py-1.5 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-900 disabled:opacity-50"
+                >
+                  <XCircle className="h-3 w-3" />
+                  Mark as Lost
+                </button>
+              </>
+            )}
             <button
               type="button"
               onClick={startNewRevision}
-              disabled={clone.isPending || rev.status !== "issued"}
+              disabled={
+                clone.isPending ||
+                rev.status !== "issued" ||
+                quote?.status === "awarded"
+              }
               className="inline-flex items-center gap-1 text-xs font-mono px-3 py-1.5 rounded bg-[#3050A0] text-white hover:bg-[#3F61B0] disabled:opacity-50"
             >
               <FilePlus className="h-3 w-3" />
@@ -187,6 +247,73 @@ export default function QuoteViewRoute() {
           )}
         </aside>
       </div>
+
+      <Dialog
+        open={confirm !== null}
+        onOpenChange={(next) => {
+          if (!next) {
+            setConfirm(null);
+            setActionError(null);
+          }
+        }}
+      >
+        <DialogContent className="bg-zinc-950 border-zinc-800">
+          <DialogHeader>
+            <DialogTitle className="text-zinc-100">
+              {confirm === "award"
+                ? "Mark this revision as awarded?"
+                : "Mark this revision as lost?"}
+            </DialogTitle>
+            <DialogDescription className="font-mono text-xs text-zinc-400">
+              {confirm === "award"
+                ? "This locks the project to this revision. Other quotes on the project will no longer be issuable."
+                : "This marks the parent quote as lost. The revision itself stays issued for the record."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {actionError && (
+            <div
+              role="alert"
+              className="rounded border border-red-900 bg-red-950/40 p-3 text-xs font-mono text-red-300 whitespace-pre-wrap"
+            >
+              {actionError}
+            </div>
+          )}
+
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => {
+                setConfirm(null);
+                setActionError(null);
+              }}
+              disabled={award.isPending || markLost.isPending}
+              className="text-xs font-mono px-3 py-1.5 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-900 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={runConfirm}
+              disabled={award.isPending || markLost.isPending}
+              className={cn(
+                "text-xs font-mono px-3 py-1.5 rounded text-white disabled:opacity-50",
+                confirm === "award"
+                  ? "bg-emerald-700 hover:bg-emerald-600"
+                  : "bg-zinc-700 hover:bg-zinc-600",
+              )}
+            >
+              {confirm === "award"
+                ? award.isPending
+                  ? "Awarding…"
+                  : "Confirm award"
+                : markLost.isPending
+                  ? "Marking…"
+                  : "Confirm lost"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
