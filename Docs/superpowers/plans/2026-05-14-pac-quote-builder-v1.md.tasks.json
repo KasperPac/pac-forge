@@ -178,7 +178,7 @@
     {
       "id": 25,
       "subject": "Task 25: End-to-end sanity integration test",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [22, 24],
       "description": "**Goal:** Integration test through the real vertical slice with fetch mocked.\n\n**Files:** src/lib/__tests__/issue-flow.integration.test.ts, src/lib/__tests__/quote-snapshot.sanity.test.ts (expanded)\n\n**Verify:** npm run test -- --run\n\n```json:metadata\n{\"files\":[\"src/lib/__tests__/issue-flow.integration.test.ts\",\"src/lib/__tests__/quote-snapshot.sanity.test.ts\"],\"verifyCommand\":\"npm run test -- --run\",\"acceptanceCriteria\":[\"creates customer/project/quote/rev and 1 of each content row\",\"issue mutation flips status to issued\",\"snapshot_json persisted\",\"pdf_storage_key set\",\"issue_audit_log row created\",\"full suite green\"]}\n```"
     }
