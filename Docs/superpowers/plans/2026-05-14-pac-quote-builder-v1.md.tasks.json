@@ -52,7 +52,7 @@
     {
       "id": 7,
       "subject": "Task 7: useQuotes + useQuoteRevisions + clone-as-draft",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [6],
       "description": "**Goal:** Quote and revision CRUD plus clone-from-issued helper.\n\n**Files:** src/hooks/use-quotes.ts, src/hooks/__tests__/use-quotes.test.ts\n\n**Verify:** npm run test -- --run src/hooks/__tests__/use-quotes.test.ts\n\n```json:metadata\n{\"files\":[\"src/hooks/use-quotes.ts\",\"src/hooks/__tests__/use-quotes.test.ts\"],\"verifyCommand\":\"npm run test -- --run src/hooks/__tests__/use-quotes.test.ts && npm run lint && npm run build\",\"acceptanceCriteria\":[\"useQuotesForProject + useQuote + useQuoteRevisions + useQuoteRevision\",\"useCreateQuote also creates initial rev 1 + empty commercial_terms\",\"useCloneRevisionAsDraft copies all polymorphic content rows\",\"clone enforces prev status === issued\"]}\n```"
     },
