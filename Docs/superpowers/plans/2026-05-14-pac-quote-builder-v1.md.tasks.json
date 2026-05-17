@@ -150,7 +150,7 @@
     {
       "id": 21,
       "subject": "Task 21: Read-only issued view + new-revision clone",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [20, 7],
       "description": "**Goal:** Locked view rendered from snapshot_json with PDF iframe from signed Storage URL.\n\n**Files:** src/routes/quote-view.tsx, src/routes/quote-builder.tsx (redirect non-draft), src/App.tsx\n\n**Verify:** npm run lint && npm run build\n\n```json:metadata\n{\"files\":[\"src/routes/quote-view.tsx\",\"src/routes/quote-builder.tsx\",\"src/App.tsx\"],\"verifyCommand\":\"npm run lint && npm run build\",\"acceptanceCriteria\":[\"renders from snapshot_json not live tables\",\"PDF iframe via signed URL (5 min)\",\"Start new revision calls useCloneRevisionAsDraft\",\"builder redirects to view when status !== draft\"]}\n```"
     },
