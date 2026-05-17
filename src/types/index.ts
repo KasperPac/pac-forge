@@ -23,3 +23,4 @@ export * from "./quote";
 export * from "./doc-content";
 export * from "./tnc";
 export * from "./issue-audit";
+export * from "./quote-snapshot";
