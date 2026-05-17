@@ -80,7 +80,7 @@
     {
       "id": 11,
       "subject": "Task 11: Quote totals computation (pure)",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [5],
       "description": "**Goal:** Pure functions for line subtotal, category aggregation, grand total.\n\n**Files:** src/lib/quote-totals.ts, src/lib/__tests__/quote-totals.test.ts\n\n**Verify:** npm run test -- --run src/lib/__tests__/quote-totals.test.ts\n\n```json:metadata\n{\"files\":[\"src/lib/quote-totals.ts\",\"src/lib/__tests__/quote-totals.test.ts\"],\"verifyCommand\":\"npm run test -- --run src/lib/__tests__/quote-totals.test.ts\",\"acceptanceCriteria\":[\"qty*unit_price or hours*rate*multiplier; null when neither fully present\",\"aggregateByCategory has onlyCustomerVisible toggle\",\"grandTotal ignores show flag\"]}\n```"
     },
