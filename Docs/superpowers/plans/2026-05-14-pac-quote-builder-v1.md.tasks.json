@@ -87,7 +87,7 @@
     {
       "id": 12,
       "subject": "Task 12: Pre-issue validation (pure)",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [11],
       "description": "**Goal:** validateForIssue returning structured errors.\n\n**Files:** src/lib/quote-validation.ts, src/lib/__tests__/quote-validation.test.ts\n\n**Verify:** npm run test -- --run src/lib/__tests__/quote-validation.test.ts\n\n```json:metadata\n{\"files\":[\"src/lib/quote-validation.ts\",\"src/lib/__tests__/quote-validation.test.ts\"],\"verifyCommand\":\"npm run test -- --run src/lib/__tests__/quote-validation.test.ts\",\"acceptanceCriteria\":[\"errors for missing customer_id/job_code/project_name/scope/total/tnc/commercial\",\"override blob satisfies tnc requirement\",\"happy path returns ok:true\"]}\n```"
     },
