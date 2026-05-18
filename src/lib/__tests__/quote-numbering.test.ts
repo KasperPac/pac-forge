@@ -3,6 +3,7 @@ import {
   nextQuoteNumber,
   nextRevNumber,
   nextDocNumber,
+  nextVariationNumber,
 } from "@/lib/quote-numbering";
 
 describe("nextQuoteNumber", () => {
@@ -56,5 +57,17 @@ describe("nextDocNumber", () => {
 
   it("returns max+1", () => {
     expect(nextDocNumber([5, 8, 2])).toBe(9);
+  });
+});
+
+describe("nextVariationNumber", () => {
+  it("returns 1 when no variations exist", () => {
+    expect(nextVariationNumber([])).toBe(1);
+  });
+  it("returns max+1 for contiguous list", () => {
+    expect(nextVariationNumber([{ variation_number: 1 }, { variation_number: 2 }])).toBe(3);
+  });
+  it("returns max+1 for gapped list", () => {
+    expect(nextVariationNumber([{ variation_number: 1 }, { variation_number: 3 }])).toBe(4);
   });
 });

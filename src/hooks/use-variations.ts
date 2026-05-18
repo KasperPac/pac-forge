@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { nextVariationNumber } from "@/lib/quote-numbering";
 import type {
   Variation,
   VariationUpdate,
@@ -68,11 +69,7 @@ export function useCreateVariation() {
         .eq("project_id", input.project_id)
         .order("variation_number");
       if (lErr) throw lErr;
-      const next =
-        ((existing as Variation[]) ?? []).reduce(
-          (max, v) => (v.variation_number > max ? v.variation_number : max),
-          0,
-        ) + 1;
+      const next = nextVariationNumber((existing as Variation[]) ?? []);
 
       const { data: varRow, error: vErr } = await supabase
         .from("variations")

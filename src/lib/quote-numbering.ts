@@ -15,3 +15,12 @@ export function nextRevNumber(existing: number[]): number {
 export function nextDocNumber(existing: number[]): number {
   return existing.length ? Math.max(...existing) + 1 : 1;
 }
+
+export function nextVariationNumber(
+  existing: { variation_number: number }[],
+): number {
+  return existing.reduce(
+    (max, v) => (v.variation_number > max ? v.variation_number : max),
+    0,
+  ) + 1;
+}
