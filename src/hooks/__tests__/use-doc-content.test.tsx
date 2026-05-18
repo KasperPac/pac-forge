@@ -12,10 +12,12 @@ type MockRow = Record<string, unknown>;
 
 const insertCalls: Record<string, MockRow[]> = {};
 const upsertCalls: Record<string, MockRow[]> = {};
+const fromCallOrder: string[] = [];
 
 function reset() {
   for (const k of Object.keys(insertCalls)) delete insertCalls[k];
   for (const k of Object.keys(upsertCalls)) delete upsertCalls[k];
+  fromCallOrder.length = 0;
 }
 
 function makeBuilder(table: string) {
@@ -50,7 +52,10 @@ function makeBuilder(table: string) {
 
 vi.mock("@/lib/supabase", () => ({
   supabase: {
-    from: (table: string) => makeBuilder(table),
+    from: (table: string) => {
+      fromCallOrder.push(table);
+      return makeBuilder(table);
+    },
     auth: {
       getUser: vi.fn(() =>
         Promise.resolve({ data: { user: { id: "u1" } } })
@@ -119,5 +124,32 @@ describe("use-doc-content factory", () => {
       parent_id: "rev-1",
       payment_schedule: "30 days",
     });
+  });
+
+  it("delete with parent_type='variation' first deletes the matching citation", async () => {
+    const { result } = renderHook(() => scopeItems.useDelete(), { wrapper });
+    result.current.mutate({
+      id: "scope-row-id",
+      ref: { parent_type: "variation", parent_id: "var-1" },
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    // variation_citations must be accessed before doc_scope_items
+    const citIdx = fromCallOrder.indexOf("variation_citations");
+    const docIdx = fromCallOrder.indexOf("doc_scope_items");
+    expect(citIdx).toBeGreaterThanOrEqual(0);
+    expect(docIdx).toBeGreaterThanOrEqual(0);
+    expect(citIdx).toBeLessThan(docIdx);
+  });
+
+  it("delete with parent_type='quote_revision' does NOT touch variation_citations", async () => {
+    const { result } = renderHook(() => scopeItems.useDelete(), { wrapper });
+    result.current.mutate({
+      id: "scope-row-id",
+      ref: { parent_type: "quote_revision", parent_id: "rev-1" },
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(fromCallOrder).not.toContain("variation_citations");
   });
 });

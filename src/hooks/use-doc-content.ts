@@ -8,6 +8,7 @@ import type {
   DocAssumption,
   DocLineItem,
   DocCommercialTerms,
+  CitationTargetSection,
 } from "@/types";
 
 export type ParentRef = { parent_type: ParentType; parent_id: string };
@@ -19,7 +20,10 @@ function contentKey(
   return ["doc-content", table, ref?.parent_type, ref?.parent_id] as const;
 }
 
-function makeListCrud<T extends { id: string }>(table: string) {
+function makeListCrud<T extends { id: string }>(
+  table: string,
+  targetSection?: CitationTargetSection
+) {
   return {
     useList(ref: ParentRef | undefined) {
       return useQuery({
@@ -87,23 +91,37 @@ function makeListCrud<T extends { id: string }>(table: string) {
       const queryClient = useQueryClient();
       return useMutation({
         mutationFn: async ({ id, ref }: { id: string; ref: ParentRef }) => {
+          if (ref.parent_type === "variation" && targetSection !== undefined) {
+            const { error: citationError } = await supabase
+              .from("variation_citations")
+              .delete()
+              .eq("variation_id", ref.parent_id)
+              .eq("target_section", targetSection)
+              .eq("target_doc_id", id);
+            if (citationError) throw citationError;
+          }
           const { error } = await supabase.from(table).delete().eq("id", id);
           if (error) throw error;
           return ref;
         },
         onSuccess: (ref) => {
           queryClient.invalidateQueries({ queryKey: contentKey(table, ref) });
+          if (ref.parent_type === "variation") {
+            queryClient.invalidateQueries({
+              queryKey: ["variation-citations", ref.parent_id],
+            });
+          }
         },
       });
     },
   };
 }
 
-export const scopeItems = makeListCrud<DocScopeItem>("doc_scope_items");
-export const inclusions = makeListCrud<DocInclusion>("doc_inclusions");
-export const exclusions = makeListCrud<DocExclusion>("doc_exclusions");
-export const assumptions = makeListCrud<DocAssumption>("doc_assumptions");
-export const lineItems = makeListCrud<DocLineItem>("doc_line_items");
+export const scopeItems = makeListCrud<DocScopeItem>("doc_scope_items", "scope");
+export const inclusions = makeListCrud<DocInclusion>("doc_inclusions", "inclusion");
+export const exclusions = makeListCrud<DocExclusion>("doc_exclusions", "exclusion");
+export const assumptions = makeListCrud<DocAssumption>("doc_assumptions", "assumption");
+export const lineItems = makeListCrud<DocLineItem>("doc_line_items", "line_item");
 
 export function useCommercialTerms(ref: ParentRef | undefined) {
   return useQuery({
