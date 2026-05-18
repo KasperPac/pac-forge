@@ -1,5 +1,15 @@
 import type { LineItemCategory } from "./doc-content";
 
+export type SnapshotKind = "quote_revision" | "variation";
+
+export interface SnapshotCitation {
+  target_section: "scope" | "inclusion" | "exclusion" | "assumption" | "line_item";
+  target_doc_id: string;
+  original_text_verbatim: string;
+  revised_text: string;
+  source_label: string;
+}
+
 export interface SnapshotScopeItem {
   title: string;
   body: string | null;
@@ -95,4 +105,6 @@ export interface QuoteSnapshotV1 {
   };
   commercial_terms: SnapshotCommercialTerms | null;
   tnc: SnapshotTnc;
+  kind?: SnapshotKind;
+  citations?: SnapshotCitation[];
 }

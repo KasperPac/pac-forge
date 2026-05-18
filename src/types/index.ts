@@ -24,3 +24,5 @@ export * from "./doc-content";
 export * from "./tnc";
 export * from "./issue-audit";
 export * from "./quote-snapshot";
+export * from "./variation";
+export * from "./variation-citation";
