@@ -11,12 +11,14 @@ export interface SnapshotCitation {
 }
 
 export interface SnapshotScopeItem {
+  id?: string;
   title: string;
   body: string | null;
   ordering: number;
 }
 
 export interface SnapshotAssumption {
+  id?: string;
   title: string | null;
   value: string | null;
   notes: string | null;
@@ -25,6 +27,7 @@ export interface SnapshotAssumption {
 }
 
 export interface SnapshotLineItem {
+  id?: string;
   category: LineItemCategory;
   description: string;
   qty: number | null;

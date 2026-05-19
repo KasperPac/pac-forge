@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildSnapshot, type BuildSnapshotInput } from "@/lib/quote-snapshot";
+import type { VariationCitation } from "@/types";
 import type { Project } from "@/types";
 
 function baseInput(): BuildSnapshotInput {
@@ -276,5 +277,122 @@ describe("buildSnapshot — determinism", () => {
     const a = JSON.stringify(buildSnapshot(baseInput()));
     const b = JSON.stringify(buildSnapshot(baseInput()));
     expect(a).toBe(b);
+  });
+});
+
+describe("buildSnapshot — variation kind", () => {
+  it("includes kind='variation', citations[], and item ids when kind='variation'", () => {
+    const scopeRow = {
+      id: "s-1",
+      parent_type: "variation" as const,
+      parent_id: "v-1",
+      title: "Revised cabinet build",
+      body: "Extra panel.",
+      ordering: 0,
+      created_at: "2026-05-18T00:00:00Z",
+      updated_at: "2026-05-18T00:00:00Z",
+    };
+    const lineItemRow = {
+      id: "l-1",
+      parent_type: "variation" as const,
+      parent_id: "v-1",
+      category: "labour" as const,
+      description: "Lead engineer",
+      qty: null,
+      unit: null,
+      unit_price: null,
+      hours: "40",
+      hour_rate: "185",
+      hour_rate_multiplier: "1",
+      subtotal: null,
+      show_in_customer_doc: true,
+      customer_doc_label: "Engineering labour",
+      ordering: 0,
+      created_at: "2026-05-18T00:00:00Z",
+      updated_at: "2026-05-18T00:00:00Z",
+    };
+    const scopeCitation: VariationCitation = {
+      id: "vc-1",
+      variation_id: "v-1",
+      target_section: "scope",
+      target_doc_id: "s-1",
+      source_kind: "quote_revision",
+      source_id: "r-1",
+      source_section: "scope",
+      source_item_id: "src-1",
+      original_text_verbatim: "Original cabinet build",
+      created_at: "2026-05-18T00:00:00Z",
+    };
+    const lineItemCitation: VariationCitation = {
+      id: "vc-2",
+      variation_id: "v-1",
+      target_section: "line_item",
+      target_doc_id: "l-1",
+      source_kind: "quote_revision",
+      source_id: "r-1",
+      source_section: "line_item",
+      source_item_id: "src-l-1",
+      original_text_verbatim: "Original engineering labour",
+      created_at: "2026-05-18T00:00:00Z",
+    };
+    const snap = buildSnapshot({
+      rev: { id: "v-1", quote_id: "q-1", rev_number: 1, status: "draft", summary: null, issued_at: null, issued_by: null, snapshot_json: null, pdf_storage_key: null, dropbox_content_hash: null, created_at: "", updated_at: "", created_by: null },
+      quote: { id: "q-1", project_id: "p-1", number: "CVL-2129-V01", status: "draft", created_at: "", updated_at: "", created_by: null },
+      project: { id: "p-1", job_code: "CVL-2129", project_name: "Infeed", customer_id: "c-1", stage: "awarded", awarded_quote_id: null } as never,
+      customer: { id: "c-1", name: "Conveyor Logistics", display_code: "CVL" } as never,
+      issued_at: "2026-05-18T00:00:00Z",
+      issued_by_email: null,
+      scope: [scopeRow],
+      inclusions: [],
+      exclusions: [],
+      assumptions: [],
+      line_items: [lineItemRow],
+      commercial: null,
+      tnc: null,
+      kind: "variation",
+      citations: [
+        { row: scopeCitation, source_label: "CVL-2129-Q01 Rev 1, item 1" },
+        { row: lineItemCitation, source_label: "CVL-2129-Q01 Rev 1, item 2" },
+      ],
+    });
+
+    expect(snap.kind).toBe("variation");
+    expect(snap.citations).toHaveLength(2);
+
+    const sc = snap.citations![0];
+    expect(sc.target_section).toBe("scope");
+    expect(sc.target_doc_id).toBe("s-1");
+    expect(sc.original_text_verbatim).toBe("Original cabinet build");
+    expect(sc.revised_text).toBe("Revised cabinet build\n\nExtra panel.");
+    expect(sc.source_label).toBe("CVL-2129-Q01 Rev 1, item 1");
+
+    const lc = snap.citations![1];
+    expect(lc.target_section).toBe("line_item");
+    expect(lc.revised_text).toBe("Engineering labour");
+    expect(lc.source_label).toBe("CVL-2129-Q01 Rev 1, item 2");
+
+    expect(snap.scope[0].id).toBe("s-1");
+    expect(snap.line_items[0].id).toBe("l-1");
+  });
+
+  it("omits kind and citations, and does not add id to items when no kind is provided (back-compat)", () => {
+    const snap = buildSnapshot({
+      rev: { id: "r-1", quote_id: "q-1", rev_number: 1, status: "draft", summary: null, issued_at: null, issued_by: null, snapshot_json: null, pdf_storage_key: null, dropbox_content_hash: null, created_at: "", updated_at: "", created_by: null },
+      quote: { id: "q-1", project_id: "p-1", number: "X", status: "draft", created_at: "", updated_at: "", created_by: null },
+      project: { id: "p-1", job_code: "X", project_name: "X", customer_id: "c-1", stage: "quoting", awarded_quote_id: null } as never,
+      customer: { id: "c-1", name: "X", display_code: "X" } as never,
+      issued_at: "2026-05-18T00:00:00Z",
+      issued_by_email: null,
+      scope: [{ id: "s-99", parent_type: "quote_revision", parent_id: "r-1", title: "Existing scope", body: null, ordering: 0, created_at: "", updated_at: "" }],
+      inclusions: [],
+      exclusions: [],
+      assumptions: [],
+      line_items: [],
+      commercial: null,
+      tnc: null,
+    });
+    expect(snap.kind).toBeUndefined();
+    expect(snap.citations).toBeUndefined();
+    expect(snap.scope[0].id).toBeUndefined();
   });
 });

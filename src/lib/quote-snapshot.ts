@@ -17,12 +17,21 @@ import type {
   SnapshotLineItem,
   SnapshotPricingPresentation,
   SnapshotTnc,
+  SnapshotCitation,
+  SnapshotKind,
+  CitationTargetSection,
+  VariationCitation,
 } from "@/types";
 
 export type BuildSnapshotTnc =
   | { template: TncTemplate; clauses: TncClause[]; selection: DocTncSelection }
   | { override: DocTncOverride }
   | null;
+
+export interface BuildSnapshotCitation {
+  row: VariationCitation;
+  source_label: string;
+}
 
 export interface BuildSnapshotInput {
   rev: QuoteRevision;
@@ -39,6 +48,8 @@ export interface BuildSnapshotInput {
   commercial: DocCommercialTerms | null;
   tnc: BuildSnapshotTnc;
   pricing_presentation?: SnapshotPricingPresentation;
+  kind?: SnapshotKind;
+  citations?: BuildSnapshotCitation[];
 }
 
 function toNum(value: string | null | undefined): number | null {
@@ -75,8 +86,9 @@ function buildClauses(
   return [...kept, ...customs];
 }
 
-function buildLineItem(li: DocLineItem): SnapshotLineItem {
+function buildLineItem(li: DocLineItem, includeId = false): SnapshotLineItem {
   return {
+    ...(includeId ? { id: li.id } : {}),
     category: li.category,
     description: li.description,
     qty: toNum(li.qty),
@@ -90,6 +102,39 @@ function buildLineItem(li: DocLineItem): SnapshotLineItem {
     customer_doc_label: li.customer_doc_label,
     ordering: li.ordering,
   };
+}
+
+function pickRowText(
+  section: CitationTargetSection,
+  doc_id: string,
+  input: BuildSnapshotInput,
+): string {
+  const join = (title: string, body: string | null | undefined) =>
+    body ? `${title}\n\n${body}` : title;
+  switch (section) {
+    case "scope": {
+      const r = input.scope.find((x) => x.id === doc_id);
+      return r ? join(r.title, r.body) : "";
+    }
+    case "inclusion": {
+      const r = input.inclusions.find((x) => x.id === doc_id);
+      return r ? join(r.title, r.body) : "";
+    }
+    case "exclusion": {
+      const r = input.exclusions.find((x) => x.id === doc_id);
+      return r ? join(r.title, r.body) : "";
+    }
+    case "assumption": {
+      const r = input.assumptions.find((x) => x.id === doc_id);
+      if (!r) return "";
+      const parts = [r.title, r.value, r.notes].filter(Boolean) as string[];
+      return parts.join(" — ");
+    }
+    case "line_item": {
+      const r = input.line_items.find((x) => x.id === doc_id);
+      return r ? r.customer_doc_label ?? r.description : "";
+    }
+  }
 }
 
 function buildTnc(tnc: BuildSnapshotTnc): SnapshotTnc {
@@ -106,19 +151,33 @@ function buildTnc(tnc: BuildSnapshotTnc): SnapshotTnc {
 }
 
 export function buildSnapshot(input: BuildSnapshotInput): QuoteSnapshotV1 {
-  const scope = sortByOrdering(input.scope).map(({ title, body, ordering }) => ({
+  const isVariation = input.kind === "variation";
+
+  const scope = sortByOrdering(input.scope).map(({ id, title, body, ordering }) => ({
+    ...(isVariation ? { id } : {}),
     title,
     body,
     ordering,
   }));
   const inclusions = sortByOrdering(input.inclusions).map(
-    ({ title, body, ordering }) => ({ title, body, ordering })
+    ({ id, title, body, ordering }) => ({
+      ...(isVariation ? { id } : {}),
+      title,
+      body,
+      ordering,
+    })
   );
   const exclusions = sortByOrdering(input.exclusions).map(
-    ({ title, body, ordering }) => ({ title, body, ordering })
+    ({ id, title, body, ordering }) => ({
+      ...(isVariation ? { id } : {}),
+      title,
+      body,
+      ordering,
+    })
   );
   const assumptions = sortByOrdering(input.assumptions).map(
-    ({ title, value, notes, ordering, assumption_key }) => ({
+    ({ id, title, value, notes, ordering, assumption_key }) => ({
+      ...(isVariation ? { id } : {}),
       title,
       value,
       notes,
@@ -127,9 +186,11 @@ export function buildSnapshot(input: BuildSnapshotInput): QuoteSnapshotV1 {
     })
   );
 
-  const line_items = sortByOrdering(input.line_items).map(buildLineItem);
+  const line_items = sortByOrdering(input.line_items).map((li) =>
+    buildLineItem(li, isVariation)
+  );
 
-  return {
+  const base: QuoteSnapshotV1 = {
     schema_version: 1,
     quote_number: input.quote.number,
     rev_number: input.rev.rev_number,
@@ -174,4 +235,19 @@ export function buildSnapshot(input: BuildSnapshotInput): QuoteSnapshotV1 {
       : null,
     tnc: buildTnc(input.tnc),
   };
+
+  if (isVariation) {
+    const snapshotCitations: SnapshotCitation[] = (input.citations ?? []).map(
+      ({ row, source_label }) => ({
+        target_section: row.target_section,
+        target_doc_id: row.target_doc_id,
+        original_text_verbatim: row.original_text_verbatim ?? "",
+        revised_text: pickRowText(row.target_section, row.target_doc_id, input),
+        source_label,
+      })
+    );
+    return { ...base, kind: "variation", citations: snapshotCitations };
+  }
+
+  return base;
 }
