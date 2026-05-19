@@ -26,9 +26,10 @@ The two templates share most clauses but T&M adds four billing-protection clause
 - Payment: 40% deposit / 50% on delivery / 10% on commissioning sign-off
 - IP: project code transfers on full payment; Pac libraries stay Pac with perpetual royalty-free site licence
 - Warranty: 12 months from handover
-- Governing law: Queensland
-- SOPA: Building Industry Fairness (Security of Payment) Act 2017 (Qld)
-- Hours: 0700–1800 Mon–Fri, excluding QLD public holidays
+- Office locations: Brisbane (head office) and Melbourne
+- Governing law: Queensland (single governing law regardless of work state)
+- SOPA: state-of-work flexible (QLD *Building Industry Fairness Act 2017* or Vic *Building and Construction Industry Security of Payment Act 2002*)
+- Hours: 0700–1800 Mon–Fri, excluding public holidays at the work location
 - Template shape: tiered (main terms + appendix)
 
 **Research notes:**
@@ -62,7 +63,7 @@ Quotation prices are exclusive of GST and valid for 30 days from the issue date 
 - **50%** on delivery of the software or installed works;
 - **10%** retention, payable on Customer's written acceptance of commissioning.
 
-Each invoice is a payment claim made under the *Building Industry Fairness (Security of Payment) Act 2017 (Qld)*. Payment terms are 30 calendar days from the date of invoice. Overdue amounts attract interest at the Reserve Bank of Australia cash rate plus 4% per annum, calculated daily and compounded monthly.
+Each invoice is a payment claim made under the applicable Security of Payment legislation in the state where the work was performed (the *Building Industry Fairness (Security of Payment) Act 2017 (Qld)* for work performed in Queensland, or the *Building and Construction Industry Security of Payment Act 2002 (Vic)* for work performed in Victoria). Payment terms are 30 calendar days from the date of invoice. Overdue amounts attract interest at the Reserve Bank of Australia cash rate plus 4% per annum, calculated daily and compounded monthly.
 
 #### 3 — Programme and Acceptance
 
@@ -72,7 +73,9 @@ Acceptance occurs at the earlier of (a) Customer's written sign-off of factory a
 
 #### 4 — Hours of Work
 
-Pricing is based on work performed during business hours: **0700–1800 Monday to Friday, excluding Queensland public holidays**. Work outside these hours, including overnight commissioning, weekend shutdowns, and public holidays, requires written approval and is billed at the agreed out-of-hours rate captured in a variation under clause 1.
+Pricing is based on work performed during business hours: **0700–1800 Monday to Friday, excluding public holidays applicable at the work location**. Work outside these hours, including overnight commissioning, weekend shutdowns, and public holidays, requires written approval and is billed at the agreed out-of-hours rate captured in a variation under clause 1.
+
+Where engineers based in different states (Pac has offices in Brisbane and Melbourne) work on the same engagement, the public holidays of the state in which each engineer is physically working apply to that engineer's time.
 
 If the Customer requires out-of-hours work as part of the original engagement, this must be specified in the quotation and is priced accordingly.
 
@@ -189,7 +192,7 @@ Rates set out in the quotation apply to engineering hours billed in 30-minute in
 
 #### 2 — Payment Terms (replaces Fixed Price clause 2)
 
-Pac invoices monthly in arrears, with a detailed time-sheet attached to each invoice. Each invoice is a payment claim made under the *Building Industry Fairness (Security of Payment) Act 2017 (Qld)*. Payment terms are 30 calendar days from the date of invoice. Overdue amounts attract interest at the Reserve Bank of Australia cash rate plus 4% per annum, calculated daily and compounded monthly.
+Pac invoices monthly in arrears, with a detailed time-sheet attached to each invoice. Each invoice is a payment claim made under the applicable Security of Payment legislation in the state where the work was performed (the *Building Industry Fairness (Security of Payment) Act 2017 (Qld)* for work performed in Queensland, or the *Building and Construction Industry Security of Payment Act 2002 (Vic)* for work performed in Victoria). Payment terms are 30 calendar days from the date of invoice. Overdue amounts attract interest at the Reserve Bank of Australia cash rate plus 4% per annum, calculated daily and compounded monthly.
 
 The Customer may set a written cap on cumulative spend; Pac will not exceed the cap without prior written approval.
 
@@ -197,7 +200,7 @@ The Customer may set a written cap on cumulative spend; Pac will not exceed the 
 
 #### 9 — Travel Time and Expenses
 
-Travel time to and from site is **billable at standard engineering rates**. Travel to and from Brisbane CBD is excluded for the first 30 minutes each way; beyond that, full rates apply.
+Travel time to and from site is **billable at standard engineering rates**. Travel from Pac's office locations (**Brisbane CBD or Melbourne CBD**, whichever is closest to the assigned engineer's home base) is excluded for the first 30 minutes each way; beyond that, full rates apply.
 
 Airfares, accommodation, hire vehicles, fuel, parking, tolls, meals, and other reasonable travel expenses are billed **at cost plus a 10% administrative margin**.
 
@@ -255,7 +258,8 @@ Alternative path: a one-off SQL seed migration. If the user prefers, an implemen
 
 - **Resolution Institute** is the default mediation administrator. Confirm Pac is happy with this vs. RICS or ad-hoc.
 - **Insurance limits** — $5M PI / $20M PL are typical for AU SI subs; confirm these match Pac's actual policy.
-- **Travel time exemption for Brisbane CBD** is set to first 30 minutes each way. Confirm this matches Pac's existing practice, or strike it.
+- **Travel time exemption** is set to the first 30 minutes from Brisbane CBD or Melbourne CBD (whichever is closest to the assigned engineer). Confirm this matches Pac's existing practice, or strike it.
+- **Governing law stays QLD** even for work performed by the Melbourne office. If the user prefers governing law to follow the office serving the customer, the dispute resolution clause needs splitting per template variant — flag if so.
 - **Late-payment interest** is set to RBA cash rate + 4%. Confirm or change to a fixed rate.
 - **Materials margin** is 10%. Confirm or change.
 
