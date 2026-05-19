@@ -209,3 +209,65 @@ table.line-items tfoot td {
   font-weight: 600;
   margin-bottom: 2px;
 }
+
+/* ----- Amends callout (variations) ----- */
+.amends {
+  margin: 12px 0;
+  padding: 12px;
+  background: var(--pac-blue-100);
+  border-left: 3px solid var(--pac-blue-600);
+  border-radius: 0 4px 4px 0;
+  page-break-inside: avoid;
+}
+
+.amends-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--pac-blue-700);
+  margin-bottom: 8px;
+}
+
+.amends-original,
+.amends-revised {
+  margin: 4px 0;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.amends-tag {
+  flex: 0 0 60px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  background: var(--pac-blue-200);
+  color: var(--pac-blue-800);
+  padding: 1px 6px;
+  border-radius: 3px;
+  text-align: center;
+  letter-spacing: 0.06em;
+  margin-top: 2px;
+}
+
+.amends-tag-revised {
+  background: var(--pac-blue-600);
+  color: white;
+}
+
+.amends-body {
+  flex: 1;
+  font-size: 11px;
+  color: var(--pac-ink-700);
+}
+
+.amends-body p {
+  margin: 0 0 4px 0;
+}
+
+tr.amends-row > td {
+  background: transparent;
+  padding: 0;
+  border: none;
+}

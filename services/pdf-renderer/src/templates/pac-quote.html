@@ -17,7 +17,11 @@
     {{> header}}
 
     <section class="cover-block">
-      <div class="tag">Quotation</div>
+      {{#if (eq snapshot.kind "variation")}}
+        <div class="tag">Variation V{{snapshot.rev_number}}</div>
+      {{else}}
+        <div class="tag">Quotation</div>
+      {{/if}}
       <h1>{{snapshot.project.project_name}}</h1>
       <div class="project-line">{{snapshot.project.job_code}}</div>
       <div class="customer-line">Prepared for {{snapshot.project.customer.name}}</div>
@@ -34,6 +38,9 @@
       <section class="section">
         <h2 class="section-title">Scope of Work</h2>
         {{#each snapshot.scope}}
+          {{#with (citationFor "scope" this.id) as |c|}}
+            {{#if c}}{{> amends c}}{{/if}}
+          {{/with}}
           <div class="scope-item">
             <div class="scope-title">{{this.title}}</div>
             {{#if this.body}}<div class="scope-body">{{markdown this.body}}</div>{{/if}}
@@ -47,6 +54,9 @@
         <h2 class="section-title">Inclusions</h2>
         <ul class="list-tight">
           {{#each snapshot.inclusions}}
+            {{#with (citationFor "inclusion" this.id) as |c|}}
+              {{#if c}}{{> amends c}}{{/if}}
+            {{/with}}
             <li>
               <strong>{{this.title}}</strong>
               {{#if this.body}}<div class="scope-body">{{markdown this.body}}</div>{{/if}}
@@ -61,6 +71,9 @@
         <h2 class="section-title">Exclusions</h2>
         <ul class="list-tight">
           {{#each snapshot.exclusions}}
+            {{#with (citationFor "exclusion" this.id) as |c|}}
+              {{#if c}}{{> amends c}}{{/if}}
+            {{/with}}
             <li>
               <strong>{{this.title}}</strong>
               {{#if this.body}}<div class="scope-body">{{markdown this.body}}</div>{{/if}}
@@ -75,6 +88,9 @@
         <h2 class="section-title">Assumptions</h2>
         <ul class="list-tight">
           {{#each snapshot.assumptions}}
+            {{#with (citationFor "assumption" this.id) as |c|}}
+              {{#if c}}{{> amends c}}{{/if}}
+            {{/with}}
             <li>
               {{#if this.title}}<strong>{{this.title}}</strong>{{/if}}
               {{#if this.value}} — {{this.value}}{{/if}}
@@ -125,6 +141,13 @@
             <tbody>
               {{#each snapshot.line_items}}
                 {{#if this.show_in_customer_doc}}
+                  {{#with (citationFor "line_item" this.id) as |c|}}
+                    {{#if c}}
+                      <tr class="amends-row">
+                        <td colspan="99">{{> amends c}}</td>
+                      </tr>
+                    {{/if}}
+                  {{/with}}
                   <tr>
                     <td>{{this.category}}</td>
                     <td>

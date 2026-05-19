@@ -29,6 +29,24 @@ Handlebars.registerHelper("displayDate", (iso: unknown) => {
 
 Handlebars.registerHelper("eq", (a: unknown, b: unknown) => a === b);
 
+Handlebars.registerHelper(
+  "citationFor",
+  function (section: string, id: unknown, options: Handlebars.HelperOptions) {
+    if (typeof id !== "string" || !id) return undefined;
+    const root = options.data?.root as
+      | {
+          snapshot?: {
+            citations?: Array<{ target_section: string; target_doc_id: string }>;
+          };
+        }
+      | undefined;
+    const citations = root?.snapshot?.citations ?? [];
+    return citations.find(
+      (c) => c.target_section === section && c.target_doc_id === id,
+    );
+  },
+);
+
 Handlebars.registerHelper("markdown", (text: unknown) => {
   if (typeof text !== "string" || !text) return "";
   const escaped = text
@@ -55,6 +73,10 @@ async function getTemplate(): Promise<HandlebarsTemplateDelegate> {
   Handlebars.registerPartial(
     "signature",
     await readFile(resolve(tplDir, "partials/_signature.html"), "utf8"),
+  );
+  Handlebars.registerPartial(
+    "amends",
+    await readFile(resolve(tplDir, "partials/_amends.html"), "utf8"),
   );
   const html = await readFile(resolve(tplDir, "pac-quote.html"), "utf8");
   cachedTemplate = Handlebars.compile(html, { noEscape: false });

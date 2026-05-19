@@ -186,6 +186,72 @@ describe("renderSnapshotToHtml", () => {
     expect(html).toContain("Validity");
     expect(html).toContain('class="clause-number">2</span>');
   });
+
+  it("renders an Amends callout above a cited scope row for a variation snapshot", async () => {
+    const variationSnapshot = {
+      schema_version: 1 as const,
+      kind: "variation" as const,
+      quote_number: "CVL-2129-V01",
+      rev_number: 1,
+      issued_at: "2026-05-18T00:00:00.000Z",
+      issued_by_email: null,
+      project: {
+        job_code: "CVL-2129",
+        project_name: "Infeed Conveyor Replacement",
+        customer: {
+          id: "c-1",
+          name: "Conveyor Logistics Pty Ltd",
+          display_code: "CVL",
+        },
+      },
+      pricing_presentation: {
+        show_pricing_breakdown_detail: "subtotal_only" as const,
+        show_executive_summary: false,
+      },
+      summary: null,
+      scope: [
+        {
+          id: "s-1",
+          title: "Revised cabinet build",
+          body: null,
+          ordering: 0,
+        },
+      ],
+      inclusions: [],
+      exclusions: [],
+      assumptions: [],
+      line_items: [],
+      totals: {
+        grand_total: 0,
+        by_category: [],
+        by_category_customer_visible: [],
+      },
+      commercial_terms: null,
+      tnc: null,
+      citations: [
+        {
+          target_section: "scope",
+          target_doc_id: "s-1",
+          original_text_verbatim: "Original cabinet build",
+          revised_text: "Revised cabinet build",
+          source_label: "CVL-2129-Q01 Rev 1, item 1",
+        },
+      ],
+    };
+    const html = await renderSnapshotToHtml(variationSnapshot);
+    expect(html).toContain('class="amends"');
+    expect(html).toContain("Amends CVL-2129-Q01 Rev 1, item 1");
+    expect(html).toContain("Original cabinet build");
+    expect(html).toContain("Variation V1 to CVL-2129");
+    expect(html).toContain("Variation V1</div>");
+  });
+
+  it("does not render Amends or variation header for a quote_revision snapshot", async () => {
+    const html = await renderSnapshotToHtml(baseFixture);
+    expect(html).not.toContain('class="amends"');
+    expect(html).not.toContain("Variation V");
+    expect(html).toContain(">Quotation<");
+  });
 });
 
 const hasChromium = !!process.env.CHROMIUM_PATH;
