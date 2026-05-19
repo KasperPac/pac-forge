@@ -1,32 +1,49 @@
 import { useState } from "react";
-import { useParams } from "react-router";
 import { Plus } from "lucide-react";
-import { assumptions, type ParentRef } from "@/hooks/use-doc-content";
+import { assumptions } from "@/hooks/use-doc-content";
 import { useAssumptionLibrary } from "@/hooks/use-assumption-library";
 import { OrderedListEditor } from "./_ordered-list-editor";
+import {
+  useCitationsForVariation,
+  useDeleteCitation,
+} from "@/hooks/use-variation-citations";
+import { useVariationBuilderCtx } from "./variation-builder-context";
+import { useBuilderParentRef } from "./use-builder-parent-ref";
+import { CiteOriginalButton } from "./cite-original-button";
+import { AmendsBanner } from "./amends-banner";
+import { CitationPickerDialog } from "./citation-picker-dialog";
 import type { DocAssumption } from "@/types";
 
 export function SectionAssumptions() {
-  const { revId } = useParams<{ revId: string }>();
-  const ref: ParentRef = {
-    parent_type: "quote_revision",
-    parent_id: revId ?? "",
-  };
+  const ref = useBuilderParentRef();
+  const variation = useVariationBuilderCtx();
 
-  const { data: rows = [] } = assumptions.useList(revId ? ref : undefined);
+  const { data: rows = [] } = assumptions.useList(ref ?? undefined);
   const { data: library = [] } = useAssumptionLibrary();
   const create = assumptions.useCreate();
   const update = assumptions.useUpdate();
   const remove = assumptions.useDelete();
 
+  const { data: citations = [] } = useCitationsForVariation(
+    variation?.variationId,
+  );
+  const removeCitation = useDeleteCitation();
+
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [citePickerRowId, setCitePickerRowId] = useState<string | null>(null);
   const isPending = create.isPending || update.isPending || remove.isPending;
   const usedKeys = new Set(
     rows.map((r) => r.assumption_key).filter((k): k is string => !!k),
   );
 
+  function citationFor(rowId: string) {
+    return citations.find(
+      (c) => c.target_section === "assumption" && c.target_doc_id === rowId,
+    );
+  }
+
   function addFromLibrary(entryId: string) {
-    if (!revId) return;
+    if (!ref) return;
     const entry = library.find((e) => e.id === entryId);
     if (!entry) return;
     create.mutate({
@@ -41,7 +58,7 @@ export function SectionAssumptions() {
   }
 
   function addFreeform() {
-    if (!revId) return;
+    if (!ref) return;
     create.mutate({
       ...ref,
       assumption_key: null,
@@ -63,64 +80,115 @@ export function SectionAssumptions() {
         rows={rows}
         isPending={isPending}
         onAdd={() => setPickerOpen((v) => !v)}
-        onDelete={(row) => remove.mutate({ id: row.id, ref })}
+        onDelete={(row) => {
+          if (!ref) return;
+          remove.mutate({ id: row.id, ref });
+        }}
         onSwap={(a, b) => {
+          if (!ref) return;
           update.mutate({ id: a.id, updates: { ordering: b.ordering }, ref });
           update.mutate({ id: b.id, updates: { ordering: a.ordering }, ref });
         }}
-        renderRow={(row) => (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
+        renderRow={(row) => {
+          const cite = variation ? citationFor(row.id) : undefined;
+          return (
+            <div className="space-y-2">
+              {variation && cite && (
+                <AmendsBanner citation={cite} sourceLabel="(source)" />
+              )}
+              {variation && (
+                <div className="flex justify-end">
+                  <CiteOriginalButton
+                    variationId={variation.variationId}
+                    targetSection="assumption"
+                    targetDocId={row.id}
+                    hasCitation={!!cite}
+                    onClick={() => setCitePickerRowId(row.id)}
+                    onClear={() => {
+                      if (cite)
+                        removeCitation.mutate({
+                          id: cite.id,
+                          variation_id: variation.variationId,
+                        });
+                    }}
+                  />
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <input
+                  aria-label="Assumption title"
+                  defaultValue={row.title ?? ""}
+                  placeholder="Title"
+                  className="flex-1 bg-transparent border-b border-zinc-700 focus:border-[#3050A0] text-sm text-zinc-100 py-1 outline-none"
+                  onBlur={(e) => {
+                    if (!ref) return;
+                    const next = e.target.value === "" ? null : e.target.value;
+                    if (next !== row.title) {
+                      update.mutate({
+                        id: row.id,
+                        updates: { title: next },
+                        ref,
+                      });
+                    }
+                  }}
+                />
+                {row.assumption_key ? (
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 px-2 py-0.5 rounded bg-zinc-950 border border-zinc-800">
+                    {row.assumption_key}
+                  </span>
+                ) : null}
+              </div>
               <input
-                aria-label="Assumption title"
-                defaultValue={row.title ?? ""}
-                placeholder="Title"
-                className="flex-1 bg-transparent border-b border-zinc-700 focus:border-[#3050A0] text-sm text-zinc-100 py-1 outline-none"
+                aria-label="Assumption value"
+                defaultValue={row.value ?? ""}
+                placeholder="Value (e.g. 415V 3-phase supply)"
+                className="w-full bg-zinc-950 border border-zinc-800 rounded p-2 text-xs font-mono text-zinc-300 focus:border-[#3050A0] outline-none"
                 onBlur={(e) => {
+                  if (!ref) return;
                   const next = e.target.value === "" ? null : e.target.value;
-                  if (next !== row.title) {
+                  if (next !== row.value) {
                     update.mutate({
                       id: row.id,
-                      updates: { title: next },
+                      updates: { value: next },
                       ref,
                     });
                   }
                 }}
               />
-              {row.assumption_key ? (
-                <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 px-2 py-0.5 rounded bg-zinc-950 border border-zinc-800">
-                  {row.assumption_key}
-                </span>
-              ) : null}
+              <textarea
+                aria-label="Notes"
+                defaultValue={row.notes ?? ""}
+                placeholder="Optional notes…"
+                rows={2}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded p-2 text-xs font-mono text-zinc-400 focus:border-[#3050A0] outline-none"
+                onBlur={(e) => {
+                  if (!ref) return;
+                  const next = e.target.value === "" ? null : e.target.value;
+                  if (next !== row.notes) {
+                    update.mutate({
+                      id: row.id,
+                      updates: { notes: next },
+                      ref,
+                    });
+                  }
+                }}
+              />
             </div>
-            <input
-              aria-label="Assumption value"
-              defaultValue={row.value ?? ""}
-              placeholder="Value (e.g. 415V 3-phase supply)"
-              className="w-full bg-zinc-950 border border-zinc-800 rounded p-2 text-xs font-mono text-zinc-300 focus:border-[#3050A0] outline-none"
-              onBlur={(e) => {
-                const next = e.target.value === "" ? null : e.target.value;
-                if (next !== row.value) {
-                  update.mutate({ id: row.id, updates: { value: next }, ref });
-                }
-              }}
-            />
-            <textarea
-              aria-label="Notes"
-              defaultValue={row.notes ?? ""}
-              placeholder="Optional notes…"
-              rows={2}
-              className="w-full bg-zinc-950 border border-zinc-800 rounded p-2 text-xs font-mono text-zinc-400 focus:border-[#3050A0] outline-none"
-              onBlur={(e) => {
-                const next = e.target.value === "" ? null : e.target.value;
-                if (next !== row.notes) {
-                  update.mutate({ id: row.id, updates: { notes: next }, ref });
-                }
-              }}
-            />
-          </div>
-        )}
+          );
+        }}
       />
+
+      {variation && citePickerRowId && (
+        <CitationPickerDialog
+          open
+          onOpenChange={(o) => !o && setCitePickerRowId(null)}
+          variationId={variation.variationId}
+          projectId={variation.projectId}
+          targetSection="assumption"
+          targetDocId={citePickerRowId}
+          onCreated={() => setCitePickerRowId(null)}
+        />
+      )}
 
       {pickerOpen && (
         <div className="rounded-md border border-zinc-800 bg-zinc-900 p-4 space-y-3">

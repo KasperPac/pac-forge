@@ -10,6 +10,7 @@ export function SectionScope() {
       emptyHint="No scope items yet. Add what you're delivering."
       addLabel="Add scope item"
       defaultTitle="New scope item"
+      targetSection="scope"
     />
   );
 }

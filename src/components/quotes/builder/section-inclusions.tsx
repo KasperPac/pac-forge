@@ -10,6 +10,7 @@ export function SectionInclusions() {
       emptyHint="No inclusions yet. Add what is explicitly included."
       addLabel="Add inclusion"
       defaultTitle="New inclusion"
+      targetSection="inclusion"
     />
   );
 }

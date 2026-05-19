@@ -1,9 +1,6 @@
-import { useParams } from "react-router";
+import { Fragment, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
-import {
-  lineItems,
-  type ParentRef,
-} from "@/hooks/use-doc-content";
+import { lineItems } from "@/hooks/use-doc-content";
 import { computeLineSubtotal } from "@/lib/quote-totals";
 import {
   LINE_ITEM_CATEGORIES,
@@ -15,6 +12,15 @@ import type {
   LineItemCategory,
 } from "@/types";
 import { cn } from "@/lib/utils";
+import {
+  useCitationsForVariation,
+  useDeleteCitation,
+} from "@/hooks/use-variation-citations";
+import { useVariationBuilderCtx } from "./variation-builder-context";
+import { useBuilderParentRef } from "./use-builder-parent-ref";
+import { CiteOriginalButton } from "./cite-original-button";
+import { AmendsBanner } from "./amends-banner";
+import { CitationPickerDialog } from "./citation-picker-dialog";
 
 type CalcMode = "qty" | "hours";
 
@@ -43,22 +49,25 @@ function parseNumeric(value: string): string | null {
 }
 
 export function SectionLineItems() {
-  const { revId } = useParams<{ revId: string }>();
-  const ref: ParentRef = {
-    parent_type: "quote_revision",
-    parent_id: revId ?? "",
-  };
+  const ref = useBuilderParentRef();
+  const variation = useVariationBuilderCtx();
 
-  const { data: rows = [] } = lineItems.useList(revId ? ref : undefined);
+  const { data: rows = [] } = lineItems.useList(ref ?? undefined);
   const create = lineItems.useCreate();
   const update = lineItems.useUpdate();
   const remove = lineItems.useDelete();
+
+  const { data: citations = [] } = useCitationsForVariation(
+    variation?.variationId,
+  );
+  const removeCitation = useDeleteCitation();
+  const [citePickerRowId, setCitePickerRowId] = useState<string | null>(null);
 
   const isPending = create.isPending || update.isPending || remove.isPending;
   const sorted = [...rows].sort((a, b) => a.ordering - b.ordering);
 
   function addLine() {
-    if (!revId) return;
+    if (!ref) return;
     const payload: DocLineItemCreate = {
       ...ref,
       category: "labour",
@@ -71,7 +80,14 @@ export function SectionLineItems() {
   }
 
   function patchRow(id: string, updates: Partial<DocLineItem>) {
+    if (!ref) return;
     update.mutate({ id, updates, ref });
+  }
+
+  function citationFor(rowId: string) {
+    return citations.find(
+      (c) => c.target_section === "line_item" && c.target_doc_id === rowId,
+    );
   }
 
   function switchMode(row: DocLineItem, mode: CalcMode) {
@@ -95,7 +111,7 @@ export function SectionLineItems() {
         <button
           type="button"
           onClick={addLine}
-          disabled={isPending || !revId}
+          disabled={isPending || !ref}
           className="inline-flex items-center gap-1 text-xs font-mono px-3 py-1.5 rounded bg-[#3050A0] text-white hover:bg-[#3F61B0] disabled:opacity-50"
           data-testid="add-line-item"
         >
@@ -128,12 +144,28 @@ export function SectionLineItems() {
             <tbody>
               {sorted.map((row) => {
                 const mode = inferCalcMode(row);
+                const cite = variation ? citationFor(row.id) : undefined;
                 return (
-                  <tr
-                    key={row.id}
-                    className="border-t border-zinc-800 align-top"
-                    data-testid={`line-row-${row.id}`}
-                  >
+                  <Fragment key={row.id}>
+                    {variation && cite && (
+                      <tr className="border-t border-zinc-800 bg-[#3050A0]/5">
+                        <td colSpan={10} className="px-2 pt-2 pb-0">
+                          <AmendsBanner
+                            citation={cite}
+                            sourceLabel="(source)"
+                          />
+                        </td>
+                      </tr>
+                    )}
+                    <tr
+                      className={cn(
+                        "align-top",
+                        variation && cite
+                          ? "border-t-0"
+                          : "border-t border-zinc-800",
+                      )}
+                      data-testid={`line-row-${row.id}`}
+                    >
                     <td className="px-2 py-2">
                       <select
                         aria-label="Category"
@@ -176,6 +208,24 @@ export function SectionLineItems() {
                         }}
                         className="w-full mt-1 bg-transparent border-b border-zinc-800 focus:border-[#3050A0] text-zinc-500 text-[11px] py-0.5 outline-none"
                       />
+                      {variation && (
+                        <div className="mt-1 flex justify-end">
+                          <CiteOriginalButton
+                            variationId={variation.variationId}
+                            targetSection="line_item"
+                            targetDocId={row.id}
+                            hasCitation={!!cite}
+                            onClick={() => setCitePickerRowId(row.id)}
+                            onClear={() => {
+                              if (cite)
+                                removeCitation.mutate({
+                                  id: cite.id,
+                                  variation_id: variation.variationId,
+                                });
+                            }}
+                          />
+                        </div>
+                      )}
                     </td>
                     <td className="px-2 py-2">
                       <div
@@ -298,7 +348,10 @@ export function SectionLineItems() {
                       <button
                         type="button"
                         aria-label="Delete line"
-                        onClick={() => remove.mutate({ id: row.id, ref })}
+                        onClick={() => {
+                          if (!ref) return;
+                          remove.mutate({ id: row.id, ref });
+                        }}
                         disabled={isPending}
                         className="text-zinc-500 hover:text-red-400 disabled:opacity-30"
                       >
@@ -306,11 +359,24 @@ export function SectionLineItems() {
                       </button>
                     </td>
                   </tr>
+                </Fragment>
                 );
               })}
             </tbody>
           </table>
         </div>
+      )}
+
+      {variation && citePickerRowId && (
+        <CitationPickerDialog
+          open
+          onOpenChange={(o) => !o && setCitePickerRowId(null)}
+          variationId={variation.variationId}
+          projectId={variation.projectId}
+          targetSection="line_item"
+          targetDocId={citePickerRowId}
+          onCreated={() => setCitePickerRowId(null)}
+        />
       )}
     </section>
   );

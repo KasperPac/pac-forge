@@ -10,6 +10,7 @@ export function SectionExclusions() {
       emptyHint="No exclusions yet. Spell out what isn't covered."
       addLabel="Add exclusion"
       defaultTitle="New exclusion"
+      targetSection="exclusion"
     />
   );
 }
