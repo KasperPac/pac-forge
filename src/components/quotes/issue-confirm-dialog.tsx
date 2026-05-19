@@ -13,92 +13,120 @@ import {
   isIssueError,
   type IssueError,
 } from "@/hooks/use-issue-quote";
+import { useIssueVariation } from "@/hooks/use-issue-variation";
 
-interface IssueConfirmDialogProps {
+interface BaseProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  revId: string;
-  quoteNumber: string;
-  revNumber: number;
   customerName: string;
   total: number;
 }
+
+interface RevProps extends BaseProps {
+  mode?: "rev";
+  revId: string;
+  quoteNumber: string;
+  revNumber: number;
+}
+
+interface VariationProps extends BaseProps {
+  mode: "variation";
+  variationId: string;
+  projectId: string;
+  jobCode: string;
+  variationNumber: number;
+}
+
+type IssueConfirmDialogProps = RevProps | VariationProps;
 
 const aud = new Intl.NumberFormat("en-AU", {
   style: "currency",
   currency: "AUD",
 });
 
-export function IssueConfirmDialog({
-  open,
-  onOpenChange,
-  revId,
-  quoteNumber,
-  revNumber,
-  customerName,
-  total,
-}: IssueConfirmDialogProps) {
-  const issue = useIssueRevision();
+export function IssueConfirmDialog(props: IssueConfirmDialogProps) {
   const navigate = useNavigate();
+  const issueRev = useIssueRevision();
+  const issueVar = useIssueVariation();
   const [issueError, setIssueError] = useState<IssueError | null>(null);
+
+  const isVariation = props.mode === "variation";
+  const pending = isVariation ? issueVar.isPending : issueRev.isPending;
 
   function reset() {
     setIssueError(null);
-    issue.reset();
+    if (isVariation) issueVar.reset();
+    else issueRev.reset();
   }
 
   function confirm() {
     setIssueError(null);
-    issue.mutate(
-      { revId },
-      {
-        onSuccess: () => {
-          onOpenChange(false);
-          navigate(`/quotes/${revId}/view`);
-        },
-        onError: (err: unknown) => {
-          if (isIssueError(err)) {
-            setIssueError(err);
-            return;
-          }
-          setIssueError({
-            kind: "db",
-            message: err instanceof Error ? err.message : String(err),
-          });
-        },
-      },
-    );
+
+    const onSuccess = () => {
+      props.onOpenChange(false);
+      if (isVariation) {
+        navigate(`/variations/${props.variationId}/view`);
+      } else {
+        navigate(`/quotes/${props.revId}/view`);
+      }
+    };
+
+    const onError = (err: unknown) => {
+      if (isIssueError(err)) {
+        setIssueError(err);
+        return;
+      }
+      setIssueError({
+        kind: "db",
+        message: err instanceof Error ? err.message : String(err),
+      });
+    };
+
+    if (isVariation) {
+      issueVar.mutate(
+        { variationId: props.variationId },
+        { onSuccess, onError },
+      );
+    } else {
+      issueRev.mutate({ revId: props.revId }, { onSuccess, onError });
+    }
   }
+
+  const title = isVariation
+    ? `Issue Variation V${props.variationNumber}`
+    : `Issue ${props.quoteNumber} Rev ${props.revNumber}`;
+  const description = isVariation
+    ? "Once issued, this variation is read-only. A snapshot of the current content is stored and a PDF rendered to Storage."
+    : "Once issued, this revision is read-only. A snapshot of the current content is stored and a PDF rendered to Storage. Any prior issued revision on this quote will be marked superseded.";
+  const docLabel = isVariation
+    ? `${props.jobCode} · V${props.variationNumber}`
+    : `${props.quoteNumber} · Rev ${props.revNumber}`;
 
   return (
     <Dialog
-      open={open}
+      open={props.open}
       onOpenChange={(next) => {
         if (!next) reset();
-        onOpenChange(next);
+        props.onOpenChange(next);
       }}
     >
       <DialogContent className="bg-zinc-950 border-zinc-800">
         <DialogHeader>
-          <DialogTitle className="text-zinc-100">
-            Issue {quoteNumber} Rev {revNumber}
-          </DialogTitle>
+          <DialogTitle className="text-zinc-100">{title}</DialogTitle>
           <DialogDescription className="font-mono text-xs text-zinc-400">
-            Once issued, this revision is read-only. A snapshot of the current
-            content is stored and a PDF rendered to Storage. Any prior issued
-            revision on this quote will be marked superseded.
+            {description}
           </DialogDescription>
         </DialogHeader>
 
         <dl className="grid grid-cols-[120px_minmax(0,1fr)] gap-x-4 gap-y-2 text-xs font-mono">
           <dt className="text-zinc-500 uppercase tracking-wider">Customer</dt>
-          <dd className="text-zinc-100">{customerName}</dd>
-          <dt className="text-zinc-500 uppercase tracking-wider">Quote</dt>
-          <dd className="text-zinc-100">
-            {quoteNumber} · Rev {revNumber}
-          </dd>
+          <dd className="text-zinc-100">{props.customerName}</dd>
+          <dt className="text-zinc-500 uppercase tracking-wider">
+            {isVariation ? "Variation" : "Quote"}
+          </dt>
+          <dd className="text-zinc-100">{docLabel}</dd>
           <dt className="text-zinc-500 uppercase tracking-wider">Total</dt>
-          <dd className="text-zinc-100">{aud.format(total)}</dd>
+          <dd className="text-zinc-100">{aud.format(props.total)}</dd>
         </dl>
 
         {issueError?.kind === "validation" && (
@@ -138,8 +166,8 @@ export function IssueConfirmDialog({
         <DialogFooter>
           <button
             type="button"
-            onClick={() => onOpenChange(false)}
-            disabled={issue.isPending}
+            onClick={() => props.onOpenChange(false)}
+            disabled={pending}
             className="text-xs font-mono px-3 py-1.5 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-900 disabled:opacity-50"
           >
             Cancel
@@ -147,10 +175,10 @@ export function IssueConfirmDialog({
           <button
             type="button"
             onClick={confirm}
-            disabled={issue.isPending}
+            disabled={pending}
             className="text-xs font-mono px-3 py-1.5 rounded bg-[#3050A0] text-white hover:bg-[#3F61B0] disabled:opacity-50"
           >
-            {issue.isPending ? "Issuing…" : "Issue"}
+            {pending ? "Issuing…" : "Issue"}
           </button>
         </DialogFooter>
       </DialogContent>

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams } from "react-router";
+import { useBuilderParentRef } from "./use-builder-parent-ref";
 import {
   useCommercialTerms,
   useUpsertCommercialTerms,
@@ -155,18 +155,14 @@ function CommercialForm({
 }
 
 export function SectionCommercial() {
-  const { revId } = useParams<{ revId: string }>();
-  const ref: ParentRef = {
-    parent_type: "quote_revision",
-    parent_id: revId ?? "",
-  };
+  const ref = useBuilderParentRef();
 
-  const { data: terms, isLoading } = useCommercialTerms(revId ? ref : undefined);
+  const { data: terms, isLoading } = useCommercialTerms(ref ?? undefined);
   const upsert = useUpsertCommercialTerms();
   const [savedAt, setSavedAt] = useState<Date | null>(null);
 
   function onSave(form: CommercialFormState) {
-    if (!revId) return;
+    if (!ref) return;
     upsert.mutate(
       {
         ...ref,
@@ -191,7 +187,7 @@ export function SectionCommercial() {
         </p>
       </header>
 
-      {isLoading ? (
+      {isLoading || !ref ? (
         <p className="text-xs font-mono text-zinc-500">Loading…</p>
       ) : (
         // Key by row id (or "new") so initial form values lock in on hydration

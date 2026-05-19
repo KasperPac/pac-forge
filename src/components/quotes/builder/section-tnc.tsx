@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { useParams } from "react-router";
 import { Plus, Trash2 } from "lucide-react";
 import { useTncTemplates } from "@/hooks/use-tnc-templates";
 import { useTncClauses } from "@/hooks/use-tnc-clauses";
@@ -10,20 +9,16 @@ import {
   useUpsertTncOverride,
   useClearTncOverride,
 } from "@/hooks/use-doc-tnc";
-import type { ParentRef } from "@/hooks/use-doc-content";
 import type { CustomClauseDraft, TncTemplate } from "@/types";
 import { cn } from "@/lib/utils";
+import { useBuilderParentRef } from "./use-builder-parent-ref";
 
 export function SectionTnc() {
-  const { revId } = useParams<{ revId: string }>();
-  const ref: ParentRef = {
-    parent_type: "quote_revision",
-    parent_id: revId ?? "",
-  };
+  const ref = useBuilderParentRef();
 
   const { data: templates = [] } = useTncTemplates();
-  const { data: selection } = useTncSelection(revId ? ref : undefined);
-  const { data: override } = useTncOverride(revId ? ref : undefined);
+  const { data: selection } = useTncSelection(ref ?? undefined);
+  const { data: override } = useTncOverride(ref ?? undefined);
 
   const activeTemplateId = selection?.template_id ?? defaultTemplateId(templates);
   const { data: clauses = [] } = useTncClauses(activeTemplateId ?? undefined);
@@ -47,7 +42,7 @@ export function SectionTnc() {
     omitted_clause_ids?: string[];
     added_custom_clauses?: CustomClauseDraft[];
   }) {
-    if (!revId) return;
+    if (!ref) return;
     upsertSel.mutate({
       ...ref,
       template_id: patch.template_id ?? selection?.template_id ?? activeTemplateId ?? null,
@@ -74,7 +69,7 @@ export function SectionTnc() {
   }
 
   function addCustomClause() {
-    if (!revId) return;
+    if (!ref) return;
     const customs = selection?.added_custom_clauses ?? [];
     const next: CustomClauseDraft[] = [
       ...customs,
@@ -221,7 +216,7 @@ export function SectionTnc() {
               <button
                 type="button"
                 onClick={addCustomClause}
-                disabled={!revId || upsertSel.isPending}
+                disabled={!ref || upsertSel.isPending}
                 className="inline-flex items-center gap-1 text-xs font-mono px-2 py-1 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
               >
                 <Plus className="h-3 w-3" />
@@ -284,7 +279,7 @@ export function SectionTnc() {
             type="checkbox"
             checked={overrideOpen}
             onChange={(e) => {
-              if (!e.target.checked && override) {
+              if (!e.target.checked && override && ref) {
                 clearOverride.mutate(ref);
               }
               setOverrideManuallyOpen(e.target.checked);
@@ -302,7 +297,7 @@ export function SectionTnc() {
               key={override?.id ?? "new-override"}
               defaultValue={override?.body_markdown ?? ""}
               onBlur={(e) => {
-                if (!revId) return;
+                if (!ref) return;
                 upsertOverride.mutate({
                   ...ref,
                   body_markdown: e.target.value,
@@ -317,6 +312,7 @@ export function SectionTnc() {
               <button
                 type="button"
                 onClick={() => {
+                  if (!ref) return;
                   clearOverride.mutate(ref);
                   setOverrideManuallyOpen(false);
                 }}
