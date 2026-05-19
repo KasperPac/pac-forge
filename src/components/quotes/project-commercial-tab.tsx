@@ -4,10 +4,15 @@ import {
   useQuotesForProject,
   useCreateQuote,
 } from "@/hooks/use-quotes";
+import {
+  useVariationsForProject,
+  useCreateVariation,
+} from "@/hooks/use-variations";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router";
 import { QuoteCard } from "@/components/quotes/quote-card";
+import { VariationCard } from "@/components/quotes/variation-card";
 import { useCustomer } from "@/hooks/use-customers";
 import type { QuoteRevision, Project } from "@/types";
 
@@ -36,7 +41,10 @@ export function ProjectCommercialTab({ project }: Props) {
   const { data: quotes = [], isLoading } = useQuotesForProject(project.id);
   const quoteIds = useMemo(() => quotes.map((q) => q.id), [quotes]);
   const { data: revisions = [] } = useProjectRevisions(project.id, quoteIds);
+  const { data: variations = [], isLoading: variationsLoading } =
+    useVariationsForProject(project.id);
   const createQuote = useCreateQuote();
+  const createVariation = useCreateVariation();
 
   const revsByQuote = useMemo(() => {
     const m = new Map<string, QuoteRevision[]>();
@@ -48,6 +56,9 @@ export function ProjectCommercialTab({ project }: Props) {
     return m;
   }, [revisions]);
 
+  const canCreateVariation =
+    project.stage === "awarded" || project.stage === "in_progress";
+
   async function createNewQuote() {
     if (project.stage === "awarded") return;
     const seq = quotes.length + 1;
@@ -57,6 +68,15 @@ export function ProjectCommercialTab({ project }: Props) {
       number,
     });
     navigate(`/quotes/${rev.id}/edit`, { state: { quoteId: quote.id } });
+  }
+
+  async function createNewVariation() {
+    if (!canCreateVariation) return;
+    const variation = await createVariation.mutateAsync({
+      project_id: project.id,
+      clone_tnc_from_rev_id: project.awarded_quote_id ?? undefined,
+    });
+    navigate(`/variations/${variation.id}/edit`);
   }
 
   return (
@@ -108,11 +128,47 @@ export function ProjectCommercialTab({ project }: Props) {
         </div>
       )}
 
+      <div className="border-t border-zinc-800 pt-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-zinc-100">
+              Variations
+            </h2>
+            <p className="text-xs font-mono text-zinc-500 mt-0.5">
+              Change-order documents off the awarded quote.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={createNewVariation}
+            disabled={!canCreateVariation || createVariation.isPending}
+            title={
+              !canCreateVariation
+                ? "Project must be awarded or in-progress to create a variation"
+                : undefined
+            }
+            className="inline-flex items-center gap-1 text-xs font-mono px-3 py-1.5 rounded bg-[#3050A0] text-white hover:bg-[#3F61B0] disabled:opacity-50"
+          >
+            <Plus className="h-3 w-3" />
+            {createVariation.isPending ? "Creating…" : "New variation"}
+          </button>
+        </div>
+        {variationsLoading ? (
+          <p className="text-xs font-mono text-zinc-500">Loading…</p>
+        ) : variations.length === 0 ? (
+          <p className="text-xs font-mono text-zinc-500 rounded-md border border-dashed border-zinc-700 bg-zinc-900/40 p-4">
+            No variations yet on this project.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+            {variations.map((v) => (
+              <VariationCard key={v.id} variation={v} />
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="border-t border-zinc-800 pt-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <PlaceholderCard
-          title="Variations"
-          description="Issued change-order documents off the awarded quote."
-        />
         <PlaceholderCard
           title="Legacy documents"
           description="Imported PDFs from before Pac-Quote."
