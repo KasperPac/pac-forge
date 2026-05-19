@@ -48,6 +48,9 @@ const QuoteBuilderPage = lazy(() => import("@/routes/quote-builder"));
 const QuoteViewPage = lazy(() => import("@/routes/quote-view"));
 const TncLibraryPage = lazy(() => import("@/routes/tnc-library"));
 const QuotesListPage = lazy(() => import("@/routes/quotes"));
+const VariationBuilderPage = lazy(() => import("@/routes/variation-builder"));
+const VariationViewPage = lazy(() => import("@/routes/variation-view"));
+const VariationsListPage = lazy(() => import("@/routes/variations"));
 
 function LazyRoute({ children }: { children: React.ReactNode }) {
   return (
@@ -81,6 +84,9 @@ const router = createBrowserRouter([
           { path: "quotes/:revId/view", element: <LazyRoute><QuoteViewPage /></LazyRoute> },
           { path: "tnc", element: <LazyRoute><TncLibraryPage /></LazyRoute> },
           { path: "quotes", element: <LazyRoute><QuotesListPage /></LazyRoute> },
+          { path: "variations", element: <LazyRoute><VariationsListPage /></LazyRoute> },
+          { path: "variations/:variationId/edit", element: <LazyRoute><VariationBuilderPage /></LazyRoute> },
+          { path: "variations/:variationId/view", element: <LazyRoute><VariationViewPage /></LazyRoute> },
           { path: "pac-st", element: <Navigate to="/pac-st/chat" replace /> },
           { path: "pac-st/chat", element: <LazyRoute><PacStPage /></LazyRoute> },
           { path: "pac-st/fb-builder", element: <LazyRoute><FbBuilderPage /></LazyRoute> },
