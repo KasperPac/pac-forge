@@ -49,7 +49,7 @@ function makeState(overrides: Partial<MockState> = {}): MockState {
     project: {
       id: PROJECT_ID,
       customer_id: CUSTOMER_ID,
-      job_code: "CVL-2129",
+      project_number: "CVL-2129",
       project_name: "Infeed Conveyor Replacement",
       stage: "awarded",
     },

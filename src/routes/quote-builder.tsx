@@ -123,7 +123,7 @@ export default function QuoteBuilderRoute() {
     return validateForIssue({
       project: {
         customer_id: project.customer_id,
-        job_code: project.job_code,
+        project_number: project.project_number,
         project_name: project.project_name,
       },
       scope,
@@ -160,7 +160,7 @@ export default function QuoteBuilderRoute() {
           </div>
         </div>
         <div className="text-xs font-mono text-zinc-400">
-          {project.project_name ?? project.job_code ?? "Project"}
+          {project.project_name ?? project.project_number ?? "Project"}
           {customer ? ` · ${customer.name}` : ""}
         </div>
       </div>

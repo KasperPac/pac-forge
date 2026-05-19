@@ -117,7 +117,7 @@ export default function VariationBuilderRoute() {
       quote: {
         id: variation.project_id,
         project_id: variation.project_id,
-        number: `${project.job_code ?? ""}-V${variation.variation_number}`,
+        number: `${project.project_number ?? ""}-V${variation.variation_number}`,
         status: "draft",
         created_at: variation.created_at,
         updated_at: variation.updated_at,
@@ -159,7 +159,7 @@ export default function VariationBuilderRoute() {
     return validateForIssue({
       project: {
         customer_id: project.customer_id,
-        job_code: project.job_code,
+        project_number: project.project_number,
         project_name: project.project_name,
       },
       scope,
@@ -225,11 +225,11 @@ export default function VariationBuilderRoute() {
           </div>
           <div className="font-mono text-sm text-zinc-100">
             V{variation.variation_number} ·{" "}
-            {project.project_name ?? project.job_code ?? "Project"}
+            {project.project_name ?? project.project_number ?? "Project"}
           </div>
         </div>
         <div className="text-xs font-mono text-zinc-400">
-          {project.job_code ?? ""} · {customer.name}
+          {project.project_number ?? ""} · {customer.name}
         </div>
       </div>
     ) : null;
@@ -258,7 +258,7 @@ export default function VariationBuilderRoute() {
           onOpenChange={setIssueOpen}
           variationId={variationId}
           projectId={variation.project_id}
-          jobCode={project.job_code ?? ""}
+          projectNumber={project.project_number ?? ""}
           variationNumber={variation.variation_number}
           customerName={customer.name}
           total={total}

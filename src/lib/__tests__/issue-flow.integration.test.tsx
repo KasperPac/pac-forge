@@ -53,7 +53,7 @@ function freshDb(): Tables {
       {
         id: "p-1",
         customer_id: "c-1",
-        job_code: "CVL-2129",
+        project_number: "CVL-2129",
         project_name: "Infeed Conveyor Replacement",
         stage: "quoting",
         awarded_quote_id: null,

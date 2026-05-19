@@ -13,7 +13,7 @@ export type ValidationResult =
 export interface ValidationInput {
   project: {
     customer_id: string | null;
-    job_code: string | null;
+    project_number: string | null;
     project_name: string | null;
   };
   scope: Array<{ title: string }>;
@@ -40,10 +40,10 @@ export function validateForIssue(input: ValidationInput): ValidationResult {
       message: "Customer is required.",
     });
   }
-  if (!input.project.job_code) {
+  if (!input.project.project_number) {
     errors.push({
-      field: "project.job_code",
-      message: "Job code is required.",
+      field: "project.project_number",
+      message: "Project number is required.",
     });
   }
   if (!input.project.project_name) {

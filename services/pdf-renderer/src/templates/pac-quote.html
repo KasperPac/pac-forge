@@ -23,7 +23,7 @@
         <div class="tag">Quotation</div>
       {{/if}}
       <h1>{{snapshot.project.project_name}}</h1>
-      <div class="project-line">{{snapshot.project.job_code}}</div>
+      <div class="project-line">{{or snapshot.project.project_number snapshot.project.job_code}}</div>
       <div class="customer-line">Prepared for {{snapshot.project.customer.name}}</div>
     </section>
 

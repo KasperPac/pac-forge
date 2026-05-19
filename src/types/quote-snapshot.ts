@@ -86,7 +86,13 @@ export interface QuoteSnapshotV1 {
   issued_at: string;
   issued_by_email: string | null;
   project: {
-    job_code: string;
+    project_number: string;
+    /**
+     * @deprecated Pre-rename snapshots stored the project identifier
+     * under `job_code`. Readers should prefer `project_number` and fall
+     * back to `job_code` when reading older snapshots.
+     */
+    job_code?: string;
     project_name: string;
     customer: {
       id: string;

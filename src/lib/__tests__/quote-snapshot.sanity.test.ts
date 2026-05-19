@@ -38,7 +38,7 @@ const project: Project = {
   created_at: "2026-05-17T00:00:00Z",
   updated_at: "2026-05-17T00:00:00Z",
   customer_id: customer.id,
-  job_code: "CVL-2129",
+  project_number: "CVL-2129",
   project_name: "Infeed Conveyor Replacement",
   stage: "quoting",
   awarded_quote_id: null,
@@ -174,7 +174,7 @@ describe("snapshot sanity thread", () => {
     expect(snapshot.quote_number).toBe("CVL-2129-Q01");
     expect(snapshot.rev_number).toBe(1);
     expect(snapshot.project.customer.name).toBe("Conveyor Logistics");
-    expect(snapshot.project.job_code).toBe("CVL-2129");
+    expect(snapshot.project.project_number).toBe("CVL-2129");
   });
 
   it("first line item subtotal equals qty × unit_price", () => {

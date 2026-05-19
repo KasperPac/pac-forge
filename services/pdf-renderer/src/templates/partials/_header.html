@@ -3,7 +3,7 @@
     <div class="brand-name">Pac Technologies</div>
     <div class="brand-mark">
       {{#if (eq snapshot.kind "variation")}}
-        Variation V{{snapshot.rev_number}} to {{snapshot.project.job_code}}
+        Variation V{{snapshot.rev_number}} to {{or snapshot.project.project_number snapshot.project.job_code}}
       {{else}}
         Quotation
       {{/if}}

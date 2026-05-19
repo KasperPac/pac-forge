@@ -8,7 +8,7 @@ const baseFixture = {
   issued_at: "2026-05-14T00:00:00.000Z",
   issued_by_email: "kasper@pac-technologies.com.au",
   project: {
-    job_code: "CVL-2129",
+    project_number: "CVL-2129",
     project_name: "Infeed Conveyor Replacement",
     customer: {
       id: "c-1",
@@ -196,7 +196,7 @@ describe("renderSnapshotToHtml", () => {
       issued_at: "2026-05-18T00:00:00.000Z",
       issued_by_email: null,
       project: {
-        job_code: "CVL-2129",
+        project_number: "CVL-2129",
         project_name: "Infeed Conveyor Replacement",
         customer: {
           id: "c-1",

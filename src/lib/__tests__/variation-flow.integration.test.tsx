@@ -54,7 +54,7 @@ function freshDb(stage: "awarded" | "in_progress" | "quoting" = "awarded"): Tabl
       {
         id: "p-1",
         customer_id: "c-1",
-        job_code: "CVL-2129",
+        project_number: "CVL-2129",
         project_name: "Infeed Conveyor Replacement",
         stage,
         awarded_quote_id: "r-1",

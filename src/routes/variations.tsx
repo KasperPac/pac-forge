@@ -116,7 +116,7 @@ export default function VariationsRoute() {
               <div key={variation.id} className="space-y-1">
                 <VariationCard variation={variation} />
                 <div className="text-[11px] font-mono text-zinc-500 px-3">
-                  {project?.project_name ?? project?.job_code ?? "Project"}
+                  {project?.project_name ?? project?.project_number ?? "Project"}
                   {customer ? ` · ${customer.name}` : ""}
                 </div>
               </div>

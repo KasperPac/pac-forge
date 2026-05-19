@@ -32,7 +32,7 @@ function baseInput(): BuildSnapshotInput {
     project: {
       id: "p1",
       customer_id: "c1",
-      job_code: "CVL-2129",
+      project_number: "CVL-2129",
       project_name: "AMG Cootamundra",
       stage: "quoting",
       awarded_quote_id: null,
@@ -105,7 +105,7 @@ describe("buildSnapshot — header fields", () => {
   it("inlines project metadata with customer record", () => {
     const snap = buildSnapshot(baseInput());
     expect(snap.project).toEqual({
-      job_code: "CVL-2129",
+      project_number: "CVL-2129",
       project_name: "AMG Cootamundra",
       customer: {
         id: "c1",
@@ -338,7 +338,7 @@ describe("buildSnapshot — variation kind", () => {
     const snap = buildSnapshot({
       rev: { id: "v-1", quote_id: "q-1", rev_number: 1, status: "draft", summary: null, issued_at: null, issued_by: null, snapshot_json: null, pdf_storage_key: null, dropbox_content_hash: null, created_at: "", updated_at: "", created_by: null },
       quote: { id: "q-1", project_id: "p-1", number: "CVL-2129-V01", status: "draft", created_at: "", updated_at: "", created_by: null },
-      project: { id: "p-1", job_code: "CVL-2129", project_name: "Infeed", customer_id: "c-1", stage: "awarded", awarded_quote_id: null } as never,
+      project: { id: "p-1", project_number: "CVL-2129", project_name: "Infeed", customer_id: "c-1", stage: "awarded", awarded_quote_id: null } as never,
       customer: { id: "c-1", name: "Conveyor Logistics", display_code: "CVL" } as never,
       issued_at: "2026-05-18T00:00:00Z",
       issued_by_email: null,
@@ -379,7 +379,7 @@ describe("buildSnapshot — variation kind", () => {
     const snap = buildSnapshot({
       rev: { id: "r-1", quote_id: "q-1", rev_number: 1, status: "draft", summary: null, issued_at: null, issued_by: null, snapshot_json: null, pdf_storage_key: null, dropbox_content_hash: null, created_at: "", updated_at: "", created_by: null },
       quote: { id: "q-1", project_id: "p-1", number: "X", status: "draft", created_at: "", updated_at: "", created_by: null },
-      project: { id: "p-1", job_code: "X", project_name: "X", customer_id: "c-1", stage: "quoting", awarded_quote_id: null } as never,
+      project: { id: "p-1", project_number: "X", project_name: "X", customer_id: "c-1", stage: "quoting", awarded_quote_id: null } as never,
       customer: { id: "c-1", name: "X", display_code: "X" } as never,
       issued_at: "2026-05-18T00:00:00Z",
       issued_by_email: null,

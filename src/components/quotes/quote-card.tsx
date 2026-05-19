@@ -46,7 +46,7 @@ export function QuoteCard({ quote, project, customer, revisions }: QuoteCardProp
             </span>
           </div>
           <div className="mt-1 text-xs font-mono text-zinc-400 truncate">
-            {project?.project_name ?? project?.job_code ?? "Project"}
+            {project?.project_name ?? project?.project_number ?? "Project"}
             {customer ? ` · ${customer.name}` : ""}
           </div>
         </div>

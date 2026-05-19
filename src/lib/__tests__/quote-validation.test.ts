@@ -28,7 +28,7 @@ function lineItem(
 const valid = {
   project: {
     customer_id: "cust-1",
-    job_code: "CVL-2129",
+    project_number: "CVL-2129",
     project_name: "Lift Cell A",
   },
   scope: [{ title: "Scope item 1" }],
@@ -58,14 +58,16 @@ describe("validateForIssue", () => {
     }
   });
 
-  it("fails missing job_code", () => {
+  it("fails missing project_number", () => {
     const r = validateForIssue({
       ...valid,
-      project: { ...valid.project, job_code: null },
+      project: { ...valid.project, project_number: null },
     });
     expect(r.ok).toBe(false);
     if (!r.ok) {
-      expect(r.errors.some((e) => e.field === "project.job_code")).toBe(true);
+      expect(r.errors.some((e) => e.field === "project.project_number")).toBe(
+        true,
+      );
     }
   });
 
@@ -153,7 +155,7 @@ describe("validateForIssue", () => {
   it("collects multiple errors at once", () => {
     const r = validateForIssue({
       ...valid,
-      project: { customer_id: null, job_code: null, project_name: null },
+      project: { customer_id: null, project_number: null, project_name: null },
       scope: [],
     });
     expect(r.ok).toBe(false);

@@ -33,7 +33,7 @@ interface VariationProps extends BaseProps {
   mode: "variation";
   variationId: string;
   projectId: string;
-  jobCode: string;
+  projectNumber: string;
   variationNumber: number;
 }
 
@@ -99,7 +99,7 @@ export function IssueConfirmDialog(props: IssueConfirmDialogProps) {
     ? "Once issued, this variation is read-only. A snapshot of the current content is stored and a PDF rendered to Storage."
     : "Once issued, this revision is read-only. A snapshot of the current content is stored and a PDF rendered to Storage. Any prior issued revision on this quote will be marked superseded.";
   const docLabel = isVariation
-    ? `${props.jobCode} · V${props.variationNumber}`
+    ? `${props.projectNumber} · V${props.variationNumber}`
     : `${props.quoteNumber} · Rev ${props.revNumber}`;
 
   return (

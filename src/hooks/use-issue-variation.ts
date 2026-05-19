@@ -188,7 +188,7 @@ async function buildSourceLabels(
     } else {
       const doc = varDocMap.get(c.source_id);
       docLabel = doc
-        ? `${project.job_code} Variation V${doc.variation_number}`
+        ? `${project.project_number} Variation V${doc.variation_number}`
         : c.source_id;
     }
     map.set(c.id, `${docLabel}, item ${itemNum}`);
@@ -337,7 +337,8 @@ function buildTncForSnap(b: Bundle): BuildSnapshotTnc {
 }
 
 function safeFilename(snapshot: QuoteSnapshotV1, variation: Variation): string {
-  const base = `${snapshot.project.job_code}-V${variation.variation_number}`;
+  const id = snapshot.project.project_number ?? snapshot.project.job_code ?? "";
+  const base = `${id}-V${variation.variation_number}`;
   return `${base.replace(/[^A-Za-z0-9_.-]/g, "_")}.pdf`;
 }
 
@@ -391,7 +392,7 @@ export function useIssueVariation() {
         quote: {
           id: bundle.variation.project_id,
           project_id: bundle.variation.project_id,
-          number: `${bundle.project.job_code}-V${bundle.variation.variation_number}`,
+          number: `${bundle.project.project_number ?? ""}-V${bundle.variation.variation_number}`,
           status: "draft",
           created_at: bundle.variation.created_at,
           updated_at: bundle.variation.updated_at,
@@ -428,7 +429,7 @@ export function useIssueVariation() {
       const verdict = validateForIssue({
         project: {
           customer_id: bundle.project.customer_id,
-          job_code: bundle.project.job_code,
+          project_number: bundle.project.project_number,
           project_name: bundle.project.project_name,
         },
         scope: bundle.scope.map((s) => ({ title: s.title })),

@@ -115,7 +115,7 @@ export default function VariationViewRoute() {
               </div>
               <div className="font-mono text-sm text-zinc-100">
                 V{variation.variation_number}
-                {project?.job_code ? ` · ${project.job_code}` : ""}
+                {project?.project_number ? ` · ${project.project_number}` : ""}
               </div>
             </div>
             <span
@@ -130,7 +130,7 @@ export default function VariationViewRoute() {
             </span>
           </div>
           <div className="text-xs font-mono text-zinc-400">
-            {project?.project_name ?? project?.job_code ?? "Project"}
+            {project?.project_name ?? project?.project_number ?? "Project"}
             {customer ? ` · ${customer.name}` : ""}
           </div>
         </div>
@@ -226,7 +226,7 @@ function VariationSnapshotProjection({
           {snapshot.project.project_name}
         </h1>
         <div className="font-mono text-xs text-zinc-400 mt-1">
-          {snapshot.project.job_code} · {snapshot.project.customer.name}
+          {snapshot.project.project_number ?? snapshot.project.job_code ?? ""} · {snapshot.project.customer.name}
         </div>
       </header>
 

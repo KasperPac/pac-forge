@@ -197,7 +197,7 @@ export function buildSnapshot(input: BuildSnapshotInput): QuoteSnapshotV1 {
     issued_at: input.issued_at,
     issued_by_email: input.issued_by_email,
     project: {
-      job_code: input.project.job_code ?? "",
+      project_number: input.project.project_number ?? "",
       project_name: input.project.project_name ?? "",
       customer: {
         id: input.customer.id,

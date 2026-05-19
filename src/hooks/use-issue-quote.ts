@@ -239,7 +239,7 @@ export function useIssueRevision() {
       const verdict = validateForIssue({
         project: {
           customer_id: bundle.project.customer_id,
-          job_code: bundle.project.job_code,
+          project_number: bundle.project.project_number,
           project_name: bundle.project.project_name,
         },
         scope: bundle.scope.map((s) => ({ title: s.title })),

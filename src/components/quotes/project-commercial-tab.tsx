@@ -62,7 +62,7 @@ export function ProjectCommercialTab({ project }: Props) {
   async function createNewQuote() {
     if (project.stage === "awarded") return;
     const seq = quotes.length + 1;
-    const number = `${project.job_code ?? "PRJ"}-Q${String(seq).padStart(2, "0")}`;
+    const number = `${project.project_number ?? "PRJ"}-Q${String(seq).padStart(2, "0")}`;
     const { quote, rev } = await createQuote.mutateAsync({
       project_id: project.id,
       number,
@@ -92,11 +92,11 @@ export function ProjectCommercialTab({ project }: Props) {
           type="button"
           onClick={createNewQuote}
           disabled={
-            createQuote.isPending || project.stage === "awarded" || !project.job_code
+            createQuote.isPending || project.stage === "awarded" || !project.project_number
           }
           title={
-            !project.job_code
-              ? "Project needs a job_code before a quote can be created"
+            !project.project_number
+              ? "Project needs a project number before a quote can be created"
               : project.stage === "awarded"
                 ? "Project already awarded"
                 : undefined

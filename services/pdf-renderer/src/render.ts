@@ -29,6 +29,15 @@ Handlebars.registerHelper("displayDate", (iso: unknown) => {
 
 Handlebars.registerHelper("eq", (a: unknown, b: unknown) => a === b);
 
+Handlebars.registerHelper("or", (...args: unknown[]) => {
+  // The last arg is the Handlebars options object; ignore it.
+  for (let i = 0; i < args.length - 1; i++) {
+    const v = args[i];
+    if (v != null && v !== "") return v;
+  }
+  return "";
+});
+
 Handlebars.registerHelper(
   "citationFor",
   function (section: string, id: unknown, options: Handlebars.HelperOptions) {

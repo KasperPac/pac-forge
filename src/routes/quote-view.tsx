@@ -153,7 +153,7 @@ export default function QuoteViewRoute() {
           </div>
           <div className="flex items-center gap-3">
             <div className="text-xs font-mono text-zinc-400">
-              {project?.project_name ?? project?.job_code ?? "Project"}
+              {project?.project_name ?? project?.project_number ?? "Project"}
               {customer ? ` · ${customer.name}` : ""}
             </div>
             {rev.status === "issued" && quote?.status === "issued" && (
@@ -329,7 +329,7 @@ function SnapshotProjection({ snapshot }: { snapshot: QuoteSnapshotV1 }) {
           {snapshot.project.project_name}
         </h1>
         <div className="font-mono text-xs text-zinc-400 mt-1">
-          {snapshot.project.job_code} · {snapshot.project.customer.name}
+          {snapshot.project.project_number ?? snapshot.project.job_code ?? ""} · {snapshot.project.customer.name}
         </div>
       </header>
 

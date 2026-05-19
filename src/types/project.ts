@@ -77,7 +77,6 @@ export interface Project {
   github_repo_url: string | null;
   github_repo_name: string | null;
   customer_id: string | null;
-  job_code: string | null;
   project_name: string | null;
   stage: ProjectStage;
   awarded_quote_id: string | null;
@@ -93,7 +92,6 @@ export type ProjectCreate = Omit<
   | "updated_at"
   | "created_by"
   | "customer_id"
-  | "job_code"
   | "project_name"
   | "stage"
   | "awarded_quote_id"
@@ -101,5 +99,5 @@ export type ProjectCreate = Omit<
 
 export type ProjectUpdate = Partial<
   ProjectCreate &
-    Pick<Project, "customer_id" | "job_code" | "project_name" | "stage" | "awarded_quote_id">
+    Pick<Project, "customer_id" | "project_name" | "stage" | "awarded_quote_id">
 >;
