@@ -4,125 +4,125 @@
     {
       "id": 1,
       "subject": "Task 1: Migration 083 — variation_citations table",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Schema for per-row citations linking a variation content row to an item in a source snapshot.\n\n**Files:** supabase/migrations/083_pac_quote_variation_citations.sql\n\n**Verify:** npx supabase db push\n\n```json:metadata\n{\"files\":[\"supabase/migrations/083_pac_quote_variation_citations.sql\"],\"verifyCommand\":\"npx supabase db push\",\"acceptanceCriteria\":[\"variation_citations table created\",\"target_section CHECK excludes clause\",\"UNIQUE (variation_id, target_section, target_doc_id)\",\"RLS authenticated 4-policy set\"]}\n```"
     },
     {
       "id": 2,
       "subject": "Task 2: Types — Variation, VariationCitation, snapshot extension",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [1],
       "description": "**Goal:** TypeScript types for the new entities + non-breaking extension of QuoteSnapshotV1.\n\n**Files:** src/types/variation.ts, src/types/variation-citation.ts, src/types/quote-snapshot.ts, src/types/index.ts\n\n**Verify:** npm run lint && npx tsc -b\n\n```json:metadata\n{\"files\":[\"src/types/variation.ts\",\"src/types/variation-citation.ts\",\"src/types/quote-snapshot.ts\",\"src/types/index.ts\"],\"verifyCommand\":\"npm run lint && npx tsc -b\",\"acceptanceCriteria\":[\"VariationCitation matches schema\",\"CitationTargetSection union excludes clause\",\"QuoteSnapshotV1.kind and citations are optional\",\"SnapshotCitation has revised_text + source_label\"]}\n```"
     },
     {
       "id": 3,
       "subject": "Task 3: useVariations CRUD hooks + tests",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [2],
       "description": "**Goal:** TanStack Query hooks for variations CRUD; auto-assigns variation_number per project, optional T&Cs clone.\n\n**Files:** src/hooks/use-variations.ts, src/hooks/__tests__/use-variations.test.tsx\n\n**Verify:** npm run test -- --run src/hooks/__tests__/use-variations.test.tsx\n\n```json:metadata\n{\"files\":[\"src/hooks/use-variations.ts\",\"src/hooks/__tests__/use-variations.test.tsx\"],\"verifyCommand\":\"npm run test -- --run src/hooks/__tests__/use-variations.test.tsx\",\"acceptanceCriteria\":[\"list/get/create/update/delete hooks\",\"variation_number auto-assigned\",\"T&Cs clone from awarded rev when requested\",\"draft-only delete\"]}\n```"
     },
     {
       "id": 4,
       "subject": "Task 4: useVariationCitations hooks + tests",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [2],
       "description": "**Goal:** List/create/delete citations. Immutable — no update. Clean error on UNIQUE violation.\n\n**Files:** src/hooks/use-variation-citations.ts, src/hooks/__tests__/use-variation-citations.test.tsx\n\n**Verify:** npm run test -- --run src/hooks/__tests__/use-variation-citations.test.tsx\n\n```json:metadata\n{\"files\":[\"src/hooks/use-variation-citations.ts\",\"src/hooks/__tests__/use-variation-citations.test.tsx\"],\"verifyCommand\":\"npm run test -- --run src/hooks/__tests__/use-variation-citations.test.tsx\",\"acceptanceCriteria\":[\"list/create/delete\",\"UNIQUE violation surfaced as readable error\"]}\n```"
     },
     {
       "id": 5,
       "subject": "Task 5: Cascade-delete citations from doc content delete hooks",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [4],
       "description": "**Goal:** When deleting a doc row on a variation, also delete its matching variation_citations row first.\n\n**Files:** src/hooks/use-doc-content.ts, src/hooks/__tests__/use-doc-content.test.tsx\n\n**Verify:** npm run test -- --run src/hooks/__tests__/use-doc-content.test.tsx\n\n```json:metadata\n{\"files\":[\"src/hooks/use-doc-content.ts\",\"src/hooks/__tests__/use-doc-content.test.tsx\"],\"verifyCommand\":\"npm run test -- --run src/hooks/__tests__/use-doc-content.test.tsx\",\"acceptanceCriteria\":[\"variation-row delete cleans up citations\",\"quote_revision-row delete does not touch variation_citations\",\"existing tests still pass\"]}\n```"
     },
     {
       "id": 6,
       "subject": "Task 6: nextVariationNumber helper + reuse in useCreateVariation",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [3],
       "description": "**Goal:** Pure helper for next variation number; useCreateVariation refactored to call it.\n\n**Files:** src/lib/quote-numbering.ts, src/lib/__tests__/quote-numbering.test.ts, src/hooks/use-variations.ts\n\n**Verify:** npm run test -- --run src/lib/__tests__/quote-numbering.test.ts && npm run test -- --run src/hooks/__tests__/use-variations.test.tsx\n\n```json:metadata\n{\"files\":[\"src/lib/quote-numbering.ts\",\"src/lib/__tests__/quote-numbering.test.ts\",\"src/hooks/use-variations.ts\"],\"verifyCommand\":\"npm run test -- --run src/lib/__tests__/quote-numbering.test.ts\",\"acceptanceCriteria\":[\"empty list → 1\",\"contiguous list → max+1\",\"gapped list → max+1\",\"useCreateVariation uses it\"]}\n```"
     },
     {
       "id": 7,
       "subject": "Task 7: buildSnapshot supports variation kind + citations",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [2, 6],
       "description": "**Goal:** Extend buildSnapshot to emit kind + citations[] when kind='variation'. Denormalise revised_text + emit row id on snapshot items for variation kind.\n\n**Files:** src/lib/quote-snapshot.ts, src/lib/__tests__/quote-snapshot.test.ts\n\n**Verify:** npm run test -- --run src/lib/__tests__/quote-snapshot.test.ts\n\n```json:metadata\n{\"files\":[\"src/lib/quote-snapshot.ts\",\"src/lib/__tests__/quote-snapshot.test.ts\"],\"verifyCommand\":\"npm run test -- --run src/lib/__tests__/quote-snapshot.test.ts\",\"acceptanceCriteria\":[\"kind='variation' emits kind + citations[]\",\"revised_text denormalised from variation content rows\",\"snapshot items carry id when kind='variation'\",\"missing kind = back-compat (no citations field)\"]}\n```"
     },
     {
       "id": 8,
       "subject": "Task 8: Migration 084 — issue_variation RPC",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [1],
       "description": "**Goal:** Atomic issue RPC for variations. Requires draft + project.stage ∈ {awarded, in_progress}. Writes snapshot + audit row.\n\n**Files:** supabase/migrations/084_pac_quote_variation_issue_rpc.sql\n\n**Verify:** npx supabase db push\n\n```json:metadata\n{\"files\":[\"supabase/migrations/084_pac_quote_variation_issue_rpc.sql\"],\"verifyCommand\":\"npx supabase db push\",\"acceptanceCriteria\":[\"SECURITY DEFINER\",\"locks variation FOR UPDATE\",\"requires draft\",\"requires project.stage in awarded|in_progress\",\"flips status + writes snapshot + storage_key + issued_at + issued_by\",\"audit row event_type='issued', target_type='variation'\",\"EXECUTE to authenticated only\"]}\n```"
     },
     {
       "id": 9,
       "subject": "Task 9: useIssueVariation hook + tests",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [7, 8],
       "description": "**Goal:** Atomic issue orchestration mirroring useIssueRevision; loads bundle, validates, renders PDF, calls RPC.\n\n**Files:** src/hooks/use-issue-variation.ts, src/hooks/__tests__/use-issue-variation.test.tsx\n\n**Verify:** npm run test -- --run src/hooks/__tests__/use-issue-variation.test.tsx\n\n```json:metadata\n{\"files\":[\"src/hooks/use-issue-variation.ts\",\"src/hooks/__tests__/use-issue-variation.test.tsx\"],\"verifyCommand\":\"npm run test -- --run src/hooks/__tests__/use-issue-variation.test.tsx\",\"acceptanceCriteria\":[\"happy path: render → rpc\",\"validation fail (project.stage=quoting) → kind=validation, no render\",\"render-502 → kind=render, no rpc\",\"rpc error → kind=db\",\"source_label assembled from source doc + ordering\"]}\n```"
     },
     {
       "id": 10,
       "subject": "Task 10: PDF renderer — Amends partial + variation header",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [7],
       "description": "**Goal:** Amends callout block above each cited row + variation-flavoured header subtitle.\n\n**Files:** services/pdf-renderer/src/templates/partials/_amends.html, services/pdf-renderer/src/templates/pac-quote.html, services/pdf-renderer/src/templates/pac-quote.css, services/pdf-renderer/src/render.ts, services/pdf-renderer/src/templates/partials/_header.html, services/pdf-renderer/src/__tests__/render.test.ts\n\n**Verify:** cd services/pdf-renderer && npm test\n\n```json:metadata\n{\"files\":[\"services/pdf-renderer/src/templates/partials/_amends.html\",\"services/pdf-renderer/src/templates/pac-quote.html\",\"services/pdf-renderer/src/templates/pac-quote.css\",\"services/pdf-renderer/src/render.ts\",\"services/pdf-renderer/src/__tests__/render.test.ts\"],\"verifyCommand\":\"cd services/pdf-renderer && npm test\",\"acceptanceCriteria\":[\"_amends partial registered + helper citationFor\",\"Amends block stacked above cited row\",\"variation header subtitle when kind=variation\",\"CSS reuses --pac-blue-100/600\",\"render.test.ts variation case asserts Amends + header\"]}\n```"
     },
     {
       "id": 11,
       "subject": "Task 11: CiteOriginalButton + AmendsBanner components",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [2],
       "description": "**Goal:** Per-row UI primitives — trigger + linked-pill + clear; banner showing original verbatim text.\n\n**Files:** src/components/quotes/builder/cite-original-button.tsx, src/components/quotes/builder/amends-banner.tsx\n\n**Verify:** npm run lint && npx tsc -b\n\n```json:metadata\n{\"files\":[\"src/components/quotes/builder/cite-original-button.tsx\",\"src/components/quotes/builder/amends-banner.tsx\"],\"verifyCommand\":\"npm run lint && npx tsc -b\",\"acceptanceCriteria\":[\"CiteOriginalButton renders link-vs-pill+clear states\",\"AmendsBanner uses Pac Blue tint + verbatim text\",\"pure presentational, no fetching\"]}\n```"
     },
     {
       "id": 12,
       "subject": "Task 12: CitationPickerDialog + test",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [4, 11],
       "description": "**Goal:** Modal: pick source doc (rev or variation) → pick item in the matching section → confirm creates citation.\n\n**Files:** src/components/quotes/builder/citation-picker-dialog.tsx, src/components/quotes/builder/__tests__/citation-picker-dialog.test.tsx\n\n**Verify:** npm run test -- --run src/components/quotes/builder/__tests__/citation-picker-dialog.test.tsx\n\n```json:metadata\n{\"files\":[\"src/components/quotes/builder/citation-picker-dialog.tsx\",\"src/components/quotes/builder/__tests__/citation-picker-dialog.test.tsx\"],\"verifyCommand\":\"npm run test -- --run src/components/quotes/builder/__tests__/citation-picker-dialog.test.tsx\",\"acceptanceCriteria\":[\"lists issued revs + prior issued variations on project\",\"defaults to awarded_quote_id rev\",\"item picker filters to targetSection\",\"confirm inserts citation with original_text_verbatim composed from source row\"]}\n```"
     },
     {
       "id": 13,
       "subject": "Task 13: Wire CiteOriginalButton + AmendsBanner into section editors",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [11, 12],
       "description": "**Goal:** Each of the five section editors renders the citation UI when a variation context is present; guarded by VariationBuilderContext.\n\n**Files:** src/components/quotes/builder/variation-builder-context.tsx, src/components/quotes/builder/_scope-like-editor.tsx, src/components/quotes/builder/section-scope.tsx, src/components/quotes/builder/section-inclusions.tsx, src/components/quotes/builder/section-exclusions.tsx, src/components/quotes/builder/section-assumptions.tsx, src/components/quotes/builder/section-line-items.tsx\n\n**Verify:** npm run test -- --run src/components/quotes\n\n```json:metadata\n{\"files\":[\"src/components/quotes/builder/variation-builder-context.tsx\",\"src/components/quotes/builder/_scope-like-editor.tsx\",\"src/components/quotes/builder/section-scope.tsx\",\"src/components/quotes/builder/section-inclusions.tsx\",\"src/components/quotes/builder/section-exclusions.tsx\",\"src/components/quotes/builder/section-assumptions.tsx\",\"src/components/quotes/builder/section-line-items.tsx\"],\"verifyCommand\":\"npm run test -- --run src/components/quotes\",\"acceptanceCriteria\":[\"context provider + hook\",\"five editors gain cite/amends UI conditional on context\",\"existing v1 quote builder tests still pass\",\"picker opens with the right targetSection\"]}\n```"
     },
     {
       "id": 14,
       "subject": "Task 14: variation-builder.tsx route",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [9, 13],
       "description": "**Goal:** /variations/:variationId/edit — three-column builder shell wrapped in VariationBuilderProvider; reuses BuilderLayout. IssueConfirmDialog generalised to support both rev and variation modes.\n\n**Files:** src/routes/variation-builder.tsx, src/components/quotes/issue-confirm-dialog.tsx\n\n**Verify:** npm run lint && npx tsc -b\n\n```json:metadata\n{\"files\":[\"src/routes/variation-builder.tsx\",\"src/components/quotes/issue-confirm-dialog.tsx\"],\"verifyCommand\":\"npm run lint && npx tsc -b\",\"acceptanceCriteria\":[\"loads variation + project + customer + content + citations\",\"wraps editor in VariationBuilderProvider\",\"Issue button gated by validateForIssue + stage check\",\"redirects to /variations/:id/view when status !== draft\"]}\n```"
     },
     {
       "id": 15,
       "subject": "Task 15: variation-view.tsx route",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [14],
       "description": "**Goal:** /variations/:variationId/view — read-only, snapshot-projected, signed-URL PDF iframe with re-sign timer.\n\n**Files:** src/routes/variation-view.tsx, src/routes/variation-builder.tsx\n\n**Verify:** npm run lint && npx tsc -b\n\n```json:metadata\n{\"files\":[\"src/routes/variation-view.tsx\",\"src/routes/variation-builder.tsx\"],\"verifyCommand\":\"npm run lint && npx tsc -b\",\"acceptanceCriteria\":[\"renders from snapshot_json only\",\"Amends block inlined above cited rows\",\"signed URL re-signs every 4 min\",\"no award/mark-lost buttons\"]}\n```"
     },
     {
       "id": 16,
       "subject": "Task 16: Project Commercial tab — Variations sub-section + New Variation button",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [3, 14],
       "description": "**Goal:** Replace the v2 Variations placeholder card with the real sub-section; New Variation button gated on stage ∈ awarded/in_progress.\n\n**Files:** src/components/quotes/project-commercial-tab.tsx, src/components/quotes/variation-card.tsx\n\n**Verify:** npm run lint && npx tsc -b\n\n```json:metadata\n{\"files\":[\"src/components/quotes/project-commercial-tab.tsx\",\"src/components/quotes/variation-card.tsx\"],\"verifyCommand\":\"npm run lint && npx tsc -b\",\"acceptanceCriteria\":[\"lists project's variations via useVariationsForProject\",\"New Variation button disabled unless stage=awarded|in_progress\",\"creates with clone_tnc_from_rev_id=awarded_quote_id, navigates to /variations/<newId>/edit\"]}\n```"
     },
     {
       "id": 17,
       "subject": "Task 17: Global /variations list + sidebar + route registration",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [14, 15, 16],
       "description": "**Goal:** /variations table with status/stage/customer filters; sidebar entry between Quotes and T&Cs; three routes registered.\n\n**Files:** src/routes/variations.tsx, src/App.tsx, src/app/DashboardLayout.tsx\n\n**Verify:** npm run lint && npm run build\n\n```json:metadata\n{\"files\":[\"src/routes/variations.tsx\",\"src/App.tsx\",\"src/app/DashboardLayout.tsx\"],\"verifyCommand\":\"npm run lint && npm run build\",\"acceptanceCriteria\":[\"/variations filterable by status/stage/customer\",\"sidebar Variations entry between Quotes and T&Cs\",\"three routes lazy-loaded in App.tsx\"]}\n```"
     },
     {
       "id": 18,
       "subject": "Task 18: End-to-end variation flow integration test",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [9, 10, 17],
       "description": "**Goal:** Stateful in-memory supabase mock + real useIssueVariation hook; asserts the issued variation, snapshot, audit row, and citation snapshot fidelity.\n\n**Files:** src/lib/__tests__/variation-flow.integration.test.tsx\n\n**Verify:** npm run test -- --run\n\n```json:metadata\n{\"files\":[\"src/lib/__tests__/variation-flow.integration.test.tsx\"],\"verifyCommand\":\"npm run test -- --run\",\"acceptanceCriteria\":[\"variation status flipped to issued\",\"snapshot_json with kind=variation + citations\",\"pdf_storage_key set\",\"audit row with event_type=issued, target_type=variation\",\"validation fail when project.stage=quoting\",\"full suite green\"]}\n```"
     }
