@@ -10,10 +10,9 @@ const baseFixture = {
   project: {
     project_number: "CVL-2129",
     project_name: "Infeed Conveyor Replacement",
-    customer: {
+    client: {
       id: "c-1",
       name: "Conveyor Logistics Pty Ltd",
-      display_code: "CVL",
     },
   },
   pricing_presentation: {
@@ -198,10 +197,9 @@ describe("renderSnapshotToHtml", () => {
       project: {
         project_number: "CVL-2129",
         project_name: "Infeed Conveyor Replacement",
-        customer: {
+        client: {
           id: "c-1",
           name: "Conveyor Logistics Pty Ltd",
-          display_code: "CVL",
         },
       },
       pricing_presentation: {

@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import { useVariation } from "@/hooks/use-variations";
 import { useProject } from "@/hooks/use-projects";
-import { useCustomer } from "@/hooks/use-customers";
+import { useClient } from "@/hooks/use-clients";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import type {
@@ -48,7 +48,7 @@ export default function VariationViewRoute() {
 
   const { data: variation, isLoading, error } = useVariation(variationId);
   const { data: project } = useProject(variation?.project_id);
-  const { data: customer } = useCustomer(project?.customer_id ?? undefined);
+  const { data: client } = useClient(project?.client_id ?? undefined);
 
   const pdfKey = variation?.pdf_storage_key ?? null;
   const { data: pdfUrl, error: pdfQueryError } = useQuery({
@@ -131,7 +131,7 @@ export default function VariationViewRoute() {
           </div>
           <div className="text-xs font-mono text-zinc-400">
             {project?.project_name ?? project?.project_number ?? "Project"}
-            {customer ? ` · ${customer.name}` : ""}
+            {client ? ` · ${client.name}` : ""}
           </div>
         </div>
         <div className="mt-2 text-[11px] font-mono text-zinc-500">
@@ -226,7 +226,7 @@ function VariationSnapshotProjection({
           {snapshot.project.project_name}
         </h1>
         <div className="font-mono text-xs text-zinc-400 mt-1">
-          {snapshot.project.project_number ?? snapshot.project.job_code ?? ""} · {snapshot.project.customer.name}
+          {snapshot.project.project_number ?? snapshot.project.job_code ?? ""} · {snapshot.project.client?.name ?? snapshot.project.customer?.name ?? ""}
         </div>
       </header>
 

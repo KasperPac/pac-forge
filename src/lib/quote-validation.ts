@@ -12,9 +12,8 @@ export type ValidationResult =
 
 export interface ValidationInput {
   project: {
-    customer_id: string | null;
+    client_id: string | null;
     project_number: string | null;
-    project_name: string | null;
   };
   scope: Array<{ title: string }>;
   lineItems: Array<{
@@ -34,22 +33,16 @@ export interface ValidationInput {
 export function validateForIssue(input: ValidationInput): ValidationResult {
   const errors: ValidationError[] = [];
 
-  if (!input.project.customer_id) {
+  if (!input.project.client_id) {
     errors.push({
-      field: "project.customer_id",
-      message: "Customer is required.",
+      field: "project.client_id",
+      message: "Client is required.",
     });
   }
   if (!input.project.project_number) {
     errors.push({
       field: "project.project_number",
       message: "Project number is required.",
-    });
-  }
-  if (!input.project.project_name) {
-    errors.push({
-      field: "project.project_name",
-      message: "Project name is required.",
     });
   }
 

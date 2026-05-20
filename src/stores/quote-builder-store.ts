@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 export const BUILDER_SECTIONS = [
+  "summary",
   "scope",
   "inclusions",
   "exclusions",
@@ -12,6 +13,7 @@ export const BUILDER_SECTIONS = [
 export type BuilderSection = (typeof BUILDER_SECTIONS)[number];
 
 export const BUILDER_SECTION_LABELS: Record<BuilderSection, string> = {
+  summary: "Executive Summary",
   scope: "Scope",
   inclusions: "Inclusions",
   exclusions: "Exclusions",

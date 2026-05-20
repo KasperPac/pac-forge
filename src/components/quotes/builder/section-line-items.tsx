@@ -95,7 +95,8 @@ export function SectionLineItems() {
     if (mode === "qty") {
       patchRow(row.id, { hours: null, hour_rate: null });
     } else {
-      patchRow(row.id, { qty: null, unit: null, unit_price: null });
+      // Seed hours: "0" so inferCalcMode returns "hours" after the update.
+      patchRow(row.id, { qty: null, unit: null, unit_price: null, hours: "0" });
     }
   }
 

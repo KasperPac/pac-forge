@@ -4,6 +4,22 @@ import type { Client, ClientCreate, ClientUpdate } from "@/types";
 
 const CLIENTS_KEY = ["clients"] as const;
 
+export function useClient(id: string | undefined) {
+  return useQuery({
+    queryKey: [...CLIENTS_KEY, "by-id", id],
+    enabled: !!id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("clients")
+        .select("*")
+        .eq("id", id!)
+        .single();
+      if (error) throw error;
+      return data as Client;
+    },
+  });
+}
+
 export function useClients() {
   return useQuery({
     queryKey: CLIENTS_KEY,

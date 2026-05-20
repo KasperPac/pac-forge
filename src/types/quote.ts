@@ -26,6 +26,7 @@ export interface QuoteRevision {
   rev_number: number;
   status: RevStatus;
   summary: string | null;
+  contact_name: string | null;
   issued_at: string | null;
   issued_by: string | null;
   snapshot_json: unknown | null;
@@ -42,6 +43,7 @@ export interface Variation {
   variation_number: number;
   status: VariationStatus;
   summary: string | null;
+  contact_name: string | null;
   issued_at: string | null;
   issued_by: string | null;
   snapshot_json: unknown | null;
@@ -58,9 +60,9 @@ export type QuoteUpdate = Partial<Pick<Quote, "status">>;
 export type QuoteRevisionCreate = Pick<QuoteRevision, "quote_id" | "rev_number"> & {
   summary?: string | null;
 };
-export type QuoteRevisionUpdate = Partial<Pick<QuoteRevision, "summary">>;
+export type QuoteRevisionUpdate = Partial<Pick<QuoteRevision, "summary" | "contact_name">>;
 
 export type VariationCreate = Pick<Variation, "project_id" | "variation_number"> & {
   summary?: string | null;
 };
-export type VariationUpdate = Partial<Pick<Variation, "summary">>;
+export type VariationUpdate = Partial<Pick<Variation, "summary" | "contact_name">>;

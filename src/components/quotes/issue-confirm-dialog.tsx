@@ -96,8 +96,8 @@ export function IssueConfirmDialog(props: IssueConfirmDialogProps) {
     ? `Issue Variation V${props.variationNumber}`
     : `Issue ${props.quoteNumber} Rev ${props.revNumber}`;
   const description = isVariation
-    ? "Once issued, this variation is read-only. A snapshot of the current content is stored and a PDF rendered to Storage."
-    : "Once issued, this revision is read-only. A snapshot of the current content is stored and a PDF rendered to Storage. Any prior issued revision on this quote will be marked superseded.";
+    ? "Once issued, this variation is read-only. A snapshot is stored and HTML + DOCX files are downloaded to your computer."
+    : "Once issued, this revision is read-only. A snapshot is stored and HTML + DOCX files are downloaded to your computer. Any prior issued revision on this quote will be marked superseded.";
   const docLabel = isVariation
     ? `${props.projectNumber} · V${props.variationNumber}`
     : `${props.quoteNumber} · Rev ${props.revNumber}`;
@@ -151,7 +151,7 @@ export function IssueConfirmDialog(props: IssueConfirmDialogProps) {
             role="alert"
             className="rounded border border-red-900 bg-red-950/40 p-3 text-xs font-mono text-red-300 whitespace-pre-wrap"
           >
-            PDF render failed: {issueError.message}
+            Document generation failed: {issueError.message}
           </div>
         )}
         {issueError?.kind === "db" && (

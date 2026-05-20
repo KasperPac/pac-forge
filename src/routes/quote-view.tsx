@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Award, ExternalLink, FilePlus, XCircle } from "lucide-react";
 import { useQuoteRevision, useQuote, useCloneRevisionAsDraft } from "@/hooks/use-quotes";
 import { useProject } from "@/hooks/use-projects";
-import { useCustomer } from "@/hooks/use-customers";
+import { useClient } from "@/hooks/use-clients";
 import {
   useAwardQuoteRevision,
   useMarkRevisionLost,
@@ -46,7 +46,7 @@ export default function QuoteViewRoute() {
   const { data: rev, isLoading, error } = useQuoteRevision(revId);
   const { data: quote } = useQuote(rev?.quote_id);
   const { data: project } = useProject(quote?.project_id);
-  const { data: customer } = useCustomer(project?.customer_id ?? undefined);
+  const { data: client } = useClient(project?.client_id ?? undefined);
   const clone = useCloneRevisionAsDraft();
   const award = useAwardQuoteRevision();
   const markLost = useMarkRevisionLost();
@@ -154,7 +154,7 @@ export default function QuoteViewRoute() {
           <div className="flex items-center gap-3">
             <div className="text-xs font-mono text-zinc-400">
               {project?.project_name ?? project?.project_number ?? "Project"}
-              {customer ? ` · ${customer.name}` : ""}
+              {client ? ` · ${client.name}` : ""}
             </div>
             {rev.status === "issued" && quote?.status === "issued" && (
               <>
@@ -329,7 +329,7 @@ function SnapshotProjection({ snapshot }: { snapshot: QuoteSnapshotV1 }) {
           {snapshot.project.project_name}
         </h1>
         <div className="font-mono text-xs text-zinc-400 mt-1">
-          {snapshot.project.project_number ?? snapshot.project.job_code ?? ""} · {snapshot.project.customer.name}
+          {snapshot.project.project_number ?? snapshot.project.job_code ?? ""} · {snapshot.project.client?.name ?? snapshot.project.customer?.name ?? ""}
         </div>
       </header>
 

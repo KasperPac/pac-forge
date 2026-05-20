@@ -5,7 +5,7 @@
     <div>{{displayDate snapshot.issued_at}}</div>
   </div>
   <div class="sig-block">
-    <div class="name">{{snapshot.project.customer.name}}</div>
+    <div class="name">{{or snapshot.project.client.name snapshot.project.customer.name}}</div>
     <div>Authorised signature</div>
     <div>Date</div>
   </div>

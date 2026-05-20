@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ComponentType } from "react";
 import { useNavigate, useParams } from "react-router";
 import { useQuoteRevision, useQuote } from "@/hooks/use-quotes";
 import { useProject } from "@/hooks/use-projects";
-import { useCustomer } from "@/hooks/use-customers";
+import { useClient } from "@/hooks/use-clients";
 import {
   scopeItems,
   inclusions,
@@ -21,6 +21,7 @@ import { grandTotal } from "@/lib/quote-totals";
 import { validateForIssue } from "@/lib/quote-validation";
 import { BuilderLayout } from "@/components/quotes/builder/builder-layout";
 import { IssueConfirmDialog } from "@/components/quotes/issue-confirm-dialog";
+import { SectionSummary } from "@/components/quotes/builder/section-summary";
 import { SectionScope } from "@/components/quotes/builder/section-scope";
 import { SectionInclusions } from "@/components/quotes/builder/section-inclusions";
 import { SectionExclusions } from "@/components/quotes/builder/section-exclusions";
@@ -31,6 +32,7 @@ import { SectionTnc } from "@/components/quotes/builder/section-tnc";
 import type { BuilderSection } from "@/stores/quote-builder-store";
 
 const SECTION_EDITORS: Record<BuilderSection, ComponentType> = {
+  summary: SectionSummary,
   scope: SectionScope,
   inclusions: SectionInclusions,
   exclusions: SectionExclusions,
@@ -51,7 +53,7 @@ export default function QuoteBuilderRoute() {
     useQuoteRevision(revId);
   const { data: quote } = useQuote(rev?.quote_id);
   const { data: project } = useProject(quote?.project_id);
-  const { data: customer } = useCustomer(project?.customer_id ?? undefined);
+  const { data: client } = useClient(project?.client_id ?? undefined);
 
   const { data: scope = [] } = scopeItems.useList(ref);
   const { data: incs = [] } = inclusions.useList(ref);
@@ -84,12 +86,13 @@ export default function QuoteBuilderRoute() {
   const Editor = SECTION_EDITORS[activeSection];
 
   const snapshot = useMemo(() => {
-    if (!rev || !quote || !project || !customer) return null;
+    if (!rev || !quote || !project || !client) return null;
     return buildSnapshot({
       rev,
       quote,
       project,
-      customer,
+      client,
+      contact_name: rev.contact_name,
       issued_by_email: null,
       issued_at: new Date().toISOString(),
       scope,
@@ -104,7 +107,7 @@ export default function QuoteBuilderRoute() {
     rev,
     quote,
     project,
-    customer,
+    client,
     scope,
     incs,
     excs,
@@ -122,9 +125,8 @@ export default function QuoteBuilderRoute() {
     if (!project) return false;
     return validateForIssue({
       project: {
-        customer_id: project.customer_id,
+        client_id: project.client_id,
         project_number: project.project_number,
-        project_name: project.project_name,
       },
       scope,
       lineItems: lis,
@@ -161,7 +163,7 @@ export default function QuoteBuilderRoute() {
         </div>
         <div className="text-xs font-mono text-zinc-400">
           {project.project_name ?? project.project_number ?? "Project"}
-          {customer ? ` · ${customer.name}` : ""}
+          {client ? ` · ${client.name}` : ""}
         </div>
       </div>
     ) : null;
@@ -213,14 +215,14 @@ export default function QuoteBuilderRoute() {
         canIssue={canIssue}
         onIssue={() => setIssueOpen(true)}
       />
-      {quote && customer && (
+      {quote && client && (
         <IssueConfirmDialog
           open={issueOpen}
           onOpenChange={setIssueOpen}
           revId={revId}
           quoteNumber={quote.number}
           revNumber={rev.rev_number}
-          customerName={customer.name}
+          customerName={client.name}
           total={total}
         />
       )}

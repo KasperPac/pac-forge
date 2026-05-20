@@ -85,6 +85,7 @@ export interface QuoteSnapshotV1 {
   rev_number: number;
   issued_at: string;
   issued_by_email: string | null;
+  contact_name?: string | null;
   project: {
     project_number: string;
     /**
@@ -94,10 +95,16 @@ export interface QuoteSnapshotV1 {
      */
     job_code?: string;
     project_name: string;
-    customer: {
+    /** Present on snapshots issued after migration 087. */
+    client?: {
       id: string;
       name: string;
-      display_code: string;
+    };
+    /** @deprecated Present on snapshots issued before the clients table migration. */
+    customer?: {
+      id: string;
+      name: string;
+      display_code?: string;
     };
   };
   pricing_presentation: SnapshotPricingPresentation;

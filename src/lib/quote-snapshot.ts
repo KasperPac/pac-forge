@@ -1,6 +1,6 @@
 import { aggregateByCategory, computeLineSubtotal, grandTotal } from "@/lib/quote-totals";
 import type {
-  Customer,
+  Client,
   Quote,
   QuoteRevision,
   Project,
@@ -37,7 +37,8 @@ export interface BuildSnapshotInput {
   rev: QuoteRevision;
   quote: Quote;
   project: Project;
-  customer: Customer;
+  client: Client;
+  contact_name?: string | null;
   issued_by_email: string | null;
   issued_at: string;
   scope: DocScopeItem[];
@@ -196,13 +197,17 @@ export function buildSnapshot(input: BuildSnapshotInput): QuoteSnapshotV1 {
     rev_number: input.rev.rev_number,
     issued_at: input.issued_at,
     issued_by_email: input.issued_by_email,
+    contact_name: input.contact_name ?? null,
     project: {
       project_number: input.project.project_number ?? "",
-      project_name: input.project.project_name ?? "",
-      customer: {
-        id: input.customer.id,
-        name: input.customer.name,
-        display_code: input.customer.display_code,
+      project_name:
+        input.project.project_name ??
+        input.project.description_short ??
+        input.project.client_name ??
+        "",
+      client: {
+        id: input.client.id,
+        name: input.client.name,
       },
     },
     pricing_presentation: input.pricing_presentation ?? {

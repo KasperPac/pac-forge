@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>{{snapshot.quote_number}} Rev {{snapshot.rev_number}} — {{snapshot.project.customer.name}}</title>
+    <title>{{snapshot.quote_number}} Rev {{snapshot.rev_number}} — {{or snapshot.project.client.name snapshot.project.customer.name}}</title>
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
       rel="stylesheet"
@@ -18,12 +18,11 @@
 
     {{> cover}}
 
-    {{#if snapshot.summary}}
-      <section class="section">
-        <h2 class="section-title">Executive Summary</h2>
-        <div>{{markdown snapshot.summary}}</div>
-      </section>
-    {{/if}}
+    <section class="section intro-letter">
+      {{#if snapshot.contact_name}}<p>Hi {{snapshot.contact_name}},</p>{{/if}}
+      <p>Pac Technologies is pleased to present the following quote {{snapshot.quote_number}}.</p>
+      {{#if snapshot.summary}}<div>{{markdown snapshot.summary}}</div>{{/if}}
+    </section>
 
     {{#if snapshot.scope.length}}
       <section class="section">

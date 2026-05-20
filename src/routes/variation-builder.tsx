@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router";
 import { useVariation } from "@/hooks/use-variations";
 import { useCitationsForVariation } from "@/hooks/use-variation-citations";
 import { useProject } from "@/hooks/use-projects";
-import { useCustomer } from "@/hooks/use-customers";
+import { useClient } from "@/hooks/use-clients";
 import {
   scopeItems,
   inclusions,
@@ -27,6 +27,7 @@ import { validateForIssue } from "@/lib/quote-validation";
 import { BuilderLayout } from "@/components/quotes/builder/builder-layout";
 import { IssueConfirmDialog } from "@/components/quotes/issue-confirm-dialog";
 import { VariationBuilderProvider } from "@/components/quotes/builder/variation-builder-context";
+import { SectionSummary } from "@/components/quotes/builder/section-summary";
 import { SectionScope } from "@/components/quotes/builder/section-scope";
 import { SectionInclusions } from "@/components/quotes/builder/section-inclusions";
 import { SectionExclusions } from "@/components/quotes/builder/section-exclusions";
@@ -37,6 +38,7 @@ import { SectionTnc } from "@/components/quotes/builder/section-tnc";
 import type { BuilderSection } from "@/stores/quote-builder-store";
 
 const SECTION_EDITORS: Record<BuilderSection, ComponentType> = {
+  summary: SectionSummary,
   scope: SectionScope,
   inclusions: SectionInclusions,
   exclusions: SectionExclusions,
@@ -59,7 +61,7 @@ export default function VariationBuilderRoute() {
     error: variationError,
   } = useVariation(variationId);
   const { data: project } = useProject(variation?.project_id);
-  const { data: customer } = useCustomer(project?.customer_id ?? undefined);
+  const { data: client } = useClient(project?.client_id ?? undefined);
 
   const { data: scope = [] } = scopeItems.useList(ref);
   const { data: incs = [] } = inclusions.useList(ref);
@@ -93,7 +95,7 @@ export default function VariationBuilderRoute() {
   const Editor = SECTION_EDITORS[activeSection];
 
   const snapshot = useMemo(() => {
-    if (!variation || !project || !customer) return null;
+    if (!variation || !project || !client) return null;
     const citationsForBuild: BuildSnapshotCitation[] = citations.map((c) => ({
       row: c,
       source_label: "(source)",
@@ -105,6 +107,7 @@ export default function VariationBuilderRoute() {
         rev_number: variation.variation_number,
         status: "draft",
         summary: variation.summary,
+        contact_name: variation.contact_name,
         issued_at: null,
         issued_by: null,
         snapshot_json: null,
@@ -124,7 +127,8 @@ export default function VariationBuilderRoute() {
         created_by: null,
       },
       project,
-      customer,
+      client,
+      contact_name: variation.contact_name,
       issued_by_email: null,
       issued_at: new Date().toISOString(),
       scope,
@@ -140,7 +144,7 @@ export default function VariationBuilderRoute() {
   }, [
     variation,
     project,
-    customer,
+    client,
     scope,
     incs,
     excs,
@@ -158,9 +162,8 @@ export default function VariationBuilderRoute() {
     if (!["awarded", "in_progress"].includes(project.stage)) return false;
     return validateForIssue({
       project: {
-        customer_id: project.customer_id,
+        client_id: project.client_id,
         project_number: project.project_number,
-        project_name: project.project_name,
       },
       scope,
       lineItems: lis,
@@ -217,7 +220,7 @@ export default function VariationBuilderRoute() {
   }
 
   const header =
-    project && customer ? (
+    project && client ? (
       <div className="flex items-center justify-between">
         <div className="flex flex-col">
           <div className="text-xs font-mono text-zinc-500 uppercase tracking-wide">
@@ -229,7 +232,7 @@ export default function VariationBuilderRoute() {
           </div>
         </div>
         <div className="text-xs font-mono text-zinc-400">
-          {project.project_number ?? ""} · {customer.name}
+          {project.project_number ?? ""} · {client.name}
         </div>
       </div>
     ) : null;
@@ -251,7 +254,7 @@ export default function VariationBuilderRoute() {
         canIssue={canIssue}
         onIssue={() => setIssueOpen(true)}
       />
-      {project && customer && (
+      {project && client && (
         <IssueConfirmDialog
           mode="variation"
           open={issueOpen}
@@ -260,7 +263,7 @@ export default function VariationBuilderRoute() {
           projectId={variation.project_id}
           projectNumber={project.project_number ?? ""}
           variationNumber={variation.variation_number}
-          customerName={customer.name}
+          customerName={client.name}
           total={total}
         />
       )}

@@ -5,8 +5,13 @@ import {
   validateForIssue,
   type ValidationError,
 } from "@/lib/quote-validation";
+import {
+  generateQuoteHtml,
+  generateQuoteDocx,
+  downloadBlob,
+} from "@/lib/quote-doc-export";
 import type {
-  Customer,
+  Client,
   DocAssumption,
   DocCommercialTerms,
   DocExclusion,
@@ -39,14 +44,14 @@ export interface IssueRevisionInput {
 export interface IssueRevisionResult {
   revision: QuoteRevision;
   snapshot: QuoteSnapshotV1;
-  storage_key: string;
+  storage_key: string | null;
 }
 
 interface Bundle {
   rev: QuoteRevision;
   quote: Quote;
   project: Project;
-  customer: Customer;
+  client: Client;
   scope: DocScopeItem[];
   inclusions: DocInclusion[];
   exclusions: DocExclusion[];
@@ -84,16 +89,16 @@ async function fetchBundle(revId: string): Promise<Bundle> {
   if (projectRes.error) throw new Error(`load project: ${projectRes.error.message}`);
   const project = projectRes.data as Project;
 
-  if (!project.customer_id) {
-    throw new Error("project has no customer assigned");
+  if (!project.client_id) {
+    throw new Error("project has no client assigned");
   }
-  const customerRes = await supabase
-    .from("customers")
+  const clientRes = await supabase
+    .from("clients")
     .select("*")
-    .eq("id", project.customer_id)
+    .eq("id", project.client_id)
     .single();
-  if (customerRes.error) throw new Error(`load customer: ${customerRes.error.message}`);
-  const customer = customerRes.data as Customer;
+  if (clientRes.error) throw new Error(`load client: ${clientRes.error.message}`);
+  const client = clientRes.data as Client;
 
   // Fetch all polymorphic children + tnc rows in parallel.
   const filter = (table: string) =>
@@ -162,7 +167,7 @@ async function fetchBundle(revId: string): Promise<Bundle> {
     rev,
     quote,
     project,
-    customer,
+    client,
     scope: (scopeRes.data as DocScopeItem[]) ?? [],
     inclusions: (incRes.data as DocInclusion[]) ?? [],
     exclusions: (excRes.data as DocExclusion[]) ?? [],
@@ -188,19 +193,6 @@ function buildTncForSnap(b: Bundle): BuildSnapshotTnc {
   return null;
 }
 
-async function getAccessToken(): Promise<string> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  const token = session?.access_token;
-  if (!token) throw new Error("Not authenticated");
-  return token;
-}
-
-function safeFilename(snapshot: QuoteSnapshotV1): string {
-  const base = `${snapshot.quote_number}-Rev${snapshot.rev_number}`;
-  return `${base.replace(/[^A-Za-z0-9_.-]/g, "_")}.pdf`;
-}
 
 export function useIssueRevision() {
   const qc = useQueryClient();
@@ -223,7 +215,8 @@ export function useIssueRevision() {
         rev: bundle.rev,
         quote: bundle.quote,
         project: bundle.project,
-        customer: bundle.customer,
+        client: bundle.client,
+        contact_name: bundle.rev.contact_name,
         issued_by_email: issuedByEmail,
         issued_at: new Date().toISOString(),
         scope: bundle.scope,
@@ -238,9 +231,8 @@ export function useIssueRevision() {
       // 3. Validate against the fresh bundle.
       const verdict = validateForIssue({
         project: {
-          customer_id: bundle.project.customer_id,
+          client_id: bundle.project.client_id,
           project_number: bundle.project.project_number,
-          project_name: bundle.project.project_name,
         },
         scope: bundle.scope.map((s) => ({ title: s.title })),
         lineItems: bundle.line_items,
@@ -261,52 +253,19 @@ export function useIssueRevision() {
         } satisfies IssueError;
       }
 
-      // 4. Render PDF + upload via edge function (non-dry_run).
-      const filename = safeFilename(snapshot);
-      let token: string;
+      // 4. Generate HTML + DOCX and download both to the user's machine.
+      const stem = `${snapshot.quote_number}-Rev${snapshot.rev_number}`.replace(
+        /[^A-Za-z0-9_.-]/g,
+        "_",
+      );
       try {
-        token = await getAccessToken();
-      } catch (e) {
-        throw {
-          kind: "db",
-          message: e instanceof Error ? e.message : String(e),
-        } satisfies IssueError;
-      }
-      const renderRes = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/quote-render-pdf`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            snapshot,
-            rev_id: revId,
-            filename,
-            dry_run: false,
-          }),
-        },
-      ).catch((e) => {
-        throw {
-          kind: "render",
-          message: e instanceof Error ? e.message : String(e),
-        } satisfies IssueError;
-      });
-      if (!renderRes.ok) {
-        const detail = await renderRes.text().catch(() => "");
-        throw {
-          kind: "render",
-          message: `render service error (${renderRes.status}): ${detail}`,
-        } satisfies IssueError;
-      }
-      let storage_key: string;
-      try {
-        const json = (await renderRes.json()) as { storage_key?: string };
-        if (!json.storage_key) {
-          throw new Error("missing storage_key in render response");
-        }
-        storage_key = json.storage_key;
+        const html = await generateQuoteHtml(snapshot);
+        downloadBlob(
+          new Blob([html], { type: "text/html;charset=utf-8" }),
+          `${stem}.html`,
+        );
+        const docx = await generateQuoteDocx(snapshot);
+        downloadBlob(docx, `${stem}.docx`);
       } catch (e) {
         throw {
           kind: "render",
@@ -314,12 +273,11 @@ export function useIssueRevision() {
         } satisfies IssueError;
       }
 
-      // 5. Call the atomic RPC. If this fails after the PDF was uploaded,
-      // the PDF is orphaned in storage — documented & accepted in v1.
+      // 5. Stamp the revision as issued (no storage key for now).
       const { data, error } = await supabase.rpc("issue_quote_revision", {
         _rev_id: revId,
         _snapshot: snapshot,
-        _storage_key: storage_key,
+        _storage_key: null,
       });
       if (error) {
         throw { kind: "db", message: error.message } satisfies IssueError;
@@ -328,7 +286,7 @@ export function useIssueRevision() {
       return {
         revision: data as QuoteRevision,
         snapshot,
-        storage_key,
+        storage_key: null,
       };
     },
     onSuccess: (_, { revId }) => {

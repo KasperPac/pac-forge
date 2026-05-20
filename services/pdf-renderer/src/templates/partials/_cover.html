@@ -17,7 +17,7 @@
     <div class="cover-divider"></div>
     <div class="cover-grid">
       <div class="cover-key">Client</div>
-      <div class="cover-val">{{snapshot.project.customer.name}}</div>
+      <div class="cover-val">{{or snapshot.project.client.name snapshot.project.customer.name}}</div>
       <div class="cover-key">Project No.</div>
       <div class="cover-val">{{snapshot.project.project_number}}</div>
       <div class="cover-key">Quote No.</div>
