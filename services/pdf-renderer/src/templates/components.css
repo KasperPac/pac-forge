@@ -83,7 +83,7 @@
   font-size: 14px;
   font-weight: 600;
   color: var(--pac-blue-900);
-  margin: 0 0 8px 0;
+  margin: 0 0 10px 0;
   padding-bottom: 4px;
   border-bottom: 1px solid var(--pac-line-200);
 }
@@ -96,4 +96,38 @@
 .list-tight li {
   margin: 4px 0;
   line-height: 1.5;
+}
+
+/* ── Amends / variation callout ───────────────────────────────────── */
+.amends-callout {
+  background: var(--pac-blue-100);
+  border-left: 3px solid var(--pac-blue-600);
+  padding: 8px 12px;
+  margin-bottom: 8px;
+}
+
+.amends-callout .amends-label,
+.amends-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--pac-blue-700);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.amends-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 9px;
+}
+
+.amends-tag.original {
+  background: var(--pac-blue-200);
+  color: var(--pac-blue-800);
+}
+
+.amends-tag.revised {
+  background: var(--pac-blue-600);
+  color: #fff;
 }

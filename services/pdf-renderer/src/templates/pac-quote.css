@@ -140,6 +140,18 @@ h2 {
 
 .scope-item {
   margin: 8px 0;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.scope-item::before {
+  content: "●";
+  font-size: 5px;
+  color: var(--pac-blue-600);
+  margin-top: 5px;
+  flex: 0 0 auto;
+  line-height: 1;
 }
 
 .scope-item .scope-title {
@@ -150,6 +162,7 @@ h2 {
 .scope-item .scope-body {
   margin-top: 2px;
   color: var(--pac-ink-700);
+  font-size: 11px;
 }
 
 table.line-items {
@@ -242,6 +255,13 @@ table.line-items tfoot td {
   font-family: var(--font-mono);
   color: var(--pac-blue-600);
   margin-right: 6px;
+}
+
+.tnc-clause .clause-body {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 400;
+  margin-top: 4px;
 }
 
 .tnc-clause .clause-body p {
