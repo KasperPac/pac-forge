@@ -193,6 +193,7 @@ table.line-items td {
 table.line-items td.right,
 table.line-items th.right {
   text-align: right;
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
@@ -206,6 +207,7 @@ table.line-items tfoot td {
   display: flex;
   justify-content: flex-end;
   margin-top: 12px;
+  border-top: 2px solid var(--pac-blue-600);
   gap: 24px;
   font-family: var(--font-mono);
   font-size: 13px;
