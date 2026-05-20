@@ -18,12 +18,9 @@
   gap: 4px;
 }
 
-.doc-header .brand-name {
-  font-family: var(--font-sans);
-  font-weight: 600;
-  font-size: 18px;
-  color: var(--pac-blue-900);
-  letter-spacing: 0.02em;
+.brand-logo {
+  height: 32px;
+  display: block;
 }
 
 .doc-header .brand-mark {
@@ -35,7 +32,7 @@
 }
 
 .doc-header .doc-meta {
-  font-family: var(--font-sans);
+  font-family: var(--font-mono);
   font-size: 10px;
   text-align: right;
   color: var(--pac-ink-700);
@@ -44,9 +41,9 @@
 
 .doc-header .doc-meta .mono {
   font-family: var(--font-mono);
-  color: var(--pac-blue-900);
+  color: var(--pac-ink-700);
   font-weight: 500;
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .doc-footer {
