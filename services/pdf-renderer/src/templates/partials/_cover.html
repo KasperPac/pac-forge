@@ -1,1 +1,35 @@
-<section class="cover-page"></section>
+<section class="cover-page">
+  <div class="cover-watermark">
+    <img src="{{{@root._logoMark}}}" alt="" role="presentation">
+  </div>
+  <div class="cover-body">
+    <div class="cover-rule"></div>
+    {{#if (eq snapshot.kind "variation")}}
+      <div class="tag">Variation V{{snapshot.rev_number}}</div>
+      <h1 class="cover-title">{{snapshot.project.project_name}}</h1>
+      <div class="cover-subtitle">Variation V{{snapshot.rev_number}} to {{snapshot.project.project_number}}</div>
+    {{else}}
+      <div class="tag">Quotation</div>
+      <h1 class="cover-title">{{snapshot.project.project_name}}</h1>
+    {{/if}}
+  </div>
+  <div class="cover-meta">
+    <div class="cover-divider"></div>
+    <div class="cover-grid">
+      <div class="cover-key">Client</div>
+      <div class="cover-val">{{snapshot.project.customer.name}}</div>
+      <div class="cover-key">Project No.</div>
+      <div class="cover-val">{{snapshot.project.project_number}}</div>
+      <div class="cover-key">Quote No.</div>
+      <div class="cover-val">{{snapshot.quote_number}} · Rev {{snapshot.rev_number}}</div>
+      <div class="cover-key">Date</div>
+      <div class="cover-val">{{displayDate snapshot.issued_at}}</div>
+      {{#if (eq snapshot.kind "variation")}}
+        {{#if snapshot.parent_quote_ref}}
+          <div class="cover-key">Parent Quote</div>
+          <div class="cover-val">{{snapshot.parent_quote_ref}}</div>
+        {{/if}}
+      {{/if}}
+    </div>
+  </div>
+</section>

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <title>{{snapshot.quote_number}} Rev {{snapshot.rev_number}} — {{snapshot.project.customer.name}}</title>
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
     <style>
@@ -16,16 +16,7 @@
   <body>
     {{> header}}
 
-    <section class="cover-block">
-      {{#if (eq snapshot.kind "variation")}}
-        <div class="tag">Variation V{{snapshot.rev_number}}</div>
-      {{else}}
-        <div class="tag">Quotation</div>
-      {{/if}}
-      <h1>{{snapshot.project.project_name}}</h1>
-      <div class="project-line">{{or snapshot.project.project_number snapshot.project.job_code}}</div>
-      <div class="customer-line">Prepared for {{snapshot.project.customer.name}}</div>
-    </section>
+    {{> cover}}
 
     {{#if snapshot.summary}}
       <section class="section">
