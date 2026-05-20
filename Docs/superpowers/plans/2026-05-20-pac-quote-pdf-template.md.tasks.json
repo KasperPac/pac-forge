@@ -10,21 +10,21 @@
     {
       "id": 2,
       "subject": "Task 2: Cover page partial and page break",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [5],
       "description": "**Goal:** Create _cover.html partial, restructure pac-quote.html to use it, and add cover-page CSS.\n\n**Files:**\n- Create: `services/pdf-renderer/src/templates/partials/_cover.html`\n- Modify: `services/pdf-renderer/src/templates/pac-quote.html`\n- Modify: `services/pdf-renderer/src/templates/pac-quote.css`\n\n**Acceptance Criteria:**\n- [ ] Cover renders as visually distinct first page with globe watermark\n- [ ] Project name at ~36px bold Inter 800\n- [ ] page-break-after: always on .cover-page\n- [ ] Variation subtitle 'Variation V1 to {project_number}' produced\n- [ ] npm test passes including variation amends test\n\n**Verify:** `cd services/pdf-renderer && npm test`\n\n```json:metadata\n{\"files\": [\"services/pdf-renderer/src/templates/partials/_cover.html\", \"services/pdf-renderer/src/templates/pac-quote.html\", \"services/pdf-renderer/src/templates/pac-quote.css\"], \"verifyCommand\": \"cd services/pdf-renderer && npm test\", \"acceptanceCriteria\": [\"_cover.html partial exists\", \"pac-quote.html uses {{> cover}}\", \"page-break-after: always\", \"Variation subtitle produced\", \"all tests pass\"]}\n```"
     },
     {
       "id": 3,
       "subject": "Task 3: Restyle header and footer partials",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [5],
       "description": "**Goal:** Header shows PacTechnologies.jpg logo image; CSS updated for brand-logo class.\n\n**Files:**\n- Modify: `services/pdf-renderer/src/templates/partials/_header.html`\n- Modify: `services/pdf-renderer/src/templates/partials/_footer.html`\n- Modify: `services/pdf-renderer/src/templates/components.css`\n\n**Acceptance Criteria:**\n- [ ] Header uses {{{@root._logoFull}}} img at 32px height\n- [ ] 2px Pac Blue rule below header\n- [ ] Footer mono style\n- [ ] npm test passes\n\n**Verify:** `cd services/pdf-renderer && npm test`\n\n```json:metadata\n{\"files\": [\"services/pdf-renderer/src/templates/partials/_header.html\", \"services/pdf-renderer/src/templates/partials/_footer.html\", \"services/pdf-renderer/src/templates/components.css\"], \"verifyCommand\": \"cd services/pdf-renderer && npm test\", \"acceptanceCriteria\": [\"Header logo img tag\", \"2px Pac Blue rule\", \"Footer mono\", \"all tests pass\"]}\n```"
     },
     {
       "id": 4,
       "subject": "Task 4: Content section CSS restyle",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Full CSS restyle of all content sections.\n\n**Files:**\n- Modify: `services/pdf-renderer/src/templates/pac-quote.css`\n- Modify: `services/pdf-renderer/src/templates/components.css`\n\n**Acceptance Criteria:**\n- [ ] Scope items have Pac Blue ::before bullet dot\n- [ ] Pricing table header has 1px --pac-blue-600 bottom border\n- [ ] Grand total has 2px --pac-blue-600 top border\n- [ ] T&C clause numbers in --pac-blue-600 mono\n- [ ] Signature top rule per column\n- [ ] Amends: --pac-blue-100 bg, 3px --pac-blue-600 left border\n- [ ] npm test passes\n\n**Verify:** `cd services/pdf-renderer && npm test`\n\n```json:metadata\n{\"files\": [\"services/pdf-renderer/src/templates/pac-quote.css\", \"services/pdf-renderer/src/templates/components.css\"], \"verifyCommand\": \"cd services/pdf-renderer && npm test\", \"acceptanceCriteria\": [\"Scope bullet dots\", \"Grand total border\", \"T&C clause color\", \"Signature rule\", \"Amends styled\", \"all tests pass\"]}\n```"
     }
   ],
