@@ -5,11 +5,11 @@
   <div class="cover-body">
     <div class="cover-rule"></div>
     {{#if (eq snapshot.kind "variation")}}
-      <div class="tag">Variation V{{snapshot.rev_number}}</div>
+      <div class="cover-kicker">Variation V{{snapshot.rev_number}}</div>
       <h1 class="cover-title">{{snapshot.project.project_name}}</h1>
       <div class="cover-subtitle">Variation V{{snapshot.rev_number}} to {{snapshot.project.project_number}}</div>
     {{else}}
-      <div class="tag">Quotation</div>
+      <div class="cover-kicker">Quotation</div>
       <h1 class="cover-title">{{snapshot.project.project_name}}</h1>
     {{/if}}
   </div>

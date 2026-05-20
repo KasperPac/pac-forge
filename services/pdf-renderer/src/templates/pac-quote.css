@@ -37,6 +37,15 @@
   margin: 14px 0 12px;
 }
 
+.cover-kicker {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--pac-blue-600);
+  margin-bottom: 8px;
+}
+
 .cover-title {
   font-size: 36px;
   font-weight: 800;
@@ -123,11 +132,6 @@ h1, h2, h3 {
   margin: 12px 0 4px 0;
 }
 
-h2 {
-  font-size: 14px;
-  font-weight: 600;
-  margin: 0 0 8px 0;
-}
 
 .section {
   margin-top: var(--section-gap);
