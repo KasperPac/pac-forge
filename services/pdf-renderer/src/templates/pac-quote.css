@@ -117,7 +117,7 @@ h1, h2, h3 {
   margin: 0;
 }
 
-h1 {
+.section h1 {
   font-size: 22px;
   font-weight: 600;
   margin: 12px 0 4px 0;
@@ -127,23 +127,6 @@ h2 {
   font-size: 14px;
   font-weight: 600;
   margin: 0 0 8px 0;
-}
-
-.cover-block {
-  margin: 8px 0 24px 0;
-}
-
-.cover-block .project-line {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--pac-ink-700);
-  margin-top: 4px;
-}
-
-.cover-block .customer-line {
-  font-size: 13px;
-  color: var(--pac-ink-800);
-  margin-top: 2px;
 }
 
 .section {
