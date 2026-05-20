@@ -67,7 +67,13 @@ Handlebars.registerHelper("markdown", (text: unknown) => {
 });
 
 let cachedTemplate: HandlebarsTemplateDelegate | null = null;
-let cachedAssets: { tokensCss: string; componentsCss: string; quoteCss: string } | null = null;
+let cachedAssets: {
+  tokensCss: string;
+  componentsCss: string;
+  quoteCss: string;
+  logoFull: string;
+  logoMark: string;
+} | null = null;
 
 async function getTemplate(): Promise<HandlebarsTemplateDelegate> {
   if (cachedTemplate) return cachedTemplate;
@@ -78,6 +84,10 @@ async function getTemplate(): Promise<HandlebarsTemplateDelegate> {
   Handlebars.registerPartial(
     "footer",
     await readFile(resolve(tplDir, "partials/_footer.html"), "utf8"),
+  );
+  Handlebars.registerPartial(
+    "cover",
+    await readFile(resolve(tplDir, "partials/_cover.html"), "utf8"),
   );
   Handlebars.registerPartial(
     "signature",
@@ -94,12 +104,26 @@ async function getTemplate(): Promise<HandlebarsTemplateDelegate> {
 
 async function getAssets() {
   if (cachedAssets) return cachedAssets;
-  const [tokensCss, componentsCss, quoteCss] = await Promise.all([
-    readFile(resolve(tplDir, "tokens.css"), "utf8"),
-    readFile(resolve(tplDir, "components.css"), "utf8"),
-    readFile(resolve(tplDir, "pac-quote.css"), "utf8"),
-  ]);
-  cachedAssets = { tokensCss, componentsCss, quoteCss };
+  const [tokensCss, componentsCss, quoteCss, logoFullBuf, logoMarkBuf] =
+    await Promise.all([
+      readFile(resolve(tplDir, "tokens.css"), "utf8"),
+      readFile(resolve(tplDir, "components.css"), "utf8"),
+      readFile(resolve(tplDir, "pac-quote.css"), "utf8"),
+      readFile(resolve(tplDir, "PacTechnologies.jpg")),
+      readFile(
+        resolve(
+          tplDir,
+          "PacTechnologiesEdit_Blue_NoText._Transparent.png",
+        ),
+      ),
+    ]);
+  cachedAssets = {
+    tokensCss,
+    componentsCss,
+    quoteCss,
+    logoFull: `data:image/jpeg;base64,${logoFullBuf.toString("base64")}`,
+    logoMark: `data:image/png;base64,${logoMarkBuf.toString("base64")}`,
+  };
   return cachedAssets;
 }
 
@@ -111,6 +135,8 @@ export async function renderSnapshotToHtml(snapshot: unknown): Promise<string> {
     _tokensCss: assets.tokensCss,
     _componentsCss: assets.componentsCss,
     _quoteCss: assets.quoteCss,
+    _logoFull: assets.logoFull,
+    _logoMark: assets.logoMark,
   });
 }
 
