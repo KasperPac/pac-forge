@@ -515,7 +515,7 @@ function buildFdsBehavioralSection(brief: import("@/types/forge-brief").Assembly
         parts.push(`**Steps:**`);
         for (const step of seq.steps) {
           // Check for structured fields (coming from FDS)
-          const s = step as Record<string, unknown>;
+          const s = step as unknown as Record<string, unknown>;
           const timeout = s.timeout_value ? ` — timeout: ${s.timeout_value}` : "";
           const timeoutAction = s.timeout_action ? ` → ${s.timeout_action}` : "";
           parts.push(`- Step ${step.step}: ${step.action}`);

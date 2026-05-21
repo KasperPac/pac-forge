@@ -2475,7 +2475,7 @@ END_TYPE`;
           const groupSignalTags = new Set(
             groupDevices
               .flatMap((d) => d.io_signals ?? [])
-              .map((s) => (s.tag_name || (s as Record<string, unknown>).signal_name as string || "").replace(/[^A-Za-z0-9]/g, "").toLowerCase()),
+              .map((s) => (s.tag_name || (s as unknown as Record<string, unknown>).signal_name as string || "").replace(/[^A-Za-z0-9]/g, "").toLowerCase()),
           );
           const groupIoListEntries = (ioList ?? []).filter((io) => {
             const ioStem = (io.tag_name ?? "").replace(/[^A-Za-z0-9]/g, "").toLowerCase();
@@ -3307,7 +3307,7 @@ END_TYPE`;
           const groupSignalTags = new Set(
             groupDevices
               .flatMap((d) => d.io_signals ?? [])
-              .map((s) => (s.tag_name || (s as Record<string, unknown>).signal_name as string || "").replace(/[^A-Za-z0-9]/g, "").toLowerCase()),
+              .map((s) => (s.tag_name || (s as unknown as Record<string, unknown>).signal_name as string || "").replace(/[^A-Za-z0-9]/g, "").toLowerCase()),
           );
           const groupIoListEntries = (ioList ?? []).filter((io) => {
             const ioStem = (io.tag_name ?? "").replace(/[^A-Za-z0-9]/g, "").toLowerCase();
@@ -3603,15 +3603,14 @@ END_TYPE`;
       const userMessage = buildAssemblySclUserMessage(assembly);
 
       const { content } = await validateAndCall(
-        () => callNonStreaming(
-          systemPrompt,
-          [{ role: "user", content: userMessage }],
-          new AbortController().signal,
-          16384,
-        ),
+        callNonStreaming,
         systemPrompt,
-        userMessage,
+        [{ role: "user", content: userMessage }],
+        new AbortController().signal,
+        16384,
         "assembly_fb_generate",
+        false,
+        { prompt_name: "forge-device-generate", agent_role: "assembly_fb_generate", pipeline_step: "assembly_fb_generate" },
       );
 
       const artifacts = parseSclArtifacts(content, "device").map((a) => ({

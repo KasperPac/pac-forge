@@ -365,6 +365,8 @@ interface PlMeta {
   project_id?: string;
   generation_mode?: string;
   round?: number;
+  model?: string;
+  provider?: "anthropic" | "openai" | "google";
 }
 
 // Match the actual callNonStreaming signature from use-generation.ts

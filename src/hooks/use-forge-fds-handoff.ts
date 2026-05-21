@@ -91,7 +91,7 @@ export function useForgeFdsHandoff(
           deviceIds: asm.devices.map((d) => d.device_id),
           operatingStates,
           staticStates: asmContract?.static_states ?? {},
-          sequentialStates: (asmContract?.sequential_states ?? {}) as AssemblyBriefMap[string]["sequentialStates"],
+          sequentialStates: (asmContract?.sequential_states ?? {}) as unknown as AssemblyBriefMap[string]["sequentialStates"],
           alarmConditions: assemblyAlarms,
           annotations: [],
           approved: false,

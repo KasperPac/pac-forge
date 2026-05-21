@@ -488,7 +488,7 @@ function noLineTable(rows: [string, string][]): Table {
     width: { size: 100, type: WidthType.PERCENTAGE },
     borders: {
       top: noBorder, bottom: noBorder, left: noBorder, right: noBorder,
-      insideH: noBorder, insideV: noBorder,
+      insideHorizontal: noBorder, insideVertical: noBorder,
     },
     rows: rows.map(([k, v]) => noLine(k, v)),
   });

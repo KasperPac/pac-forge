@@ -140,6 +140,8 @@ const ROLE_OWNER: Record<PromptRole, string> = {
   hmi_designer: "HMI Agent",
   hmi_svg_generator: "HMI Agent",
   plcsim_test: "Project Manager",
+  forge_logic_validator: "Logic Validator",
+  test_template_suggest: "Project Manager",
 };
 
 /** Roles whose assembled prompt includes the shared platform_rules section. */

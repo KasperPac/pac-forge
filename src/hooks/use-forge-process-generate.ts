@@ -632,6 +632,7 @@ export function useForgeProcessGenerate() {
       }
 
       const devices = (session.device_list as ForgeDeviceEntry[]) ?? [];
+      const matrix = session.linkage_matrix as ProcessLinkageMatrix | null;
 
       // Fetch instruction library for LAD generation via two-pass AI lookup (non-fatal)
       let ladInstructions: Instruction[] | undefined;
@@ -648,7 +649,6 @@ export function useForgeProcessGenerate() {
       }
       const deviceArtifacts = (session.device_artifacts as ForgeArtifact[]) ?? [];
       const fbInterfaces = extractFbInterfaces(deviceArtifacts);
-      const matrix = session.linkage_matrix as ProcessLinkageMatrix | null;
       const validDbNames = new Set(
         deviceArtifacts
           .filter((artifact) => artifact.type === "DB")

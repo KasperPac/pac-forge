@@ -65,7 +65,7 @@ function validateSpecAnalysis(parsed: unknown): SpecAnalysis {
                 contact_type: (sig.contact_type ?? "") as string,
               }))
             : [],
-        })) as SpecAnalysis["devices"]
+        })) as unknown as SpecAnalysis["devices"]
       : [],
     process_sequences: Array.isArray(obj.process_sequences)
       ? (obj.process_sequences as Array<Record<string, unknown>>).map((s) => ({

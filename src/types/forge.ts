@@ -107,6 +107,11 @@ export interface ForgeSession {
   /** Interface contracts defining how assemblies communicate (exposed/consumed signals + state defs) */
   interface_contracts: InterfaceContractMap | null;
 
+  /** DeviceFbBrief[] — enriched IO signals with intent comments for device FB generation */
+  device_briefs: Record<string, unknown> | null;
+  /** LogicCheckResult — deterministic + AI validation of assembly FBs against FDS */
+  logic_check_result: Record<string, unknown> | null;
+
   linkage_matrix: ProcessLinkageMatrix | null;
 
   device_artifacts: ForgeArtifact[];

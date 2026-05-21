@@ -142,7 +142,7 @@ export function validatePartialSpecAnalysis(
                 contact_type: (sig.contact_type ?? "") as string,
               }))
             : [],
-        })) as PartialSpecAnalysis["devices"]
+        })) as unknown as PartialSpecAnalysis["devices"]
       : [],
     process_sequences: Array.isArray(obj.process_sequences)
       ? (obj.process_sequences as Array<Record<string, unknown>>).map((s) => ({

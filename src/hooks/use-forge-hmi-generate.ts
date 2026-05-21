@@ -189,7 +189,7 @@ function normalizeElements(raw: unknown[]): HmiScreenSpec["elements"] {
         name: String(el.name ?? el.id ?? `elem_${i}`),
         zIndex: typeof el.zIndex === "number" ? el.zIndex : 1,
         style,
-      } as HmiScreenSpec["elements"][number];
+      } as unknown as HmiScreenSpec["elements"][number];
     });
 }
 

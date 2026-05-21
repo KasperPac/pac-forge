@@ -200,6 +200,6 @@ function deduplicateAssemblies(assemblies: SpecAnalysisAssembly[]): SpecAnalysis
   return Array.from(seen.values());
 }
 
-function countNonNull(obj: Record<string, unknown>): number {
+function countNonNull(obj: object): number {
   return Object.values(obj).filter((v) => v != null && v !== "").length;
 }

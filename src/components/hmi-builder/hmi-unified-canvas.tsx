@@ -242,7 +242,7 @@ export function HmiUnifiedCanvas({
                 }}
                 className={cn("group", isSelected && "ring-2 ring-amber-500 ring-offset-1 ring-offset-transparent")}
                 style={{ zIndex: isSelected ? 1000 : i + 1 }}
-                onMouseDown={(e: React.MouseEvent) => {
+                onMouseDown={(e: MouseEvent) => {
                   e.stopPropagation();
                   if (e.shiftKey) {
                     const next = new Set(selectedIndexes);

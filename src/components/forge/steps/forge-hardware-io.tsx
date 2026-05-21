@@ -129,7 +129,7 @@ function devicesFromAnalysis(analysis: SpecAnalysis): ForgeDeviceEntry[] {
     subsystem: d.subsystem,
     io_signals: (d.io_signals ?? []).map((sig, sigIdx) => {
       // Normalize: AI sometimes stores signal_name instead of tag_name
-      const raw = sig as Record<string, unknown>;
+      const raw = sig as unknown as Record<string, unknown>;
       const tagName = sig.tag_name || (raw.signal_name as string) || (raw.name as string) || "";
       return {
         ...sig,
@@ -258,10 +258,6 @@ function buildAddressPool(hardware: ForgeHardwareConfig): PhysicalPoint[] {
         wordAddr += 2;
       }
       if (!is1200) outputByte = wordAddr;
-    }
-    for (let i = 0; i < aqCount; i++) {
-      pool.push({ address: `%QW${aqWord}`, slot: mod.slot, module: label, signalType: "AQ" });
-      aqWord += 2;
     }
   }
 
@@ -631,7 +627,7 @@ export function ForgeHardwareIo({
       };
       for (const device of devices) {
         for (const sig of device.io_signals ?? []) {
-          const raw = sig as Record<string, unknown>;
+          const raw = sig as unknown as Record<string, unknown>;
           const t = sig.signal_type.toUpperCase() as "DI" | "DQ" | "AI" | "AQ";
           if (t in byType) byType[t].push({ tag_name: sig.tag_name || (raw.signal_name as string) || "", description: sig.description, device_id: device.id, signal_behaviour: sig.signal_behaviour, contact_type: sig.contact_type });
         }
@@ -669,7 +665,7 @@ export function ForgeHardwareIo({
 
     for (const device of devices) {
       for (const sig of device.io_signals ?? []) {
-        const raw = sig as Record<string, unknown>;
+        const raw = sig as unknown as Record<string, unknown>;
         const sigType = sig.signal_type.toUpperCase() as "DI" | "DQ" | "AI" | "AQ";
         const entry: ForgeIoEntry = {
           address: "",
@@ -746,7 +742,7 @@ export function ForgeHardwareIo({
   const availableTags = useMemo(() =>
     devices.flatMap(d =>
       (d.io_signals ?? []).map(sig => {
-        const raw = sig as Record<string, unknown>;
+        const raw = sig as unknown as Record<string, unknown>;
         return {
           tag_name: sig.tag_name || (raw.signal_name as string) || "",
           description: sig.description,
