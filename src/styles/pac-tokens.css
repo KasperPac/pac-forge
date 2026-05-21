@@ -1,0 +1,186 @@
+/* =========================================================================
+   Pac Technologies — Design Tokens
+   Ported from the marketing site (www.pac-technologies.com.au).
+   Source of truth: tokens.css + components.css + site.css from
+   the Pac Technologies design system bundle.
+
+   Do not hard-code colors or fonts elsewhere — extend these tokens.
+   ========================================================================= */
+
+:root {
+  /* --------------------------------------------------------------- COLOR */
+  /* Brand */
+  --pac-blue-900: #0F1E3D;
+  --pac-blue-800: #14275A;
+  --pac-blue-700: #1F3878;
+  --pac-blue-600: #3050A0;   /* THE brand color */
+  --pac-blue-500: #5874BC;
+  --pac-blue-300: #A6B6DD;
+  --pac-blue-100: #E5EBF6;
+  --pac-blue-50:  #F2F5FB;
+
+  /* Ink (text) */
+  --pac-ink-900: #0E1116;
+  --pac-ink-800: #1B2129;
+  --pac-ink-700: #3A434E;
+  --pac-ink-500: #6B7785;
+  --pac-ink-400: #8A95A3;
+  --pac-ink-300: #B0B9C5;
+
+  /* Lines & surfaces */
+  --pac-line-300: #D9DEE5;
+  --pac-line-200: #E8EBF0;
+  --pac-line-100: #F0F2F6;
+
+  --pac-bg-100: #F4F6FA;
+  --pac-bg-50:  #FAFBFD;
+  --pac-paper:  #FFFFFF;
+
+  /* Signal — RESERVED for state. Never decoration. */
+  --pac-signal-green: #1F8A4C;
+  --pac-signal-green-bg: #E4F3EA;
+  --pac-signal-amber: #C7821B;
+  --pac-signal-amber-bg: #FAEFD8;
+  --pac-signal-red:   #B83227;
+  --pac-signal-red-bg: #F8E1DD;
+  --pac-signal-blue:  #2566B0;
+  --pac-signal-blue-bg: #E1ECF8;
+
+  /* Site accent — hi-vis orange (from marketing site site.css) */
+  --pac-accent: #FF6A2C;
+  --pac-accent-hover: #E85B1F;
+  --pac-accent-soft: rgba(255, 106, 44, 0.12);
+
+  /* ---------------------------------------------------------------- TYPE */
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --type-display:   3.5rem;
+  --type-display-lh: 1.0714;
+  --type-h1:        2.5rem;
+  --type-h1-lh:     1.2;
+  --type-h2:        1.75rem;
+  --type-h2-lh:     1.2857;
+  --type-h3:        1.25rem;
+  --type-h3-lh:     1.4;
+  --type-body-lg:   1.125rem;
+  --type-body-lg-lh: 1.5556;
+  --type-body:      1rem;
+  --type-body-lh:   1.5;
+  --type-body-sm:   0.875rem;
+  --type-body-sm-lh: 1.4286;
+  --type-caption:   0.75rem;
+  --type-caption-lh: 1.3333;
+  --type-eyebrow:   0.75rem;
+
+  /* ------------------------------------------------------------- SPACING */
+  --pac-space-1:  4px;
+  --pac-space-2:  8px;
+  --pac-space-3:  12px;
+  --pac-space-4:  16px;
+  --pac-space-5:  20px;
+  --pac-space-6:  24px;
+  --pac-space-8:  32px;
+  --pac-space-10: 40px;
+  --pac-space-12: 48px;
+  --pac-space-16: 64px;
+  --pac-space-24: 96px;
+  --pac-space-32: 128px;
+
+  /* -------------------------------------------------------------- RADIUS */
+  --pac-radius-sm: 4px;
+  --pac-radius-md: 8px;
+  --pac-radius-lg: 12px;
+  --pac-radius-pill: 999px;
+
+  /* -------------------------------------------------------- SHADOW (3) */
+  --pac-shadow-1: 0 1px 2px rgba(15,30,61,.06), 0 1px 1px rgba(15,30,61,.04);
+  --pac-shadow-2: 0 6px 16px rgba(15,30,61,.08), 0 2px 4px rgba(15,30,61,.04);
+  --pac-shadow-3: 0 18px 40px rgba(15,30,61,.14), 0 4px 8px rgba(15,30,61,.06);
+
+  /* -------------------------------------------------------------- MOTION */
+  --pac-ease: cubic-bezier(.2,.7,.2,1);
+  --pac-dur-fast: 120ms;
+  --pac-dur-base: 200ms;
+  --pac-dur-slow: 320ms;
+
+  /* ---------------------------------------------------- SHADCN REMAPS */
+  /* Re-route shadcn's semantic tokens to Pac equivalents.
+     HSL values match the hex tokens above so shadcn opacity modifiers
+     (bg-foreground/50, etc.) keep working. */
+
+  /* Page surfaces */
+  --background: 220 33% 99%;          /* pac-bg-50 #FAFBFD */
+  --foreground: 216 12% 7%;           /* pac-ink-900 #0E1116 */
+
+  /* Cards / popovers — true white panels */
+  --card: 0 0% 100%;
+  --card-foreground: 216 12% 7%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 216 12% 7%;
+
+  /* Primary action — Pac Blue 600 */
+  --primary: 223 54% 41%;             /* #3050A0 */
+  --primary-foreground: 0 0% 100%;
+
+  /* Secondary surface — bg-100 */
+  --secondary: 220 33% 97%;           /* #F4F6FA */
+  --secondary-foreground: 216 12% 7%;
+
+  /* Muted — same as secondary for now */
+  --muted: 220 33% 97%;
+  --muted-foreground: 214 11% 47%;    /* pac-ink-500 #6B7785 */
+
+  /* Hover/selected accent — pac-blue-50 (used by nav, menus) */
+  --accent: 220 45% 97%;              /* #F2F5FB */
+  --accent-foreground: 220 59% 30%;   /* pac-blue-700 */
+
+  /* Destructive — signal red */
+  --destructive: 4 65% 44%;           /* #B83227 */
+  --destructive-foreground: 0 0% 100%;
+
+  /* Borders / inputs / focus ring */
+  --border: 218 20% 93%;              /* pac-line-200 #E8EBF0 */
+  --input: 218 20% 93%;
+  --ring: 223 54% 41%;                /* pac-blue-600 */
+
+  --radius: 8px;                      /* pac-radius-md */
+
+  /* Charts — extend the blue ramp before reaching for hue (per brand rules) */
+  --chart-1: 223 54% 41%;             /* blue-600 */
+  --chart-2: 220 41% 54%;             /* blue-500 */
+  --chart-3: 220 47% 73%;             /* blue-300 */
+  --chart-4: 220 59% 30%;             /* blue-700 */
+  --chart-5: 17 100% 59%;             /* accent orange */
+}
+
+/* Dark mode kept for users who prefer it — but it's no longer the default.
+   These values are darker variants of the Pac palette, not the previous
+   neutral-grey theme. */
+.dark {
+  --background: 216 12% 7%;           /* pac-ink-900 */
+  --foreground: 220 33% 99%;          /* pac-bg-50 */
+  --card: 216 14% 11%;
+  --card-foreground: 220 33% 99%;
+  --popover: 216 14% 11%;
+  --popover-foreground: 220 33% 99%;
+  --primary: 223 54% 60%;             /* lighter blue for dark surfaces */
+  --primary-foreground: 216 12% 7%;
+  --secondary: 216 14% 16%;
+  --secondary-foreground: 220 33% 99%;
+  --muted: 216 14% 16%;
+  --muted-foreground: 214 11% 65%;
+  --accent: 216 14% 18%;
+  --accent-foreground: 220 33% 99%;
+  --destructive: 4 65% 50%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 216 14% 18%;
+  --input: 216 14% 18%;
+  --ring: 223 54% 60%;
+  --chart-1: 223 54% 60%;
+  --chart-2: 220 41% 70%;
+  --chart-3: 220 47% 80%;
+  --chart-4: 220 59% 45%;
+  --chart-5: 17 100% 65%;
+  color-scheme: dark;
+}

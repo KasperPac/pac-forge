@@ -315,11 +315,15 @@ LAD (Ladder Logic) editor at `/pac-lad` → `src/routes/pac-lad.tsx`. Key files:
 
 ## UI Rules
 
-- Dark-first, no light mode required
-- Dense spacing (engineering tool, not airy SaaS)
-- Minimal rounding (`rounded-md` / `rounded-lg`), subtle borders, no heavy shadows
-- `font-mono` for code, labels, technical metadata; system sans for normal UI
-- Pac-ST uses 3-pane resizable split: left (chat 25%), middle (generated 37.5%), right (approved 37.5%)
+- **Light-first**, following the Pac Technologies marketing design system (www.pac-technologies.com.au). Dark mode is supported via the theme toggle but is no longer the default.
+- Brand anchor is Pac Blue 600 (`#3050A0`). Site accent is hi-vis orange (`#FF6A2C`). Use signal colors (green/amber/red) for state only — never decoration.
+- Design tokens live in `src/styles/pac-tokens.css`. Tailwind utilities `bg-pac-*`, `text-pac-*` map directly to those tokens. Shadcn semantic tokens (`bg-background`, `text-foreground`, etc.) are also remapped to Pac equivalents so existing components light up automatically.
+- Typography: **Inter** for UI/body, **JetBrains Mono** for tags, addresses, code, and technical values. Both loaded from Google Fonts via `index.html`.
+- Dense spacing (engineering tool, not airy SaaS). Use the Pac 4 px grid via `--pac-space-*`.
+- Restrained rounding: `--pac-radius-sm` (4px) for inputs/badges, `--pac-radius-md` (8px) for cards/panels, `--pac-radius-lg` (12px) for feature cards/modals. Pills (`--pac-radius-pill`) reserved for status chips and avatars.
+- Three shadow levels (`shadow-pac-1/2/3`) used sparingly. Most panels sit on a hairline border, not a shadow.
+- Focus rings: 2px Pac Blue with 2px paper offset — never removed.
+- Pac-ST uses 3-pane resizable split: left (chat 25%), middle (generated 37.5%), right (approved 37.5%).
 
 ## Behavior Constraints
 

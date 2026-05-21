@@ -23,7 +23,8 @@ function applyTheme(resolved: ResolvedTheme) {
 function loadThemePreference(): ThemePreference {
   const stored = localStorage.getItem(THEME_KEY);
   if (stored === "light" || stored === "dark" || stored === "system") return stored;
-  return "system";
+  // Pac design system is light-first. Dark mode stays available via the theme toggle.
+  return "light";
 }
 
 interface UiState {
