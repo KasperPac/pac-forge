@@ -71,6 +71,8 @@ function proseForExpression(e: Expression): string {
       return e.text || "?";
     case "placeholder":
       return `<${e.prompt || "TBD"}>`;
+    case "parameter_ref":
+      return `param(${e.parameter_id || "?"})`;
   }
 }
 

@@ -216,8 +216,12 @@ function diffHierarchy(before: Hierarchy, after: Hierarchy): HierarchyDiff {
 
 function diffStates(before: OperatingStateV2[], after: OperatingStateV2[]): StateDiff[] {
   const out: StateDiff[] = [];
-  const beforeMap = new Map(before.map((s) => [s.state_id, s]));
-  const afterMap = new Map(after.map((s) => [s.state_id, s]));
+  // OperatingStateV2.state_id was widened to string | number (Task 5); StateDiff
+  // still keys on string. Coerce at the boundary.
+  const sid = (s: OperatingStateV2): string =>
+    typeof s.state_id === "number" ? String(s.state_id) : s.state_id;
+  const beforeMap = new Map(before.map((s) => [sid(s), s]));
+  const afterMap = new Map(after.map((s) => [sid(s), s]));
   for (const [id, s] of afterMap) {
     if (!beforeMap.has(id)) out.push({ kind: "added", state_id: id, after: s });
   }

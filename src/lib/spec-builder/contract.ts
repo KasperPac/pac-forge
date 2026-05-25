@@ -272,7 +272,12 @@ function buildUpgradeContext(projectRow: Record<string, unknown>): UpgradeContex
   }));
   const stateNameToId = new Map<string, string>();
   for (const s of confirmedStates) {
-    if (s.state_name) stateNameToId.set(s.state_name.toLowerCase(), s.state_id);
+    if (s.state_name)
+      stateNameToId.set(
+        s.state_name.toLowerCase(),
+        // OperatingStateV2.state_id widened to string | number (Task 5).
+        typeof s.state_id === "number" ? String(s.state_id) : s.state_id,
+      );
   }
   return { confirmedStates, stateNameToId };
 }
@@ -714,6 +719,9 @@ async function upgradeLegacyRow(
 
   const contract: SpecContractV2 = {
     schema_version: 2,
+    // Legacy upgrade path serves projects that have not gone through Phase 2
+    // confirmation; mark unconfirmed (Task 10).
+    confirmation_status: "unconfirmed",
     project: toProjectHeader(projectRow),
     hierarchy,
     states: ctx.confirmedStates,
@@ -856,17 +864,30 @@ export async function loadAssemblyStates(
   }
 
   const statesById = new Map<string, OperatingStateV2>();
-  for (const s of contract.states) statesById.set(s.state_id, s);
+  for (const s of contract.states)
+    // OperatingStateV2.state_id widened to string | number (Task 5).
+    statesById.set(
+      typeof s.state_id === "number" ? String(s.state_id) : s.state_id,
+      s,
+    );
 
   const buildView = (sid: string): AssemblyStateView => {
     const meta = statesById.get(sid);
     const pattern: "static" | "sequential" = meta?.state_pattern ?? "static";
+    // static_states was widened in Task 8 to `DeviceStateEntry[] | StaticStateV2`.
+    // AssemblyStateView still expects `DeviceStateEntry[] | undefined`; unwrap.
+    const rawStatic = asm.static_states[sid];
+    const staticEntries = rawStatic
+      ? Array.isArray(rawStatic)
+        ? rawStatic
+        : rawStatic.devices
+      : undefined;
     return {
       assembly_id: asm.assembly_id,
       subsystem_id: asm.subsystem_id,
       state_id: sid,
       state_pattern: pattern,
-      static_states: asm.static_states[sid],
+      static_states: staticEntries,
       sequential_states: asm.sequential_states[sid],
     };
   };

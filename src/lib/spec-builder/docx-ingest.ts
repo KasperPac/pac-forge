@@ -158,6 +158,9 @@ export async function ingestDocx(file: File): Promise<IngestResult> {
 
     const draft: SpecContractV2 = {
       schema_version: 2,
+      // Legacy V1 docx ingest produces drafts that have not gone through Phase 2
+      // confirmation; mark unconfirmed (Task 10).
+      confirmation_status: "unconfirmed",
       project: {
         id: "",
         doc_code: "",

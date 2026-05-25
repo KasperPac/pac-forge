@@ -361,6 +361,19 @@ function renderExpression(
         prompt: expr.prompt,
       });
       return `/* PLACEHOLDER: ${escapeComment(expr.prompt)} */`;
+    case "parameter_ref":
+      // Phase 1: parameter_ref values are not yet substituted by the compiler.
+      // Parameter resolution (defaults, project-specific overrides) is a future
+      // pipeline stage. Surface as a validation error so the caller knows the
+      // emitted SCL is incomplete; emit a TBD comment so the surrounding code
+      // remains syntactically inspectable.
+      ec.errors.push({
+        kind: "validation",
+        assembly_id: ec.assembly_id,
+        state_id: ec.state_id,
+        message: `parameter_ref expression at ${ec.pathHint} (parameter_id=${expr.parameter_id}) is not yet supported by the compiler`,
+      });
+      return `/* PARAMETER_REF: ${escapeComment(expr.parameter_id)} */`;
     default: {
       const _exhaustive: never = expr;
       void _exhaustive;
