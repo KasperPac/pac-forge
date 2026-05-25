@@ -1286,6 +1286,33 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
     });
   }
 
+  // FDS Engine Phase 1: parameter_ref expressions must reference a known
+  // configuration parameter. Within-patch only — cross-patch resolution
+  // (when the parameter sits in the persisted contract but not in the patch)
+  // is a follow-up wave.
+  if (patch.assemblies !== undefined) {
+    const knownParamIds = new Set(
+      (patch.configuration_parameters ?? []).map((p) => p.parameter_id),
+    );
+    Object.entries(patch.assemblies).forEach(([assemblyId, contract]) => {
+      Object.entries(contract.sequential_states ?? {}).forEach(([stateKey, seq]) => {
+        (seq.steps ?? []).forEach((step, sIdx) => {
+          const actions = (step as { actions?: Array<{ source?: { kind: string; parameter_id?: string } }> }).actions ?? [];
+          actions.forEach((a, aIdx) => {
+            if (a.source?.kind === "parameter_ref") {
+              const pid = a.source.parameter_id;
+              if (pid && !knownParamIds.has(pid)) {
+                issues.push(
+                  `assemblies[${assemblyId}].sequential_states[${stateKey}].steps[${sIdx}].actions[${aIdx}]: parameter_ref "${pid}" is not a known parameter`,
+                );
+              }
+            }
+          });
+        });
+      });
+    });
+  }
+
   // 1. IO tag global uniqueness ------------------------------------------
   if (patch.hierarchy) {
     const seen = new Map<string, string>(); // tag -> first location

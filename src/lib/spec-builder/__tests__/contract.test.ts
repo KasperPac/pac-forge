@@ -235,3 +235,92 @@ describe("validateSpecContractPatch — override_kind content rules", () => {
     expect(issues.filter((i) => /inherit|suppressed/i.test(i))).toEqual([]);
   });
 });
+
+describe("validateSpecContractPatch — parameter_ref existence", () => {
+  it("rejects parameter_ref expression to an unknown parameter_id", () => {
+    const issues = validateSpecContractPatch({
+      configuration_parameters: [
+        { parameter_id: "battery_chemistry", name: "X", allowed_values: ["LFP"], default: "LFP" },
+      ],
+      assemblies: {
+        "00000000-0000-0000-0000-000000000aaa": {
+          assembly_id: "00000000-0000-0000-0000-000000000aaa",
+          subsystem_id: "00000000-0000-0000-0000-000000000bbb",
+          static_states: {},
+          sequential_states: {
+            "auto::execute": {
+              override_kind: "override",
+              permissives: [],
+              steps: [
+                {
+                  step_id: "s1",
+                  branch_id: "main",
+                  actions: [
+                    {
+                      kind: "assign",
+                      action_id: "a1",
+                      target_tag: "X",
+                      source: { kind: "parameter_ref", parameter_id: "MISSING" },
+                      prose: "x",
+                    },
+                  ],
+                  transitions: [],
+                  // legacy fields
+                  step: 10,
+                  action: "x",
+                  completion_criteria: [],
+                  completion_criteria_text: "",
+                } as never,
+              ],
+              notes: null,
+            },
+          },
+        },
+      } as never,
+    });
+    expect(issues.some((i) => /parameter_ref.*MISSING/i.test(i))).toBe(true);
+  });
+
+  it("accepts parameter_ref to a known parameter_id", () => {
+    const issues = validateSpecContractPatch({
+      configuration_parameters: [
+        { parameter_id: "battery_chemistry", name: "X", allowed_values: ["LFP"], default: "LFP" },
+      ],
+      assemblies: {
+        "00000000-0000-0000-0000-000000000aaa": {
+          assembly_id: "00000000-0000-0000-0000-000000000aaa",
+          subsystem_id: "00000000-0000-0000-0000-000000000bbb",
+          static_states: {},
+          sequential_states: {
+            "auto::execute": {
+              override_kind: "override",
+              permissives: [],
+              steps: [
+                {
+                  step_id: "s1",
+                  branch_id: "main",
+                  actions: [
+                    {
+                      kind: "assign",
+                      action_id: "a1",
+                      target_tag: "X",
+                      source: { kind: "parameter_ref", parameter_id: "battery_chemistry" },
+                      prose: "x",
+                    },
+                  ],
+                  transitions: [],
+                  step: 10,
+                  action: "x",
+                  completion_criteria: [],
+                  completion_criteria_text: "",
+                } as never,
+              ],
+              notes: null,
+            },
+          },
+        },
+      } as never,
+    });
+    expect(issues.filter((i) => /parameter_ref/i.test(i))).toEqual([]);
+  });
+});
