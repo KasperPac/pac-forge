@@ -28,18 +28,24 @@ import type {
   AssemblyConfig,
   SubsystemConfig,
   InstrumentTag,
-  OperatingState,
   DeviceStateEntry,
+  OperatingState,
   SequentialStateData,
 } from "@/types/spec-builder";
+import type {
+  OperatingStateV2,
+  SequentialStateV2,
+} from "@/types/spec-contract-v2";
 
 export function buildFdsInterviewSystemPrompt(
   assembly: AssemblyConfig,
   subsystem: SubsystemConfig,
   tags: InstrumentTag[],
   staticStates: Record<string, DeviceStateEntry[]>,
-  completedSequentialStates: Record<string, SequentialStateData>,
-  allStates: OperatingState[],
+  completedSequentialStates: Record<string, SequentialStateV2>,
+  // TEMPORARY widening union — Task 9 narrows this to OperatingStateV2[] and
+  // updates the caller. Cast to OperatingStateV2[] at point of use below.
+  allStates: OperatingStateV2[] | import("@/types/spec-builder").OperatingState[],
 ): string {
   // --- Data gathering (unchanged from original) ---
   const assemblyTagNames = new Set<string>();
@@ -65,25 +71,37 @@ export function buildFdsInterviewSystemPrompt(
     .map((t) => `  - ${t.tag}: ${t.description} (${t.signal_direction})`)
     .join("\n");
 
+  // Narrow the temporary union to OperatingStateV2[] for the rest of the body.
+  // Task 9 removes the union from the signature.
+  const allStatesV2 = allStates as OperatingStateV2[];
+
+  function stateLabel(s: OperatingStateV2): string {
+    // Phase 1 widened OperatingStateV2; prefer display_name, then state_name, then custom_name.
+    return s.display_name ?? s.state_name ?? s.custom_name ?? String(s.state_id);
+  }
+
   const staticStatesText = Object.entries(staticStates)
     .map(([stateId, entries]) => {
-      const stateName = allStates.find((s) => s.state_id === stateId)?.state_name ?? stateId;
+      const match = allStatesV2.find((s) => String(s.state_id) === stateId);
+      const stateName = match ? stateLabel(match) : stateId;
       const rows = entries.map((e) => `    ${e.tag} must hold value: ${e.state}`).join("\n");
       return `  ${stateName}:\n${rows}`;
     }).join("\n");
 
   const completedText = Object.entries(completedSequentialStates)
     .map(([stateId, data]) => {
-      const stateName = allStates.find((s) => s.state_id === stateId)?.state_name ?? stateId;
-      const perms = data.permissives.map((p) => `    - ${p}`).join("\n");
-      const steps = data.steps.map((s) => `    ${s.step}. ${s.action} → ${s.completion_criteria}`).join("\n");
-      return `  ${stateName}:\n    Permissives:\n${perms}\n    Steps:\n${steps}`;
+      const match = allStatesV2.find((s) => String(s.state_id) === stateId);
+      const stateName = match ? stateLabel(match) : stateId;
+      // SequentialStateV2 permissives are structured; render their tag for the summary.
+      const perms = data.permissives.map((p) => `    - ${p.tag} ${p.operator} ${String(p.value)}`).join("\n");
+      const stepCount = data.steps.length;
+      return `  ${stateName}:\n    Permissives:\n${perms || "    (none)"}\n    Steps: ${stepCount} V2 step(s)`;
     }).join("\n");
 
-  const sequentialStatesList = allStates.filter((s) => s.state_pattern === "sequential");
-  const sequentialStates = sequentialStatesList
-    .map((s) => `${s.state_name} (state_id: "${s.state_id}")`)
-    .join(", ");
+  const sequentialStatesList = allStatesV2.filter((s) => s.state_pattern === "sequential");
+  const sequentialStatesTable = sequentialStatesList
+    .map((s) => `  - ${s.state_id}  (${stateLabel(s)})${s.description ? ` — ${s.description}` : ""}`)
+    .join("\n");
   const firstSequentialStateId = sequentialStatesList[0]?.state_id ?? "";
 
   // --- Revised prompt template ---
@@ -93,7 +111,7 @@ export function buildFdsInterviewSystemPrompt(
 Echo these back verbatim — never mutate or paraphrase.
 - assembly_id: ${assembly.assembly_id}
 - subsystem_id: ${subsystem.subsystem_id}
-- state_id: MUST be one of the exact values listed under SEQUENTIAL STATES REMAINING below. Never invent a state_id. Never use the state_name as the state_id.
+- state_id: MUST be a number from the SEQUENTIAL STATES REMAINING list below (PackML 1..17 or a custom state >100). Never invent a state_id. Never use a name as the state_id.
 
 # ASSEMBLY DEVICES
 ${deviceList}
@@ -120,8 +138,9 @@ ${staticStatesText || "  (none confirmed yet)"}
 # ALREADY COMPLETED SEQUENTIAL STATES
 ${completedText || "  (none yet)"}
 
-# SEQUENTIAL STATES REMAINING
-${sequentialStates}
+# SEQUENTIAL STATES REMAINING (state_id is a number — emit it verbatim):
+
+${sequentialStatesTable || "  (none)"}
 
 ---
 
@@ -199,121 +218,169 @@ Use multiple \`branches[]\` entries only when the step has >1 possible successor
 
 # RESPONSE FORMAT
 
-When you propose a table update, include a fenced JSON block at the END of your message. \`state_id\` MUST match one from SEQUENTIAL STATES REMAINING exactly.
+When you propose a table update, include a fenced JSON block at the END of your message. Emit a JSON ARRAY of state objects (you may update multiple states in one turn).
+
+Each state object must conform to this V2 shape:
 
 \`\`\`json
 [
   {
-    "state_id": "${firstSequentialStateId}",
+    "state_id": ${firstSequentialStateId || 6},
+    "override_kind": "override",
     "permissives": [
       { "tag": "SYS_ESTOP01", "operator": "=", "value": true },
       { "tag": "LFT01_LT01", "operator": ">=", "value": 100 }
     ],
     "steps": [
       {
-        "step": 10,
-        "action": "Energise hydraulic pump",
-        "outputs": [
-          { "tag": "LFT01_M01_CMD", "value": "TRUE" }
-        ],
-        "branches": [
+        "step_id": "lft01_execute_step_10",
+        "branch_id": "main",
+        "actions": [
           {
-            "conditions": [
-              { "tag": "LFT01_M01_FB", "op": "=", "value": "TRUE", "within_ms": 3000, "on_fail_code": "F_LFT01_PUMP_START", "on_fail_severity": "fault" }
+            "kind": "assign",
+            "action_id": "lft01_execute_step_10_act_1",
+            "target_tag": "LFT01_M01_CMD",
+            "source": { "kind": "literal", "value": true, "value_type": "boolean" },
+            "prose": "Energise hydraulic pump"
+          }
+        ],
+        "monitors": [],
+        "transitions": [
+          {
+            "transition_id": "lft01_execute_step_10_to_20",
+            "guard": [
+              { "kind": "tag_equals", "tag": "LFT01_M01_FB", "value": true, "within_ms": 3000, "on_fail": { "fault_code": "F_LFT01_PUMP_START", "severity": "fault" } }
             ],
-            "next_step": 20
+            "next_step_id": "lft01_execute_step_20"
           }
         ]
       },
       {
-        "step": 20,
-        "action": "Detect part and branch to load or bypass path",
-        "outputs": [
-          { "tag": "LFT01_SOL01_CMD", "value": "TRUE" }
-        ],
-        "branches": [
+        "step_id": "lft01_execute_step_20",
+        "branch_id": "main",
+        "actions": [
           {
-            "conditions": [
-              { "tag": "LFT01_PS01", "op": "=", "value": "TRUE", "within_ms": 2000, "on_fail_code": "F_LFT01_PART_DETECT", "on_fail_severity": "fault" }
+            "kind": "assign",
+            "action_id": "lft01_execute_step_20_act_1",
+            "target_tag": "LFT01_SOL01_CMD",
+            "source": { "kind": "literal", "value": true, "value_type": "boolean" },
+            "prose": "Detect part and branch to load or bypass path"
+          }
+        ],
+        "monitors": [],
+        "transitions": [
+          {
+            "transition_id": "lft01_execute_step_20_to_21",
+            "guard": [
+              { "kind": "tag_equals", "tag": "LFT01_PS01", "value": true, "within_ms": 2000, "on_fail": { "fault_code": "F_LFT01_PART_DETECT", "severity": "fault" } }
             ],
-            "next_step": 21
+            "next_step_id": "lft01_execute_step_21"
           },
           {
-            "conditions": [
-              { "tag": "LFT01_PS01", "op": "=", "value": "FALSE", "within_ms": 2000, "on_fail_code": "F_LFT01_PART_DETECT", "on_fail_severity": "fault" }
+            "transition_id": "lft01_execute_step_20_to_22",
+            "guard": [
+              { "kind": "tag_equals", "tag": "LFT01_PS01", "value": false, "within_ms": 2000, "on_fail": { "fault_code": "F_LFT01_PART_DETECT", "severity": "fault" } }
             ],
-            "next_step": 22
+            "next_step_id": "lft01_execute_step_22"
           }
         ]
       },
       {
-        "step": 21,
-        "action": "Raise lift to load height",
-        "outputs": [
-          { "tag": "LFT01_SOL02_CMD", "value": "TRUE" }
-        ],
-        "branches": [
+        "step_id": "lft01_execute_step_21",
+        "branch_id": "load_path",
+        "actions": [
           {
-            "conditions": [
-              { "tag": "LFT01_LT01", "op": ">=", "value": 500, "within_ms": 8000, "on_fail_code": "F_LFT01_RAISE_LOAD", "on_fail_severity": "fault" }
+            "kind": "assign",
+            "action_id": "lft01_execute_step_21_act_1",
+            "target_tag": "LFT01_SOL02_CMD",
+            "source": { "kind": "literal", "value": true, "value_type": "boolean" },
+            "prose": "Raise lift to load height"
+          }
+        ],
+        "monitors": [],
+        "transitions": [
+          {
+            "transition_id": "lft01_execute_step_21_to_30",
+            "guard": [
+              { "kind": "tag_compare", "tag": "LFT01_LT01", "op": ">=", "value": 500, "within_ms": 8000, "on_fail": { "fault_code": "F_LFT01_RAISE_LOAD", "severity": "fault" } }
             ],
-            "next_step": 30
+            "next_step_id": "lft01_execute_step_30"
           }
         ]
       },
       {
-        "step": 22,
-        "action": "Raise lift to bypass height",
-        "outputs": [
-          { "tag": "LFT01_SOL02_CMD", "value": "TRUE" }
-        ],
-        "branches": [
+        "step_id": "lft01_execute_step_22",
+        "branch_id": "bypass_path",
+        "actions": [
           {
-            "conditions": [
-              { "tag": "LFT01_LT01", "op": ">=", "value": 300, "within_ms": 6000, "on_fail_code": "F_LFT01_RAISE_BYPASS", "on_fail_severity": "fault" }
+            "kind": "assign",
+            "action_id": "lft01_execute_step_22_act_1",
+            "target_tag": "LFT01_SOL02_CMD",
+            "source": { "kind": "literal", "value": true, "value_type": "boolean" },
+            "prose": "Raise lift to bypass height"
+          }
+        ],
+        "monitors": [],
+        "transitions": [
+          {
+            "transition_id": "lft01_execute_step_22_to_30",
+            "guard": [
+              { "kind": "tag_compare", "tag": "LFT01_LT01", "op": ">=", "value": 300, "within_ms": 6000, "on_fail": { "fault_code": "F_LFT01_RAISE_BYPASS", "severity": "fault" } }
             ],
-            "next_step": 30
+            "next_step_id": "lft01_execute_step_30"
           }
         ]
       },
       {
-        "step": 30,
-        "action": "Close gate and park",
-        "outputs": [
-          { "tag": "LFT01_SOL03_CMD", "value": "FALSE" }
-        ],
-        "branches": [
+        "step_id": "lft01_execute_step_30",
+        "branch_id": "main",
+        "actions": [
           {
-            "conditions": [
-              { "tag": "LFT01_ZSC03", "op": "=", "value": "TRUE", "within_ms": 5000, "on_fail_code": "F_LFT01_GATE_CLOSE", "on_fail_severity": "fault" }
+            "kind": "assign",
+            "action_id": "lft01_execute_step_30_act_1",
+            "target_tag": "LFT01_SOL03_CMD",
+            "source": { "kind": "literal", "value": false, "value_type": "boolean" },
+            "prose": "Close gate and park"
+          }
+        ],
+        "monitors": [],
+        "transitions": [
+          {
+            "transition_id": "lft01_execute_step_30_terminal",
+            "guard": [
+              { "kind": "tag_equals", "tag": "LFT01_ZSC03", "value": true, "within_ms": 5000, "on_fail": { "fault_code": "F_LFT01_GATE_CLOSE", "severity": "fault" } }
             ],
-            "next_step": 0
+            "next_step_id": null
           }
         ]
       }
-    ]
+    ],
+    "notes": null
   }
 ]
 \`\`\`
 
-This example demonstrates: a linear step (10), a branching step (20 → 21 or 22), converging branches (21 and 22 both → 30), an analog threshold check (LT01 >= 500), and state termination (\`next_step: 0\`).
+This example demonstrates: a linear step (step_10), a branching step (step_20 → step_21 or step_22 via two transitions with mutually-exclusive guards), converging branches (step_21 and step_22 both transition to step_30), an analog threshold check (tag_compare with op ">="), and state termination (\`next_step_id: null\` on the final transition).
+
+State_id ${firstSequentialStateId || 6} above is illustrative — emit whichever state_id the engineer is currently authoring (must come from SEQUENTIAL STATES REMAINING).
 
 ---
 
 # MUST NOT — common failure modes to avoid
 
 - ❌ Using an output tag as a completion check:
-  \`{ "tag": "LFT01_SOL01_CMD", "op": "=", "value": "TRUE" }\`  ← _CMD is an output
-  ✅ \`{ "tag": "LFT01_ZSO01", "op": "=", "value": "TRUE" }\`  ← the limit switch confirms the valve moved
+  \`{ "kind": "tag_equals", "tag": "LFT01_SOL01_CMD", "value": true }\`  ← _CMD is an output
+  ✅ \`{ "kind": "tag_equals", "tag": "LFT01_ZSO01", "value": true }\`  ← the limit switch confirms the valve moved
 
-- ❌ Omitting \`within_ms\`, \`on_fail_code\`, or \`on_fail_severity\` because the engineer "didn't mention them" — ASK before emitting.
+- ❌ Omitting \`within_ms\` or \`on_fail\` on a guard because the engineer "didn't mention them" — ASK before emitting.
 - ❌ Inventing tag names that don't appear in OUTPUT TAGS or INPUT TAGS.
 - ❌ Emitting a JSON block while any required field is still missing.
-- ❌ Using \`state_name\` as \`state_id\`.
+- ❌ Using a state name or string as \`state_id\` — state_id is a NUMBER from SEQUENTIAL STATES REMAINING.
 - ❌ Paraphrasing tag names in conversation ("the level sensor" instead of "LFT01_LT01").
 - ❌ Asking more than one question per turn.
 - ❌ Adding a step that violates a CONFIRMED STATIC STATE invariant without first flagging the conflict.
-- ❌ Mixing the permissive schema (\`operator\` + boolean) with the condition schema (\`op\` + string).
+- ❌ Using the V1 condition shape \`{ tag, op, value }\` without a \`kind\` discriminator. The current schema requires \`kind\` as the first field of every guard / source_condition.
+- ❌ Inventing override_kind values you have not been told about. Phase 3 is single-mode; always emit \`"override_kind": "override"\`.
 
 If you have no table update to propose (still gathering info), do not include a JSON block. Keep conversational text concise — the engineer is an expert.`;
 }

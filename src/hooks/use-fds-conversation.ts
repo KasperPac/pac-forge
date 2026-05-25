@@ -59,8 +59,8 @@ export function useFdsConversation({
     return buildFdsInterviewSystemPrompt(
       assembly, subsystem, allTags,
       session.static_states,
-      // Shim cast: prompt builder still expects legacy SequentialStateData shape
-      session.sequential_states as unknown as Record<string, import("@/types/spec-builder").SequentialStateData>,
+      // Prompt builder now consumes SequentialStateV2 directly (Phase 3 Task 2).
+      session.sequential_states,
       allStates,
     );
   }, [assembly, subsystem, allTags, session.static_states, session.sequential_states, allStates]);
