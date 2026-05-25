@@ -5,6 +5,8 @@ import {
   InterAssemblyInterlockSchema,
   OperatingStateV2Schema,
   OperatorModeSchema,
+  ProjectSectionContentSchema,
+  ProjectSectionTypeSchema,
   SequentialStateV2Schema,
   SubsystemStateSequenceSchema,
 } from "../spec-contract-v2";
@@ -257,5 +259,43 @@ describe("SequentialStateV2Schema override_kind", () => {
   it("rejects override_kind outside the enum", () => {
     const row = { ...baseRow, override_kind: "ignore" };
     expect(() => SequentialStateV2Schema.parse(row)).toThrow();
+  });
+});
+
+describe("ProjectSectionTypeSchema", () => {
+  it("accepts the six project-level section types", () => {
+    [
+      "document_control",
+      "system_overview",
+      "control_philosophy",
+      "interfaces",
+      "testing_fat",
+      "hmi_specification",
+    ].forEach((t) => {
+      expect(() => ProjectSectionTypeSchema.parse(t)).not.toThrow();
+    });
+  });
+
+  it("rejects per-assembly-state section types", () => {
+    expect(() => ProjectSectionTypeSchema.parse("functional_description")).toThrow();
+  });
+});
+
+describe("ProjectSectionContentSchema", () => {
+  it("accepts a content row with markdown + json", () => {
+    const content = {
+      content_markdown: "## Overview\nLine 1",
+      content_json: { paragraphs: ["Line 1"] },
+    };
+    expect(() => ProjectSectionContentSchema.parse(content)).not.toThrow();
+  });
+
+  it("accepts markdown-only content", () => {
+    const content = { content_markdown: "Plain text" };
+    expect(() => ProjectSectionContentSchema.parse(content)).not.toThrow();
+  });
+
+  it("rejects an empty content shape", () => {
+    expect(() => ProjectSectionContentSchema.parse({})).toThrow();
   });
 });

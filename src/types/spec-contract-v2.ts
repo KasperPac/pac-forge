@@ -62,6 +62,32 @@ export const SpecSectionTypeSchema = z.enum([
 export type SpecSectionType = z.infer<typeof SpecSectionTypeSchema>;
 
 // ============================================================
+// Project-level sections (§3.5 — new in FDS Engine Phase 1)
+// The six section types that are not keyed by (assembly_id, state_id).
+// Their editable content lives in spec_projects.section_overrides.
+// ============================================================
+
+export const ProjectSectionTypeSchema = z.enum([
+  "document_control",
+  "system_overview",
+  "control_philosophy",
+  "interfaces",
+  "testing_fat",
+  "hmi_specification",
+]);
+export type ProjectSectionType = z.infer<typeof ProjectSectionTypeSchema>;
+
+export const ProjectSectionContentSchema = z
+  .object({
+    content_markdown: z.string().optional(),
+    content_json: z.record(z.string(), z.unknown()).optional(),
+  })
+  .refine((c) => c.content_markdown !== undefined || c.content_json !== undefined, {
+    message: "ProjectSectionContent must have content_markdown or content_json",
+  });
+export type ProjectSectionContent = z.infer<typeof ProjectSectionContentSchema>;
+
+// ============================================================
 // Primitives
 // ============================================================
 
