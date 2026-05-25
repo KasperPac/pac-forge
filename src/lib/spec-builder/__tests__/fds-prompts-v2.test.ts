@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildFdsInterviewSystemPrompt } from "../fds-prompts";
+import { buildFdsInterviewSystemPrompt, extractJsonFromResponse } from "../fds-prompts";
+import { ensureV2 } from "../sequence-legacy-shim";
+import { validateSpecContractPatch } from "../contract";
 import catodoAssembly from "./__fixtures__/catodo-assembly.json";
+import goldenAssembly from "./__fixtures__/golden-ai-emission-assembly.json";
 
 describe("buildFdsInterviewSystemPrompt V2 snapshot", () => {
   it("produces stable output for the catodo lift assembly", () => {
@@ -47,4 +50,34 @@ describe("buildFdsInterviewSystemPrompt V2 snapshot", () => {
     const remainingBlock = prompt.split("# SEQUENTIAL STATES REMAINING")[1] ?? "";
     expect(remainingBlock).not.toMatch(/- 4 +\(Idle\)/);
   });
+});
+
+describe("golden AI emission — per-assembly", () => {
+  const ASSEMBLY_ID = "00000000-0000-4000-8000-000000000aa1";
+  const SUBSYSTEM_ID = "00000000-0000-4000-8000-000000000bb1";
+
+  it.each(goldenAssembly.responses)(
+    "response '$name' parses + validates",
+    ({ rawText, expectedStateId }) => {
+      const extracted = extractJsonFromResponse(rawText) as unknown as Array<Record<string, unknown>> | null;
+      expect(extracted).not.toBeNull();
+      expect(Array.isArray(extracted)).toBe(true);
+      expect(extracted![0]).toMatchObject({ state_id: expectedStateId });
+
+      const v2 = ensureV2(extracted![0] as never, String(expectedStateId));
+
+      const issues = validateSpecContractPatch({
+        assemblies: {
+          [ASSEMBLY_ID]: {
+            assembly_id: ASSEMBLY_ID,
+            subsystem_id: SUBSYSTEM_ID,
+            static_states: {},
+            sequential_states: { [String(expectedStateId)]: v2 },
+          } as never,
+        } as never,
+      });
+
+      expect(issues).toEqual([]);
+    },
+  );
 });
