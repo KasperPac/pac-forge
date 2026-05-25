@@ -1251,6 +1251,41 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
     });
   }
 
+  // FDS Engine Phase 1: override_kind content rules — inherit / suppressed
+  // rows must be empty (no permissives, steps, monitors, branches, devices).
+  if (patch.assemblies !== undefined) {
+    Object.entries(patch.assemblies).forEach(([assemblyId, contract]) => {
+      Object.entries(contract.sequential_states ?? {}).forEach(([stateKey, seq]) => {
+        const kind = (seq as { override_kind?: string }).override_kind;
+        if (kind === "inherit" || kind === "suppressed") {
+          const hasContent =
+            (seq.permissives && seq.permissives.length > 0) ||
+            (seq.steps && seq.steps.length > 0) ||
+            (seq.state_monitors && seq.state_monitors.length > 0) ||
+            (seq.branches && seq.branches.length > 0);
+          if (hasContent) {
+            issues.push(
+              `assemblies[${assemblyId}].sequential_states[${stateKey}]: ${kind} rows must be empty (no permissives/steps/monitors/branches)`,
+            );
+          }
+        }
+      });
+      // Static states share the same rule when wrapped in StaticStateV2.
+      Object.entries(contract.static_states ?? {}).forEach(([stateKey, val]) => {
+        if (Array.isArray(val)) return; // legacy shape, no override_kind
+        const kind = (val as { override_kind?: string }).override_kind;
+        if (kind === "inherit" || kind === "suppressed") {
+          const devices = (val as { devices?: unknown[] }).devices;
+          if (devices && devices.length > 0) {
+            issues.push(
+              `assemblies[${assemblyId}].static_states[${stateKey}]: ${kind} rows must have empty devices`,
+            );
+          }
+        }
+      });
+    });
+  }
+
   // 1. IO tag global uniqueness ------------------------------------------
   if (patch.hierarchy) {
     const seen = new Map<string, string>(); // tag -> first location

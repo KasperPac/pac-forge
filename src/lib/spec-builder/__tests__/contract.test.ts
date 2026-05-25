@@ -171,3 +171,67 @@ describe("validateSpecContractPatch — PackML state IDs", () => {
     expect(issues.filter((i) => /state_id|packml_id|custom_name/i.test(i))).toEqual([]);
   });
 });
+
+describe("validateSpecContractPatch — override_kind content rules", () => {
+  function makeAssembly(seqOverride: Record<string, unknown>) {
+    return {
+      "00000000-0000-0000-0000-000000000aaa": {
+        assembly_id: "00000000-0000-0000-0000-000000000aaa",
+        subsystem_id: "00000000-0000-0000-0000-000000000bbb",
+        static_states: {},
+        sequential_states: {
+          "auto::execute": {
+            override_kind: "inherit",
+            permissives: [],
+            steps: [],
+            notes: null,
+            ...seqOverride,
+          },
+        },
+      },
+    };
+  }
+
+  it("rejects an inherit row with steps", () => {
+    const issues = validateSpecContractPatch({
+      assemblies: makeAssembly({
+        steps: [
+          {
+            step: 10,
+            action: "x",
+            completion_criteria: [],
+            completion_criteria_text: "",
+          },
+        ],
+      } as never) as never,
+    });
+    expect(issues.some((i) => /inherit.*empty/i.test(i))).toBe(true);
+  });
+
+  it("rejects a suppressed row with permissives", () => {
+    const issues = validateSpecContractPatch({
+      assemblies: makeAssembly({
+        override_kind: "suppressed",
+        permissives: [{ tag: "X", operator: "=", value: true }],
+      } as never) as never,
+    });
+    expect(issues.some((i) => /suppressed.*empty/i.test(i))).toBe(true);
+  });
+
+  it("accepts an inherit row with empty content", () => {
+    const issues = validateSpecContractPatch({
+      assemblies: makeAssembly({}) as never,
+    });
+    expect(issues.filter((i) => /inherit|suppressed/i.test(i))).toEqual([]);
+  });
+
+  it("accepts an override row with content", () => {
+    const issues = validateSpecContractPatch({
+      assemblies: makeAssembly({
+        override_kind: "override",
+        permissives: [{ tag: "X", operator: "=", value: true }],
+      } as never) as never,
+    });
+    expect(issues.filter((i) => /inherit|suppressed/i.test(i))).toEqual([]);
+  });
+});
