@@ -153,10 +153,14 @@ Each state object must conform to this V2 shape:
         "transitions": [
           {
             "transition_id": "lft01_execute_step_10_to_20",
+            "kind": "single",
+            "target_step_id": "lft01_execute_step_20",
             "guard": [
               { "kind": "tag_equals", "tag": "LFT01_M01_FB", "value": true, "within_ms": 3000, "on_fail": { "fault_code": "F_LFT01_PUMP_START", "severity": "fault" } }
             ],
-            "next_step_id": "lft01_execute_step_20"
+            "priority": 0,
+            "is_default": true,
+            "notes": null
           }
         ]
       },
@@ -176,17 +180,25 @@ Each state object must conform to this V2 shape:
         "transitions": [
           {
             "transition_id": "lft01_execute_step_20_to_21",
+            "kind": "single",
+            "target_step_id": "lft01_execute_step_21",
             "guard": [
               { "kind": "tag_equals", "tag": "LFT01_PS01", "value": true, "within_ms": 2000, "on_fail": { "fault_code": "F_LFT01_PART_DETECT", "severity": "fault" } }
             ],
-            "next_step_id": "lft01_execute_step_21"
+            "priority": 0,
+            "is_default": true,
+            "notes": null
           },
           {
             "transition_id": "lft01_execute_step_20_to_22",
+            "kind": "single",
+            "target_step_id": "lft01_execute_step_22",
             "guard": [
               { "kind": "tag_equals", "tag": "LFT01_PS01", "value": false, "within_ms": 2000, "on_fail": { "fault_code": "F_LFT01_PART_DETECT", "severity": "fault" } }
             ],
-            "next_step_id": "lft01_execute_step_22"
+            "priority": 1,
+            "is_default": false,
+            "notes": null
           }
         ]
       },
@@ -206,10 +218,14 @@ Each state object must conform to this V2 shape:
         "transitions": [
           {
             "transition_id": "lft01_execute_step_21_to_30",
+            "kind": "single",
+            "target_step_id": "lft01_execute_step_30",
             "guard": [
               { "kind": "tag_compare", "tag": "LFT01_LT01", "op": ">=", "value": 500, "within_ms": 8000, "on_fail": { "fault_code": "F_LFT01_RAISE_LOAD", "severity": "fault" } }
             ],
-            "next_step_id": "lft01_execute_step_30"
+            "priority": 0,
+            "is_default": true,
+            "notes": null
           }
         ]
       },
@@ -229,10 +245,14 @@ Each state object must conform to this V2 shape:
         "transitions": [
           {
             "transition_id": "lft01_execute_step_22_to_30",
+            "kind": "single",
+            "target_step_id": "lft01_execute_step_30",
             "guard": [
               { "kind": "tag_compare", "tag": "LFT01_LT01", "op": ">=", "value": 300, "within_ms": 6000, "on_fail": { "fault_code": "F_LFT01_RAISE_BYPASS", "severity": "fault" } }
             ],
-            "next_step_id": "lft01_execute_step_30"
+            "priority": 0,
+            "is_default": true,
+            "notes": null
           }
         ]
       },
@@ -252,10 +272,14 @@ Each state object must conform to this V2 shape:
         "transitions": [
           {
             "transition_id": "lft01_execute_step_30_terminal",
+            "kind": "single",
+            "target_step_id": "",
             "guard": [
               { "kind": "tag_equals", "tag": "LFT01_ZSC03", "value": true, "within_ms": 5000, "on_fail": { "fault_code": "F_LFT01_GATE_CLOSE", "severity": "fault" } }
             ],
-            "next_step_id": null
+            "priority": 0,
+            "is_default": true,
+            "notes": null
           }
         ]
       }
@@ -265,7 +289,9 @@ Each state object must conform to this V2 shape:
 ]
 \`\`\`
 
-This example demonstrates: a linear step (step_10), a branching step (step_20 → step_21 or step_22 via two transitions with mutually-exclusive guards), converging branches (step_21 and step_22 both transition to step_30), an analog threshold check (tag_compare with op ">="), and state termination (\`next_step_id: null\` on the final transition).
+This example demonstrates: a linear step (step_10), a branching step (step_20 → step_21 or step_22 via two transitions with mutually-exclusive guards), converging branches (step_21 and step_22 both transition to step_30), an analog threshold check (tag_compare with op ">="), and state termination (\`target_step_id: ""\` on the final transition — empty string per the shim convention).
+
+Each \`transition\` has \`transition_id\`, \`kind: "single"\`, \`target_step_id: string\` (use \`""\` for terminal), \`guard: CompletionCriterion[]\`, \`priority: int\`, \`is_default: bool\`, optional \`on_fail: { fault_code, severity }\`, and \`notes: string | null\`.
 
 State_id 6 above is illustrative — emit whichever state_id the engineer is currently authoring (must come from SEQUENTIAL STATES REMAINING).
 
@@ -286,6 +312,7 @@ State_id 6 above is illustrative — emit whichever state_id the engineer is cur
 - ❌ Adding a step that violates a CONFIRMED STATIC STATE invariant without first flagging the conflict.
 - ❌ Using the V1 condition shape \`{ tag, op, value }\` without a \`kind\` discriminator. The current schema requires \`kind\` as the first field of every guard / source_condition.
 - ❌ Inventing override_kind values you have not been told about. Phase 3 is single-mode; always emit \`"override_kind": "override"\`.
+- ❌ Emitting a transition without \`"kind": "single"\`, \`"target_step_id"\`, \`"priority"\`, \`"is_default"\`, and \`"notes"\`. The schema rejects partial transitions.
 
 If you have no table update to propose (still gathering info), do not include a JSON block. Keep conversational text concise — the engineer is an expert."
 `;

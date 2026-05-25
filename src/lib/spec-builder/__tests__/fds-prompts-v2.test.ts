@@ -33,7 +33,8 @@ describe("buildFdsInterviewSystemPrompt V2 snapshot", () => {
     expect(prompt).toContain('"override_kind": "override"');
     expect(prompt).toContain('"kind": "tag_equals"');
     expect(prompt).toContain('"kind": "tag_compare"');
-    expect(prompt).toContain('"next_step_id"');
+    expect(prompt).toContain('"target_step_id"');
+    expect(prompt).toContain('"kind": "single"');
     expect(prompt).toContain("state_id is a NUMBER");
   });
 
