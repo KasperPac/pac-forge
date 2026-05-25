@@ -37,8 +37,8 @@ export function MigrateInterlockRow({ row, onChange }: Props) {
   function setKind(kind: typeof CONDITION_KINDS[number]) {
     const empty: Record<string, CompletionCriterion> = {
       tag_equals: { kind: "tag_equals", tag: "", value: true },
-      tag_compare: { kind: "tag_compare", tag: "", operator: ">=", value: 0 },
-      expression: { kind: "expression", expr: "" },
+      tag_compare: { kind: "tag_compare", tag: "", op: ">=", value: 0 },
+      expression: { kind: "expression", text: "", referenced_tags: [] },
       placeholder: {
         kind: "placeholder",
         criterion_id: `placeholder-${row.interlock_id}`,
@@ -124,12 +124,12 @@ export function MigrateInterlockRow({ row, onChange }: Props) {
               placeholder="TAG"
               className="h-8 font-mono"
             />
-            <Select value={sc.operator} onValueChange={(v) => setField("operator", v)}>
+            <Select value={sc.op} onValueChange={(v) => setField("op", v)}>
               <SelectTrigger className="h-8 w-16">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {["<", "<=", ">", ">="].map((op) => (
+                {["<", "<=", ">", ">=", "=="].map((op) => (
                   <SelectItem key={op} value={op}>{op}</SelectItem>
                 ))}
               </SelectContent>
@@ -144,8 +144,8 @@ export function MigrateInterlockRow({ row, onChange }: Props) {
         )}
         {sc.kind === "expression" && (
           <Input
-            value={sc.expr}
-            onChange={(e) => setField("expr", e.target.value)}
+            value={sc.text}
+            onChange={(e) => setField("text", e.target.value)}
             placeholder="expr"
             className="h-8 font-mono"
           />
