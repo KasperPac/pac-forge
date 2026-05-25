@@ -298,7 +298,8 @@ Any co-author conversation in progress at migration time gets **archived, not re
 
 ## 6. Sequencing
 
-**Release N+1 Phase 1 status: complete as of 2026-05-25. Schema, validator, writer routing, reader branching, ESLint boundary lint. Phases 2-7 pending.**
+**Release N+1 Phase 1 status: complete as of 2026-05-25. Schema, validator, writer routing, reader branching, ESLint boundary lint.**
+**Release N+1 Phase 2 status: complete as of 2026-05-25. Migration wizard + per-project confirmation flow (route, banner, 3 tabs, AI interlock classifier, telemetry). Phases 3-7 pending.**
 
 Three releases. Each lands one coherent chunk of work.
 
