@@ -95,3 +95,79 @@ describe("validateSpecContractPatch — mode existence", () => {
     expect(issues).toEqual([]);
   });
 });
+
+describe("validateSpecContractPatch — PackML state IDs", () => {
+  it("rejects a numeric state_id between 18 and 100 (invalid range)", () => {
+    const issues = validateSpecContractPatch({
+      states: [
+        {
+          state_id: 50,
+          packml_id: undefined,
+          display_name: "Bad",
+          description: "x",
+          state_pattern: "static",
+        } as never,
+      ],
+    });
+    expect(issues.some((i) => /state_id/i.test(i))).toBe(true);
+  });
+
+  it("rejects custom state without custom_name", () => {
+    const issues = validateSpecContractPatch({
+      states: [
+        {
+          state_id: 101,
+          display_name: "x",
+          description: "x",
+          state_pattern: "static",
+        } as never,
+      ],
+    });
+    expect(issues.some((i) => /custom_name/i.test(i))).toBe(true);
+  });
+
+  it("rejects PackML state where packml_id does not match state_id", () => {
+    const issues = validateSpecContractPatch({
+      states: [
+        {
+          state_id: 5,
+          packml_id: 6,
+          display_name: "x",
+          description: "x",
+          state_pattern: "static",
+        } as never,
+      ],
+    });
+    expect(issues.some((i) => /packml_id/i.test(i))).toBe(true);
+  });
+
+  it("accepts a valid PackML state (state_id 6, packml_id 6)", () => {
+    const issues = validateSpecContractPatch({
+      states: [
+        {
+          state_id: 6,
+          packml_id: 6,
+          display_name: "Execute",
+          description: "Running",
+          state_pattern: "sequential",
+        } as never,
+      ],
+    });
+    expect(issues.filter((i) => /state_id|packml_id|custom_name/i.test(i))).toEqual([]);
+  });
+
+  it("accepts a valid custom state (state_id 101, custom_name set)", () => {
+    const issues = validateSpecContractPatch({
+      states: [
+        {
+          state_id: 101,
+          custom_name: "Lubrication",
+          display_name: "Lubrication",
+          description: "Site-specific",
+          state_pattern: "static",
+        } as never,
+      ],
+    });
+    expect(issues.filter((i) => /state_id|packml_id|custom_name/i.test(i))).toEqual([]);
+  });
+});

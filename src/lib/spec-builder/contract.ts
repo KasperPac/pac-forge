@@ -1222,6 +1222,35 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
     }
   }
 
+  // FDS Engine Phase 1: PackML state ID range invariants
+  if (patch.states !== undefined) {
+    patch.states.forEach((s, idx) => {
+      const sid = s.state_id;
+      if (typeof sid === "number") {
+        // Numeric IDs: 1..17 = PackML; >100 = custom_states; everything else invalid.
+        if (sid >= 1 && sid <= 17) {
+          if (s.packml_id === undefined) {
+            issues.push(`states[${idx}]: numeric state_id ${sid} requires packml_id`);
+          } else if (s.packml_id !== sid) {
+            issues.push(
+              `states[${idx}]: packml_id (${s.packml_id}) must equal state_id (${sid})`,
+            );
+          }
+        } else if (sid > 100) {
+          if (!s.custom_name) {
+            issues.push(`states[${idx}]: custom state_id ${sid} requires custom_name`);
+          }
+        } else {
+          issues.push(
+            `states[${idx}]: state_id ${sid} is invalid; must be 1..17 (PackML) or > 100 (custom)`,
+          );
+        }
+      }
+      // Legacy string state_ids are accepted as-is during the shim window;
+      // post-confirmation projects should not contain them.
+    });
+  }
+
   // 1. IO tag global uniqueness ------------------------------------------
   if (patch.hierarchy) {
     const seen = new Map<string, string>(); // tag -> first location
