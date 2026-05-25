@@ -677,9 +677,25 @@ export const InterAssemblyInterlockSchema = z.object({
 });
 export type InterAssemblyInterlock = z.infer<typeof InterAssemblyInterlockSchema>;
 
+/**
+ * Shared permissive — structured condition shared across orchestration
+ * scopes. Used by both `SubsystemStateSequence` (assemblies coordinating
+ * inside a subsystem state) and `SystemStateSequence` (subsystems
+ * coordinating inside a system state). Declared here so the subsystem-
+ * level schema below can reference it; `SystemStateSequenceSchema`
+ * further down re-uses the same shape.
+ */
+export const SharedPermissiveSchema = z.object({
+  permissive_id: z.string(),
+  condition: CompletionCriterionSchema,
+  source_subsystem: z.string().optional(),
+  prose: z.string(),
+});
+export type SharedPermissive = z.infer<typeof SharedPermissiveSchema>;
+
 export const SubsystemStateSequenceSchema = z.object({
   assembly_order: z.array(z.string()), // assembly_ids
-  shared_permissives: z.array(z.string()),
+  shared_permissives: z.array(SharedPermissiveSchema),
   inter_assembly_interlocks: z.array(InterAssemblyInterlockSchema),
   notes: z.string().nullable(),
 });
@@ -787,19 +803,6 @@ export const FdsConversationTurnSchema = z.object({
   state_context: z.string().optional(),
 });
 export type FdsConversationTurn = z.infer<typeof FdsConversationTurnSchema>;
-
-/**
- * Shared permissive at the system level — structured (unlike the
- * subsystem-level `shared_permissives: string[]` which stays free-text
- * for backward compat).
- */
-export const SharedPermissiveSchema = z.object({
-  permissive_id: z.string(),
-  condition: CompletionCriterionSchema,
-  source_subsystem: z.string().optional(),
-  prose: z.string(),
-});
-export type SharedPermissive = z.infer<typeof SharedPermissiveSchema>;
 
 export const InterSubsystemInterlockSchema = z.object({
   interlock_id: z.string(),

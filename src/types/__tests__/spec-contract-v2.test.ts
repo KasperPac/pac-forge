@@ -5,6 +5,7 @@ import {
   InterAssemblyInterlockSchema,
   OperatingStateV2Schema,
   OperatorModeSchema,
+  SubsystemStateSequenceSchema,
 } from "../spec-contract-v2";
 
 describe("OperatorModeSchema", () => {
@@ -195,5 +196,33 @@ describe("InterAssemblyInterlockSchema structured shape", () => {
       prose: "x",
     };
     expect(() => InterAssemblyInterlockSchema.parse(interlock)).toThrow();
+  });
+});
+
+describe("SubsystemStateSequenceSchema structured shared_permissives", () => {
+  it("accepts SharedPermissive[] structured shape", () => {
+    const seq = {
+      assembly_order: ["CV01", "LFT01"],
+      shared_permissives: [
+        {
+          permissive_id: "p1",
+          condition: { kind: "tag_equals", tag: "ESTOP_01", value: false },
+          prose: "E-stop not active",
+        },
+      ],
+      inter_assembly_interlocks: [],
+      notes: null,
+    };
+    expect(() => SubsystemStateSequenceSchema.parse(seq)).not.toThrow();
+  });
+
+  it("rejects prose string[] shared_permissives (the old shape)", () => {
+    const seq = {
+      assembly_order: ["CV01"],
+      shared_permissives: ["ESTOP_01 = TRUE"],
+      inter_assembly_interlocks: [],
+      notes: null,
+    };
+    expect(() => SubsystemStateSequenceSchema.parse(seq)).toThrow();
   });
 });
