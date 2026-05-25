@@ -12,6 +12,29 @@ import type { SpecProject, SubsystemConfig, OperatingState } from "@/types/spec-
 import type { SystemOrchestration } from "@/types/spec-contract-v2";
 
 /**
+ * Closed-set interlock effect documentation. Shared between system-level and
+ * subsystem-level orchestration prompts. The five effects map 1:1 to
+ * InterAssemblyInterlockEffectSchema in @/types/spec-contract-v2.
+ */
+export const INTERLOCK_EFFECTS_DOC = `INTERLOCK EFFECTS (must be one of these five strings verbatim):
+  - "hold"             — target must pause in its current state until the source condition clears
+  - "block_transition" — target may not leave a specific state until the source condition is met (effect_target.state_id REQUIRED)
+  - "trigger"          — rising edge on source_condition forces target to enter a state (effect_target.state_id REQUIRED)
+  - "enable"           — target is allowed to run/transition freely while source_condition is TRUE
+  - "disable"          — target is forbidden from running while source_condition is TRUE`;
+
+/**
+ * CompletionCriterion documentation. Shared between system-level and subsystem-level
+ * prompts. The five kinds map 1:1 to CompletionCriterionSchema in @/types/spec-contract-v2.
+ */
+export const COMPLETION_CRITERION_DOC = `CompletionCriterion kinds accepted in condition / source_condition / guard:
+  - { "kind": "tag_equals", "tag": "ESTOP_OK", "value": true }
+  - { "kind": "tag_compare", "tag": "HOPPER_LEVEL", "op": ">=", "value": 50 }
+  - { "kind": "expression", "text": "ESTOP_OK AND DOOR_CLOSED", "referenced_tags": ["ESTOP_OK","DOOR_CLOSED"] }
+  - { "kind": "manual_ack", "prompt": "Operator confirms area clear" }
+  - { "kind": "placeholder", "criterion_id": "TBD_<slug>", "prompt": "what is X?" }   — only if genuinely unknown`;
+
+/**
  * System prompt for the project-scope orchestration interview.
  * Stays stable across turns for prompt caching.
  */
@@ -60,12 +83,7 @@ ${subsystemList}
 
 SEQUENTIAL STATES: ${sequentialStateList}
 
-INTERLOCK EFFECTS (must be one of these five strings verbatim):
-  - "hold"             — target subsystem must pause in its current state until the source condition clears
-  - "block_transition" — target subsystem may not leave a specific state until the source condition is met (effect_target.state_id REQUIRED)
-  - "trigger"          — rising edge on source_condition forces target subsystem to enter a state (effect_target.state_id REQUIRED)
-  - "enable"           — target subsystem is allowed to run/transition freely while source_condition is TRUE
-  - "disable"          — target subsystem is forbidden from running while source_condition is TRUE
+${INTERLOCK_EFFECTS_DOC}
 
 SHARED PERMISSIVE SHAPE:
 Each shared_permissive is a structured object:
@@ -76,12 +94,7 @@ Each shared_permissive is a structured object:
   "prose": "<one-line natural language>"
 }
 
-CompletionCriterion kinds accepted in condition / source_condition:
-  - { "kind": "tag_equals", "tag": "ESTOP_OK", "value": true }
-  - { "kind": "tag_compare", "tag": "HOPPER_LEVEL", "op": ">=", "value": 50 }
-  - { "kind": "expression", "text": "ESTOP_OK AND DOOR_CLOSED", "referenced_tags": ["ESTOP_OK","DOOR_CLOSED"] }
-  - { "kind": "manual_ack", "prompt": "Operator confirms area clear" }
-  - { "kind": "placeholder", "criterion_id": "TBD_<slug>", "prompt": "what is X?" }   — only if genuinely unknown
+${COMPLETION_CRITERION_DOC}
 
 EXISTING STATE SEQUENCES:
 ${existingSummary}
