@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildFdsInterviewSystemPrompt, extractJsonFromResponse } from "../fds-prompts";
+import { buildFdsInterviewSystemPrompt, buildFdsOrchestrationSystemPrompt, extractJsonFromResponse } from "../fds-prompts";
 import { ensureV2 } from "../sequence-legacy-shim";
 import { validateSpecContractPatch } from "../contract";
 import catodoAssembly from "./__fixtures__/catodo-assembly.json";
+import catodoSubsystem from "./__fixtures__/catodo-subsystem.json";
 import goldenAssembly from "./__fixtures__/golden-ai-emission-assembly.json";
 
 describe("buildFdsInterviewSystemPrompt V2 snapshot", () => {
@@ -80,4 +81,38 @@ describe("golden AI emission — per-assembly", () => {
       expect(issues).toEqual([]);
     },
   );
+});
+
+describe("buildFdsOrchestrationSystemPrompt V2 snapshot", () => {
+  it("produces stable output for the catodo subsystem", () => {
+    const prompt = buildFdsOrchestrationSystemPrompt(
+      catodoSubsystem.subsystem as never,
+      catodoSubsystem.assemblySummaries as never,
+      catodoSubsystem.sequentialStates as never,
+    );
+    expect(prompt).toMatchSnapshot();
+  });
+
+  it("inlines the shared closed-effect documentation", () => {
+    const prompt = buildFdsOrchestrationSystemPrompt(
+      catodoSubsystem.subsystem as never,
+      catodoSubsystem.assemblySummaries as never,
+      catodoSubsystem.sequentialStates as never,
+    );
+    for (const effect of ["hold", "block_transition", "trigger", "enable", "disable"]) {
+      expect(prompt).toContain(`"${effect}"`);
+    }
+  });
+
+  it("renders the V2 RESPONSE FORMAT example", () => {
+    const prompt = buildFdsOrchestrationSystemPrompt(
+      catodoSubsystem.subsystem as never,
+      catodoSubsystem.assemblySummaries as never,
+      catodoSubsystem.sequentialStates as never,
+    );
+    expect(prompt).toContain('"interlock_id"');
+    expect(prompt).toContain('"effect_target"');
+    expect(prompt).toContain('"prose"');
+    expect(prompt).toContain('"kind": "tag_equals"');
+  });
 });
