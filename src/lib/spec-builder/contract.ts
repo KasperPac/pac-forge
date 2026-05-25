@@ -25,6 +25,11 @@ import {
   SpecSectionRowSchema,
   SubsystemStateSequenceSchema,
   SystemOrchestrationSchema,
+  OperatorModeSchema,
+  ConfigParameterSchema,
+  ProjectSectionTypeSchema,
+  ProjectSectionContentSchema,
+  ConfirmationStatusSchema,
   type AlarmRow,
   type AlarmTier,
   type AssemblyContract,
@@ -44,6 +49,11 @@ import {
   type SubsystemV2,
   type IoSignalV2,
   type SystemOrchestration,
+  type OperatorMode,
+  type ConfigParameter,
+  type ProjectSectionType,
+  type ProjectSectionContent,
+  type ConfirmationStatus,
 } from "@/types/spec-contract-v2";
 import { z } from "zod";
 
@@ -75,6 +85,11 @@ export interface SpecContractPatch {
   io_list?: IoListEntry[];
   faults?: FaultRow[];
   sections?: Partial<Record<SpecSectionType, SpecSectionRow[]>>;
+  // FDS Engine Phase 1
+  modes?: OperatorMode[];
+  configuration_parameters?: ConfigParameter[];
+  section_overrides?: Partial<Record<ProjectSectionType, ProjectSectionContent>>;
+  confirmation_status?: ConfirmationStatus;
 }
 
 const SpecContractPatchSchema = z.object({
@@ -101,6 +116,15 @@ const SpecContractPatchSchema = z.object({
     )
     .optional(),
   sections: z.record(z.string(), z.array(SpecSectionRowSchema)).optional(),
+  modes: z.array(OperatorModeSchema).optional(),
+  configuration_parameters: z.array(ConfigParameterSchema).optional(),
+  // section_overrides uses partialRecord because z.record with an enum key in
+  // Zod v4 demands all keys be present — overrides are sparse by definition.
+  // (Mirrors the same pattern in SpecContractV2Schema; see Task 10.)
+  section_overrides: z
+    .partialRecord(ProjectSectionTypeSchema, ProjectSectionContentSchema)
+    .optional(),
+  confirmation_status: ConfirmationStatusSchema.optional(),
 });
 
 /**
@@ -970,6 +994,18 @@ export async function writeSpecContract(
   }
   if (parsed.alarm_tiers) {
     projectUpdate.alarm_tiers = parsed.alarm_tiers;
+  }
+  if (parsed.modes !== undefined) {
+    projectUpdate.confirmed_modes = parsed.modes;
+  }
+  if (parsed.configuration_parameters !== undefined) {
+    projectUpdate.configuration_parameters = parsed.configuration_parameters;
+  }
+  if (parsed.section_overrides !== undefined) {
+    projectUpdate.section_overrides = parsed.section_overrides;
+  }
+  if (parsed.confirmation_status !== undefined) {
+    projectUpdate.confirmation_status = parsed.confirmation_status;
   }
   if (Object.keys(projectUpdate).length > 0) {
     const { error: updErr } = await supabase
