@@ -20,4 +20,24 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    files: [
+      'src/lib/forge-**/*.{ts,tsx}',
+      'src/lib/forge_*.{ts,tsx}',
+      'src/hooks/use-forge-*.{ts,tsx}',
+      'src/components/forge/**/*.{ts,tsx}',
+      'src/routes/forge*.tsx',
+    ],
+    rules: {
+      'no-restricted-imports': ['error', {
+        paths: [
+          {
+            name: '@/lib/spec-builder/contract',
+            importNames: ['writeSpecContract', 'SpecContractPatch'],
+            message: 'Forge modules must not import the spec-builder writer. Use loadSpecContract (reader) only.',
+          },
+        ],
+      }],
+    },
+  },
 ])
