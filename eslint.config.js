@@ -22,6 +22,7 @@ export default defineConfig([
   },
   {
     files: [
+      'src/lib/forge-*.{ts,tsx}',
       'src/lib/forge-**/*.{ts,tsx}',
       'src/lib/forge_*.{ts,tsx}',
       'src/hooks/use-forge-*.{ts,tsx}',
