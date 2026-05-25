@@ -98,6 +98,26 @@ export const OperatorModeSchema = z.object({
 export type OperatorMode = z.infer<typeof OperatorModeSchema>;
 
 // ============================================================
+// Configuration parameters (§3.4 — new in FDS Engine Phase 1)
+// Discrete-enum project-level switches. Substituted as string
+// literals at expression evaluation time.
+// ============================================================
+
+export const ConfigParameterSchema = z
+  .object({
+    parameter_id: z.string().min(1),
+    name: z.string().min(1),
+    allowed_values: z.array(z.string()).min(1),
+    default: z.string(),
+    description: z.string().optional(),
+  })
+  .refine((p) => p.allowed_values.includes(p.default), {
+    message: "default must be one of allowed_values",
+    path: ["default"],
+  });
+export type ConfigParameter = z.infer<typeof ConfigParameterSchema>;
+
+// ============================================================
 // Network configuration (VFD / bus-level devices)
 // ============================================================
 
