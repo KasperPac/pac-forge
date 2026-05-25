@@ -1,0 +1,337 @@
+import { describe, expect, it, vi, beforeEach } from "vitest";
+
+// Mock Supabase to capture writes without hitting a real database.
+const writeCalls: Array<{ table: string; payload: unknown }> = [];
+
+vi.mock("@/lib/supabase", () => ({
+  supabase: {
+    from: (table: string) => ({
+      update: (payload: unknown) => ({
+        eq: () => {
+          writeCalls.push({ table, payload });
+          return Promise.resolve({ data: null, error: null });
+        },
+      }),
+    }),
+  },
+}));
+
+import { writeSpecContract, validateSpecContractPatch } from "../contract";
+
+describe("writeSpecContract patch routing — new keys", () => {
+  beforeEach(() => {
+    writeCalls.length = 0;
+  });
+
+  it("routes modes patch to spec_projects.confirmed_modes", async () => {
+    await writeSpecContract("00000000-0000-0000-0000-000000000000", {
+      modes: [{ mode_id: "auto", name: "Auto", is_default: true }],
+    });
+    const projectsWrite = writeCalls.find((c) => c.table === "spec_projects");
+    expect(projectsWrite).toBeDefined();
+    expect(projectsWrite?.payload).toMatchObject({ confirmed_modes: expect.any(Array) });
+  });
+
+  it("routes configuration_parameters patch to spec_projects.configuration_parameters", async () => {
+    await writeSpecContract("00000000-0000-0000-0000-000000000000", {
+      configuration_parameters: [
+        { parameter_id: "x", name: "X", allowed_values: ["A"], default: "A" },
+      ],
+    });
+    const projectsWrite = writeCalls.find((c) => c.table === "spec_projects");
+    expect(projectsWrite?.payload).toMatchObject({
+      configuration_parameters: expect.any(Array),
+    });
+  });
+
+  it("routes section_overrides patch to spec_projects.section_overrides", async () => {
+    await writeSpecContract("00000000-0000-0000-0000-000000000000", {
+      section_overrides: {
+        system_overview: { content_markdown: "Hello" },
+      },
+    });
+    const projectsWrite = writeCalls.find((c) => c.table === "spec_projects");
+    expect(projectsWrite?.payload).toMatchObject({
+      section_overrides: expect.any(Object),
+    });
+  });
+});
+
+describe("validateSpecContractPatch — mode existence", () => {
+  it("rejects a patch where confirmed_modes lacks an is_default=true entry", () => {
+    const issues = validateSpecContractPatch({
+      modes: [{ mode_id: "auto", name: "Auto", is_default: false }],
+    });
+    expect(issues.some((i) => /default mode/i.test(i))).toBe(true);
+  });
+
+  it("rejects a patch with two is_default=true modes", () => {
+    const issues = validateSpecContractPatch({
+      modes: [
+        { mode_id: "auto", name: "Auto", is_default: true },
+        { mode_id: "manual", name: "Manual", is_default: true },
+      ],
+    });
+    expect(issues.some((i) => /exactly one/i.test(i))).toBe(true);
+  });
+
+  it("rejects duplicate mode_ids", () => {
+    const issues = validateSpecContractPatch({
+      modes: [
+        { mode_id: "auto", name: "Auto", is_default: true },
+        { mode_id: "auto", name: "Auto 2", is_default: false },
+      ],
+    });
+    expect(issues.some((i) => /duplicate/i.test(i))).toBe(true);
+  });
+
+  it("accepts a valid modes patch", () => {
+    const issues = validateSpecContractPatch({
+      modes: [
+        { mode_id: "auto", name: "Auto", is_default: true },
+        { mode_id: "manual", name: "Manual", is_default: false },
+      ],
+    });
+    expect(issues).toEqual([]);
+  });
+});
+
+describe("validateSpecContractPatch — PackML state IDs", () => {
+  it("rejects a numeric state_id between 18 and 100 (invalid range)", () => {
+    const issues = validateSpecContractPatch({
+      states: [
+        {
+          state_id: 50,
+          packml_id: undefined,
+          display_name: "Bad",
+          description: "x",
+          state_pattern: "static",
+        } as never,
+      ],
+    });
+    expect(issues.some((i) => /state_id/i.test(i))).toBe(true);
+  });
+
+  it("rejects custom state without custom_name", () => {
+    const issues = validateSpecContractPatch({
+      states: [
+        {
+          state_id: 101,
+          display_name: "x",
+          description: "x",
+          state_pattern: "static",
+        } as never,
+      ],
+    });
+    expect(issues.some((i) => /custom_name/i.test(i))).toBe(true);
+  });
+
+  it("rejects PackML state where packml_id does not match state_id", () => {
+    const issues = validateSpecContractPatch({
+      states: [
+        {
+          state_id: 5,
+          packml_id: 6,
+          display_name: "x",
+          description: "x",
+          state_pattern: "static",
+        } as never,
+      ],
+    });
+    expect(issues.some((i) => /packml_id/i.test(i))).toBe(true);
+  });
+
+  it("accepts a valid PackML state (state_id 6, packml_id 6)", () => {
+    const issues = validateSpecContractPatch({
+      states: [
+        {
+          state_id: 6,
+          packml_id: 6,
+          display_name: "Execute",
+          description: "Running",
+          state_pattern: "sequential",
+        } as never,
+      ],
+    });
+    expect(issues.filter((i) => /state_id|packml_id|custom_name/i.test(i))).toEqual([]);
+  });
+
+  it("accepts a valid custom state (state_id 101, custom_name set)", () => {
+    const issues = validateSpecContractPatch({
+      states: [
+        {
+          state_id: 101,
+          custom_name: "Lubrication",
+          display_name: "Lubrication",
+          description: "Site-specific",
+          state_pattern: "static",
+        } as never,
+      ],
+    });
+    expect(issues.filter((i) => /state_id|packml_id|custom_name/i.test(i))).toEqual([]);
+  });
+});
+
+describe("validateSpecContractPatch — override_kind content rules", () => {
+  function makeAssembly(seqOverride: Record<string, unknown>) {
+    return {
+      "00000000-0000-0000-0000-000000000aaa": {
+        assembly_id: "00000000-0000-0000-0000-000000000aaa",
+        subsystem_id: "00000000-0000-0000-0000-000000000bbb",
+        static_states: {},
+        sequential_states: {
+          "auto::execute": {
+            override_kind: "inherit",
+            permissives: [],
+            steps: [],
+            notes: null,
+            ...seqOverride,
+          },
+        },
+      },
+    };
+  }
+
+  it("rejects an inherit row with steps", () => {
+    const issues = validateSpecContractPatch({
+      assemblies: makeAssembly({
+        steps: [
+          {
+            step: 10,
+            action: "x",
+            completion_criteria: [],
+            completion_criteria_text: "",
+          },
+        ],
+      } as never) as never,
+    });
+    expect(issues.some((i) => /inherit.*empty/i.test(i))).toBe(true);
+  });
+
+  it("rejects a suppressed row with permissives", () => {
+    const issues = validateSpecContractPatch({
+      assemblies: makeAssembly({
+        override_kind: "suppressed",
+        permissives: [{ tag: "X", operator: "=", value: true }],
+      } as never) as never,
+    });
+    expect(issues.some((i) => /suppressed.*empty/i.test(i))).toBe(true);
+  });
+
+  it("accepts an inherit row with empty content", () => {
+    const issues = validateSpecContractPatch({
+      assemblies: makeAssembly({}) as never,
+    });
+    expect(issues.filter((i) => /inherit|suppressed/i.test(i))).toEqual([]);
+  });
+
+  it("accepts an override row with content", () => {
+    const issues = validateSpecContractPatch({
+      assemblies: makeAssembly({
+        override_kind: "override",
+        permissives: [{ tag: "X", operator: "=", value: true }],
+      } as never) as never,
+    });
+    expect(issues.filter((i) => /inherit|suppressed/i.test(i))).toEqual([]);
+  });
+});
+
+describe("validateSpecContractPatch — parameter_ref existence", () => {
+  it("rejects parameter_ref expression to an unknown parameter_id", () => {
+    const issues = validateSpecContractPatch({
+      configuration_parameters: [
+        { parameter_id: "battery_chemistry", name: "X", allowed_values: ["LFP"], default: "LFP" },
+      ],
+      assemblies: {
+        "00000000-0000-0000-0000-000000000aaa": {
+          assembly_id: "00000000-0000-0000-0000-000000000aaa",
+          subsystem_id: "00000000-0000-0000-0000-000000000bbb",
+          static_states: {},
+          sequential_states: {
+            "auto::execute": {
+              override_kind: "override",
+              permissives: [],
+              steps: [
+                {
+                  step_id: "s1",
+                  branch_id: "main",
+                  actions: [
+                    {
+                      kind: "assign",
+                      action_id: "a1",
+                      target_tag: "X",
+                      source: { kind: "parameter_ref", parameter_id: "MISSING" },
+                      prose: "x",
+                    },
+                  ],
+                  transitions: [],
+                  // legacy fields
+                  step: 10,
+                  action: "x",
+                  completion_criteria: [],
+                  completion_criteria_text: "",
+                } as never,
+              ],
+              notes: null,
+            },
+          },
+        },
+      } as never,
+    });
+    expect(issues.some((i) => /parameter_ref.*MISSING/i.test(i))).toBe(true);
+  });
+
+  it("accepts parameter_ref to a known parameter_id", () => {
+    const issues = validateSpecContractPatch({
+      configuration_parameters: [
+        { parameter_id: "battery_chemistry", name: "X", allowed_values: ["LFP"], default: "LFP" },
+      ],
+      assemblies: {
+        "00000000-0000-0000-0000-000000000aaa": {
+          assembly_id: "00000000-0000-0000-0000-000000000aaa",
+          subsystem_id: "00000000-0000-0000-0000-000000000bbb",
+          static_states: {},
+          sequential_states: {
+            "auto::execute": {
+              override_kind: "override",
+              permissives: [],
+              steps: [
+                {
+                  step_id: "s1",
+                  branch_id: "main",
+                  actions: [
+                    {
+                      kind: "assign",
+                      action_id: "a1",
+                      target_tag: "X",
+                      source: { kind: "parameter_ref", parameter_id: "battery_chemistry" },
+                      prose: "x",
+                    },
+                  ],
+                  transitions: [],
+                  step: 10,
+                  action: "x",
+                  completion_criteria: [],
+                  completion_criteria_text: "",
+                } as never,
+              ],
+              notes: null,
+            },
+          },
+        },
+      } as never,
+    });
+    expect(issues.filter((i) => /parameter_ref/i.test(i))).toEqual([]);
+  });
+});
+
+describe("loadSpecContract — confirmation_status branching (smoke)", () => {
+  // The reader needs more elaborate mocking (multiple table queries) to
+  // exercise the branching itself; that lands in Phase 2 where the read
+  // path actually changes user-visible behaviour. For Phase 1, the minimum
+  // acceptance is: loadSpecContract is exported and importable.
+  it("imports without throwing", async () => {
+    const { loadSpecContract } = await import("../contract");
+    expect(typeof loadSpecContract).toBe("function");
+  });
+});

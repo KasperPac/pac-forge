@@ -31,6 +31,8 @@ import {
   useUpsertSystemOrchestration,
 } from "@/hooks/use-system-orchestration";
 import { useFdsSystemOrchestrationConversation } from "@/hooks/use-fds-system-orchestration-conversation";
+import { useUnconfirmedLock } from "@/hooks/use-unconfirmed-lock";
+import { UnconfirmedLockBanner } from "@/components/spec-builder/migrate/unconfirmed-lock-banner";
 import { SystemOrchestrationGraph } from "@/components/spec-builder/system-orchestration-graph";
 import { SystemOrchestrationPermissiveForm } from "@/components/spec-builder/system-orchestration-permissive-form";
 import { SystemOrchestrationInterlockForm } from "@/components/spec-builder/system-orchestration-interlock-form";
@@ -52,6 +54,7 @@ export default function SpecSystemOrchestrationPage() {
     projectId: string;
     specId: string;
   }>();
+  const { isUnconfirmed, migrateHref } = useUnconfirmedLock(projectId ?? "", specId ?? "");
   const { data: rawSpec, isLoading } = useSpecProject(specId);
 
   const spec = useMemo(() => {
@@ -93,12 +96,21 @@ export default function SpecSystemOrchestrationPage() {
     );
   }
 
-  return <SystemOrchestrationLayout spec={spec} projectId={projectId} />;
+  return (
+    <SystemOrchestrationLayout
+      spec={spec}
+      projectId={projectId}
+      isUnconfirmed={isUnconfirmed}
+      migrateHref={migrateHref}
+    />
+  );
 }
 
 function SystemOrchestrationLayout({
   spec,
   projectId,
+  isUnconfirmed,
+  migrateHref,
 }: {
   spec: {
     id: string;
@@ -109,6 +121,8 @@ function SystemOrchestrationLayout({
     confirmed_states: OperatingState[];
   } & Record<string, unknown>;
   projectId: string;
+  isUnconfirmed: boolean;
+  migrateHref: string;
 }) {
   const subsystems = spec.confirmed_subsystems;
   const states = spec.confirmed_states;
@@ -159,6 +173,7 @@ function SystemOrchestrationLayout({
 
   return (
     <div className="flex h-full flex-col -m-4">
+      {isUnconfirmed && <UnconfirmedLockBanner migrateHref={migrateHref} />}
       {/* Header */}
       <div className="flex items-center gap-3 border-b px-4 h-12 shrink-0">
         <Button

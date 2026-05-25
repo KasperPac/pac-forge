@@ -62,6 +62,32 @@ export const SpecSectionTypeSchema = z.enum([
 export type SpecSectionType = z.infer<typeof SpecSectionTypeSchema>;
 
 // ============================================================
+// Project-level sections (§3.5 — new in FDS Engine Phase 1)
+// The six section types that are not keyed by (assembly_id, state_id).
+// Their editable content lives in spec_projects.section_overrides.
+// ============================================================
+
+export const ProjectSectionTypeSchema = z.enum([
+  "document_control",
+  "system_overview",
+  "control_philosophy",
+  "interfaces",
+  "testing_fat",
+  "hmi_specification",
+]);
+export type ProjectSectionType = z.infer<typeof ProjectSectionTypeSchema>;
+
+export const ProjectSectionContentSchema = z
+  .object({
+    content_markdown: z.string().optional(),
+    content_json: z.record(z.string(), z.unknown()).optional(),
+  })
+  .refine((c) => c.content_markdown !== undefined || c.content_json !== undefined, {
+    message: "ProjectSectionContent must have content_markdown or content_json",
+  });
+export type ProjectSectionContent = z.infer<typeof ProjectSectionContentSchema>;
+
+// ============================================================
 // Primitives
 // ============================================================
 
@@ -82,6 +108,40 @@ export const TelegramOffsetSchema = z.object({
   data_type: TelegramDataTypeSchema,
 });
 export type TelegramOffset = z.infer<typeof TelegramOffsetSchema>;
+
+// ============================================================
+// Operator modes (§3.1 — new in FDS Engine Phase 1)
+// Project-level operating mode axis. Every state and orchestration
+// row is keyed by (mode_id, state_id).
+// ============================================================
+
+export const OperatorModeSchema = z.object({
+  mode_id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().optional(),
+  is_default: z.boolean(),
+});
+export type OperatorMode = z.infer<typeof OperatorModeSchema>;
+
+// ============================================================
+// Configuration parameters (§3.4 — new in FDS Engine Phase 1)
+// Discrete-enum project-level switches. Substituted as string
+// literals at expression evaluation time.
+// ============================================================
+
+export const ConfigParameterSchema = z
+  .object({
+    parameter_id: z.string().min(1),
+    name: z.string().min(1),
+    allowed_values: z.array(z.string()).min(1),
+    default: z.string(),
+    description: z.string().optional(),
+  })
+  .refine((p) => p.allowed_values.includes(p.default), {
+    message: "default must be one of allowed_values",
+    path: ["default"],
+  });
+export type ConfigParameter = z.infer<typeof ConfigParameterSchema>;
 
 // ============================================================
 // Network configuration (VFD / bus-level devices)
@@ -247,11 +307,19 @@ export type Hierarchy = z.infer<typeof HierarchySchema>;
 export const StatePatternSchema = z.enum(["static", "sequential"]);
 export type StatePattern = z.infer<typeof StatePatternSchema>;
 
+// state_id accepts either legacy string (shim window) or numeric (PackML 1..17
+// or custom_states > 100). New fields are optional; existing rows still validate.
 export const OperatingStateV2Schema = z.object({
-  state_id: StateIdSchema,
-  state_name: z.string(),
+  state_id: z.union([StateIdSchema, z.number().int().positive()]),
+  // Legacy field — kept during shim window.
+  state_name: z.string().optional(),
+  // New display field (preferred post-confirmation).
+  display_name: z.string().optional(),
   description: z.string(),
   state_pattern: StatePatternSchema,
+  // New PackML fields (optional during shim window).
+  packml_id: z.number().int().min(1).max(17).optional(),
+  custom_name: z.string().optional(),
 });
 export type OperatingStateV2 = z.infer<typeof OperatingStateV2Schema>;
 
@@ -373,6 +441,10 @@ const ExpressionPlaceholderSchema = z.object({
   prompt: z.string(),
   inferred_type: PlaceholderInferredTypeSchema.optional(),
 });
+const ExpressionParameterRefSchema = z.object({
+  kind: z.literal("parameter_ref"),
+  parameter_id: z.string().min(1),
+});
 
 export const ExpressionSchema = z.discriminatedUnion("kind", [
   ExpressionTagRefSchema,
@@ -380,6 +452,7 @@ export const ExpressionSchema = z.discriminatedUnion("kind", [
   ExpressionLiteralSchema,
   ExpressionTextSchema,
   ExpressionPlaceholderSchema,
+  ExpressionParameterRefSchema,
 ]);
 export type Expression = z.infer<typeof ExpressionSchema>;
 
@@ -579,7 +652,11 @@ export const PermissiveConditionSchema = z.object({
 });
 export type PermissiveCondition = z.infer<typeof PermissiveConditionSchema>;
 
+export const OverrideKindSchema = z.enum(["inherit", "override", "suppressed"]);
+export type OverrideKind = z.infer<typeof OverrideKindSchema>;
+
 export const SequentialStateV2Schema = z.object({
+  override_kind: OverrideKindSchema.optional(), // defaults to "override" in readers
   permissives: z.array(PermissiveConditionSchema),
   steps: z.array(StepV2Schema),
   branches: z.array(BranchV2Schema).optional(),
@@ -589,11 +666,22 @@ export const SequentialStateV2Schema = z.object({
 });
 export type SequentialStateV2 = z.infer<typeof SequentialStateV2Schema>;
 
+export const StaticStateV2Schema = z.object({
+  override_kind: OverrideKindSchema.optional(),
+  devices: z.array(DeviceStateEntrySchema),
+  notes: z.string().nullable().optional(),
+});
+export type StaticStateV2 = z.infer<typeof StaticStateV2Schema>;
+
 export const AssemblyContractSchema = z.object({
   assembly_id: UuidSchema,
   subsystem_id: UuidSchema,
-  // Keyed by state_id
-  static_states: z.record(z.string(), z.array(DeviceStateEntrySchema)),
+  // Keyed by state_id. Legacy rows are bare DeviceStateEntry arrays;
+  // post-confirmation rows use the StaticStateV2 container with override_kind.
+  static_states: z.record(
+    z.string(),
+    z.union([z.array(DeviceStateEntrySchema), StaticStateV2Schema]),
+  ),
   sequential_states: z.record(z.string(), SequentialStateV2Schema),
 });
 export type AssemblyContract = z.infer<typeof AssemblyContractSchema>;
@@ -602,17 +690,53 @@ export type AssemblyContract = z.infer<typeof AssemblyContractSchema>;
 // Subsystem orchestration (how assemblies coordinate inside a state)
 // ============================================================
 
+// Closed-set effect enum mirrors InterSubsystemInterlock at the system layer.
+export const InterAssemblyInterlockEffectSchema = z.enum([
+  "hold",
+  "block_transition",
+  "trigger",
+  "enable",
+  "disable",
+]);
+export type InterAssemblyInterlockEffect = z.infer<
+  typeof InterAssemblyInterlockEffectSchema
+>;
+
 export const InterAssemblyInterlockSchema = z.object({
-  source_assembly: z.string(),
-  source_condition: z.string(),
-  target_assembly: z.string(),
-  effect: z.string(),
+  interlock_id: z.string().min(1),
+  source_assembly: z.string().min(1),
+  source_condition: CompletionCriterionSchema,
+  target_assembly: z.string().min(1),
+  effect: InterAssemblyInterlockEffectSchema,
+  effect_target: z
+    .object({
+      assembly: z.string().min(1),
+      state_id: z.union([z.string(), z.number().int()]),
+    })
+    .optional(),
+  prose: z.string(),
 });
 export type InterAssemblyInterlock = z.infer<typeof InterAssemblyInterlockSchema>;
 
+/**
+ * Shared permissive — structured condition shared across orchestration
+ * scopes. Used by both `SubsystemStateSequence` (assemblies coordinating
+ * inside a subsystem state) and `SystemStateSequence` (subsystems
+ * coordinating inside a system state). Declared here so the subsystem-
+ * level schema below can reference it; `SystemStateSequenceSchema`
+ * further down re-uses the same shape.
+ */
+export const SharedPermissiveSchema = z.object({
+  permissive_id: z.string(),
+  condition: CompletionCriterionSchema,
+  source_subsystem: z.string().optional(),
+  prose: z.string(),
+});
+export type SharedPermissive = z.infer<typeof SharedPermissiveSchema>;
+
 export const SubsystemStateSequenceSchema = z.object({
   assembly_order: z.array(z.string()), // assembly_ids
-  shared_permissives: z.array(z.string()),
+  shared_permissives: z.array(SharedPermissiveSchema),
   inter_assembly_interlocks: z.array(InterAssemblyInterlockSchema),
   notes: z.string().nullable(),
 });
@@ -721,19 +845,6 @@ export const FdsConversationTurnSchema = z.object({
 });
 export type FdsConversationTurn = z.infer<typeof FdsConversationTurnSchema>;
 
-/**
- * Shared permissive at the system level — structured (unlike the
- * subsystem-level `shared_permissives: string[]` which stays free-text
- * for backward compat).
- */
-export const SharedPermissiveSchema = z.object({
-  permissive_id: z.string(),
-  condition: CompletionCriterionSchema,
-  source_subsystem: z.string().optional(),
-  prose: z.string(),
-});
-export type SharedPermissive = z.infer<typeof SharedPermissiveSchema>;
-
 export const InterSubsystemInterlockSchema = z.object({
   interlock_id: z.string(),
   source_subsystem_id: z.string(),
@@ -783,6 +894,9 @@ export type SystemOrchestration = z.infer<typeof SystemOrchestrationSchema>;
 // Top-level contract
 // ============================================================
 
+export const ConfirmationStatusSchema = z.enum(["unconfirmed", "confirmed"]);
+export type ConfirmationStatus = z.infer<typeof ConfirmationStatusSchema>;
+
 export const SpecContractV2Schema = z.object({
   schema_version: z.literal(2),
   project: SpecProjectHeaderSchema,
@@ -803,5 +917,14 @@ export const SpecContractV2Schema = z.object({
   io_list: z.array(IoListEntrySchema),
   faults: z.array(FaultRowSchema),
   sections: z.record(SpecSectionTypeSchema, z.array(SpecSectionRowSchema)),
+  // FDS Engine Phase 1 additions — all optional during shim window
+  modes: z.array(OperatorModeSchema).optional(),
+  configuration_parameters: z.array(ConfigParameterSchema).optional(),
+  // Sparse map — override only the project-level sections you want to
+  // customise. Absent keys fall back to engine-generated content.
+  section_overrides: z
+    .partialRecord(ProjectSectionTypeSchema, ProjectSectionContentSchema)
+    .optional(),
+  confirmation_status: ConfirmationStatusSchema.default("unconfirmed"),
 });
 export type SpecContractV2 = z.infer<typeof SpecContractV2Schema>;

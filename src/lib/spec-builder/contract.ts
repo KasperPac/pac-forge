@@ -25,6 +25,11 @@ import {
   SpecSectionRowSchema,
   SubsystemStateSequenceSchema,
   SystemOrchestrationSchema,
+  OperatorModeSchema,
+  ConfigParameterSchema,
+  ProjectSectionTypeSchema,
+  ProjectSectionContentSchema,
+  ConfirmationStatusSchema,
   type AlarmRow,
   type AlarmTier,
   type AssemblyContract,
@@ -44,6 +49,11 @@ import {
   type SubsystemV2,
   type IoSignalV2,
   type SystemOrchestration,
+  type OperatorMode,
+  type ConfigParameter,
+  type ProjectSectionType,
+  type ProjectSectionContent,
+  type ConfirmationStatus,
 } from "@/types/spec-contract-v2";
 import { z } from "zod";
 
@@ -75,6 +85,11 @@ export interface SpecContractPatch {
   io_list?: IoListEntry[];
   faults?: FaultRow[];
   sections?: Partial<Record<SpecSectionType, SpecSectionRow[]>>;
+  // FDS Engine Phase 1
+  modes?: OperatorMode[];
+  configuration_parameters?: ConfigParameter[];
+  section_overrides?: Partial<Record<ProjectSectionType, ProjectSectionContent>>;
+  confirmation_status?: ConfirmationStatus;
 }
 
 const SpecContractPatchSchema = z.object({
@@ -101,6 +116,15 @@ const SpecContractPatchSchema = z.object({
     )
     .optional(),
   sections: z.record(z.string(), z.array(SpecSectionRowSchema)).optional(),
+  modes: z.array(OperatorModeSchema).optional(),
+  configuration_parameters: z.array(ConfigParameterSchema).optional(),
+  // section_overrides uses partialRecord because z.record with an enum key in
+  // Zod v4 demands all keys be present — overrides are sparse by definition.
+  // (Mirrors the same pattern in SpecContractV2Schema; see Task 10.)
+  section_overrides: z
+    .partialRecord(ProjectSectionTypeSchema, ProjectSectionContentSchema)
+    .optional(),
+  confirmation_status: ConfirmationStatusSchema.optional(),
 });
 
 /**
@@ -248,7 +272,12 @@ function buildUpgradeContext(projectRow: Record<string, unknown>): UpgradeContex
   }));
   const stateNameToId = new Map<string, string>();
   for (const s of confirmedStates) {
-    if (s.state_name) stateNameToId.set(s.state_name.toLowerCase(), s.state_id);
+    if (s.state_name)
+      stateNameToId.set(
+        s.state_name.toLowerCase(),
+        // OperatingStateV2.state_id widened to string | number (Task 5).
+        typeof s.state_id === "number" ? String(s.state_id) : s.state_id,
+      );
   }
   return { confirmedStates, stateNameToId };
 }
@@ -690,6 +719,9 @@ async function upgradeLegacyRow(
 
   const contract: SpecContractV2 = {
     schema_version: 2,
+    // Legacy upgrade path serves projects that have not gone through Phase 2
+    // confirmation; mark unconfirmed (Task 10).
+    confirmation_status: "unconfirmed",
     project: toProjectHeader(projectRow),
     hierarchy,
     states: ctx.confirmedStates,
@@ -780,14 +812,39 @@ export async function loadSpecContract(
   const projectRow = await fetchProjectRow(specProjectId);
   const schemaVersion = Number(projectRow.schema_version ?? 1);
 
-  if (schemaVersion >= 2) return assembleLiveV2(projectRow);
+  // FDS Engine Phase 1: confirmation_status gates whether the legacy shim
+  // is even considered. Unconfirmed projects continue through the existing
+  // schema_version branch (legacy shape via shim); confirmed projects skip
+  // the shim regardless of schema_version.
+  const confirmationStatus = ((projectRow.confirmation_status as string | undefined) ??
+    "unconfirmed") as ConfirmationStatus;
 
-  if (!FLAGS.legacy_shim_enabled) {
-    throw new Error(
-      `loadSpecContract: project ${specProjectId} is schema_version=1 but legacy_shim_enabled=false`,
-    );
+  let baseContract: SpecContractV2;
+  if (confirmationStatus === "confirmed" || schemaVersion >= 2) {
+    baseContract = await assembleLiveV2(projectRow);
+  } else {
+    if (!FLAGS.legacy_shim_enabled) {
+      throw new Error(
+        `loadSpecContract: project ${specProjectId} is schema_version=1 but legacy_shim_enabled=false`,
+      );
+    }
+    baseContract = await upgradeLegacyRow(projectRow);
   }
-  return upgradeLegacyRow(projectRow);
+
+  // FDS Engine Phase 1: populate new top-level fields from spec_projects.
+  // Re-parse so SpecContractV2Schema.confirmation_status default + the new
+  // optional fields are normalised.
+  return SpecContractV2Schema.parse({
+    ...baseContract,
+    modes: (projectRow.confirmed_modes as OperatorMode[] | null) ?? undefined,
+    configuration_parameters:
+      (projectRow.configuration_parameters as ConfigParameter[] | null) ?? undefined,
+    section_overrides:
+      (projectRow.section_overrides as
+        | Partial<Record<ProjectSectionType, ProjectSectionContent>>
+        | null) ?? undefined,
+    confirmation_status: confirmationStatus,
+  });
 }
 
 export async function loadAssemblyStates(
@@ -807,17 +864,30 @@ export async function loadAssemblyStates(
   }
 
   const statesById = new Map<string, OperatingStateV2>();
-  for (const s of contract.states) statesById.set(s.state_id, s);
+  for (const s of contract.states)
+    // OperatingStateV2.state_id widened to string | number (Task 5).
+    statesById.set(
+      typeof s.state_id === "number" ? String(s.state_id) : s.state_id,
+      s,
+    );
 
   const buildView = (sid: string): AssemblyStateView => {
     const meta = statesById.get(sid);
     const pattern: "static" | "sequential" = meta?.state_pattern ?? "static";
+    // static_states was widened in Task 8 to `DeviceStateEntry[] | StaticStateV2`.
+    // AssemblyStateView still expects `DeviceStateEntry[] | undefined`; unwrap.
+    const rawStatic = asm.static_states[sid];
+    const staticEntries = rawStatic
+      ? Array.isArray(rawStatic)
+        ? rawStatic
+        : rawStatic.devices
+      : undefined;
     return {
       assembly_id: asm.assembly_id,
       subsystem_id: asm.subsystem_id,
       state_id: sid,
       state_pattern: pattern,
-      static_states: asm.static_states[sid],
+      static_states: staticEntries,
       sequential_states: asm.sequential_states[sid],
     };
   };
@@ -970,6 +1040,18 @@ export async function writeSpecContract(
   }
   if (parsed.alarm_tiers) {
     projectUpdate.alarm_tiers = parsed.alarm_tiers;
+  }
+  if (parsed.modes !== undefined) {
+    projectUpdate.confirmed_modes = parsed.modes;
+  }
+  if (parsed.configuration_parameters !== undefined) {
+    projectUpdate.configuration_parameters = parsed.configuration_parameters;
+  }
+  if (parsed.section_overrides !== undefined) {
+    projectUpdate.section_overrides = parsed.section_overrides;
+  }
+  if (parsed.confirmation_status !== undefined) {
+    projectUpdate.confirmation_status = parsed.confirmation_status;
   }
   if (Object.keys(projectUpdate).length > 0) {
     const { error: updErr } = await supabase
@@ -1166,8 +1248,116 @@ type ParsedPatch = z.infer<typeof SpecContractPatchSchema>;
  *   5. SFC: no cross-branch transitions; sequence_model_version=2 requires
  *      step_id + transitions populated on non-terminal steps.
  */
-function validateSpecContractPatch(patch: ParsedPatch): string[] {
+export function validateSpecContractPatch(patch: ParsedPatch): string[] {
   const issues: string[] = [];
+
+  // FDS Engine Phase 1: modes invariants
+  if (patch.modes !== undefined) {
+    const ids = patch.modes.map((m) => m.mode_id);
+    const dupes = ids.filter((id, i) => ids.indexOf(id) !== i);
+    if (dupes.length > 0) {
+      issues.push(`duplicate mode_id(s): ${[...new Set(dupes)].join(", ")}`);
+    }
+    const defaults = patch.modes.filter((m) => m.is_default);
+    if (defaults.length === 0) {
+      issues.push("modes patch must include exactly one default mode (is_default=true)");
+    } else if (defaults.length > 1) {
+      issues.push(
+        `modes patch must include exactly one default mode; found ${defaults.length}`,
+      );
+    }
+  }
+
+  // FDS Engine Phase 1: PackML state ID range invariants
+  if (patch.states !== undefined) {
+    patch.states.forEach((s, idx) => {
+      const sid = s.state_id;
+      if (typeof sid === "number") {
+        // Numeric IDs: 1..17 = PackML; >100 = custom_states; everything else invalid.
+        if (sid >= 1 && sid <= 17) {
+          if (s.packml_id === undefined) {
+            issues.push(`states[${idx}]: numeric state_id ${sid} requires packml_id`);
+          } else if (s.packml_id !== sid) {
+            issues.push(
+              `states[${idx}]: packml_id (${s.packml_id}) must equal state_id (${sid})`,
+            );
+          }
+        } else if (sid > 100) {
+          if (!s.custom_name) {
+            issues.push(`states[${idx}]: custom state_id ${sid} requires custom_name`);
+          }
+        } else {
+          issues.push(
+            `states[${idx}]: state_id ${sid} is invalid; must be 1..17 (PackML) or > 100 (custom)`,
+          );
+        }
+      }
+      // Legacy string state_ids are accepted as-is during the shim window;
+      // post-confirmation projects should not contain them.
+    });
+  }
+
+  // FDS Engine Phase 1: override_kind content rules — inherit / suppressed
+  // rows must be empty (no permissives, steps, monitors, branches, devices).
+  if (patch.assemblies !== undefined) {
+    Object.entries(patch.assemblies).forEach(([assemblyId, contract]) => {
+      Object.entries(contract.sequential_states ?? {}).forEach(([stateKey, seq]) => {
+        const kind = (seq as { override_kind?: string }).override_kind;
+        if (kind === "inherit" || kind === "suppressed") {
+          const hasContent =
+            (seq.permissives && seq.permissives.length > 0) ||
+            (seq.steps && seq.steps.length > 0) ||
+            (seq.state_monitors && seq.state_monitors.length > 0) ||
+            (seq.branches && seq.branches.length > 0);
+          if (hasContent) {
+            issues.push(
+              `assemblies[${assemblyId}].sequential_states[${stateKey}]: ${kind} rows must be empty (no permissives/steps/monitors/branches)`,
+            );
+          }
+        }
+      });
+      // Static states share the same rule when wrapped in StaticStateV2.
+      Object.entries(contract.static_states ?? {}).forEach(([stateKey, val]) => {
+        if (Array.isArray(val)) return; // legacy shape, no override_kind
+        const kind = (val as { override_kind?: string }).override_kind;
+        if (kind === "inherit" || kind === "suppressed") {
+          const devices = (val as { devices?: unknown[] }).devices;
+          if (devices && devices.length > 0) {
+            issues.push(
+              `assemblies[${assemblyId}].static_states[${stateKey}]: ${kind} rows must have empty devices`,
+            );
+          }
+        }
+      });
+    });
+  }
+
+  // FDS Engine Phase 1: parameter_ref expressions must reference a known
+  // configuration parameter. Within-patch only — cross-patch resolution
+  // (when the parameter sits in the persisted contract but not in the patch)
+  // is a follow-up wave.
+  if (patch.assemblies !== undefined) {
+    const knownParamIds = new Set(
+      (patch.configuration_parameters ?? []).map((p) => p.parameter_id),
+    );
+    Object.entries(patch.assemblies).forEach(([assemblyId, contract]) => {
+      Object.entries(contract.sequential_states ?? {}).forEach(([stateKey, seq]) => {
+        (seq.steps ?? []).forEach((step, sIdx) => {
+          const actions = (step as { actions?: Array<{ source?: { kind: string; parameter_id?: string } }> }).actions ?? [];
+          actions.forEach((a, aIdx) => {
+            if (a.source?.kind === "parameter_ref") {
+              const pid = a.source.parameter_id;
+              if (pid && !knownParamIds.has(pid)) {
+                issues.push(
+                  `assemblies[${assemblyId}].sequential_states[${stateKey}].steps[${sIdx}].actions[${aIdx}]: parameter_ref "${pid}" is not a known parameter`,
+                );
+              }
+            }
+          });
+        });
+      });
+    });
+  }
 
   // 1. IO tag global uniqueness ------------------------------------------
   if (patch.hierarchy) {

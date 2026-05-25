@@ -226,7 +226,7 @@ function NavItem({ item, pendingPatternCount, hasActiveProject }: { item: NavIte
       <item.icon className="h-4 w-4 shrink-0" />
       {item.label}
       {item.to === "/patterns" && pendingPatternCount != null && pendingPatternCount > 0 && (
-        <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500/20 px-1 font-mono text-[10px] text-amber-400">
+        <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-pac-signal-amber-bg px-1 font-mono text-[10px] text-pac-signal-amber">
           {pendingPatternCount}
         </span>
       )}
@@ -305,10 +305,10 @@ function SupabaseStatusIndicator() {
   const { data: health } = useSupabaseStatus();
 
   const dot =
-    health === "healthy"  ? "bg-green-500" :
-    health === "degraded" ? "bg-amber-500" :
-    health === "offline"  ? "bg-red-500 animate-pulse" :
-    "bg-zinc-500";
+    health === "healthy"  ? "bg-pac-signal-green" :
+    health === "degraded" ? "bg-pac-signal-amber" :
+    health === "offline"  ? "bg-pac-signal-red animate-pulse" :
+    "bg-pac-ink-400";
 
   const label =
     health === "healthy"  ? "Supabase healthy" :
@@ -342,10 +342,10 @@ function BridgeStatusIndicator() {
         : `TIA connected${versionTag} (no project)`;
 
   const dotColor = !bridgeOn
-    ? "bg-zinc-500"
+    ? "bg-pac-ink-400"
     : !tiaOn
-      ? "bg-amber-500"
-      : "bg-green-500";
+      ? "bg-pac-signal-amber"
+      : "bg-pac-signal-green";
 
   async function handleStartBridge() {
     setStarting(true);
@@ -410,7 +410,7 @@ function TopBar() {
               onClick={() => navigate(`/projects/${activeProject.id}`)}
               className="flex items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-accent/50"
             >
-              <span className="inline-block h-2 w-2 rounded-full bg-green-500" />
+              <span className="inline-block h-2 w-2 rounded-full bg-pac-signal-green" />
               <FolderOpen className="h-3 w-3" />
               <span className="text-foreground">{activeProject.client_name}</span>
               {activeProject.project_number && (
@@ -420,9 +420,9 @@ function TopBar() {
           ) : (
             <button
               onClick={() => navigate("/projects")}
-              className="flex items-center gap-2 rounded-md px-2 py-1 text-amber-400 transition-colors hover:bg-accent/50"
+              className="flex items-center gap-2 rounded-md px-2 py-1 text-pac-signal-amber transition-colors hover:bg-accent/50"
             >
-              <span className="inline-block h-2 w-2 rounded-full bg-amber-500" />
+              <span className="inline-block h-2 w-2 rounded-full bg-pac-signal-amber" />
               <span>No project selected</span>
             </button>
           )}

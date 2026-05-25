@@ -90,7 +90,16 @@ export function useForgeFdsHandoff(
           subsystemName: sub.subsystem_name,
           deviceIds: asm.devices.map((d) => d.device_id),
           operatingStates,
-          staticStates: asmContract?.static_states ?? {},
+          // static_states was widened in Task 8 to `DeviceStateEntry[] | StaticStateV2`.
+          // The handoff brief expects the legacy `DeviceStateEntry[]` shape; unwrap.
+          staticStates: asmContract?.static_states
+            ? Object.fromEntries(
+                Object.entries(asmContract.static_states).map(([k, v]) => [
+                  k,
+                  Array.isArray(v) ? v : v.devices,
+                ]),
+              )
+            : {},
           sequentialStates: (asmContract?.sequential_states ?? {}) as unknown as AssemblyBriefMap[string]["sequentialStates"],
           alarmConditions: assemblyAlarms,
           annotations: [],

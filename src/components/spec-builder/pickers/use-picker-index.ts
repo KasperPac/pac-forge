@@ -192,8 +192,9 @@ export function usePickerIndex(
     }
 
     const states: IndexedState[] = contract.states.map((s) => ({
-      state_id: s.state_id,
-      state_name: s.state_name,
+      // OperatingStateV2.state_id was widened to string | number (Task 5); IndexedState still keys on string.
+      state_id: typeof s.state_id === "number" ? String(s.state_id) : s.state_id,
+      state_name: s.state_name ?? "",
       state_pattern: s.state_pattern,
       description: s.description,
       searchKey: `${s.state_id} ${s.state_name} ${s.description}`.toLowerCase(),

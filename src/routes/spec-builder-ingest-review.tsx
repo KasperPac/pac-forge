@@ -25,6 +25,15 @@ import type {
   SubsystemV2,
 } from "@/types/spec-contract-v2";
 
+/**
+ * No FDS V2 lock banner on this route: spec-builder-ingest-review is purely
+ * pre-project — it reviews an ingest draft BEFORE a spec_projects row exists.
+ * `confirmation_status` is a per-project gate and does not apply here. The
+ * draft created from this review starts as `unconfirmed` and the lock banner
+ * shows up on the subsequent /specs/:projectId/:specId/* routes.
+ *
+ * (FDS Engine Phase 2 — see Docs/superpowers/specs/2026-05-25-fds-engine-phase2-wizard-design.md)
+ */
 export default function SpecBuilderIngestReviewPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();

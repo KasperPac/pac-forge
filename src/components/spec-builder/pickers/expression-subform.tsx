@@ -49,6 +49,10 @@ function defaultForKind(kind: Expression["kind"]): Expression {
       return { kind: "expr_text", text: "", referenced_tags: [] };
     case "placeholder":
       return { kind: "placeholder", prompt: "" };
+    case "parameter_ref":
+      // Editor placeholder: Zod requires non-empty parameter_id at validation time,
+      // but the picker UI fills this in before save.
+      return { kind: "parameter_ref", parameter_id: "" };
   }
 }
 

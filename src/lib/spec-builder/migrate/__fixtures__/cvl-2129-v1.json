@@ -1,0 +1,93 @@
+{
+  "schema_version": 2,
+  "project": {
+    "id": "00000000-0000-4000-8000-000000000003",
+    "doc_code": "CVL-2129",
+    "title": "CVL 2129 conveyor line",
+    "client_name": "Acme CVL",
+    "project_number": null,
+    "plc_model": null,
+    "hmi_type": null,
+    "comms_protocol": null,
+    "safety_classification": null,
+    "fault_philosophy": null,
+    "design_principles": [],
+    "scope_exclusions": []
+  },
+  "hierarchy": { "subsystems": [] },
+  "states": [
+    { "state_id": "Idle", "state_name": "Idle", "description": "Idle", "state_pattern": "static" },
+    { "state_id": "Execute", "state_name": "Execute", "description": "Execute", "state_pattern": "sequential" },
+    { "state_id": "Stopped", "state_name": "Stopped", "description": "Stopped", "state_pattern": "static" },
+    { "state_id": "Manual Run", "state_name": "Manual Run", "description": "Manual mode hint", "state_pattern": "sequential" },
+    { "state_id": "Service", "state_name": "Service", "description": "Service mode hint", "state_pattern": "static" }
+  ],
+  "alarm_tiers": [],
+  "assemblies": {
+    "00000000-0000-4000-8000-00000000a003": {
+      "assembly_id": "00000000-0000-4000-8000-00000000a003",
+      "subsystem_id": "00000000-0000-4000-8000-00000000b003",
+      "static_states": {},
+      "sequential_states": {
+        "Execute": { "permissives": [], "steps": [], "notes": null }
+      }
+    }
+  },
+  "orchestrations": {
+    "00000000-0000-4000-8000-00000000b003": {
+      "Execute": {
+        "assembly_order": ["CVL01", "CVL02", "CVL03"],
+        "shared_permissives": [],
+        "inter_assembly_interlocks": [
+          {
+            "interlock_id": "il-cvl-1",
+            "source_assembly": "CVL01",
+            "source_condition": { "kind": "placeholder", "criterion_id": "placeholder-il-cvl-1", "prompt": "CVL01 photo-eye blocked for more than 500 ms" },
+            "target_assembly": "CVL02",
+            "effect": "hold",
+            "prose": "hold CVL02 when product is detected at the CVL01 transfer point for more than 500 ms"
+          },
+          {
+            "interlock_id": "il-cvl-2",
+            "source_assembly": "CVL02",
+            "source_condition": { "kind": "placeholder", "criterion_id": "placeholder-il-cvl-2", "prompt": "CVL02 in fault" },
+            "target_assembly": "CVL03",
+            "effect": "block_transition",
+            "prose": "block CVL03 execute transition while CVL02 is faulted"
+          },
+          {
+            "interlock_id": "il-cvl-3",
+            "source_assembly": "CVL03",
+            "source_condition": { "kind": "placeholder", "criterion_id": "placeholder-il-cvl-3", "prompt": "CVL03 reaches end of zone and downstream is clear" },
+            "target_assembly": "CVL01",
+            "effect": "trigger",
+            "prose": "trigger CVL01 to refill the line once CVL03 has discharged its load and downstream confirms clear"
+          }
+        ],
+        "notes": null
+      }
+    }
+  },
+  "system_orchestration": null,
+  "alarms": [],
+  "io_list": [],
+  "faults": [],
+  "sections": {
+    "document_control": [],
+    "system_overview": [],
+    "control_philosophy": [],
+    "functional_description": [],
+    "io_list": [],
+    "alarm_specification": [],
+    "hmi_specification": [],
+    "interfaces": [],
+    "testing_fat": [],
+    "audit_report": [],
+    "introduction": [],
+    "equipment_description": [],
+    "functional_state": [],
+    "alarm_table": [],
+    "settings_table": []
+  },
+  "confirmation_status": "unconfirmed"
+}

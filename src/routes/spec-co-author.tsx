@@ -14,6 +14,8 @@ import {
   useSpecProject,
   useInstrumentRegister,
 } from "@/hooks/use-spec-projects";
+import { useUnconfirmedLock } from "@/hooks/use-unconfirmed-lock";
+import { UnconfirmedLockBanner } from "@/components/spec-builder/migrate/unconfirmed-lock-banner";
 import {
   migrateSubsystemConfig,
   migrateOperatingStates,
@@ -21,6 +23,7 @@ import {
 
 export default function SpecCoAuthorPage() {
   const { projectId, specId } = useParams<{ projectId: string; specId: string }>();
+  const { isUnconfirmed, migrateHref } = useUnconfirmedLock(projectId ?? "", specId ?? "");
   const { data: rawSpec, isLoading } = useSpecProject(specId);
   const { data: register } = useInstrumentRegister(specId);
 
@@ -75,6 +78,7 @@ export default function SpecCoAuthorPage() {
 
   return (
     <div className="flex h-full flex-col -m-4">
+      {isUnconfirmed && <UnconfirmedLockBanner migrateHref={migrateHref} />}
       {/* Header */}
       <div className="flex items-center gap-3 border-b px-4 h-12 shrink-0">
         <Button
