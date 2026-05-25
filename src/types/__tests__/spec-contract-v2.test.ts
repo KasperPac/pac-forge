@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { ConfigParameterSchema, OperatorModeSchema } from "../spec-contract-v2";
+import {
+  ConfigParameterSchema,
+  ExpressionSchema,
+  OperatorModeSchema,
+} from "../spec-contract-v2";
 
 describe("OperatorModeSchema", () => {
   it("accepts a valid default mode", () => {
@@ -68,5 +72,22 @@ describe("ConfigParameterSchema", () => {
       default: "A",
     };
     expect(() => ConfigParameterSchema.parse(param)).toThrow();
+  });
+});
+
+describe("ExpressionSchema parameter_ref variant", () => {
+  it("accepts a parameter_ref expression", () => {
+    const expr = { kind: "parameter_ref", parameter_id: "battery_chemistry" };
+    expect(() => ExpressionSchema.parse(expr)).not.toThrow();
+  });
+
+  it("rejects parameter_ref without parameter_id", () => {
+    const expr = { kind: "parameter_ref" };
+    expect(() => ExpressionSchema.parse(expr)).toThrow();
+  });
+
+  it("rejects empty parameter_id", () => {
+    const expr = { kind: "parameter_ref", parameter_id: "" };
+    expect(() => ExpressionSchema.parse(expr)).toThrow();
   });
 });

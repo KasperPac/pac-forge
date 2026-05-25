@@ -407,6 +407,10 @@ const ExpressionPlaceholderSchema = z.object({
   prompt: z.string(),
   inferred_type: PlaceholderInferredTypeSchema.optional(),
 });
+const ExpressionParameterRefSchema = z.object({
+  kind: z.literal("parameter_ref"),
+  parameter_id: z.string().min(1),
+});
 
 export const ExpressionSchema = z.discriminatedUnion("kind", [
   ExpressionTagRefSchema,
@@ -414,6 +418,7 @@ export const ExpressionSchema = z.discriminatedUnion("kind", [
   ExpressionLiteralSchema,
   ExpressionTextSchema,
   ExpressionPlaceholderSchema,
+  ExpressionParameterRefSchema,
 ]);
 export type Expression = z.infer<typeof ExpressionSchema>;
 
