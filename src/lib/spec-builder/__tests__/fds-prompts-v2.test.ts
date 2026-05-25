@@ -5,6 +5,8 @@ import { validateSpecContractPatch } from "../contract";
 import catodoAssembly from "./__fixtures__/catodo-assembly.json";
 import catodoSubsystem from "./__fixtures__/catodo-subsystem.json";
 import goldenAssembly from "./__fixtures__/golden-ai-emission-assembly.json";
+import goldenOrch from "./__fixtures__/golden-ai-emission-orchestration.json";
+import type { SubsystemStateSequence } from "@/types/spec-contract-v2";
 
 describe("buildFdsInterviewSystemPrompt V2 snapshot", () => {
   it("produces stable output for the catodo lift assembly", () => {
@@ -115,4 +117,33 @@ describe("buildFdsOrchestrationSystemPrompt V2 snapshot", () => {
     expect(prompt).toContain('"prose"');
     expect(prompt).toContain('"kind": "tag_equals"');
   });
+});
+
+describe("golden AI emission — per-subsystem orchestration", () => {
+  const SUB_ID = "00000000-0000-4000-8000-000000000b01";
+
+  it.each(goldenOrch.responses)(
+    "response '$name' parses + validates",
+    ({ rawText, expectedStateId }) => {
+      const extracted = extractJsonFromResponse(rawText) as unknown as Record<string, unknown> | null;
+      expect(extracted).not.toBeNull();
+      expect(extracted).toMatchObject({ state_id: expectedStateId });
+
+      // Build the subsystem-orchestration patch the wizard would assemble.
+      const sequence: SubsystemStateSequence = {
+        assembly_order: extracted!.assembly_order as string[],
+        shared_permissives: (extracted!.shared_permissives ?? []) as never,
+        inter_assembly_interlocks: (extracted!.inter_assembly_interlocks ?? []) as never,
+        notes: (extracted!.notes ?? null) as string | null,
+      };
+
+      const issues = validateSpecContractPatch({
+        orchestrations: {
+          [SUB_ID]: { [String(expectedStateId)]: sequence } as never,
+        },
+      });
+
+      expect(issues).toEqual([]);
+    },
+  );
 });
