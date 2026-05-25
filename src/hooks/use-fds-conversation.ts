@@ -26,7 +26,7 @@ import type {
   SequentialStateV2,
 } from "@/types/spec-contract-v2";
 import { ensureV2 } from "@/lib/spec-builder/sequence-legacy-shim";
-import { validateSpecContractPatch } from "@/lib/spec-builder/contract";
+import { SpecContractPatchSchema, validateSpecContractPatch } from "@/lib/spec-builder/contract";
 import { buildValidationFailureTurn } from "@/lib/spec-builder/validation-failure-turn";
 
 interface UseFdsConversationOptions {
@@ -179,7 +179,19 @@ export function useFdsConversation({
             },
           },
         };
-        const issues = validateSpecContractPatch(patch as never);
+        // Phase 3 — two-stage gate. Zod first (catches shape issues: bad enum
+        // values, missing required fields, wrong discriminator kinds). Structural
+        // validator second (catches cross-row invariants: override_kind content,
+        // PackML range, modes, parameter_ref).
+        const parsed = SpecContractPatchSchema.safeParse(patch);
+        const issues: string[] = [];
+        if (!parsed.success) {
+          for (const issue of parsed.error.issues) {
+            issues.push(`${issue.path.join(".")}: ${issue.message}`);
+          }
+        } else {
+          issues.push(...validateSpecContractPatch(parsed.data));
+        }
         if (issues.length > 0) {
           failures.push({ state_id: stateId, issues, stateLabel: stateLabelFor(stateId) });
           continue;

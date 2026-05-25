@@ -92,7 +92,7 @@ export interface SpecContractPatch {
   confirmation_status?: ConfirmationStatus;
 }
 
-const SpecContractPatchSchema = z.object({
+export const SpecContractPatchSchema = z.object({
   hierarchy: HierarchySchema.optional(),
   alarms: z.array(AlarmRowSchema).optional(),
   alarm_tiers: z.array(AlarmTierSchema).optional(),

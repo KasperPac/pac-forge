@@ -109,8 +109,20 @@ describe("useFdsConversation validator gate", () => {
         "actions": [],
         "monitors": [],
         "transitions": [
-          { "transition_id": "lft01_execute_step_10_terminal", "guard": [ { "kind": "tag_equals", "tag": "LFT01_M01_FB", "value": true, "within_ms": 3000, "on_fail": { "fault_code": "F_X", "severity": "fault" } } ], "next_step_id": null }
-        ]
+          {
+            "transition_id": "lft01_execute_step_10_terminal",
+            "kind": "single",
+            "target_step_id": "",
+            "guard": [ { "kind": "tag_equals", "tag": "LFT01_M01_FB", "value": true, "within_ms": 3000, "on_fail": { "fault_code": "F_X", "severity": "fault" } } ],
+            "priority": 0,
+            "is_default": true,
+            "notes": null
+          }
+        ],
+        "step": 10,
+        "action": "Run pump",
+        "completion_criteria": [],
+        "completion_criteria_text": ""
       }
     ],
     "notes": null
