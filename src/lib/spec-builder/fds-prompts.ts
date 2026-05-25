@@ -30,12 +30,15 @@ import type {
   InstrumentTag,
   DeviceStateEntry,
   OperatingState,
-  SequentialStateData,
 } from "@/types/spec-builder";
 import type {
   OperatingStateV2,
   SequentialStateV2,
 } from "@/types/spec-contract-v2";
+import {
+  INTERLOCK_EFFECTS_DOC,
+  COMPLETION_CRITERION_DOC,
+} from "./system-orchestration-prompts";
 
 export function buildFdsInterviewSystemPrompt(
   assembly: AssemblyConfig,
@@ -429,18 +432,28 @@ export function buildFdsOrchestrationSystemPrompt(
   assemblySummaries: Array<{
     assembly_name: string;
     assembly_id: string;
-    sequential_states: Record<string, SequentialStateData>;
+    sequential_states: Record<string, SequentialStateV2>;
   }>,
-  sequentialStates: OperatingState[],
+  // TEMPORARY widening union — Task 10 narrows this to OperatingStateV2[] and
+  // updates the caller.
+  sequentialStates: OperatingStateV2[] | import("@/types/spec-builder").OperatingState[],
 ): string {
   const assemblySummaryText = assemblySummaries.map((a) => {
     const stateText = Object.entries(a.sequential_states)
       .map(([stateId, data]) => {
-        const stateName = sequentialStates.find((s) => s.state_id === stateId)?.state_name ?? stateId;
-        return `    ${stateName}: ${data.steps.length} steps, ${data.permissives.length} permissives`;
+        const matched = (sequentialStates as Array<{ state_id: string | number; state_name?: string; display_name?: string }>)
+          .find((s) => String(s.state_id) === stateId);
+        const stateName = matched?.display_name ?? matched?.state_name ?? stateId;
+        return `    ${stateName}: ${data.steps.length} step(s), ${data.permissives.length} permissive(s)`;
       }).join("\n");
     return `  ${a.assembly_name} (${a.assembly_id}):\n${stateText}`;
   }).join("\n");
+
+  const sequentialStatesTable = (sequentialStates as Array<{ state_id: string | number; state_name?: string; display_name?: string; description?: string }>)
+    .map((s) => `  - ${s.state_id}  (${s.display_name ?? s.state_name ?? String(s.state_id)})${s.description ? ` — ${s.description}` : ""}`)
+    .join("\n");
+
+  const firstSequentialStateId = (sequentialStates as Array<{ state_id: string | number }>)[0]?.state_id ?? 6;
 
   return `You are a senior automation engineer defining how assemblies coordinate within subsystem "${subsystem.subsystem_name}" (${subsystem.equipment_type}).
 
@@ -452,33 +465,59 @@ Individual assembly behaviors are already defined. Now you need to define:
 ASSEMBLIES IN THIS SUBSYSTEM:
 ${assemblySummaryText}
 
-SEQUENTIAL STATES: ${sequentialStates.map((s) => s.state_name).join(", ")}
+SEQUENTIAL STATES (state_id is a number — emit it verbatim):
+${sequentialStatesTable}
 
 Ask the engineer about:
 - Execution order: Do assemblies start simultaneously, sequentially, or in groups?
 - Dependencies: Must assembly A reach a certain state before assembly B can start?
 - Shared conditions: Are there subsystem-wide permissives beyond individual assembly permissives?
 
+${INTERLOCK_EFFECTS_DOC}
+
+SHARED PERMISSIVE SHAPE:
+Each shared_permissive is a structured object:
+{
+  "permissive_id": "<stable slug, e.g. SP_ESTOP_OK>",
+  "condition": <CompletionCriterion — see below>,
+  "source_subsystem": "<optional subsystem_id that owns the signal>",
+  "prose": "<one-line natural language>"
+}
+
+${COMPLETION_CRITERION_DOC}
+
 RESPONSE FORMAT:
-When you propose orchestration, include a fenced JSON block:
+When you propose orchestration for a state, include a fenced JSON block at the END of your message. The state_id is a NUMBER from the SEQUENTIAL STATES list above. assembly_order, source_assembly, and target_assembly must be assembly_ids from this subsystem.
 
 \`\`\`json
 {
-  "state_id": "starting",
-  "assembly_order": ["asm_1", "asm_2", "asm_3"],
-  "shared_permissives": ["ESTOP_01 = TRUE"],
+  "state_id": ${firstSequentialStateId},
+  "assembly_order": ["00000000-0000-4000-8000-...asm1", "00000000-0000-4000-8000-...asm2"],
+  "shared_permissives": [
+    {
+      "permissive_id": "SP_ESTOP_OK",
+      "condition": { "kind": "tag_equals", "tag": "SYS_ESTOP01", "value": true },
+      "prose": "Emergency stop circuit healthy"
+    }
+  ],
   "inter_assembly_interlocks": [
     {
-      "source_assembly": "asm_1",
-      "source_condition": "LFT01_ZSL01 = TRUE",
-      "target_assembly": "asm_2",
-      "effect": "Permissive for CV01 Starting"
+      "interlock_id": "IL_LFT01_LIMIT_TO_CV01_START",
+      "source_assembly": "00000000-0000-4000-8000-...asm1",
+      "source_condition": { "kind": "tag_equals", "tag": "LFT01_ZSL01", "value": true },
+      "target_assembly": "00000000-0000-4000-8000-...asm2",
+      "effect": "enable",
+      "effect_target": { "assembly": "00000000-0000-4000-8000-...asm2", "state_id": 3 },
+      "prose": "CV01 may begin Starting once LFT01 reaches its lower limit"
     }
-  ]
+  ],
+  "notes": null
 }
 \`\`\`
 
-Keep it concise. The engineer knows their machine.`;
+Required fields per interlock: interlock_id (stable slug), source_assembly, source_condition (CompletionCriterion), target_assembly, effect (from the closed set above), prose (one-line natural language for DOCX rendering). effect_target is REQUIRED when effect is "block_transition" or "trigger"; optional otherwise.
+
+Only include a JSON block when you have a concrete update to persist. When asking clarifying questions, omit it. Keep prose concise — the engineer is a peer.`;
 }
 
 export function buildFdsOrchestrationOpeningMessage(

@@ -67,14 +67,9 @@ export function useFdsOrchestrationConversation({
     });
 
   const buildSystemPrompt = useCallback(() => {
-    // Shim cast: orchestration prompt builder still expects legacy SequentialStateData shape
     return buildFdsOrchestrationSystemPrompt(
       subsystem,
-      assemblySummaries as unknown as Array<{
-        assembly_name: string;
-        assembly_id: string;
-        sequential_states: Record<string, import("@/types/spec-builder").SequentialStateData>;
-      }>,
+      assemblySummaries,
       sequentialStates,
     );
   }, [subsystem, assemblySummaries, sequentialStates]);
