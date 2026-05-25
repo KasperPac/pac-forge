@@ -626,7 +626,11 @@ export const PermissiveConditionSchema = z.object({
 });
 export type PermissiveCondition = z.infer<typeof PermissiveConditionSchema>;
 
+export const OverrideKindSchema = z.enum(["inherit", "override", "suppressed"]);
+export type OverrideKind = z.infer<typeof OverrideKindSchema>;
+
 export const SequentialStateV2Schema = z.object({
+  override_kind: OverrideKindSchema.optional(), // defaults to "override" in readers
   permissives: z.array(PermissiveConditionSchema),
   steps: z.array(StepV2Schema),
   branches: z.array(BranchV2Schema).optional(),
@@ -636,11 +640,22 @@ export const SequentialStateV2Schema = z.object({
 });
 export type SequentialStateV2 = z.infer<typeof SequentialStateV2Schema>;
 
+export const StaticStateV2Schema = z.object({
+  override_kind: OverrideKindSchema.optional(),
+  devices: z.array(DeviceStateEntrySchema),
+  notes: z.string().nullable().optional(),
+});
+export type StaticStateV2 = z.infer<typeof StaticStateV2Schema>;
+
 export const AssemblyContractSchema = z.object({
   assembly_id: UuidSchema,
   subsystem_id: UuidSchema,
-  // Keyed by state_id
-  static_states: z.record(z.string(), z.array(DeviceStateEntrySchema)),
+  // Keyed by state_id. Legacy rows are bare DeviceStateEntry arrays;
+  // post-confirmation rows use the StaticStateV2 container with override_kind.
+  static_states: z.record(
+    z.string(),
+    z.union([z.array(DeviceStateEntrySchema), StaticStateV2Schema]),
+  ),
   sequential_states: z.record(z.string(), SequentialStateV2Schema),
 });
 export type AssemblyContract = z.infer<typeof AssemblyContractSchema>;

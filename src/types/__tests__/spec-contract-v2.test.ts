@@ -5,6 +5,7 @@ import {
   InterAssemblyInterlockSchema,
   OperatingStateV2Schema,
   OperatorModeSchema,
+  SequentialStateV2Schema,
   SubsystemStateSequenceSchema,
 } from "../spec-contract-v2";
 
@@ -224,5 +225,37 @@ describe("SubsystemStateSequenceSchema structured shared_permissives", () => {
       notes: null,
     };
     expect(() => SubsystemStateSequenceSchema.parse(seq)).toThrow();
+  });
+});
+
+describe("SequentialStateV2Schema override_kind", () => {
+  const baseRow = {
+    permissives: [],
+    steps: [],
+    notes: null,
+  };
+
+  it("accepts override_kind: override with steps", () => {
+    const row = { ...baseRow, override_kind: "override" };
+    expect(() => SequentialStateV2Schema.parse(row)).not.toThrow();
+  });
+
+  it("accepts override_kind: inherit with empty content", () => {
+    const row = { ...baseRow, override_kind: "inherit" };
+    expect(() => SequentialStateV2Schema.parse(row)).not.toThrow();
+  });
+
+  it("accepts override_kind: suppressed with empty content", () => {
+    const row = { ...baseRow, override_kind: "suppressed" };
+    expect(() => SequentialStateV2Schema.parse(row)).not.toThrow();
+  });
+
+  it("accepts omitted override_kind (defaults to override for legacy reads)", () => {
+    expect(() => SequentialStateV2Schema.parse(baseRow)).not.toThrow();
+  });
+
+  it("rejects override_kind outside the enum", () => {
+    const row = { ...baseRow, override_kind: "ignore" };
+    expect(() => SequentialStateV2Schema.parse(row)).toThrow();
   });
 });
