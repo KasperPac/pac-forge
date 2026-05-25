@@ -1202,8 +1202,25 @@ type ParsedPatch = z.infer<typeof SpecContractPatchSchema>;
  *   5. SFC: no cross-branch transitions; sequence_model_version=2 requires
  *      step_id + transitions populated on non-terminal steps.
  */
-function validateSpecContractPatch(patch: ParsedPatch): string[] {
+export function validateSpecContractPatch(patch: ParsedPatch): string[] {
   const issues: string[] = [];
+
+  // FDS Engine Phase 1: modes invariants
+  if (patch.modes !== undefined) {
+    const ids = patch.modes.map((m) => m.mode_id);
+    const dupes = ids.filter((id, i) => ids.indexOf(id) !== i);
+    if (dupes.length > 0) {
+      issues.push(`duplicate mode_id(s): ${[...new Set(dupes)].join(", ")}`);
+    }
+    const defaults = patch.modes.filter((m) => m.is_default);
+    if (defaults.length === 0) {
+      issues.push("modes patch must include exactly one default mode (is_default=true)");
+    } else if (defaults.length > 1) {
+      issues.push(
+        `modes patch must include exactly one default mode; found ${defaults.length}`,
+      );
+    }
+  }
 
   // 1. IO tag global uniqueness ------------------------------------------
   if (patch.hierarchy) {

@@ -16,7 +16,7 @@ vi.mock("@/lib/supabase", () => ({
   },
 }));
 
-import { writeSpecContract } from "../contract";
+import { writeSpecContract, validateSpecContractPatch } from "../contract";
 
 describe("writeSpecContract patch routing — new keys", () => {
   beforeEach(() => {
@@ -54,5 +54,44 @@ describe("writeSpecContract patch routing — new keys", () => {
     expect(projectsWrite?.payload).toMatchObject({
       section_overrides: expect.any(Object),
     });
+  });
+});
+
+describe("validateSpecContractPatch — mode existence", () => {
+  it("rejects a patch where confirmed_modes lacks an is_default=true entry", () => {
+    const issues = validateSpecContractPatch({
+      modes: [{ mode_id: "auto", name: "Auto", is_default: false }],
+    });
+    expect(issues.some((i) => /default mode/i.test(i))).toBe(true);
+  });
+
+  it("rejects a patch with two is_default=true modes", () => {
+    const issues = validateSpecContractPatch({
+      modes: [
+        { mode_id: "auto", name: "Auto", is_default: true },
+        { mode_id: "manual", name: "Manual", is_default: true },
+      ],
+    });
+    expect(issues.some((i) => /exactly one/i.test(i))).toBe(true);
+  });
+
+  it("rejects duplicate mode_ids", () => {
+    const issues = validateSpecContractPatch({
+      modes: [
+        { mode_id: "auto", name: "Auto", is_default: true },
+        { mode_id: "auto", name: "Auto 2", is_default: false },
+      ],
+    });
+    expect(issues.some((i) => /duplicate/i.test(i))).toBe(true);
+  });
+
+  it("accepts a valid modes patch", () => {
+    const issues = validateSpecContractPatch({
+      modes: [
+        { mode_id: "auto", name: "Auto", is_default: true },
+        { mode_id: "manual", name: "Manual", is_default: false },
+      ],
+    });
+    expect(issues).toEqual([]);
   });
 });
