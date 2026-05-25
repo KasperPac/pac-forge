@@ -68,6 +68,7 @@ describe("classifyInterlocks", () => {
     expect(out[0].effect).toBe("hold");
     expect(out[0].source_condition).toEqual({
       kind: "placeholder",
+      criterion_id: "placeholder-il-1",
       prompt: "CV01 is running",
     });
     expect(out[0].confidence).toBe(0);

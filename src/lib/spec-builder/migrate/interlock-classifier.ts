@@ -77,7 +77,11 @@ function fallbackRow(raw: RawInterlock, reason: string): ClassifiedInterlock {
     source_assembly: raw.source_assembly,
     target_assembly: raw.target_assembly,
     effect: "hold",
-    source_condition: { kind: "placeholder", prompt: raw.prose_source_condition } as CompletionCriterion,
+    source_condition: {
+      kind: "placeholder",
+      criterion_id: `placeholder-${raw.interlock_id}`,
+      prompt: raw.prose_source_condition,
+    },
     confidence: 0,
     reasoning: `Classifier ${reason}. Engineer must review and fill in.`,
   };
