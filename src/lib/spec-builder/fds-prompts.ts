@@ -46,9 +46,7 @@ export function buildFdsInterviewSystemPrompt(
   tags: InstrumentTag[],
   staticStates: Record<string, DeviceStateEntry[]>,
   completedSequentialStates: Record<string, SequentialStateV2>,
-  // TEMPORARY widening union — Task 9 narrows this to OperatingStateV2[] and
-  // updates the caller. Cast to OperatingStateV2[] at point of use below.
-  allStates: OperatingStateV2[] | import("@/types/spec-builder").OperatingState[],
+  allStates: OperatingStateV2[],
 ): string {
   // --- Data gathering (unchanged from original) ---
   const assemblyTagNames = new Set<string>();
@@ -74,10 +72,6 @@ export function buildFdsInterviewSystemPrompt(
     .map((t) => `  - ${t.tag}: ${t.description} (${t.signal_direction})`)
     .join("\n");
 
-  // Narrow the temporary union to OperatingStateV2[] for the rest of the body.
-  // Task 9 removes the union from the signature.
-  const allStatesV2 = allStates as OperatingStateV2[];
-
   function stateLabel(s: OperatingStateV2): string {
     // Phase 1 widened OperatingStateV2; prefer display_name, then state_name, then custom_name.
     return s.display_name ?? s.state_name ?? s.custom_name ?? String(s.state_id);
@@ -85,7 +79,7 @@ export function buildFdsInterviewSystemPrompt(
 
   const staticStatesText = Object.entries(staticStates)
     .map(([stateId, entries]) => {
-      const match = allStatesV2.find((s) => String(s.state_id) === stateId);
+      const match = allStates.find((s) => String(s.state_id) === stateId);
       const stateName = match ? stateLabel(match) : stateId;
       const rows = entries.map((e) => `    ${e.tag} must hold value: ${e.state}`).join("\n");
       return `  ${stateName}:\n${rows}`;
@@ -93,7 +87,7 @@ export function buildFdsInterviewSystemPrompt(
 
   const completedText = Object.entries(completedSequentialStates)
     .map(([stateId, data]) => {
-      const match = allStatesV2.find((s) => String(s.state_id) === stateId);
+      const match = allStates.find((s) => String(s.state_id) === stateId);
       const stateName = match ? stateLabel(match) : stateId;
       // SequentialStateV2 permissives are structured; render their tag for the summary.
       const perms = data.permissives.map((p) => `    - ${p.tag} ${p.operator} ${String(p.value)}`).join("\n");
@@ -101,7 +95,7 @@ export function buildFdsInterviewSystemPrompt(
       return `  ${stateName}:\n    Permissives:\n${perms || "    (none)"}\n    Steps: ${stepCount} V2 step(s)`;
     }).join("\n");
 
-  const sequentialStatesList = allStatesV2.filter((s) => s.state_pattern === "sequential");
+  const sequentialStatesList = allStates.filter((s) => s.state_pattern === "sequential");
   const sequentialStatesTable = sequentialStatesList
     .map((s) => `  - ${s.state_id}  (${stateLabel(s)})${s.description ? ` — ${s.description}` : ""}`)
     .join("\n");

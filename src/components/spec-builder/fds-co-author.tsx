@@ -55,7 +55,7 @@ import type {
   FdsAssemblySession,
 } from "@/types/spec-builder";
 import { migrateOperatingStates } from "@/types/spec-builder";
-import type { SequentialStateV2 } from "@/types/spec-contract-v2";
+import type { OperatingStateV2, SequentialStateV2 } from "@/types/spec-contract-v2";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -314,7 +314,10 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
                 assembly={activeAssembly}
                 subsystem={activeSubsystem!}
                 allTags={register.tags}
-                allStates={states}
+                // migrateOperatingStates still returns the legacy V1 shape; bridge
+                // to V2 here until that helper is migrated. The fields ConversationStage
+                // uses (state_id, state_name, state_pattern) overlap structurally.
+                allStates={states as unknown as OperatingStateV2[]}
                 sequentialStates={sequentialStates}
                 onUpdateSequentialState={handleUpdateSequentialState}
               />
@@ -378,7 +381,7 @@ function ConversationStage({
   assembly: AssemblyConfig;
   subsystem: SubsystemConfig;
   allTags: InstrumentTag[];
-  allStates: OperatingState[];
+  allStates: OperatingStateV2[];
   sequentialStates: OperatingState[];
   onUpdateSequentialState: (stateId: string, data: SequentialStateV2) => void;
 }) {
