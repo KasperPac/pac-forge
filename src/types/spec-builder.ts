@@ -32,6 +32,8 @@ export interface SpecProject {
   design_principles: string[];
   // Status
   status: "draft" | "generating" | "review" | "complete";
+  // FDS Engine Phase 1 — per-project migration gate (migration 088)
+  confirmation_status: "unconfirmed" | "confirmed";
   created_at: string;
   updated_at: string;
 }

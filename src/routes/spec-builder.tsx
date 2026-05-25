@@ -368,12 +368,7 @@ function SpecListItem({
   const cfg = STATUS_CONFIG[spec.status];
   const StatusIcon = cfg.icon;
   const deleteSpec = useDeleteSpecProject();
-  // FDS Engine Phase 1 — confirmation_status column exists on spec_projects
-  // (migration 088). Not yet in the SpecProject type; read via cast until the
-  // type is updated in a follow-up.
-  const confirmationStatus = (spec as unknown as { confirmation_status?: string })
-    .confirmation_status;
-  const isUnconfirmed = confirmationStatus === "unconfirmed";
+  const isUnconfirmed = spec.confirmation_status === "unconfirmed";
 
   return (
     <div
