@@ -84,6 +84,20 @@ export const TelegramOffsetSchema = z.object({
 export type TelegramOffset = z.infer<typeof TelegramOffsetSchema>;
 
 // ============================================================
+// Operator modes (§3.1 — new in FDS Engine Phase 1)
+// Project-level operating mode axis. Every state and orchestration
+// row is keyed by (mode_id, state_id).
+// ============================================================
+
+export const OperatorModeSchema = z.object({
+  mode_id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().optional(),
+  is_default: z.boolean(),
+});
+export type OperatorMode = z.infer<typeof OperatorModeSchema>;
+
+// ============================================================
 // Network configuration (VFD / bus-level devices)
 // ============================================================
 
