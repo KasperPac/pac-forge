@@ -281,11 +281,19 @@ export type Hierarchy = z.infer<typeof HierarchySchema>;
 export const StatePatternSchema = z.enum(["static", "sequential"]);
 export type StatePattern = z.infer<typeof StatePatternSchema>;
 
+// state_id accepts either legacy string (shim window) or numeric (PackML 1..17
+// or custom_states > 100). New fields are optional; existing rows still validate.
 export const OperatingStateV2Schema = z.object({
-  state_id: StateIdSchema,
-  state_name: z.string(),
+  state_id: z.union([StateIdSchema, z.number().int().positive()]),
+  // Legacy field — kept during shim window.
+  state_name: z.string().optional(),
+  // New display field (preferred post-confirmation).
+  display_name: z.string().optional(),
   description: z.string(),
   state_pattern: StatePatternSchema,
+  // New PackML fields (optional during shim window).
+  packml_id: z.number().int().min(1).max(17).optional(),
+  custom_name: z.string().optional(),
 });
 export type OperatingStateV2 = z.infer<typeof OperatingStateV2Schema>;
 

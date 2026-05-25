@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ConfigParameterSchema,
   ExpressionSchema,
+  OperatingStateV2Schema,
   OperatorModeSchema,
 } from "../spec-contract-v2";
 
@@ -89,5 +90,50 @@ describe("ExpressionSchema parameter_ref variant", () => {
   it("rejects empty parameter_id", () => {
     const expr = { kind: "parameter_ref", parameter_id: "" };
     expect(() => ExpressionSchema.parse(expr)).toThrow();
+  });
+});
+
+describe("OperatingStateV2Schema PackML extensions", () => {
+  it("accepts a legacy string state_id (shim window)", () => {
+    const state = {
+      state_id: "ST03",
+      state_name: "Execute",
+      description: "Running",
+      state_pattern: "sequential",
+    };
+    expect(() => OperatingStateV2Schema.parse(state)).not.toThrow();
+  });
+
+  it("accepts a PackML numeric state_id with packml_id", () => {
+    const state = {
+      state_id: 6,
+      packml_id: 6,
+      display_name: "Execute",
+      description: "Running",
+      state_pattern: "sequential",
+    };
+    expect(() => OperatingStateV2Schema.parse(state)).not.toThrow();
+  });
+
+  it("accepts a custom state with custom_name and state_id > 100", () => {
+    const state = {
+      state_id: 101,
+      custom_name: "Lubrication cycle",
+      display_name: "Lubrication cycle",
+      description: "Site-specific",
+      state_pattern: "static",
+    };
+    expect(() => OperatingStateV2Schema.parse(state)).not.toThrow();
+  });
+
+  it("rejects packml_id outside 1..17", () => {
+    const state = {
+      state_id: 99,
+      packml_id: 99,
+      display_name: "Bad",
+      description: "x",
+      state_pattern: "static",
+    };
+    expect(() => OperatingStateV2Schema.parse(state)).toThrow();
   });
 });
