@@ -8,6 +8,7 @@ import {
   ProjectSectionContentSchema,
   ProjectSectionTypeSchema,
   SequentialStateV2Schema,
+  SpecContractV2Schema,
   SubsystemStateSequenceSchema,
 } from "../spec-contract-v2";
 
@@ -297,5 +298,95 @@ describe("ProjectSectionContentSchema", () => {
 
   it("rejects an empty content shape", () => {
     expect(() => ProjectSectionContentSchema.parse({})).toThrow();
+  });
+});
+
+describe("SpecContractV2Schema new top-level fields", () => {
+  // Minimal valid contract scaffolding — uses ACTUAL existing schema shape:
+  //   top-level key `project` (not `header`), schema_version:2 literal,
+  //   system_orchestration nullable, scope_exclusions on header, etc.
+  function baseContract() {
+    return {
+      schema_version: 2,
+      project: {
+        id: "00000000-0000-0000-0000-000000000000",
+        doc_code: "PAC-EFD-001",
+        title: "Test",
+        client_name: "Test Client",
+        project_number: null,
+        plc_model: null,
+        hmi_type: null,
+        comms_protocol: null,
+        safety_classification: null,
+        fault_philosophy: null,
+        design_principles: [],
+        scope_exclusions: [],
+      },
+      hierarchy: { subsystems: [] },
+      states: [],
+      alarm_tiers: [],
+      assemblies: {},
+      orchestrations: {},
+      system_orchestration: null,
+      alarms: [],
+      io_list: [],
+      faults: [],
+      sections: {
+        document_control: [],
+        system_overview: [],
+        control_philosophy: [],
+        functional_description: [],
+        io_list: [],
+        alarm_specification: [],
+        hmi_specification: [],
+        interfaces: [],
+        testing_fat: [],
+        audit_report: [],
+        introduction: [],
+        equipment_description: [],
+        functional_state: [],
+        alarm_table: [],
+        settings_table: [],
+      },
+    };
+  }
+
+  it("accepts a contract with no modes / params / overrides (legacy default)", () => {
+    expect(() => SpecContractV2Schema.parse(baseContract())).not.toThrow();
+  });
+
+  it("accepts a contract with modes populated", () => {
+    const c = baseContract();
+    (c as Record<string, unknown>).modes = [
+      { mode_id: "auto", name: "Auto", is_default: true },
+    ];
+    expect(() => SpecContractV2Schema.parse(c)).not.toThrow();
+  });
+
+  it("accepts a contract with configuration_parameters", () => {
+    const c = baseContract();
+    (c as Record<string, unknown>).configuration_parameters = [
+      {
+        parameter_id: "x",
+        name: "X",
+        allowed_values: ["A", "B"],
+        default: "A",
+      },
+    ];
+    expect(() => SpecContractV2Schema.parse(c)).not.toThrow();
+  });
+
+  it("accepts a contract with section_overrides", () => {
+    const c = baseContract();
+    (c as Record<string, unknown>).section_overrides = {
+      system_overview: { content_markdown: "Hello" },
+    };
+    expect(() => SpecContractV2Schema.parse(c)).not.toThrow();
+  });
+
+  it("rejects confirmation_status outside the closed set", () => {
+    const c = baseContract();
+    (c as Record<string, unknown>).confirmation_status = "halfway";
+    expect(() => SpecContractV2Schema.parse(c)).toThrow();
   });
 });

@@ -894,6 +894,9 @@ export type SystemOrchestration = z.infer<typeof SystemOrchestrationSchema>;
 // Top-level contract
 // ============================================================
 
+export const ConfirmationStatusSchema = z.enum(["unconfirmed", "confirmed"]);
+export type ConfirmationStatus = z.infer<typeof ConfirmationStatusSchema>;
+
 export const SpecContractV2Schema = z.object({
   schema_version: z.literal(2),
   project: SpecProjectHeaderSchema,
@@ -914,5 +917,14 @@ export const SpecContractV2Schema = z.object({
   io_list: z.array(IoListEntrySchema),
   faults: z.array(FaultRowSchema),
   sections: z.record(SpecSectionTypeSchema, z.array(SpecSectionRowSchema)),
+  // FDS Engine Phase 1 additions — all optional during shim window
+  modes: z.array(OperatorModeSchema).optional(),
+  configuration_parameters: z.array(ConfigParameterSchema).optional(),
+  // Sparse map — override only the project-level sections you want to
+  // customise. Absent keys fall back to engine-generated content.
+  section_overrides: z
+    .partialRecord(ProjectSectionTypeSchema, ProjectSectionContentSchema)
+    .optional(),
+  confirmation_status: ConfirmationStatusSchema.default("unconfirmed"),
 });
 export type SpecContractV2 = z.infer<typeof SpecContractV2Schema>;
