@@ -428,26 +428,23 @@ export function buildFdsOrchestrationSystemPrompt(
     assembly_id: string;
     sequential_states: Record<string, SequentialStateV2>;
   }>,
-  // TEMPORARY widening union — Task 10 narrows this to OperatingStateV2[] and
-  // updates the caller.
-  sequentialStates: OperatingStateV2[] | import("@/types/spec-builder").OperatingState[],
+  sequentialStates: OperatingStateV2[],
 ): string {
   const assemblySummaryText = assemblySummaries.map((a) => {
     const stateText = Object.entries(a.sequential_states)
       .map(([stateId, data]) => {
-        const matched = (sequentialStates as Array<{ state_id: string | number; state_name?: string; display_name?: string }>)
-          .find((s) => String(s.state_id) === stateId);
+        const matched = sequentialStates.find((s) => String(s.state_id) === stateId);
         const stateName = matched?.display_name ?? matched?.state_name ?? stateId;
         return `    ${stateName}: ${data.steps.length} step(s), ${data.permissives.length} permissive(s)`;
       }).join("\n");
     return `  ${a.assembly_name} (${a.assembly_id}):\n${stateText}`;
   }).join("\n");
 
-  const sequentialStatesTable = (sequentialStates as Array<{ state_id: string | number; state_name?: string; display_name?: string; description?: string }>)
+  const sequentialStatesTable = sequentialStates
     .map((s) => `  - ${s.state_id}  (${s.display_name ?? s.state_name ?? String(s.state_id)})${s.description ? ` — ${s.description}` : ""}`)
     .join("\n");
 
-  const firstSequentialStateId = (sequentialStates as Array<{ state_id: string | number }>)[0]?.state_id ?? 6;
+  const firstSequentialStateId = sequentialStates[0]?.state_id ?? 6;
 
   return `You are a senior automation engineer defining how assemblies coordinate within subsystem "${subsystem.subsystem_name}" (${subsystem.equipment_type}).
 

@@ -237,7 +237,12 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
             specProjectId={spec.id}
             subsystem={spec.confirmed_subsystems.find((s) => s.subsystem_id === orchestrationSubsystemId)!}
             sessions={sessions.filter((s) => s.subsystem_id === orchestrationSubsystemId)}
-            allStates={states}
+            // migrateOperatingStates still returns the legacy V1 shape; bridge
+            // to V2 here until that helper is migrated. The fields
+            // OrchestrationStage / use-fds-orchestration-conversation use
+            // (state_id, state_name, state_pattern, display_name, custom_name)
+            // overlap structurally.
+            allStates={states as unknown as OperatingStateV2[]}
           />
         ) : activeAssembly && activeSession ? (
           <>
@@ -564,7 +569,7 @@ function OrchestrationStage({
   specProjectId: string;
   subsystem: SubsystemConfig;
   sessions: FdsAssemblySession[];
-  allStates: OperatingState[];
+  allStates: OperatingStateV2[];
 }) {
   const { data: orchestration } = useFdsOrchestration(specProjectId, subsystem.subsystem_id);
   const [chatInput, setChatInput] = useState("");
