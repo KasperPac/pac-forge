@@ -324,3 +324,14 @@ describe("validateSpecContractPatch — parameter_ref existence", () => {
     expect(issues.filter((i) => /parameter_ref/i.test(i))).toEqual([]);
   });
 });
+
+describe("loadSpecContract — confirmation_status branching (smoke)", () => {
+  // The reader needs more elaborate mocking (multiple table queries) to
+  // exercise the branching itself; that lands in Phase 2 where the read
+  // path actually changes user-visible behaviour. For Phase 1, the minimum
+  // acceptance is: loadSpecContract is exported and importable.
+  it("imports without throwing", async () => {
+    const { loadSpecContract } = await import("../contract");
+    expect(typeof loadSpecContract).toBe("function");
+  });
+});

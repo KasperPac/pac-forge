@@ -804,14 +804,39 @@ export async function loadSpecContract(
   const projectRow = await fetchProjectRow(specProjectId);
   const schemaVersion = Number(projectRow.schema_version ?? 1);
 
-  if (schemaVersion >= 2) return assembleLiveV2(projectRow);
+  // FDS Engine Phase 1: confirmation_status gates whether the legacy shim
+  // is even considered. Unconfirmed projects continue through the existing
+  // schema_version branch (legacy shape via shim); confirmed projects skip
+  // the shim regardless of schema_version.
+  const confirmationStatus = ((projectRow.confirmation_status as string | undefined) ??
+    "unconfirmed") as ConfirmationStatus;
 
-  if (!FLAGS.legacy_shim_enabled) {
-    throw new Error(
-      `loadSpecContract: project ${specProjectId} is schema_version=1 but legacy_shim_enabled=false`,
-    );
+  let baseContract: SpecContractV2;
+  if (confirmationStatus === "confirmed" || schemaVersion >= 2) {
+    baseContract = await assembleLiveV2(projectRow);
+  } else {
+    if (!FLAGS.legacy_shim_enabled) {
+      throw new Error(
+        `loadSpecContract: project ${specProjectId} is schema_version=1 but legacy_shim_enabled=false`,
+      );
+    }
+    baseContract = await upgradeLegacyRow(projectRow);
   }
-  return upgradeLegacyRow(projectRow);
+
+  // FDS Engine Phase 1: populate new top-level fields from spec_projects.
+  // Re-parse so SpecContractV2Schema.confirmation_status default + the new
+  // optional fields are normalised.
+  return SpecContractV2Schema.parse({
+    ...baseContract,
+    modes: (projectRow.confirmed_modes as OperatorMode[] | null) ?? undefined,
+    configuration_parameters:
+      (projectRow.configuration_parameters as ConfigParameter[] | null) ?? undefined,
+    section_overrides:
+      (projectRow.section_overrides as
+        | Partial<Record<ProjectSectionType, ProjectSectionContent>>
+        | null) ?? undefined,
+    confirmation_status: confirmationStatus,
+  });
 }
 
 export async function loadAssemblyStates(
