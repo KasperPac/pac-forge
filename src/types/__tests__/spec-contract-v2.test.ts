@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ConfigParameterSchema,
   ExpressionSchema,
+  InterAssemblyInterlockSchema,
   OperatingStateV2Schema,
   OperatorModeSchema,
 } from "../spec-contract-v2";
@@ -135,5 +136,64 @@ describe("OperatingStateV2Schema PackML extensions", () => {
       state_pattern: "static",
     };
     expect(() => OperatingStateV2Schema.parse(state)).toThrow();
+  });
+});
+
+describe("InterAssemblyInterlockSchema structured shape", () => {
+  it("accepts a structured interlock with closed-set effect and CompletionCriterion source", () => {
+    const interlock = {
+      interlock_id: "il-1",
+      source_assembly: "CV01",
+      source_condition: {
+        kind: "tag_equals",
+        tag: "CV01.RUNNING",
+        value: true,
+      },
+      target_assembly: "LFT01",
+      effect: "hold",
+      prose: "Hold lift until conveyor is running",
+    };
+    expect(() => InterAssemblyInterlockSchema.parse(interlock)).not.toThrow();
+  });
+
+  it("accepts effect_target for targeted effects", () => {
+    const interlock = {
+      interlock_id: "il-2",
+      source_assembly: "CV01",
+      source_condition: {
+        kind: "tag_equals",
+        tag: "CV01.FAULT",
+        value: true,
+      },
+      target_assembly: "LFT01",
+      effect: "block_transition",
+      effect_target: { assembly: "LFT01", state_id: 5 },
+      prose: "Block lift execute on conveyor fault",
+    };
+    expect(() => InterAssemblyInterlockSchema.parse(interlock)).not.toThrow();
+  });
+
+  it("rejects effect outside the closed enum", () => {
+    const interlock = {
+      interlock_id: "il-3",
+      source_assembly: "A",
+      source_condition: { kind: "tag_equals", tag: "T", value: true },
+      target_assembly: "B",
+      effect: "wave-hands",
+      prose: "x",
+    };
+    expect(() => InterAssemblyInterlockSchema.parse(interlock)).toThrow();
+  });
+
+  it("rejects prose source_condition (the old shape)", () => {
+    const interlock = {
+      interlock_id: "il-4",
+      source_assembly: "A",
+      source_condition: "CV01 is running",
+      target_assembly: "B",
+      effect: "hold",
+      prose: "x",
+    };
+    expect(() => InterAssemblyInterlockSchema.parse(interlock)).toThrow();
   });
 });

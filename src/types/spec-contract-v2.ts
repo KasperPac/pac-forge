@@ -649,11 +649,31 @@ export type AssemblyContract = z.infer<typeof AssemblyContractSchema>;
 // Subsystem orchestration (how assemblies coordinate inside a state)
 // ============================================================
 
+// Closed-set effect enum mirrors InterSubsystemInterlock at the system layer.
+export const InterAssemblyInterlockEffectSchema = z.enum([
+  "hold",
+  "block_transition",
+  "trigger",
+  "enable",
+  "disable",
+]);
+export type InterAssemblyInterlockEffect = z.infer<
+  typeof InterAssemblyInterlockEffectSchema
+>;
+
 export const InterAssemblyInterlockSchema = z.object({
-  source_assembly: z.string(),
-  source_condition: z.string(),
-  target_assembly: z.string(),
-  effect: z.string(),
+  interlock_id: z.string().min(1),
+  source_assembly: z.string().min(1),
+  source_condition: CompletionCriterionSchema,
+  target_assembly: z.string().min(1),
+  effect: InterAssemblyInterlockEffectSchema,
+  effect_target: z
+    .object({
+      assembly: z.string().min(1),
+      state_id: z.union([z.string(), z.number().int()]),
+    })
+    .optional(),
+  prose: z.string(),
 });
 export type InterAssemblyInterlock = z.infer<typeof InterAssemblyInterlockSchema>;
 
