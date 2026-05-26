@@ -108,23 +108,29 @@ New files under `src/lib/spec-builder/random/`:
   ]
 }
 
-// InterAssemblyInterlock
+// InterAssemblyInterlock (effects: hold | block_transition | trigger | enable | disable)
 {
-  id: "...",
-  source: { assembly_id, tag },
-  target: { assembly_id, state_id },
-  effect: "permit_start" | "block_start" | "force_stop" | /* ... */,
-  description: "..."
+  interlock_id: "...",
+  source_assembly: "<uuid>",
+  source_condition: { kind: "tag_equals", tag: "...", value: true },
+  target_assembly: "<uuid>",
+  effect: "enable",
+  effect_target: { assembly: "<uuid>", state_id: 3 },
+  prose: "..."
 }
+
+// StepV2 — during the shim window BOTH v1 and v2 fields must be populated
+// (step, action, completion_criteria, completion_criteria_text are required;
+// step_id, branch_id, actions, transitions are SFC additions).
 ```
 
 ### 3.2 Canonical patterns
 
 These are the only "magic" — kept small and explicit:
 
-- **State machine**: `IDLE(1, static)` → `STARTING(2, sequential)` → `EXECUTE(3, sequential)` → `COMPLETE(4, static)` → `STOPPING(5, sequential)` → back to `IDLE`, plus `E_STOP(6, static)` reachable from anywhere.
+- **State machine** (numeric `state_id` = PackML `packml_id`): `IDLE(4, static)` → `STARTING(3, sequential)` → `EXECUTE(6, sequential)` → `COMPLETE(17, static)` → `STOPPING(7, sequential)` → back to `IDLE`, plus `E_STOP(8, static, mapped to PackML ABORTING)` reachable from anywhere.
 - **Shared permissive (1 per subsystem)**: `E_STOP_CLEAR` — required for STARTING and EXECUTE.
-- **Inter-assembly interlock (1 per pair of adjacent assemblies in declaration order)**: `assembly[n].AT_HOME` permits `assembly[n+1].STARTING`.
+- **Inter-assembly interlock (1 per pair of adjacent assemblies in declaration order)**: `effect: "enable"`, `source_condition: tag_equals(assembly[n].AT_HOME, true)`, `effect_target: { assembly: assembly[n+1], state_id: STARTING }`.
 - **Device-class step templates**: ~6 templates (motor, valve, cylinder, sensor, conveyor, transporter) covering the device_class enum the existing prompt already lists.
 
 The `parseCompletionCriteria` regex hybrid in the current hook is **deleted entirely**.
