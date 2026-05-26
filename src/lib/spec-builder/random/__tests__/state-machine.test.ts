@@ -18,7 +18,7 @@ describe("canonical state machine", () => {
     expect(STATE_ID_EXECUTE).toBe(6);
     expect(STATE_ID_STOPPING).toBe(7);
     expect(STATE_ID_COMPLETE).toBe(17);
-    expect(STATE_ID_E_STOP).toBe(8);
+    expect(STATE_ID_E_STOP).toBe(9);
   });
 
   it("CANONICAL_STATES contains exactly 6 entries", () => {

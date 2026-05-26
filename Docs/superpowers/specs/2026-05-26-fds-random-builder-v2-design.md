@@ -128,7 +128,7 @@ New files under `src/lib/spec-builder/random/`:
 
 These are the only "magic" — kept small and explicit:
 
-- **State machine** (numeric `state_id` = PackML `packml_id`): `IDLE(4, static)` → `STARTING(3, sequential)` → `EXECUTE(6, sequential)` → `COMPLETE(17, static)` → `STOPPING(7, sequential)` → back to `IDLE`, plus `E_STOP(8, static, mapped to PackML ABORTING)` reachable from anywhere.
+- **State machine** (numeric `state_id` = PackML `packml_id`): `IDLE(4, static)` → `STARTING(3, sequential)` → `EXECUTE(6, sequential)` → `COMPLETE(17, static)` → `STOPPING(7, sequential)` → back to `IDLE`, plus `E_STOP(9, static, mapped to PackML ABORTED)` reachable from anywhere.
 - **Shared permissive (1 per subsystem)**: `E_STOP_CLEAR` — required for STARTING and EXECUTE.
 - **Inter-assembly interlock (1 per pair of adjacent assemblies in declaration order)**: `effect: "enable"`, `source_condition: tag_equals(assembly[n].AT_HOME, true)`, `effect_target: { assembly: assembly[n+1], state_id: STARTING }`.
 - **Device-class step templates**: ~6 templates (motor, valve, cylinder, sensor, conveyor, transporter) covering the device_class enum the existing prompt already lists.

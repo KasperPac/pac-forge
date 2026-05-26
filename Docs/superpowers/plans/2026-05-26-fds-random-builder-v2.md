@@ -48,7 +48,7 @@ Modify:
 **Key V2 facts to anchor coding decisions** (from `src/types/spec-contract-v2.ts`):
 
 - `OperatingStateV2.state_id` is `string | number`. Numeric IDs 1..17 are PackML and **require** `packml_id === state_id`. Numeric > 100 are custom and require `custom_name`. Numeric 18..100 are invalid.
-- PackML IDs used by this builder: `IDLE=4`, `STARTING=3`, `EXECUTE=6`, `STOPPING=7`, `COMPLETE=17`, `ABORTING=8` (mapped to E_STOP).
+- PackML IDs used by this builder: `IDLE=4`, `STARTING=3`, `EXECUTE=6`, `STOPPING=7`, `COMPLETE=17`, `ABORTED=9` (mapped to E_STOP).
 - `StepV2` has **both** v1 fields (`step`, `action`, `completion_criteria`, `completion_criteria_text` — required) and v2 SFC fields (`step_id`, `branch_id`, `actions`, `transitions` — optional during shim). The builder populates both.
 - `TransitionV2.kind` is `"single" | "parallel"` — there is no `"default"` kind. Use `kind: "single"` with `is_default: true` for the normal sequential next-step edge.
 - `InterAssemblyInterlock.effect` is one of `"hold" | "block_transition" | "trigger" | "enable" | "disable"`. The builder uses `"enable"` for the AT_HOME → STARTING permit pattern.
@@ -375,7 +375,7 @@ describe("canonical state machine", () => {
     expect(STATE_ID_EXECUTE).toBe(6);
     expect(STATE_ID_STOPPING).toBe(7);
     expect(STATE_ID_COMPLETE).toBe(17);
-    expect(STATE_ID_E_STOP).toBe(8);
+    expect(STATE_ID_E_STOP).toBe(9);
   });
 
   it("CANONICAL_STATES contains exactly 6 entries", () => {
@@ -432,7 +432,7 @@ export const STATE_ID_STARTING = 3;
 export const STATE_ID_IDLE = 4;
 export const STATE_ID_EXECUTE = 6;
 export const STATE_ID_STOPPING = 7;
-export const STATE_ID_E_STOP = 8;
+export const STATE_ID_E_STOP = 9;
 export const STATE_ID_COMPLETE = 17;
 
 export const SEQUENTIAL_STATE_IDS = [

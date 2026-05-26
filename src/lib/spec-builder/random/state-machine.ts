@@ -9,7 +9,7 @@ export const STATE_ID_STARTING = 3;
 export const STATE_ID_IDLE = 4;
 export const STATE_ID_EXECUTE = 6;
 export const STATE_ID_STOPPING = 7;
-export const STATE_ID_E_STOP = 8;
+export const STATE_ID_E_STOP = 9;
 export const STATE_ID_COMPLETE = 17;
 
 export const SEQUENTIAL_STATE_IDS = [
