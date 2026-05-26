@@ -264,11 +264,15 @@ export function inferStatePattern(stateName: string): StatePattern {
 /** Migrate legacy OperatingState (no state_pattern) */
 export function migrateOperatingState(raw: unknown): OperatingState {
   const s = raw as Record<string, unknown>;
+  // V2 producers (random builder, post-Phase 3 prompts) set
+  // `display_name` instead of legacy `state_name`. Fall back to it so
+  // V1 viewers don't render empty labels for V2-shaped specs.
+  const name = String(s.state_name ?? s.display_name ?? "");
   return {
     state_id: String(s.state_id ?? ""),
-    state_name: String(s.state_name ?? ""),
+    state_name: name,
     description: String(s.description ?? ""),
-    state_pattern: (s.state_pattern as StatePattern) ?? inferStatePattern(String(s.state_name ?? "")),
+    state_pattern: (s.state_pattern as StatePattern) ?? inferStatePattern(name),
   };
 }
 

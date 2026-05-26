@@ -18,10 +18,15 @@ export const SEQUENTIAL_STATE_IDS = [
   STATE_ID_STOPPING,
 ] as const;
 
+// state_name + display_name are dual-populated so V1 readers
+// (migrateOperatingState in spec-builder.ts, which only looks at
+// state_name) render canonical labels rather than empty strings when
+// reading a random-built spec.
 export const CANONICAL_STATES: OperatingStateV2[] = [
   {
     state_id: STATE_ID_IDLE,
     packml_id: STATE_ID_IDLE,
+    state_name: "Idle",
     display_name: "Idle",
     description: "All outputs de-energised; awaiting start command.",
     state_pattern: "static",
@@ -29,6 +34,7 @@ export const CANONICAL_STATES: OperatingStateV2[] = [
   {
     state_id: STATE_ID_STARTING,
     packml_id: STATE_ID_STARTING,
+    state_name: "Starting",
     display_name: "Starting",
     description: "Sequential start-up of devices until the machine is ready to execute.",
     state_pattern: "sequential",
@@ -36,6 +42,7 @@ export const CANONICAL_STATES: OperatingStateV2[] = [
   {
     state_id: STATE_ID_EXECUTE,
     packml_id: STATE_ID_EXECUTE,
+    state_name: "Execute",
     display_name: "Execute",
     description: "Primary production cycle.",
     state_pattern: "sequential",
@@ -43,6 +50,7 @@ export const CANONICAL_STATES: OperatingStateV2[] = [
   {
     state_id: STATE_ID_STOPPING,
     packml_id: STATE_ID_STOPPING,
+    state_name: "Stopping",
     display_name: "Stopping",
     description: "Sequential shutdown of devices to a safe resting state.",
     state_pattern: "sequential",
@@ -50,6 +58,7 @@ export const CANONICAL_STATES: OperatingStateV2[] = [
   {
     state_id: STATE_ID_COMPLETE,
     packml_id: STATE_ID_COMPLETE,
+    state_name: "Complete",
     display_name: "Complete",
     description: "Cycle finished; awaiting reset.",
     state_pattern: "static",
@@ -57,6 +66,7 @@ export const CANONICAL_STATES: OperatingStateV2[] = [
   {
     state_id: STATE_ID_E_STOP,
     packml_id: STATE_ID_E_STOP,
+    state_name: "E-Stop",
     display_name: "E-Stop",
     description: "Emergency stop active; all motion inhibited.",
     state_pattern: "static",

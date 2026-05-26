@@ -218,16 +218,16 @@ Return ONLY a JSON array matching this TypeScript interface:
 
       const systemPrompt = `You are an industrial automation engineering expert. Given this list of subsystems from an instrument register, infer the likely operating states/modes for this plant.
 
-Use ISA-88 state machine conventions where applicable. Typical states include:
-Idle, Starting, Execute (Running), Completing, Completed, E-Stop, Abort, Held.
+Use PackML state-model conventions where applicable. Canonical state names:
+Idle, Starting, Execute, Stopping, Complete, E-Stop (also Held, Suspended for advanced machines).
 
 Each state has a "state_pattern" — either "static" or "sequential":
-- "static" = states where all outputs are in a defined position (e.g. Idle, E-Stop, Completed, Abort, Held) — documented as a Device State Table (Tag | Description | State)
-- "sequential" = states with ordered steps and transition conditions (e.g. Starting, Execute, Completing) — documented as a Step Table (Step | Action | Completion Criteria)
+- "static" = states where all outputs are in a defined position (e.g. Idle, Complete, E-Stop, Held) — documented as a Device State Table (Tag | Description | State)
+- "sequential" = states with ordered steps and transition conditions (e.g. Starting, Execute, Stopping) — documented as a Step Table (Step | Action | Completion Criteria)
 
 Return ONLY a JSON array of state objects. No preamble.
 [
-  { "state_id": "idle", "state_name": "Idle", "state_pattern": "static", "description": "Machine not running, all outputs safe state" }
+  { "state_id": "idle", "state_name": "Idle", "state_pattern": "static", "description": "All outputs de-energised; awaiting start command." }
 ]`;
 
       const plMeta: PromptLayerMeta = {
@@ -247,14 +247,17 @@ Return ONLY a JSON array of state objects. No preamble.
       const parsed = migrateOperatingStates(JSON.parse(result.content));
       setStates(parsed);
     } catch {
-      // Fallback to standard ISA-88 states
+      // Fallback to canonical PackML states (matches random builder's
+      // CANONICAL_STATES — see src/lib/spec-builder/random/state-machine.ts).
+      // String state_ids are accepted by validateSpecContractPatch during
+      // the V2 shim window; the wizard's V1 shape doesn't carry packml_id.
       setStates([
-        { state_id: "idle", state_name: "Idle", state_pattern: "static", description: "Machine not running, all outputs in safe state" },
-        { state_id: "starting", state_name: "Starting", state_pattern: "sequential", description: "Pre-run checks and initialisation" },
-        { state_id: "execute", state_name: "Execute", state_pattern: "sequential", description: "Normal running operation" },
-        { state_id: "completing", state_name: "Completing", state_pattern: "sequential", description: "Finishing current cycle" },
-        { state_id: "completed", state_name: "Completed", state_pattern: "static", description: "Cycle complete, awaiting reset or new command" },
-        { state_id: "estop", state_name: "E-Stop", state_pattern: "static", description: "Emergency stop, immediate de-energisation of all outputs" },
+        { state_id: "idle", state_name: "Idle", state_pattern: "static", description: "All outputs de-energised; awaiting start command." },
+        { state_id: "starting", state_name: "Starting", state_pattern: "sequential", description: "Sequential start-up of devices until the machine is ready to execute." },
+        { state_id: "execute", state_name: "Execute", state_pattern: "sequential", description: "Primary production cycle." },
+        { state_id: "stopping", state_name: "Stopping", state_pattern: "sequential", description: "Sequential shutdown of devices to a safe resting state." },
+        { state_id: "complete", state_name: "Complete", state_pattern: "static", description: "Cycle finished; awaiting reset." },
+        { state_id: "estop", state_name: "E-Stop", state_pattern: "static", description: "Emergency stop active; all motion inhibited." },
       ]);
     } finally {
       setInferring(false);
