@@ -186,10 +186,14 @@ export function useRandomFdsGenerate() {
 
         return spec.id;
       } catch (err) {
-        if (abortRef.current?.signal.aborted) return null;
-        const msg = err instanceof Error ? err.message : "Generation failed";
-        console.error("[random-fds] generation failed:", err);
-        setError(msg);
+        const aborted = abortRef.current?.signal.aborted ?? false;
+        if (!aborted) {
+          const msg = err instanceof Error ? err.message : "Generation failed";
+          console.error("[random-fds] generation failed:", err);
+          setError(msg);
+        }
+        // Clean up orphan spec row on BOTH error and abort paths — otherwise
+        // canceling after createSpec succeeded leaks rows on every click.
         if (createdSpecId) {
           try {
             await deleteSpec.mutateAsync({ id: createdSpecId, projectId: params.projectId });
