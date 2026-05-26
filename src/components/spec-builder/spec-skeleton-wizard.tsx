@@ -34,7 +34,7 @@ import { migrateSubsystemConfig, getSubsystemDeviceCount, inferStatePattern } fr
 import type { StatePattern } from "@/types/spec-builder";
 import type { OperatingStateV2 } from "@/types/spec-contract-v2";
 import { CANONICAL_STATES } from "@/lib/spec-builder/random/state-machine";
-import { packmlByName } from "@/lib/spec-builder/migrate/packml-canonical";
+import { packmlByName, packmlById } from "@/lib/spec-builder/migrate/packml-canonical";
 import type { SpecProjectUpdate } from "@/types/spec-builder";
 import { buildHierarchyFromTags } from "@/lib/spec-builder/instrument-parser";
 import { MachineHierarchyTable } from "./machine-hierarchy-table";
@@ -92,12 +92,13 @@ export function SpecSkeletonWizard({ spec, register, onComplete }: Props) {
   });
   const [inferringHierarchy, setInferringHierarchy] = useState(false);
 
-  // Step 4 — Operating modes (V2 shape: numeric PackML state_id where possible,
-  // custom_state_id >= 101 for non-PackML names). The wizard reads existing
-  // confirmed_states as-is — V2 types accept the legacy V1 shape during the
-  // shim window, so old specs load without migration.
-  const [states, setStates] = useState<OperatingStateV2[]>(
-    (spec.confirmed_states ?? []) as unknown as OperatingStateV2[],
+  // Step 4 — Operating modes (V2 shape: numeric PackML state_id where
+  // possible, custom_state_id >= 101 for non-PackML names). Legacy
+  // string-id state rows from older specs are upgraded on load via
+  // packmlByName so the wizard never displays "Legacy" once an engineer
+  // touches the spec.
+  const [states, setStates] = useState<OperatingStateV2[]>(() =>
+    upgradeLegacyStates((spec.confirmed_states ?? []) as unknown as OperatingStateV2[]),
   );
   const [inferring, setInferring] = useState(false);
 
@@ -458,6 +459,22 @@ function StepControlSystem({ control, onChange }: { control: ControlForm; onChan
 // ===========================================================================
 
 /**
+ * Common PackML states surfaced in the wizard's name picker. The full
+ * 17-state PackML model is exposed via `packmlByName`, but the wizard's
+ * dropdown only lists the eight that real specs need — the remaining
+ * intermediate states (Clearing, Unsuspending, etc.) can be added by
+ * choosing Custom if a project genuinely needs them.
+ */
+const PACKML_PICKER_IDS = [4, 3, 6, 7, 17, 9, 11, 5] as const; // Idle, Starting, Execute, Stopping, Complete, Aborted (=E-Stop), Held, Suspended
+const PACKML_PICKER_OPTIONS = PACKML_PICKER_IDS.map((id) => {
+  const s = packmlById(id);
+  if (!s) throw new Error(`PACKML_PICKER_IDS contains unknown id ${id}`);
+  // E-Stop is the user-facing label for PackML's "Aborted" (id 9).
+  const label = id === 9 ? "E-Stop" : s.name;
+  return { packml_id: s.packml_id, label, state_pattern: s.state_pattern };
+});
+
+/**
  * Map an AI/user state name onto V2 shape. Names matching a canonical
  * PackML entry get the matching numeric `state_id` + `packml_id`; other
  * names become custom states with `state_id >= 101` (the validator's
@@ -492,6 +509,31 @@ function buildV2State(args: {
     state_pattern: args.pattern,
     custom_name: args.name,
   };
+}
+
+/**
+ * Upgrade any legacy string-id state rows from older specs:
+ *   "idle"/"Idle" → packml_id 4
+ *   unrecognised names → next available custom id (>= 101)
+ * Already-numeric ids pass through unchanged.
+ */
+function upgradeLegacyStates(input: OperatingStateV2[]): OperatingStateV2[] {
+  const takenCustomIds = new Set<number>(
+    input
+      .map((s) => (typeof s.state_id === "number" ? s.state_id : NaN))
+      .filter((n) => Number.isInteger(n) && n > 100),
+  );
+  return input.map((st) => {
+    if (typeof st.state_id === "number") return st;
+    const name = st.state_name ?? st.display_name ?? String(st.state_id);
+    const upgraded = buildV2State({
+      name,
+      description: st.description,
+      pattern: st.state_pattern,
+      takenCustomIds,
+    });
+    return upgraded;
+  });
 }
 
 function rawAiStatesToV2(
@@ -540,18 +582,48 @@ function StepOperatingModes({
   };
 
   const addState = () => {
+    // Prefer the first unused PackML canonical (Idle/Starting/...) over
+    // a Custom slot so the engineer gets a sensible default they can
+    // change via the dropdown if they want something else.
+    const usedPackmlIds = new Set(
+      states
+        .map((s) => (typeof s.state_id === "number" && s.state_id >= 1 && s.state_id <= 17 ? s.state_id : NaN))
+        .filter((n) => Number.isInteger(n)),
+    );
+    const firstFreePackml = PACKML_PICKER_OPTIONS.find((o) => !usedPackmlIds.has(o.packml_id));
+    if (firstFreePackml) {
+      onChange([
+        ...states,
+        {
+          state_id: firstFreePackml.packml_id,
+          packml_id: firstFreePackml.packml_id,
+          state_name: firstFreePackml.label,
+          display_name: firstFreePackml.label,
+          description: "",
+          state_pattern: firstFreePackml.state_pattern as StatePattern,
+        },
+      ]);
+      return;
+    }
+    // All PackML pickers are used — fall back to a Custom state.
     const takenCustomIds = new Set<number>(
       states
-        .map((s) => (typeof s.state_id === "number" ? s.state_id : NaN))
-        .filter((n) => Number.isInteger(n) && n > 100),
+        .map((s) => (typeof s.state_id === "number" && s.state_id > 100 ? s.state_id : NaN))
+        .filter((n) => Number.isInteger(n)),
     );
-    const next = buildV2State({
-      name: "New State",
-      description: "",
-      pattern: "sequential",
-      takenCustomIds,
-    });
-    onChange([...states, next]);
+    let nextId = 101;
+    while (takenCustomIds.has(nextId)) nextId += 1;
+    onChange([
+      ...states,
+      {
+        state_id: nextId,
+        state_name: "Custom State",
+        display_name: "Custom State",
+        custom_name: "Custom State",
+        description: "",
+        state_pattern: "sequential",
+      },
+    ]);
   };
 
   const removeState = (idx: number) => {
@@ -587,66 +659,136 @@ function StepOperatingModes({
       ) : (
         <div>
           <div className="grid gap-2">
-            {states.map((st, i) => {
-              const displayValue = st.state_name ?? st.display_name ?? "";
-              const badgeLabel = isPackmlState(st)
-                ? `PackML ${st.state_id}`
-                : isCustomState(st)
-                  ? `Custom ${st.state_id}`
-                  : `Legacy "${String(st.state_id)}"`;
-              return (
-                <Card key={String(st.state_id) || `idx-${i}`} className="p-3 space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <Input
-                      value={displayValue}
-                      onChange={(e) => {
-                        const newName = e.target.value;
-                        const patch: Partial<OperatingStateV2> = {
-                          state_name: newName,
-                          display_name: newName,
-                        };
-                        if (isCustomState(st)) patch.custom_name = newName;
-                        // Auto-infer pattern when name changes (user can override)
-                        if (!st.state_pattern || st.state_pattern === inferStatePattern(displayValue)) {
-                          patch.state_pattern = inferStatePattern(newName);
-                        }
-                        updateAt(i, patch);
-                      }}
-                      className="text-sm font-medium h-7 w-48 font-mono"
-                    />
-                    <Select
-                      value={st.state_pattern ?? inferStatePattern(displayValue)}
-                      onValueChange={(v) => updateAt(i, { state_pattern: v as StatePattern })}
-                    >
-                      <SelectTrigger className="h-7 w-[130px] text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="static">Static (table)</SelectItem>
-                        <SelectItem value="sequential">Sequential (steps)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Badge variant="outline" className="text-[10px] font-mono">
-                      {badgeLabel}
-                    </Badge>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 ml-auto"
-                      onClick={() => removeState(i)}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
-                  <Input
-                    value={st.description}
-                    onChange={(e) => updateAt(i, { description: e.target.value })}
-                    placeholder="Description of this state..."
-                    className="text-xs h-7"
-                  />
-                </Card>
+            {(() => {
+              const usedPackmlIds = new Set(
+                states
+                  .map((s) => (isPackmlState(s) && typeof s.state_id === "number" ? s.state_id : NaN))
+                  .filter((n) => Number.isInteger(n)),
               );
-            })}
+              return states.map((st, i) => {
+                const customMode = isCustomState(st);
+                const pickerValue = isPackmlState(st)
+                  ? `packml-${st.state_id}`
+                  : customMode
+                    ? "custom"
+                    : "custom"; // fall-through for any edge case
+                const badgeLabel = isPackmlState(st)
+                  ? `PackML ${st.state_id}`
+                  : `Custom ${st.state_id}`;
+                return (
+                  <Card key={String(st.state_id) || `idx-${i}`} className="p-3 space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <Select
+                        value={pickerValue}
+                        onValueChange={(v) => {
+                          if (v === "custom") {
+                            // Switch this row to a custom state
+                            const takenCustomIds = new Set<number>(
+                              states
+                                .map((s, idx) =>
+                                  idx !== i && typeof s.state_id === "number" && s.state_id > 100
+                                    ? s.state_id
+                                    : NaN,
+                                )
+                                .filter((n): n is number => Number.isInteger(n)),
+                            );
+                            let nextId = 101;
+                            while (takenCustomIds.has(nextId)) nextId += 1;
+                            updateAt(i, {
+                              state_id: nextId,
+                              packml_id: undefined,
+                              state_name: "Custom State",
+                              display_name: "Custom State",
+                              custom_name: "Custom State",
+                            });
+                            return;
+                          }
+                          // PackML selection — e.g. "packml-4"
+                          const id = Number(v.replace(/^packml-/, ""));
+                          const opt = PACKML_PICKER_OPTIONS.find((o) => o.packml_id === id);
+                          if (!opt) return;
+                          updateAt(i, {
+                            state_id: opt.packml_id,
+                            packml_id: opt.packml_id,
+                            state_name: opt.label,
+                            display_name: opt.label,
+                            custom_name: undefined,
+                            state_pattern: opt.state_pattern as StatePattern,
+                          });
+                        }}
+                      >
+                        <SelectTrigger className="h-7 w-[180px] text-sm font-medium">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PACKML_PICKER_OPTIONS.map((opt) => {
+                            const inUseElsewhere =
+                              usedPackmlIds.has(opt.packml_id) && st.packml_id !== opt.packml_id;
+                            return (
+                              <SelectItem
+                                key={opt.packml_id}
+                                value={`packml-${opt.packml_id}`}
+                                disabled={inUseElsewhere}
+                              >
+                                {opt.label} <span className="text-muted-foreground">· PackML {opt.packml_id}</span>
+                              </SelectItem>
+                            );
+                          })}
+                          <SelectItem value="custom">Custom…</SelectItem>
+                        </SelectContent>
+                      </Select>
+
+                      {customMode && (
+                        <Input
+                          value={st.display_name ?? st.state_name ?? ""}
+                          onChange={(e) => {
+                            const newName = e.target.value;
+                            updateAt(i, {
+                              state_name: newName,
+                              display_name: newName,
+                              custom_name: newName,
+                            });
+                          }}
+                          placeholder="Custom state name"
+                          className="text-sm font-medium h-7 w-44 font-mono"
+                        />
+                      )}
+
+                      <Select
+                        value={st.state_pattern}
+                        onValueChange={(v) => updateAt(i, { state_pattern: v as StatePattern })}
+                        disabled={isPackmlState(st)}
+                      >
+                        <SelectTrigger className="h-7 w-[130px] text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="static">Static (table)</SelectItem>
+                          <SelectItem value="sequential">Sequential (steps)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Badge variant="outline" className="text-[10px] font-mono">
+                        {badgeLabel}
+                      </Badge>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 ml-auto"
+                        onClick={() => removeState(i)}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                    <Input
+                      value={st.description}
+                      onChange={(e) => updateAt(i, { description: e.target.value })}
+                      placeholder="Description of this state..."
+                      className="text-xs h-7"
+                    />
+                  </Card>
+                );
+              });
+            })()}
           </div>
         </div>
       )}
