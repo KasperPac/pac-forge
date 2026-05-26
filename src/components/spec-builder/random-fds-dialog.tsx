@@ -7,7 +7,6 @@ import { Loader2, Dices } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -46,7 +45,6 @@ export function RandomFdsDialog({
   const [subsystems, setSubsystems] = useState(2);
   const [assemblies, setAssemblies] = useState(4);
   const [devices, setDevices] = useState(12);
-  const [autoComplete, setAutoComplete] = useState(true);
   const [progressLabel, setProgressLabel] = useState<string | null>(null);
 
   const { generate, loading, error, cancel } = useRandomFdsGenerate();
@@ -80,8 +78,7 @@ export function RandomFdsDialog({
       projectId,
       projectNumber,
       clientName,
-      autoComplete,
-      onProgress: (stage, detail) => setProgressLabel(detail ? `${stage} — ${detail}` : stage),
+      onProgress: (stage) => setProgressLabel(stage),
     });
     setProgressLabel(null);
     if (specId) {
@@ -176,24 +173,6 @@ export function RandomFdsDialog({
               <span className="font-mono text-foreground">{devices}</span> devices, and ~
               <span className="font-mono text-foreground">{totalSignals}</span> IO signals.
             </p>
-          </div>
-
-          <div className="flex items-start gap-2 pt-1">
-            <Checkbox
-              id="auto-complete"
-              checked={autoComplete}
-              onCheckedChange={(v) => setAutoComplete(v === true)}
-              disabled={loading}
-              className="mt-0.5"
-            />
-            <div className="space-y-0.5">
-              <Label htmlFor="auto-complete" className="text-xs cursor-pointer">
-                Auto-complete spec (generate + approve all sections)
-              </Label>
-              <p className="text-[10px] text-muted-foreground">
-                Runs full section generation and marks everything approved — ready for DOCX export / code gen. Adds ~1–2 minutes.
-              </p>
-            </div>
           </div>
 
           {loading && progressLabel && (

@@ -1,123 +1,28 @@
-/**
- * Revised FDS interview system prompt.
- *
- * Replaces buildFdsInterviewSystemPrompt in the existing prompt builder.
- * Data-gathering logic at the top is unchanged; only the returned
- * template string has been restructured.
- *
- * Key changes vs. previous version:
- *  1. YOUR ROLE → deterministic INTERVIEW PROTOCOL (ordered field gathering,
- *     one missing field per turn, explicit stop condition for JSON emission)
- *  2. "Challenge vague answers" → silent VALIDATION CHECKLIST run on every
- *     engineer answer, with scripted follow-ups for each missing field
- *  3. Added DEVICE CLASS DEFAULTS (motor/vfd/solenoid/analog/safety) with
- *     default timeouts and feedback conventions so the model stops guessing
- *  4. Explicit tag-direction rule (outputs vs completion checks) as a HARD
- *     RULE with a MUST NOT example — addresses the #1 LLM failure mode in
- *     PLC sequence generation
- *  5. Fault code naming convention + severity enum (closed set)
- *  6. Example JSON now shows: linear step, branching step, converging
- *     branches, analog threshold check, state termination
- *  7. MUST NOT section with concrete negative examples
- *  8. CONFIRMED STATIC STATES block relabeled with semantic meaning
- *  9. Permissive schema (`operator` + boolean) vs condition schema
- *     (`op` + string) explicitly documented as intentional — prevents the
- *     model from flipping between them randomly
- */
-import type {
-  AssemblyConfig,
-  SubsystemConfig,
-  InstrumentTag,
-  DeviceStateEntry,
-  OperatingState,
-} from "@/types/spec-builder";
-import type {
-  OperatingStateV2,
-  SequentialStateV2,
-} from "@/types/spec-contract-v2";
-import {
-  INTERLOCK_EFFECTS_DOC,
-  COMPLETION_CRITERION_DOC,
-} from "./system-orchestration-prompts";
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-export function buildFdsInterviewSystemPrompt(
-  assembly: AssemblyConfig,
-  subsystem: SubsystemConfig,
-  tags: InstrumentTag[],
-  staticStates: Record<string, DeviceStateEntry[]>,
-  completedSequentialStates: Record<string, SequentialStateV2>,
-  allStates: OperatingStateV2[],
-): string {
-  // --- Data gathering (unchanged from original) ---
-  const assemblyTagNames = new Set<string>();
-  for (const dev of assembly.devices) {
-    for (const sig of dev.io_signals) {
-      assemblyTagNames.add(sig.tag);
-    }
-  }
-  const assemblyTags = tags.filter((t) => assemblyTagNames.has(t.tag));
-
-  const deviceList = assembly.devices.map((d) => {
-    const signals = d.io_signals.map((s) => `${s.tag} (${s.signal_type})`).join(", ");
-    return `  - ${d.device_name} (${d.device_class}${d.is_safety ? ", SAFETY" : ""}): ${signals}`;
-  }).join("\n");
-
-  const outputTags = assemblyTags
-    .filter((t) => t.signal_direction === "DO" || t.signal_direction === "AO")
-    .map((t) => `  - ${t.tag}: ${t.description} (${t.signal_direction})`)
-    .join("\n");
-
-  const inputTags = assemblyTags
-    .filter((t) => t.signal_direction === "DI" || t.signal_direction === "AI")
-    .map((t) => `  - ${t.tag}: ${t.description} (${t.signal_direction})`)
-    .join("\n");
-
-  function stateLabel(s: OperatingStateV2): string {
-    // Phase 1 widened OperatingStateV2; prefer display_name, then state_name, then custom_name.
-    return s.display_name ?? s.state_name ?? s.custom_name ?? String(s.state_id);
-  }
-
-  const staticStatesText = Object.entries(staticStates)
-    .map(([stateId, entries]) => {
-      const match = allStates.find((s) => String(s.state_id) === stateId);
-      const stateName = match ? stateLabel(match) : stateId;
-      const rows = entries.map((e) => `    ${e.tag} must hold value: ${e.state}`).join("\n");
-      return `  ${stateName}:\n${rows}`;
-    }).join("\n");
-
-  const completedText = Object.entries(completedSequentialStates)
-    .map(([stateId, data]) => {
-      const match = allStates.find((s) => String(s.state_id) === stateId);
-      const stateName = match ? stateLabel(match) : stateId;
-      // SequentialStateV2 permissives are structured; render their tag for the summary.
-      const perms = data.permissives.map((p) => `    - ${p.tag} ${p.operator} ${String(p.value)}`).join("\n");
-      const stepCount = data.steps.length;
-      return `  ${stateName}:\n    Permissives:\n${perms || "    (none)"}\n    Steps: ${stepCount} V2 step(s)`;
-    }).join("\n");
-
-  const sequentialStatesList = allStates.filter((s) => s.state_pattern === "sequential");
-  const sequentialStatesTable = sequentialStatesList
-    .map((s) => `  - ${s.state_id}  (${stateLabel(s)})${s.description ? ` — ${s.description}` : ""}`)
-    .join("\n");
-  const firstSequentialStateId = sequentialStatesList[0]?.state_id ?? "";
-
-  // --- Revised prompt template ---
-  return `You are a senior automation engineer co-authoring a functional specification with the project engineer for Assembly "${assembly.assembly_name}" (assembly_id: "${assembly.assembly_id}") within subsystem "${subsystem.subsystem_name}" (subsystem_id: "${subsystem.subsystem_id}", ${subsystem.equipment_type}).
+exports[`buildFdsInterviewSystemPrompt V2 snapshot > produces stable output for the catodo lift assembly 1`] = `
+"You are a senior automation engineer co-authoring a functional specification with the project engineer for Assembly "LFT01 — Hydraulic Lift" (assembly_id: "00000000-0000-4000-8000-000000000a01") within subsystem "Catodo Lift Station" (subsystem_id: "00000000-0000-4000-8000-000000000b01", lift).
 
 # IMMUTABLE IDENTIFIERS
 Echo these back verbatim — never mutate or paraphrase.
-- assembly_id: ${assembly.assembly_id}
-- subsystem_id: ${subsystem.subsystem_id}
+- assembly_id: 00000000-0000-4000-8000-000000000a01
+- subsystem_id: 00000000-0000-4000-8000-000000000b01
 - state_id: MUST be a number from the SEQUENTIAL STATES REMAINING list below (PackML 1..17 or a custom state >100). Never invent a state_id. Never use a name as the state_id.
 
 # ASSEMBLY DEVICES
-${deviceList}
+  - Hydraulic Pump M01 (motor): LFT01_M01_CMD (DO), LFT01_M01_FB (DI)
+  - Lift Solenoid SOL02 (solenoid valve): LFT01_SOL02_CMD (DO), LFT01_ZSO02 (DI), LFT01_ZSC02 (DI)
+  - Level Sensor LT01 (analog device): LFT01_LT01 (AI)
 
 # OUTPUT TAGS (commanded by sequential steps)
-${outputTags}
+  - LFT01_M01_CMD: Pump motor command (DO)
+  - LFT01_SOL02_CMD: Lift solenoid command (DO)
 
 # INPUT TAGS (used for permissives and completion criteria)
-${inputTags}
+  - LFT01_M01_FB: Pump run feedback (DI)
+  - LFT01_ZSO02: Lift open limit (DI)
+  - LFT01_ZSC02: Lift closed limit (DI)
+  - LFT01_LT01: Level sensor (AI)
 
 # DEVICE CLASS DEFAULTS
 Use these as starting assumptions when the engineer does not specify otherwise. Always confirm before committing to the table.
@@ -130,14 +35,17 @@ Use these as starting assumptions when the engineer does not specify otherwise. 
 
 # CONFIRMED STATIC STATES
 In each of the following operating states, every listed tag is expected to hold the stated value. Any sequential step that violates one of these invariants is invalid — flag it.
-${staticStatesText || "  (none confirmed yet)"}
+  Idle:
+    LFT01_M01_CMD must hold value: false
+    LFT01_SOL02_CMD must hold value: false
 
 # ALREADY COMPLETED SEQUENTIAL STATES
-${completedText || "  (none yet)"}
+  (none yet)
 
 # SEQUENTIAL STATES REMAINING (state_id is a number — emit it verbatim):
 
-${sequentialStatesTable || "  (none)"}
+  - 6  (Execute) — Running
+  - 16  (Completing) — Finishing
 
 ---
 
@@ -222,7 +130,7 @@ Each state object must conform to this V2 shape:
 \`\`\`json
 [
   {
-    "state_id": ${firstSequentialStateId || 6},
+    "state_id": 6,
     "override_kind": "override",
     "permissives": [
       { "tag": "SYS_ESTOP01", "operator": "=", "value": true },
@@ -385,7 +293,7 @@ This example demonstrates: a linear step (step_10), a branching step (step_20 �
 
 Each \`transition\` has \`transition_id\`, \`kind: "single"\`, \`target_step_id: string\` (use \`""\` for terminal), \`guard: CompletionCriterion[]\`, \`priority: int\`, \`is_default: bool\`, optional \`on_fail: { fault_code, severity }\`, and \`notes: string | null\`.
 
-State_id ${firstSequentialStateId || 6} above is illustrative — emit whichever state_id the engineer is currently authoring (must come from SEQUENTIAL STATES REMAINING).
+State_id 6 above is illustrative — emit whichever state_id the engineer is currently authoring (must come from SEQUENTIAL STATES REMAINING).
 
 ---
 
@@ -406,74 +314,11 @@ State_id ${firstSequentialStateId || 6} above is illustrative — emit whichever
 - ❌ Inventing override_kind values you have not been told about. Phase 3 is single-mode; always emit \`"override_kind": "override"\`.
 - ❌ Emitting a transition without \`"kind": "single"\`, \`"target_step_id"\`, \`"priority"\`, \`"is_default"\`, and \`"notes"\`. The schema rejects partial transitions.
 
-If you have no table update to propose (still gathering info), do not include a JSON block. Keep conversational text concise — the engineer is an expert.`;
-}
+If you have no table update to propose (still gathering info), do not include a JSON block. Keep conversational text concise — the engineer is an expert."
+`;
 
-// ---------------------------------------------------------------------------
-// Opening message
-// ---------------------------------------------------------------------------
-
-export function buildFdsOpeningMessage(
-  assembly: AssemblyConfig,
-  tags: InstrumentTag[],
-  firstSequentialState: OperatingState,
-): string {
-  const assemblyTagNames = new Set<string>();
-  for (const dev of assembly.devices) {
-    for (const sig of dev.io_signals) {
-      assemblyTagNames.add(sig.tag);
-    }
-  }
-  const assemblyTags = tags.filter((t) => assemblyTagNames.has(t.tag));
-
-  const outputs = assemblyTags
-    .filter((t) => t.signal_direction === "DO" || t.signal_direction === "AO")
-    .map((t) => `${t.tag} (${t.description})`)
-    .join(", ");
-
-  const inputs = assemblyTags
-    .filter((t) => t.signal_direction === "DI" || t.signal_direction === "AI")
-    .map((t) => `${t.tag} (${t.description})`)
-    .join(", ");
-
-  return `Generate the opening message for the assembly interview. The assembly is "${assembly.assembly_name}" (${assembly.description || "no description"}).
-
-Outputs: ${outputs}
-Inputs: ${inputs}
-
-Ask about the "${firstSequentialState.state_name}" state first. Be specific — reference the actual device names and ask how they operate in sequence. Keep it to 2-3 sentences ending with a clear question.`;
-}
-
-// ---------------------------------------------------------------------------
-// Subsystem orchestration interview
-// ---------------------------------------------------------------------------
-
-export function buildFdsOrchestrationSystemPrompt(
-  subsystem: SubsystemConfig,
-  assemblySummaries: Array<{
-    assembly_name: string;
-    assembly_id: string;
-    sequential_states: Record<string, SequentialStateV2>;
-  }>,
-  sequentialStates: OperatingStateV2[],
-): string {
-  const assemblySummaryText = assemblySummaries.map((a) => {
-    const stateText = Object.entries(a.sequential_states)
-      .map(([stateId, data]) => {
-        const matched = sequentialStates.find((s) => String(s.state_id) === stateId);
-        const stateName = matched?.display_name ?? matched?.state_name ?? stateId;
-        return `    ${stateName}: ${data.steps.length} step(s), ${data.permissives.length} permissive(s)`;
-      }).join("\n");
-    return `  ${a.assembly_name} (${a.assembly_id}):\n${stateText}`;
-  }).join("\n");
-
-  const sequentialStatesTable = sequentialStates
-    .map((s) => `  - ${s.state_id}  (${s.display_name ?? s.state_name ?? String(s.state_id)})${s.description ? ` — ${s.description}` : ""}`)
-    .join("\n");
-
-  const firstSequentialStateId = sequentialStates[0]?.state_id ?? 6;
-
-  return `You are a senior automation engineer defining how assemblies coordinate within subsystem "${subsystem.subsystem_name}" (${subsystem.equipment_type}).
+exports[`buildFdsOrchestrationSystemPrompt V2 snapshot > produces stable output for the catodo subsystem 1`] = `
+"You are a senior automation engineer defining how assemblies coordinate within subsystem "Catodo Lift Station" (lift).
 
 Individual assembly behaviors are already defined. Now you need to define:
 1. The ORDER in which assemblies execute for each sequential state
@@ -481,17 +326,26 @@ Individual assembly behaviors are already defined. Now you need to define:
 3. INTER-ASSEMBLY INTERLOCKS — conditions where one assembly's state affects another
 
 ASSEMBLIES IN THIS SUBSYSTEM:
-${assemblySummaryText}
+  LFT01 (00000000-0000-4000-8000-000000000a01):
+    Execute: 1 step(s), 0 permissive(s)
+  CV01 (00000000-0000-4000-8000-000000000a02):
+    Execute: 0 step(s), 0 permissive(s)
 
 SEQUENTIAL STATES (state_id is a number — emit it verbatim):
-${sequentialStatesTable}
+  - 3  (Starting) — Bring assemblies online
+  - 6  (Execute) — Running
 
 Ask the engineer about:
 - Execution order: Do assemblies start simultaneously, sequentially, or in groups?
 - Dependencies: Must assembly A reach a certain state before assembly B can start?
 - Shared conditions: Are there subsystem-wide permissives beyond individual assembly permissives?
 
-${INTERLOCK_EFFECTS_DOC}
+INTERLOCK EFFECTS (must be one of these five strings verbatim):
+  - "hold"             — target must pause in its current state until the source condition clears
+  - "block_transition" — target may not leave a specific state until the source condition is met (effect_target.state_id REQUIRED)
+  - "trigger"          — rising edge on source_condition forces target to enter a state (effect_target.state_id REQUIRED)
+  - "enable"           — target is allowed to run/transition freely while source_condition is TRUE
+  - "disable"          — target is forbidden from running while source_condition is TRUE
 
 SHARED PERMISSIVE SHAPE:
 Each shared_permissive is a structured object:
@@ -502,14 +356,19 @@ Each shared_permissive is a structured object:
   "prose": "<one-line natural language>"
 }
 
-${COMPLETION_CRITERION_DOC}
+CompletionCriterion kinds accepted in condition / source_condition / guard:
+  - { "kind": "tag_equals", "tag": "ESTOP_OK", "value": true }
+  - { "kind": "tag_compare", "tag": "HOPPER_LEVEL", "op": ">=", "value": 50 }
+  - { "kind": "expression", "text": "ESTOP_OK AND DOOR_CLOSED", "referenced_tags": ["ESTOP_OK","DOOR_CLOSED"] }
+  - { "kind": "manual_ack", "prompt": "Operator confirms area clear" }
+  - { "kind": "placeholder", "criterion_id": "TBD_<slug>", "prompt": "what is X?" }   — only if genuinely unknown
 
 RESPONSE FORMAT:
 When you propose orchestration for a state, include a fenced JSON block at the END of your message. The state_id is a NUMBER from the SEQUENTIAL STATES list above. assembly_order, source_assembly, and target_assembly must be assembly_ids from this subsystem.
 
 \`\`\`json
 {
-  "state_id": ${firstSequentialStateId},
+  "state_id": 3,
   "assembly_order": ["00000000-0000-4000-8000-...asm1", "00000000-0000-4000-8000-...asm2"],
   "shared_permissives": [
     {
@@ -535,34 +394,5 @@ When you propose orchestration for a state, include a fenced JSON block at the E
 
 Required fields per interlock: interlock_id (stable slug), source_assembly, source_condition (CompletionCriterion), target_assembly, effect (from the closed set above), prose (one-line natural language for DOCX rendering). effect_target is REQUIRED when effect is "block_transition" or "trigger"; optional otherwise.
 
-Only include a JSON block when you have a concrete update to persist. When asking clarifying questions, omit it. Keep prose concise — the engineer is a peer.`;
-}
-
-export function buildFdsOrchestrationOpeningMessage(
-  subsystem: SubsystemConfig,
-  assemblyNames: string[],
-  firstSequentialState: OperatingState,
-): string {
-  return `Generate the opening message for subsystem orchestration. Subsystem "${subsystem.subsystem_name}" has ${assemblyNames.length} assemblies: ${assemblyNames.join(", ")}.
-
-Ask about the "${firstSequentialState.state_name}" state: in what order do the assemblies execute, and are there dependencies between them? Be specific and concise.`;
-}
-
-// ---------------------------------------------------------------------------
-// JSON extraction from streaming responses
-// ---------------------------------------------------------------------------
-
-export function extractJsonFromResponse(text: string): Record<string, unknown> | null {
-  const match = text.match(/```json\s*\n?([\s\S]*?)\n?\s*```/);
-  if (!match) return null;
-
-  try {
-    return JSON.parse(match[1]);
-  } catch {
-    return null;
-  }
-}
-
-export function stripJsonFromResponse(text: string): string {
-  return text.replace(/```json\s*\n?[\s\S]*?\n?\s*```/, "").trim();
-}
+Only include a JSON block when you have a concrete update to persist. When asking clarifying questions, omit it. Keep prose concise — the engineer is a peer."
+`;

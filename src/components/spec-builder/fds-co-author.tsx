@@ -55,7 +55,7 @@ import type {
   FdsAssemblySession,
 } from "@/types/spec-builder";
 import { migrateOperatingStates } from "@/types/spec-builder";
-import type { SequentialStateV2 } from "@/types/spec-contract-v2";
+import type { OperatingStateV2, SequentialStateV2 } from "@/types/spec-contract-v2";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -237,7 +237,12 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
             specProjectId={spec.id}
             subsystem={spec.confirmed_subsystems.find((s) => s.subsystem_id === orchestrationSubsystemId)!}
             sessions={sessions.filter((s) => s.subsystem_id === orchestrationSubsystemId)}
-            allStates={states}
+            // migrateOperatingStates still returns the legacy V1 shape; bridge
+            // to V2 here until that helper is migrated. The fields
+            // OrchestrationStage / use-fds-orchestration-conversation use
+            // (state_id, state_name, state_pattern, display_name, custom_name)
+            // overlap structurally.
+            allStates={states as unknown as OperatingStateV2[]}
           />
         ) : activeAssembly && activeSession ? (
           <>
@@ -314,7 +319,10 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
                 assembly={activeAssembly}
                 subsystem={activeSubsystem!}
                 allTags={register.tags}
-                allStates={states}
+                // migrateOperatingStates still returns the legacy V1 shape; bridge
+                // to V2 here until that helper is migrated. The fields ConversationStage
+                // uses (state_id, state_name, state_pattern) overlap structurally.
+                allStates={states as unknown as OperatingStateV2[]}
                 sequentialStates={sequentialStates}
                 onUpdateSequentialState={handleUpdateSequentialState}
               />
@@ -378,7 +386,7 @@ function ConversationStage({
   assembly: AssemblyConfig;
   subsystem: SubsystemConfig;
   allTags: InstrumentTag[];
-  allStates: OperatingState[];
+  allStates: OperatingStateV2[];
   sequentialStates: OperatingState[];
   onUpdateSequentialState: (stateId: string, data: SequentialStateV2) => void;
 }) {
@@ -561,7 +569,7 @@ function OrchestrationStage({
   specProjectId: string;
   subsystem: SubsystemConfig;
   sessions: FdsAssemblySession[];
-  allStates: OperatingState[];
+  allStates: OperatingStateV2[];
 }) {
   const { data: orchestration } = useFdsOrchestration(specProjectId, subsystem.subsystem_id);
   const [chatInput, setChatInput] = useState("");

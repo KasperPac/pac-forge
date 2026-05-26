@@ -23,6 +23,7 @@ import {
   OperatingStateV2Schema,
   SpecContractV2Schema,
   SpecSectionRowSchema,
+  SpecSectionTypeSchema,
   SubsystemStateSequenceSchema,
   SystemOrchestrationSchema,
   OperatorModeSchema,
@@ -92,7 +93,7 @@ export interface SpecContractPatch {
   confirmation_status?: ConfirmationStatus;
 }
 
-const SpecContractPatchSchema = z.object({
+export const SpecContractPatchSchema = z.object({
   hierarchy: HierarchySchema.optional(),
   alarms: z.array(AlarmRowSchema).optional(),
   alarm_tiers: z.array(AlarmTierSchema).optional(),
@@ -678,7 +679,15 @@ function indexSections(rows: SpecSectionRow[]): Record<string, SpecSectionRow[]>
   // Contract schema keys sections by section_type; each key holds an array so
   // per-(subsystem, state) `functional_description` rows can coexist. Arrays
   // are sorted by updated_at ASC so the last element is the most recent.
+  //
+  // Pre-populate every SpecSectionType enum key with [] so SpecContractV2Schema
+  // parse succeeds even when a project has zero section rows yet. Zod v4's
+  // z.record(enum, …) demands all enum keys present; an empty {} fails parse,
+  // which is what blocked the migrate wizard on freshly-hierarchied projects.
   const out: Record<string, SpecSectionRow[]> = {};
+  for (const key of SpecSectionTypeSchema.options) {
+    out[key] = [];
+  }
   for (const r of rows) {
     if (!out[r.section_type]) out[r.section_type] = [];
     out[r.section_type].push(r);

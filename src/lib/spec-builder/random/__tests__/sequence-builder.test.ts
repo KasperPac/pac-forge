@@ -1,0 +1,103 @@
+// src/lib/spec-builder/random/__tests__/sequence-builder.test.ts
+import { describe, expect, it } from "vitest";
+import { AssemblyContractSchema, StepV2Schema } from "@/types/spec-contract-v2";
+import { buildAssemblyContracts, type ResolvedAssembly, type ResolvedDevice } from "../sequence-builder";
+
+function dev(id: string, name: string, deviceClass: string, prefix: string): ResolvedDevice {
+  return {
+    device_id: id,
+    device_name: name,
+    device_class: deviceClass as ResolvedDevice["device_class"],
+    description: "",
+    is_safety: false,
+    tag_prefix: prefix,
+    io_signals: [
+      { tag: `${prefix}_CMD`, suffix: "CMD", kind: "DO", io_address: "%Q0.0", description: "" },
+      { tag: `${prefix}_FB_RUN`, suffix: "FB_RUN", kind: "DI", io_address: "%I0.0", description: "" },
+      { tag: `${prefix}_FAULT`, suffix: "FAULT", kind: "DI", io_address: "%I0.1", description: "" },
+    ],
+  };
+}
+
+function asm(id: string, name: string, devices: ResolvedDevice[]): ResolvedAssembly {
+  return { assembly_id: id, assembly_name: name, subsystem_id: "11111111-1111-4111-8111-1111111111ff", devices };
+}
+
+describe("buildAssemblyContracts", () => {
+  const aId = "11111111-1111-4111-8111-111111111001";
+  const inputs: ResolvedAssembly[] = [
+    asm(aId, "CV01", [dev("11111111-1111-4111-8111-111111111aaa", "M01", "motor", "CV01_M01")]),
+  ];
+
+  it("produces an AssemblyContract per assembly that passes Zod", () => {
+    const out = buildAssemblyContracts(inputs);
+    expect(out[aId]).toBeDefined();
+    expect(() => AssemblyContractSchema.parse(out[aId])).not.toThrow();
+  });
+
+  it("STARTING sequence contains a step that targets the motor's FB_RUN tag with tag_equals=true", () => {
+    const out = buildAssemblyContracts(inputs);
+    const starting = out[aId].sequential_states["3"]; // STATE_ID_STARTING
+    expect(starting).toBeDefined();
+    expect(starting.steps.length).toBeGreaterThan(0);
+    const step = starting.steps[0];
+    expect(step.completion_criteria.length).toBeGreaterThan(0);
+    const crit = step.completion_criteria[0];
+    expect(crit.kind).toBe("tag_equals");
+    if (crit.kind === "tag_equals") {
+      expect(crit.tag).toBe("CV01_M01_FB_RUN");
+      expect(crit.value).toBe(true);
+    }
+  });
+
+  it("every step has both v1 and v2 fields populated", () => {
+    const out = buildAssemblyContracts(inputs);
+    const starting = out[aId].sequential_states["3"];
+    for (const step of starting.steps) {
+      expect(step.step).toBeTypeOf("number");
+      expect(step.action).toBeTypeOf("string");
+      expect(step.completion_criteria_text).toBeTypeOf("string");
+      expect(step.step_id).toBeTypeOf("string");
+      expect(step.branch_id).toBeTypeOf("string");
+      expect(Array.isArray(step.actions)).toBe(true);
+      expect(Array.isArray(step.transitions)).toBe(true);
+      expect(() => StepV2Schema.parse(step)).not.toThrow();
+    }
+  });
+
+  it("non-terminal steps have a single transition with is_default=true to the next step_id", () => {
+    const twoDevices: ResolvedAssembly[] = [
+      asm(aId, "CV01", [
+        dev("11111111-1111-4111-8111-111111111aaa", "M01", "motor", "CV01_M01"),
+        dev("11111111-1111-4111-8111-111111111bbb", "M02", "motor", "CV01_M02"),
+      ]),
+    ];
+    const out = buildAssemblyContracts(twoDevices);
+    const steps = out[aId].sequential_states["3"].steps;
+    expect(steps.length).toBeGreaterThanOrEqual(2);
+    const first = steps[0];
+    expect(first.transitions).toHaveLength(1);
+    const t = first.transitions![0];
+    expect(t.kind).toBe("single");
+    expect(t.is_default).toBe(true);
+    if (t.kind === "single") expect(t.target_step_id).toBe(steps[1].step_id);
+  });
+
+  it("the last step in a sequence has no transitions", () => {
+    const out = buildAssemblyContracts(inputs);
+    const steps = out[aId].sequential_states["3"].steps;
+    const last = steps[steps.length - 1];
+    expect(last.transitions ?? []).toHaveLength(0);
+  });
+
+  it("static states IDLE / COMPLETE / E_STOP exist with empty devices arrays (StaticStateV2 shape)", () => {
+    const out = buildAssemblyContracts(inputs);
+    for (const k of ["4", "17", "9"]) {
+      const s = out[aId].static_states[k];
+      expect(s).toBeDefined();
+      // StaticStateV2 shape, not bare DeviceStateEntry[]
+      expect(Array.isArray(s)).toBe(false);
+      if (!Array.isArray(s)) expect(s.devices).toEqual([]);
+    }
+  });
+});

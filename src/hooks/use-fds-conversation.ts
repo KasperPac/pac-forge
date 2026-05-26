@@ -17,19 +17,24 @@ import type {
   AssemblyConfig,
   SubsystemConfig,
   InstrumentTag,
-  OperatingState,
   FdsAssemblySession,
   FdsConversationTurn,
 } from "@/types/spec-builder";
-import type { PermissiveCondition, SequentialStateV2 } from "@/types/spec-contract-v2";
+import type {
+  OperatingStateV2,
+  PermissiveCondition,
+  SequentialStateV2,
+} from "@/types/spec-contract-v2";
 import { ensureV2 } from "@/lib/spec-builder/sequence-legacy-shim";
+import { SpecContractPatchSchema, validateSpecContractPatch } from "@/lib/spec-builder/contract";
+import { buildValidationFailureTurn } from "@/lib/spec-builder/validation-failure-turn";
 
 interface UseFdsConversationOptions {
   session: FdsAssemblySession;
   assembly: AssemblyConfig;
   subsystem: SubsystemConfig;
   allTags: InstrumentTag[];
-  allStates: OperatingState[];
+  allStates: OperatingStateV2[];
 }
 
 interface UseFdsConversationReturn {
@@ -55,12 +60,19 @@ export function useFdsConversation({
 
   const sequentialStates = allStates.filter((s) => s.state_pattern === "sequential");
 
+  const stateLabelFor = (stateId: string): string => {
+    const matched = allStates.find((s) => String(s.state_id) === stateId);
+    if (!matched) return `state_id ${stateId}`;
+    const name = matched.display_name ?? matched.state_name ?? matched.custom_name ?? stateId;
+    return `${name} (state_id ${stateId})`;
+  };
+
   const buildSystemPrompt = useCallback(() => {
     return buildFdsInterviewSystemPrompt(
       assembly, subsystem, allTags,
       session.static_states,
-      // Shim cast: prompt builder still expects legacy SequentialStateData shape
-      session.sequential_states as unknown as Record<string, import("@/types/spec-builder").SequentialStateData>,
+      // Prompt builder now consumes SequentialStateV2 directly (Phase 3 Task 2).
+      session.sequential_states,
       allStates,
     );
   }, [assembly, subsystem, allTags, session.static_states, session.sequential_states, allStates]);
@@ -107,40 +119,90 @@ export function useFdsConversation({
 
   const resolveStateId = useCallback(
     (rawId: string | undefined): string | undefined => {
-      if (!rawId) return sequentialStates[0]?.state_id;
-      if (sequentialStates.some((s) => s.state_id === rawId)) return rawId;
+      const firstId =
+        sequentialStates[0]?.state_id !== undefined ? String(sequentialStates[0].state_id) : undefined;
+      if (!rawId) return firstId;
+      if (sequentialStates.some((s) => String(s.state_id) === rawId)) return rawId;
       const byName = sequentialStates.find(
-        (s) => s.state_name.toLowerCase() === rawId.toLowerCase() || s.state_id.toLowerCase() === rawId.toLowerCase(),
+        (s) =>
+          (s.state_name?.toLowerCase() === rawId.toLowerCase()) ||
+          String(s.state_id).toLowerCase() === rawId.toLowerCase(),
       );
-      return byName?.state_id ?? sequentialStates[0]?.state_id;
+      return byName?.state_id !== undefined ? String(byName.state_id) : firstId;
     },
     [sequentialStates],
   );
 
   const processAiResponse = useCallback(
-    (fullText: string): Array<{ state_id: string; data: SequentialStateV2 }> => {
-      // Shim cast: extractJsonFromResponse currently typed as Record,
-      // but during SFC v2 migration it yields an array of delta blocks.
+    (fullText: string): {
+      updates: Array<{ state_id: string; data: SequentialStateV2 }>;
+      failures: Array<{ state_id: string; issues: string[]; stateLabel: string }>;
+    } => {
       const extracted = extractJsonFromResponse(fullText) as unknown as Array<Record<string, unknown>> | null;
-      if (!extracted || extracted.length === 0) return [];
+      if (!extracted || extracted.length === 0) {
+        return { updates: [], failures: [] };
+      }
 
-      const results: Array<{ state_id: string; data: SequentialStateV2 }> = [];
+      const updates: Array<{ state_id: string; data: SequentialStateV2 }> = [];
+      const failures: Array<{ state_id: string; issues: string[]; stateLabel: string }> = [];
+
       for (const block of extracted) {
-        const stateId = resolveStateId(block.state_id as string | undefined);
+        const rawStateId = block.state_id;
+        const stateId = resolveStateId(
+          typeof rawStateId === "number" ? String(rawStateId) : (rawStateId as string | undefined),
+        );
         if (!stateId) continue;
 
         const existing = session.sequential_states[stateId] ?? { permissives: [], steps: [], notes: null };
         const merged: SequentialStateV2 = {
           ...existing,
+          override_kind: (block.override_kind as SequentialStateV2["override_kind"]) ?? existing.override_kind ?? "override",
           permissives: (block.permissives as PermissiveCondition[]) ?? existing.permissives,
           steps: (block.steps as SequentialStateV2["steps"]) ?? existing.steps,
           notes: (block.notes as string | null) ?? existing.notes,
         };
-        results.push({ state_id: stateId, data: ensureV2(merged, stateId) });
+        const v2 = ensureV2(merged, stateId);
+
+        // Phase 3 — hard validator gate. Build a per-state assembly patch
+        // and check it. Any issues abort just this block; valid blocks in
+        // the same response still merge.
+        const patch = {
+          assemblies: {
+            [assembly.assembly_id]: {
+              assembly_id: assembly.assembly_id,
+              subsystem_id: subsystem.subsystem_id,
+              static_states: session.static_states,
+              sequential_states: {
+                ...session.sequential_states,
+                [stateId]: v2,
+              },
+            },
+          },
+        };
+        // Phase 3 — two-stage gate. Zod first (catches shape issues: bad enum
+        // values, missing required fields, wrong discriminator kinds). Structural
+        // validator second (catches cross-row invariants: override_kind content,
+        // PackML range, modes, parameter_ref).
+        const parsed = SpecContractPatchSchema.safeParse(patch);
+        const issues: string[] = [];
+        if (!parsed.success) {
+          for (const issue of parsed.error.issues) {
+            issues.push(`${issue.path.join(".")}: ${issue.message}`);
+          }
+        } else {
+          issues.push(...validateSpecContractPatch(parsed.data));
+        }
+        if (issues.length > 0) {
+          failures.push({ state_id: stateId, issues, stateLabel: stateLabelFor(stateId) });
+          continue;
+        }
+
+        updates.push({ state_id: stateId, data: v2 });
       }
-      return results;
+
+      return { updates, failures };
     },
-    [resolveStateId, session.sequential_states],
+    [resolveStateId, session.sequential_states, session.static_states, assembly.assembly_id, subsystem.subsystem_id, allStates],
   );
 
   const sendMessage = useCallback(
@@ -189,8 +251,8 @@ export function useFdsConversation({
           plMeta,
         );
 
-        // Extract JSON (may contain multiple states) and persist assistant turn
-        const tableUpdates = processAiResponse(fullText);
+        // Extract JSON (may contain multiple states), validate, then persist
+        const { updates: tableUpdates, failures } = processAiResponse(fullText);
         const proseContent = stripJsonFromResponse(fullText);
 
         const assistantTurn: FdsConversationTurn = {
@@ -200,8 +262,18 @@ export function useFdsConversation({
           table_delta: tableUpdates[0]?.data,
         };
 
-        // Build on conversationWithUser (not stale session.conversation)
-        const conversationWithBoth = [...conversationWithUser, assistantTurn];
+        const failureTurns = failures.map((f) =>
+          buildValidationFailureTurn({
+            stateLabel: f.stateLabel,
+            issues: f.issues,
+            stateContext: f.state_id,
+          }),
+        );
+
+        // Append assistant turn + any failure turns (failures come after the
+        // assistant message so the engineer sees the AI's prose first, then
+        // the validator's complaint).
+        const conversationWithBoth = [...conversationWithUser, assistantTurn, ...failureTurns];
         const update: Record<string, unknown> = { conversation: conversationWithBoth };
         if (tableUpdates.length > 0) {
           const existing = { ...session.sequential_states };
@@ -240,7 +312,13 @@ export function useFdsConversation({
       if (!firstState) throw new Error("No sequential states defined");
 
       const systemPrompt = buildSystemPrompt();
-      const openingPrompt = buildFdsOpeningMessage(assembly, allTags, firstState);
+      // buildFdsOpeningMessage still accepts the legacy OperatingState; bridge
+      // until Task 10 narrows it. Only `state_name` is read inside.
+      const openingPrompt = buildFdsOpeningMessage(
+        assembly,
+        allTags,
+        firstState as unknown as import("@/types/spec-builder").OperatingState,
+      );
 
       const plMeta: PromptLayerMeta = {
         prompt_name: "fds_interview_opening",

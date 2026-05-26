@@ -1,0 +1,64 @@
+{
+  "assembly": {
+    "assembly_id": "00000000-0000-4000-8000-000000000a01",
+    "assembly_name": "LFT01 — Hydraulic Lift",
+    "devices": [
+      {
+        "device_id": "00000000-0000-4000-8000-000000000d01",
+        "device_name": "Hydraulic Pump M01",
+        "device_class": "motor",
+        "is_safety": false,
+        "io_signals": [
+          { "tag": "LFT01_M01_CMD", "signal_type": "DO" },
+          { "tag": "LFT01_M01_FB", "signal_type": "DI" }
+        ]
+      },
+      {
+        "device_id": "00000000-0000-4000-8000-000000000d02",
+        "device_name": "Lift Solenoid SOL02",
+        "device_class": "solenoid valve",
+        "is_safety": false,
+        "io_signals": [
+          { "tag": "LFT01_SOL02_CMD", "signal_type": "DO" },
+          { "tag": "LFT01_ZSO02", "signal_type": "DI" },
+          { "tag": "LFT01_ZSC02", "signal_type": "DI" }
+        ]
+      },
+      {
+        "device_id": "00000000-0000-4000-8000-000000000d03",
+        "device_name": "Level Sensor LT01",
+        "device_class": "analog device",
+        "is_safety": false,
+        "io_signals": [
+          { "tag": "LFT01_LT01", "signal_type": "AI" }
+        ]
+      }
+    ]
+  },
+  "subsystem": {
+    "subsystem_id": "00000000-0000-4000-8000-000000000b01",
+    "subsystem_name": "Catodo Lift Station",
+    "equipment_type": "lift"
+  },
+  "tags": [
+    { "tag": "LFT01_M01_CMD", "description": "Pump motor command", "signal_direction": "DO" },
+    { "tag": "LFT01_M01_FB", "description": "Pump run feedback", "signal_direction": "DI" },
+    { "tag": "LFT01_SOL02_CMD", "description": "Lift solenoid command", "signal_direction": "DO" },
+    { "tag": "LFT01_ZSO02", "description": "Lift open limit", "signal_direction": "DI" },
+    { "tag": "LFT01_ZSC02", "description": "Lift closed limit", "signal_direction": "DI" },
+    { "tag": "LFT01_LT01", "description": "Level sensor", "signal_direction": "AI" },
+    { "tag": "SYS_ESTOP01", "description": "Master E-Stop", "signal_direction": "DI" }
+  ],
+  "staticStates": {
+    "4": [
+      { "tag": "LFT01_M01_CMD", "description": "Pump off", "state": "false" },
+      { "tag": "LFT01_SOL02_CMD", "description": "Lift solenoid off", "state": "false" }
+    ]
+  },
+  "completedSequentialStates": {},
+  "allStates": [
+    { "state_id": 4, "packml_id": 4, "display_name": "Idle", "description": "Idle", "state_pattern": "static" },
+    { "state_id": 6, "packml_id": 6, "display_name": "Execute", "description": "Running", "state_pattern": "sequential" },
+    { "state_id": 16, "packml_id": 16, "display_name": "Completing", "description": "Finishing", "state_pattern": "sequential" }
+  ]
+}

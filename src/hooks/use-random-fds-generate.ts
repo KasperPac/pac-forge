@@ -1,7 +1,13 @@
+// src/hooks/use-random-fds-generate.ts
 /**
- * Hook for generating a random FDS spec via the design engineer agent.
- * Creates a complete spec_project with subsystems, assemblies, devices, IO signals,
- * operating states, alarm tiers, and process sequences.
+ * Hook for generating a random V2 FDS spec.
+ *   Stage 1 — small AI theme call (names + prose).
+ *   Stage 2 — fully deterministic V2 builder (assembleRandomFds).
+ *
+ * The hook is a thin wrapper around assembleRandomFds + the existing
+ * mutation hooks. It does not own validator logic — the builder Zod-
+ * parses every contract it produces, and writeSpecContract runs the
+ * full structural validator before persisting.
  */
 import { useState, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -12,100 +18,12 @@ import {
   useDeleteSpecProject,
   useSaveInstrumentRegister,
 } from "@/hooks/use-spec-projects";
-import { generateSpec } from "@/lib/spec-builder/orchestrator";
+import type { SpecProjectUpdate } from "@/types/spec-builder";
+import { writeSpecContract } from "@/lib/spec-builder/contract";
 import { supabase } from "@/lib/supabase";
-import type {
-  SubsystemConfig,
-  OperatingState,
-  AlarmTier,
-  DeviceConfig,
-  AssemblyConfig,
-  IoSignal,
-  InstrumentTag,
-  SubsystemSummary,
-  DeviceClass,
-  EquipmentType,
-  SignalDirection,
-} from "@/types/spec-builder";
-import type { CompletionCriterion } from "@/types/spec-contract-v2";
-
-/**
- * Parse prose completion criteria into a structured CompletionCriterion[].
- * Extracts the common pattern: "<tag> = <value> within <Ns>, else fault —
- * <description>". Falls back to an { kind: "expression" } row when the prose
- * doesn't match a recognisable structure.
- */
-function parseCompletionCriteria(
-  prose: string,
-  faultCodeSeed: string,
-): CompletionCriterion[] {
-  if (!prose || typeof prose !== "string") return [];
-  const criteria: CompletionCriterion[] = [];
-
-  // Timeout extraction (e.g. "within 3s", "within 500ms")
-  const timeoutMatch = prose.match(/within\s+(\d+(?:\.\d+)?)\s*(ms|s)\b/i);
-  let within_ms: number | undefined;
-  if (timeoutMatch) {
-    const n = Number(timeoutMatch[1]);
-    within_ms = timeoutMatch[2].toLowerCase() === "ms" ? Math.round(n) : Math.round(n * 1000);
-  }
-
-  // Fault extraction ("else fault — <text>") — use as fault_code seed
-  let on_fail: CompletionCriterion extends { on_fail?: infer F } ? F : never =
-    undefined as unknown as never;
-  const faultMatch = prose.match(/else\s+(fault|warning)\b[^\w]*([^.]*)/i);
-  if (faultMatch) {
-    const severity = faultMatch[1].toLowerCase() === "warning" ? "warning" : "fault";
-    on_fail = { fault_code: `F_${faultCodeSeed}`, severity } as typeof on_fail;
-  }
-
-  // tag_equals: "<TAG> = TRUE/FALSE" or "<TAG> = <number>"
-  const tagEq = prose.match(/\b([A-Z][A-Z0-9_]{2,})\s*=\s*(TRUE|FALSE|-?\d+(?:\.\d+)?)/i);
-  if (tagEq) {
-    const tag = tagEq[1];
-    const raw = tagEq[2].toUpperCase();
-    const value: string | number | boolean =
-      raw === "TRUE" ? true : raw === "FALSE" ? false : Number(tagEq[2]);
-    criteria.push({
-      kind: "tag_equals",
-      tag,
-      value,
-      ...(within_ms !== undefined ? { within_ms } : {}),
-      ...(on_fail ? { on_fail } : {}),
-    });
-    return criteria;
-  }
-
-  // tag_compare: "<TAG> >= <number>"
-  const tagCmp = prose.match(/\b([A-Z][A-Z0-9_]{2,})\s*(<=|>=|<|>|==)\s*(-?\d+(?:\.\d+)?)/);
-  if (tagCmp) {
-    criteria.push({
-      kind: "tag_compare",
-      tag: tagCmp[1],
-      op: tagCmp[2] as "<" | "<=" | ">" | ">=" | "==",
-      value: Number(tagCmp[3]),
-      ...(within_ms !== undefined ? { within_ms } : {}),
-      ...(on_fail ? { on_fail } : {}),
-    });
-    return criteria;
-  }
-
-  // Fallback: expression with referenced_tags scraped from UPPER_SNAKE tokens.
-  const tokens = Array.from(prose.matchAll(/\b([A-Z][A-Z0-9_]{2,})\b/g)).map((m) => m[1]);
-  const unique = Array.from(new Set(tokens));
-  criteria.push({
-    kind: "expression",
-    text: prose,
-    referenced_tags: unique,
-    ...(within_ms !== undefined ? { within_ms } : {}),
-    ...(on_fail ? { on_fail } : {}),
-  });
-  return criteria;
-}
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+import { buildRandomFdsThemePrompt } from "@/lib/spec-builder/random/theme-prompt";
+import { RandomFdsThemeSchema } from "@/lib/spec-builder/random/theme-schema";
+import { assembleRandomFds } from "@/lib/spec-builder/random/assemble";
 
 export interface RandomFdsParams {
   subsystems: number;
@@ -114,198 +32,22 @@ export interface RandomFdsParams {
   projectId: string;
   projectNumber?: string;
   clientName?: string;
-  autoComplete?: boolean;
-  onProgress?: (stage: string, detail?: string) => void;
+  onProgress?: (stage: string) => void;
 }
 
-interface GeneratedFds {
-  title: string;
-  system_description: string;
-  plc_model: string;
-  hmi_type: string;
-  safety_classification: string | null;
-  fault_philosophy: string;
-  design_principles: string[];
-  operating_states: Array<{
-    state_id: string;
-    state_name: string;
-    description: string;
-    state_pattern: "static" | "sequential";
-  }>;
-  alarm_tiers: Array<{
-    tier_id: string;
-    tier_name: string;
-    description: string;
-  }>;
-  subsystems: Array<{
-    subsystem_id: string;
-    subsystem_name: string;
-    equipment_type: string;
-    description: string;
-    assemblies: Array<{
-      assembly_id: string;
-      assembly_name: string;
-      description: string;
-      devices: Array<{
-        device_id: string;
-        device_name: string;
-        device_class: string;
-        description: string;
-        is_safety: boolean;
-        io_signals: Array<{
-          tag: string;
-          signal_type: string;
-          io_address: string;
-          description: string;
-        }>;
-      }>;
-    }>;
-  }>;
-}
-
-// ---------------------------------------------------------------------------
-// System prompt
-// ---------------------------------------------------------------------------
-
-function buildRandomFdsPrompt(params: RandomFdsParams): string {
-  return `You are a senior design engineer at an industrial automation company. Your task is to generate a **complete, realistic functional design specification (FDS)** for a random industrial machine or production system.
-
-## Requirements
-
-Generate a specification for a random type of industrial machine/system. Choose from realistic industrial applications such as:
-- Material handling systems (conveyors, palletisers, pick & place)
-- Packaging lines (filling, capping, labelling, case packing)
-- Process systems (mixing, batching, CIP, pasteurisation)
-- Assembly systems (press fitting, screwing, welding stations)
-- Storage/retrieval (AS/RS, shuttle systems, vertical lifts)
-- Treatment systems (coating, drying, curing, heat treatment)
-- Food/beverage processing (forming, baking, cooling, freezing)
-- Pharmaceutical (tablet press, coating pan, blister packing)
-- Plastics (extrusion, injection moulding, blow moulding)
-- Metal working (stamping, laser cutting, bending, deburring)
-
-Pick something specific and interesting — not generic. Give it a realistic project name.
-
-## Exact counts required
-
-- **Subsystems**: exactly ${params.subsystems}
-- **Assemblies**: exactly ${params.assemblies} total (distributed across subsystems)
-- **Devices**: exactly ${params.devices} total (distributed across assemblies)
-
-Each device MUST have at least 1 IO signal. Most devices should have 2-4 IO signals.
-Motors typically have: run command (DO), feedback running (DI), fault (DI), and optionally speed reference (AO), speed feedback (AI).
-Valves typically have: command (DO), open feedback (DI), closed feedback (DI).
-Sensors: typically 1 DI or 1 AI signal.
-
-## IO Signal Rules
-
-- signal_type must be one of: "DI", "DO", "AI", "AO"
-- io_address must use Siemens format: %I0.0, %Q0.0, %IW64, %QW80, etc.
-  - DI: %I{byte}.{bit} (e.g. %I0.0, %I0.1, %I1.0)
-  - DO: %Q{byte}.{bit} (e.g. %Q0.0, %Q0.1)
-  - AI: %IW{word} (e.g. %IW64, %IW66) — word addresses, increment by 2
-  - AO: %QW{word} (e.g. %QW80, %QW82)
-- Tags should use realistic ISA-style naming (e.g. "CV01_M01_CMD", "LT01_LEVEL", "SOL_CLAMP_FWD")
-- Addresses must not overlap
-
-## Operating States
-
-Include 4-7 operating states. Always include:
-- IDLE (static) — all outputs off
-- E_STOP (static) — emergency stop state
-- At least 2 sequential states (e.g. STARTING, EXECUTE, STOPPING)
-- Optionally: MANUAL, FAULT, COMPLETED, HOMING
-
-## Alarm Tiers
-
-Include 2-3 alarm tiers:
-- Critical (immediate shutdown)
-- Warning (operator notification)
-- Optionally: Maintenance (logged only)
-
-## Device Classes
-
-device_class must be one of: "valve", "motor", "sensor_level", "sensor_pressure", "sensor_temperature", "sensor_weight", "sensor_flow", "sensor_position", "indicator", "transmitter", "filter", "conveyor", "hopper", "transporter", "dryer", "cooler", "push_button", "emergency_stop", "other"
-
-## Equipment Types
-
-equipment_type must be one of: "Hopper", "Pneumatic Transporter", "Dryer", "Cooler", "Unloading Station", "Magnetic Filter", "Fan/Blower", "Milling", "Conveyor", "Other"
-
-## Output format
-
-Return ONLY valid JSON matching this exact structure (no markdown fences, no explanation):
-
-{
-  "title": "string — project title",
-  "system_description": "string — 2-3 sentence system overview",
-  "plc_model": "string — e.g. S7-1500, CPU 1516-3 PN/DP",
-  "hmi_type": "string — e.g. TP1200 Comfort, KTP700 Basic",
-  "safety_classification": "string | null",
-  "fault_philosophy": "string — e.g. fault → controlled stop → operator reset",
-  "design_principles": ["string array — 3-5 design principles"],
-  "operating_states": [{ "state_id": "string", "state_name": "string", "description": "string", "state_pattern": "static|sequential" }],
-  "alarm_tiers": [{ "tier_id": "string", "tier_name": "string", "description": "string" }],
-  "subsystems": [{
-    "subsystem_id": "string",
-    "subsystem_name": "string",
-    "equipment_type": "string",
-    "description": "string",
-    "assemblies": [{
-      "assembly_id": "string",
-      "assembly_name": "string",
-      "description": "string",
-      "devices": [{
-        "device_id": "string",
-        "device_name": "string",
-        "device_class": "string",
-        "description": "string",
-        "is_safety": false,
-        "io_signals": [{
-          "tag": "string",
-          "signal_type": "DI|DO|AI|AO",
-          "io_address": "string",
-          "description": "string"
-        }]
-      }]
-    }]
-  }]
-}`;
-}
-
-function normalizeSignalDirection(s: string): SignalDirection {
-  const u = (s ?? "").toUpperCase();
-  if (u === "DI" || u === "DO" || u === "AI" || u === "AO") return u;
-  return "internal";
-}
-
-// ---------------------------------------------------------------------------
-// JSON extractor — handles markdown fences and prose wrapping
-// ---------------------------------------------------------------------------
-
-function extractAndParseJson(raw: string): GeneratedFds {
-  // Strip common markdown fence patterns
-  let cleaned = raw.trim();
-  cleaned = cleaned.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/, "").trim();
-
-  // Find the first '{' and the matching last '}'
-  const firstBrace = cleaned.indexOf("{");
-  const lastBrace = cleaned.lastIndexOf("}");
-  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
-    throw new Error(`No JSON object found in response (length: ${raw.length})`);
+function extractJson(raw: string): unknown {
+  const trimmed = raw
+    .trim()
+    .replace(/^```(?:json)?\s*\n?/i, "")
+    .replace(/\n?```\s*$/, "")
+    .trim();
+  const first = trimmed.indexOf("{");
+  const last = trimmed.lastIndexOf("}");
+  if (first === -1 || last === -1 || last <= first) {
+    throw new Error(`No JSON object found in AI response (length: ${raw.length})`);
   }
-
-  const jsonStr = cleaned.slice(firstBrace, lastBrace + 1);
-  try {
-    return JSON.parse(jsonStr) as GeneratedFds;
-  } catch (err) {
-    const preview = jsonStr.slice(0, 200);
-    throw new Error(`Failed to parse FDS JSON: ${err instanceof Error ? err.message : "unknown"}. Preview: ${preview}`);
-  }
+  return JSON.parse(trimmed.slice(first, last + 1));
 }
-
-// ---------------------------------------------------------------------------
-// Hook
-// ---------------------------------------------------------------------------
 
 export function useRandomFdsGenerate() {
   const [loading, setLoading] = useState(false);
@@ -325,331 +67,138 @@ export function useRandomFdsGenerate() {
 
       let createdSpecId: string | null = null;
       try {
-        const systemPrompt = buildRandomFdsPrompt(params);
-        const { content } = await callNonStreaming(
-          systemPrompt,
-          [{ role: "user", content: `Generate a random FDS now. Remember: exactly ${params.subsystems} subsystems, ${params.assemblies} assemblies, ${params.devices} devices.` }],
-          abortRef.current.signal,
-          16384,
-          { prompt_name: "random-fds-generate", agent_role: "design_engineer", pipeline_step: "random_fds" },
-        );
-
-        // Parse JSON — strip markdown fences and extract first JSON object
-        const fds = extractAndParseJson(content);
-        console.log("[random-fds] parsed response:", fds);
-
-        // Validate counts
-        const subsystemsArr = fds.subsystems ?? [];
-        const totalAssemblies = subsystemsArr.reduce((sum, s) => sum + (s.assemblies?.length ?? 0), 0);
-        const totalDevices = subsystemsArr.reduce(
-          (sum, s) => sum + (s.assemblies ?? []).reduce((aSum, a) => aSum + (a.devices?.length ?? 0), 0),
-          0,
-        );
-
-        if (subsystemsArr.length !== params.subsystems) {
-          console.warn(`[random-fds] expected ${params.subsystems} subsystems, got ${subsystemsArr.length}`);
-        }
-        if (totalAssemblies !== params.assemblies) {
-          console.warn(`[random-fds] expected ${params.assemblies} assemblies, got ${totalAssemblies}`);
-        }
-        if (totalDevices !== params.devices) {
-          console.warn(`[random-fds] expected ${params.devices} devices, got ${totalDevices}`);
-        }
-
-        // Convert to typed structures BEFORE creating the spec — surfaces errors early.
-        // All hierarchy ids are replaced with real UUIDs; the AI's short "SS01"-style
-        // labels are retained as `short_tag` on the config objects where the type
-        // permits (kept in description prefix for now — `short_tag` not on legacy
-        // SubsystemConfig). Wave 5 / type cleanup may widen this later.
-        const confirmedSubsystems: SubsystemConfig[] = subsystemsArr.map((s) => {
-          const subsystem_id = crypto.randomUUID();
-          const shortSub = s.subsystem_id ?? "";
-          return {
-            subsystem_id,
-            subsystem_name: s.subsystem_name ?? "Unnamed",
-            equipment_type: (s.equipment_type ?? "Other") as EquipmentType,
-            description: shortSub
-              ? `[${shortSub}] ${s.description ?? ""}`.trim()
-              : s.description ?? "",
-            excluded: false,
-            assemblies: (s.assemblies ?? []).map((a) => {
-              const assembly_id = crypto.randomUUID();
-              const shortAsm = a.assembly_id ?? "";
-              return {
-                assembly_id,
-                assembly_name: a.assembly_name ?? "Unnamed",
-                description: shortAsm
-                  ? `[${shortAsm}] ${a.description ?? ""}`.trim()
-                  : a.description ?? "",
-                devices: (a.devices ?? []).map((d) => ({
-                  device_id: crypto.randomUUID(),
-                  device_name: d.device_name ?? "Unnamed",
-                  device_class: (d.device_class ?? "other") as DeviceClass,
-                  description: d.device_id
-                    ? `[${d.device_id}] ${d.description ?? ""}`.trim()
-                    : d.description ?? "",
-                  is_safety: Boolean(d.is_safety),
-                  io_signals: (d.io_signals ?? []).map((io) => ({
-                    tag: io.tag ?? "",
-                    signal_type: io.signal_type ?? "DI",
-                    io_address: io.io_address ?? "",
-                    description: io.description ?? "",
-                  })) satisfies IoSignal[],
-                })) satisfies DeviceConfig[],
-              };
-            }) satisfies AssemblyConfig[],
-          };
+        // Stage 1 — AI theme
+        params.onProgress?.("Generating theme…");
+        const prompt = buildRandomFdsThemePrompt({
+          subsystems: params.subsystems,
+          assemblies: params.assemblies,
+          devices: params.devices,
         });
+        const { content } = await callNonStreaming(
+          prompt,
+          [
+            {
+              role: "user",
+              content: `Generate a theme for exactly ${params.subsystems} subsystems, ${params.assemblies} assemblies, ${params.devices} devices.`,
+            },
+          ],
+          abortRef.current.signal,
+          4096,
+          { prompt_name: "random-fds-theme", agent_role: "design_engineer", pipeline_step: "random_fds_theme" },
+        );
 
-        const confirmedStates: OperatingState[] = (fds.operating_states ?? []).map((s) => ({
-          state_id: s.state_id ?? "",
-          state_name: s.state_name ?? "Unnamed",
-          description: s.description ?? "",
-          state_pattern: s.state_pattern === "sequential" ? "sequential" : "static",
-        }));
+        const themeRaw = extractJson(content);
+        const themeParse = RandomFdsThemeSchema.safeParse(themeRaw);
+        if (!themeParse.success) {
+          throw new Error(
+            `Stage 1 theme failed schema validation:\n${themeParse.error.message}`,
+          );
+        }
+        const theme = themeParse.data;
 
-        const alarmTiers: AlarmTier[] = (fds.alarm_tiers ?? []).map((t) => ({
-          tier_id: t.tier_id ?? "",
-          tier_name: t.tier_name ?? "Unnamed",
-          description: t.description ?? "",
-        }));
-
-        // Create the spec project (only AFTER data conversion succeeded)
+        // Create the spec row early so the project_id is stable for Stage 2 rows.
+        params.onProgress?.("Creating spec…");
         const docCode = `RAND-${Date.now().toString(36).toUpperCase()}`;
         const spec = await createSpec.mutateAsync({
           project_id: params.projectId,
           doc_code: docCode,
-          title: fds.title ?? "Random FDS",
+          title: theme.title,
           client_name: params.clientName,
           project_number: params.projectNumber,
-          plc_model: fds.plc_model,
-          hmi_type: fds.hmi_type,
-          system_description: fds.system_description,
-          safety_classification: fds.safety_classification ?? undefined,
-          fault_philosophy: fds.fault_philosophy,
-          design_principles: fds.design_principles ?? [],
+          plc_model: theme.plc_model,
+          hmi_type: theme.hmi_type,
+          system_description: theme.system_description,
+          safety_classification: theme.safety_classification ?? undefined,
+          fault_philosophy: theme.fault_philosophy,
+          design_principles: theme.design_principles,
         });
         createdSpecId = spec.id;
 
-        // Update spec with wizard data
+        // Stage 2 — deterministic build
+        params.onProgress?.("Building V2 spec…");
+        const result = assembleRandomFds(theme, { projectId: spec.id });
+
+        // Wizard-data + validator gate (throws ContractValidationError on failure)
+        params.onProgress?.("Writing contract…");
+        await writeSpecContract(spec.id, result.patch);
+
+        // Mirror the projectFields onto the spec row so updateSpec invalidates the
+        // wizard summary query keys the UI consumes. writeSpecContract already
+        // persisted these JSONB columns; the cast bridges the V2 contract shapes
+        // (looser `equipment_type: string`, `state_id: string|number`) onto the
+        // legacy `SubsystemConfig` / `OperatingState` interfaces which is safe at
+        // the DB layer (JSONB) and the migrate*() helpers on read.
         await updateSpec.mutateAsync({
           id: spec.id,
-          confirmed_subsystems: confirmedSubsystems,
-          confirmed_states: confirmedStates,
-          alarm_tiers: alarmTiers,
+          confirmed_subsystems: (result.patch.hierarchy?.subsystems ?? []) as unknown as SpecProjectUpdate["confirmed_subsystems"],
+          confirmed_states: (result.patch.states ?? []) as unknown as SpecProjectUpdate["confirmed_states"],
+          alarm_tiers: result.patch.alarm_tiers ?? [],
         });
 
-        // Synthesize an instrument register from the generated IO signals so
-        // downstream phases (wizard, authoring, editor, export) unlock.
-        const tags: InstrumentTag[] = [];
-        const subsystemCounts = new Map<string, { name: string; equipment: EquipmentType; count: number }>();
-        for (const s of confirmedSubsystems) {
-          subsystemCounts.set(s.subsystem_id, {
-            name: s.subsystem_name,
-            equipment: s.equipment_type,
-            count: 0,
-          });
-          for (const a of s.assemblies) {
-            for (const d of a.devices) {
-              for (const io of d.io_signals) {
-                const sigDir = normalizeSignalDirection(io.signal_type);
-                tags.push({
-                  tag: io.tag,
-                  device_type: d.device_class,
-                  description: io.description || d.description,
-                  signal_type: io.signal_type,
-                  io_address: io.io_address,
-                  device_class: d.device_class,
-                  signal_direction: sigDir,
-                  subsystem_prefix: s.subsystem_id,
-                  is_safety: d.is_safety,
-                  subsystem: s.subsystem_name,
-                });
-                const entry = subsystemCounts.get(s.subsystem_id);
-                if (entry) entry.count += 1;
-              }
-            }
-          }
-        }
-        const subsystemSummaries: SubsystemSummary[] = Array.from(subsystemCounts.entries()).map(
-          ([id, v]) => ({
-            subsystem_id: id,
-            subsystem_name: v.name,
-            equipment_type: v.equipment,
-            tag_count: v.count,
-          }),
-        );
-
-        const register = await saveRegister.mutateAsync({
+        // Instrument register
+        params.onProgress?.("Saving instrument register…");
+        await saveRegister.mutateAsync({
           spec_project_id: spec.id,
           raw_filename: `${docCode}-random-fds.synthetic`,
-          tags,
-          subsystems: subsystemSummaries,
+          tags: result.instrumentRegister.tags,
+          subsystems: result.instrumentRegister.subsystems,
           parse_warnings: [],
           haiku_usage: { input: 0, output: 0, total: 0 },
         });
 
-        // Optionally drive all remaining phases: section generation + auto-approval.
-        if (params.autoComplete) {
-          params.onProgress?.("Generating FDS sections…");
-          const fullSpec = {
-            ...spec,
-            confirmed_subsystems: confirmedSubsystems,
-            confirmed_states: confirmedStates,
-            alarm_tiers: alarmTiers,
-            scope_exclusions: spec.scope_exclusions ?? [],
-            design_principles: fds.design_principles ?? [],
-          };
-          await generateSpec(
-            fullSpec,
-            register,
-            abortRef.current.signal,
-            (p) => params.onProgress?.(p.phase, `${p.detail} (${p.current}/${p.total})`),
-          );
-
-          // Auto-approve all generated sections
-          params.onProgress?.("Approving sections…");
+        // Direct inserts for tables writeSpecContract does not route yet.
+        params.onProgress?.("Seeding sessions + sections…");
+        if (result.functionalDescriptionRows.length > 0) {
           await supabase
             .from("spec_sections")
-            .update({ approved: true })
-            .eq("spec_project_id", spec.id);
-
-          // Seed fds_assembly_sessions so the co-author workspace and forge handoff
-          // both reflect the generated sequence content. For each assembly, copy its
-          // subsystem's generated per-state step tables into sequential_states.
-          params.onProgress?.("Seeding assembly sessions…");
-          const { data: funcSections } = await supabase
-            .from("spec_sections")
-            .select("subsystem_id,state_name,content_json")
+            .delete()
             .eq("spec_project_id", spec.id)
             .eq("section_type", "functional_description");
-
-          // Map: subsystemId → {stateId → {permissives, steps, notes}}
-          const subsystemSequences: Record<string, Record<string, { permissives: string[]; steps: unknown[]; notes: string | null }>> = {};
-          // Map: subsystemId → {stateId → device_states[]} for static states
-          const subsystemStatics: Record<string, Record<string, Array<{ tag: string; state: string }>>> = {};
-          for (const s of funcSections ?? []) {
-            if (!s.subsystem_id || !s.state_name) continue;
-            const c = s.content_json as { pattern?: string; permissives?: string[]; steps?: Array<Record<string, unknown>>; notes?: string | null; device_states?: Array<{ tag: string; state: string }> };
-            if (c.pattern === "sequential") {
-              // Enrich each step with structured completion_criteria parsed from
-              // its prose. Keeps the original `completion_criteria` prose for
-              // DOCX rendering while making `structured_criteria` available for
-              // deterministic re-ingest.
-              const enrichedSteps = (c.steps ?? []).map((rawStep, idx) => {
-                const step = rawStep as Record<string, unknown>;
-                const prose = String(step.completion_criteria ?? "");
-                const structured = parseCompletionCriteria(
-                  prose,
-                  `${s.subsystem_id}_${s.state_name}_STEP${idx + 1}`,
-                );
-                return {
-                  ...step,
-                  structured_criteria: structured,
-                };
-              });
-              subsystemSequences[s.subsystem_id] ??= {};
-              subsystemSequences[s.subsystem_id][s.state_name] = {
-                permissives: c.permissives ?? [],
-                steps: enrichedSteps,
-                notes: c.notes ?? null,
-              };
-            } else if (c.pattern === "static" && Array.isArray(c.device_states)) {
-              subsystemStatics[s.subsystem_id] ??= {};
-              subsystemStatics[s.subsystem_id][s.state_name] = c.device_states;
-            }
-          }
-
-          const sessionRows: Array<Record<string, unknown>> = [];
-          for (const sub of confirmedSubsystems) {
-            const seq = subsystemSequences[sub.subsystem_id] ?? {};
-            const staticBySubsystem = subsystemStatics[sub.subsystem_id] ?? {};
-            for (const asm of sub.assemblies) {
-              const asmTags = new Set<string>();
-              for (const d of asm.devices) for (const io of d.io_signals) asmTags.add(io.tag);
-              // Scope static states to just this assembly's tags
-              const staticStates: Record<string, Array<{ tag: string; state: string }>> = {};
-              for (const [stateId, entries] of Object.entries(staticBySubsystem)) {
-                staticStates[stateId] = entries.filter((e) => asmTags.has(e.tag));
-              }
-              sessionRows.push({
-                spec_project_id: spec.id,
-                subsystem_id: sub.subsystem_id,
-                assembly_id: asm.assembly_id,
-                status: "complete",
-                static_confirmed: true,
-                static_states: staticStates,
-                // Dual-write V2 mirror keyed by state_id (schema identical here
-                // because the generator already keys by state_id). Writer flip,
-                // not a cutover — legacy readers still use `static_states`.
-                static_states_v2: staticStates,
-                sequential_states: seq,
-                conversation: [],
-              });
-            }
-          }
-          if (sessionRows.length > 0) {
-            await supabase.from("fds_assembly_sessions").delete().eq("spec_project_id", spec.id);
-            await supabase.from("fds_assembly_sessions").insert(sessionRows);
-          }
-
-          // Seed subsystem orchestrations: for every multi-assembly subsystem,
-          // default to parallel execution ordering (assemblies run independently
-          // in the sequence they're declared) with no shared permissives or
-          // inter-assembly interlocks. Gives the Orchestration tab a coherent
-          // starting point and provides the forge handoff a valid payload.
-          const sequentialStateIds = confirmedStates
-            .filter((s) => s.state_pattern === "sequential")
-            .map((s) => s.state_id);
-          const orchRows: Array<Record<string, unknown>> = [];
-          for (const sub of confirmedSubsystems) {
-            if (sub.assemblies.length <= 1) continue;
-            const stateSequences: Record<string, unknown> = {};
-            for (const stateId of sequentialStateIds) {
-              stateSequences[stateId] = {
-                assembly_order: sub.assemblies.map((a) => a.assembly_id),
-                shared_permissives: [],
-                inter_assembly_interlocks: [],
-                notes: "Auto-seeded: assemblies run in declaration order with no inter-assembly interlocks. Refine in the Orchestration tab.",
-              };
-            }
-            orchRows.push({
-              spec_project_id: spec.id,
-              subsystem_id: sub.subsystem_id,
-              state_sequences: stateSequences,
-              conversation: [],
-              validation_results: null,
-              token_usage: { input: 0, output: 0 },
-            });
-          }
-          if (orchRows.length > 0) {
-            await supabase.from("fds_subsystem_orchestrations").delete().eq("spec_project_id", spec.id);
-            await supabase.from("fds_subsystem_orchestrations").insert(orchRows);
-          }
-
-          queryClient.invalidateQueries({ queryKey: ["spec_sections", spec.id] });
-          queryClient.invalidateQueries({ queryKey: ["fds_assembly_sessions", spec.id] });
-          queryClient.invalidateQueries({ queryKey: ["fds_subsystem_orchestrations", spec.id] });
+          const { error: secErr } = await supabase
+            .from("spec_sections")
+            .insert(result.functionalDescriptionRows);
+          if (secErr) throw new Error(`spec_sections insert: ${secErr.message}`);
+        }
+        if (result.assemblySessions.length > 0) {
+          await supabase.from("fds_assembly_sessions").delete().eq("spec_project_id", spec.id);
+          const { error: sesErr } = await supabase
+            .from("fds_assembly_sessions")
+            .insert(result.assemblySessions);
+          if (sesErr) throw new Error(`fds_assembly_sessions insert: ${sesErr.message}`);
+        }
+        if (result.orchestrations.length > 0) {
+          await supabase
+            .from("fds_subsystem_orchestrations")
+            .delete()
+            .eq("spec_project_id", spec.id);
+          const { error: orchErr } = await supabase
+            .from("fds_subsystem_orchestrations")
+            .insert(result.orchestrations);
+          if (orchErr) throw new Error(`fds_subsystem_orchestrations insert: ${orchErr.message}`);
         }
 
-        // Force a synchronous refetch of the list queries before returning,
-        // so the caller sees the fully-populated spec (not a stale create-only snapshot).
+        queryClient.invalidateQueries({ queryKey: ["spec_sections", spec.id] });
+        queryClient.invalidateQueries({ queryKey: ["fds_assembly_sessions", spec.id] });
+        queryClient.invalidateQueries({ queryKey: ["fds_subsystem_orchestrations", spec.id] });
         await queryClient.refetchQueries({
           queryKey: ["spec_projects", "by_project", params.projectId],
         });
 
         return spec.id;
       } catch (err) {
-        if (abortRef.current?.signal.aborted) return null;
-        const msg = err instanceof Error ? err.message : "Generation failed";
-        console.error("[random-fds] generation failed:", err);
-        setError(msg);
-        // Clean up orphaned spec if we created one before failing
+        const aborted = abortRef.current?.signal.aborted ?? false;
+        if (!aborted) {
+          const msg = err instanceof Error ? err.message : "Generation failed";
+          console.error("[random-fds] generation failed:", err);
+          setError(msg);
+        }
+        // Clean up orphan spec row on BOTH error and abort paths — otherwise
+        // canceling after createSpec succeeded leaks rows on every click.
         if (createdSpecId) {
           try {
             await deleteSpec.mutateAsync({ id: createdSpecId, projectId: params.projectId });
           } catch (cleanupErr) {
-            console.error("[random-fds] failed to clean up orphaned spec:", cleanupErr);
+            console.error("[random-fds] cleanup failed:", cleanupErr);
           }
         }
         return null;
