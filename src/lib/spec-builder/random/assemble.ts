@@ -126,10 +126,28 @@ interface ResolvedHierarchy {
 }
 
 function resolveHierarchy(theme: RandomFdsTheme): ResolvedHierarchy {
+  // Spec-wide set of device tag prefixes. tokenisePrefix truncates to 12
+  // chars, so similar long names ("Dehumidifier Process Air 1" / "...2")
+  // collapse onto the same prefix and produce duplicate IO tags, which the
+  // contract validator's global IO-tag uniqueness check rejects. We
+  // disambiguate by appending a numeric suffix until the prefix is unique
+  // across the whole spec.
+  const usedDevPrefixes = new Set<string>();
+  const uniqueDevPrefix = (base: string): string => {
+    if (!usedDevPrefixes.has(base)) {
+      usedDevPrefixes.add(base);
+      return base;
+    }
+    let n = 2;
+    while (usedDevPrefixes.has(`${base}_${n}`)) n += 1;
+    const out = `${base}_${n}`;
+    usedDevPrefixes.add(out);
+    return out;
+  };
+
   const subs = theme.subsystems.map((sub, si) => {
     const subsystem_id = crypto.randomUUID();
     const allocator = createIoAllocator(computeSubsystemBases(si));
-    const subPrefix = tokenisePrefix(sub.subsystem_name, `SS${si + 1}`);
 
     const assemblies: ResolvedAssembly[] = sub.assemblies.map((asm, ai) => {
       const assembly_id = crypto.randomUUID();
@@ -137,7 +155,8 @@ function resolveHierarchy(theme: RandomFdsTheme): ResolvedHierarchy {
 
       const devices: ResolvedDevice[] = asm.devices.map((dev, di) => {
         const device_id = crypto.randomUUID();
-        const devPrefix = `${asmPrefix}_${tokenisePrefix(dev.device_name, `D${di + 1}`)}`;
+        const baseDevPrefix = `${asmPrefix}_${tokenisePrefix(dev.device_name, `D${di + 1}`)}`;
+        const devPrefix = uniqueDevPrefix(baseDevPrefix);
         const tpl = DEVICE_TEMPLATES[dev.device_class];
         const ioSignals: ResolvedIoSignal[] = tpl.ioSlots.map((slot) => ({
           tag: `${devPrefix}_${slot.suffix}`,
@@ -160,7 +179,6 @@ function resolveHierarchy(theme: RandomFdsTheme): ResolvedHierarchy {
       return { assembly_id, assembly_name: asm.assembly_name, subsystem_id, devices };
     });
 
-    void subPrefix;
     return {
       subsystem_id,
       subsystem_name: sub.subsystem_name,

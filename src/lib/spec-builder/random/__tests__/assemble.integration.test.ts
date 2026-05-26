@@ -99,4 +99,52 @@ describe("assembleRandomFds — patch passes validator", () => {
     // 4 assemblies × 6 states = 24
     expect(result.functionalDescriptionRows).toHaveLength(24);
   });
+
+  it("disambiguates devices whose names collapse onto the same 12-char prefix", () => {
+    // Regression: tokenisePrefix slices to 12 chars, so two devices with
+    // long shared prefixes ("Dehumidifier Process Air 1" / "...2") produced
+    // identical tag prefixes and tripped validateSpecContractPatch's global
+    // IO-tag uniqueness check.
+    const theme: RandomFdsTheme = {
+      title: "Collision Theme",
+      system_description: "x",
+      plc_model: "S7-1500",
+      hmi_type: "TP1200",
+      fault_philosophy: "x",
+      design_principles: ["x"],
+      machine_theme: "x",
+      safety_classification: null,
+      subsystems: [
+        {
+          subsystem_name: "Dehumidification",
+          equipment_type: "Other",
+          description: "",
+          assemblies: [
+            {
+              assembly_name: "Process Air Loop",
+              description: "",
+              devices: [
+                { device_name: "Dehumidifier Process Air Sensor 1", device_class: "sensor_temperature", description: "", is_safety: false },
+                { device_name: "Dehumidifier Process Air Sensor 2", device_class: "sensor_temperature", description: "", is_safety: false },
+                { device_name: "Dehumidifier Process Air Sensor 3", device_class: "sensor_temperature", description: "", is_safety: false },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const result = assembleRandomFds(theme, { projectId: "00000000-0000-0000-0000-000000000001" });
+
+    // Patch must pass the validator (zero issues).
+    const parsed = SpecContractPatchSchema.safeParse(result.patch);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      const issues = validateSpecContractPatch(parsed.data);
+      expect(issues, issues.join("\n")).toEqual([]);
+    }
+
+    // All tags across the produced register must be globally unique.
+    const tags = result.instrumentRegister.tags.map((t) => t.tag);
+    expect(new Set(tags).size).toBe(tags.length);
+  });
 });
