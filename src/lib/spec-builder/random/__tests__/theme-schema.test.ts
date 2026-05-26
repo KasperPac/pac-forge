@@ -35,7 +35,8 @@ describe("RandomFdsThemeSchema", () => {
   });
 
   it("rejects a theme missing title", () => {
-    const { title: _omit, ...rest } = valid;
+    const rest = structuredClone(valid) as Partial<typeof valid>;
+    delete rest.title;
     expect(() => RandomFdsThemeSchema.parse(rest)).toThrow();
   });
 
