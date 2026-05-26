@@ -68,16 +68,18 @@ export function createIoAllocator(bases: IoAllocatorBases): IoAllocator {
 
 /**
  * Compute disjoint per-subsystem IO bases given subsystem count.
- * Each subsystem reserves 16 bytes of DI, 16 bytes of DO, 32 words of
- * AI (64 bytes), 32 words of AO (64 bytes). 8 subsystems × 16 bytes
- * fits comfortably inside an S7-1500's process image.
+ * Each subsystem reserves 16 bytes of DI, 16 bytes of DO, 64 words of
+ * AI (128 bytes), 64 words of AO (128 bytes). The AI/AO stride covers
+ * ≥60 signals per kind per subsystem (slider max — see spec §8.3).
+ * 8 subsystems × 128 bytes = 1024 bytes fits the default S7-1500
+ * process image (1024 bytes I, 1024 bytes Q).
  */
 export function computeSubsystemBases(subsystemIndex: number): IoAllocatorBases {
   return {
     subsystemIndex,
     diBase: subsystemIndex * 16,
     doBase: subsystemIndex * 16,
-    aiBase: 64 + subsystemIndex * 64,
-    aoBase: 80 + subsystemIndex * 64,
+    aiBase: 128 + subsystemIndex * 128,
+    aoBase: 128 + subsystemIndex * 128,
   };
 }

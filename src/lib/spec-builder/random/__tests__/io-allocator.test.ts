@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createIoAllocator } from "../io-allocator";
+import { createIoAllocator, computeSubsystemBases } from "../io-allocator";
 
 describe("createIoAllocator", () => {
   it("allocates DI addresses in %I<byte>.<bit> form starting at the subsystem's DI base", () => {
@@ -39,5 +39,20 @@ describe("createIoAllocator", () => {
       bAddrs.add(b.next("DI"));
     }
     for (const addr of aAddrs) expect(bAddrs.has(addr)).toBe(false);
+  });
+
+  it("no address overlap across 8 subsystems × 60 signals per kind", () => {
+    const kinds: Array<"DI" | "DO" | "AI" | "AO"> = ["DI", "DO", "AI", "AO"];
+    for (const kind of kinds) {
+      const seen = new Set<string>();
+      for (let si = 0; si < 8; si++) {
+        const alloc = createIoAllocator(computeSubsystemBases(si));
+        for (let n = 0; n < 60; n++) {
+          const addr = alloc.next(kind);
+          expect(seen.has(addr), `${kind} address ${addr} duplicated (subsystem ${si}, signal ${n})`).toBe(false);
+          seen.add(addr);
+        }
+      }
+    }
   });
 });
