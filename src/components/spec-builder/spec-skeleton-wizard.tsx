@@ -28,11 +28,14 @@ import type {
   SpecProject,
   InstrumentRegister,
   SubsystemConfig,
-  OperatingState,
   AlarmTier,
 } from "@/types/spec-builder";
-import { migrateSubsystemConfig, migrateOperatingStates, getSubsystemDeviceCount, inferStatePattern } from "@/types/spec-builder";
+import { migrateSubsystemConfig, getSubsystemDeviceCount, inferStatePattern } from "@/types/spec-builder";
 import type { StatePattern } from "@/types/spec-builder";
+import type { OperatingStateV2 } from "@/types/spec-contract-v2";
+import { CANONICAL_STATES } from "@/lib/spec-builder/random/state-machine";
+import { packmlByName } from "@/lib/spec-builder/migrate/packml-canonical";
+import type { SpecProjectUpdate } from "@/types/spec-builder";
 import { buildHierarchyFromTags } from "@/lib/spec-builder/instrument-parser";
 import { MachineHierarchyTable } from "./machine-hierarchy-table";
 import { cn } from "@/lib/utils";
@@ -89,9 +92,12 @@ export function SpecSkeletonWizard({ spec, register, onComplete }: Props) {
   });
   const [inferringHierarchy, setInferringHierarchy] = useState(false);
 
-  // Step 4 — Operating modes
-  const [states, setStates] = useState<OperatingState[]>(
-    spec.confirmed_states?.length ? migrateOperatingStates(spec.confirmed_states) : []
+  // Step 4 — Operating modes (V2 shape: numeric PackML state_id where possible,
+  // custom_state_id >= 101 for non-PackML names). The wizard reads existing
+  // confirmed_states as-is — V2 types accept the legacy V1 shape during the
+  // shim window, so old specs load without migration.
+  const [states, setStates] = useState<OperatingStateV2[]>(
+    (spec.confirmed_states ?? []) as unknown as OperatingStateV2[],
   );
   const [inferring, setInferring] = useState(false);
 
@@ -127,7 +133,10 @@ export function SpecSkeletonWizard({ spec, register, onComplete }: Props) {
       ...meta,
       ...control,
       confirmed_subsystems: subsystems,
-      confirmed_states: states,
+      // confirmed_states column is JSONB; the V2 shape is structurally a
+      // superset of the V1 SpecProjectUpdate.confirmed_states type. Cast
+      // bridges the explicit type bound without losing the V2 fields.
+      confirmed_states: states as unknown as SpecProjectUpdate["confirmed_states"],
       alarm_tiers: alarmTiers,
     });
     onComplete();
@@ -244,21 +253,18 @@ Return ONLY a JSON array of state objects. No preamble.
         plMeta
       );
 
-      const parsed = migrateOperatingStates(JSON.parse(result.content));
-      setStates(parsed);
+      const raw = JSON.parse(result.content) as Array<{
+        state_id?: string;
+        state_name?: string;
+        description?: string;
+        state_pattern?: "static" | "sequential";
+      }>;
+      setStates(rawAiStatesToV2(raw));
     } catch {
-      // Fallback to canonical PackML states (matches random builder's
-      // CANONICAL_STATES — see src/lib/spec-builder/random/state-machine.ts).
-      // String state_ids are accepted by validateSpecContractPatch during
-      // the V2 shim window; the wizard's V1 shape doesn't carry packml_id.
-      setStates([
-        { state_id: "idle", state_name: "Idle", state_pattern: "static", description: "All outputs de-energised; awaiting start command." },
-        { state_id: "starting", state_name: "Starting", state_pattern: "sequential", description: "Sequential start-up of devices until the machine is ready to execute." },
-        { state_id: "execute", state_name: "Execute", state_pattern: "sequential", description: "Primary production cycle." },
-        { state_id: "stopping", state_name: "Stopping", state_pattern: "sequential", description: "Sequential shutdown of devices to a safe resting state." },
-        { state_id: "complete", state_name: "Complete", state_pattern: "static", description: "Cycle finished; awaiting reset." },
-        { state_id: "estop", state_name: "E-Stop", state_pattern: "static", description: "Emergency stop active; all motion inhibited." },
-      ]);
+      // Fallback to the canonical PackML state set (same one the random
+      // builder uses — numeric state_id = packml_id, both state_name and
+      // display_name populated).
+      setStates([...CANONICAL_STATES]);
     } finally {
       setInferring(false);
     }
@@ -448,8 +454,73 @@ function StepControlSystem({ control, onChange }: { control: ControlForm; onChan
 }
 
 // ===========================================================================
-// Step 4 — Operating Modes
+// Step 4 — Operating Modes (V2 shape)
 // ===========================================================================
+
+/**
+ * Map an AI/user state name onto V2 shape. Names matching a canonical
+ * PackML entry get the matching numeric `state_id` + `packml_id`; other
+ * names become custom states with `state_id >= 101` (the validator's
+ * required custom-id range) and `custom_name` set.
+ */
+function buildV2State(args: {
+  name: string;
+  description: string;
+  pattern: StatePattern;
+  takenCustomIds: Set<number>;
+}): OperatingStateV2 {
+  const canonical = packmlByName(args.name);
+  if (canonical) {
+    return {
+      state_id: canonical.packml_id,
+      packml_id: canonical.packml_id,
+      state_name: args.name,
+      display_name: args.name,
+      description: args.description,
+      state_pattern: args.pattern,
+    };
+  }
+  // Custom state — find the next free id >= 101.
+  let nextId = 101;
+  while (args.takenCustomIds.has(nextId)) nextId += 1;
+  args.takenCustomIds.add(nextId);
+  return {
+    state_id: nextId,
+    state_name: args.name,
+    display_name: args.name,
+    description: args.description,
+    state_pattern: args.pattern,
+    custom_name: args.name,
+  };
+}
+
+function rawAiStatesToV2(
+  raw: Array<{
+    state_id?: string;
+    state_name?: string;
+    description?: string;
+    state_pattern?: "static" | "sequential";
+  }>,
+): OperatingStateV2[] {
+  const takenCustomIds = new Set<number>();
+  return raw.map((r) => {
+    const name = String(r.state_name ?? r.state_id ?? "Unnamed");
+    return buildV2State({
+      name,
+      description: String(r.description ?? ""),
+      pattern: (r.state_pattern as StatePattern | undefined) ?? inferStatePattern(name),
+      takenCustomIds,
+    });
+  });
+}
+
+function isCustomState(st: OperatingStateV2): boolean {
+  return typeof st.state_id === "number" && st.state_id > 100;
+}
+
+function isPackmlState(st: OperatingStateV2): boolean {
+  return typeof st.state_id === "number" && st.state_id >= 1 && st.state_id <= 17;
+}
 
 function StepOperatingModes({
   states,
@@ -457,20 +528,30 @@ function StepOperatingModes({
   onInfer,
   inferring,
 }: {
-  states: OperatingState[];
-  onChange: (s: OperatingState[]) => void;
+  states: OperatingStateV2[];
+  onChange: (s: OperatingStateV2[]) => void;
   onInfer: () => void;
   inferring: boolean;
 }) {
-  const updateAt = (idx: number, patch: Partial<OperatingState>) => {
+  const updateAt = (idx: number, patch: Partial<OperatingStateV2>) => {
     const next = [...states];
     next[idx] = { ...next[idx], ...patch };
     onChange(next);
   };
 
   const addState = () => {
-    const id = `custom_${Date.now()}`;
-    onChange([...states, { state_id: id, state_name: "New State", state_pattern: "sequential", description: "" }]);
+    const takenCustomIds = new Set<number>(
+      states
+        .map((s) => (typeof s.state_id === "number" ? s.state_id : NaN))
+        .filter((n) => Number.isInteger(n) && n > 100),
+    );
+    const next = buildV2State({
+      name: "New State",
+      description: "",
+      pattern: "sequential",
+      takenCustomIds,
+    });
+    onChange([...states, next]);
   };
 
   const removeState = (idx: number) => {
@@ -506,51 +587,66 @@ function StepOperatingModes({
       ) : (
         <div>
           <div className="grid gap-2">
-            {states.map((st, i) => (
-              <Card key={st.state_id} className="p-3 space-y-1.5">
-                <div className="flex items-center gap-2">
+            {states.map((st, i) => {
+              const displayValue = st.state_name ?? st.display_name ?? "";
+              const badgeLabel = isPackmlState(st)
+                ? `PackML ${st.state_id}`
+                : isCustomState(st)
+                  ? `Custom ${st.state_id}`
+                  : `Legacy "${String(st.state_id)}"`;
+              return (
+                <Card key={String(st.state_id) || `idx-${i}`} className="p-3 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={displayValue}
+                      onChange={(e) => {
+                        const newName = e.target.value;
+                        const patch: Partial<OperatingStateV2> = {
+                          state_name: newName,
+                          display_name: newName,
+                        };
+                        if (isCustomState(st)) patch.custom_name = newName;
+                        // Auto-infer pattern when name changes (user can override)
+                        if (!st.state_pattern || st.state_pattern === inferStatePattern(displayValue)) {
+                          patch.state_pattern = inferStatePattern(newName);
+                        }
+                        updateAt(i, patch);
+                      }}
+                      className="text-sm font-medium h-7 w-48 font-mono"
+                    />
+                    <Select
+                      value={st.state_pattern ?? inferStatePattern(displayValue)}
+                      onValueChange={(v) => updateAt(i, { state_pattern: v as StatePattern })}
+                    >
+                      <SelectTrigger className="h-7 w-[130px] text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="static">Static (table)</SelectItem>
+                        <SelectItem value="sequential">Sequential (steps)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Badge variant="outline" className="text-[10px] font-mono">
+                      {badgeLabel}
+                    </Badge>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 ml-auto"
+                      onClick={() => removeState(i)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
                   <Input
-                    value={st.state_name}
-                    onChange={(e) => {
-                      const newName = e.target.value;
-                      const patch: Partial<OperatingState> = { state_name: newName };
-                      // Auto-infer pattern when name changes (user can override)
-                      if (!st.state_pattern || st.state_pattern === inferStatePattern(st.state_name)) {
-                        patch.state_pattern = inferStatePattern(newName);
-                      }
-                      updateAt(i, patch);
-                    }}
-                    className="text-sm font-medium h-7 w-48 font-mono"
+                    value={st.description}
+                    onChange={(e) => updateAt(i, { description: e.target.value })}
+                    placeholder="Description of this state..."
+                    className="text-xs h-7"
                   />
-                  <Select
-                    value={st.state_pattern ?? inferStatePattern(st.state_name)}
-                    onValueChange={(v) => updateAt(i, { state_pattern: v as StatePattern })}
-                  >
-                    <SelectTrigger className="h-7 w-[130px] text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="static">Static (table)</SelectItem>
-                      <SelectItem value="sequential">Sequential (steps)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 ml-auto"
-                    onClick={() => removeState(i)}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
-                </div>
-                <Input
-                  value={st.description}
-                  onChange={(e) => updateAt(i, { description: e.target.value })}
-                  placeholder="Description of this state..."
-                  className="text-xs h-7"
-                />
-              </Card>
-            ))}
+                </Card>
+              );
+            })}
           </div>
         </div>
       )}
@@ -643,7 +739,7 @@ function StepReview({
   meta: MetaForm;
   control: ControlForm;
   subsystems: SubsystemConfig[];
-  states: OperatingState[];
+  states: OperatingStateV2[];
   alarmTiers: AlarmTier[];
 }) {
   const activeSubs = subsystems.filter((s) => !s.excluded);
@@ -713,9 +809,9 @@ function StepReview({
           Operating States ({states.length})
         </p>
         <div className="flex flex-wrap gap-1.5">
-          {states.map((s) => (
-            <Badge key={s.state_id} variant="outline" className="text-xs">
-              {s.state_name}
+          {states.map((s, i) => (
+            <Badge key={String(s.state_id) || `idx-${i}`} variant="outline" className="text-xs">
+              {s.state_name ?? s.display_name ?? "(unnamed)"}
               <span className="ml-1 text-muted-foreground">
                 ({s.state_pattern === "static" ? "table" : "steps"})
               </span>
