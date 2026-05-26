@@ -18,6 +18,7 @@ import {
   useDeleteSpecProject,
   useSaveInstrumentRegister,
 } from "@/hooks/use-spec-projects";
+import type { SpecProjectUpdate } from "@/types/spec-builder";
 import { writeSpecContract } from "@/lib/spec-builder/contract";
 import { supabase } from "@/lib/supabase";
 import { buildRandomFdsThemePrompt } from "@/lib/spec-builder/random/theme-prompt";
@@ -121,12 +122,16 @@ export function useRandomFdsGenerate() {
         params.onProgress?.("Writing contract…");
         await writeSpecContract(spec.id, result.patch);
 
-        // Mirror the projectFields onto the spec row (createSpec already set them
-        // but updateSpec touches the wizard summary columns the UI consumes).
+        // Mirror the projectFields onto the spec row so updateSpec invalidates the
+        // wizard summary query keys the UI consumes. writeSpecContract already
+        // persisted these JSONB columns; the cast bridges the V2 contract shapes
+        // (looser `equipment_type: string`, `state_id: string|number`) onto the
+        // legacy `SubsystemConfig` / `OperatingState` interfaces which is safe at
+        // the DB layer (JSONB) and the migrate*() helpers on read.
         await updateSpec.mutateAsync({
           id: spec.id,
-          confirmed_subsystems: result.patch.hierarchy?.subsystems ?? [],
-          confirmed_states: result.patch.states ?? [],
+          confirmed_subsystems: (result.patch.hierarchy?.subsystems ?? []) as unknown as SpecProjectUpdate["confirmed_subsystems"],
+          confirmed_states: (result.patch.states ?? []) as unknown as SpecProjectUpdate["confirmed_states"],
           alarm_tiers: result.patch.alarm_tiers ?? [],
         });
 
