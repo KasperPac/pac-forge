@@ -38,6 +38,7 @@ import { cn } from "@/lib/utils";
 import { useResizableColumns } from "@/hooks/use-resizable-columns";
 import { ActionBuilder } from "./pickers/action-builder";
 import { ExpressionBuilder } from "./pickers/expression-builder";
+import { MonitorPicker } from "./monitors/monitor-picker";
 
 // ---------------------------------------------------------------------------
 // Internal flat types
@@ -633,6 +634,9 @@ export function FdsTablePane({
     parsePermissives(currentState.permissives),
   );
 
+  // Monitor picker dialog state
+  const [stateMonitorPickerOpen, setStateMonitorPickerOpen] = useState(false);
+
   // Re-sync when the active tab changes or external state arrives
   const prevTabRef = useRef(activeTab);
   const prevStepsCountRef = useRef(currentState.steps.length);
@@ -671,6 +675,22 @@ export function FdsTablePane({
       onUpdateState(activeTab, updated);
     },
     [activeTab, currentState, onUpdateState, structuredPerms],
+  );
+
+  // ---------------------------------------------------------------------------
+  // State monitor save handler
+  // ---------------------------------------------------------------------------
+
+  const saveStateMonitors = useCallback(
+    (next: MonitorV2[]) => {
+      const updated: SequentialStateV2 = {
+        ...currentState,
+        state_monitors: next,
+        sequence_model_version: 2,
+      };
+      onUpdateState(activeTab, updated);
+    },
+    [activeTab, currentState, onUpdateState],
   );
 
   // ---------------------------------------------------------------------------
@@ -899,14 +919,24 @@ export function FdsTablePane({
             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
               Permissives
             </label>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={addPermissive}
-              className="h-6 text-[10px]"
-            >
-              <Plus className="h-3 w-3 mr-0.5" /> Add
-            </Button>
+            <div className="flex items-center gap-1.5">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setStateMonitorPickerOpen(true)}
+                className="h-7 text-xs"
+              >
+                State Monitors ({(currentState.state_monitors ?? []).length})
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={addPermissive}
+                className="h-6 text-[10px]"
+              >
+                <Plus className="h-3 w-3 mr-0.5" /> Add
+              </Button>
+            </div>
           </div>
           {structuredPerms.length === 0 ? (
             <p className="text-[11px] text-muted-foreground italic px-1">
@@ -1139,6 +1169,17 @@ export function FdsTablePane({
           </div>
         )}
       </div>
+
+      {/* State-level MonitorPicker dialog */}
+      <MonitorPicker
+        open={stateMonitorPickerOpen}
+        title={`State Monitors — ${activeTab}`}
+        monitors={currentState.state_monitors ?? []}
+        availableStepIds={currentState.steps.map((s) => s.step_id ?? "").filter(Boolean)}
+        availableTags={allTags.map((t) => t.tag)}
+        onChange={saveStateMonitors}
+        onClose={() => setStateMonitorPickerOpen(false)}
+      />
     </div>
   );
 }
