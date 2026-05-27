@@ -1199,7 +1199,7 @@ export function FdsTablePane({
       {/* State-level MonitorPicker dialog */}
       <MonitorPicker
         open={stateMonitorPickerOpen}
-        title={`State Monitors — ${activeTab}`}
+        title={`State Monitors — ${sequentialStates.find((s) => s.state_id === activeTab)?.state_name ?? activeTab}`}
         monitors={currentState.state_monitors ?? []}
         availableStepIds={currentState.steps.map((s) => s.step_id ?? "").filter(Boolean)}
         availableTags={allTags.map((t) => t.tag)}
@@ -1737,6 +1737,7 @@ function BranchControls({
 }
 
 // Exposed for unit tests — these helpers are pure and have stable input/output.
+// eslint-disable-next-line react-refresh/only-export-components
 export const __testing = {
   toFlatSteps,
   fromFlatSteps,

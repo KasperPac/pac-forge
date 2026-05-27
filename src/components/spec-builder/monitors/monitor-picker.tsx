@@ -8,7 +8,7 @@
  * calls onChange with the mutated array. Per-monitor validation gates
  * Save (errors listed inline above the footer).
  */
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import {
   Dialog,
@@ -53,13 +53,17 @@ export function MonitorPicker({
   const [local, setLocal] = useState<MonitorV2[]>(monitors);
   const [selectedIdx, setSelectedIdx] = useState<number | null>(monitors.length > 0 ? 0 : null);
 
-  // Re-seed when the dialog reopens with fresh props.
-  useEffect(() => {
+  // Re-seed when the dialog transitions from closed → open.
+  // Tracks previous open value in state to avoid setState-in-effect and
+  // read-ref-during-render lint violations (React "derived state" pattern).
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
     if (open) {
       setLocal(monitors);
       setSelectedIdx(monitors.length > 0 ? 0 : null);
     }
-  }, [open, monitors]);
+  }
 
   const selected = selectedIdx != null ? local[selectedIdx] : null;
   const validationOfSelected = useMemo(
@@ -75,11 +79,9 @@ export function MonitorPicker({
 
   const add = () => {
     const next = createDefaultMonitor();
-    setLocal((prev) => {
-      const updated = [...prev, next];
-      setSelectedIdx(updated.length - 1);
-      return updated;
-    });
+    const newIdx = local.length;
+    setLocal((prev) => [...prev, next]);
+    setSelectedIdx(newIdx);
   };
 
   const remove = (idx: number) => {
