@@ -636,6 +636,7 @@ export function FdsTablePane({
 
   // Monitor picker dialog state
   const [stateMonitorPickerOpen, setStateMonitorPickerOpen] = useState(false);
+  const [stepMonitorPickerStepId, setStepMonitorPickerStepId] = useState<string | null>(null);
 
   // Re-sync when the active tab changes or external state arrives
   const prevTabRef = useRef(activeTab);
@@ -691,6 +692,21 @@ export function FdsTablePane({
       onUpdateState(activeTab, updated);
     },
     [activeTab, currentState, onUpdateState],
+  );
+
+  // ---------------------------------------------------------------------------
+  // Step monitor save handler
+  // ---------------------------------------------------------------------------
+
+  const saveStepMonitors = useCallback(
+    (stepId: string, next: MonitorV2[]) => {
+      const nextFlat = flatSteps.map((f) =>
+        f.step_id === stepId ? { ...f, monitors: next } : f,
+      );
+      setFlatSteps(nextFlat);
+      save(nextFlat);
+    },
+    [flatSteps, save],
   );
 
   // ---------------------------------------------------------------------------
@@ -1122,14 +1138,24 @@ export function FdsTablePane({
                       </td>
                       <td className="px-1 py-1">
                         {row.isPrimary ? (
-                          <RowControls
-                            onAddBranch={() => addBranch(flat.step_id)}
-                            onMoveUp={() => moveStep(flat.step_id, -1)}
-                            onMoveDown={() => moveStep(flat.step_id, 1)}
-                            onDelete={() => removeStep(flat.step_id)}
-                            disableUp={stepRowIdx === 0}
-                            disableDown={stepRowIdx === sortedFlat.length - 1}
-                          />
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setStepMonitorPickerStepId(flat.step_id)}
+                              className="h-6 text-[10px]"
+                            >
+                              Monitors ({(flat.monitors ?? []).length})
+                            </Button>
+                            <RowControls
+                              onAddBranch={() => addBranch(flat.step_id)}
+                              onMoveUp={() => moveStep(flat.step_id, -1)}
+                              onMoveDown={() => moveStep(flat.step_id, 1)}
+                              onDelete={() => removeStep(flat.step_id)}
+                              disableUp={stepRowIdx === 0}
+                              disableDown={stepRowIdx === sortedFlat.length - 1}
+                            />
+                          </div>
                         ) : (
                           <BranchControls
                             branchIdx={row.branchIdx}
@@ -1180,6 +1206,25 @@ export function FdsTablePane({
         onChange={saveStateMonitors}
         onClose={() => setStateMonitorPickerOpen(false)}
       />
+
+      {/* Step-scoped MonitorPicker dialog */}
+      {(() => {
+        const targetFlat = stepMonitorPickerStepId
+          ? flatSteps.find((f) => f.step_id === stepMonitorPickerStepId)
+          : undefined;
+        if (!targetFlat) return null;
+        return (
+          <MonitorPicker
+            open={!!stepMonitorPickerStepId}
+            title={`Step ${targetFlat.step} Monitors`}
+            monitors={targetFlat.monitors ?? []}
+            availableStepIds={flatSteps.map((f) => f.step_id)}
+            availableTags={allTags.map((t) => t.tag)}
+            onChange={(next) => saveStepMonitors(targetFlat.step_id, next)}
+            onClose={() => setStepMonitorPickerStepId(null)}
+          />
+        );
+      })()}
     </div>
   );
 }
