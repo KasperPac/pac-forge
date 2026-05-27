@@ -30,6 +30,7 @@ import type {
   SequentialStateV2,
   CompletionCriterion,
   ActionV2,
+  MonitorV2,
   PermissiveCondition,
   PermissiveValue,
 } from "@/types/spec-contract-v2";
@@ -71,6 +72,7 @@ interface FlatStep {
   outputs: SimpleOutput[];
   branches: SimpleBranch[]; // 1 = normal step, 2+ = branch step
   timeout_ms?: number;
+  monitors?: MonitorV2[]; // V2 step-monitors; round-tripped through to/fromFlatSteps
 }
 
 type RowType = "action" | "monitor" | "branch" | "fault_exit" | "merge";
@@ -381,6 +383,7 @@ function toFlatSteps(state: SequentialStateV2): FlatStep[] {
         outputs,
         branches,
         timeout_ms: sv2.timeout_ms,
+        monitors: sv2.monitors ?? [],
       };
     })
     .sort((a, b) => (parseInt(a.step) || 0) - (parseInt(b.step) || 0));
@@ -442,7 +445,7 @@ function fromFlatSteps(flatSteps: FlatStep[]): Partial<SequentialStateV2> {
       completion_criteria: completionCriteria,
       actions,
       transitions,
-      monitors: [],
+      monitors: flat.monitors ?? [],
       on_fail: undefined,
       timeout_ms: flat.timeout_ms,
     };
@@ -1646,3 +1649,9 @@ function BranchControls({
     </div>
   );
 }
+
+// Exposed for unit tests — these helpers are pure and have stable input/output.
+export const __testing = {
+  toFlatSteps,
+  fromFlatSteps,
+};
