@@ -1,6 +1,8 @@
 import { useState, useRef, useCallback } from "react";
+import { saveAs } from "file-saver";
 import {
   Upload,
+  Download,
   FileSpreadsheet,
   Loader2,
   AlertTriangle,
@@ -8,6 +10,7 @@ import {
   Info,
   XCircle,
 } from "lucide-react";
+import { buildRegisterTemplateBlob } from "@/lib/spec-builder/register-template";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -43,6 +46,10 @@ export function InstrumentRegisterUpload({ specProjectId, onParsed }: Props) {
   const [result, setResult] = useState<ParseResult | null>(null);
 
   const saveRegister = useSaveInstrumentRegister();
+
+  const handleDownloadTemplate = () => {
+    saveAs(buildRegisterTemplateBlob(), "pac-register-template.xlsx");
+  };
 
   const handleFile = useCallback(
     async (file: File) => {
@@ -104,6 +111,14 @@ export function InstrumentRegisterUpload({ specProjectId, onParsed }: Props) {
 
   return (
     <div className="space-y-4">
+      {/* Template download */}
+      <div className="flex justify-end">
+        <Button variant="outline" size="sm" onClick={handleDownloadTemplate}>
+          <Download className="h-3.5 w-3.5 mr-1.5" />
+          Download template
+        </Button>
+      </div>
+
       {/* Upload zone */}
       <Card
         className={cn(
