@@ -43,6 +43,9 @@ export function detectColumns(sheet: XLSX.WorkSheet): {
       signal_type: null,
       io_address: null,
       subsystem: null,
+      assembly: null,
+      device: null,
+      is_safety: null,
     };
     let score = 0;
     const unmapped: string[] = [];

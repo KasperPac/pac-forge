@@ -348,15 +348,21 @@ export interface ColumnMapping {
   signal_type: number | null;
   io_address: number | null;
   subsystem: number | null;
+  assembly: number | null;
+  device: number | null;
+  is_safety: number | null;
 }
 
 export const CANONICAL_COLUMN_NAMES: Record<keyof ColumnMapping, string[]> = {
   tag: ["tag", "tag number", "tag no", "tag no.", "instrument tag", "device tag", "tag_no"],
-  device_type: ["device", "device type", "type", "instrument type", "device_type"],
+  device_type: ["device type", "type", "instrument type", "device_type", "device class"],
   description: ["description", "desc", "function", "instrument description"],
   signal_type: ["signal", "signal type", "io type", "signal_type"],
   io_address: ["address", "io address", "plc address", "%i", "%q", "io_address"],
-  subsystem: ["subsystem", "sub system", "system", "area", "unit", "group", "assembly"],
+  subsystem: ["subsystem", "sub system", "area", "unit"],
+  assembly: ["assembly", "equipment", "equipment module", "group"],
+  device: ["device", "device id", "device name", "device_id"],
+  is_safety: ["is_safety", "safety", "safety critical"],
 } as const;
 
 // --- Equipment type inference from prefix ---
