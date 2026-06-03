@@ -134,3 +134,47 @@ describe("extractRows — explicit grouping columns", () => {
     expect(rows[0].subsystem).toBe("Infeed");
   });
 });
+
+describe("buildHierarchyFromTags — explicit columns", () => {
+  it("template-style: one subsystem, explicit assemblies + devices", () => {
+    const tags: InstrumentTag[] = [
+      tag("CV01_M1_CMD", "", "Conveyor CV01", "M1"),
+      tag("CV01_M1_FB", "", "Conveyor CV01", "M1"),
+      tag("CV01_PE1", "", "Conveyor CV01", "PE1"),
+    ];
+    const result = buildHierarchyFromTags(tags, "Line A");
+    expect(result).toHaveLength(1);
+    expect(result[0].subsystem_name).toBe("Line A");
+    const asm = result[0].assemblies;
+    expect(asm).toHaveLength(1);
+    expect(asm[0].assembly_name).toBe("Conveyor CV01");
+    const devIds = asm[0].devices.map((d) => d.device_id).sort();
+    expect(devIds).toEqual(["M1", "PE1"]);
+    const m1 = asm[0].devices.find((d) => d.device_id === "M1")!;
+    expect(m1.io_signals).toHaveLength(2);
+  });
+
+  it("multi-subsystem when subsystem column is filled", () => {
+    const tags: InstrumentTag[] = [
+      tag("A_M1_CMD", "Infeed", "Conveyor CV01", "M1"),
+      tag("B_M2_CMD", "Outfeed", "Conveyor CV02", "M2"),
+    ];
+    const result = buildHierarchyFromTags(tags);
+    expect(result.map((s) => s.subsystem_name).sort()).toEqual(["Infeed", "Outfeed"]);
+  });
+
+  it("legacy lone grouping column stays at assembly level (one subsystem)", () => {
+    const tags: InstrumentTag[] = [tag("VSD1_FWD", "Carriage"), tag("VSD2_FWD", "Rotator")];
+    const result = buildHierarchyFromTags(tags);
+    expect(result).toHaveLength(1);
+    expect(result[0].assemblies.map((a) => a.assembly_name).sort()).toEqual(["Carriage", "Rotator"]);
+  });
+
+  it("no grouping at all → one subsystem, one Unassigned assembly", () => {
+    const tags: InstrumentTag[] = [tag("M1_CMD", ""), tag("M1_FB", "")];
+    const result = buildHierarchyFromTags(tags);
+    expect(result).toHaveLength(1);
+    expect(result[0].assemblies).toHaveLength(1);
+    expect(result[0].assemblies[0].assembly_name).toBe("Unassigned");
+  });
+});

@@ -403,63 +403,65 @@ export function buildHierarchyFromTags(
   tags: InstrumentTag[],
   systemName = "System",
 ): SubsystemConfig[] {
-  // The register grouping column is interpreted as the ASSEMBLY level.
-  const assemblyGroups = new Map<string, InstrumentTag[]>();
+  const hasAssembly = tags.some((t) => t.assembly);
+  const hasSubsystem = tags.some((t) => t.subsystem);
+  const hasDevice = tags.some((t) => t.device);
+
+  // subsystem -> assembly -> device -> tags
+  const subMap = new Map<string, Map<string, Map<string, InstrumentTag[]>>>();
   for (const t of tags) {
-    const key = t.subsystem || "Unassigned";
-    if (!assemblyGroups.has(key)) assemblyGroups.set(key, []);
-    assemblyGroups.get(key)!.push(t);
+    const subKey = hasAssembly && hasSubsystem ? t.subsystem || systemName : systemName;
+    const asmKey = hasAssembly ? t.assembly || "Unassigned" : t.subsystem || "Unassigned";
+    const devKey = hasDevice && t.device ? t.device : extractDevicePrefix(t.tag, asmKey);
+
+    if (!subMap.has(subKey)) subMap.set(subKey, new Map());
+    const aMap = subMap.get(subKey)!;
+    if (!aMap.has(asmKey)) aMap.set(asmKey, new Map());
+    const dMap = aMap.get(asmKey)!;
+    if (!dMap.has(devKey)) dMap.set(devKey, []);
+    dMap.get(devKey)!.push(t);
   }
 
-  const assemblies: AssemblyConfig[] = [];
-  for (const [asmName, asmTags] of assemblyGroups) {
-    // Within an assembly, group tags into devices by device prefix.
-    const deviceGroups = new Map<string, InstrumentTag[]>();
-    for (const t of asmTags) {
-      const devPrefix = extractDevicePrefix(t.tag, asmName);
-      if (!deviceGroups.has(devPrefix)) deviceGroups.set(devPrefix, []);
-      deviceGroups.get(devPrefix)!.push(t);
-    }
-
-    const devices: DeviceConfig[] = [];
-    for (const [devPrefix, devTags] of deviceGroups) {
-      const ioSignals: IoSignal[] = devTags.map((t) => ({
-        tag: t.tag,
-        signal_type: t.signal_type || t.signal_direction,
-        io_address: t.io_address,
-        description: t.description,
-      }));
-      const representative = devTags[0];
-      devices.push({
-        device_id: devPrefix,
-        device_name: representative.description || devPrefix,
-        device_class: representative.device_class,
-        description: representative.description || "",
-        is_safety: devTags.some((t) => t.is_safety),
-        io_signals: ioSignals,
+  const subsystems: SubsystemConfig[] = [];
+  for (const [subKey, aMap] of subMap) {
+    const assemblies: AssemblyConfig[] = [];
+    for (const [asmKey, dMap] of aMap) {
+      const devices: DeviceConfig[] = [];
+      for (const [devKey, devTags] of dMap) {
+        const ioSignals: IoSignal[] = devTags.map((t) => ({
+          tag: t.tag,
+          signal_type: t.signal_type || t.signal_direction,
+          io_address: t.io_address,
+          description: t.description,
+        }));
+        const representative = devTags[0];
+        devices.push({
+          device_id: devKey,
+          device_name: representative.description || devKey,
+          device_class: representative.device_class,
+          description: representative.description || "",
+          is_safety: devTags.some((t) => t.is_safety),
+          io_signals: ioSignals,
+        });
+      }
+      assemblies.push({
+        assembly_id: asmKey,
+        assembly_name: asmKey,
+        description: "",
+        devices: devices.sort((a, b) => a.device_id.localeCompare(b.device_id)),
       });
     }
-
-    assemblies.push({
-      assembly_id: asmName,
-      assembly_name: asmName,
+    subsystems.push({
+      subsystem_id: subKey === systemName ? "system" : subKey,
+      subsystem_name: subKey,
+      equipment_type: inferEquipmentType(subKey, subKey),
       description: "",
-      devices: devices.sort((a, b) => a.device_id.localeCompare(b.device_id)),
+      assemblies: assemblies.sort((a, b) => a.assembly_id.localeCompare(b.assembly_id)),
+      excluded: false,
     });
   }
 
-  return [
-    {
-      subsystem_id: "system",
-      subsystem_name: systemName,
-      equipment_type: inferEquipmentType(systemName, systemName),
-      description: "",
-      assemblies: assemblies.sort((a, b) =>
-        a.assembly_id.localeCompare(b.assembly_id),
-      ),
-      excluded: false,
-    },
-  ];
+  return subsystems.sort((a, b) => a.subsystem_name.localeCompare(b.subsystem_name));
 }
 
 // ---------------------------------------------------------------------------
