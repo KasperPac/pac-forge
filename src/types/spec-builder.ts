@@ -356,7 +356,7 @@ export const CANONICAL_COLUMN_NAMES: Record<keyof ColumnMapping, string[]> = {
   description: ["description", "desc", "function", "instrument description"],
   signal_type: ["signal", "signal type", "io type", "signal_type"],
   io_address: ["address", "io address", "plc address", "%i", "%q", "io_address"],
-  subsystem: ["subsystem", "sub system", "system", "area", "unit", "group"],
+  subsystem: ["subsystem", "sub system", "system", "area", "unit", "group", "assembly"],
 } as const;
 
 // --- Equipment type inference from prefix ---
