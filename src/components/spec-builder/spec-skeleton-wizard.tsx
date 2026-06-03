@@ -88,7 +88,7 @@ export function SpecSkeletonWizard({ spec, register, onComplete }: Props) {
     if (spec.confirmed_subsystems?.length) {
       return migrateSubsystemConfig(spec.confirmed_subsystems);
     }
-    return buildHierarchyFromTags(register.tags);
+    return buildHierarchyFromTags(register.tags, spec.title);
   });
   const [inferringHierarchy, setInferringHierarchy] = useState(false);
 
@@ -210,11 +210,11 @@ Return ONLY a JSON array matching this TypeScript interface:
       setSubsystems(parsed);
     } catch {
       // Fallback to deterministic hierarchy builder
-      setSubsystems(buildHierarchyFromTags(register.tags));
+      setSubsystems(buildHierarchyFromTags(register.tags, spec.title));
     } finally {
       setInferringHierarchy(false);
     }
-  }, [register.tags]);
+  }, [register.tags, spec.title]);
 
   // Step 4 — infer operating modes via Sonnet
   const inferStates = useCallback(async () => {

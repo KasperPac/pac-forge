@@ -77,3 +77,17 @@ describe("buildHierarchyFromTags — device grouping", () => {
     expect(carriage.devices[0].io_signals).toHaveLength(2);
   });
 });
+
+describe("buildHierarchyFromTags — system name", () => {
+  it("names the single subsystem from the passed systemName", () => {
+    const tags: InstrumentTag[] = [tag("VSD1_ENABLE", "Carriage")];
+    const result = buildHierarchyFromTags(tags, "Segment Wagon");
+    expect(result[0].subsystem_name).toBe("Segment Wagon");
+  });
+
+  it("defaults the subsystem name to 'System'", () => {
+    const tags: InstrumentTag[] = [tag("VSD1_ENABLE", "Carriage")];
+    const result = buildHierarchyFromTags(tags);
+    expect(result[0].subsystem_name).toBe("System");
+  });
+});
