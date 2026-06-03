@@ -98,7 +98,9 @@ export interface InstrumentTag {
   signal_direction: SignalDirection;
   subsystem_prefix: string;
   is_safety: boolean;
-  // Assigned subsystem
+  // Explicit hierarchy columns (deterministic extraction)
+  device: string;
+  assembly: string;
   subsystem: string;
 }
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import * as XLSX from "xlsx";
-import { detectColumns, buildHierarchyFromTags } from "@/lib/spec-builder/instrument-parser";
+import { detectColumns, buildHierarchyFromTags, extractRows } from "@/lib/spec-builder/instrument-parser";
 import type { InstrumentTag } from "@/types/spec-builder";
 
 describe("detectColumns — assembly alias", () => {
@@ -19,7 +19,12 @@ describe("detectColumns — assembly alias", () => {
   });
 });
 
-function tag(t: string, subsystem: string): InstrumentTag {
+function tag(
+  t: string,
+  subsystem: string,
+  assembly = "",
+  device = "",
+): InstrumentTag {
   return {
     tag: t,
     device_type: "",
@@ -30,6 +35,8 @@ function tag(t: string, subsystem: string): InstrumentTag {
     signal_direction: "DI",
     subsystem_prefix: subsystem,
     is_safety: false,
+    device,
+    assembly,
     subsystem,
   };
 }
@@ -110,5 +117,20 @@ describe("detectColumns — distinct grouping columns", () => {
     expect(m.subsystem).not.toBeNull();
     expect(m.assembly).not.toBeNull();
     expect(m.subsystem).not.toBe(m.assembly);
+  });
+});
+
+describe("extractRows — explicit grouping columns", () => {
+  it("reads device, assembly, subsystem from the row", () => {
+    const csv =
+      "tag,description,signal_type,io_address,device,assembly,subsystem\n" +
+      "CV01_M1_CMD,Run,DO,%Q0.0,M1,Conveyor CV01,Infeed";
+    const wb = XLSX.read(csv, { type: "string" });
+    const sheet = wb.Sheets[wb.SheetNames[0]!]!;
+    const { mapping, headerRow } = detectColumns(sheet);
+    const rows = extractRows(sheet, mapping, headerRow);
+    expect(rows[0].device).toBe("M1");
+    expect(rows[0].assembly).toBe("Conveyor CV01");
+    expect(rows[0].subsystem).toBe("Infeed");
   });
 });

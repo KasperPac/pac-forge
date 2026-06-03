@@ -97,9 +97,9 @@ export function extractRows(
   sheet: XLSX.WorkSheet,
   mapping: ColumnMapping,
   headerRow: number
-): Array<Partial<InstrumentTag>> {
+): Array<Partial<InstrumentTag> & { is_safety_raw?: string }> {
   const range = XLSX.utils.decode_range(sheet["!ref"] ?? "A1");
-  const rows: Array<Partial<InstrumentTag>> = [];
+  const rows: Array<Partial<InstrumentTag> & { is_safety_raw?: string }> = [];
 
   for (let r = headerRow + 1; r <= range.e.r; r++) {
     const cellVal = (c: number | null) => {
@@ -118,6 +118,9 @@ export function extractRows(
       signal_type: cellVal(mapping.signal_type),
       io_address: cellVal(mapping.io_address),
       subsystem: cellVal(mapping.subsystem),
+      assembly: cellVal(mapping.assembly),
+      device: cellVal(mapping.device),
+      is_safety_raw: cellVal(mapping.is_safety),
     });
   }
 
@@ -579,6 +582,10 @@ export async function parseInstrumentRegister(
       aiCls = aiClassifications[aiIdx++] ?? null;
     }
 
+    const safetyRaw = (row.is_safety_raw ?? "").trim().toLowerCase();
+    const explicitSafety =
+      safetyRaw === "" ? undefined : ["true", "yes", "1", "y"].includes(safetyRaw);
+
     return {
       tag: row.tag ?? "",
       device_type: row.device_type ?? "",
@@ -588,7 +595,9 @@ export async function parseInstrumentRegister(
       device_class: det.device_class ?? aiCls?.device_class ?? "other",
       signal_direction: det.signal_direction ?? aiCls?.signal_direction ?? "internal",
       subsystem_prefix: row.subsystem || aiCls?.subsystem || "",
-      is_safety: det.is_safety ?? aiCls?.is_safety ?? false,
+      is_safety: explicitSafety ?? det.is_safety ?? aiCls?.is_safety ?? false,
+      device: row.device ?? "",
+      assembly: row.assembly ?? "",
       subsystem: row.subsystem || aiCls?.subsystem || "",
     };
   });
