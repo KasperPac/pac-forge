@@ -17,3 +17,52 @@ describe("detectColumns — assembly alias", () => {
     expect(mapping.tag).not.toBeNull();
   });
 });
+
+import { buildHierarchyFromTags } from "@/lib/spec-builder/instrument-parser";
+import type { InstrumentTag } from "@/types/spec-builder";
+
+function tag(t: string, subsystem: string): InstrumentTag {
+  return {
+    tag: t,
+    device_type: "",
+    description: t,
+    signal_type: "DI",
+    io_address: "",
+    device_class: "other",
+    signal_direction: "DI",
+    subsystem_prefix: subsystem,
+    is_safety: false,
+    subsystem,
+  };
+}
+
+describe("buildHierarchyFromTags — single subsystem, column = assembly", () => {
+  const tags: InstrumentTag[] = [
+    tag("VSD1_ENABLE", "Carriage"),
+    tag("VSD1_FWD", "Carriage"),
+    tag("VSD2_ENABLE", "Rotator"),
+    tag("SR1_HEALTHY", "Safety & Control"),
+    tag("CARR_FWD", "Operator Interface"),
+  ];
+
+  it("returns exactly one subsystem", () => {
+    const result = buildHierarchyFromTags(tags);
+    expect(result).toHaveLength(1);
+  });
+
+  it("puts the register groups in as assemblies, sorted", () => {
+    const result = buildHierarchyFromTags(tags);
+    const assemblyNames = result[0].assemblies.map((a) => a.assembly_name);
+    expect(assemblyNames).toEqual([
+      "Carriage",
+      "Operator Interface",
+      "Rotator",
+      "Safety & Control",
+    ]);
+  });
+
+  it("never emits an UNGROUPED subsystem", () => {
+    const result = buildHierarchyFromTags(tags);
+    expect(result.some((s) => s.subsystem_name === "UNGROUPED")).toBe(false);
+  });
+});

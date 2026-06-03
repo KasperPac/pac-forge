@@ -368,24 +368,6 @@ export function groupSubsystems(tags: InstrumentTag[]): SubsystemSummary[] {
 // Step 3b — Build nested hierarchy from tags
 // ---------------------------------------------------------------------------
 
-/**
- * Infer assembly and device grouping from tag naming conventions.
- *
- * Common patterns:
- *   SUBSYS_DEVICE_SIGNAL  → e.g. GK01_M01_CMD
- *   SUBSYS_SIGNAL         → e.g. GK01_TT01
- *
- * Strategy:
- * 1. Group tags by subsystem (existing field on InstrumentTag).
- * 2. Within each subsystem, extract a "device prefix" from the tag name
- *    by stripping the known signal suffixes (_CMD, _FB, _RUN, etc.) and
- *    grouping tags that share the same base.
- * 3. Group devices by a coarser "assembly prefix" (the first alphanumeric
- *    segment after subsystem, e.g. "LFT01" from "LFT01_M01").
- *    If all devices in a subsystem share the same prefix, the subsystem
- *    IS the assembly (single-assembly subsystem).
- */
-
 const SIGNAL_SUFFIXES = /[_.](?:CMD|FB|RUN|RUNNING|START|STOP|FWD|REV|OL|FAULT|TRIP|SPD|SPEED|HZ|FREQ|LSH|LSL|ZSH|ZSL|SP|PV|AO|AI|DI|DO|EN|ALARM|STATUS|STATE|ACK|RESET|OPN|CLS|OPEN|CLOSE|SET|RST)$/i;
 
 function extractDevicePrefix(tag: string, subsystem: string): string {
@@ -401,8 +383,8 @@ function extractDevicePrefix(tag: string, subsystem: string): string {
 
   // Strip leading pure-alphabetic subsystem code segment if present (e.g. "FIL_", "INF_", "OUT_").
   // These are tag-level subsystem codes — distinguishable from real equipment prefixes which
-  // always contain digits (e.g. "CAP01", "LFT01"). Stripping them lets extractAssemblyPrefix
-  // correctly identify the assembly segment that follows.
+  // always contain digits (e.g. "CAP01", "LFT01"). Stripping them lets device grouping
+  // correctly identify the device segment that follows.
   const parts = result.split("_");
   if (parts.length >= 2 && /^[A-Za-z]+$/.test(parts[0])) {
     return parts.slice(1).join("_");
@@ -411,108 +393,67 @@ function extractDevicePrefix(tag: string, subsystem: string): string {
   return result;
 }
 
-function extractAssemblyPrefix(devicePrefix: string): string {
-  // Assembly = the equipment ID portion (letters + digits), e.g. "M01" → "M01", "LFT01_M01" → "LFT01"
-  // Take everything up to and including the first number group
-  const match = devicePrefix.match(/^([A-Za-z]+\d+)/);
-  return match ? match[1] : devicePrefix;
-}
-
-/**
- * Infer a human-readable assembly name from device descriptions.
- * Strips common device-type keywords from the front of each description,
- * finds the most common meaningful prefix, and returns it.
- * Falls back to the tag-based asmPrefix if nothing useful is found.
- */
-const DEVICE_KEYWORD_RE = /\b(motor|contactor|overload|relay|sensor|photoelectric|solenoid|valve|switch|transmitter|encoder|feedback|run|stop|start|command|fault|trip|speed|jam|presence|position|proximity)\b.*/i;
-
-function suggestAssemblyName(descriptions: string[], fallback: string): string {
-  const candidates = descriptions
-    .map((d) => d.replace(DEVICE_KEYWORD_RE, "").trim())
-    .filter((d) => d.length > 0 && d !== fallback);
-
-  if (candidates.length === 0) return fallback;
-
-  // Return the most common non-empty candidate
-  const counts = new Map<string, number>();
-  for (const c of candidates) counts.set(c, (counts.get(c) ?? 0) + 1);
-  const best = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
-  return best?.[0] || fallback;
-}
-
-export function buildHierarchyFromTags(tags: InstrumentTag[]): SubsystemConfig[] {
-  // Step 1: Group by subsystem
-  const subGroups = new Map<string, InstrumentTag[]>();
+export function buildHierarchyFromTags(
+  tags: InstrumentTag[],
+  systemName = "System",
+): SubsystemConfig[] {
+  // The register grouping column is interpreted as the ASSEMBLY level.
+  const assemblyGroups = new Map<string, InstrumentTag[]>();
   for (const t of tags) {
-    const key = t.subsystem || "UNGROUPED";
-    if (!subGroups.has(key)) subGroups.set(key, []);
-    subGroups.get(key)!.push(t);
+    const key = t.subsystem || "Unassigned";
+    if (!assemblyGroups.has(key)) assemblyGroups.set(key, []);
+    assemblyGroups.get(key)!.push(t);
   }
 
-  const subsystems: SubsystemConfig[] = [];
-
-  for (const [subKey, subTags] of subGroups) {
-    // Step 2: Group tags into devices by device prefix
+  const assemblies: AssemblyConfig[] = [];
+  for (const [asmName, asmTags] of assemblyGroups) {
+    // Within an assembly, group tags into devices by device prefix.
     const deviceGroups = new Map<string, InstrumentTag[]>();
-    for (const t of subTags) {
-      const devPrefix = extractDevicePrefix(t.tag, subKey);
+    for (const t of asmTags) {
+      const devPrefix = extractDevicePrefix(t.tag, asmName);
       if (!deviceGroups.has(devPrefix)) deviceGroups.set(devPrefix, []);
       deviceGroups.get(devPrefix)!.push(t);
     }
 
-    // Step 3: Group devices into assemblies by assembly prefix
-    const assemblyGroups = new Map<string, Map<string, InstrumentTag[]>>();
+    const devices: DeviceConfig[] = [];
     for (const [devPrefix, devTags] of deviceGroups) {
-      const asmPrefix = extractAssemblyPrefix(devPrefix);
-      if (!assemblyGroups.has(asmPrefix)) assemblyGroups.set(asmPrefix, new Map());
-      assemblyGroups.get(asmPrefix)!.set(devPrefix, devTags);
-    }
-
-    // Build assemblies
-    const assemblies: AssemblyConfig[] = [];
-    for (const [asmPrefix, devMap] of assemblyGroups) {
-      const devices: DeviceConfig[] = [];
-      for (const [devPrefix, devTags] of devMap) {
-        const ioSignals: IoSignal[] = devTags.map((t) => ({
-          tag: t.tag,
-          signal_type: t.signal_type || t.signal_direction,
-          io_address: t.io_address,
-          description: t.description,
-        }));
-
-        // Use the first tag's classification as the device class
-        const representative = devTags[0];
-        devices.push({
-          device_id: devPrefix,
-          device_name: representative.description || devPrefix,
-          device_class: representative.device_class,
-          description: representative.description || "",
-          is_safety: devTags.some((t) => t.is_safety),
-          io_signals: ioSignals,
-        });
-      }
-
-      const allDescriptions = devices.map((d) => d.description).filter(Boolean);
-      assemblies.push({
-        assembly_id: asmPrefix,
-        assembly_name: suggestAssemblyName(allDescriptions, asmPrefix),
-        description: "",
-        devices: devices.sort((a, b) => a.device_id.localeCompare(b.device_id)),
+      const ioSignals: IoSignal[] = devTags.map((t) => ({
+        tag: t.tag,
+        signal_type: t.signal_type || t.signal_direction,
+        io_address: t.io_address,
+        description: t.description,
+      }));
+      const representative = devTags[0];
+      devices.push({
+        device_id: devPrefix,
+        device_name: representative.description || devPrefix,
+        device_class: representative.device_class,
+        description: representative.description || "",
+        is_safety: devTags.some((t) => t.is_safety),
+        io_signals: ioSignals,
       });
     }
 
-    const eqType = inferEquipmentType(subKey, subKey);
-    subsystems.push({
-      subsystem_id: subKey,
-      subsystem_name: subKey,
-      equipment_type: eqType,
+    assemblies.push({
+      assembly_id: asmName,
+      assembly_name: asmName,
       description: "",
-      assemblies: assemblies.sort((a, b) => a.assembly_id.localeCompare(b.assembly_id)),
-      excluded: false,
+      devices: devices.sort((a, b) => a.device_id.localeCompare(b.device_id)),
     });
   }
 
-  return subsystems.sort((a, b) => a.subsystem_name.localeCompare(b.subsystem_name));
+  return [
+    {
+      subsystem_id: "system",
+      subsystem_name: systemName,
+      equipment_type: inferEquipmentType(systemName, systemName),
+      description: "",
+      assemblies: assemblies.sort((a, b) =>
+        a.assembly_id.localeCompare(b.assembly_id),
+      ),
+      excluded: false,
+    },
+  ];
 }
 
 // ---------------------------------------------------------------------------
