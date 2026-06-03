@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import * as XLSX from "xlsx";
-import { detectColumns } from "@/lib/spec-builder/instrument-parser";
+import { detectColumns, buildHierarchyFromTags } from "@/lib/spec-builder/instrument-parser";
+import type { InstrumentTag } from "@/types/spec-builder";
 
 describe("detectColumns — assembly alias", () => {
   it("maps an 'assembly' header to the grouping column", () => {
@@ -17,9 +18,6 @@ describe("detectColumns — assembly alias", () => {
     expect(mapping.tag).not.toBeNull();
   });
 });
-
-import { buildHierarchyFromTags } from "@/lib/spec-builder/instrument-parser";
-import type { InstrumentTag } from "@/types/spec-builder";
 
 function tag(t: string, subsystem: string): InstrumentTag {
   return {
@@ -64,5 +62,18 @@ describe("buildHierarchyFromTags — single subsystem, column = assembly", () =>
   it("never emits an UNGROUPED subsystem", () => {
     const result = buildHierarchyFromTags(tags);
     expect(result.some((s) => s.subsystem_name === "UNGROUPED")).toBe(false);
+  });
+});
+
+describe("buildHierarchyFromTags — device grouping", () => {
+  it("keeps fault + thermistor tags on ONE device", () => {
+    const tags: InstrumentTag[] = [
+      tag("CARR_M1_FAULT", "Carriage"),
+      tag("CARR_M1_THERM", "Carriage"),
+    ];
+    const result = buildHierarchyFromTags(tags);
+    const carriage = result[0].assemblies.find((a) => a.assembly_id === "Carriage")!;
+    expect(carriage.devices).toHaveLength(1);
+    expect(carriage.devices[0].io_signals).toHaveLength(2);
   });
 });

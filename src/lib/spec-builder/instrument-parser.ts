@@ -368,7 +368,7 @@ export function groupSubsystems(tags: InstrumentTag[]): SubsystemSummary[] {
 // Step 3b — Build nested hierarchy from tags
 // ---------------------------------------------------------------------------
 
-const SIGNAL_SUFFIXES = /[_.](?:CMD|FB|RUN|RUNNING|START|STOP|FWD|REV|OL|FAULT|TRIP|SPD|SPEED|HZ|FREQ|LSH|LSL|ZSH|ZSL|SP|PV|AO|AI|DI|DO|EN|ALARM|STATUS|STATE|ACK|RESET|OPN|CLS|OPEN|CLOSE|SET|RST)$/i;
+const SIGNAL_SUFFIXES = /[_.](?:CMD|FB|RUN|RUNNING|START|STOP|FWD|REV|OL|FAULT|TRIP|THERM|THERMISTOR|SPD|SPEED|HZ|FREQ|LSH|LSL|ZSH|ZSL|SP|PV|AO|AI|DI|DO|EN|ALARM|STATUS|STATE|ACK|RESET|OPN|CLS|OPEN|CLOSE|SET|RST)$/i;
 
 function extractDevicePrefix(tag: string, subsystem: string): string {
   // Strip subsystem prefix if tag starts with it (by name match)
