@@ -158,17 +158,16 @@ export function SpecSkeletonWizard({ spec, register, onComplete }: Props) {
         subsystem: t.subsystem,
       }));
 
-      const systemPrompt = `You are an industrial automation engineer. Given instrument register tags, organize them into a machine hierarchy:
+      const systemPrompt = `You are an industrial automation engineer applying the ISA-88 equipment model. Organize the instrument register tags into a machine hierarchy:
 
-System → Subsystem → Assembly → Device
+System (Process Cell) -> Subsystem (Unit) -> Assembly (Equipment Module) -> Device (Control Module)
 
 Rules:
-- **Subsystem** = functional station (e.g. "Fan Array", "Infeed Conveyor Station", "Hydraulic Lift Station")
-- **Assembly** = coordinated group of devices working together (e.g. "Conveyor CV01", "Fan GK01"). An assembly has NO FB — it is orchestrated by process sequence logic.
-- **Device** = single physical thing with IO signals (e.g. motor, sensor, valve). Gets an FB.
-- Multiple tags with different suffixes (_CMD, _FB, _OL) that belong to the same physical device should be grouped as io_signals on ONE device, not separate devices.
-- Tags that share a subsystem prefix go under the same subsystem.
-- Within a subsystem, group related devices into assemblies by equipment ID prefix.
+- **Device (Control Module)** = a single physical thing with IO signals (motor, sensor, valve, push button). Tags with different suffixes (_CMD, _FB, _OL, _FAULT, _THERM) that belong to the same physical device MUST be grouped as io_signals on ONE device, never as separate devices.
+- **Assembly (Equipment Module)** = a coordinated group of devices that run together (a conveyor, a drive, a lift). Each assembly later gets its own FB wired to device signals.
+- **Subsystem (Unit)** = the set of assemblies governed by ONE coordinated operating sequence. DEFAULT TO A SINGLE SUBSYSTEM containing all assemblies. Create more than one subsystem ONLY when the provided specification clearly describes assemblies running under INDEPENDENT operating sequences (for example a distinct infeed area vs. outfeed area). NEVER invent a subsystem split that is not stated in the specification. A lone assembly is never its own subsystem.
+- **System (Process Cell)** = the whole machine.
+- Extract the structure as described in the source material. Do not invent groupings. When uncertain, prefer fewer subsystems.
 
 Return ONLY a JSON array matching this TypeScript interface:
 [{
