@@ -357,7 +357,7 @@ export interface ColumnMapping {
 
 export const CANONICAL_COLUMN_NAMES: Record<keyof ColumnMapping, string[]> = {
   tag: ["tag", "tag number", "tag no", "tag no.", "instrument tag", "device tag", "tag_no"],
-  device_type: ["device type", "type", "instrument type", "device_type", "device class"],
+  device_type: ["device type", "instrument type", "device_type", "device class"],
   description: ["description", "desc", "function", "instrument description"],
   signal_type: ["signal", "signal type", "io type", "signal_type"],
   io_address: ["address", "io address", "plc address", "%i", "%q", "io_address"],

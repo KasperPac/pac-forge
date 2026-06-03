@@ -6,18 +6,18 @@ export const REGISTER_TEMPLATE_HEADERS = [
   "tag",
   "description",
   "io_address",
-  "device_type",
   "signal_type",
   "device",
   "assembly",
   "subsystem",
+  "device_type",
   "is_safety",
 ] as const;
 
 const EXAMPLE_ROWS: string[][] = [
-  ["CV01_M1_CMD", "Conveyor CV01 run command", "%Q0.0", "Motor", "DO", "M1", "Conveyor CV01", "", "FALSE"],
-  ["CV01_M1_FB", "Conveyor CV01 run feedback", "%I0.0", "Motor", "DI", "M1", "Conveyor CV01", "", "FALSE"],
-  ["CV01_PE1", "Conveyor CV01 jam photo-eye", "%I0.1", "Sensor", "DI", "PE1", "Conveyor CV01", "", "FALSE"],
+  ["CV01_M1_CMD", "Conveyor CV01 run command", "%Q0.0", "DO", "M1", "Conveyor CV01", "", "Motor", "FALSE"],
+  ["CV01_M1_FB", "Conveyor CV01 run feedback", "%I0.0", "DI", "M1", "Conveyor CV01", "", "Motor", "FALSE"],
+  ["CV01_PE1", "Conveyor CV01 jam photo-eye", "%I0.1", "DI", "PE1", "Conveyor CV01", "", "Sensor", "FALSE"],
 ];
 
 const INSTRUCTIONS: string[][] = [

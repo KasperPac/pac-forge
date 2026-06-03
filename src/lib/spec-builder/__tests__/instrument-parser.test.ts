@@ -118,6 +118,13 @@ describe("detectColumns — distinct grouping columns", () => {
     expect(m.assembly).not.toBeNull();
     expect(m.subsystem).not.toBe(m.assembly);
   });
+
+  it("maps signal_type to signal_type even with a device_type column present", () => {
+    const m = mappingFor("tag,description,signal_type,device,assembly,device_type,io_address");
+    expect(m.signal_type).not.toBeNull();
+    expect(m.device_type).not.toBeNull();
+    expect(m.signal_type).not.toBe(m.device_type);
+  });
 });
 
 describe("extractRows — explicit grouping columns", () => {
