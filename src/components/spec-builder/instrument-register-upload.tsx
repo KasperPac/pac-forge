@@ -177,7 +177,7 @@ export function InstrumentRegisterUpload({ specProjectId, onParsed }: Props) {
               {result.tags.length} tags parsed
             </Badge>
             <Badge variant="secondary" className="gap-1">
-              {result.subsystems.length} subsystems
+              {result.subsystems.length} assemblies
             </Badge>
             {result.warnings.length > 0 && (
               <Badge variant="outline" className="gap-1 text-amber-400 border-amber-400/50">

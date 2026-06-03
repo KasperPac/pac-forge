@@ -10,6 +10,11 @@ describe("register template", () => {
     expect(wb.SheetNames).toContain("Register");
   });
 
+  it("puts Register first so the parser (SheetNames[0]) reads the data", () => {
+    const wb = buildRegisterTemplateWorkbook();
+    expect(wb.SheetNames[0]).toBe("Register");
+  });
+
   it("Register header row matches the documented columns", () => {
     const wb = buildRegisterTemplateWorkbook();
     const sheet = wb.Sheets["Register"]!;

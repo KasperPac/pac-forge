@@ -46,14 +46,15 @@ const INSTRUCTIONS: string[][] = [
 export function buildRegisterTemplateWorkbook(): XLSX.WorkBook {
   const wb = XLSX.utils.book_new();
 
-  const instructions = XLSX.utils.aoa_to_sheet(INSTRUCTIONS);
-  XLSX.utils.book_append_sheet(wb, instructions, "Instructions");
-
+  // Register MUST be appended first — the parser reads SheetNames[0].
   const register = XLSX.utils.aoa_to_sheet([
     [...REGISTER_TEMPLATE_HEADERS],
     ...EXAMPLE_ROWS,
   ]);
   XLSX.utils.book_append_sheet(wb, register, "Register");
+
+  const instructions = XLSX.utils.aoa_to_sheet(INSTRUCTIONS);
+  XLSX.utils.book_append_sheet(wb, instructions, "Instructions");
 
   return wb;
 }

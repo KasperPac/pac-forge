@@ -351,7 +351,9 @@ export function groupSubsystems(tags: InstrumentTag[]): SubsystemSummary[] {
   const groups = new Map<string, InstrumentTag[]>();
 
   for (const tag of tags) {
-    const key = tag.subsystem || "UNGROUPED";
+    // Summary reflects the assembly level (the register's primary grouping);
+    // fall back to subsystem, then UNGROUPED.
+    const key = tag.assembly || tag.subsystem || "UNGROUPED";
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(tag);
   }
@@ -531,6 +533,20 @@ export function generateWarnings(tags: InstrumentTag[]): ParseWarning[] {
 // Full parse pipeline
 // ---------------------------------------------------------------------------
 
+/**
+ * Choose which worksheet holds the register data. Prefer a sheet named
+ * "Register" (the template's data sheet), else the first sheet that is not an
+ * "Instructions"/legend sheet, else the first sheet. This keeps multi-sheet
+ * template workbooks parsing the data, not the legend.
+ */
+export function pickRegisterSheetName(names: string[]): string | undefined {
+  return (
+    names.find((n) => /register/i.test(n)) ??
+    names.find((n) => !/instruction/i.test(n)) ??
+    names[0]
+  );
+}
+
 export interface ParseResult {
   tags: InstrumentTag[];
   subsystems: SubsystemSummary[];
@@ -547,7 +563,7 @@ export async function parseInstrumentRegister(
   onProgress?.("Reading file", 0, 1);
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: "array" });
-  const sheetName = workbook.SheetNames[0];
+  const sheetName = pickRegisterSheetName(workbook.SheetNames);
   if (!sheetName) throw new Error("Excel file has no sheets");
   const sheet = workbook.Sheets[sheetName]!;
 

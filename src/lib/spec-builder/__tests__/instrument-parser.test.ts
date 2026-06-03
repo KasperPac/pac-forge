@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import * as XLSX from "xlsx";
-import { detectColumns, buildHierarchyFromTags, extractRows } from "@/lib/spec-builder/instrument-parser";
+import { detectColumns, buildHierarchyFromTags, extractRows, groupSubsystems, pickRegisterSheetName } from "@/lib/spec-builder/instrument-parser";
 import type { InstrumentTag } from "@/types/spec-builder";
 
 describe("detectColumns — assembly alias", () => {
@@ -188,5 +188,31 @@ describe("buildHierarchyFromTags — explicit columns", () => {
 
   it("empty tags → empty result", () => {
     expect(buildHierarchyFromTags([])).toHaveLength(0);
+  });
+});
+
+describe("pickRegisterSheetName", () => {
+  it("prefers a sheet named Register", () => {
+    expect(pickRegisterSheetName(["Instructions", "Register"])).toBe("Register");
+  });
+  it("falls back to the first non-Instructions sheet", () => {
+    expect(pickRegisterSheetName(["Instructions", "Data"])).toBe("Data");
+  });
+  it("uses the only sheet when there is one", () => {
+    expect(pickRegisterSheetName(["Sheet1"])).toBe("Sheet1");
+  });
+});
+
+describe("groupSubsystems — assembly-aware summary", () => {
+  it("groups by assembly when present (no UNGROUPED)", () => {
+    const tags: InstrumentTag[] = [
+      tag("M1_CMD", "", "Conveyor CV01", "M1"),
+      tag("M1_FB", "", "Conveyor CV01", "M1"),
+      tag("PE1", "", "Conveyor CV01", "PE1"),
+    ];
+    const g = groupSubsystems(tags);
+    expect(g).toHaveLength(1);
+    expect(g[0].subsystem_name).toBe("Conveyor CV01");
+    expect(g.some((s) => s.subsystem_name === "UNGROUPED")).toBe(false);
   });
 });
