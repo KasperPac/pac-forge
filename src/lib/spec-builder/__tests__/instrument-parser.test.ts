@@ -161,6 +161,7 @@ describe("buildHierarchyFromTags — explicit columns", () => {
     ];
     const result = buildHierarchyFromTags(tags);
     expect(result.map((s) => s.subsystem_name).sort()).toEqual(["Infeed", "Outfeed"]);
+    expect(result.find((s) => s.subsystem_name === "Infeed")!.subsystem_id).toBe("infeed");
   });
 
   it("legacy lone grouping column stays at assembly level (one subsystem)", () => {
@@ -176,5 +177,9 @@ describe("buildHierarchyFromTags — explicit columns", () => {
     expect(result).toHaveLength(1);
     expect(result[0].assemblies).toHaveLength(1);
     expect(result[0].assemblies[0].assembly_name).toBe("Unassigned");
+  });
+
+  it("empty tags → empty result", () => {
+    expect(buildHierarchyFromTags([])).toHaveLength(0);
   });
 });

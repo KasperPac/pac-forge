@@ -412,6 +412,8 @@ export function buildHierarchyFromTags(
   for (const t of tags) {
     const subKey = hasAssembly && hasSubsystem ? t.subsystem || systemName : systemName;
     const asmKey = hasAssembly ? t.assembly || "Unassigned" : t.subsystem || "Unassigned";
+    // extractDevicePrefix's 2nd param strips a leading group prefix from the tag;
+    // we intentionally pass the assembly name (no-op unless tags are assembly-prefixed).
     const devKey = hasDevice && t.device ? t.device : extractDevicePrefix(t.tag, asmKey);
 
     if (!subMap.has(subKey)) subMap.set(subKey, new Map());
@@ -452,7 +454,10 @@ export function buildHierarchyFromTags(
       });
     }
     subsystems.push({
-      subsystem_id: subKey === systemName ? "system" : subKey,
+      subsystem_id:
+        subMap.size === 1 && !hasSubsystem
+          ? "system"
+          : subKey.toLowerCase().replace(/\s+/g, "_"),
       subsystem_name: subKey,
       equipment_type: inferEquipmentType(subKey, subKey),
       description: "",
