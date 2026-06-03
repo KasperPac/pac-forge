@@ -334,19 +334,47 @@ LAD (Ladder Logic) editor at `/pac-lad` → `src/routes/pac-lad.tsx`. Key files:
 
 ## Machine Hierarchy (Non-negotiable)
 
-The forge wizard uses a 4-level hierarchy for machine decomposition. The functional spec defines this structure — the AI extracts it, never invents it.
+Pac-Forge models machines with a 4-level hierarchy based on **ISA-88** (the physical
+equipment model), with **PackML** governing the state/behaviour layer. These are
+industry standards, not a custom Pac convention. The functional spec defines the
+structure — the AI **extracts** it, never invents it.
 
-- **System** — the full machine / production line
-- **Subsystem** — a functional station (e.g. "Infeed Conveyor Station", "Hydraulic Lift Station", "Safety")
-- **Assembly** — a coordinated group of devices working together (e.g. "Lift Table LFT01", "Conveyor CV01"). Has NO FB — orchestrated by process sequence logic.
-- **Device** — a single physical thing with IO signals (e.g. motor M01, limit switch LS_TOP, solenoid SOL_UP). Gets an FB, instance DB, and IO wiring.
+| Label (used in code/DB/UI) | ISA-88 equivalent | Definition | Code artifact |
+|---|---|---|---|
+| **System** | Process Cell | The whole machine / production line | Sequence logic (top orchestration) |
+| **Subsystem** | Unit | The set of assemblies governed by **one** coordinated operating sequence | Sequence logic (step sequencer) that calls assembly FBs |
+| **Assembly** | Equipment Module | A coordinated group of devices that run together (a conveyor, a drive) | Its **own FB**, with named signal I/O wired to device signals |
+| **Device** | Control Module | A single physical thing with IO signals (motor, sensor, valve, push button) | An FB instance in a per-type device layer (e.g. `SEN[4]`, `MOT[2]`) |
+
+**FB-assignment model:**
+- Every **device** gets its own FB instance, organised by type in a device layer.
+- Every **assembly** gets its own FB with named signal inputs/outputs. The assembly FB
+  does **not** instantiate device FBs — its inputs are wired externally to device-FB
+  members (e.g. `Sensor_A <- SEN[4].Ctrl.OutDelayOnOff`).
+- **Subsystem** and **System** levels are **sequence logic** that drive the assembly FBs,
+  not wrapper FBs that contain them.
+- Devices and assemblies are peers in code, coupled by wiring; a shared device can feed
+  multiple assemblies. "Device under assembly" in the spec tree is a logical grouping,
+  not code ownership.
+
+**Subsystem boundary rule:**
+- **Default to a single subsystem** (= the machine). A lone assembly is never its own subsystem.
+- Create multiple subsystems **only** when the spec describes assemblies running under
+  **independent operating sequences** (e.g. an infeed area vs. an outfeed area), or
+  replicated identical systems.
+- Extract subsystem boundaries from the spec document — **never invent** them. When only
+  an instrument register is available (no document), default to one subsystem and let the
+  engineer split manually.
 
 **Rules:**
-- Only **devices** appear in the device list and get FBs
-- **Assemblies** appear in process sequences as the coordination logic
-- **Subsystems** are organisational grouping — each typically has its own process sequence(s)
-- A system with 3 conveyors and 2 lift tables = 5 assemblies across however many subsystems
-- The spec builder outputs this hierarchy — the wizard extracts it directly
+- Only **devices** appear in the device list. **Assemblies** and **devices** both get FBs.
+- **Assemblies** are driven by subsystem/system process-sequence logic.
+- The spec builder outputs this hierarchy — the wizard extracts it directly.
+
+**State/behaviour layer — PackML (ISA-TR88.00.02 / OMAC):** operating states, modes, and
+the machine data interface (PackTags) follow PackML. The spec-builder already uses the
+PackML state model (`state-machine.ts`, `OperatingStateV2`, `CANONICAL_STATES`); treat
+PackML as the standard for the state/mode layer.
 
 ## Critical: All Changes Must Be Generic (Non-negotiable)
 
