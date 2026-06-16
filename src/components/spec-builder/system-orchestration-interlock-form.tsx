@@ -117,7 +117,7 @@ export function SystemProcedureInterlockForm({
       <div className="grid grid-cols-2 gap-2">
         <div className="grid gap-1">
           <Label className="text-xs">Source unit</Label>
-          {/* FALLBACK: Wave B → SubsystemPicker */}
+          {/* FALLBACK: Wave B → UnitPicker */}
           <Select value={sourceId} onValueChange={setSourceId}>
             <SelectTrigger className="text-xs">
               <SelectValue placeholder="Select..." />

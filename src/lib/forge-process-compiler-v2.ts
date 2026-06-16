@@ -7,10 +7,10 @@
  *
  * Output shape (per state):
  *
- *   CASE "Inst<Assembly>_stateVar" OF
- *     "Inst<Assembly>_Step_<name>":
+ *   CASE "Inst<EquipmentModule>_stateVar" OF
+ *     "Inst<EquipmentModule>_Step_<name>":
  *       <actions>
- *       IF <guard> THEN "Inst<Assembly>_stateVar" := <next>; END_IF;
+ *       IF <guard> THEN "Inst<EquipmentModule>_stateVar" := <next>; END_IF;
  *     ...
  *   END_CASE;
  *

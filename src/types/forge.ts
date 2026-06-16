@@ -37,7 +37,7 @@ export const FORGE_STEP_LABELS: Record<ForgeStep, string> = {
   hardware_io: "Hardware & IO",
   interface_contract: "Interface Contracts",
   device_fb: "Device FBs",
-  equipment_module_fb: "Assembly FBs",
+  equipment_module_fb: "Equipment Module FBs",
   logic_check: "Logic Check",
   matrix_review: "Matrix Review",
   device_code: "Device Code",
@@ -100,7 +100,7 @@ export interface ForgeSession {
   hardware_config: ForgeHardwareConfig;
   io_list: ForgeIoEntry[];
   device_list: ForgeControlModuleEntry[];
-  /** Assembly entries with FB assignments — coordinated device groups */
+  /** Equipment Module entries with FB assignments — coordinated device groups */
   equipment_module_list: ForgeEquipmentModuleEntry[];
   network_topology: Record<string, unknown>;
 
@@ -115,7 +115,7 @@ export interface ForgeSession {
   linkage_matrix: ProcessLinkageMatrix | null;
 
   device_artifacts: ForgeArtifact[];
-  /** Assembly FB artifacts (FB, config UDT, HMI UDT, instance DB) */
+  /** Equipment Module FB artifacts (FB, config UDT, HMI UDT, instance DB) */
   equipment_module_artifacts: ForgeArtifact[];
   process_artifacts: ForgeArtifact[];
   hmi_artifacts: ForgeArtifact[];
@@ -367,7 +367,7 @@ export interface SpecAnalysisProcessSetting {
 }
 
 // ---------------------------------------------------------------------------
-// Assembly — coordinated group of control_modules (lift table, conveyor, press)
+// Equipment Module — coordinated group of control_modules (lift table, conveyor, press)
 // ---------------------------------------------------------------------------
 
 export interface SpecAnalysisAssembly {

@@ -30,7 +30,7 @@ const SUBSYSTEM_ID = "00000000-0000-4000-8000-000000000b01";
 const ASM1 = "00000000-0000-4000-8000-000000000a01";
 const ASM2 = "00000000-0000-4000-8000-000000000a02";
 
-const baseSubsystem = {
+const baseUnit = {
   unit_id: SUBSYSTEM_ID,
   unit_name: "Catodo",
   equipment_type: "lift",
@@ -83,7 +83,7 @@ describe("useFdsOrchestrationConversation validator gate", () => {
       () =>
         useFdsOrchestrationConversation({
           specProjectId: SPEC_ID,
-          unit: baseSubsystem,
+          unit: baseUnit,
           sessions: baseSessions,
           orchestration: null,
           allStates: baseStates,
@@ -127,7 +127,7 @@ describe("useFdsOrchestrationConversation validator gate", () => {
       () =>
         useFdsOrchestrationConversation({
           specProjectId: SPEC_ID,
-          unit: baseSubsystem,
+          unit: baseUnit,
           sessions: baseSessions,
           orchestration: null,
           allStates: baseStates,

@@ -212,7 +212,7 @@ export function generateUnifiedOverviewScreen(input: OverviewScreenInput): HmiUn
 }
 
 // ---------------------------------------------------------------------------
-// 2. Subsystem screen — one screen per unit with its control_modules
+// 2. Unit screen — one screen per unit with its control_modules
 // ---------------------------------------------------------------------------
 
 export interface SubsystemScreenInput extends UnifiedScreenGeneratorOptions {

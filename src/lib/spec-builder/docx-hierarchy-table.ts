@@ -1,9 +1,9 @@
 /**
  * Section 1.6 — Canonical Machine Hierarchy table renderer.
  *
- * Emits a single structured table (one row per device) with Subsystem,
- * Assembly, Device, Device Class, Safety, and IO Tags columns. Subsystem and
- * Assembly cells repeat verbatim (no cell merging — Word cell merges break
+ * Emits a single structured table (one row per device) with Unit,
+ * Equipment Module, Device, Device Class, Safety, and IO Tags columns. Unit and
+ * Equipment Module cells repeat verbatim (no cell merging — Word cell merges break
  * downstream ingest parsers).
  *
  * Every identifier cell carries its UUID in a trailing `[<uuid>]` bracket so
@@ -81,8 +81,8 @@ export function buildHierarchyTable(hierarchy: Hierarchy): Table {
   const header = new TableRow({
     tableHeader: true,
     children: [
-      headerCell("Subsystem", 18),
-      headerCell("Assembly", 18),
+      headerCell("Unit", 18),
+      headerCell("Equipment Module", 18),
       headerCell("Device", 18),
       headerCell("Device Class", 14),
       headerCell("Safety", 8),

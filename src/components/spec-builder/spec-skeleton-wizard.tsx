@@ -160,11 +160,11 @@ export function SpecSkeletonWizard({ spec, register, onComplete }: Props) {
 
       const systemPrompt = `You are an industrial automation engineer. Given instrument register tags, organize them into a machine hierarchy:
 
-System → Subsystem → Assembly → Device
+System → Unit → Equipment Module → Device
 
 Rules:
-- **Subsystem** = functional station (e.g. "Fan Array", "Infeed Conveyor Station", "Hydraulic Lift Station")
-- **Assembly** = coordinated group of control_modules working together (e.g. "Conveyor CV01", "Fan GK01"). An equipment_module has NO FB — it is orchestrated by process sequence logic.
+- **Unit** = functional station (e.g. "Fan Array", "Infeed Conveyor Station", "Hydraulic Lift Station")
+- **Equipment Module** = coordinated group of control_modules working together (e.g. "Conveyor CV01", "Fan GK01"). An equipment_module has NO FB — it is orchestrated by process sequence logic.
 - **Device** = single physical thing with IO signals (e.g. motor, sensor, valve). Gets an FB.
 - Multiple tags with different suffixes (_CMD, _FB, _OL) that belong to the same physical device should be grouped as io_signals on ONE device, not separate control_modules.
 - Tags that share a unit prefix go under the same unit.

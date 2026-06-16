@@ -53,12 +53,12 @@ const STAGE_SCOPE: Record<ReviewStage, string> = {
 Check ONLY: tag naming, data types, address format (%I/%Q/%IW/%QW), no duplicate addresses, inputs use %I/%IW, outputs use %Q/%QW.
 Do NOT flag: missing FBs, FCs, OBs, DBs, or program logic — those come in later stages.`,
 
-  fb: `## Stage Scope: Function Blocks (Device + Assembly)
-Check ONLY: FB interface sections, static vs temp declarations, no absolute addressing inside FBs, REGION blocks, CASE ELSE branches, naming conventions, timer/counter/edge in VAR. Assembly FBs should have state machines, fault detection, config UDT, and HMI UDT.
+  fb: `## Stage Scope: Function Blocks (Device + Equipment Module)
+Check ONLY: FB interface sections, static vs temp declarations, no absolute addressing inside FBs, REGION blocks, CASE ELSE branches, naming conventions, timer/counter/edge in VAR. Equipment Module FBs should have state machines, fault detection, config UDT, and HMI UDT.
 Do NOT flag: missing OB1, instance DBs, Global DBs, Process FC, IO tag definitions — those come in other stages.`,
 
-  equipment_module: `## Stage Scope: Assembly Function Blocks
-Check ONLY: Assembly FB has state machine (CASE), fault detection (travel timeout, overtravel, motor fault), config UDT input, HMI UDT IN_OUT, command inputs (enable, reset, cmd*), status outputs (busy, done, error, faultCode, stateNumber), REGION blocks. Assembly FB must NOT read physical IO directly.
+  equipment_module: `## Stage Scope: Equipment Module Function Blocks
+Check ONLY: Equipment Module FB has state machine (CASE), fault detection (travel timeout, overtravel, motor fault), config UDT input, HMI UDT IN_OUT, command inputs (enable, reset, cmd*), status outputs (busy, done, error, faultCode, stateNumber), REGION blocks. Equipment Module FB must NOT read physical IO directly.
 Do NOT flag: missing OB1, device FBs, Global DBs, Process FC — those come in other stages.`,
 
   db: `## Stage Scope: Data Blocks

@@ -370,7 +370,7 @@ export function generateOverviewScreen(
     const zoneY = area.y + 36 + si * zoneHeight;
     if (zoneY + 40 > area.y + area.height) return; // overflow guard
 
-    // Subsystem header bar
+    // Unit header bar
     elements.push(makeRect(
       nextId("ov_zone_bg"), area.x, zoneY, zoneWidth, SECTION_HEADER_HEIGHT, "#252540",
     ));
@@ -460,7 +460,7 @@ export function generateOverviewScreen(
 }
 
 // ---------------------------------------------------------------------------
-// 3. Subsystem Checklist Screen
+// 3. Unit Checklist Screen
 // ---------------------------------------------------------------------------
 
 /**
@@ -658,7 +658,7 @@ export function generateDeviceChecklist(
     { fontSize: 11, fontWeight: "bold", textColor: "#AACCFF" },
   ));
   elements.push(makeText(
-    nextId("dc_hdr_sub"), "Subsystem",
+    nextId("dc_hdr_sub"), "Unit",
     colSub, curY + 4, 170, 20,
     { fontSize: 11, fontWeight: "bold", textColor: "#AACCFF" },
   ));
@@ -780,7 +780,7 @@ export function generateDeterministicScreens(
   overview.screenNumber = screenNum++;
   screens.push(overview);
 
-  // 3. Subsystem checklists
+  // 3. Unit checklists
   if (selectedCategories.includes("unit_checklist")) {
     for (const sub of specAnalysis.units) {
       const subDevices = control_modules.filter((d) => d.unit === sub.name);

@@ -664,7 +664,7 @@ function SystemOverviewEditor({ content, set }: EditorProps) {
             <table className="w-full text-xs">
               <thead className="bg-muted/50">
                 <tr>
-                  <th className="p-2 text-left font-mono font-normal">Subsystem</th>
+                  <th className="p-2 text-left font-mono font-normal">Unit</th>
                   <th className="p-2 text-left font-mono font-normal">DI</th>
                   <th className="p-2 text-left font-mono font-normal">DO</th>
                   <th className="p-2 text-left font-mono font-normal">AI</th>

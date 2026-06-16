@@ -20,7 +20,7 @@ Choose ONE realistic industrial machine or system. Examples:
 - Material handling (conveyors, palletisers, AS/RS, shuttle systems)
 - Packaging lines (filling, capping, labelling, case packing)
 - Process systems (mixing, batching, CIP, pasteurisation)
-- Assembly (press fitting, screwing, welding stations)
+- Equipment Module (press fitting, screwing, welding stations)
 - Treatment (coating, drying, curing, heat treatment)
 - Food/bev (forming, baking, cooling, freezing)
 - Pharma (tablet press, coating pan, blister packing)

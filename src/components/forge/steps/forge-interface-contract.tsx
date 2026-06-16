@@ -496,7 +496,7 @@ export function ForgeInterfaceContract({
 
         {/* Main layout */}
         <ResizablePanelGroup orientation="horizontal" className="flex-1 min-h-0">
-          {/* Left: Assembly list */}
+          {/* Left: Equipment Module list */}
           <ResizablePanel defaultSize={28} minSize={20}>
             <ScrollArea className="h-full">
               <div className="space-y-1 p-2">

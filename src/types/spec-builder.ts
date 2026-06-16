@@ -399,7 +399,7 @@ export interface ControlPhilosophyContent {
   design_principles: string[];
 }
 
-/** Section 3 — Functional Description (per subsystem × state) */
+/** Section 3 — Functional Description (per unit × state) */
 export interface FunctionalDescriptionContent {
   pattern: StatePattern;
   // Pattern A (static) — device state table
@@ -423,7 +423,7 @@ export interface StepEntry {
   completion_criteria: string;
 }
 
-/** Section 3 preamble — equipment description (per subsystem, no state) */
+/** Section 3 preamble — equipment description (per unit, no state) */
 export interface EquipmentDescriptionContent {
   prose: string;
   control_module_table: Array<{ control_module: string; tag: string; description: string }>;
@@ -535,7 +535,7 @@ export interface UnitProcedure {
   id: string;
   spec_project_id: string;
   unit_id: string;
-  // Per sequential state: assembly ordering + inter-assembly interlocks
+  // Per sequential state: equipment module ordering + inter-equipment-module interlocks
   state_sequences: Record<string, UnitProcedureSequence>;
   // Conversation for orchestration interview
   conversation: FdsConversationTurn[];

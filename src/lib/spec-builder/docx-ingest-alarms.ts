@@ -2,7 +2,7 @@
  * Deterministic parser: alarm specification table → SpecContractV2 AlarmRow[].
  *
  * Identified by strict header match: the first table whose headers start
- * with the expected columns. Subsystem scoping is resolved by control_module_id or
+ * with the expected columns. Unit scoping is resolved by control_module_id or
  * equipment_module_id (both optional) — the contract leaves `unit_id` inferred
  * later.
  */
@@ -15,7 +15,7 @@ const REQUIRED_HEADERS = [
   "Description",
   "Tier",
   "Device ID",
-  "Assembly ID",
+  "Equipment Module ID",
   "Setpoint",
   "Delay",
 ] as const;

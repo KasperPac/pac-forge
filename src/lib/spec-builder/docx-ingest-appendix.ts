@@ -3,7 +3,7 @@
  *
  * Two sub-tables are expected:
  *  1. Completion-criteria override table
- *     Columns: [Assembly ID, State ID, Step, Criterion JSON]
+ *     Columns: [Equipment Module ID, State ID, Step, Criterion JSON]
  *     The JSON blob must deserialise into a CompletionCriterion (see
  *     `spec-contract-v2.ts`). A single step may have multiple rows; they
  *     accumulate into the step's `completion_criteria` array, replacing the
@@ -28,7 +28,7 @@ interface CriterionOverride {
   criterion: CompletionCriterion;
 }
 
-const CRITERIA_HEADERS = ["Assembly ID", "State ID", "Step", "Criterion JSON"] as const;
+const CRITERIA_HEADERS = ["Equipment Module ID", "State ID", "Step", "Criterion JSON"] as const;
 const REVISION_HEADERS = ["Revision ID", "Revision Number", "Status"] as const;
 
 function headersMatch(headers: string[], target: readonly string[]): boolean {
@@ -120,11 +120,11 @@ export function parseAppendixTables(
  * `parseStateTables`. Mutates the input map and returns it.
  */
 export function applyCriteriaOverrides(
-  sequentialByAssembly: Record<string, Record<string, SequentialStateV2>>,
+  sequentialByEquipmentModule: Record<string, Record<string, SequentialStateV2>>,
   overrides: CriterionOverride[],
 ): Record<string, Record<string, SequentialStateV2>> {
   for (const ov of overrides) {
-    const asy = sequentialByAssembly[ov.equipment_moduleId];
+    const asy = sequentialByEquipmentModule[ov.equipment_moduleId];
     if (!asy) continue;
     const state = asy[ov.stateId];
     if (!state) continue;
@@ -140,5 +140,5 @@ export function applyCriteriaOverrides(
       step.completion_criteria.push(ov.criterion);
     }
   }
-  return sequentialByAssembly;
+  return sequentialByEquipmentModule;
 }

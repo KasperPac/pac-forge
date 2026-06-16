@@ -3565,14 +3565,14 @@ END_TYPE`;
         : null;
 
       if (matchedTemplate && matchedTemplate.blocks && matchedTemplate.blocks.length > 0) {
-        log("info", `Assembly ${equipment_module.tag}: copying template "${matchedTemplate.name}"`);
+        log("info", `EM ${equipment_module.tag}: copying template "${matchedTemplate.name}"`);
         return copyTemplateAsArtifacts(
           { ...equipment_module, device_type: equipment_module.equipment_module_type, io_signals: [] } as unknown as ForgeControlModuleEntry,
           matchedTemplate,
         ).map((a) => ({ ...a, stage: "equipment_module_fb" as const }));
       }
 
-      log("info", `Assembly ${equipment_module.tag}: generating via AI`);
+      log("info", `EM ${equipment_module.tag}: generating via AI`);
       const platformRules = await loadPlatformRules();
       const constituentDevices = (session.device_list ?? []).filter(
         (d) => equipment_module.control_module_ids.includes(d.id),
@@ -3618,7 +3618,7 @@ END_TYPE`;
         stage: "equipment_module_fb" as const,
       }));
 
-      log("info", `Assembly ${equipment_module.tag}: generated ${artifacts.length} artifacts`);
+      log("info", `EM ${equipment_module.tag}: generated ${artifacts.length} artifacts`);
       return artifacts;
     },
     [promptSections],

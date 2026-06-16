@@ -336,7 +336,7 @@ function classifyDeterministic(row: Partial<InstrumentTag>): DeterministicResult
 }
 
 // ---------------------------------------------------------------------------
-// Step 3 — Subsystem grouping
+// Step 3 — Unit grouping
 // ---------------------------------------------------------------------------
 
 export function inferEquipmentType(prefix: string, name: string): EquipmentType {
@@ -418,7 +418,7 @@ function extractDevicePrefix(tag: string, unit: string): string {
 }
 
 function extractAssemblyPrefix(devicePrefix: string): string {
-  // Assembly = the equipment ID portion (letters + digits), e.g. "M01" → "M01", "LFT01_M01" → "LFT01"
+  // Equipment Module = the equipment ID portion (letters + digits), e.g. "M01" → "M01", "LFT01_M01" → "LFT01"
   // Take everything up to and including the first number group
   const match = devicePrefix.match(/^([A-Za-z]+\d+)/);
   return match ? match[1] : devicePrefix;
@@ -459,7 +459,7 @@ export function buildHierarchyFromTags(tags: InstrumentTag[]): UnitConfig[] {
 
   for (const [subKey, subTags] of subGroups) {
     // Check if any tags have an explicit equipment_module field
-    const hasExplicitAssembly = subTags.some((t) => t.equipment_module);
+    const hasExplicitEquipmentModule = subTags.some((t) => t.equipment_module);
 
     // Step 2: Group tags into control_modules by device prefix
     const deviceGroups = new Map<string, InstrumentTag[]>();
@@ -473,7 +473,7 @@ export function buildHierarchyFromTags(tags: InstrumentTag[]): UnitConfig[] {
     // If explicit equipment_module column is provided, use it; otherwise infer from tag prefix
     const equipment_moduleGroups = new Map<string, Map<string, InstrumentTag[]>>();
     for (const [devPrefix, devTags] of deviceGroups) {
-      const asmKey = hasExplicitAssembly
+      const asmKey = hasExplicitEquipmentModule
         ? (devTags[0].equipment_module || subKey)
         : extractAssemblyPrefix(devPrefix);
       if (!equipment_moduleGroups.has(asmKey)) equipment_moduleGroups.set(asmKey, new Map());
@@ -576,7 +576,7 @@ export function generateWarnings(tags: InstrumentTag[]): ParseWarning[] {
     if (count < 3) {
       warnings.push({
         tag: sub,
-        reason: `Subsystem "${sub}" has only ${count} tag(s) — possibly a grouping error`,
+        reason: `Unit "${sub}" has only ${count} tag(s) — possibly a grouping error`,
         severity: "warning",
       });
     }

@@ -1,8 +1,8 @@
 {
-  "assembly": {
-    "assembly_id": "00000000-0000-4000-8000-000000000a01",
-    "assembly_name": "LFT01 — Hydraulic Lift",
-    "devices": [
+  "equipment_module": {
+    "equipment_module_id": "00000000-0000-4000-8000-000000000a01",
+    "equipment_module_name": "LFT01 — Hydraulic Lift",
+    "control_modules": [
       {
         "device_id": "00000000-0000-4000-8000-000000000d01",
         "device_name": "Hydraulic Pump M01",
@@ -35,9 +35,9 @@
       }
     ]
   },
-  "subsystem": {
-    "subsystem_id": "00000000-0000-4000-8000-000000000b01",
-    "subsystem_name": "Catodo Lift Station",
+  "unit": {
+    "unit_id": "00000000-0000-4000-8000-000000000b01",
+    "unit_name": "Catodo Lift Station",
     "equipment_type": "lift"
   },
   "tags": [

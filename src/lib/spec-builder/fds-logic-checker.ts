@@ -16,10 +16,10 @@ import type {
 import type { SequentialStateV2 } from "@/types/spec-contract-v2";
 
 // ---------------------------------------------------------------------------
-// Assembly-level validation
+// Equipment-module-level validation
 // ---------------------------------------------------------------------------
 
-export function validateAssembly(
+export function validateEquipmentModule(
   equipment_module: EquipmentModuleConfig,
   staticStates: Record<string, ControlModuleStateEntry[]>,
   sequentialStates: Record<string, SequentialStateV2>,
@@ -153,10 +153,10 @@ export function validateAssembly(
 }
 
 // ---------------------------------------------------------------------------
-// Subsystem-level validation (cross-equipment_module)
+// Unit-level validation (cross-equipment_module)
 // ---------------------------------------------------------------------------
 
-export function validateSubsystem(
+export function validateUnit(
   unit: UnitConfig,
   sessions: OperationSession[],
   orchestration: UnitProcedure | null,
@@ -171,7 +171,7 @@ export function validateSubsystem(
     const equipment_module = unit.equipment_modules.find((a) => a.equipment_module_id === session.equipment_module_id);
     if (!equipment_module) continue;
 
-    const equipment_moduleResult = validateAssembly(
+    const equipment_moduleResult = validateEquipmentModule(
       equipment_module,
       session.static_states,
       session.sequential_states,
@@ -186,7 +186,7 @@ export function validateSubsystem(
     issues.push({
       severity: "warning",
       category: "orchestration",
-      message: `Subsystem "${unit.unit_name}" has ${unit.equipment_modules.length} equipment_modules but no orchestration defined`,
+      message: `Unit "${unit.unit_name}" has ${unit.equipment_modules.length} equipment_modules but no orchestration defined`,
     });
   }
 
@@ -211,7 +211,7 @@ export function validateSubsystem(
           issues.push({
             severity: "error",
             category: "orchestration",
-            message: `Assembly order references unknown equipment_module "${asmId}" in ${state.state_name}`,
+            message: `Equipment Module order references unknown equipment_module "${asmId}" in ${state.state_name}`,
             state_id: state.state_id,
             equipment_module_id: asmId,
           });
@@ -224,7 +224,7 @@ export function validateSubsystem(
           issues.push({
             severity: "warning",
             category: "orchestration",
-            message: `Assembly "${asmId}" not included in ${state.state_name} execution order`,
+            message: `Equipment Module "${asmId}" not included in ${state.state_name} execution order`,
             state_id: state.state_id,
             equipment_module_id: asmId,
           });

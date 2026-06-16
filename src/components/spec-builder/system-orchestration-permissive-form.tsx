@@ -41,7 +41,7 @@ export function SystemProcedurePermissiveForm({
 }: Props) {
   const [permissiveId, setPermissiveId] = useState(initial?.permissive_id ?? genId("SP"));
   const [prose, setProse] = useState(initial?.prose ?? "");
-  const [sourceSubsystem, setSourceSubsystem] = useState(
+  const [sourceUnit, setSourceUnit] = useState(
     initial?.source_unit ?? "",
   );
   const [exprText, setExprText] = useState(() => {
@@ -69,7 +69,7 @@ export function SystemProcedurePermissiveForm({
         text: exprText.trim(),
         referenced_tags,
       },
-      source_unit: sourceSubsystem || undefined,
+      source_unit: sourceUnit || undefined,
       prose: prose.trim(),
     };
     onSubmit(value);
@@ -88,7 +88,7 @@ export function SystemProcedurePermissiveForm({
       <div className="grid gap-1">
         <Label className="text-xs">Source unit (optional)</Label>
         {/* FALLBACK: inline <Select> — Wave B replaces with SubsystemPicker */}
-        <Select value={sourceSubsystem} onValueChange={setSourceSubsystem}>
+        <Select value={sourceUnit} onValueChange={setSourceUnit}>
           <SelectTrigger className="text-xs">
             <SelectValue placeholder="— none —" />
           </SelectTrigger>

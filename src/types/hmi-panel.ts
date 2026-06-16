@@ -140,7 +140,7 @@ export type HmiScreenCategory =
 export const HMI_SCREEN_CATEGORY_LABELS: Record<HmiScreenCategory, string> = {
   framework: "Framework / Navigation",
   overview: "Plant Overview",
-  unit_checklist: "Subsystem Checklists",
+  unit_checklist: "Unit Checklists",
   device_checklist: "Device Checklists",
   device_faceplate: "Device Faceplates",
   alarm_summary: "Alarm Summary",

@@ -246,7 +246,7 @@ function renderSystemOverview(section: SpecSection): (Paragraph | Table)[] {
       width: { size: 100, type: WidthType.PERCENTAGE },
       borders: TABLE_BORDERS,
       rows: [
-        headerRow(["Subsystem", "DI", "DO", "AI", "AO", "Total"]),
+        headerRow(["Unit", "DI", "DO", "AI", "AO", "Total"]),
         ...c.io_summary.map((r: IoSummaryRow) => new TableRow({
           children: [
             tableCell(r.unit_name, { width: 40 }),
@@ -280,7 +280,7 @@ function renderSystemOverview(section: SpecSection): (Paragraph | Table)[] {
   children.push(heading("1.4 Safety Classification", HeadingLevel.HEADING_2));
   children.push(...prose(c.safety_classification ?? ""));
 
-  // Machine Hierarchy — deterministic tree: Subsystem → Assembly → Device
+  // Machine Hierarchy — deterministic tree: Unit → Equipment Module → Device
   const hierarchy = (c as unknown as { machine_hierarchy?: Array<{
     unit_id?: string;
     unit_name: string;
@@ -513,7 +513,7 @@ function renderFunctionalDescriptions(
 
     const eqContent = eq.content_json as unknown as EquipmentDescriptionContent;
 
-    // Subsystem heading + equipment prose
+    // Unit heading + equipment prose
     children.push(heading(`3.${idx + 1} ${unitName}`, HeadingLevel.HEADING_2));
     if (eqContent.prose) children.push(...prose(eqContent.prose));
 

@@ -36,7 +36,7 @@ is to extract the machine hierarchy, operating states, alarms, and device IO
 into the strict SpecContractV2 shape defined below.
 
 The four-level hierarchy is NON-NEGOTIABLE:
-  System (the machine) → Subsystem (functional station) → Assembly (group of
+  System (the machine) → Unit (functional station) → Equipment Module (group of
   control_modules working together) → Device (single physical thing with IO signals).
 Only control_modules have IO. Only equipment_modules appear in process sequences. If the
 spec is ambiguous, err towards describing the real physical decomposition —

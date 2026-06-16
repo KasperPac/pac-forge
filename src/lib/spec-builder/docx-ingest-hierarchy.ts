@@ -7,7 +7,7 @@
  *
  * The hierarchy table is identified by a caption containing
  * `pac-forge:hierarchy-v2`. Column order is strict:
- *   [Subsystem, Assembly, Device, Device Class, Safety, IO Tags]
+ *   [Unit, Equipment Module, Device, Device Class, Safety, IO Tags]
  * Trailing `[UUID]` markers on each cell carry the entity id; absence is
  * treated as a fatal parse error.
  */
@@ -32,8 +32,8 @@ export class DocxIngestError extends Error {
 }
 
 const REQUIRED_HEADERS = [
-  "Subsystem",
-  "Assembly",
+  "Unit",
+  "Equipment Module",
   "Device",
   "Device Class",
   "Safety",

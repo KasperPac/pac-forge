@@ -1,5 +1,5 @@
 /**
- * Forge wizard step: Assembly FB Generation
+ * Forge wizard step: Equipment Module FB Generation
  *
  * Standalone step (extracted from forge-device-fb.tsx) for generating
  * equipment_module function blocks. Shows per-equipment_module generation with FDS brief
@@ -249,7 +249,7 @@ export function ForgeAssemblyFb({
     });
   }, [onArtifactsUpdate]);
 
-  const approveAllForAssembly = useCallback((tag: string) => {
+  const approveAllForEquipmentModule = useCallback((tag: string) => {
     const tagClean = tag.toLowerCase().replace(/[^a-z0-9]/g, "");
     setArtifacts((prev) => {
       const updated = prev.map((a) =>
@@ -273,8 +273,8 @@ export function ForgeAssemblyFb({
 
   // ── Render ──
 
-  const selectedAssembly = equipment_modules.find((a) => a.tag === selectedTag);
-  const selectedBrief = selectedAssembly && isFdsLinked ? briefs[selectedAssembly.id] : undefined;
+  const selectedEquipmentModule = equipment_modules.find((a) => a.tag === selectedTag);
+  const selectedBrief = selectedEquipmentModule && isFdsLinked ? briefs[selectedEquipmentModule.id] : undefined;
 
   return (
     <div className="flex flex-col h-full gap-3">
@@ -291,7 +291,7 @@ export function ForgeAssemblyFb({
           {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           {loading
             ? `Generating ${progress.equipment_moduleTag} (${progress.current}/${progress.total})`
-            : artifacts.length > 0 ? "Regenerate All" : "Generate All Assembly FBs"}
+            : artifacts.length > 0 ? "Regenerate All" : "Generate All Equipment Module FBs"}
         </Button>
 
         {isFdsLinked && (
@@ -322,7 +322,7 @@ export function ForgeAssemblyFb({
 
       {/* Main layout */}
       <ResizablePanelGroup orientation="horizontal" className="flex-1 min-h-0">
-        {/* Left: Assembly list */}
+        {/* Left: Equipment Module list */}
         <ResizablePanel defaultSize={28} minSize={18}>
           <ScrollArea className="h-full">
             <div className="space-y-1 p-2">
@@ -371,12 +371,12 @@ export function ForgeAssemblyFb({
 
         {/* Right: Code + controls */}
         <ResizablePanel defaultSize={72} minSize={40}>
-          {selectedTag && selectedAssembly ? (
+          {selectedTag && selectedEquipmentModule ? (
             <div className="flex flex-col h-full">
-              {/* Assembly header */}
+              {/* Equipment Module header */}
               <div className="flex items-center gap-2 px-3 py-2 border-b border-border/30 shrink-0">
-                <span className="font-mono text-xs font-semibold">{selectedAssembly.tag}</span>
-                <span className="text-[10px] text-muted-foreground">{selectedAssembly.name}</span>
+                <span className="font-mono text-xs font-semibold">{selectedEquipmentModule.tag}</span>
+                <span className="text-[10px] text-muted-foreground">{selectedEquipmentModule.name}</span>
                 <div className="flex-1" />
 
                 <Button
@@ -384,9 +384,9 @@ export function ForgeAssemblyFb({
                   size="sm"
                   className="h-7 text-xs gap-1"
                   disabled={loading || generatingTag !== null}
-                  onClick={() => handleGenerateSingle(selectedAssembly)}
+                  onClick={() => handleGenerateSingle(selectedEquipmentModule)}
                 >
-                  {generatingTag === selectedAssembly.tag
+                  {generatingTag === selectedEquipmentModule.tag
                     ? <Loader2 className="h-3 w-3 animate-spin" />
                     : <RotateCcw className="h-3 w-3" />}
                   {selectedArtifacts.length > 0 ? "Regenerate" : "Generate"}
@@ -397,7 +397,7 @@ export function ForgeAssemblyFb({
                     variant="outline"
                     size="sm"
                     className="h-7 text-xs gap-1"
-                    onClick={() => approveAllForAssembly(selectedAssembly.tag)}
+                    onClick={() => approveAllForEquipmentModule(selectedEquipmentModule.tag)}
                   >
                     <CheckCircle2 className="h-3 w-3" />
                     Approve All
@@ -434,7 +434,7 @@ export function ForgeAssemblyFb({
                         className="h-auto text-xs shrink-0"
                         disabled={!regenInstructions.trim() || generatingTag !== null}
                         onClick={() => {
-                          void handleGenerateSingle(selectedAssembly, regenInstructions.trim());
+                          void handleGenerateSingle(selectedEquipmentModule, regenInstructions.trim());
                           setRegenInstructions("");
                           setRegenOpen(false);
                         }}

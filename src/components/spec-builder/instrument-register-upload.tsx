@@ -36,14 +36,14 @@ function downloadTemplate() {
     "Description",
     "Signal Type",
     "IO Address",
-    "Subsystem",
-    "Assembly",
+    "Unit",
+    "Equipment Module",
   ];
   const exampleRows = [
-    ["CM1_RUN", "Motor Contactor", "Carriage Motor 1 Run", "DO", "Q0.4", "Carriage Drive", "Carriage Assembly"],
-    ["CM1_Fault", "Motor Contactor", "Carriage Motor 1 Fault", "DI", "I0.5", "Carriage Drive", "Carriage Assembly"],
-    ["CM1_Therm", "Thermistor Relay", "Carriage Motor 1 Thermistor Fault", "DI", "I1.1", "Carriage Drive", "Carriage Assembly"],
-    ["VSD1_Speed_Ref", "VSD", "Carriage VSD Speed Reference", "AO", "AQ0", "Carriage Drive", "Carriage Assembly"],
+    ["CM1_RUN", "Motor Contactor", "Carriage Motor 1 Run", "DO", "Q0.4", "Carriage Drive", "Carriage EM"],
+    ["CM1_Fault", "Motor Contactor", "Carriage Motor 1 Fault", "DI", "I0.5", "Carriage Drive", "Carriage EM"],
+    ["CM1_Therm", "Thermistor Relay", "Carriage Motor 1 Thermistor Fault", "DI", "I1.1", "Carriage Drive", "Carriage EM"],
+    ["VSD1_Speed_Ref", "VSD", "Carriage VSD Speed Reference", "AO", "AQ0", "Carriage Drive", "Carriage EM"],
     ["ES1_Healthy", "Emergency Stop", "E-Stop Healthy", "DI", "I2.4", "Safety", "E-Stop Circuit"],
   ];
 
@@ -222,7 +222,7 @@ export function InstrumentRegisterUpload({ specProjectId, onParsed }: Props) {
             </Badge>
           </div>
 
-          {/* Subsystem cards */}
+          {/* Unit cards */}
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
             {result.units.map((sub) => (
               <Card key={sub.unit_id} className="p-3 space-y-1">
@@ -286,7 +286,7 @@ export function InstrumentRegisterUpload({ specProjectId, onParsed }: Props) {
                     <TableHead className="w-28">Class</TableHead>
                     <TableHead className="w-20">Signal</TableHead>
                     <TableHead>Description</TableHead>
-                    <TableHead className="w-32">Subsystem</TableHead>
+                    <TableHead className="w-32">Unit</TableHead>
                     <TableHead className="w-16">Safety</TableHead>
                   </TableRow>
                 </TableHeader>

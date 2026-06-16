@@ -259,7 +259,7 @@ export function buildInterfaceContractPrompt(): string {
 
 ## What is an Interface Contract?
 
-Each equipment_module (e.g. lift table, conveyor, stamping press) is a coordinated group of control_modules controlled by a single Assembly FB. Assemblies communicate with each other and with process sequences through their FB interfaces:
+Each equipment_module (e.g. lift table, conveyor, stamping press) is a coordinated group of control_modules controlled by a single Equipment Module FB. Assemblies communicate with each other and with process sequences through their FB interfaces:
 
 - **Exposed signals** — outputs this equipment_module provides (status, positions, faults). These become VAR_OUTPUT on the equipment_module FB.
 - **Consumed signals** — inputs this equipment_module needs from OTHER equipment_modules. These become VAR_INPUT on the equipment_module FB, wired by the call FC.
@@ -337,7 +337,7 @@ export function buildInterfaceContractUserMessage(analysis: SpecAnalysis): strin
       .join("\n");
     return `### ${a.name} [${a.tag}] — ${a.equipment_module_type}
   Description: ${a.description}
-  Subsystem: ${a.unit}
+  Unit: ${a.unit}
   Constituent control_modules:
 ${devNames}`;
   }).join("\n\n");
@@ -412,7 +412,7 @@ Categories: ${deviceCategories.join(", ")}
 `;
   }
   if (equipment_moduleCategories.length > 0) {
-    librarySection += `## Assembly FB Library (${equipment_moduleTemplates.length} templates)
+    librarySection += `## Equipment Module FB Library (${equipment_moduleTemplates.length} templates)
 Each equipment_module FB coordinates a group of control_modules.
 Categories: ${equipment_moduleCategories.join(", ")}
 
@@ -442,7 +442,7 @@ export function buildSpecAnalysisUserMessage(specText: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Assembly FB SCL code generation prompt
+// Equipment Module FB SCL code generation prompt
 // ---------------------------------------------------------------------------
 
 export interface AssemblyGenContext {
@@ -590,11 +590,11 @@ export function buildAssemblySclPrompt(
   // Build FDS behavioral spec section when brief is available
   const fdsBehavioralSection = context.brief ? buildFdsBehavioralSection(context.brief) : "";
 
-  return `You are a Code Architect generating an Assembly Function Block in SCL for Siemens S7-1200/S7-1500.
+  return `You are a Code Architect generating an Equipment Module Function Block in SCL for Siemens S7-1200/S7-1500.
 
-## What is an Assembly FB?
+## What is an Equipment Module FB?
 
-An Assembly FB coordinates a group of physical control_modules that work together as a functional unit (e.g. a lift table, a conveyor, a stamping press). It contains:
+An Equipment Module FB coordinates a group of physical control_modules that work together as a functional unit (e.g. a lift table, a conveyor, a stamping press). It contains:
 - **State machine** — states defined by the functional design specification (FDS)
 - **Fault detection** — travel timeout, overtravel, motor fault, position loss
 - **Command interface** — inputs like cmdRaise, cmdLower, cmdStop, reset, enable
@@ -604,11 +604,11 @@ An Assembly FB coordinates a group of physical control_modules that work togethe
 
 The equipment_module FB does NOT read physical IO directly — it reads device status from its input parameters, which are wired by the call FC.
 
-## Assembly: ${equipment_module.name}
+## Equipment Module: ${equipment_module.name}
 - **Tag:** ${equipment_module.tag}
 - **Type:** ${equipment_module.equipment_module_type}
 - **Description:** ${equipment_module.description}
-- **Subsystem:** ${equipment_module.unit}
+- **Unit:** ${equipment_module.unit}
 - **Constituent Devices (${constituentDevices.length}):**
 
 ${deviceInterfaces}
@@ -628,7 +628,7 @@ Emit ALL blocks as fenced SCL. Each block as:
 Required blocks:
 1. **Config UDT** — \`[UDT:type${sanitizeBlockName(equipment_module.tag)}Config]\` — configurable parameters (timeouts, thresholds)
 2. **HMI UDT** — \`[UDT:udtHMI_${sanitizeBlockName(equipment_module.tag)}]\` — HMI faceplate binding struct
-3. **Assembly FB** — \`[FB:Control${sanitizeBlockName(equipment_module.tag)}]\` — main equipment_module logic
+3. **Equipment Module FB** — \`[FB:Control${sanitizeBlockName(equipment_module.tag)}]\` — main equipment_module logic
 4. **Instance DB** — \`[DB:Inst${sanitizeBlockName(equipment_module.tag)}]\` — instance of the equipment_module FB
 
 ## Rules
@@ -643,7 +643,7 @@ ${context.brief ? "- CRITICAL: Implement the FDS behavioral specification EXACTL
 }
 
 export function buildAssemblySclUserMessage(equipment_module: ForgeEquipmentModuleEntry): string {
-  return `Generate the Assembly FB for ${equipment_module.name} (${equipment_module.equipment_module_type}) with tag ${equipment_module.tag}.\n\nInclude the config UDT, HMI UDT, equipment_module FB, and instance DB. Emit all blocks now.`;
+  return `Generate the Equipment Module FB for ${equipment_module.name} (${equipment_module.equipment_module_type}) with tag ${equipment_module.tag}.\n\nInclude the config UDT, HMI UDT, equipment_module FB, and instance DB. Emit all blocks now.`;
 }
 
 function sanitizeBlockName(tag: string): string {
@@ -786,7 +786,7 @@ export function buildDeviceSclUserMessage(device: ForgeControlModuleEntry): stri
 **Tag:** ${device.tag}
 **Type:** ${device.device_type}
 **Description:** ${device.description}
-**Subsystem:** ${device.unit}
+**Unit:** ${device.unit}
 
 **IO Signals:**
 ${signals || "  (no IO signals specified)"}
@@ -2116,9 +2116,9 @@ export interface ProcessGenContext {
   ioEntries?: ForgeIoEntry[];
   /** Device entries (for IO wiring context) */
   deviceEntries?: ForgeControlModuleEntry[];
-  /** Assembly entries — sequences command these, not individual control_modules */
+  /** Equipment Module entries — sequences command these, not individual control_modules */
   equipment_moduleEntries?: ForgeEquipmentModuleEntry[];
-  /** Assembly FB interface sections (SCL VAR_INPUT/OUTPUT) */
+  /** Equipment Module FB interface sections (SCL VAR_INPUT/OUTPUT) */
   equipment_moduleFbInterfaces?: string;
   /** Full linkage matrix with engineer-confirmed device wiring and process sequences */
   linkageMatrix?: ProcessLinkageMatrix;
@@ -2263,11 +2263,11 @@ export function buildProcessSclPrompt(context: ProcessGenContext, promptSections
 Use these exact field names — do NOT invent alternatives.
 
 ${wiringSummary}` : "",
-    // Assembly context for equipment-module-first sequencing
+    // Equipment Module context for equipment-module-first sequencing
     context.equipment_moduleEntries?.length
       ? `## Assemblies (command these in sequences, NOT individual control_modules)
 ${context.equipment_moduleEntries.map((a) => `- **${a.name}** [${a.tag}] (${a.equipment_module_type}) — ${a.control_module_ids.length} control_modules`).join("\n")}
-${context.equipment_moduleFbInterfaces ? `\n## Assembly FB Interfaces\n${context.equipment_moduleFbInterfaces}` : ""}
+${context.equipment_moduleFbInterfaces ? `\n## Equipment Module FB Interfaces\n${context.equipment_moduleFbInterfaces}` : ""}
 
 **CRITICAL:** Process sequences command equipment_modules via ProcessCommands DB (e.g. "DB_ProcessCommands".lft01CmdRaise := TRUE).
 Read equipment_module status from ProcessState DB (e.g. "DB_ProcessState".lft01AtUpper). Fault handling is INSIDE Equipment Module FBs.`
@@ -2357,7 +2357,7 @@ export function buildProcessSclUserMessage(
   return `Generate the SCL process FC for this sequence:
 
 **Sequence name:** ${sequence.name}
-**Subsystem:** ${sequence.unit}
+**Unit:** ${sequence.unit}
 ${permissives}
 
 **Steps:**
@@ -2805,18 +2805,18 @@ export function buildHmiUserMessage(session: ForgeSession): string {
     )
     .join("\n");
 
-  const ioBySubsystem = new Map<string, ForgeIoEntry[]>();
+  const ioByUnit = new Map<string, ForgeIoEntry[]>();
   for (const io of session.io_list) {
     const device = session.device_list.find((candidate) =>
       candidate.io_signals.some((signal) => signal.tag_name === io.tag_name),
     );
     const unit = device?.unit ?? "General";
-    const list = ioBySubsystem.get(unit) ?? [];
+    const list = ioByUnit.get(unit) ?? [];
     list.push(io);
-    ioBySubsystem.set(unit, list);
+    ioByUnit.set(unit, list);
   }
-  const ioSection = ioBySubsystem.size > 0
-    ? [...ioBySubsystem.entries()]
+  const ioSection = ioByUnit.size > 0
+    ? [...ioByUnit.entries()]
       .map(([unit, ioEntries]) => `  - ${unit}: ${ioEntries.slice(0, 8).map((io) => `${io.tag_name} (${io.signal_type})`).join(", ")}`)
       .join("\n")
     : "  - No IO list supplied";
@@ -2847,7 +2847,7 @@ ${sequenceList}
 Create a full screen suite:
 1. Template shell / navigation host
 2. Plant overview
-3. Subsystem checklist screens
+3. Unit checklist screens
 4. Device-type detail / faceplate screens
 5. Alarm summary screen when applicable
 
@@ -3452,7 +3452,7 @@ function buildMatrixContext(
       const fbInfo = tpl
         ? `FB Template: ${tpl.name} (${d.fb_match_confidence} match)`
         : `FB Template: none (AI-generated)`;
-      return `**${d.name}** [${d.tag}]\n  Type: ${d.device_type}\n  Subsystem: ${d.unit}\n  ${fbInfo}\n  IO Signals:\n${signals || "    (none)"}`;
+      return `**${d.name}** [${d.tag}]\n  Type: ${d.device_type}\n  Unit: ${d.unit}\n  ${fbInfo}\n  IO Signals:\n${signals || "    (none)"}`;
     })
     .join("\n\n");
 
@@ -3528,7 +3528,7 @@ ${equipment_modules.map((a) => {
   return `  - **${a.name}** [${a.tag}] (${a.equipment_module_type}) — control_modules: ${devNames}`;
 }).join("\n")}
 
-## Assembly FB Interfaces
+## Equipment Module FB Interfaces
 ${(equipment_moduleArtifacts ?? [])
   .filter((a) => a.type === "FB" && a.stage === "equipment_module_fb")
   .map((a) => {

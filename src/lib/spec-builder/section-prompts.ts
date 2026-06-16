@@ -95,8 +95,8 @@ export function buildEquipmentDescriptionPrompt(
   return `You are a senior automation engineer authoring a formal functional specification document.
 Your output style must match professional EFD (Engineering Functional Description) documents.
 
-You are generating the "Description of Subsystem Equipment" section for: ${unit.unit_name} (${unit.equipment_type}).
-${unit.description ? `Subsystem description: ${unit.description}\n` : ""}${rulesSection}
+You are generating the "Description of Unit Equipment" section for: ${unit.unit_name} (${unit.equipment_type}).
+${unit.description ? `Unit description: ${unit.description}\n` : ""}${rulesSection}
 MACHINE HIERARCHY (Assemblies and Devices):
 ${JSON.stringify(equipment_moduleHierarchy, null, 2)}
 
@@ -161,7 +161,7 @@ Respond ONLY with a JSON object:
 
 export function buildAlarmTablePrompt(
   units: UnitConfig[],
-  tagsBySubsystem: Record<string, InstrumentTag[]>,
+  tagsByUnit: Record<string, InstrumentTag[]>,
   alarmTiers: AlarmTier[],
 ): string {
   const unitData = units
@@ -169,7 +169,7 @@ export function buildAlarmTablePrompt(
     .map((s) => ({
       unit: s.unit_name,
       equipment_type: s.equipment_type,
-      tags: (tagsBySubsystem[s.unit_id] ?? []).map((t) => ({
+      tags: (tagsByUnit[s.unit_id] ?? []).map((t) => ({
         tag: t.tag,
         device_type: t.device_type,
         description: t.description,
@@ -653,7 +653,7 @@ Respond ONLY with a JSON object:
 
 export function buildAlarmSpecificationPrompt(
   units: UnitConfig[],
-  tagsBySubsystem: Record<string, InstrumentTag[]>,
+  tagsByUnit: Record<string, InstrumentTag[]>,
   alarmTiers: AlarmTier[],
 ): string {
   const unitData = units
@@ -661,7 +661,7 @@ export function buildAlarmSpecificationPrompt(
     .map((s) => ({
       unit: s.unit_name,
       equipment_type: s.equipment_type,
-      tags: (tagsBySubsystem[s.unit_id] ?? []).map((t) => ({
+      tags: (tagsByUnit[s.unit_id] ?? []).map((t) => ({
         tag: t.tag,
         device_type: t.device_type,
         description: t.description,

@@ -872,7 +872,7 @@ export default function FbLibraryPage() {
           <SelectContent>
             <SelectItem value="all">All types</SelectItem>
             <SelectItem value="device">Device FBs</SelectItem>
-            <SelectItem value="equipment_module">Assembly FBs</SelectItem>
+            <SelectItem value="equipment_module">Equipment Module FBs</SelectItem>
           </SelectContent>
         </Select>
         <Select value={sourceFilter} onValueChange={(v) => setSourceFilter(v as "all" | "library" | "custom")}>
@@ -975,7 +975,7 @@ export default function FbLibraryPage() {
               </div>
             </div>
 
-            {/* Assembly toggle */}
+            {/* Equipment Module toggle */}
             <div className="flex items-center gap-2">
               <Switch
                 checked={form.is_equipment_module}
@@ -983,7 +983,7 @@ export default function FbLibraryPage() {
                 id="is-equipment-module-toggle"
               />
               <label htmlFor="is-equipment-module-toggle" className="font-mono text-xs text-muted-foreground cursor-pointer">
-                Assembly FB
+                Equipment Module FB
               </label>
               <span className="font-mono text-[10px] text-muted-foreground/60">
                 {form.is_equipment_module ? "Coordinates groups of control_modules (conveyor, lift table, press)" : "Controls a single physical device (motor, sensor, valve)"}

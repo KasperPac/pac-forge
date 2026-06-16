@@ -27,7 +27,7 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   specProjectId: string;
   sourceSession: OperationSession;
-  sourceAssembly: EquipmentModuleConfig;
+  sourceEquipmentModule: EquipmentModuleConfig;
   units: UnitConfig[];
   existingSessions: OperationSession[];
 }
@@ -37,7 +37,7 @@ export function FdsDuplicateDialog({
   onOpenChange,
   specProjectId,
   sourceSession,
-  sourceAssembly,
+  sourceEquipmentModule,
   units,
   existingSessions,
 }: Props) {
@@ -45,18 +45,18 @@ export function FdsDuplicateDialog({
 
   // Find equipment_modules with matching device structure (same number and types of control_modules)
   const sourceDeviceSignature = useMemo(() => {
-    return sourceAssembly.control_modules
+    return sourceEquipmentModule.control_modules
       .map((d) => `${d.control_module_class}:${d.io_signals.length}`)
       .sort()
       .join(",");
-  }, [sourceAssembly]);
+  }, [sourceEquipmentModule]);
 
   // All equipment_modules across all units that match the source's device structure
   const matchingAssemblies = useMemo(() => {
     const matches: Array<{ unit: UnitConfig; equipment_module: EquipmentModuleConfig }> = [];
     for (const sub of units) {
       for (const asm of sub.equipment_modules) {
-        if (asm.equipment_module_id === sourceAssembly.equipment_module_id) continue; // skip source
+        if (asm.equipment_module_id === sourceEquipmentModule.equipment_module_id) continue; // skip source
         const sig = asm.control_modules
           .map((d) => `${d.control_module_class}:${d.io_signals.length}`)
           .sort()
@@ -67,7 +67,7 @@ export function FdsDuplicateDialog({
       }
     }
     return matches;
-  }, [units, sourceAssembly, sourceDeviceSignature]);
+  }, [units, sourceEquipmentModule, sourceDeviceSignature]);
 
   // Selected targets
   const [selectedTargets, setSelectedTargets] = useState<Set<string>>(new Set());
@@ -76,8 +76,8 @@ export function FdsDuplicateDialog({
   const buildRemap = (target: EquipmentModuleConfig): Record<string, string> => {
     const remap: Record<string, string> = {};
     // Match control_modules by position (same index = same role)
-    for (let i = 0; i < sourceAssembly.control_modules.length && i < target.control_modules.length; i++) {
-      const srcDev = sourceAssembly.control_modules[i];
+    for (let i = 0; i < sourceEquipmentModule.control_modules.length && i < target.control_modules.length; i++) {
+      const srcDev = sourceEquipmentModule.control_modules[i];
       const tgtDev = target.control_modules[i];
       // Map each signal
       for (let j = 0; j < srcDev.io_signals.length && j < tgtDev.io_signals.length; j++) {
@@ -123,10 +123,10 @@ export function FdsDuplicateDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Copy className="h-4 w-4" />
-            Duplicate Assembly
+            Duplicate Equipment Module
           </DialogTitle>
           <DialogDescription>
-            Clone {sourceAssembly.equipment_module_name}'s behavioral data to equipment_modules with matching device structures.
+            Clone {sourceEquipmentModule.equipment_module_name}'s behavioral data to equipment_modules with matching device structures.
             Tags will be automatically remapped.
           </DialogDescription>
         </DialogHeader>

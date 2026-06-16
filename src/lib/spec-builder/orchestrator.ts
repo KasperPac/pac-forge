@@ -173,15 +173,15 @@ async function saveSection(
   modelUsed: string,
   prompt: string,
   usage: TokenUsage,
-  v2OrSubsystem?: SaveSectionV2Opts | string,
+  v2OrUnit?: SaveSectionV2Opts | string,
   stateNameLegacy?: string,
 ): Promise<SpecSection> {
   // Back-compat: legacy signature (unitId, stateName) still supported.
   let opts: SaveSectionV2Opts;
-  if (typeof v2OrSubsystem === "string" || v2OrSubsystem === undefined) {
-    opts = { unitId: v2OrSubsystem, stateName: stateNameLegacy };
+  if (typeof v2OrUnit === "string" || v2OrUnit === undefined) {
+    opts = { unitId: v2OrUnit, stateName: stateNameLegacy };
   } else {
-    opts = v2OrSubsystem;
+    opts = v2OrUnit;
   }
 
   const inferredGranularity: SaveSectionV2Opts["granularity"] = opts.granularity ??
@@ -214,7 +214,7 @@ async function saveSection(
   return data as SpecSection;
 }
 
-function getTagsForSubsystem(register: InstrumentRegister, sub: UnitConfig): InstrumentTag[] {
+function getTagsForUnit(register: InstrumentRegister, sub: UnitConfig): InstrumentTag[] {
   // Build set of all tag names referenced in this unit's device hierarchy
   const tagNames = new Set<string>();
   for (const asm of sub.equipment_modules) {
@@ -239,7 +239,7 @@ function computeIoSummary(
   return units
     .filter((s) => !s.excluded)
     .map((sub) => {
-      const tags = getTagsForSubsystem(register, sub);
+      const tags = getTagsForUnit(register, sub);
       return {
         unit_id: sub.unit_id,
         unit_name: sub.unit_name,
@@ -264,7 +264,7 @@ export async function generateSpec(
   const totalUsage: TokenUsage = { input: 0, output: 0, total: 0 };
   const errors: string[] = [];
   const sections: SpecSection[] = [];
-  const activeSubsystems = spec.confirmed_units.filter((s) => !s.excluded);
+  const activeUnits = spec.confirmed_units.filter((s) => !s.excluded);
   const states = migrateOperatingStates(spec.confirmed_states);
   const staticStates = states.filter((s) => s.state_pattern === "static");
   const sequentialStates = states.filter((s) => s.state_pattern === "sequential");
@@ -287,7 +287,7 @@ export async function generateSpec(
   //   + per unit: 1 (equipment) + 1 (batched static states) + N (sequential states)
   //   + Section 4 (IO list) + Section 5 (alarm spec) + Section 6 (HMI, conditional)
   //   + Section 8 (testing) + audit
-  const unitSteps = activeSubsystems.length * (1 + 1 + sequentialStates.length);
+  const unitSteps = activeUnits.length * (1 + 1 + sequentialStates.length);
   const totalSteps = 3 + unitSteps + 1 + 1 + (hasHmi ? 1 : 0) + 1 + 1;
   let completedSteps = 0;
 
@@ -307,7 +307,7 @@ export async function generateSpec(
         spec.doc_code,
         spec.revision,
         spec.client_name ?? "",
-        activeSubsystems,
+        activeUnits,
       );
       const result = await callSonnet(prompt, "Generate the document control section.", signal, "spec_document_control");
       const parsed = JSON.parse(result.content);
@@ -330,16 +330,16 @@ export async function generateSpec(
         spec.plc_model ?? "",
         spec.hmi_type ?? "",
         spec.comms_protocol ?? "",
-        activeSubsystems,
+        activeUnits,
         spec.scope_exclusions ?? [],
         spec.safety_classification ?? null,
       );
       const result = await callSonnet(prompt, "Generate the system overview section.", signal, "spec_system_overview");
       const parsed = JSON.parse(result.content);
       // Inject deterministically computed IO summary
-      parsed.io_summary = computeIoSummary(activeSubsystems, register);
-      // Inject full System → Subsystem → Assembly → Device hierarchy deterministically
-      parsed.machine_hierarchy = activeSubsystems.map((s) => ({
+      parsed.io_summary = computeIoSummary(activeUnits, register);
+      // Inject full System → Unit → Equipment Module → Device hierarchy deterministically
+      parsed.machine_hierarchy = activeUnits.map((s) => ({
         unit_id: s.unit_id,
         unit_name: s.unit_name,
         equipment_type: s.equipment_type,
@@ -378,7 +378,7 @@ export async function generateSpec(
     onProgress({ phase: "Generating", current: completedSteps, total: totalSteps, detail: "Section 2: Control Philosophy" });
     try {
       const prompt = buildControlPhilosophyPrompt(
-        activeSubsystems,
+        activeUnits,
         states,
         spec.alarm_tiers,
         spec.fault_philosophy ?? null,
@@ -400,8 +400,8 @@ export async function generateSpec(
     // -----------------------------------------------------------------------
     const equipmentResults: Record<string, Array<{ device: string; tag: string; description: string }>> = {};
 
-    const unitTasks = activeSubsystems.map((sub) => async () => {
-      const tags = getTagsForSubsystem(register, sub);
+    const unitTasks = activeUnits.map((sub) => async () => {
+      const tags = getTagsForUnit(register, sub);
 
       // Check for co-authored data — skip AI generation if equipment_modules are co-authored
       const { data: coAuthoredSessions } = await supabase
@@ -469,7 +469,7 @@ export async function generateSpec(
           const parsed = JSON.parse(result.content);
           // Save one section per (equipment_module, static state). The prompt emits a
           // unit-level table; fan it out across equipment_modules deterministically
-          // so V2's per-(equipment_module, state) row shape is honoured. Assembly-specific
+          // so V2's per-(equipment_module, state) row shape is honoured. Equipment-module-specific
           // refinement is delegated to later ingest/co-author passes.
           const statesData = parsed.states as Record<string, Array<{ tag: string; description: string; state: string }>>;
           const equipment_moduleTagSets = sub.equipment_modules.map((asm) => {
@@ -572,11 +572,11 @@ export async function generateSpec(
     // -----------------------------------------------------------------------
     onProgress({ phase: "Generating", current: completedSteps, total: totalSteps, detail: "Section 5: Alarm Specification" });
     try {
-      const tagsBySubsystem: Record<string, InstrumentTag[]> = {};
-      for (const sub of activeSubsystems) {
-        tagsBySubsystem[sub.unit_id] = getTagsForSubsystem(register, sub);
+      const tagsByUnit: Record<string, InstrumentTag[]> = {};
+      for (const sub of activeUnits) {
+        tagsByUnit[sub.unit_id] = getTagsForUnit(register, sub);
       }
-      const prompt = buildAlarmSpecificationPrompt(activeSubsystems, tagsBySubsystem, spec.alarm_tiers);
+      const prompt = buildAlarmSpecificationPrompt(activeUnits, tagsByUnit, spec.alarm_tiers);
       const result = await callSonnet(prompt, "Generate the alarm specification.", signal, "spec_alarm_specification");
       const parsed = JSON.parse(result.content);
       const section = await saveSection(spec.id, "alarm_specification", parsed, "claude-sonnet-4-6", prompt, result.usage);
@@ -594,7 +594,7 @@ export async function generateSpec(
     if (hasHmi) {
       onProgress({ phase: "Generating", current: completedSteps, total: totalSteps, detail: "Section 6: HMI Specification" });
       try {
-        const prompt = buildHmiSpecificationPrompt(spec.hmi_type!, activeSubsystems, register.tags);
+        const prompt = buildHmiSpecificationPrompt(spec.hmi_type!, activeUnits, register.tags);
         const result = await callSonnet(prompt, "Generate the HMI specification.", signal, "spec_hmi_specification");
         const parsed = JSON.parse(result.content);
         const section = await saveSection(spec.id, "hmi_specification", parsed, "claude-sonnet-4-6", prompt, result.usage);
@@ -626,7 +626,7 @@ export async function generateSpec(
     // -----------------------------------------------------------------------
     onProgress({ phase: "Generating", current: completedSteps, total: totalSteps, detail: "Section 8: Testing / FAT" });
     try {
-      const prompt = buildTestingFatPrompt(activeSubsystems, states, spec.alarm_tiers, register.tags);
+      const prompt = buildTestingFatPrompt(activeUnits, states, spec.alarm_tiers, register.tags);
       const result = await callSonnet(prompt, "Generate the FAT test procedure.", signal, "spec_testing_fat");
       const parsed = JSON.parse(result.content);
       const section = await saveSection(spec.id, "testing_fat", parsed, "claude-sonnet-4-6", prompt, result.usage);

@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Assembly Behavioral Brief — FDS-derived data for equipment_module FB generation
+// Equipment Module Behavioral Brief — FDS-derived data for equipment_module FB generation
 // ---------------------------------------------------------------------------
 
 import type { ControlModuleStateEntry, StepEntry, OperatingState } from "@/types/spec-builder";
@@ -70,7 +70,7 @@ import type { ForgeDeviceIoSignal } from "@/types/forge";
 export interface EnrichedIoSignal extends ForgeDeviceIoSignal {
   /** Intent comment: "confirms upper position — read by LFT01 equipment_module" */
   intentComment: string;
-  /** Assembly tags that read/write this signal */
+  /** Equipment Module tags that read/write this signal */
   consumedBy: string[];
   /** Normal state from FDS IO list (e.g. "OPEN", "0V") */
   normalState?: string;

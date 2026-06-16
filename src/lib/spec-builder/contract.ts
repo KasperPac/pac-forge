@@ -645,7 +645,7 @@ function deriveFaults(
 }
 
 // ============================================================
-// Assembly: either live rows (v2) or legacy shim
+// Equipment Module: either live rows (v2) or legacy shim
 // ============================================================
 
 function toProjectHeader(projectRow: Record<string, unknown>): SpecContractV2["project"] {
@@ -884,7 +884,7 @@ export async function loadAssemblyStates(
     const meta = statesById.get(sid);
     const pattern: "static" | "sequential" = meta?.state_pattern ?? "static";
     // static_states was widened in Task 8 to `ControlModuleStateEntry[] | StaticStateV2`.
-    // AssemblyStateView still expects `ControlModuleStateEntry[] | undefined`; unwrap.
+    // EquipmentModuleStateView still expects `ControlModuleStateEntry[] | undefined`; unwrap.
     const rawStatic = asm.static_states[sid];
     const staticEntries = rawStatic
       ? Array.isArray(rawStatic)
@@ -1252,7 +1252,7 @@ type ParsedPatch = z.infer<typeof SpecContractPatchSchema>;
  *   1. Global IO tag uniqueness across the hierarchy.
  *   2. System-level interlocks reference units only (not equipment_modules).
  *   3. Cycle detection on hold/block_transition/disable system interlocks.
- *   4. Subsystem-level inter-equipment_module interlocks must stay within the
+ *   4. Unit-level inter-equipment_module interlocks must stay within the
  *      same unit.
  *   5. SFC: no cross-branch transitions; sequence_model_version=2 requires
  *      step_id + transitions populated on non-terminal steps.
@@ -1393,13 +1393,13 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
   }
 
   // Resolve the set of unit IDs (for layering checks below).
-  const knownSubsystemIds = new Set<string>();
-  const unitByAssembly = new Map<string, string>(); // equipment_module_id -> unit_id
+  const knownUnitIds = new Set<string>();
+  const unitByEquipmentModule = new Map<string, string>(); // equipment_module_id -> unit_id
   if (patch.hierarchy) {
     for (const sub of patch.hierarchy.units) {
-      knownSubsystemIds.add(sub.unit_id);
+      knownUnitIds.add(sub.unit_id);
       for (const asm of sub.equipment_modules) {
-        unitByAssembly.set(asm.equipment_module_id, sub.unit_id);
+        unitByEquipmentModule.set(asm.equipment_module_id, sub.unit_id);
       }
     }
   }
@@ -1414,27 +1414,27 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
       //    patch we cannot check resolution here; skip silently.
       if (patch.hierarchy) {
         for (const sid of seq.unit_order) {
-          if (!knownSubsystemIds.has(sid)) {
+          if (!knownUnitIds.has(sid)) {
             issues.push(
               `system_orchestration[${stateId}].unit_order references unknown unit "${sid}"`,
             );
           }
         }
         for (const il of seq.inter_unit_interlocks) {
-          if (unitByAssembly.has(il.source_unit_id)) {
+          if (unitByEquipmentModule.has(il.source_unit_id)) {
             issues.push(
               `system_orchestration[${stateId}] interlock ${il.interlock_id}: source "${il.source_unit_id}" looks like an equipment_module — lift it to the unit that owns it`,
             );
-          } else if (!knownSubsystemIds.has(il.source_unit_id)) {
+          } else if (!knownUnitIds.has(il.source_unit_id)) {
             issues.push(
               `system_orchestration[${stateId}] interlock ${il.interlock_id}: source_unit_id "${il.source_unit_id}" is not a known unit`,
             );
           }
-          if (unitByAssembly.has(il.target_unit_id)) {
+          if (unitByEquipmentModule.has(il.target_unit_id)) {
             issues.push(
               `system_orchestration[${stateId}] interlock ${il.interlock_id}: target "${il.target_unit_id}" looks like an equipment_module — lift it to the unit that owns it`,
             );
-          } else if (!knownSubsystemIds.has(il.target_unit_id)) {
+          } else if (!knownUnitIds.has(il.target_unit_id)) {
             issues.push(
               `system_orchestration[${stateId}] interlock ${il.interlock_id}: target_unit_id "${il.target_unit_id}" is not a known unit`,
             );
@@ -1459,13 +1459,13 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
     }
   }
 
-  // 4. Subsystem-level inter-equipment_module interlocks: stay within unit ---
+  // 4. Unit-level inter-equipment_module interlocks: stay within unit ---
   if (patch.unit_procedures) {
     for (const [unitId, byState] of Object.entries(patch.unit_procedures)) {
       for (const [stateId, seq] of Object.entries(byState)) {
         for (const il of seq.inter_equipment_module_interlocks) {
-          const srcSub = unitByAssembly.get(il.source_equipment_module);
-          const tgtSub = unitByAssembly.get(il.target_equipment_module);
+          const srcSub = unitByEquipmentModule.get(il.source_equipment_module);
+          const tgtSub = unitByEquipmentModule.get(il.target_equipment_module);
           // If hierarchy is not in the patch we can only reject mismatches
           // we can see. Assemblies we cannot resolve are skipped silently.
           if (srcSub && srcSub !== unitId) {

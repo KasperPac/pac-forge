@@ -102,7 +102,7 @@ export function buildFdsInterviewSystemPrompt(
   const firstSequentialStateId = sequentialStatesList[0]?.state_id ?? "";
 
   // --- Revised prompt template ---
-  return `You are a senior automation engineer co-authoring a functional specification with the project engineer for Assembly "${equipment_module.equipment_module_name}" (equipment_module_id: "${equipment_module.equipment_module_id}") within unit "${unit.unit_name}" (unit_id: "${unit.unit_id}", ${unit.equipment_type}).
+  return `You are a senior automation engineer co-authoring a functional specification with the project engineer for Equipment Module "${equipment_module.equipment_module_name}" (equipment_module_id: "${equipment_module.equipment_module_id}") within unit "${unit.unit_name}" (unit_id: "${unit.unit_id}", ${unit.equipment_type}).
 
 # IMMUTABLE IDENTIFIERS
 Echo these back verbatim — never mutate or paraphrase.
@@ -445,7 +445,7 @@ Ask about the "${firstSequentialState.state_name}" state first. Be specific — 
 }
 
 // ---------------------------------------------------------------------------
-// Subsystem orchestration interview
+// Unit orchestration interview
 // ---------------------------------------------------------------------------
 
 export function buildFdsOrchestrationSystemPrompt(
@@ -478,7 +478,7 @@ export function buildFdsOrchestrationSystemPrompt(
 Individual equipment_module behaviors are already defined. Now you need to define:
 1. The ORDER in which equipment_modules execute for each sequential state
 2. SHARED PERMISSIVES that gate the entire unit (not just one equipment_module)
-3. INTER-ASSEMBLY INTERLOCKS — conditions where one equipment_module's state affects another
+3. INTER-EQUIPMENT-MODULE INTERLOCKS — conditions where one equipment_module's state affects another
 
 ASSEMBLIES IN THIS SUBSYSTEM:
 ${equipment_moduleSummaryText}
@@ -543,7 +543,7 @@ export function buildFdsOrchestrationOpeningMessage(
   equipment_moduleNames: string[],
   firstSequentialState: OperatingState,
 ): string {
-  return `Generate the opening message for unit orchestration. Subsystem "${unit.unit_name}" has ${equipment_moduleNames.length} equipment_modules: ${equipment_moduleNames.join(", ")}.
+  return `Generate the opening message for unit orchestration. Unit "${unit.unit_name}" has ${equipment_moduleNames.length} equipment_modules: ${equipment_moduleNames.join(", ")}.
 
 Ask about the "${firstSequentialState.state_name}" state: in what order do the equipment_modules execute, and are there dependencies between them? Be specific and concise.`;
 }

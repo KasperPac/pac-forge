@@ -1,6 +1,6 @@
 /**
  * Machine Hierarchy Table — editable tree-table for the 4-level hierarchy:
- * System → Subsystem → Assembly → Device → IO Signals (tags)
+ * System → Unit → Equipment Module → Device → IO Signals (tags)
  *
  * Renders a dense, collapsible table with inline editing at every level.
  * Devices are expandable to show their IO tag assignments, selectable from
@@ -221,7 +221,7 @@ export function MachineHierarchyTable({
 
   // --- Mutation helpers ---
 
-  const updateSubsystem = useCallback(
+  const updateUnit = useCallback(
     (idx: number, patch: Partial<UnitConfig>) => {
       const next = [...units];
       next[idx] = { ...next[idx], ...patch };
@@ -230,7 +230,7 @@ export function MachineHierarchyTable({
     [units, onChange],
   );
 
-  const updateAssembly = useCallback(
+  const updateEquipmentModule = useCallback(
     (si: number, ai: number, patch: Partial<EquipmentModuleConfig>) => {
       const next = [...units];
       const sub = { ...next[si], equipment_modules: [...next[si].equipment_modules] };
@@ -283,13 +283,13 @@ export function MachineHierarchyTable({
     [availableTags, updateIoSignal],
   );
 
-  const addSubsystem = useCallback(() => {
+  const addUnit = useCallback(() => {
     const id = `sub_${Date.now()}`;
     onChange([
       ...units,
       {
         unit_id: id,
-        unit_name: "New Subsystem",
+        unit_name: "New Unit",
         equipment_type: "Other",
         description: "",
         equipment_modules: [],
@@ -299,13 +299,13 @@ export function MachineHierarchyTable({
     setExpanded((prev) => new Set([...prev, `sub-${units.length}`]));
   }, [units, onChange]);
 
-  const addAssembly = useCallback(
+  const addEquipmentModule = useCallback(
     (si: number) => {
       const next = [...units];
       const sub = { ...next[si], equipment_modules: [...next[si].equipment_modules] };
       sub.equipment_modules.push({
         equipment_module_id: `asm_${Date.now()}`,
-        equipment_module_name: "New Assembly",
+        equipment_module_name: "New Equipment Module",
         description: "",
         control_modules: [],
       });
@@ -355,14 +355,14 @@ export function MachineHierarchyTable({
     [units, onChange],
   );
 
-  const removeSubsystem = useCallback(
+  const removeUnit = useCallback(
     (si: number) => {
       onChange(units.filter((_, i) => i !== si));
     },
     [units, onChange],
   );
 
-  const removeAssembly = useCallback(
+  const removeEquipmentModule = useCallback(
     (si: number, ai: number) => {
       const next = [...units];
       const sub = { ...next[si], equipment_modules: next[si].equipment_modules.filter((_, i) => i !== ai) };
@@ -401,7 +401,7 @@ export function MachineHierarchyTable({
   const activeCount = units.filter((s) => !s.excluded).length;
 
   // Group available tags by unit for the IO checklist
-  const tagsBySubsystem = useMemo(() => {
+  const tagsByUnit = useMemo(() => {
     const groups = new Map<string, InstrumentTag[]>();
     for (const t of availableTags) {
       const key = t.unit || "UNGROUPED";
@@ -440,9 +440,9 @@ export function MachineHierarchyTable({
               Suggest with AI
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={addSubsystem}>
+          <Button variant="outline" size="sm" onClick={addUnit}>
             <Plus className="h-3 w-3 mr-1" />
-            Add Subsystem
+            Add Unit
           </Button>
         </div>
       </div>
@@ -467,7 +467,7 @@ export function MachineHierarchyTable({
               {rows.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} className="text-center text-sm text-muted-foreground py-8">
-                    No hierarchy defined. Click "Suggest with AI" or "Add Subsystem" to start.
+                    No hierarchy defined. Click "Suggest with AI" or "Add Unit" to start.
                   </TableCell>
                 </TableRow>
               ) : (
@@ -491,14 +491,14 @@ export function MachineHierarchyTable({
                       row={row}
                       units={units}
                       onToggle={toggleExpand}
-                      onUpdateSubsystem={updateSubsystem}
-                      onUpdateAssembly={updateAssembly}
+                      onUpdateUnit={updateUnit}
+                      onUpdateEquipmentModule={updateEquipmentModule}
                       onUpdateDevice={updateDevice}
-                      onAddAssembly={addAssembly}
+                      onAddEquipmentModule={addEquipmentModule}
                       onAddDevice={addDevice}
                       onAddIoSignal={addIoSignal}
-                      onRemoveSubsystem={removeSubsystem}
-                      onRemoveAssembly={removeAssembly}
+                      onRemoveUnit={removeUnit}
+                      onRemoveEquipmentModule={removeEquipmentModule}
                       onRemoveDevice={removeDevice}
                     />
                   );
@@ -520,7 +520,7 @@ export function MachineHierarchyTable({
             </Badge>
           </div>
           <div className="divide-y">
-            {Array.from(tagsBySubsystem.entries()).map(([unitName, tags]) => (
+            {Array.from(tagsByUnit.entries()).map(([unitName, tags]) => (
               <div key={unitName} className="px-3 py-1.5">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">
                   {unitName}
@@ -579,14 +579,14 @@ interface RowProps {
   row: FlatRow;
   units: UnitConfig[];
   onToggle: (key: string) => void;
-  onUpdateSubsystem: (si: number, patch: Partial<UnitConfig>) => void;
-  onUpdateAssembly: (si: number, ai: number, patch: Partial<EquipmentModuleConfig>) => void;
+  onUpdateUnit: (si: number, patch: Partial<UnitConfig>) => void;
+  onUpdateEquipmentModule: (si: number, ai: number, patch: Partial<EquipmentModuleConfig>) => void;
   onUpdateDevice: (si: number, ai: number, di: number, patch: Partial<ControlModuleConfig>) => void;
-  onAddAssembly: (si: number) => void;
+  onAddEquipmentModule: (si: number) => void;
   onAddDevice: (si: number, ai: number) => void;
   onAddIoSignal: (si: number, ai: number, di: number) => void;
-  onRemoveSubsystem: (si: number) => void;
-  onRemoveAssembly: (si: number, ai: number) => void;
+  onRemoveUnit: (si: number) => void;
+  onRemoveEquipmentModule: (si: number, ai: number) => void;
   onRemoveDevice: (si: number, ai: number, di: number) => void;
 }
 
@@ -594,13 +594,13 @@ function HierarchyRow({
   row,
   units,
   onToggle,
-  onUpdateSubsystem,
-  onUpdateAssembly,
+  onUpdateUnit,
+  onUpdateEquipmentModule,
   onUpdateDevice,
-  onAddAssembly,
+  onAddEquipmentModule,
   onAddDevice,
   onAddIoSignal,
-  onRemoveAssembly,
+  onRemoveEquipmentModule,
   onRemoveDevice,
 }: RowProps) {
   const indent =
@@ -644,7 +644,7 @@ function HierarchyRow({
             <Input
               value={sub.unit_name}
               onChange={(e) =>
-                onUpdateSubsystem(row.unitIdx, { unit_name: e.target.value })
+                onUpdateUnit(row.unitIdx, { unit_name: e.target.value })
               }
               className="h-6 text-xs font-mono font-medium border-transparent hover:border-border focus:border-border bg-transparent"
             />
@@ -654,7 +654,7 @@ function HierarchyRow({
           <Select
             value={sub.equipment_type}
             onValueChange={(v) =>
-              onUpdateSubsystem(row.unitIdx, { equipment_type: v as EquipmentType })
+              onUpdateUnit(row.unitIdx, { equipment_type: v as EquipmentType })
             }
           >
             <SelectTrigger className="h-6 text-xs border-transparent hover:border-border">
@@ -674,9 +674,9 @@ function HierarchyRow({
           <Input
             value={sub.description}
             onChange={(e) =>
-              onUpdateSubsystem(row.unitIdx, { description: e.target.value })
+              onUpdateUnit(row.unitIdx, { description: e.target.value })
             }
-            placeholder="Subsystem description..."
+            placeholder="Unit description..."
             className="h-6 text-xs border-transparent hover:border-border focus:border-border bg-transparent"
           />
         </TableCell>
@@ -691,8 +691,8 @@ function HierarchyRow({
               variant="ghost"
               size="icon"
               className="h-5 w-5"
-              onClick={() => onAddAssembly(row.unitIdx)}
-              title="Add Assembly"
+              onClick={() => onAddEquipmentModule(row.unitIdx)}
+              title="Add Equipment Module"
             >
               <Plus className="h-3 w-3" />
             </Button>
@@ -701,7 +701,7 @@ function HierarchyRow({
               size="icon"
               className="h-5 w-5"
               onClick={() =>
-                onUpdateSubsystem(row.unitIdx, { excluded: !sub.excluded })
+                onUpdateUnit(row.unitIdx, { excluded: !sub.excluded })
               }
               title={sub.excluded ? "Include" : "Exclude"}
             >
@@ -724,7 +724,7 @@ function HierarchyRow({
             <Input
               value={asm.equipment_module_name}
               onChange={(e) =>
-                onUpdateAssembly(row.unitIdx, row.equipment_moduleIdx!, {
+                onUpdateEquipmentModule(row.unitIdx, row.equipment_moduleIdx!, {
                   equipment_module_name: e.target.value,
                 })
               }
@@ -740,11 +740,11 @@ function HierarchyRow({
           <Input
             value={asm.description}
             onChange={(e) =>
-              onUpdateAssembly(row.unitIdx, row.equipment_moduleIdx!, {
+              onUpdateEquipmentModule(row.unitIdx, row.equipment_moduleIdx!, {
                 description: e.target.value,
               })
             }
-            placeholder="Assembly description..."
+            placeholder="Equipment Module description..."
             className="h-6 text-xs border-transparent hover:border-border focus:border-border bg-transparent"
           />
         </TableCell>
@@ -768,8 +768,8 @@ function HierarchyRow({
               variant="ghost"
               size="icon"
               className="h-5 w-5"
-              onClick={() => onRemoveAssembly(row.unitIdx, row.equipment_moduleIdx!)}
-              title="Remove Assembly"
+              onClick={() => onRemoveEquipmentModule(row.unitIdx, row.equipment_moduleIdx!)}
+              title="Remove Equipment Module"
             >
               <Trash2 className="h-3 w-3" />
             </Button>

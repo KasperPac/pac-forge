@@ -1,5 +1,5 @@
 /**
- * FDS Co-Author — Assembly sidebar with status badges and unit grouping.
+ * FDS Co-Author — Equipment Module sidebar with status badges and unit grouping.
  */
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -19,9 +19,9 @@ import { cn } from "@/lib/utils";
 interface Props {
   units: UnitConfig[];
   sessions: OperationSession[];
-  selectedAssemblyId: string | null;
+  selectedEquipmentModuleId: string | null;
   selectedOrchestrationSubsystemId: string | null;
-  onSelectAssembly: (unitId: string, equipment_moduleId: string) => void;
+  onSelectEquipmentModule: (unitId: string, equipment_moduleId: string) => void;
   onSelectOrchestration: (unitId: string) => void;
 }
 
@@ -42,15 +42,15 @@ const STATUS_COLOR: Record<FdsSessionStatus, string> = {
 export function FdsAssemblySidebar({
   units,
   sessions,
-  selectedAssemblyId,
+  selectedEquipmentModuleId,
   selectedOrchestrationSubsystemId,
-  onSelectAssembly,
+  onSelectEquipmentModule,
   onSelectOrchestration,
 }: Props) {
-  const activeSubsystems = units.filter((s) => !s.excluded);
+  const activeUnits = units.filter((s) => !s.excluded);
 
   // Compute overall progress
-  const totalAssemblies = activeSubsystems.reduce((s, sub) => s + sub.equipment_modules.length, 0);
+  const totalAssemblies = activeUnits.reduce((s, sub) => s + sub.equipment_modules.length, 0);
   const completeSessions = sessions.filter((s) => s.status === "complete").length;
 
   return (
@@ -73,10 +73,10 @@ export function FdsAssemblySidebar({
         )}
       </div>
 
-      {/* Assembly tree */}
+      {/* Equipment Module tree */}
       <ScrollArea className="flex-1">
         <div className="p-1.5 space-y-3">
-          {activeSubsystems.map((sub) => {
+          {activeUnits.map((sub) => {
             const subSessions = sessions.filter((s) => s.unit_id === sub.unit_id);
             const allComplete = sub.equipment_modules.length > 0 &&
               sub.equipment_modules.every((a) =>
@@ -85,7 +85,7 @@ export function FdsAssemblySidebar({
 
             return (
               <div key={sub.unit_id} className="space-y-0.5">
-                {/* Subsystem header */}
+                {/* Unit header */}
                 <div className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold uppercase text-muted-foreground tracking-wide">
                   <Boxes className="h-3 w-3" />
                   <span className="truncate flex-1">{sub.unit_name}</span>
@@ -99,13 +99,13 @@ export function FdsAssemblySidebar({
                   const session = subSessions.find((s) => s.equipment_module_id === asm.equipment_module_id);
                   const status: FdsSessionStatus = session?.status ?? "not_started";
                   const Icon = STATUS_ICON[status];
-                  const isSelected = selectedAssemblyId === asm.equipment_module_id &&
+                  const isSelected = selectedEquipmentModuleId === asm.equipment_module_id &&
                     selectedOrchestrationSubsystemId === null;
 
                   return (
                     <button
                       key={asm.equipment_module_id}
-                      onClick={() => onSelectAssembly(sub.unit_id, asm.equipment_module_id)}
+                      onClick={() => onSelectEquipmentModule(sub.unit_id, asm.equipment_module_id)}
                       className={cn(
                         "w-full flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-left transition-colors",
                         isSelected
@@ -122,7 +122,7 @@ export function FdsAssemblySidebar({
                   );
                 })}
 
-                {/* Subsystem orchestration button (shown when >1 equipment_module) */}
+                {/* Unit orchestration button (shown when >1 equipment_module) */}
                 {sub.equipment_modules.length > 1 && (
                   <>
                     <button

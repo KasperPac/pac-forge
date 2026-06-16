@@ -245,7 +245,7 @@ export function useForgeAssemblyGenerate() {
 
         return allArtifacts;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Assembly generation failed";
+        const msg = err instanceof Error ? err.message : "Equipment Module generation failed";
         setError(msg);
         log("error", msg);
         throw err;

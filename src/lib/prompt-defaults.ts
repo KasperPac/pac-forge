@@ -2035,8 +2035,8 @@ The spec defines a 4-level hierarchy. You MUST extract all levels correctly:
 
 \`\`\`
 System (the full machine / production line)
-  └── Subsystem (functional station — e.g. Infeed Station, Processing Station, Safety)
-        └── Assembly (coordinated group of control_modules — e.g. Conveyor CV01, Lift Table LFT01)
+  └── Unit (functional station — e.g. Infeed Station, Processing Station, Safety)
+        └── Equipment Module (coordinated group of control_modules — e.g. Conveyor CV01, Lift Table LFT01)
               └── Device (single physical thing with IO — e.g. Motor M01, Sensor PE01)
 \`\`\`
 
@@ -2290,14 +2290,14 @@ const FORGE_PM_DEVICE_LINKAGE_INSTRUCTIONS = `Generate the deviceLinkage array A
 - If an FB has a UDT config parameter, wire it as: wireType "global", connectedTo "Configuration.<instanceName>Config"
 - NEVER wire a struct param as constant: TRUE
 
-## Assembly Linkage
+## Equipment Module Linkage
 Assemblies coordinate groups of control_modules. Each equipment_module gets:
 - An equipment_module FB (from library template or AI-generated)
 - An instance DB (e.g. "InstLFT01")
 - Wiring: command inputs from ProcessCommands (e.g. lft01CmdRaise), status outputs to ProcessState (e.g. lft01AtUpper)
 - statusMirrors: equipment_module FB outputs mirrored to ProcessState for sequence access
 
-Assembly FB inputs come from ProcessCommands DB. Assembly FB outputs go to ProcessState DB.
+Equipment Module FB inputs come from ProcessCommands DB. Equipment Module FB outputs go to ProcessState DB.
 Device FB inputs come from IO tags (via Inputs DB). Device FB outputs mirror to ProcessState via the device call FC.
 
 ## ProcessCommands DB
@@ -2310,7 +2310,7 @@ const FORGE_PM_SEQUENCES_IDENTITY = `You are a senior Siemens TIA Portal automat
 
 const FORGE_PM_SEQUENCES_INSTRUCTIONS = `Generate ONLY the processSequences array and globalData array — state-machine logic with permissives, safety conditions, step rows, and shared data blocks.
 
-## Assembly-First Sequencing
+## Equipment-Module-First Sequencing
 Process sequences command ASSEMBLIES, not individual control_modules. Use equipment_module command/status signals:
 - Commands: DB_ProcessCommands.lft01CmdRaise, DB_ProcessCommands.cv01CmdStart
 - Status: DB_ProcessState.lft01AtUpper, DB_ProcessState.cv01Running
@@ -2399,7 +2399,7 @@ const FORGE_ARCH_PROCESS_INSTRUCTIONS = `## Process Code Requirements
 6. Include safety condition checks (E-stop, safety relay) that halt the sequence to safe state on failure.
 7. Include permissive checks that gate sequence start.
 
-## Assembly-First Sequencing (CRITICAL)
+## Equipment-Module-First Sequencing (CRITICAL)
 Process sequences command ASSEMBLIES, not individual control_modules:
 - Write equipment_module commands to ProcessCommands DB: "DB_ProcessCommands".lft01CmdRaise := TRUE
 - Read equipment_module status from ProcessState DB: "DB_ProcessState".lft01AtUpper

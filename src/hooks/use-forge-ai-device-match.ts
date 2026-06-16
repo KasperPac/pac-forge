@@ -211,7 +211,7 @@ export function useForgeAiDeviceMatch() {
           )
           .join("\n\n---\n\n");
 
-        const equipment_modulePrompt = `You are a senior PLC project manager assigning Assembly Function Block templates to machine equipment_modules.
+        const equipment_modulePrompt = `You are a senior PLC project manager assigning Equipment Module Function Block templates to machine equipment_modules.
 
 For each equipment_module, select the BEST matching equipment_module FB template based on the template summaries provided.
 

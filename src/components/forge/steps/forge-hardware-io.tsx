@@ -971,7 +971,7 @@ export function ForgeHardwareIo({
 
                   <div>
                     <label htmlFor={`${formId}-unit`} className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-                      Subsystem
+                      Unit
                     </label>
                     <Input
                       id={`${formId}-unit`}
@@ -1058,7 +1058,7 @@ export function ForgeHardwareIo({
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 bg-background/90">
                     <tr className="border-b border-border/60">
-                      {["", "Name", "Tag", "Type", "Subsystem", "FB Template", "Language", "IO", "Match", ""].map(
+                      {["", "Name", "Tag", "Type", "Unit", "FB Template", "Language", "IO", "Match", ""].map(
                         (h, i) => (
                           <th
                             key={i}
@@ -1071,7 +1071,7 @@ export function ForgeHardwareIo({
                     </tr>
                   </thead>
                   <tbody>
-                    {/* Subsystem → Assembly → Device hierarchy */}
+                    {/* Unit → Equipment Module → Device hierarchy */}
                     {(() => {
                       const equipment_modules = specAnalysis?.equipment_modules ?? [];
                       const units = specAnalysis?.units ?? [];
@@ -1102,7 +1102,7 @@ export function ForgeHardwareIo({
 
                         if (subDeviceCount === 0 && subAssemblies.length === 0) continue;
 
-                        // Subsystem header
+                        // Unit header
                         rows.push(
                           <tr key={subKey} className="bg-muted/10 border-b border-border/50">
                             <td colSpan={10} className="px-2 py-1.5">

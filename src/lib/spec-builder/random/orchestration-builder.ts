@@ -34,7 +34,7 @@ function buildSharedPermissive(unitId: string): SharedPermissive {
       value: true,
     },
     source_unit: unitId,
-    prose: "Subsystem E-stop circuit clear",
+    prose: "Unit E-stop circuit clear",
   };
 }
 

@@ -423,9 +423,9 @@ function StateEditor({
           </p>
         </div>
 
-        {/* Subsystem order */}
+        {/* Unit order */}
         <section className="space-y-2">
-          <h4 className="text-xs font-semibold font-mono">Subsystem order</h4>
+          <h4 className="text-xs font-semibold font-mono">Unit order</h4>
           {sequence.unit_order.length === 0 ? (
             <p className="text-[10px] text-muted-foreground">
               No ordering yet. The AI interview will seed one.

@@ -46,7 +46,7 @@ export function buildChunkExtractionSystemPrompt(
 ): string {
   const target = survey.extraction_targets.find((t) => t.id === targetId);
   const targetName = target?.name ?? targetId;
-  const targetSubsystem = target?.unit ?? "";
+  const targetUnit = target?.unit ?? "";
 
   const instructions = resolveSection(promptSections, "forge_pm_spec_analysis", "instructions");
 
@@ -59,7 +59,7 @@ export function buildChunkExtractionSystemPrompt(
 
 ## Extraction Scope
 
-You are extracting ONLY for: **${targetName}** (unit: ${targetSubsystem})
+You are extracting ONLY for: **${targetName}** (unit: ${targetUnit})
 Target ID: ${targetId}
 
 Do NOT extract control_modules, sequences, or alarms belonging to other units. If you see references to control_modules from other systems, note them in the relevant sequence step's \`control_modules_involved\` or interlock's \`affected_control_modules\` but do NOT create device entries for them.

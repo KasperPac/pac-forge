@@ -416,7 +416,7 @@ export interface MissingDeviceSuggestion {
 }
 
 // ---------------------------------------------------------------------------
-// Assembly matching — matches equipment_modules to is_equipment_module templates
+// Equipment Module matching — matches equipment_modules to is_equipment_module templates
 // ---------------------------------------------------------------------------
 
 export function matchAssembliesToTemplates(

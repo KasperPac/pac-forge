@@ -173,7 +173,7 @@ describe("validateSpecContractPatch — PackML state IDs", () => {
 });
 
 describe("validateSpecContractPatch — override_kind content rules", () => {
-  function makeAssembly(seqOverride: Record<string, unknown>) {
+  function makeEquipmentModule(seqOverride: Record<string, unknown>) {
     return {
       "00000000-0000-0000-0000-000000000aaa": {
         equipment_module_id: "00000000-0000-0000-0000-000000000aaa",
@@ -194,7 +194,7 @@ describe("validateSpecContractPatch — override_kind content rules", () => {
 
   it("rejects an inherit row with steps", () => {
     const issues = validateSpecContractPatch({
-      equipment_modules: makeAssembly({
+      equipment_modules: makeEquipmentModule({
         steps: [
           {
             step: 10,
@@ -210,7 +210,7 @@ describe("validateSpecContractPatch — override_kind content rules", () => {
 
   it("rejects a suppressed row with permissives", () => {
     const issues = validateSpecContractPatch({
-      equipment_modules: makeAssembly({
+      equipment_modules: makeEquipmentModule({
         override_kind: "suppressed",
         permissives: [{ tag: "X", operator: "=", value: true }],
       } as never) as never,
@@ -220,14 +220,14 @@ describe("validateSpecContractPatch — override_kind content rules", () => {
 
   it("accepts an inherit row with empty content", () => {
     const issues = validateSpecContractPatch({
-      equipment_modules: makeAssembly({}) as never,
+      equipment_modules: makeEquipmentModule({}) as never,
     });
     expect(issues.filter((i) => /inherit|suppressed/i.test(i))).toEqual([]);
   });
 
   it("accepts an override row with content", () => {
     const issues = validateSpecContractPatch({
-      equipment_modules: makeAssembly({
+      equipment_modules: makeEquipmentModule({
         override_kind: "override",
         permissives: [{ tag: "X", operator: "=", value: true }],
       } as never) as never,

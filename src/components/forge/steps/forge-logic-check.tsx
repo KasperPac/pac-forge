@@ -175,7 +175,7 @@ export function ForgeLogicCheck({ session, onComplete }: ForgeLogicCheckProps) {
   }, [check, equipment_modules, equipment_moduleArtifacts]);
 
   // Group issues by equipment_module
-  const issuesByAssembly = useMemo(() => {
+  const issuesByEquipmentModule = useMemo(() => {
     if (!result) return new Map<string, LogicCheckIssue[]>();
     const map = new Map<string, LogicCheckIssue[]>();
     // Initialize with all equipment_modules (even those with no issues)
@@ -262,7 +262,7 @@ export function ForgeLogicCheck({ session, onComplete }: ForgeLogicCheckProps) {
       {result ? (
         <ScrollArea className="flex-1">
           <div className="space-y-2 p-1">
-            {[...issuesByAssembly.entries()].map(([tag, issues]) => (
+            {[...issuesByEquipmentModule.entries()].map(([tag, issues]) => (
               <AssemblyGroup
                 key={tag}
                 tag={tag}

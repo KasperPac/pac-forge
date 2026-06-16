@@ -43,7 +43,7 @@ import {
 import { useFdsConversation } from "@/hooks/use-fds-conversation";
 import { useFdsOrchestrationConversation } from "@/hooks/use-fds-orchestration-conversation";
 import { useFdsOrchestration } from "@/hooks/use-fds-session";
-import { validateAssembly } from "@/lib/spec-builder/fds-logic-checker";
+import { validateEquipmentModule } from "@/lib/spec-builder/fds-logic-checker";
 import type {
   SpecProject,
   InstrumentRegister,
@@ -79,21 +79,21 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
   const sequentialStates = useMemo(() => states.filter((s) => s.state_pattern === "sequential"), [states]);
 
   // Selection state
-  const [selectedSubsystemId, setSelectedSubsystemId] = useState<string | null>(null);
-  const [selectedAssemblyId, setSelectedAssemblyId] = useState<string | null>(null);
-  const [orchestrationSubsystemId, setOrchestrationSubsystemId] = useState<string | null>(null);
+  const [selectedUnitId, setSelectedSubsystemId] = useState<string | null>(null);
+  const [selectedEquipmentModuleId, setSelectedAssemblyId] = useState<string | null>(null);
+  const [orchestrationUnitId, setOrchestrationSubsystemId] = useState<string | null>(null);
   const [showDuplicate, setShowDuplicate] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Find current equipment_module and session
-  const activeSubsystem = spec.confirmed_units.find((s) => s.unit_id === selectedSubsystemId);
-  const activeAssembly = activeSubsystem?.equipment_modules.find((a) => a.equipment_module_id === selectedAssemblyId);
+  const activeUnit = spec.confirmed_units.find((s) => s.unit_id === selectedUnitId);
+  const activeEquipmentModule = activeUnit?.equipment_modules.find((a) => a.equipment_module_id === selectedEquipmentModuleId);
   const activeSession = sessions.find(
-    (s) => s.unit_id === selectedSubsystemId && s.equipment_module_id === selectedAssemblyId,
+    (s) => s.unit_id === selectedUnitId && s.equipment_module_id === selectedEquipmentModuleId,
   );
 
   // Select an equipment_module — ensure session exists
-  const handleSelectAssembly = useCallback(
+  const handleSelectEquipmentModule = useCallback(
     async (unitId: string, equipment_moduleId: string) => {
       setSelectedSubsystemId(unitId);
       setSelectedAssemblyId(equipment_moduleId);
@@ -149,11 +149,11 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
 
   // Mark equipment_module complete
   const handleComplete = useCallback(async () => {
-    if (!activeSession || !activeAssembly) return;
+    if (!activeSession || !activeEquipmentModule) return;
 
     // Run validation first
-    const result = validateAssembly(
-      activeAssembly,
+    const result = validateEquipmentModule(
+      activeEquipmentModule,
       activeSession.static_states,
       activeSession.sequential_states,
       states,
@@ -164,7 +164,7 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
     if (result.passed) {
       await completeSession.mutateAsync(activeSession.id);
     }
-  }, [activeSession, activeAssembly, states, register.tags, saveValidation, completeSession]);
+  }, [activeSession, activeEquipmentModule, states, register.tags, saveValidation, completeSession]);
 
   // Validation issues for current session
   const validationIssues = activeSession?.validation_results?.issues ?? [];
@@ -204,9 +204,9 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
             <FdsAssemblySidebar
               units={spec.confirmed_units}
               sessions={sessions}
-              selectedAssemblyId={selectedAssemblyId}
-              selectedOrchestrationSubsystemId={orchestrationSubsystemId}
-              onSelectAssembly={handleSelectAssembly}
+              selectedEquipmentModuleId={selectedEquipmentModuleId}
+              selectedOrchestrationSubsystemId={orchestrationUnitId}
+              onSelectEquipmentModule={handleSelectEquipmentModule}
               onSelectOrchestration={handleSelectOrchestration}
             />
           </div>
@@ -214,13 +214,13 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
       )}
 
       {/* Duplicate dialog */}
-      {activeSession && activeAssembly && (
+      {activeSession && activeEquipmentModule && (
         <FdsDuplicateDialog
           open={showDuplicate}
           onOpenChange={setShowDuplicate}
           specProjectId={spec.id}
           sourceSession={activeSession}
-          sourceAssembly={activeAssembly}
+          sourceEquipmentModule={activeEquipmentModule}
           units={spec.confirmed_units}
           existingSessions={sessions}
         />
@@ -228,15 +228,15 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
 
       {/* Main workspace */}
       <div className="flex-1 flex flex-col min-w-0">
-        {!activeAssembly && !orchestrationSubsystemId ? (
+        {!activeEquipmentModule && !orchestrationUnitId ? (
           <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
             Select an equipment_module to begin co-authoring
           </div>
-        ) : orchestrationSubsystemId ? (
+        ) : orchestrationUnitId ? (
           <OrchestrationStage
             specProjectId={spec.id}
-            unit={spec.confirmed_units.find((s) => s.unit_id === orchestrationSubsystemId)!}
-            sessions={sessions.filter((s) => s.unit_id === orchestrationSubsystemId)}
+            unit={spec.confirmed_units.find((s) => s.unit_id === orchestrationUnitId)!}
+            sessions={sessions.filter((s) => s.unit_id === orchestrationUnitId)}
             // migrateOperatingStates still returns the legacy V1 shape; bridge
             // to V2 here until that helper is migrated. The fields
             // OrchestrationStage / use-fds-orchestration-conversation use
@@ -244,14 +244,14 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
             // overlap structurally.
             allStates={states as unknown as OperatingStateV2[]}
           />
-        ) : activeAssembly && activeSession ? (
+        ) : activeEquipmentModule && activeSession ? (
           <>
-            {/* Assembly header */}
+            {/* Equipment Module header */}
             <div className="px-4 py-2.5 border-b flex items-center justify-between shrink-0">
               <div className="min-w-0">
-                <h3 className="text-sm font-semibold truncate">{activeAssembly.equipment_module_name}</h3>
+                <h3 className="text-sm font-semibold truncate">{activeEquipmentModule.equipment_module_name}</h3>
                 <p className="text-[11px] text-muted-foreground">
-                  {activeAssembly.control_modules.length} control_modules · {activeSubsystem?.unit_name}
+                  {activeEquipmentModule.control_modules.length} control_modules · {activeUnit?.unit_name}
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
@@ -303,7 +303,7 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
               // Stage 1 — Static state review
               <div className="flex-1 overflow-auto p-4">
                 <FdsStaticReview
-                  equipment_module={activeAssembly}
+                  equipment_module={activeEquipmentModule}
                   staticStates={staticStates}
                   allTags={register.tags}
                   currentStaticStates={activeSession.static_states}
@@ -316,8 +316,8 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
               // Stage 2 — Conversation + live tables
               <ConversationStage
                 session={activeSession}
-                equipment_module={activeAssembly}
-                unit={activeSubsystem!}
+                equipment_module={activeEquipmentModule}
+                unit={activeUnit!}
                 allTags={register.tags}
                 // migrateOperatingStates still returns the legacy V1 shape; bridge
                 // to V2 here until that helper is migrated. The fields ConversationStage

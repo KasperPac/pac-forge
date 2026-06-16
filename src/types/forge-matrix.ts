@@ -126,7 +126,7 @@ export interface ConfigUdtDefinition {
   }>;
 }
 
-/** Assembly linkage — wiring for equipment-module-level FBs that coordinate device groups */
+/** Equipment Module linkage — wiring for equipment-module-level FBs that coordinate device groups */
 export interface LinkageAssembly {
   id: string;
   name: string;
@@ -146,7 +146,7 @@ export interface LinkageAssembly {
 export interface ProcessLinkageMatrix {
   version: number;
   deviceLinkage: LinkageDevice[];
-  /** Assembly-level FB linkage — coordinates groups of control_modules */
+  /** Equipment-module-level FB linkage — coordinates groups of control_modules */
   equipment_moduleLinkage?: LinkageAssembly[];
   globalData: LinkageGlobalData[];
   processSequences: ProcessSequence[];

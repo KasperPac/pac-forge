@@ -46,7 +46,7 @@ const fdsOrchestrationsKey = (specProjectId: string) =>
   ["fds_unit_procedures", specProjectId] as const;
 
 // ---------------------------------------------------------------------------
-// Assembly Sessions — Queries
+// Equipment Module Sessions — Queries
 // ---------------------------------------------------------------------------
 
 /** Fetch all equipment_module sessions for a spec project */
@@ -68,7 +68,7 @@ export function useFdsSessionsForProject(specProjectId: string | undefined) {
 }
 
 /** Fetch sessions for a specific unit */
-export function useFdsSessionsForSubsystem(specProjectId: string | undefined, unitId: string | undefined) {
+export function useFdsSessionsForUnit(specProjectId: string | undefined, unitId: string | undefined) {
   return useQuery({
     queryKey: [...fdsSessionsKey(specProjectId ?? ""), unitId],
     queryFn: async () => {
@@ -105,7 +105,7 @@ export function useFdsSession(id: string | undefined) {
 }
 
 // ---------------------------------------------------------------------------
-// Assembly Sessions — Mutations
+// Equipment Module Sessions — Mutations
 // ---------------------------------------------------------------------------
 
 /** Create or get an existing session for an equipment_module */
@@ -389,7 +389,7 @@ export function useDuplicateFdsSession() {
 }
 
 // ---------------------------------------------------------------------------
-// Subsystem Orchestrations
+// Unit Orchestrations
 // ---------------------------------------------------------------------------
 
 export function useFdsOrchestration(specProjectId: string | undefined, unitId: string | undefined) {

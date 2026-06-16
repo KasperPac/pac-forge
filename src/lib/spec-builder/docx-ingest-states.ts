@@ -101,9 +101,9 @@ function parseSequentialRows(table: ParsedDocxTable): PhaseStep[] {
 
 export interface ParsedAssemblyStates {
   /** equipment_module_id → state_id → static state rows */
-  staticByAssembly: Record<string, Record<string, ControlModuleStateEntry[]>>;
+  staticByEquipmentModule: Record<string, Record<string, ControlModuleStateEntry[]>>;
   /** equipment_module_id → state_id → sequential state shape */
-  sequentialByAssembly: Record<string, Record<string, SequentialStateV2>>;
+  sequentialByEquipmentModule: Record<string, Record<string, SequentialStateV2>>;
 }
 
 /**
@@ -114,19 +114,19 @@ export interface ParsedAssemblyStates {
 export function parseStateTables(
   tables: ParsedDocxTable[],
 ): ParsedAssemblyStates {
-  const staticByAssembly: Record<string, Record<string, ControlModuleStateEntry[]>> = {};
-  const sequentialByAssembly: Record<string, Record<string, SequentialStateV2>> = {};
+  const staticByEquipmentModule: Record<string, Record<string, ControlModuleStateEntry[]>> = {};
+  const sequentialByEquipmentModule: Record<string, Record<string, SequentialStateV2>> = {};
 
-  let currentAssemblyId: string | null = null;
+  let currentEquipmentModuleId: string | null = null;
 
   for (const table of tables) {
     const equipment_moduleMarker = parseAssemblySentinel(table.caption);
-    if (equipment_moduleMarker) currentAssemblyId = equipment_moduleMarker.equipment_moduleId;
+    if (equipment_moduleMarker) currentEquipmentModuleId = equipment_moduleMarker.equipment_moduleId;
 
     const stateMarker = parseStateSentinel(table.caption);
     if (!stateMarker) continue;
 
-    if (!currentAssemblyId) {
+    if (!currentEquipmentModuleId) {
       throw new DocxIngestError(
         `State table "${table.caption}" not scoped to an equipment_module — no pac-forge:equipment_module sentinel seen before it`,
       );
@@ -143,10 +143,10 @@ export function parseStateTables(
 
     if (isStatic) {
       const rows = parseStaticRows(table);
-      (staticByAssembly[currentAssemblyId] ??= {})[stateMarker.stateId] = rows;
+      (staticByEquipmentModule[currentEquipmentModuleId] ??= {})[stateMarker.stateId] = rows;
     } else {
       const steps = parseSequentialRows(table);
-      (sequentialByAssembly[currentAssemblyId] ??= {})[stateMarker.stateId] = {
+      (sequentialByEquipmentModule[currentEquipmentModuleId] ??= {})[stateMarker.stateId] = {
         permissives: [],
         steps,
         notes: null,
@@ -154,5 +154,5 @@ export function parseStateTables(
     }
   }
 
-  return { staticByAssembly, sequentialByAssembly };
+  return { staticByEquipmentModule, sequentialByEquipmentModule };
 }

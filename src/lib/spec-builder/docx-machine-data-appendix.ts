@@ -126,7 +126,7 @@ export function buildMachineDataAppendix(
     new TableRow({
       tableHeader: true,
       children: [
-        headerCell("Assembly ID", 20),
+        headerCell("Equipment Module ID", 20),
         headerCell("State ID", 12),
         headerCell("Step", 8),
         headerCell("Criterion JSON", 60),

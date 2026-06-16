@@ -126,7 +126,7 @@ export async function ingestDocx(file: File): Promise<IngestResult> {
     const appendix = parseAppendixTables(tables);
 
     const sequentialStates = applyCriteriaOverrides(
-      stateResult.sequentialByAssembly,
+      stateResult.sequentialByEquipmentModule,
       appendix.criteriaOverrides,
     );
 
@@ -150,7 +150,7 @@ export async function ingestDocx(file: File): Promise<IngestResult> {
         equipment_modules[asy.equipment_module_id] = {
           equipment_module_id: asy.equipment_module_id,
           unit_id: sub.unit_id,
-          static_states: stateResult.staticByAssembly[asy.equipment_module_id] ?? {},
+          static_states: stateResult.staticByEquipmentModule[asy.equipment_module_id] ?? {},
           sequential_states: sequentialStates[asy.equipment_module_id] ?? {},
         };
       }

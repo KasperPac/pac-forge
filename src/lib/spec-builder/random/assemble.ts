@@ -344,7 +344,7 @@ export function assembleRandomFds(theme: RandomFdsTheme, opts: AssembleOptions):
     });
   }
 
-  // Assembly sessions (one row per equipment_module, V2-shaped)
+  // Equipment Module sessions (one row per equipment_module, V2-shaped)
   const equipment_moduleSessions: AssemblySessionRow[] = [];
   for (const sub of resolved.units) {
     for (const asm of sub.equipment_modules) {
@@ -362,7 +362,7 @@ export function assembleRandomFds(theme: RandomFdsTheme, opts: AssembleOptions):
     }
   }
 
-  // Subsystem orchestration rows (only multi-equipment_module units)
+  // Unit orchestration rows (only multi-equipment_module units)
   const unit_procedures: OrchestrationRow[] = [];
   for (const sub of resolved.units) {
     if (sub.equipment_modules.length <= 1) continue;

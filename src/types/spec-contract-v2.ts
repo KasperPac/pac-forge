@@ -31,7 +31,7 @@
  * - `IoSignalV2Schema` gained `tier` — `"wired"` (instrument register) vs
  *   `"fb_instance"` (resolved once a device's FB template is assigned).
  * - `SystemProcedureSchema` — top-level, project-scoped, one row per
- *   spec. Mirrors the per-unit layer but operates on subsystem IDs
+ *   spec. Mirrors the per-unit layer but operates on unit IDs
  *   only. Unit-level interlocks remain scoped inside a unit.
  */
 import { z } from "zod";
@@ -721,8 +721,8 @@ export type InterEquipmentModuleInterlock = z.infer<typeof InterEquipmentModuleI
 /**
  * Shared permissive — structured condition shared across orchestration
  * scopes. Used by both `UnitProcedureSequence` (assemblies coordinating
- * inside a subsystem state) and `SystemStateSequence` (subsystems
- * coordinating inside a system state). Declared here so the subsystem-
+ * inside a unit state) and `SystemStateSequence` (subsystems
+ * coordinating inside a system state). Declared here so the unit-
  * level schema below can reference it; `SystemStateSequenceSchema`
  * further down re-uses the same shape.
  */

@@ -83,12 +83,12 @@ export default function SpecBuilderIngestReviewPage() {
     );
   }
 
-  const updateSubsystem = (subId: string, patch: Partial<UnitV2>) => {
+  const updateUnit = (subId: string, patch: Partial<UnitV2>) => {
     setDraft((prev) =>
       prev ? { ...prev, hierarchy: updateSub(prev.hierarchy, subId, patch) } : prev,
     );
   };
-  const updateAssembly = (asyId: string, patch: Partial<EquipmentModuleV2>) => {
+  const updateEquipmentModule = (asyId: string, patch: Partial<EquipmentModuleV2>) => {
     setDraft((prev) =>
       prev ? { ...prev, hierarchy: updateAsy(prev.hierarchy, asyId, patch) } : prev,
     );
@@ -175,13 +175,13 @@ export default function SpecBuilderIngestReviewPage() {
             <Card key={sub.unit_id} className="p-3 space-y-2">
               <div className="flex items-center gap-2">
                 <Badge variant="outline" className="text-xs">
-                  Subsystem
+                  Unit
                 </Badge>
                 <Input
                   className="h-7 text-sm flex-1"
                   value={sub.unit_name}
                   onChange={(e) =>
-                    updateSubsystem(sub.unit_id, {
+                    updateUnit(sub.unit_id, {
                       unit_name: e.target.value,
                     })
                   }
@@ -192,13 +192,13 @@ export default function SpecBuilderIngestReviewPage() {
                 <div key={asy.equipment_module_id} className="pl-4 space-y-2">
                   <div className="flex items-center gap-2">
                     <Badge variant="outline" className="text-xs">
-                      Assembly
+                      Equipment Module
                     </Badge>
                     <Input
                       className="h-7 text-xs flex-1"
                       value={asy.equipment_module_name}
                       onChange={(e) =>
-                        updateAssembly(asy.equipment_module_id, {
+                        updateEquipmentModule(asy.equipment_module_id, {
                           equipment_module_name: e.target.value,
                         })
                       }

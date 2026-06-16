@@ -95,7 +95,7 @@ export async function composeFdsToSections(
     }
 
     // V2: emit one row per (equipment_module, state). Each row carries just that
-    // equipment_module's permissives/steps/notes. Subsystem-level orchestration (order,
+    // equipment_module's permissives/steps/notes. Unit-level orchestration (order,
     // shared permissives, inter-equipment_module interlocks) is written separately to
     // `fds_unit_procedures` and composed at render time — it doesn't
     // live inside the per-equipment_module functional_description rows.

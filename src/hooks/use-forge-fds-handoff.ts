@@ -17,9 +17,9 @@ import type { EquipmentModuleBriefMap, EquipmentModuleAlarm } from "@/types/forg
 import type { ForgeEquipmentModuleEntry } from "@/types/forge";
 
 export interface FdsHandoff {
-  /** Assembly briefs keyed by `equipment_module_id`. Empty when no spec_project_id. */
+  /** Equipment Module briefs keyed by `equipment_module_id`. Empty when no spec_project_id. */
   briefs: EquipmentModuleBriefMap;
-  /** Assembly entries with `id === equipment_module_id`. */
+  /** Equipment Module entries with `id === equipment_module_id`. */
   equipment_moduleEntries: ForgeEquipmentModuleEntry[];
   /** Operating states from the contract header. */
   operatingStates: OperatingState[];

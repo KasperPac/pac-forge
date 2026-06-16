@@ -48,7 +48,7 @@ const baseSession = {
   conversation: [],
 } as never;
 
-const baseAssembly = {
+const baseEquipmentModule = {
   equipment_module_id: ASSEMBLY_ID,
   equipment_module_name: "LFT01",
   control_modules: [
@@ -65,7 +65,7 @@ const baseAssembly = {
   ],
 } as never;
 
-const baseSubsystem = {
+const baseUnit = {
   unit_id: SUBSYSTEM_ID,
   unit_name: "Catodo",
   equipment_type: "lift",
@@ -138,8 +138,8 @@ describe("useFdsConversation validator gate", () => {
       () =>
         useFdsConversation({
           session: baseSession,
-          equipment_module: baseAssembly,
-          unit: baseSubsystem,
+          equipment_module: baseEquipmentModule,
+          unit: baseUnit,
           allTags: baseTags,
           allStates: baseStates,
         }),
@@ -198,8 +198,8 @@ describe("useFdsConversation validator gate", () => {
       () =>
         useFdsConversation({
           session: baseSession,
-          equipment_module: baseAssembly,
-          unit: baseSubsystem,
+          equipment_module: baseEquipmentModule,
+          unit: baseUnit,
           allTags: baseTags,
           allStates: baseStates,
         }),
