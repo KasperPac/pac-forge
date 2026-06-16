@@ -24,7 +24,7 @@ export function buildIntroductionPrompt(
     .filter((s) => !s.excluded)
     .map((s) => {
       const asmNames = s.equipment_modules.map((a) => a.equipment_module_name).join(", ");
-      return `- ${s.unit_name} (${s.equipment_type}, ${s.equipment_modules.length} equipment_modules, ${getUnitControlModuleCount(s)} control_modules)${asmNames ? `\n  Assemblies: ${asmNames}` : ""}`;
+      return `- ${s.unit_name} (${s.equipment_type}, ${s.equipment_modules.length} Equipment Modules, ${getUnitControlModuleCount(s)} Control Modules)${asmNames ? `\n  Equipment Modules: ${asmNames}` : ""}`;
     })
     .join("\n");
 

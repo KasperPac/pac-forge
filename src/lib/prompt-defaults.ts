@@ -893,7 +893,37 @@ END_WHILE;
 IF #speed = 50.0 THEN ...
 // CORRECT:
 IF ABS(#speed - 50.0) < 0.01 THEN ...
-\`\`\``;
+\`\`\`
+
+---
+
+### 13. ISA-88 COMPLIANCE (ANSI/ISA-88.00.01 §4.4, §5.2–5.4)
+
+All generated code must follow ISA-88 Part 1 physical model and control type classification.
+
+**Physical Model Hierarchy:**
+
+| ISA-88 Level | Code Prefix | Block Type | Description |
+|---|---|---|---|
+| Process Cell | SC_ | FC/OB | Full machine/production line coordination |
+| Unit | UC_ | FC | Functional station coordination |
+| Equipment Module | EM_ | FB (with state machine) | Coordinated group of control modules |
+| Control Module | CM_ | FB (no state machine) | Single physical device with IO |
+
+**Control Types:**
+- **Basic Control (CM_ prefix):** Single device control, NO state machine, direct IO with interlocks
+- **Procedural Control (EM_ prefix):** State machine driven (PackML), calls CM_ FBs, manages Operations/Phases
+- **Coordination Control (UC_/SC_ prefix):** Coordinates Equipment Modules or Units, stateless FC
+
+**FB Header:** Every FB must include ISA-88 classification:
+\`\`\`scl
+// ISA-88: Control Module — Basic Control (§5.2)
+FUNCTION_BLOCK "CM_Motor_M01"
+\`\`\`
+
+**Naming:** CM_{Class}_{Tag}, EM_{Name}, UC_{Name}, SC_{Name}
+
+**Equipment Module Collapsibility (§4.4.3.7):** EM layer is optional — when collapsed, CM FBs belong directly to the Unit.`;
 
 const SHARED_CODE_EXAMPLES = `## SCL Code Examples (S7-1200/S7-1500)
 
