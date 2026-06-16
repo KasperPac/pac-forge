@@ -72,7 +72,7 @@ export interface ProcessStageStatus {
 /** Q&A answer categories. */
 export const QA_CATEGORIES = {
   REQUIREMENTS: "requirements",
-  DEVICES: "devices",
+  DEVICES: "control_modules",
   IO_MODULES: "io_modules",
   FB_TEMPLATES: "fb_templates",
   FOLDERS: "folders",
@@ -246,7 +246,7 @@ export interface SequenceRow {
   /** Row type — drives how the flow diagram renders it. */
   type: "action" | "monitor" | "branch" | "fault_exit" | "merge";
   /** Device names involved in this row. */
-  devices: string[];
+  control_modules: string[];
 }
 
 export interface ProcessSequence {
@@ -266,7 +266,7 @@ export interface ProcessStep {
   stepNumber: number;
   transition: TransitionCondition;
   actions: ProcessAction[];
-  devicesInvolved: string[];
+  control_modulesInvolved: string[];
   notes: string;
   /** @deprecated Use transition instead */
   action?: string;

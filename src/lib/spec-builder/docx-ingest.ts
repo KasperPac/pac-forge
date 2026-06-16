@@ -23,7 +23,7 @@ import JSZip from "jszip";
 import { XMLParser } from "fast-xml-parser";
 import mammoth from "mammoth";
 import type {
-  AssemblyContract,
+  EquipmentModuleContract,
   SpecContractV2,
 } from "@/types/spec-contract-v2";
 import {
@@ -143,21 +143,21 @@ export async function ingestDocx(file: File): Promise<IngestResult> {
       }
     }
 
-    // Merge state data into AssemblyContracts keyed by assembly_id.
-    const assemblies: Record<string, AssemblyContract> = {};
-    for (const sub of hierarchyResult.hierarchy.subsystems) {
-      for (const asy of sub.assemblies) {
-        assemblies[asy.assembly_id] = {
-          assembly_id: asy.assembly_id,
-          subsystem_id: sub.subsystem_id,
-          static_states: stateResult.staticByAssembly[asy.assembly_id] ?? {},
-          sequential_states: sequentialStates[asy.assembly_id] ?? {},
+    // Merge state data into EquipmentModuleContracts keyed by equipment_module_id.
+    const equipment_modules: Record<string, EquipmentModuleContract> = {};
+    for (const sub of hierarchyResult.hierarchy.units) {
+      for (const asy of sub.equipment_modules) {
+        equipment_modules[asy.equipment_module_id] = {
+          equipment_module_id: asy.equipment_module_id,
+          unit_id: sub.unit_id,
+          static_states: stateResult.staticByAssembly[asy.equipment_module_id] ?? {},
+          sequential_states: sequentialStates[asy.equipment_module_id] ?? {},
         };
       }
     }
 
     const draft: SpecContractV2 = {
-      schema_version: 2,
+      schema_version: 3,
       // Legacy V1 docx ingest produces drafts that have not gone through Phase 2
       // confirmation; mark unconfirmed (Task 10).
       confirmation_status: "unconfirmed",
@@ -178,8 +178,8 @@ export async function ingestDocx(file: File): Promise<IngestResult> {
       hierarchy: hierarchyResult.hierarchy,
       states: [],
       alarm_tiers: [],
-      assemblies,
-      orchestrations: {},
+      equipment_modules,
+      unit_procedures: {},
       alarms,
       io_list: [],
       faults: [],

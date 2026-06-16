@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
-import type { AssemblyContract } from "@/types/spec-contract-v2";
+import type { EquipmentModuleContract } from "@/types/spec-contract-v2";
 import {
   renderSequentialContentJson,
   renderStaticContentJson,
 } from "../section-renderer";
 import { STATE_ID_STARTING, STATE_ID_IDLE } from "../state-machine";
 
-const contract: AssemblyContract = {
-  assembly_id: "00000000-0000-0000-0000-000000000001",
-  subsystem_id: "00000000-0000-0000-0000-0000000000ff",
+const contract: EquipmentModuleContract = {
+  equipment_module_id: "00000000-0000-0000-0000-000000000001",
+  unit_id: "00000000-0000-0000-0000-0000000000ff",
   static_states: {
-    [String(STATE_ID_IDLE)]: { override_kind: "override", devices: [], notes: null },
+    [String(STATE_ID_IDLE)]: { override_kind: "override", control_modules: [], notes: null },
   },
   sequential_states: {
     [String(STATE_ID_STARTING)]: {
@@ -64,9 +64,9 @@ describe("renderSequentialContentJson", () => {
 });
 
 describe("renderStaticContentJson", () => {
-  it("produces pattern='static' with empty device_states for an empty StaticStateV2", () => {
+  it("produces pattern='static' with empty control_module_states for an empty StaticStateV2", () => {
     const json = renderStaticContentJson(contract.static_states[String(STATE_ID_IDLE)]);
     expect(json.pattern).toBe("static");
-    expect(json.device_states).toEqual([]);
+    expect(json.control_module_states).toEqual([]);
   });
 });

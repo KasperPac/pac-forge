@@ -1,7 +1,7 @@
 /**
  * Read-only React Flow graph for system orchestration.
  *
- * One node per subsystem. One directed edge per inter-subsystem interlock,
+ * One node per unit. One directed edge per inter-unit interlock,
  * coloured by effect. A chip row above the canvas filters edges to a
  * single state (or "All" to show everything).
  *
@@ -21,13 +21,13 @@ import "@xyflow/react/dist/style.css";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { SubsystemConfig, OperatingState } from "@/types/spec-builder";
+import type { UnitConfig, OperatingState } from "@/types/spec-builder";
 import type {
-  SystemOrchestration,
-  InterSubsystemInterlock,
+  SystemProcedure,
+  InterUnitInterlock,
 } from "@/types/spec-contract-v2";
 
-const EFFECT_COLORS: Record<InterSubsystemInterlock["effect"], string> = {
+const EFFECT_COLORS: Record<InterUnitInterlock["effect"], string> = {
   hold: "#d97706", // amber
   block_transition: "#dc2626", // red
   trigger: "#2563eb", // blue
@@ -35,7 +35,7 @@ const EFFECT_COLORS: Record<InterSubsystemInterlock["effect"], string> = {
   disable: "#6b7280", // gray
 };
 
-const EFFECT_LABEL: Record<InterSubsystemInterlock["effect"], string> = {
+const EFFECT_LABEL: Record<InterUnitInterlock["effect"], string> = {
   hold: "Hold",
   block_transition: "Block",
   trigger: "Trigger",
@@ -44,20 +44,20 @@ const EFFECT_LABEL: Record<InterSubsystemInterlock["effect"], string> = {
 };
 
 interface Props {
-  subsystems: SubsystemConfig[];
+  units: UnitConfig[];
   states: OperatingState[];
-  orchestration: SystemOrchestration | null;
+  orchestration: SystemProcedure | null;
 }
 
-export function SystemOrchestrationGraph({
-  subsystems,
+export function SystemProcedureGraph({
+  units,
   states,
   orchestration,
 }: Props) {
   const sequentialStates = states.filter((s) => s.state_pattern === "sequential");
   const [activeStateId, setActiveStateId] = useState<string | "ALL">("ALL");
 
-  const active = subsystems.filter((s) => !s.excluded);
+  const active = units.filter((s) => !s.excluded);
 
   const nodes: Node[] = useMemo(() => {
     const cols = Math.max(1, Math.ceil(Math.sqrt(active.length)));
@@ -66,19 +66,19 @@ export function SystemOrchestrationGraph({
     return active.map((sub, i) => {
       const row = Math.floor(i / cols);
       const col = i % cols;
-      // Count states where this subsystem appears in subsystem_order
+      // Count states where this unit appears in unit_order
       const stateCount = orchestration
         ? Object.values(orchestration.state_sequences).filter((seq) =>
-            seq.subsystem_order.includes(sub.subsystem_id),
+            seq.unit_order.includes(sub.unit_id),
           ).length
         : 0;
       return {
-        id: sub.subsystem_id,
+        id: sub.unit_id,
         position: { x: col * GAP_X, y: row * GAP_Y },
         data: {
           label: (
             <div className="text-xs space-y-1">
-              <div className="font-mono font-semibold">{sub.subsystem_name}</div>
+              <div className="font-mono font-semibold">{sub.unit_name}</div>
               <div className="text-[10px] text-muted-foreground">
                 {sub.equipment_type}
               </div>
@@ -106,12 +106,12 @@ export function SystemOrchestrationGraph({
     const collected: Edge[] = [];
     for (const [stateId, seq] of Object.entries(orchestration.state_sequences)) {
       if (activeStateId !== "ALL" && activeStateId !== stateId) continue;
-      for (const il of seq.inter_subsystem_interlocks) {
+      for (const il of seq.inter_unit_interlocks) {
         const color = EFFECT_COLORS[il.effect];
         collected.push({
           id: `${stateId}_${il.interlock_id}`,
-          source: il.source_subsystem_id,
-          target: il.target_subsystem_id,
+          source: il.source_unit_id,
+          target: il.target_unit_id,
           label: `${EFFECT_LABEL[il.effect]}`,
           labelStyle: { fontSize: 10, fontFamily: "monospace", fill: color },
           style: { stroke: color, strokeWidth: 2 },
@@ -150,7 +150,7 @@ export function SystemOrchestrationGraph({
           </Button>
         ))}
         <div className="ml-auto flex items-center gap-2 shrink-0">
-          {(Object.keys(EFFECT_COLORS) as InterSubsystemInterlock["effect"][]).map(
+          {(Object.keys(EFFECT_COLORS) as InterUnitInterlock["effect"][]).map(
             (k) => (
               <span
                 key={k}

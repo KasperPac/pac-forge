@@ -1,11 +1,11 @@
 // ---------------------------------------------------------------------------
-// Assembly Behavioral Brief — FDS-derived data for assembly FB generation
+// Assembly Behavioral Brief — FDS-derived data for equipment_module FB generation
 // ---------------------------------------------------------------------------
 
-import type { DeviceStateEntry, StepEntry, OperatingState } from "@/types/spec-builder";
+import type { ControlModuleStateEntry, StepEntry, OperatingState } from "@/types/spec-builder";
 
-/** Alarm condition relevant to an assembly's devices */
-export interface AssemblyAlarm {
+/** Alarm condition relevant to an equipment_module's control_modules */
+export interface EquipmentModuleAlarm {
   code: string;
   name: string;
   severity: string;
@@ -15,37 +15,37 @@ export interface AssemblyAlarm {
 }
 
 /**
- * Per-assembly behavioral brief derived from FDS data.
- * This is what the engineer reviews before assembly FB generation.
- * When spec_project_id is set: populated from fds_assembly_sessions.
+ * Per-equipment_module behavioral brief derived from FDS data.
+ * This is what the engineer reviews before equipment_module FB generation.
+ * When spec_project_id is set: populated from fds_operation_sessions.
  * When standalone: populated from SpecAnalysis + AI contract suggestion.
  */
-export interface AssemblyBrief {
-  assemblyId: string;
-  assemblyTag: string;
-  assemblyName: string;
-  assemblyType: string;
-  subsystemName: string;
-  /** Device IDs belonging to this assembly */
+export interface EquipmentModuleBrief {
+  equipment_moduleId: string;
+  equipment_moduleTag: string;
+  equipment_moduleName: string;
+  equipment_moduleType: string;
+  unitName: string;
+  /** Device IDs belonging to this equipment_module */
   deviceIds: string[];
 
   /** Operating states from spec_projects.confirmed_states */
   operatingStates: OperatingState[];
 
   /** Static state device tables — what every output does in IDLE, E-STOP, etc.
-   *  Keyed by state_id. From fds_assembly_sessions.static_states */
-  staticStates: Record<string, DeviceStateEntry[]>;
+   *  Keyed by state_id. From fds_operation_sessions.static_states */
+  staticStates: Record<string, ControlModuleStateEntry[]>;
 
   /** Sequential state step sequences — STARTING, EXECUTE, STOPPING, etc.
-   *  Keyed by state_id. From fds_assembly_sessions.sequential_states */
+   *  Keyed by state_id. From fds_operation_sessions.sequential_states */
   sequentialStates: Record<string, {
     permissives: string[];
     steps: StepEntry[];
     notes: string | null;
   }>;
 
-  /** Alarm conditions relevant to this assembly's devices */
-  alarmConditions: AssemblyAlarm[];
+  /** Alarm conditions relevant to this equipment_module's control_modules */
+  alarmConditions: EquipmentModuleAlarm[];
 
   /** Engineer annotations — clarifications, overrides, missing info */
   annotations: string[];
@@ -57,8 +57,8 @@ export interface AssemblyBrief {
   source: "fds" | "standalone";
 }
 
-/** All assembly briefs for a session, keyed by assemblyId */
-export type AssemblyBriefMap = Record<string, AssemblyBrief>;
+/** All equipment_module briefs for a session, keyed by equipment_moduleId */
+export type EquipmentModuleBriefMap = Record<string, EquipmentModuleBrief>;
 
 // ---------------------------------------------------------------------------
 // Device FB Brief — enriched IO for device FB generation
@@ -68,7 +68,7 @@ import type { ForgeDeviceIoSignal } from "@/types/forge";
 
 /** IO signal enriched with intent and consumer info */
 export interface EnrichedIoSignal extends ForgeDeviceIoSignal {
-  /** Intent comment: "confirms upper position — read by LFT01 assembly" */
+  /** Intent comment: "confirms upper position — read by LFT01 equipment_module" */
   intentComment: string;
   /** Assembly tags that read/write this signal */
   consumedBy: string[];

@@ -97,7 +97,7 @@ function classifyWireSource(source: string, ioTagNames: Set<string>, instanceNam
 }
 
 function convertAlternativeSchema(raw: RawObj): {
-  devices: RawArr;
+  control_modules: RawArr;
   globalData: RawArr;
   processSteps: RawArr;
 } {
@@ -156,9 +156,9 @@ function convertAlternativeSchema(raw: RawObj): {
   const fbList = (raw.functionBlocks ?? raw.function_blocks ?? []) as RawArr;
 
   // Convert instances → deviceLinkage entries
-  let devices: RawArr;
+  let control_modules: RawArr;
   if (instances.length > 0) {
-    devices = instances.map((inst) => {
+    control_modules = instances.map((inst) => {
       const instName = (inst.instanceName ?? inst.dbName ?? inst.name ?? "") as string;
       const fbName = (inst.fbName ?? inst.instanceOf ?? inst.fb ?? "") as string;
       const wires = wiringByInstance.get(instName) ?? [];
@@ -195,7 +195,7 @@ function convertAlternativeSchema(raw: RawObj): {
     });
   } else if (fbList.length > 0) {
     // No instances — use functionBlocks as device types
-    devices = fbList.map((fb) => ({
+    control_modules = fbList.map((fb) => ({
       name: fb.blockName ?? fb.name ?? "",
       deviceType: fb.blockType ?? "FB",
       description: (fb.description ?? "") as string,
@@ -207,7 +207,7 @@ function convertAlternativeSchema(raw: RawObj): {
       interlocks: [],
     }));
   } else {
-    devices = [];
+    control_modules = [];
   }
 
   // Convert globalDBs → globalData
@@ -230,7 +230,7 @@ function convertAlternativeSchema(raw: RawObj): {
       stepNumber: cs.order ?? i + 1,
       action: `Call ${cs.block ?? cs.name ?? ""}`,
       completionCriteria: (cs.description ?? "") as string,
-      devicesInvolved: ((cs.calls ?? []) as string[]),
+      control_modulesInvolved: ((cs.calls ?? []) as string[]),
       notes: "",
     }));
   } else if (callingFCs.length > 0) {
@@ -239,14 +239,14 @@ function convertAlternativeSchema(raw: RawObj): {
       stepNumber: i + 1,
       action: `Call ${(fc.fcName ?? fc.name ?? "") as string}`,
       completionCriteria: (fc.description ?? "") as string,
-      devicesInvolved: ((fc.calls ?? []) as RawArr).map((c) => (c.instance ?? c.name ?? "") as string),
+      control_modulesInvolved: ((fc.calls ?? []) as RawArr).map((c) => (c.instance ?? c.name ?? "") as string),
       notes: "",
     }));
   } else {
     processSteps = [];
   }
 
-  return { devices, globalData, processSteps };
+  return { control_modules, globalData, processSteps };
 }
 
 /** Parse a single transition condition from raw PM data. */
@@ -290,7 +290,7 @@ function parseTransitionCondition(raw: unknown): TransitionCondition {
     return {
       id: (co.id as string) ?? crypto.randomUUID(),
       description: (co.description ?? co.condition ?? co.name ?? "") as string,
-      deviceName: (co.deviceName ?? co.device_name ?? co.device ?? null) as string | null,
+      deviceName: (co.deviceName ?? co.control_module_name ?? co.device ?? null) as string | null,
     };
   });
   return { combinator, conditions };
@@ -308,7 +308,7 @@ function parseActions(raw: unknown): ProcessAction[] {
     return {
       id: (obj.id as string) ?? crypto.randomUUID(),
       description: (obj.description ?? obj.action ?? obj.name ?? "") as string,
-      deviceName: (obj.deviceName ?? obj.device_name ?? obj.device ?? null) as string | null,
+      deviceName: (obj.deviceName ?? obj.control_module_name ?? obj.device ?? null) as string | null,
     };
   });
 }
@@ -326,7 +326,7 @@ function parsePermissives(raw: unknown): ProcessPermissive[] {
     return {
       id: (obj.id as string) ?? crypto.randomUUID(),
       description: (obj.description ?? obj.condition ?? obj.name ?? "") as string,
-      deviceName: (obj.deviceName ?? obj.device_name ?? obj.device ?? null) as string | null,
+      deviceName: (obj.deviceName ?? obj.control_module_name ?? obj.device ?? null) as string | null,
       polarity: (obj.polarity ?? true) as boolean,
     };
   });
@@ -343,7 +343,7 @@ function parseSafetyConditions(raw: unknown): SafetyCondition[] {
     return {
       id: (obj.id as string) ?? crypto.randomUUID(),
       description: (obj.description ?? obj.condition ?? obj.name ?? "") as string,
-      deviceName: (obj.deviceName ?? obj.device_name ?? obj.device ?? null) as string | null,
+      deviceName: (obj.deviceName ?? obj.control_module_name ?? obj.device ?? null) as string | null,
       polarity: (obj.polarity ?? true) as boolean,
     };
   });
@@ -370,7 +370,7 @@ function parseStep(ps: RawObj): ProcessStep {
     stepNumber: (ps.stepNumber ?? ps.step_number ?? ps.stepId ?? ps.step_id ?? ps.step ?? ps.order ?? 0) as number,
     transition,
     actions,
-    devicesInvolved: (ps.devicesInvolved ?? ps.devices_involved ?? ps.devices ?? ps.calls ?? []) as string[],
+    control_modulesInvolved: (ps.control_modulesInvolved ?? ps.control_modules_involved ?? ps.control_modules ?? ps.calls ?? []) as string[],
     notes: (ps.notes ?? ps.note ?? ps.desc ?? ps.description ?? "") as string,
   };
 }
@@ -483,7 +483,7 @@ export function parseProcessMatrix(text: string): ProcessLinkageMatrix | null {
     }
 
     // Try canonical keys first, then common alternatives (PM uses many variations)
-    let devices = (raw.deviceLinkage ?? raw.devices ?? raw.device_linkage ?? raw.deviceList ?? raw.equipment ?? []) as RawArr;
+    let control_modules = (raw.deviceLinkage ?? raw.control_modules ?? raw.device_linkage ?? raw.deviceList ?? raw.equipment ?? []) as RawArr;
 
     // globalData can be an array (correct) or an object with sub-keys like { dbs: [...], internalTags: [...] }
     const rawGlobalData = raw.globalData ?? raw.global_data ?? raw.globalDataBlocks ?? raw.globalDBs ?? raw.globalDbs ?? raw.global_dbs ?? [];
@@ -550,9 +550,9 @@ export function parseProcessMatrix(text: string): ProcessLinkageMatrix | null {
 
     // Fallback: PM used alternative schema (instances/instanceDBs, ioTags, functionBlocks, etc.)
     let fallbackSteps: RawArr = [];
-    if (devices.length === 0 && (raw.instances || raw.instanceDBs || raw.instanceDbs || raw.instance_dbs || raw.functionBlocks || raw.function_blocks || raw.callingFCs || raw.calling_fcs)) {
+    if (control_modules.length === 0 && (raw.instances || raw.instanceDBs || raw.instanceDbs || raw.instance_dbs || raw.functionBlocks || raw.function_blocks || raw.callingFCs || raw.calling_fcs)) {
       const converted = convertAlternativeSchema(raw);
-      devices = converted.devices;
+      control_modules = converted.control_modules;
       // Also pull globalData from alternative schema if not already present
       if (globalData.length === 0) globalData = converted.globalData;
       fallbackSteps = converted.processSteps;
@@ -573,7 +573,7 @@ export function parseProcessMatrix(text: string): ProcessLinkageMatrix | null {
     // Hydrate with UUIDs where missing
     const matrix: ProcessLinkageMatrix = {
       version: Number(raw.version) || 1,
-      deviceLinkage: devices.map((d) => {
+      deviceLinkage: control_modules.map((d) => {
         const rawWiring = (d.wiring ?? []) as RawArr;
         const ioSigs = (d.ioSignals ?? d.io_signals ?? d.signals ?? d.io ?? []) as RawArr;
         const ilocks = (d.interlocks ?? d.interlock ?? []) as RawArr;
@@ -629,7 +629,7 @@ export function parseProcessMatrix(text: string): ProcessLinkageMatrix | null {
 
         return {
           id: (d.id as string) ?? crypto.randomUUID(),
-          name: (d.name ?? d.label ?? d.deviceName ?? d.device_name ?? d.deviceId ?? d.device_id ?? d.instanceName ?? d.instance ?? "") as string,
+          name: (d.name ?? d.label ?? d.deviceName ?? d.control_module_name ?? d.deviceId ?? d.control_module_id ?? d.instanceName ?? d.instance ?? "") as string,
           deviceType: (d.deviceType ?? d.device_type ?? d.type ?? d.category ?? templateOrFb ?? "") as string,
           description: (d.description ?? d.desc ?? d.purpose ?? "") as string,
           wiring,
@@ -639,7 +639,7 @@ export function parseProcessMatrix(text: string): ProcessLinkageMatrix | null {
           instanceDbName: (d.instanceDbName ?? d.instance_db_name ?? d.instanceDb ?? d.instance_db ?? d.instanceDB ?? d.instance ?? d.dbName ?? d.db ?? "") as string,
           interlocks: ilocks.map((il) => ({
             id: (il.id as string) ?? crypto.randomUUID(),
-            targetDeviceName: (il.targetDeviceName ?? il.target_device_name ?? il.target ?? "") as string,
+            targetDeviceName: (il.targetDeviceName ?? il.target_control_module_name ?? il.target ?? "") as string,
             condition: (il.condition ?? "") as string,
             direction: (il.direction ?? "requires") as "requires" | "blocks" | "follows",
           })),

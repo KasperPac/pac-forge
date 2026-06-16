@@ -159,7 +159,7 @@ export function useSaveInstrumentRegister() {
       spec_project_id: string;
       raw_filename: string;
       tags: unknown[];
-      subsystems: unknown[];
+      units: unknown[];
       parse_warnings: unknown[];
       haiku_usage: unknown;
     }) => {

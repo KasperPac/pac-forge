@@ -18,7 +18,7 @@ import {
   ResizableHandle,
 } from "@/components/ui/resizable";
 import { Loader2, BookMarked, X } from "lucide-react";
-import type { ForgeArtifact, ForgeDeviceEntry } from "@/types/forge";
+import type { ForgeArtifact, ForgeControlModuleEntry } from "@/types/forge";
 
 // ---------------------------------------------------------------------------
 // Interface parser
@@ -52,7 +52,7 @@ function parseFbInterface(
 export interface ForgeDeviceFbDialogProps {
   open: boolean;
   artifact: ForgeArtifact | null;
-  device: ForgeDeviceEntry | null;
+  device: ForgeControlModuleEntry | null;
   onAccept: (artifact: ForgeArtifact) => void;
   onSaveToLibrary: (artifact: ForgeArtifact, category: string) => void;
   onClose: () => void;

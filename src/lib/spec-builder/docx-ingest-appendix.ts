@@ -22,7 +22,7 @@ import type { ParsedDocxTable } from "@/lib/spec-builder/docx-ingest";
 import { DocxIngestError } from "@/lib/spec-builder/docx-ingest-hierarchy";
 
 interface CriterionOverride {
-  assemblyId: string;
+  equipment_moduleId: string;
   stateId: string;
   step: number;
   criterion: CompletionCriterion;
@@ -61,11 +61,11 @@ export function parseAppendixTables(
     if (headersMatch(table.headers, CRITERIA_HEADERS)) {
       for (let i = 0; i < table.rows.length; i++) {
         const row = table.rows[i];
-        const assemblyId = (row[0] ?? "").trim();
+        const equipment_moduleId = (row[0] ?? "").trim();
         const stateId = (row[1] ?? "").trim();
         const stepRaw = (row[2] ?? "").trim();
         const json = (row[3] ?? "").trim();
-        if (!assemblyId || !stateId || !stepRaw || !json) {
+        if (!equipment_moduleId || !stateId || !stepRaw || !json) {
           throw new DocxIngestError(
             `Appendix criteria row ${i + 1}: missing field`,
           );
@@ -93,7 +93,7 @@ export function parseAppendixTables(
           );
         }
         result.criteriaOverrides.push({
-          assemblyId,
+          equipment_moduleId,
           stateId,
           step,
           criterion: validated.data,
@@ -124,7 +124,7 @@ export function applyCriteriaOverrides(
   overrides: CriterionOverride[],
 ): Record<string, Record<string, SequentialStateV2>> {
   for (const ov of overrides) {
-    const asy = sequentialByAssembly[ov.assemblyId];
+    const asy = sequentialByAssembly[ov.equipment_moduleId];
     if (!asy) continue;
     const state = asy[ov.stateId];
     if (!state) continue;

@@ -19,7 +19,7 @@ export interface SpecValidationResult {
 
 export interface SpecAnalysisPatch {
   /** Which array/field to patch */
-  target: "process_sequences" | "process_settings" | "alarms" | "interlocks" | "devices";
+  target: "process_sequences" | "process_settings" | "alarms" | "interlocks" | "control_modules";
   action: "add_trigger_condition" | "add_setting" | "add_alarm" | "add_interlock" | "fix_step";
   detail: Record<string, unknown>;
 }
@@ -38,9 +38,9 @@ For every device with an AI (analog input) signal:
 - If an analog sensor exists but no sequence step uses its value as a trigger → CRITICAL
 
 ### CHECK 2: Device Coverage
-For every device in the devices array:
-- Does it appear in at least one sequence step's devices_involved?
-- If a device is never referenced by any sequence → WARNING (it may be OK for standalone devices)
+For every device in the control_modules array:
+- Does it appear in at least one sequence step's control_modules_involved?
+- If a device is never referenced by any sequence → WARNING (it may be OK for standalone control_modules)
 
 ### CHECK 3: Process Settings Linkage
 For every entry in process_settings:
@@ -76,7 +76,7 @@ Return JSON inside \`\`\`json fences:
   ],
   "patches": [
     {
-      "target": "process_sequences | process_settings | alarms | interlocks | devices",
+      "target": "process_sequences | process_settings | alarms | interlocks | control_modules",
       "action": "add_trigger_condition | add_setting | add_alarm | add_interlock | fix_step",
       "detail": { ... }
     }
@@ -179,7 +179,7 @@ export function applyValidationPatches(
         patched.interlocks.push({
           name: d.name as string,
           condition: d.condition as string,
-          affected_devices: [],
+          affected_control_modules: [],
         });
       }
     }

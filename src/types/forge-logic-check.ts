@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Logic Check types — validates assembly FBs against FDS behavioral spec
+// Logic Check types — validates Equipment Module FBs against FDS behavioral spec
 // ---------------------------------------------------------------------------
 
 export type LogicCheckCategory =
@@ -10,7 +10,7 @@ export type LogicCheckCategory =
   | "timeout"             // Do FDS timeout values match timer declarations?
   | "device_state"        // Do static state output values match FDS device state tables?
   | "fault_handling"      // Are all FDS alarm conditions detected?
-  | "interface"           // Does each assembly FB expose required signals?
+  | "interface"           // Does each equipment_module FB expose required signals?
   | "syntax"              // Basic SCL structure checks (CASE ELSE, END_FUNCTION_BLOCK, etc.)
   | "general";            // Catch-all for other issues
 
@@ -18,9 +18,9 @@ export interface LogicCheckIssue {
   id: string;
   severity: "error" | "warning" | "info";
   category: LogicCheckCategory;
-  /** Which assembly this issue belongs to (tag) */
-  assemblyTag: string;
-  /** Which block within the assembly (e.g. "ControlLFT01") */
+  /** Which equipment_module this issue belongs to (tag) */
+  equipment_moduleTag: string;
+  /** Which block within the equipment_module (e.g. "ControlLFT01") */
   blockName: string;
   /** Human-readable description of the issue */
   message: string;
@@ -35,8 +35,8 @@ export interface LogicCheckResult {
   issues: LogicCheckIssue[];
   /** When the check was run */
   checkedAt: string;
-  /** Number of assemblies checked */
-  assembliesChecked: number;
+  /** Number of equipment_modules checked */
+  equipment_modulesChecked: number;
   /** Number of artifacts checked */
   artifactsChecked: number;
 }

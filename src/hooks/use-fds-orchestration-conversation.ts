@@ -1,7 +1,7 @@
 /**
- * Hook for subsystem orchestration conversation.
- * After individual assemblies are defined, engineer and AI collaborate
- * on how the assemblies coordinate (execution order, inter-assembly interlocks).
+ * Hook for unit orchestration conversation.
+ * After individual equipment_modules are defined, engineer and AI collaborate
+ * on how the equipment_modules coordinate (execution order, inter-equipment_module interlocks).
  */
 import { useState, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -15,25 +15,25 @@ import {
   stripJsonFromResponse,
 } from "@/lib/spec-builder/fds-prompts";
 import type {
-  SubsystemConfig,
-  FdsAssemblySession,
-  SubsystemOrchestration,
+  UnitConfig,
+  OperationSession,
+  UnitProcedure,
   FdsConversationTurn,
 } from "@/types/spec-builder";
 import type {
-  InterAssemblyInterlock,
+  InterEquipmentModuleInterlock,
   OperatingStateV2,
   SharedPermissive,
-  SubsystemStateSequence,
+  UnitProcedureSequence,
 } from "@/types/spec-contract-v2";
 import { SpecContractPatchSchema, validateSpecContractPatch } from "@/lib/spec-builder/contract";
 import { buildValidationFailureTurn } from "@/lib/spec-builder/validation-failure-turn";
 
 interface UseFdsOrchestrationConversationOptions {
   specProjectId: string;
-  subsystem: SubsystemConfig;
-  sessions: FdsAssemblySession[];
-  orchestration: SubsystemOrchestration | null;
+  unit: UnitConfig;
+  sessions: OperationSession[];
+  orchestration: UnitProcedure | null;
   allStates: OperatingStateV2[];
 }
 
@@ -47,7 +47,7 @@ interface UseFdsOrchestrationConversationReturn {
 
 export function useFdsOrchestrationConversation({
   specProjectId,
-  subsystem,
+  unit,
   sessions,
   orchestration,
   allStates,
@@ -60,39 +60,39 @@ export function useFdsOrchestrationConversation({
 
   const sequentialStates = allStates.filter((s) => s.state_pattern === "sequential");
 
-  const assemblySummaries = sessions
+  const equipment_moduleSummaries = sessions
     .filter((s) => s.status === "complete")
     .map((s) => {
-      const asm = subsystem.assemblies.find((a) => a.assembly_id === s.assembly_id);
+      const asm = unit.equipment_modules.find((a) => a.equipment_module_id === s.equipment_module_id);
       return {
-        assembly_name: asm?.assembly_name ?? s.assembly_id,
-        assembly_id: s.assembly_id,
+        equipment_module_name: asm?.equipment_module_name ?? s.equipment_module_id,
+        equipment_module_id: s.equipment_module_id,
         sequential_states: s.sequential_states,
       };
     });
 
   const buildSystemPrompt = useCallback(() => {
     return buildFdsOrchestrationSystemPrompt(
-      subsystem,
-      assemblySummaries,
+      unit,
+      equipment_moduleSummaries,
       sequentialStates,
     );
-  }, [subsystem, assemblySummaries, sequentialStates]);
+  }, [unit, equipment_moduleSummaries, sequentialStates]);
 
   const conversation = orchestration?.conversation ?? [];
 
   const persistTurns = useCallback(
     async (
       turns: FdsConversationTurn[],
-      stateUpdates?: Array<{ state_id: string; sequence: SubsystemStateSequence }>,
+      stateUpdates?: Array<{ state_id: string; sequence: UnitProcedureSequence }>,
     ) => {
       const updatedConversation = [...conversation, ...turns];
-      // state_sequences JSONB holds the V2 SubsystemStateSequence shape post
+      // state_sequences JSONB holds the V2 UnitProcedureSequence shape post
       // Phase 3; the legacy spec-builder type still types the read path with
       // shared_permissives: string[]. Bridge via unknown at the storage edge.
       const existing = { ...(orchestration?.state_sequences ?? {}) } as unknown as Record<
         string,
-        SubsystemStateSequence
+        UnitProcedureSequence
       >;
       if (stateUpdates && stateUpdates.length > 0) {
         for (const { state_id, sequence } of stateUpdates) {
@@ -101,20 +101,20 @@ export function useFdsOrchestrationConversation({
       }
 
       await supabase
-        .from("fds_subsystem_orchestrations")
+        .from("fds_unit_procedures")
         .upsert(
           {
             spec_project_id: specProjectId,
-            subsystem_id: subsystem.subsystem_id,
+            unit_id: unit.unit_id,
             state_sequences: existing,
             conversation: updatedConversation,
           },
-          { onConflict: "spec_project_id,subsystem_id" },
+          { onConflict: "spec_project_id,unit_id" },
         );
 
-      queryClient.invalidateQueries({ queryKey: ["fds_subsystem_orchestrations"] });
+      queryClient.invalidateQueries({ queryKey: ["fds_unit_procedures"] });
     },
-    [conversation, orchestration, specProjectId, subsystem.subsystem_id, queryClient],
+    [conversation, orchestration, specProjectId, unit.unit_id, queryClient],
   );
 
   const resolveStateId = useCallback(
@@ -135,7 +135,7 @@ export function useFdsOrchestrationConversation({
 
   const processAiResponse = useCallback(
     (fullText: string): {
-      updates: Array<{ state_id: string; sequence: SubsystemStateSequence }>;
+      updates: Array<{ state_id: string; sequence: UnitProcedureSequence }>;
       failures: Array<{ state_id: string; issues: string[]; stateLabel: string }>;
     } => {
       const extracted = extractJsonFromResponse(fullText) as unknown as Record<string, unknown> | null;
@@ -143,7 +143,7 @@ export function useFdsOrchestrationConversation({
         return { updates: [], failures: [] };
       }
 
-      const updates: Array<{ state_id: string; sequence: SubsystemStateSequence }> = [];
+      const updates: Array<{ state_id: string; sequence: UnitProcedureSequence }> = [];
       const failures: Array<{ state_id: string; issues: string[]; stateLabel: string }> = [];
 
       // The system-orchestration prompt emits a single object per turn (not an
@@ -158,34 +158,34 @@ export function useFdsOrchestrationConversation({
         if (!stateId) continue;
 
         // orchestration.state_sequences is typed via the legacy spec-builder
-        // SubsystemStateSequence (shared_permissives: string[]). Bridge to the
+        // UnitProcedureSequence (shared_permissives: string[]). Bridge to the
         // V2 shape used by the validator below.
         const existingRaw = orchestration?.state_sequences[stateId];
-        const existing: SubsystemStateSequence = existingRaw
-          ? (existingRaw as unknown as SubsystemStateSequence)
+        const existing: UnitProcedureSequence = existingRaw
+          ? (existingRaw as unknown as UnitProcedureSequence)
           : {
-              assembly_order: [],
+              equipment_module_order: [],
               shared_permissives: [],
-              inter_assembly_interlocks: [],
+              inter_equipment_module_interlocks: [],
               notes: null,
             };
 
-        const sequence: SubsystemStateSequence = {
-          assembly_order: (block.assembly_order as string[]) ?? existing.assembly_order,
+        const sequence: UnitProcedureSequence = {
+          equipment_module_order: (block.equipment_module_order as string[]) ?? existing.equipment_module_order,
           shared_permissives:
             (block.shared_permissives as SharedPermissive[]) ?? existing.shared_permissives,
-          inter_assembly_interlocks:
-            (block.inter_assembly_interlocks as InterAssemblyInterlock[]) ?? existing.inter_assembly_interlocks,
+          inter_equipment_module_interlocks:
+            (block.inter_equipment_module_interlocks as InterEquipmentModuleInterlock[]) ?? existing.inter_equipment_module_interlocks,
           notes: (block.notes as string | null) ?? existing.notes,
         };
 
-        // Phase 3 — hard validator gate. Build a per-subsystem orchestration
+        // Phase 3 — hard validator gate. Build a per-unit orchestration
         // patch and check it. Any issues abort just this block; valid blocks
         // in the same response still merge.
         const patch = {
-          orchestrations: {
-            [subsystem.subsystem_id]: {
-              ...((orchestration?.state_sequences ?? {}) as unknown as Record<string, SubsystemStateSequence>),
+          unit_procedures: {
+            [unit.unit_id]: {
+              ...((orchestration?.state_sequences ?? {}) as unknown as Record<string, UnitProcedureSequence>),
               [stateId]: sequence,
             },
           },
@@ -217,7 +217,7 @@ export function useFdsOrchestrationConversation({
 
       return { updates, failures };
     },
-    [resolveStateId, orchestration, subsystem.subsystem_id, allStates],
+    [resolveStateId, orchestration, unit.unit_id, allStates],
   );
 
   const sendMessage = useCallback(
@@ -314,8 +314,8 @@ export function useFdsOrchestrationConversation({
       // OperatingState; bridge until that helper is migrated. Only
       // `state_name` is read inside.
       const openingPrompt = buildFdsOrchestrationOpeningMessage(
-        subsystem,
-        assemblySummaries.map((a) => a.assembly_name),
+        unit,
+        equipment_moduleSummaries.map((a) => a.equipment_module_name),
         firstState as unknown as import("@/types/spec-builder").OperatingState,
       );
 
@@ -351,7 +351,7 @@ export function useFdsOrchestrationConversation({
       setIsStreaming(false);
       setStreamingText("");
     }
-  }, [isStreaming, buildSystemPrompt, subsystem, assemblySummaries, sequentialStates, persistTurns]);
+  }, [isStreaming, buildSystemPrompt, unit, equipment_moduleSummaries, sequentialStates, persistTurns]);
 
   return { sendMessage, startInterview, streamingText, isStreaming, error };
 }

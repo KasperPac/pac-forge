@@ -1,13 +1,13 @@
 /**
- * Compose assembly-level co-authored data into subsystem-level spec_sections.
+ * Compose equipment-module-level co-authored data into unit-level spec_sections.
  * Bridges the FDS co-author system with the existing editor and DOCX exporter.
  */
 import { supabase } from "@/lib/supabase";
 import type {
-  SubsystemConfig,
+  UnitConfig,
   OperatingState,
-  FdsAssemblySession,
-  SubsystemOrchestration,
+  OperationSession,
+  UnitProcedure,
   StepEntry,
   FunctionalDescriptionContent,
 } from "@/types/spec-builder";
@@ -19,29 +19,29 @@ function serializePermissive(p: PermissiveCondition): string {
 }
 
 /**
- * Compose all assembly sessions for a subsystem into spec_sections rows.
- * Handles assembly ordering via orchestration, merges device state tables,
- * and interleaves step tables with inter-assembly interlocks.
+ * Compose all equipment_module sessions for a unit into spec_sections rows.
+ * Handles equipment_module ordering via orchestration, merges device state tables,
+ * and interleaves step tables with inter-equipment_module interlocks.
  */
 export async function composeFdsToSections(
   specProjectId: string,
-  subsystem: SubsystemConfig,
-  sessions: FdsAssemblySession[],
-  orchestration: SubsystemOrchestration | null,
+  unit: UnitConfig,
+  sessions: OperationSession[],
+  orchestration: UnitProcedure | null,
   allStates: OperatingState[],
 ): Promise<void> {
   const staticStates = allStates.filter((s) => s.state_pattern === "static");
   const sequentialStates = allStates.filter((s) => s.state_pattern === "sequential");
 
-  // Delete existing functional_description sections for this subsystem
+  // Delete existing functional_description sections for this unit
   await supabase
     .from("spec_sections")
     .delete()
     .eq("spec_project_id", specProjectId)
-    .eq("subsystem_id", subsystem.subsystem_id)
+    .eq("unit_id", unit.unit_id)
     .eq("section_type", "functional_description");
 
-  // --- Static states: emit one row per (assembly, state) to match V2 shape. ---
+  // --- Static states: emit one row per (equipment_module, state) to match V2 shape. ---
   for (const state of staticStates) {
     for (const session of sessions) {
       const entries = session.static_states[state.state_id] ?? [];
@@ -49,14 +49,14 @@ export async function composeFdsToSections(
 
       const content: FunctionalDescriptionContent = {
         pattern: "static",
-        device_states: entries,
+        control_module_states: entries,
       };
 
       await supabase.from("spec_sections").insert({
         spec_project_id: specProjectId,
         section_type: "functional_description",
-        subsystem_id: subsystem.subsystem_id,
-        state_name: `${state.state_name} — ${session.assembly_id}`,
+        unit_id: unit.unit_id,
+        state_name: `${state.state_name} — ${session.equipment_module_id}`,
         content_json: content,
         content_markdown: null,
         model_used: "co-authored",
@@ -69,36 +69,36 @@ export async function composeFdsToSections(
     }
   }
 
-  // --- Sequential states: interleave assembly steps with orchestration ---
+  // --- Sequential states: interleave equipment_module steps with orchestration ---
   for (const state of sequentialStates) {
     const seq = orchestration?.state_sequences[state.state_id];
 
-    // Determine assembly order
-    const assemblyOrder = seq?.assembly_order ??
-      sessions.map((s) => s.assembly_id);
+    // Determine equipment_module order
+    const equipment_moduleOrder = seq?.equipment_module_order ??
+      sessions.map((s) => s.equipment_module_id);
 
     // Build ordered session list
-    const orderedSessions = assemblyOrder
-      .map((asmId) => sessions.find((s) => s.assembly_id === asmId))
-      .filter((s): s is FdsAssemblySession => s !== undefined);
+    const orderedSessions = equipment_moduleOrder
+      .map((asmId) => sessions.find((s) => s.equipment_module_id === asmId))
+      .filter((s): s is OperationSession => s !== undefined);
 
-    // Build inter-assembly interlocks index (applied as extra permissives on
-    // the target assembly's per-assembly row).
+    // Build inter-equipment_module interlocks index (applied as extra permissives on
+    // the target equipment_module's per-equipment_module row).
     const interlocksByTarget = new Map<string, string[]>();
-    for (const il of seq?.inter_assembly_interlocks ?? []) {
-      if (!interlocksByTarget.has(il.target_assembly)) {
-        interlocksByTarget.set(il.target_assembly, []);
+    for (const il of seq?.inter_equipment_module_interlocks ?? []) {
+      if (!interlocksByTarget.has(il.target_equipment_module)) {
+        interlocksByTarget.set(il.target_equipment_module, []);
       }
-      interlocksByTarget.get(il.target_assembly)!.push(
+      interlocksByTarget.get(il.target_equipment_module)!.push(
         `${il.source_condition} (${il.effect})`,
       );
     }
 
-    // V2: emit one row per (assembly, state). Each row carries just that
-    // assembly's permissives/steps/notes. Subsystem-level orchestration (order,
-    // shared permissives, inter-assembly interlocks) is written separately to
-    // `fds_subsystem_orchestrations` and composed at render time — it doesn't
-    // live inside the per-assembly functional_description rows.
+    // V2: emit one row per (equipment_module, state). Each row carries just that
+    // equipment_module's permissives/steps/notes. Subsystem-level orchestration (order,
+    // shared permissives, inter-equipment_module interlocks) is written separately to
+    // `fds_unit_procedures` and composed at render time — it doesn't
+    // live inside the per-equipment_module functional_description rows.
     for (const session of orderedSessions) {
       const data = session.sequential_states[state.state_id];
       if (!data) continue;
@@ -107,7 +107,7 @@ export async function composeFdsToSections(
         ...(seq?.shared_permissives ?? []),
         ...data.permissives.map(serializePermissive),
       ];
-      const interlocks = interlocksByTarget.get(session.assembly_id) ?? [];
+      const interlocks = interlocksByTarget.get(session.equipment_module_id) ?? [];
       for (const il of interlocks) {
         if (!perAssemblyPerms.includes(il)) perAssemblyPerms.push(il);
       }
@@ -116,7 +116,7 @@ export async function composeFdsToSections(
         pattern: "sequential",
         permissives: perAssemblyPerms,
         // Shim cast: legacy StepEntry expects completion_criteria:string while
-        // StepV2 carries CompletionCriterion[]. DOCX renderer reads the legacy
+        // PhaseStep carries CompletionCriterion[]. DOCX renderer reads the legacy
         // field via completion_criteria_text during the SFC v2 migration.
         steps: data.steps as unknown as StepEntry[],
         notes: data.notes ?? undefined,
@@ -125,8 +125,8 @@ export async function composeFdsToSections(
       await supabase.from("spec_sections").insert({
         spec_project_id: specProjectId,
         section_type: "functional_description",
-        subsystem_id: subsystem.subsystem_id,
-        state_name: `${state.state_name} — ${session.assembly_id}`,
+        unit_id: unit.unit_id,
+        state_name: `${state.state_name} — ${session.equipment_module_id}`,
         content_json: content,
         content_markdown: null,
         model_used: "co-authored",

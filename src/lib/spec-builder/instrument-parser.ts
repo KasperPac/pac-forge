@@ -1,21 +1,21 @@
 /**
  * Instrument register parser — deterministic column detection + Haiku AI classification.
- * Parses Excel/CSV instrument registers into structured tag data with subsystem grouping.
+ * Parses Excel/CSV instrument registers into structured tag data with unit grouping.
  */
 import * as XLSX from "xlsx";
 import type {
   InstrumentTag,
   ColumnMapping,
-  SubsystemSummary,
+  UnitSummary,
   ParseWarning,
   EquipmentType,
   TokenUsage,
-  SubsystemConfig,
-  AssemblyConfig,
-  DeviceConfig,
+  UnitConfig,
+  EquipmentModuleConfig,
+  ControlModuleConfig,
   IoSignal,
 } from "@/types/spec-builder";
-import { CANONICAL_COLUMN_NAMES, SUBSYSTEM_PREFIX_MAP } from "@/types/spec-builder";
+import { CANONICAL_COLUMN_NAMES, UNIT_PREFIX_MAP } from "@/types/spec-builder";
 import { callNonStreaming } from "@/hooks/use-generation";
 import type { PromptLayerMeta } from "@/hooks/use-generation";
 
@@ -42,7 +42,8 @@ export function detectColumns(sheet: XLSX.WorkSheet): {
       description: null,
       signal_type: null,
       io_address: null,
-      subsystem: null,
+      unit: null,
+      equipment_module: null,
     };
     let score = 0;
     const unmapped: string[] = [];
@@ -114,7 +115,8 @@ export function extractRows(
       description: cellVal(mapping.description),
       signal_type: cellVal(mapping.signal_type),
       io_address: cellVal(mapping.io_address),
-      subsystem: cellVal(mapping.subsystem),
+      unit: cellVal(mapping.unit),
+      equipment_module: cellVal(mapping.equipment_module),
     });
   }
 
@@ -127,15 +129,16 @@ export function extractRows(
 
 const CLASSIFY_SYSTEM_PROMPT = `You are an expert industrial automation instrument classification agent.
 
-Given a batch of tags from an instrument register, enrich each one with device_class and is_safety.
+Given a batch of tags from an instrument register, enrich each one with control_module_class and is_safety.
 
-Some fields may already be provided in the input (subsystem, signal_type, device_type, description). When provided, KEEP THEM — do not override. Only fill in what is missing.
+Some fields may already be provided in the input (unit, equipment_module, signal_type, device_type, description). When provided, KEEP THEM — do not override. Only fill in what is missing.
 
 For each tag, return:
-1. device_class: one of [valve, motor, sensor_level, sensor_pressure, sensor_temperature, sensor_weight, sensor_flow, sensor_position, indicator, transmitter, filter, conveyor, hopper, transporter, dryer, cooler, push_button, emergency_stop, other]
+1. control_module_class: one of [valve, motor, sensor_level, sensor_pressure, sensor_temperature, sensor_weight, sensor_flow, sensor_position, indicator, transmitter, filter, conveyor, hopper, transporter, dryer, cooler, push_button, emergency_stop, other]
 2. signal_direction: one of [DI, DO, AI, AO, internal]. If the input already has a signal_type (DI/DO/AI/AO), copy it exactly.
-3. subsystem: the logical subsystem/equipment group. If the input already has a subsystem field, copy it exactly. Otherwise infer from context.
-4. is_safety: boolean — true if safety-critical (E-stop, overload relay, pressure switch interlock, rupture disk, safety relay)
+3. unit: the logical unit/equipment group. If the input already has a unit field, copy it exactly. Otherwise infer from context.
+4. equipment_module: the equipment/equipment_module this tag belongs to (e.g. "Conveyor CV01", "Lift Table LFT01"). If the input already has an equipment_module field, copy it exactly. Otherwise infer from tag naming and description. An equipment_module is a coordinated group of control_modules working together.
+5. is_safety: boolean — true if safety-critical (E-stop, overload relay, pressure switch interlock, rupture disk, safety relay)
 
 DEVICE CLASS RULES:
 - Motor Contactor, _CMD, _START, _STOP, _FWD, _REV → "motor"
@@ -150,7 +153,7 @@ DEVICE CLASS RULES:
 - Position, ZSL, ZSH → "sensor_position"
 - Valve, LP, AY, PRV → "valve"
 
-IMPORTANT: Use the "device_type" and "description" fields from the input to determine device_class. The tag name alone may not be sufficient. For example:
+IMPORTANT: Use the "device_type" and "description" fields from the input to determine control_module_class. The tag name alone may not be sufficient. For example:
 - device_type "Motor Contactor" → motor
 - device_type "Overload Relay" → motor (is_safety: true)
 - device_type "Temp Transmitter" → sensor_temperature
@@ -159,15 +162,16 @@ IMPORTANT: Use the "device_type" and "description" fields from the input to dete
 
 Respond ONLY with a JSON array, one object per input tag, same order.
 [
-  { "device_class": "...", "signal_direction": "...", "subsystem": "...", "is_safety": false }
+  { "control_module_class": "...", "signal_direction": "...", "unit": "...", "equipment_module": "...", "is_safety": false }
 ]`;
 
 const BATCH_SIZE = 50;
 
 interface TagClassification {
-  device_class: InstrumentTag["device_class"];
+  control_module_class: InstrumentTag["control_module_class"];
   signal_direction: InstrumentTag["signal_direction"];
-  subsystem: string;
+  unit: string;
+  equipment_module: string;
   is_safety: boolean;
 }
 
@@ -188,7 +192,8 @@ export async function classifyTags(
         if (r.device_type) entry.device_type = r.device_type;
         if (r.description) entry.description = r.description;
         if (r.signal_type) entry.signal_type = r.signal_type.trim();
-        if (r.subsystem) entry.subsystem = r.subsystem;
+        if (r.unit) entry.unit = r.unit;
+        if (r.equipment_module) entry.equipment_module = r.equipment_module;
         return entry;
       })
     );
@@ -218,9 +223,10 @@ export async function classifyTags(
     } catch {
       for (let k = 0; k < batch.length; k++) {
         allClassifications.push({
-          device_class: "other",
+          control_module_class: "other",
           signal_direction: "internal",
-          subsystem: "",
+          unit: "",
+          equipment_module: "",
           is_safety: false,
         });
       }
@@ -237,38 +243,38 @@ export async function classifyTags(
 // Step 2b — Deterministic classification from existing column data
 // ---------------------------------------------------------------------------
 
-const DEVICE_TYPE_MAP: Array<{ pattern: RegExp; device_class: InstrumentTag["device_class"]; is_safety?: boolean }> = [
-  { pattern: /motor\s*contactor|contactor/i, device_class: "motor" },
-  { pattern: /motor\s*feedback|run\s*feedback/i, device_class: "motor" },
-  { pattern: /overload|thermal\s*overload/i, device_class: "motor", is_safety: true },
-  { pattern: /vfd|variable\s*freq/i, device_class: "motor" },
-  { pattern: /temp\s*transmitter|temperature/i, device_class: "sensor_temperature" },
-  { pattern: /press.*transmitter|pressure/i, device_class: "sensor_pressure" },
-  { pattern: /level\s*switch|level\s*sensor/i, device_class: "sensor_level" },
-  { pattern: /weight\s*transmitter/i, device_class: "sensor_weight" },
-  { pattern: /flow\s*transmitter|flow\s*meter/i, device_class: "sensor_flow" },
-  { pattern: /photo.?electric|photoeye|photo.?eye|photo.?sensor/i, device_class: "sensor_position" },
-  { pattern: /position|proximity|limit\s*switch/i, device_class: "sensor_position" },
-  { pattern: /^pb$|push\s*button/i, device_class: "push_button" },
-  { pattern: /emergency\s*stop|e-?stop/i, device_class: "emergency_stop", is_safety: true },
-  { pattern: /solenoid|valve/i, device_class: "valve" },
-  { pattern: /indicator|pilot\s*light/i, device_class: "indicator" },
-  { pattern: /transmitter/i, device_class: "transmitter" },
-  { pattern: /filter/i, device_class: "filter" },
-  { pattern: /conveyor/i, device_class: "conveyor" },
+const DEVICE_TYPE_MAP: Array<{ pattern: RegExp; control_module_class: InstrumentTag["control_module_class"]; is_safety?: boolean }> = [
+  { pattern: /motor\s*contactor|contactor/i, control_module_class: "motor" },
+  { pattern: /motor\s*feedback|run\s*feedback/i, control_module_class: "motor" },
+  { pattern: /overload|thermal\s*overload/i, control_module_class: "motor", is_safety: true },
+  { pattern: /vfd|variable\s*freq/i, control_module_class: "motor" },
+  { pattern: /temp\s*transmitter|temperature/i, control_module_class: "sensor_temperature" },
+  { pattern: /press.*transmitter|pressure/i, control_module_class: "sensor_pressure" },
+  { pattern: /level\s*switch|level\s*sensor/i, control_module_class: "sensor_level" },
+  { pattern: /weight\s*transmitter/i, control_module_class: "sensor_weight" },
+  { pattern: /flow\s*transmitter|flow\s*meter/i, control_module_class: "sensor_flow" },
+  { pattern: /photo.?electric|photoeye|photo.?eye|photo.?sensor/i, control_module_class: "sensor_position" },
+  { pattern: /position|proximity|limit\s*switch/i, control_module_class: "sensor_position" },
+  { pattern: /^pb$|push\s*button/i, control_module_class: "push_button" },
+  { pattern: /emergency\s*stop|e-?stop/i, control_module_class: "emergency_stop", is_safety: true },
+  { pattern: /solenoid|valve/i, control_module_class: "valve" },
+  { pattern: /indicator|pilot\s*light/i, control_module_class: "indicator" },
+  { pattern: /transmitter/i, control_module_class: "transmitter" },
+  { pattern: /filter/i, control_module_class: "filter" },
+  { pattern: /conveyor/i, control_module_class: "conveyor" },
 ];
 
-const TAG_SUFFIX_MAP: Array<{ pattern: RegExp; device_class: InstrumentTag["device_class"]; signal_direction?: InstrumentTag["signal_direction"]; is_safety?: boolean }> = [
-  { pattern: /_CMD$|_START$|_STOP$|_FWD$|_REV$/i, device_class: "motor", signal_direction: "DO" },
-  { pattern: /_RUN$|_FB$|_RUNNING$/i, device_class: "motor", signal_direction: "DI" },
-  { pattern: /_OL$|_FAULT$|_TRIP$/i, device_class: "motor", signal_direction: "DI", is_safety: true },
-  { pattern: /_SPD$|_SPEED$|_HZ$|_FREQ$/i, device_class: "motor" },
-  { pattern: /^TT\d|_TT$|_TEMP$/i, device_class: "sensor_temperature", signal_direction: "AI" },
-  { pattern: /^PT\d|^PIT\d|_PT$|_PIT$/i, device_class: "sensor_pressure", signal_direction: "AI" },
-  { pattern: /^LS\d|_LS$|_LSH$|_LSL$/i, device_class: "sensor_level", signal_direction: "DI" },
-  { pattern: /^PE\d+|_PE\d+$/i, device_class: "sensor_position", signal_direction: "DI" },
-  { pattern: /^PB_|^PB\d/i, device_class: "push_button", signal_direction: "DI" },
-  { pattern: /^ESTOP$|^E_STOP$|^ES\d+$/i, device_class: "emergency_stop", signal_direction: "DI", is_safety: true },
+const TAG_SUFFIX_MAP: Array<{ pattern: RegExp; control_module_class: InstrumentTag["control_module_class"]; signal_direction?: InstrumentTag["signal_direction"]; is_safety?: boolean }> = [
+  { pattern: /_CMD$|_START$|_STOP$|_FWD$|_REV$/i, control_module_class: "motor", signal_direction: "DO" },
+  { pattern: /_RUN$|_FB$|_RUNNING$/i, control_module_class: "motor", signal_direction: "DI" },
+  { pattern: /_OL$|_FAULT$|_TRIP$/i, control_module_class: "motor", signal_direction: "DI", is_safety: true },
+  { pattern: /_SPD$|_SPEED$|_HZ$|_FREQ$/i, control_module_class: "motor" },
+  { pattern: /^TT\d|_TT$|_TEMP$/i, control_module_class: "sensor_temperature", signal_direction: "AI" },
+  { pattern: /^PT\d|^PIT\d|_PT$|_PIT$/i, control_module_class: "sensor_pressure", signal_direction: "AI" },
+  { pattern: /^LS\d|_LS$|_LSH$|_LSL$/i, control_module_class: "sensor_level", signal_direction: "DI" },
+  { pattern: /^PE\d+|_PE\d+$/i, control_module_class: "sensor_position", signal_direction: "DI" },
+  { pattern: /^PB_|^PB\d/i, control_module_class: "push_button", signal_direction: "DI" },
+  { pattern: /^ESTOP$|^E_STOP$|^ES\d+$/i, control_module_class: "emergency_stop", signal_direction: "DI", is_safety: true },
 ];
 
 const SIGNAL_TYPE_MAP: Record<string, InstrumentTag["signal_direction"]> = {
@@ -279,13 +285,13 @@ const SIGNAL_TYPE_MAP: Record<string, InstrumentTag["signal_direction"]> = {
 };
 
 interface DeterministicResult {
-  device_class: InstrumentTag["device_class"] | null;
+  control_module_class: InstrumentTag["control_module_class"] | null;
   signal_direction: InstrumentTag["signal_direction"] | null;
   is_safety: boolean | null;
 }
 
 function classifyDeterministic(row: Partial<InstrumentTag>): DeterministicResult {
-  let device_class: InstrumentTag["device_class"] | null = null;
+  let control_module_class: InstrumentTag["control_module_class"] | null = null;
   let signal_direction: InstrumentTag["signal_direction"] | null = null;
   let is_safety: boolean | null = null;
 
@@ -297,20 +303,20 @@ function classifyDeterministic(row: Partial<InstrumentTag>): DeterministicResult
 
   // 2. Device class from device_type column
   const devType = row.device_type ?? "";
-  for (const { pattern, device_class: dc, is_safety: sf } of DEVICE_TYPE_MAP) {
+  for (const { pattern, control_module_class: dc, is_safety: sf } of DEVICE_TYPE_MAP) {
     if (pattern.test(devType)) {
-      device_class = dc;
+      control_module_class = dc;
       if (sf) is_safety = true;
       break;
     }
   }
 
   // 3. Fallback: device class from tag name suffixes
-  if (!device_class) {
+  if (!control_module_class) {
     const tag = row.tag ?? "";
-    for (const { pattern, device_class: dc, signal_direction: sd, is_safety: sf } of TAG_SUFFIX_MAP) {
+    for (const { pattern, control_module_class: dc, signal_direction: sd, is_safety: sf } of TAG_SUFFIX_MAP) {
       if (pattern.test(tag)) {
-        device_class = dc;
+        control_module_class = dc;
         if (sd && !signal_direction) signal_direction = sd;
         if (sf) is_safety = true;
         break;
@@ -326,7 +332,7 @@ function classifyDeterministic(row: Partial<InstrumentTag>): DeterministicResult
     }
   }
 
-  return { device_class, signal_direction, is_safety };
+  return { control_module_class, signal_direction, is_safety };
 }
 
 // ---------------------------------------------------------------------------
@@ -335,33 +341,33 @@ function classifyDeterministic(row: Partial<InstrumentTag>): DeterministicResult
 
 export function inferEquipmentType(prefix: string, name: string): EquipmentType {
   const combined = `${prefix} ${name}`;
-  for (const { pattern, type } of SUBSYSTEM_PREFIX_MAP) {
+  for (const { pattern, type } of UNIT_PREFIX_MAP) {
     if (pattern.test(combined)) return type;
   }
   return "Other";
 }
 
-export function groupSubsystems(tags: InstrumentTag[]): SubsystemSummary[] {
+export function groupSubsystems(tags: InstrumentTag[]): UnitSummary[] {
   const groups = new Map<string, InstrumentTag[]>();
 
   for (const tag of tags) {
-    const key = tag.subsystem || "UNGROUPED";
+    const key = tag.unit || "UNGROUPED";
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(tag);
   }
 
-  const subsystems: SubsystemSummary[] = [];
+  const units: UnitSummary[] = [];
   for (const [key, groupTags] of groups) {
     const eqType = inferEquipmentType(key, key);
-    subsystems.push({
-      subsystem_id: key,
-      subsystem_name: key,
+    units.push({
+      unit_id: key,
+      unit_name: key,
       equipment_type: eqType,
       tag_count: groupTags.length,
     });
   }
 
-  return subsystems.sort((a, b) => a.subsystem_name.localeCompare(b.subsystem_name));
+  return units.sort((a, b) => a.unit_name.localeCompare(b.unit_name));
 }
 
 // ---------------------------------------------------------------------------
@@ -369,40 +375,40 @@ export function groupSubsystems(tags: InstrumentTag[]): SubsystemSummary[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Infer assembly and device grouping from tag naming conventions.
+ * Infer equipment_module and device grouping from tag naming conventions.
  *
  * Common patterns:
  *   SUBSYS_DEVICE_SIGNAL  → e.g. GK01_M01_CMD
  *   SUBSYS_SIGNAL         → e.g. GK01_TT01
  *
  * Strategy:
- * 1. Group tags by subsystem (existing field on InstrumentTag).
- * 2. Within each subsystem, extract a "device prefix" from the tag name
+ * 1. Group tags by unit (existing field on InstrumentTag).
+ * 2. Within each unit, extract a "device prefix" from the tag name
  *    by stripping the known signal suffixes (_CMD, _FB, _RUN, etc.) and
  *    grouping tags that share the same base.
- * 3. Group devices by a coarser "assembly prefix" (the first alphanumeric
- *    segment after subsystem, e.g. "LFT01" from "LFT01_M01").
- *    If all devices in a subsystem share the same prefix, the subsystem
- *    IS the assembly (single-assembly subsystem).
+ * 3. Group control_modules by a coarser "equipment_module prefix" (the first alphanumeric
+ *    segment after unit, e.g. "LFT01" from "LFT01_M01").
+ *    If all control_modules in a unit share the same prefix, the unit
+ *    IS the equipment_module (single-equipment_module unit).
  */
 
 const SIGNAL_SUFFIXES = /[_.](?:CMD|FB|RUN|RUNNING|START|STOP|FWD|REV|OL|FAULT|TRIP|SPD|SPEED|HZ|FREQ|LSH|LSL|ZSH|ZSL|SP|PV|AO|AI|DI|DO|EN|ALARM|STATUS|STATE|ACK|RESET|OPN|CLS|OPEN|CLOSE|SET|RST)$/i;
 
-function extractDevicePrefix(tag: string, subsystem: string): string {
-  // Strip subsystem prefix if tag starts with it (by name match)
+function extractDevicePrefix(tag: string, unit: string): string {
+  // Strip unit prefix if tag starts with it (by name match)
   let rest = tag;
-  if (subsystem && rest.toUpperCase().startsWith(subsystem.toUpperCase())) {
-    rest = rest.slice(subsystem.length).replace(/^[_.-]/, "");
+  if (unit && rest.toUpperCase().startsWith(unit.toUpperCase())) {
+    rest = rest.slice(unit.length).replace(/^[_.-]/, "");
   }
 
   // Strip signal suffix to get device base
   const base = rest.replace(SIGNAL_SUFFIXES, "");
   const result = base || rest || tag;
 
-  // Strip leading pure-alphabetic subsystem code segment if present (e.g. "FIL_", "INF_", "OUT_").
-  // These are tag-level subsystem codes — distinguishable from real equipment prefixes which
+  // Strip leading pure-alphabetic unit code segment if present (e.g. "FIL_", "INF_", "OUT_").
+  // These are tag-level unit codes — distinguishable from real equipment prefixes which
   // always contain digits (e.g. "CAP01", "LFT01"). Stripping them lets extractAssemblyPrefix
-  // correctly identify the assembly segment that follows.
+  // correctly identify the equipment_module segment that follows.
   const parts = result.split("_");
   if (parts.length >= 2 && /^[A-Za-z]+$/.test(parts[0])) {
     return parts.slice(1).join("_");
@@ -419,7 +425,7 @@ function extractAssemblyPrefix(devicePrefix: string): string {
 }
 
 /**
- * Infer a human-readable assembly name from device descriptions.
+ * Infer a human-readable equipment_module name from device descriptions.
  * Strips common device-type keywords from the front of each description,
  * finds the most common meaningful prefix, and returns it.
  * Falls back to the tag-based asmPrefix if nothing useful is found.
@@ -440,19 +446,22 @@ function suggestAssemblyName(descriptions: string[], fallback: string): string {
   return best?.[0] || fallback;
 }
 
-export function buildHierarchyFromTags(tags: InstrumentTag[]): SubsystemConfig[] {
-  // Step 1: Group by subsystem
+export function buildHierarchyFromTags(tags: InstrumentTag[]): UnitConfig[] {
+  // Step 1: Group by unit
   const subGroups = new Map<string, InstrumentTag[]>();
   for (const t of tags) {
-    const key = t.subsystem || "UNGROUPED";
+    const key = t.unit || "UNGROUPED";
     if (!subGroups.has(key)) subGroups.set(key, []);
     subGroups.get(key)!.push(t);
   }
 
-  const subsystems: SubsystemConfig[] = [];
+  const units: UnitConfig[] = [];
 
   for (const [subKey, subTags] of subGroups) {
-    // Step 2: Group tags into devices by device prefix
+    // Check if any tags have an explicit equipment_module field
+    const hasExplicitAssembly = subTags.some((t) => t.equipment_module);
+
+    // Step 2: Group tags into control_modules by device prefix
     const deviceGroups = new Map<string, InstrumentTag[]>();
     for (const t of subTags) {
       const devPrefix = extractDevicePrefix(t.tag, subKey);
@@ -460,18 +469,21 @@ export function buildHierarchyFromTags(tags: InstrumentTag[]): SubsystemConfig[]
       deviceGroups.get(devPrefix)!.push(t);
     }
 
-    // Step 3: Group devices into assemblies by assembly prefix
-    const assemblyGroups = new Map<string, Map<string, InstrumentTag[]>>();
+    // Step 3: Group control_modules into equipment_modules
+    // If explicit equipment_module column is provided, use it; otherwise infer from tag prefix
+    const equipment_moduleGroups = new Map<string, Map<string, InstrumentTag[]>>();
     for (const [devPrefix, devTags] of deviceGroups) {
-      const asmPrefix = extractAssemblyPrefix(devPrefix);
-      if (!assemblyGroups.has(asmPrefix)) assemblyGroups.set(asmPrefix, new Map());
-      assemblyGroups.get(asmPrefix)!.set(devPrefix, devTags);
+      const asmKey = hasExplicitAssembly
+        ? (devTags[0].equipment_module || subKey)
+        : extractAssemblyPrefix(devPrefix);
+      if (!equipment_moduleGroups.has(asmKey)) equipment_moduleGroups.set(asmKey, new Map());
+      equipment_moduleGroups.get(asmKey)!.set(devPrefix, devTags);
     }
 
-    // Build assemblies
-    const assemblies: AssemblyConfig[] = [];
-    for (const [asmPrefix, devMap] of assemblyGroups) {
-      const devices: DeviceConfig[] = [];
+    // Build equipment_modules
+    const equipment_modules: EquipmentModuleConfig[] = [];
+    for (const [asmPrefix, devMap] of equipment_moduleGroups) {
+      const control_modules: ControlModuleConfig[] = [];
       for (const [devPrefix, devTags] of devMap) {
         const ioSignals: IoSignal[] = devTags.map((t) => ({
           tag: t.tag,
@@ -482,37 +494,37 @@ export function buildHierarchyFromTags(tags: InstrumentTag[]): SubsystemConfig[]
 
         // Use the first tag's classification as the device class
         const representative = devTags[0];
-        devices.push({
-          device_id: devPrefix,
-          device_name: representative.description || devPrefix,
-          device_class: representative.device_class,
+        control_modules.push({
+          control_module_id: devPrefix,
+          control_module_name: representative.description || devPrefix,
+          control_module_class: representative.control_module_class,
           description: representative.description || "",
           is_safety: devTags.some((t) => t.is_safety),
           io_signals: ioSignals,
         });
       }
 
-      const allDescriptions = devices.map((d) => d.description).filter(Boolean);
-      assemblies.push({
-        assembly_id: asmPrefix,
-        assembly_name: suggestAssemblyName(allDescriptions, asmPrefix),
+      const allDescriptions = control_modules.map((d) => d.description).filter(Boolean);
+      equipment_modules.push({
+        equipment_module_id: asmPrefix,
+        equipment_module_name: suggestAssemblyName(allDescriptions, asmPrefix),
         description: "",
-        devices: devices.sort((a, b) => a.device_id.localeCompare(b.device_id)),
+        control_modules: control_modules.sort((a, b) => a.control_module_id.localeCompare(b.control_module_id)),
       });
     }
 
     const eqType = inferEquipmentType(subKey, subKey);
-    subsystems.push({
-      subsystem_id: subKey,
-      subsystem_name: subKey,
+    units.push({
+      unit_id: subKey,
+      unit_name: subKey,
       equipment_type: eqType,
       description: "",
-      assemblies: assemblies.sort((a, b) => a.assembly_id.localeCompare(b.assembly_id)),
+      equipment_modules: equipment_modules.sort((a, b) => a.equipment_module_id.localeCompare(b.equipment_module_id)),
       excluded: false,
     });
   }
 
-  return subsystems.sort((a, b) => a.subsystem_name.localeCompare(b.subsystem_name));
+  return units.sort((a, b) => a.unit_name.localeCompare(b.unit_name));
 }
 
 // ---------------------------------------------------------------------------
@@ -526,7 +538,7 @@ export function generateWarnings(tags: InstrumentTag[]): ParseWarning[] {
   for (const t of tags) {
     tagCounts.set(t.tag, (tagCounts.get(t.tag) ?? 0) + 1);
 
-    if (t.device_class === "other") {
+    if (t.control_module_class === "other") {
       warnings.push({
         tag: t.tag,
         reason: "Could not classify device type",
@@ -554,13 +566,13 @@ export function generateWarnings(tags: InstrumentTag[]): ParseWarning[] {
     }
   }
 
-  // Small subsystems
-  const subsystemCounts = new Map<string, number>();
+  // Small units
+  const unitCounts = new Map<string, number>();
   for (const t of tags) {
-    const sub = t.subsystem;
-    if (sub) subsystemCounts.set(sub, (subsystemCounts.get(sub) ?? 0) + 1);
+    const sub = t.unit;
+    if (sub) unitCounts.set(sub, (unitCounts.get(sub) ?? 0) + 1);
   }
-  for (const [sub, count] of subsystemCounts) {
+  for (const [sub, count] of unitCounts) {
     if (count < 3) {
       warnings.push({
         tag: sub,
@@ -579,7 +591,7 @@ export function generateWarnings(tags: InstrumentTag[]): ParseWarning[] {
 
 export interface ParseResult {
   tags: InstrumentTag[];
-  subsystems: SubsystemSummary[];
+  units: UnitSummary[];
   warnings: ParseWarning[];
   usage: TokenUsage;
 }
@@ -610,8 +622,8 @@ export async function parseInstrumentRegister(
   onProgress?.("Classifying tags", 0, rawRows.length);
   const deterministicResults = rawRows.map(classifyDeterministic);
 
-  // Check which rows still need AI help (no device_class resolved)
-  const needsAi = rawRows.filter((_, i) => !deterministicResults[i].device_class);
+  // Check which rows still need AI help (no control_module_class resolved)
+  const needsAi = rawRows.filter((_, i) => !deterministicResults[i].control_module_class);
   let aiClassifications: TagClassification[] = [];
   let usage: TokenUsage = { input: 0, output: 0, total: 0 };
 
@@ -631,7 +643,7 @@ export async function parseInstrumentRegister(
   const tags: InstrumentTag[] = rawRows.map((row, i) => {
     const det = deterministicResults[i];
     let aiCls: TagClassification | null = null;
-    if (!det.device_class) {
+    if (!det.control_module_class) {
       aiCls = aiClassifications[aiIdx++] ?? null;
     }
 
@@ -641,21 +653,22 @@ export async function parseInstrumentRegister(
       description: row.description ?? "",
       signal_type: row.signal_type ?? "",
       io_address: row.io_address ?? "",
-      device_class: det.device_class ?? aiCls?.device_class ?? "other",
+      control_module_class: det.control_module_class ?? aiCls?.control_module_class ?? "other",
       signal_direction: det.signal_direction ?? aiCls?.signal_direction ?? "internal",
-      subsystem_prefix: row.subsystem || aiCls?.subsystem || "",
+      unit_prefix: row.unit || aiCls?.unit || "",
       is_safety: det.is_safety ?? aiCls?.is_safety ?? false,
-      subsystem: row.subsystem || aiCls?.subsystem || "",
+      unit: row.unit || aiCls?.unit || "",
+      equipment_module: row.equipment_module || aiCls?.equipment_module || "",
     };
   });
 
-  // Group subsystems
-  onProgress?.("Grouping subsystems", 3, 4);
-  const subsystems = groupSubsystems(tags);
+  // Group units
+  onProgress?.("Grouping units", 3, 4);
+  const units = groupSubsystems(tags);
 
   // Generate warnings
   onProgress?.("Checking warnings", 4, 4);
   const warnings = generateWarnings(tags);
 
-  return { tags, subsystems, warnings, usage };
+  return { tags, units, warnings, usage };
 }

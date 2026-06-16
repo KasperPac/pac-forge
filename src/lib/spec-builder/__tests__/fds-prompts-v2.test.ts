@@ -2,17 +2,17 @@ import { describe, expect, it } from "vitest";
 import { buildFdsInterviewSystemPrompt, buildFdsOrchestrationSystemPrompt, extractJsonFromResponse } from "../fds-prompts";
 import { ensureV2 } from "../sequence-legacy-shim";
 import { validateSpecContractPatch } from "../contract";
-import catodoAssembly from "./__fixtures__/catodo-assembly.json";
-import catodoSubsystem from "./__fixtures__/catodo-subsystem.json";
-import goldenAssembly from "./__fixtures__/golden-ai-emission-assembly.json";
+import catodoAssembly from "./__fixtures__/catodo-equipment_module.json";
+import catodoSubsystem from "./__fixtures__/catodo-unit.json";
+import goldenAssembly from "./__fixtures__/golden-ai-emission-equipment_module.json";
 import goldenOrch from "./__fixtures__/golden-ai-emission-orchestration.json";
-import type { SubsystemStateSequence } from "@/types/spec-contract-v2";
+import type { UnitProcedureSequence } from "@/types/spec-contract-v2";
 
 describe("buildFdsInterviewSystemPrompt V2 snapshot", () => {
-  it("produces stable output for the catodo lift assembly", () => {
+  it("produces stable output for the catodo lift equipment_module", () => {
     const prompt = buildFdsInterviewSystemPrompt(
-      catodoAssembly.assembly as never,
-      catodoAssembly.subsystem as never,
+      catodoAssembly.equipment_module as never,
+      catodoAssembly.unit as never,
       catodoAssembly.tags as never,
       catodoAssembly.staticStates as never,
       catodoAssembly.completedSequentialStates as never,
@@ -23,8 +23,8 @@ describe("buildFdsInterviewSystemPrompt V2 snapshot", () => {
 
   it("includes the V2 marker fields in the rendered RESPONSE FORMAT", () => {
     const prompt = buildFdsInterviewSystemPrompt(
-      catodoAssembly.assembly as never,
-      catodoAssembly.subsystem as never,
+      catodoAssembly.equipment_module as never,
+      catodoAssembly.unit as never,
       catodoAssembly.tags as never,
       catodoAssembly.staticStates as never,
       catodoAssembly.completedSequentialStates as never,
@@ -40,8 +40,8 @@ describe("buildFdsInterviewSystemPrompt V2 snapshot", () => {
 
   it("renders the SEQUENTIAL STATES REMAINING table with numeric ids", () => {
     const prompt = buildFdsInterviewSystemPrompt(
-      catodoAssembly.assembly as never,
-      catodoAssembly.subsystem as never,
+      catodoAssembly.equipment_module as never,
+      catodoAssembly.unit as never,
       catodoAssembly.tags as never,
       catodoAssembly.staticStates as never,
       catodoAssembly.completedSequentialStates as never,
@@ -56,7 +56,7 @@ describe("buildFdsInterviewSystemPrompt V2 snapshot", () => {
   });
 });
 
-describe("golden AI emission — per-assembly", () => {
+describe("golden AI emission — per-equipment_module", () => {
   const ASSEMBLY_ID = "00000000-0000-4000-8000-000000000aa1";
   const SUBSYSTEM_ID = "00000000-0000-4000-8000-000000000bb1";
 
@@ -71,10 +71,10 @@ describe("golden AI emission — per-assembly", () => {
       const v2 = ensureV2(extracted![0] as never, String(expectedStateId));
 
       const issues = validateSpecContractPatch({
-        assemblies: {
+        equipment_modules: {
           [ASSEMBLY_ID]: {
-            assembly_id: ASSEMBLY_ID,
-            subsystem_id: SUBSYSTEM_ID,
+            equipment_module_id: ASSEMBLY_ID,
+            unit_id: SUBSYSTEM_ID,
             static_states: {},
             sequential_states: { [String(expectedStateId)]: v2 },
           } as never,
@@ -87,10 +87,10 @@ describe("golden AI emission — per-assembly", () => {
 });
 
 describe("buildFdsOrchestrationSystemPrompt V2 snapshot", () => {
-  it("produces stable output for the catodo subsystem", () => {
+  it("produces stable output for the catodo unit", () => {
     const prompt = buildFdsOrchestrationSystemPrompt(
-      catodoSubsystem.subsystem as never,
-      catodoSubsystem.assemblySummaries as never,
+      catodoSubsystem.unit as never,
+      catodoSubsystem.equipment_moduleSummaries as never,
       catodoSubsystem.sequentialStates as never,
     );
     expect(prompt).toMatchSnapshot();
@@ -98,8 +98,8 @@ describe("buildFdsOrchestrationSystemPrompt V2 snapshot", () => {
 
   it("inlines the shared closed-effect documentation", () => {
     const prompt = buildFdsOrchestrationSystemPrompt(
-      catodoSubsystem.subsystem as never,
-      catodoSubsystem.assemblySummaries as never,
+      catodoSubsystem.unit as never,
+      catodoSubsystem.equipment_moduleSummaries as never,
       catodoSubsystem.sequentialStates as never,
     );
     for (const effect of ["hold", "block_transition", "trigger", "enable", "disable"]) {
@@ -109,8 +109,8 @@ describe("buildFdsOrchestrationSystemPrompt V2 snapshot", () => {
 
   it("renders the V2 RESPONSE FORMAT example", () => {
     const prompt = buildFdsOrchestrationSystemPrompt(
-      catodoSubsystem.subsystem as never,
-      catodoSubsystem.assemblySummaries as never,
+      catodoSubsystem.unit as never,
+      catodoSubsystem.equipment_moduleSummaries as never,
       catodoSubsystem.sequentialStates as never,
     );
     expect(prompt).toContain('"interlock_id"');
@@ -120,7 +120,7 @@ describe("buildFdsOrchestrationSystemPrompt V2 snapshot", () => {
   });
 });
 
-describe("golden AI emission — per-subsystem orchestration", () => {
+describe("golden AI emission — per-unit orchestration", () => {
   const SUB_ID = "00000000-0000-4000-8000-000000000b01";
 
   it.each(goldenOrch.responses)(
@@ -130,16 +130,16 @@ describe("golden AI emission — per-subsystem orchestration", () => {
       expect(extracted).not.toBeNull();
       expect(extracted).toMatchObject({ state_id: expectedStateId });
 
-      // Build the subsystem-orchestration patch the wizard would assemble.
-      const sequence: SubsystemStateSequence = {
-        assembly_order: extracted!.assembly_order as string[],
+      // Build the unit-orchestration patch the wizard would assemble.
+      const sequence: UnitProcedureSequence = {
+        equipment_module_order: extracted!.equipment_module_order as string[],
         shared_permissives: (extracted!.shared_permissives ?? []) as never,
-        inter_assembly_interlocks: (extracted!.inter_assembly_interlocks ?? []) as never,
+        inter_equipment_module_interlocks: (extracted!.inter_equipment_module_interlocks ?? []) as never,
         notes: (extracted!.notes ?? null) as string | null,
       };
 
       const issues = validateSpecContractPatch({
-        orchestrations: {
+        unit_procedures: {
           [SUB_ID]: { [String(expectedStateId)]: sequence } as never,
         },
       });

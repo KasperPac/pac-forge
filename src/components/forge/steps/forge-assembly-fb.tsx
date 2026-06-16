@@ -2,7 +2,7 @@
  * Forge wizard step: Assembly FB Generation
  *
  * Standalone step (extracted from forge-device-fb.tsx) for generating
- * assembly function blocks. Shows per-assembly generation with FDS brief
+ * equipment_module function blocks. Shows per-equipment_module generation with FDS brief
  * summary, Monaco code editor, regenerate with instructions, and approval.
  */
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
@@ -32,7 +32,7 @@ import { useForgeFdsHandoff } from "@/hooks/use-forge-fds-handoff";
 import type {
   ForgeSession,
   ForgeArtifact,
-  ForgeAssemblyEntry,
+  ForgeEquipmentModuleEntry,
   SpecAnalysisAssembly,
 } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
@@ -49,8 +49,8 @@ export interface ForgeAssemblyFbProps {
   fbTemplates: FbTemplate[];
   patterns: PatternCandidate[];
   onArtifactsUpdate: (artifacts: ForgeArtifact[]) => void;
-  /** Called once when the resolved assembly list is computed (for DB persistence) */
-  onAssemblyListResolved?: (assemblies: ForgeAssemblyEntry[]) => void;
+  /** Called once when the resolved equipment_module list is computed (for DB persistence) */
+  onAssemblyListResolved?: (equipment_modules: ForgeEquipmentModuleEntry[]) => void;
   onComplete: () => void;
 }
 
@@ -72,19 +72,19 @@ function typeBadge(type: ForgeArtifact["type"]) {
   );
 }
 
-/** Convert SpecAnalysisAssembly[] (7 fields) → ForgeAssemblyEntry[] (11 fields) safely */
+/** Convert SpecAnalysisAssembly[] (7 fields) → ForgeEquipmentModuleEntry[] (11 fields) safely */
 function specAnalysisToAssemblyEntries(
-  assemblies: SpecAnalysisAssembly[] | undefined,
-): ForgeAssemblyEntry[] | null {
-  if (!assemblies?.length) return null;
-  return assemblies.map((a) => ({
+  equipment_modules: SpecAnalysisAssembly[] | undefined,
+): ForgeEquipmentModuleEntry[] | null {
+  if (!equipment_modules?.length) return null;
+  return equipment_modules.map((a) => ({
     id: a.id,
     name: a.name,
     tag: a.tag,
-    assembly_type: a.assembly_type,
+    equipment_module_type: a.equipment_module_type,
     description: a.description,
-    subsystem: a.subsystem,
-    device_ids: a.device_ids,
+    unit: a.unit,
+    control_module_ids: a.control_module_ids,
     fb_template_id: null,
     fb_match_confidence: "none" as const,
     language_override: null,
@@ -95,13 +95,13 @@ function specAnalysisToAssemblyEntries(
 type AssemblyStatus = "pending" | "generating" | "generated" | "approved";
 
 function getAssemblyStatus(
-  assembly: ForgeAssemblyEntry,
+  equipment_module: ForgeEquipmentModuleEntry,
   artifacts: ForgeArtifact[],
   generatingTag: string | null,
 ): AssemblyStatus {
-  if (generatingTag === assembly.tag) return "generating";
+  if (generatingTag === equipment_module.tag) return "generating";
   const asmArtifacts = artifacts.filter((a) =>
-    a.name.toLowerCase().includes(assembly.tag.toLowerCase().replace(/[^a-z0-9]/g, "")),
+    a.name.toLowerCase().includes(equipment_module.tag.toLowerCase().replace(/[^a-z0-9]/g, "")),
   );
   if (asmArtifacts.length === 0) return "pending";
   if (asmArtifacts.every((a) => a.approved)) return "approved";
@@ -135,12 +135,12 @@ export function ForgeAssemblyFb({
   onComplete,
 }: ForgeAssemblyFbProps) {
   const { generateAll, generateSingle, loading, progress, error } = useForgeAssemblyGenerate();
-  const { briefs, assemblyEntries: fdsAssemblies, isFdsLinked } = useForgeFdsHandoff(
+  const { briefs, equipment_moduleEntries: fdsAssemblies, isFdsLinked } = useForgeFdsHandoff(
     session.spec_project_id,
   );
 
   const [artifacts, setArtifacts] = useState<ForgeArtifact[]>(
-    () => (session.assembly_artifacts as ForgeArtifact[])?.filter((a) => a.stage === "assembly_fb") ?? [],
+    () => (session.equipment_module_artifacts as ForgeArtifact[])?.filter((a) => a.stage === "equipment_module_fb") ?? [],
   );
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [generatingTag, setGeneratingTag] = useState<string | null>(null);
@@ -148,33 +148,33 @@ export function ForgeAssemblyFb({
   const [regenOpen, setRegenOpen] = useState(false);
   const [expandedArtifactId, setExpandedArtifactId] = useState<string | null>(null);
 
-  const assemblies = useMemo(
+  const equipment_modules = useMemo(
     () =>
-      // Priority: persisted assembly_list > FDS-derived entries > spec analysis fallback
-      (session.assembly_list?.length ? session.assembly_list : null) ??
+      // Priority: persisted equipment_module_list > FDS-derived entries > spec analysis fallback
+      (session.equipment_module_list?.length ? session.equipment_module_list : null) ??
       (isFdsLinked && fdsAssemblies.length ? fdsAssemblies : null) ??
-      specAnalysisToAssemblyEntries(session.spec_analysis?.assemblies) ??
+      specAnalysisToAssemblyEntries(session.spec_analysis?.equipment_modules) ??
       [],
     [session, isFdsLinked, fdsAssemblies],
   );
 
-  // Persist the resolved assembly list to DB when it's first computed
+  // Persist the resolved equipment_module list to DB when it's first computed
   const resolvedRef = useRef(false);
   useEffect(() => {
-    if (resolvedRef.current || !assemblies.length || !onAssemblyListResolved) return;
+    if (resolvedRef.current || !equipment_modules.length || !onAssemblyListResolved) return;
     // Only persist if session doesn't already have it
-    if (!session.assembly_list?.length) {
-      onAssemblyListResolved(assemblies);
+    if (!session.equipment_module_list?.length) {
+      onAssemblyListResolved(equipment_modules);
       resolvedRef.current = true;
     }
-  }, [assemblies, session.assembly_list, onAssemblyListResolved]);
+  }, [equipment_modules, session.equipment_module_list, onAssemblyListResolved]);
 
   const deviceArtifacts = useMemo(
     () => (session.device_artifacts as ForgeArtifact[]) ?? [],
     [session.device_artifacts],
   );
 
-  // Artifacts for the selected assembly
+  // Artifacts for the selected equipment_module
   const selectedArtifacts = useMemo(() => {
     if (!selectedTag) return [];
     const tagClean = selectedTag.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -191,7 +191,7 @@ export function ForgeAssemblyFb({
   const handleGenerateAll = useCallback(async () => {
     try {
       const result = await generateAll(
-        assemblies,
+        equipment_modules,
         session,
         profile,
         deviceArtifacts,
@@ -204,26 +204,26 @@ export function ForgeAssemblyFb({
     } catch {
       // error shown via hook state
     }
-  }, [assemblies, session, profile, deviceArtifacts, fbTemplates, patterns, isFdsLinked, briefs, generateAll, onArtifactsUpdate]);
+  }, [equipment_modules, session, profile, deviceArtifacts, fbTemplates, patterns, isFdsLinked, briefs, generateAll, onArtifactsUpdate]);
 
   // ── Generate single ──
 
-  const handleGenerateSingle = useCallback(async (assembly: ForgeAssemblyEntry, instructions?: string) => {
-    setGeneratingTag(assembly.tag);
+  const handleGenerateSingle = useCallback(async (equipment_module: ForgeEquipmentModuleEntry, instructions?: string) => {
+    setGeneratingTag(equipment_module.tag);
     try {
       const result = await generateSingle(
-        assembly,
+        equipment_module,
         session,
         profile,
         deviceArtifacts,
         fbTemplates,
         patterns,
-        isFdsLinked ? briefs[assembly.id] : undefined,
+        isFdsLinked ? briefs[equipment_module.id] : undefined,
         instructions,
       );
 
-      // Replace artifacts for this assembly, keep others
-      const tagClean = assembly.tag.toLowerCase().replace(/[^a-z0-9]/g, "");
+      // Replace artifacts for this equipment_module, keep others
+      const tagClean = equipment_module.tag.toLowerCase().replace(/[^a-z0-9]/g, "");
       const updated = [
         ...artifacts.filter((a) => !a.name.toLowerCase().includes(tagClean)),
         ...result,
@@ -260,12 +260,12 @@ export function ForgeAssemblyFb({
     });
   }, [onArtifactsUpdate]);
 
-  // ── No assemblies ──
+  // ── No equipment_modules ──
 
-  if (assemblies.length === 0) {
+  if (equipment_modules.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
-        <p className="text-sm">No assemblies found.</p>
+        <p className="text-sm">No equipment_modules found.</p>
         <Button onClick={onComplete}>Skip — Continue</Button>
       </div>
     );
@@ -273,7 +273,7 @@ export function ForgeAssemblyFb({
 
   // ── Render ──
 
-  const selectedAssembly = assemblies.find((a) => a.tag === selectedTag);
+  const selectedAssembly = equipment_modules.find((a) => a.tag === selectedTag);
   const selectedBrief = selectedAssembly && isFdsLinked ? briefs[selectedAssembly.id] : undefined;
 
   return (
@@ -290,7 +290,7 @@ export function ForgeAssemblyFb({
         >
           {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           {loading
-            ? `Generating ${progress.assemblyTag} (${progress.current}/${progress.total})`
+            ? `Generating ${progress.equipment_moduleTag} (${progress.current}/${progress.total})`
             : artifacts.length > 0 ? "Regenerate All" : "Generate All Assembly FBs"}
         </Button>
 
@@ -326,7 +326,7 @@ export function ForgeAssemblyFb({
         <ResizablePanel defaultSize={28} minSize={18}>
           <ScrollArea className="h-full">
             <div className="space-y-1 p-2">
-              {assemblies.map((asm) => {
+              {equipment_modules.map((asm) => {
                 const status = getAssemblyStatus(asm, artifacts, generatingTag);
                 const isSelected = selectedTag === asm.tag;
                 const asmArtCount = artifacts.filter((a) =>
@@ -353,7 +353,7 @@ export function ForgeAssemblyFb({
                       )}
                     </div>
                     <div className="text-[10px] text-muted-foreground ml-5.5 truncate">
-                      {asm.name} ({asm.assembly_type})
+                      {asm.name} ({asm.equipment_module_type})
                     </div>
                     {asmArtCount > 0 && (
                       <div className="text-[9px] text-muted-foreground ml-5.5 mt-0.5">
@@ -451,7 +451,7 @@ export function ForgeAssemblyFb({
                 <div className="p-3 space-y-2">
                   {selectedArtifacts.length === 0 ? (
                     <div className="text-center text-muted-foreground text-sm py-8">
-                      Click "Generate" to create the assembly FB
+                      Click "Generate" to create the equipment_module FB
                     </div>
                   ) : (
                     selectedArtifacts.map((a) => (
@@ -494,7 +494,7 @@ export function ForgeAssemblyFb({
             </div>
           ) : (
             <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-              Select an assembly from the list
+              Select an equipment_module from the list
             </div>
           )}
         </ResizablePanel>
@@ -507,7 +507,7 @@ export function ForgeAssemblyFb({
 // FDS Brief Summary (compact, shown above code)
 // ---------------------------------------------------------------------------
 
-function BriefSummary({ brief }: { brief: import("@/types/forge-brief").AssemblyBrief }) {
+function BriefSummary({ brief }: { brief: import("@/types/forge-brief").EquipmentModuleBrief }) {
   const [open, setOpen] = useState(false);
   const stateCount = brief.operatingStates.length;
   const seqCount = Object.keys(brief.sequentialStates).length;

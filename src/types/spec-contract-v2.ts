@@ -1,5 +1,5 @@
 /**
- * Spec Contract V2 — canonical shape for a functional specification.
+ * Spec Contract V3 (ISA-88) — canonical shape for a functional specification.
  *
  * The Zod schemas below are the source of truth. TypeScript types are
  * derived via `z.infer`. All writers / readers / migrations should
@@ -11,14 +11,14 @@
  * MIGRATION NOTE (wave 3):
  * `sections` was narrowed to `Record<SpecSectionType, SpecSectionRow>` in
  * wave 1 (one row per section_type). This does not fit `functional_description`
- * where a single spec holds one row per (assembly_id, state_id). The container
+ * where a single spec holds one row per (equipment_module_id, state_id). The container
  * has been widened to `Record<SpecSectionType, SpecSectionRow[]>` so per-
  * (subsystem, state) rows coexist. `SpecSectionRowSchema` itself is unchanged;
  * only the container widens. Callers must iterate — the single-row reducer in
  * `contract.ts#indexSections()` was retired.
  *
  * WAVE A (SFC + system orchestration):
- * - `StepV2Schema` widened with SFC-shaped fields (`step_id`, `branch_id`,
+ * - `PhaseStepSchema` widened with SFC-shaped fields (`step_id`, `branch_id`,
  *   `actions`, `monitors`, `transitions`, `timeout_ms`). Legacy fields
  *   (`step`, `action`, `completion_criteria*`, `on_fail`) remain — they are
  *   read during the shim window. Sequence model version is declared on
@@ -30,9 +30,9 @@
  *   TBD guards/permissives.
  * - `IoSignalV2Schema` gained `tier` — `"wired"` (instrument register) vs
  *   `"fb_instance"` (resolved once a device's FB template is assigned).
- * - `SystemOrchestrationSchema` — top-level, project-scoped, one row per
- *   spec. Mirrors the per-subsystem layer but operates on subsystem IDs
- *   only. Subsystem-level interlocks remain scoped inside a subsystem.
+ * - `SystemProcedureSchema` — top-level, project-scoped, one row per
+ *   spec. Mirrors the per-unit layer but operates on subsystem IDs
+ *   only. Unit-level interlocks remain scoped inside a unit.
  */
 import { z } from "zod";
 
@@ -237,7 +237,7 @@ export const NetworkConfigSchema = z.object({
 export type NetworkConfig = z.infer<typeof NetworkConfigSchema>;
 
 // ============================================================
-// IO signals / devices / assemblies / subsystems
+// IO signals / control modules / equipment modules / units
 // ============================================================
 
 export const IoSignalDirectionOverlaySchema = z.enum([
@@ -266,37 +266,37 @@ export const IoSignalV2Schema = z.object({
 });
 export type IoSignalV2 = z.infer<typeof IoSignalV2Schema>;
 
-export const DeviceV2Schema = z.object({
-  device_id: UuidSchema,
-  device_name: z.string(),
-  device_class: z.string(),
+export const ControlModuleV2Schema = z.object({
+  control_module_id: UuidSchema,
+  control_module_name: z.string(),
+  control_module_class: z.string(),
   is_safety: z.boolean(),
   description: z.string(),
   io_signals: z.array(IoSignalV2Schema),
   network_config: NetworkConfigSchema.optional(),
 });
-export type DeviceV2 = z.infer<typeof DeviceV2Schema>;
+export type ControlModuleV2 = z.infer<typeof ControlModuleV2Schema>;
 
-export const AssemblyV2Schema = z.object({
-  assembly_id: UuidSchema,
-  assembly_name: z.string(),
+export const EquipmentModuleV2Schema = z.object({
+  equipment_module_id: UuidSchema,
+  equipment_module_name: z.string(),
   description: z.string(),
-  devices: z.array(DeviceV2Schema),
+  control_modules: z.array(ControlModuleV2Schema),
 });
-export type AssemblyV2 = z.infer<typeof AssemblyV2Schema>;
+export type EquipmentModuleV2 = z.infer<typeof EquipmentModuleV2Schema>;
 
-export const SubsystemV2Schema = z.object({
-  subsystem_id: UuidSchema,
-  subsystem_name: z.string(),
+export const UnitV2Schema = z.object({
+  unit_id: UuidSchema,
+  unit_name: z.string(),
   equipment_type: z.string(),
   description: z.string(),
   excluded: z.boolean(),
-  assemblies: z.array(AssemblyV2Schema),
+  equipment_modules: z.array(EquipmentModuleV2Schema),
 });
-export type SubsystemV2 = z.infer<typeof SubsystemV2Schema>;
+export type UnitV2 = z.infer<typeof UnitV2Schema>;
 
 export const HierarchySchema = z.object({
-  subsystems: z.array(SubsystemV2Schema),
+  units: z.array(UnitV2Schema),
 });
 export type Hierarchy = z.infer<typeof HierarchySchema>;
 
@@ -331,15 +331,15 @@ export const AlarmTierSchema = z.object({
 export type AlarmTier = z.infer<typeof AlarmTierSchema>;
 
 // ============================================================
-// Assembly contract: static + sequential states
+// Equipment Module contract: static + sequential states
 // ============================================================
 
-export const DeviceStateEntrySchema = z.object({
+export const ControlModuleStateEntrySchema = z.object({
   tag: z.string(),
   description: z.string(),
   state: z.string(),
 });
-export type DeviceStateEntry = z.infer<typeof DeviceStateEntrySchema>;
+export type ControlModuleStateEntry = z.infer<typeof ControlModuleStateEntrySchema>;
 
 export const FaultSeveritySchema = z.enum(["warning", "fault", "critical"]);
 export type FaultSeverity = z.infer<typeof FaultSeveritySchema>;
@@ -386,9 +386,9 @@ const ManualAckSchema = z.object({
 // consistent across expressions and criteria.
 export const PlaceholderInferredTypeSchema = z.enum([
   "tag",
-  "device",
-  "assembly",
-  "subsystem",
+  "control_module",
+  "equipment_module",
+  "unit",
   "state",
   "value",
 ]);
@@ -607,7 +607,7 @@ export type BranchV2 = z.infer<typeof BranchV2Schema>;
 // are still used by DOCX rendering).
 // ============================================================
 
-export const StepV2Schema = z.object({
+export const PhaseStepSchema = z.object({
   // SFC (v2) — optional during the shim window so legacy callers that
   // only populate the v1 fields still type-check.
   step_id: z.string().optional(),
@@ -626,7 +626,7 @@ export const StepV2Schema = z.object({
   completion_criteria_text: z.string(),
   on_fail: FaultRefSchema.optional(),
 });
-export type StepV2 = z.infer<typeof StepV2Schema>;
+export type PhaseStep = z.infer<typeof PhaseStepSchema>;
 
 export const SequenceModelVersionSchema = z.union([
   z.literal(1),
@@ -658,7 +658,7 @@ export type OverrideKind = z.infer<typeof OverrideKindSchema>;
 export const SequentialStateV2Schema = z.object({
   override_kind: OverrideKindSchema.optional(), // defaults to "override" in readers
   permissives: z.array(PermissiveConditionSchema),
-  steps: z.array(StepV2Schema),
+  steps: z.array(PhaseStepSchema),
   branches: z.array(BranchV2Schema).optional(),
   state_monitors: z.array(MonitorV2Schema).optional(),
   sequence_model_version: SequenceModelVersionSchema.optional(),
@@ -668,59 +668,59 @@ export type SequentialStateV2 = z.infer<typeof SequentialStateV2Schema>;
 
 export const StaticStateV2Schema = z.object({
   override_kind: OverrideKindSchema.optional(),
-  devices: z.array(DeviceStateEntrySchema),
+  control_modules: z.array(ControlModuleStateEntrySchema),
   notes: z.string().nullable().optional(),
 });
 export type StaticStateV2 = z.infer<typeof StaticStateV2Schema>;
 
-export const AssemblyContractSchema = z.object({
-  assembly_id: UuidSchema,
-  subsystem_id: UuidSchema,
-  // Keyed by state_id. Legacy rows are bare DeviceStateEntry arrays;
+export const EquipmentModuleContractSchema = z.object({
+  equipment_module_id: UuidSchema,
+  unit_id: UuidSchema,
+  // Keyed by state_id. Legacy rows are bare ControlModuleStateEntry arrays;
   // post-confirmation rows use the StaticStateV2 container with override_kind.
   static_states: z.record(
     z.string(),
-    z.union([z.array(DeviceStateEntrySchema), StaticStateV2Schema]),
+    z.union([z.array(ControlModuleStateEntrySchema), StaticStateV2Schema]),
   ),
   sequential_states: z.record(z.string(), SequentialStateV2Schema),
 });
-export type AssemblyContract = z.infer<typeof AssemblyContractSchema>;
+export type EquipmentModuleContract = z.infer<typeof EquipmentModuleContractSchema>;
 
 // ============================================================
-// Subsystem orchestration (how assemblies coordinate inside a state)
+// Unit procedure (how equipment modules coordinate inside a state)
 // ============================================================
 
-// Closed-set effect enum mirrors InterSubsystemInterlock at the system layer.
-export const InterAssemblyInterlockEffectSchema = z.enum([
+// Closed-set effect enum mirrors InterUnitInterlock at the system layer.
+export const InterEquipmentModuleInterlockEffectSchema = z.enum([
   "hold",
   "block_transition",
   "trigger",
   "enable",
   "disable",
 ]);
-export type InterAssemblyInterlockEffect = z.infer<
-  typeof InterAssemblyInterlockEffectSchema
+export type InterEquipmentModuleInterlockEffect = z.infer<
+  typeof InterEquipmentModuleInterlockEffectSchema
 >;
 
-export const InterAssemblyInterlockSchema = z.object({
+export const InterEquipmentModuleInterlockSchema = z.object({
   interlock_id: z.string().min(1),
-  source_assembly: z.string().min(1),
+  source_equipment_module: z.string().min(1),
   source_condition: CompletionCriterionSchema,
-  target_assembly: z.string().min(1),
-  effect: InterAssemblyInterlockEffectSchema,
+  target_equipment_module: z.string().min(1),
+  effect: InterEquipmentModuleInterlockEffectSchema,
   effect_target: z
     .object({
-      assembly: z.string().min(1),
+      equipment_module: z.string().min(1),
       state_id: z.union([z.string(), z.number().int()]),
     })
     .optional(),
   prose: z.string(),
 });
-export type InterAssemblyInterlock = z.infer<typeof InterAssemblyInterlockSchema>;
+export type InterEquipmentModuleInterlock = z.infer<typeof InterEquipmentModuleInterlockSchema>;
 
 /**
  * Shared permissive — structured condition shared across orchestration
- * scopes. Used by both `SubsystemStateSequence` (assemblies coordinating
+ * scopes. Used by both `UnitProcedureSequence` (assemblies coordinating
  * inside a subsystem state) and `SystemStateSequence` (subsystems
  * coordinating inside a system state). Declared here so the subsystem-
  * level schema below can reference it; `SystemStateSequenceSchema`
@@ -729,18 +729,18 @@ export type InterAssemblyInterlock = z.infer<typeof InterAssemblyInterlockSchema
 export const SharedPermissiveSchema = z.object({
   permissive_id: z.string(),
   condition: CompletionCriterionSchema,
-  source_subsystem: z.string().optional(),
+  source_unit: z.string().optional(),
   prose: z.string(),
 });
 export type SharedPermissive = z.infer<typeof SharedPermissiveSchema>;
 
-export const SubsystemStateSequenceSchema = z.object({
-  assembly_order: z.array(z.string()), // assembly_ids
+export const UnitProcedureSequenceSchema = z.object({
+  equipment_module_order: z.array(z.string()), // equipment_module_ids
   shared_permissives: z.array(SharedPermissiveSchema),
-  inter_assembly_interlocks: z.array(InterAssemblyInterlockSchema),
+  inter_equipment_module_interlocks: z.array(InterEquipmentModuleInterlockSchema),
   notes: z.string().nullable(),
 });
-export type SubsystemStateSequence = z.infer<typeof SubsystemStateSequenceSchema>;
+export type UnitProcedureSequence = z.infer<typeof UnitProcedureSequenceSchema>;
 
 // ============================================================
 // Alarms / IO list / faults / sections
@@ -749,9 +749,9 @@ export type SubsystemStateSequence = z.infer<typeof SubsystemStateSequenceSchema
 export const AlarmRowSchema = z.object({
   id: z.string(),
   tier_id: z.string(),
-  device_id: z.string().nullable(),
-  assembly_id: z.string().nullable(),
-  subsystem_id: z.string().nullable(),
+  control_module_id: z.string().nullable(),
+  equipment_module_id: z.string().nullable(),
+  unit_id: z.string().nullable(),
   tag: z.string(),
   description: z.string(),
   action: z.string(),
@@ -769,8 +769,8 @@ export const IoListEntrySchema = z.object({
   io_address: z.string(),
   normal_state: z.string(),
   failsafe_state: z.string(),
-  assembly_id: z.string().optional(),
-  device_id: z.string().optional(),
+  equipment_module_id: z.string().optional(),
+  control_module_id: z.string().optional(),
 });
 export type IoListEntry = z.infer<typeof IoListEntrySchema>;
 
@@ -779,7 +779,7 @@ export const FaultRowSchema = z.object({
   description: z.string(),
   triggered_by_tag: z.string(),
   severity: FaultSeveritySchema,
-  affected_devices: z.array(z.string()), // device_ids
+  affected_control_modules: z.array(z.string()), // device_ids
   action_text: z.string(),
 });
 export type FaultRow = z.infer<typeof FaultRowSchema>;
@@ -788,11 +788,11 @@ export const SpecSectionRowSchema = z.object({
   id: UuidSchema,
   spec_project_id: UuidSchema,
   section_type: SpecSectionTypeSchema,
-  subsystem_id: z.string().nullable(),
-  assembly_id: UuidSchema.nullable(),
+  unit_id: z.string().nullable(),
+  equipment_module_id: UuidSchema.nullable(),
   state_id: z.string().nullable(),
   state_pattern: StatePatternSchema.nullable(),
-  granularity: z.enum(["assembly_state", "subsystem", "project"]),
+  granularity: z.enum(["equipment_module_state", "unit", "project"]),
   content_json: z.record(z.string(), z.unknown()),
   content_markdown: z.string().nullable(),
   model_used: z.string().nullable(),
@@ -827,10 +827,10 @@ export const SpecProjectHeaderSchema = z.object({
 export type SpecProjectHeader = z.infer<typeof SpecProjectHeaderSchema>;
 
 // ============================================================
-// System-level orchestration (cross-subsystem coordination)
+// System-level procedure (cross-unit coordination)
 // One row per spec_project (persisted in fds_system_orchestrations).
-// Interlocks here operate on SUBSYSTEM ids only — assembly-scope
-// interlocks belong inside SubsystemStateSequence.
+// Interlocks here operate on UNIT ids only — equipment-module-scope
+// interlocks belong inside UnitProcedureSequence.
 // ============================================================
 
 /**
@@ -845,11 +845,11 @@ export const FdsConversationTurnSchema = z.object({
 });
 export type FdsConversationTurn = z.infer<typeof FdsConversationTurnSchema>;
 
-export const InterSubsystemInterlockSchema = z.object({
+export const InterUnitInterlockSchema = z.object({
   interlock_id: z.string(),
-  source_subsystem_id: z.string(),
+  source_unit_id: z.string(),
   source_condition: CompletionCriterionSchema,
-  target_subsystem_id: z.string(),
+  target_unit_id: z.string(),
   effect: z.enum([
     "hold",
     "block_transition",
@@ -858,25 +858,25 @@ export const InterSubsystemInterlockSchema = z.object({
     "disable",
   ]),
   effect_target: z
-    .object({ subsystem: z.string(), state_id: z.string() })
+    .object({ unit: z.string(), state_id: z.string() })
     .optional(),
   prose: z.string(),
 });
-export type InterSubsystemInterlock = z.infer<
-  typeof InterSubsystemInterlockSchema
+export type InterUnitInterlock = z.infer<
+  typeof InterUnitInterlockSchema
 >;
 
 export const SystemStateSequenceSchema = z.object({
-  subsystem_order: z.array(z.string()),
+  unit_order: z.array(z.string()),
   shared_permissives: z.array(SharedPermissiveSchema).default([]),
-  inter_subsystem_interlocks: z
-    .array(InterSubsystemInterlockSchema)
+  inter_unit_interlocks: z
+    .array(InterUnitInterlockSchema)
     .default([]),
   notes: z.string().nullable().default(null),
 });
 export type SystemStateSequence = z.infer<typeof SystemStateSequenceSchema>;
 
-export const SystemOrchestrationSchema = z.object({
+export const SystemProcedureSchema = z.object({
   id: z.string(),
   spec_project_id: z.string(),
   state_sequences: z
@@ -888,7 +888,7 @@ export const SystemOrchestrationSchema = z.object({
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
 });
-export type SystemOrchestration = z.infer<typeof SystemOrchestrationSchema>;
+export type SystemProcedure = z.infer<typeof SystemProcedureSchema>;
 
 // ============================================================
 // Top-level contract
@@ -898,21 +898,21 @@ export const ConfirmationStatusSchema = z.enum(["unconfirmed", "confirmed"]);
 export type ConfirmationStatus = z.infer<typeof ConfirmationStatusSchema>;
 
 export const SpecContractV2Schema = z.object({
-  schema_version: z.literal(2),
+  schema_version: z.literal(3),
   project: SpecProjectHeaderSchema,
   hierarchy: HierarchySchema,
   states: z.array(OperatingStateV2Schema),
   alarm_tiers: z.array(AlarmTierSchema),
-  // Keyed by assembly_id
-  assemblies: z.record(z.string(), AssemblyContractSchema),
-  // orchestrations[subsystem_id][state_id] -> SubsystemStateSequence
-  orchestrations: z.record(
+  // Keyed by equipment_module_id
+  equipment_modules: z.record(z.string(), EquipmentModuleContractSchema),
+  // orchestrations[subsystem_id][state_id] -> UnitProcedureSequence
+  unit_procedures: z.record(
     z.string(),
-    z.record(z.string(), SubsystemStateSequenceSchema),
+    z.record(z.string(), UnitProcedureSequenceSchema),
   ),
-  // New: project-wide cross-subsystem layer. Optional + nullable — absent
+  // New: project-wide cross-unit layer. Optional + nullable — absent
   // until Wave C's UI persists the first row.
-  system_orchestration: SystemOrchestrationSchema.nullable().optional(),
+  system_procedure: SystemProcedureSchema.nullable().optional(),
   alarms: z.array(AlarmRowSchema),
   io_list: z.array(IoListEntrySchema),
   faults: z.array(FaultRowSchema),

@@ -265,7 +265,7 @@ export function usePlcsimTestGenerate() {
           }
         }
 
-        // Pass covered devices to prompt so AI skips them
+        // Pass covered control_modules to prompt so AI skips them
         const mergedOptions: PlcsimTestPromptOptions = {
           ...promptOptions,
           excludeDevices: coveredDeviceNames.length > 0 ? coveredDeviceNames : undefined,

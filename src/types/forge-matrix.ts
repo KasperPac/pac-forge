@@ -72,7 +72,7 @@ export interface ProcessStageStatus {
 /** Q&A answer categories. */
 export const QA_CATEGORIES = {
   REQUIREMENTS: "requirements",
-  DEVICES: "devices",
+  DEVICES: "control_modules",
   IO_MODULES: "io_modules",
   FB_TEMPLATES: "fb_templates",
   FOLDERS: "folders",
@@ -126,17 +126,17 @@ export interface ConfigUdtDefinition {
   }>;
 }
 
-/** Assembly linkage — wiring for assembly-level FBs that coordinate device groups */
+/** Assembly linkage — wiring for equipment-module-level FBs that coordinate device groups */
 export interface LinkageAssembly {
   id: string;
   name: string;
-  assemblyType: string;
+  equipment_moduleType: string;
   description: string;
   fbName: string;
   fbTemplateName: string | null;
   fbTemplateId: string | null;
   instanceDbName: string;
-  /** IDs of constituent devices in deviceLinkage */
+  /** IDs of constituent control_modules in deviceLinkage */
   deviceIds: string[];
   wiring: FbWire[];
   interlocks: LinkageInterlock[];
@@ -146,8 +146,8 @@ export interface LinkageAssembly {
 export interface ProcessLinkageMatrix {
   version: number;
   deviceLinkage: LinkageDevice[];
-  /** Assembly-level FB linkage — coordinates groups of devices */
-  assemblyLinkage?: LinkageAssembly[];
+  /** Assembly-level FB linkage — coordinates groups of control_modules */
+  equipment_moduleLinkage?: LinkageAssembly[];
   globalData: LinkageGlobalData[];
   processSequences: ProcessSequence[];
   faultMatrix?: FaultMatrixEntry[];
@@ -318,7 +318,7 @@ export interface SequenceRow {
   /** Row type — drives how the flow diagram renders it. */
   type: "action" | "monitor" | "branch" | "fault_exit" | "merge";
   /** Device names involved in this row. */
-  devices: string[];
+  control_modules: string[];
 }
 
 export interface ProcessSequence {
@@ -338,7 +338,7 @@ export interface ProcessStep {
   stepNumber: number;
   transition: TransitionCondition;
   actions: ProcessAction[];
-  devicesInvolved: string[];
+  control_modulesInvolved: string[];
   notes: string;
   /** @deprecated Use transition instead */
   action?: string;

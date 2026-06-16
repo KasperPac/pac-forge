@@ -29,7 +29,7 @@ const TEMPLATES: Record<string, VfdFbTemplate> = {
   abb_acs880: {
     fb_name: "ACS880_FB",
     parameter_defaults: {},
-    notes: "EtherNet/IP assembly instances required in network_config",
+    notes: "EtherNet/IP equipment_module instances required in network_config",
   },
   sew_movidrive: {
     fb_name: "MOVIKIT_BasicFlexi",

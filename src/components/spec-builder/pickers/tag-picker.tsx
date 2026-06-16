@@ -1,5 +1,5 @@
 /**
- * TagPicker — popover + cmdk combobox, grouped subsystem / assembly / device.
+ * TagPicker — popover + cmdk combobox, grouped unit / equipment_module / device.
  * Resolves a tag name into a full `ResolvedTag` (ids + tier + direction).
  *
  * Virtualises the flat list via @tanstack/react-virtual when items > 150.
@@ -37,9 +37,9 @@ export interface ResolvedTag {
   signal_type: SignalType;
   signal_direction: "input" | "output" | "internal";
   io_address: string;
-  device_id: string;
-  assembly_id: string;
-  subsystem_id: string;
+  control_module_id: string;
+  equipment_module_id: string;
+  unit_id: string;
   tier: IoSignalTier;
 }
 
@@ -48,8 +48,8 @@ export interface TagPickerProps {
   onChange: (resolved: ResolvedTag | null) => void;
   specProjectId?: string;
   filter?: {
-    subsystemId?: string;
-    assemblyId?: string;
+    unitId?: string;
+    equipment_moduleId?: string;
     deviceId?: string;
     signalDirection?: "input" | "output" | "internal";
     tier?: IoSignalTier;
@@ -101,12 +101,12 @@ export function TagPicker({
 
   const filtered = useMemo(() => {
     let list = index.tags;
-    if (filter?.subsystemId)
-      list = list.filter((t) => t.subsystem_id === filter.subsystemId);
-    if (filter?.assemblyId)
-      list = list.filter((t) => t.assembly_id === filter.assemblyId);
+    if (filter?.unitId)
+      list = list.filter((t) => t.unit_id === filter.unitId);
+    if (filter?.equipment_moduleId)
+      list = list.filter((t) => t.equipment_module_id === filter.equipment_moduleId);
     if (filter?.deviceId)
-      list = list.filter((t) => t.device_id === filter.deviceId);
+      list = list.filter((t) => t.control_module_id === filter.deviceId);
     if (filter?.signalDirection)
       list = list.filter((t) => t.signal_direction === filter.signalDirection);
     if (filter?.tier) list = list.filter((t) => t.tier === filter.tier);
@@ -139,9 +139,9 @@ export function TagPicker({
       signal_type: tag.signal_type,
       signal_direction: tag.signal_direction,
       io_address: tag.io_address,
-      device_id: tag.device_id,
-      assembly_id: tag.assembly_id,
-      subsystem_id: tag.subsystem_id,
+      control_module_id: tag.control_module_id,
+      equipment_module_id: tag.equipment_module_id,
+      unit_id: tag.unit_id,
       tier: tag.tier,
     });
     setOpen(false);
@@ -192,7 +192,7 @@ export function TagPicker({
                 <CommandGroup key={label} heading={label}>
                   {items.map((t) => (
                     <CommandItem
-                      key={`${t.device_id}:${t.tag}`}
+                      key={`${t.control_module_id}:${t.tag}`}
                       value={`${t.tag} ${t.searchKey}`}
                       onSelect={() => handleSelect(t)}
                       className="flex items-center gap-2"
@@ -246,7 +246,7 @@ function VirtualTagList({
           const t = tags[vi.index];
           return (
             <div
-              key={`${t.device_id}:${t.tag}`}
+              key={`${t.control_module_id}:${t.tag}`}
               style={{
                 position: "absolute",
                 top: 0,

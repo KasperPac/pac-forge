@@ -332,21 +332,32 @@ LAD (Ladder Logic) editor at `/pac-lad` → `src/routes/pac-lad.tsx`. Key files:
 - Prefer deterministic, auditable implementations over cleverness
 - Ask for missing requirements only when truly required
 
-## Machine Hierarchy (Non-negotiable)
+## Machine Hierarchy — ISA-88 Part 1 Compliant (Non-negotiable)
 
-The forge wizard uses a 4-level hierarchy for machine decomposition. The functional spec defines this structure — the AI extracts it, never invents it.
+The forge wizard uses a 4-level hierarchy per ANSI/ISA-88.00.01 §4.4 (Physical Model):
 
-- **System** — the full machine / production line
-- **Subsystem** — a functional station (e.g. "Infeed Conveyor Station", "Hydraulic Lift Station", "Safety")
-- **Assembly** — a coordinated group of devices working together (e.g. "Lift Table LFT01", "Conveyor CV01"). Has NO FB — orchestrated by process sequence logic.
-- **Device** — a single physical thing with IO signals (e.g. motor M01, limit switch LS_TOP, solenoid SOL_UP). Gets an FB, instance DB, and IO wiring.
+- **Process Cell** — the full machine / production line (§4.4.3.3)
+- **Unit** — a functional station carrying out a major processing activity (e.g. "Carriage Unit", "Safety Unit") (§4.4.3.4)
+- **Equipment Module** — a coordinated group of control modules that carries out a finite number of specific minor processing activities (e.g. "Carriage Drive", "Rotator Brake") (§4.4.3.5). COLLAPSIBLE per §4.4.3.7 — when collapsed, Control Modules belong directly to the Unit.
+- **Control Module** — a single physical device with IO signals (e.g. motor M01, limit switch LS_TOP, solenoid SOL_UP) (§4.4.3.6). Gets an FB (basic control), instance DB, and IO wiring.
 
 **Rules:**
-- Only **devices** appear in the device list and get FBs
-- **Assemblies** appear in process sequences as the coordination logic
-- **Subsystems** are organisational grouping — each typically has its own process sequence(s)
-- A system with 3 conveyors and 2 lift tables = 5 assemblies across however many subsystems
+- Only **Control Modules** appear in the control module list and get FBs (basic control, `CM_` prefix)
+- **Equipment Modules** get FBs with state machines (procedural control, `EM_` prefix)
+- **Units** are coordination — each typically has its own Unit Procedure(s) (coordination control, `UC_` prefix)
+- A Process Cell with 3 conveyors and 2 lift tables = 5 equipment modules across however many units
+- Equipment Module layer is optional — when collapsed, Control Modules belong directly to the Unit
 - The spec builder outputs this hierarchy — the wizard extracts it directly
+
+**Three Control Types (ISA-88 §5):**
+- **Basic Control** (§5.2) → Control Module FBs (`CM_` prefix) — direct IO, no state machine
+- **Procedural Control** (§5.3) → Equipment Module FBs (`EM_` prefix) — state machine, calls CM FBs
+- **Coordination Control** (§5.4) → Unit/System FCs (`UC_`/`SC_` prefix) — coordinates EMs, manages interlocks
+
+**Process vs Procedure (ISA-88 §4.3 vs §5.3):**
+- Process Model = WHAT happens to the product (product-centric)
+- Procedural Model = HOW the equipment does it (equipment-centric)
+- Both are maintained in the FDS
 
 ## Critical: All Changes Must Be Generic (Non-negotiable)
 

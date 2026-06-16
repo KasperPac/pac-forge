@@ -1,7 +1,7 @@
 /**
  * forge-spec-chunk-extract.ts
  * Stage 2 of chunked spec analysis: per-chunk targeted extraction.
- * Each call extracts devices, sequences, alarms, settings for ONE subsystem.
+ * Each call extracts control_modules, sequences, alarms, settings for ONE unit.
  */
 
 import type { PartialSpecAnalysis, SpecSurveyResult, SpecChunk } from "@/types/forge";
@@ -11,9 +11,9 @@ import { resolveSection } from "@/lib/prompt-defaults";
 
 const PARTIAL_SCHEMA = `{
   "target_id": "string (the extraction target ID, e.g. T01)",
-  "subsystems": [{ "name": "string", "description": "string" }],
-  "assemblies": ${extractSubSchema(SPEC_ANALYSIS_SCHEMA, '"assemblies"')},
-  "devices": ${extractSubSchema(SPEC_ANALYSIS_SCHEMA, '"devices"')},
+  "units": [{ "name": "string", "description": "string" }],
+  "equipment_modules": ${extractSubSchema(SPEC_ANALYSIS_SCHEMA, '"equipment_modules"')},
+  "control_modules": ${extractSubSchema(SPEC_ANALYSIS_SCHEMA, '"control_modules"')},
   "process_sequences": ${extractSubSchema(SPEC_ANALYSIS_SCHEMA, '"process_sequences"')},
   "alarms": ${extractSubSchema(SPEC_ANALYSIS_SCHEMA, '"alarms"')},
   "interlocks": ${extractSubSchema(SPEC_ANALYSIS_SCHEMA, '"interlocks"')},
@@ -46,7 +46,7 @@ export function buildChunkExtractionSystemPrompt(
 ): string {
   const target = survey.extraction_targets.find((t) => t.id === targetId);
   const targetName = target?.name ?? targetId;
-  const targetSubsystem = target?.subsystem ?? "";
+  const targetSubsystem = target?.unit ?? "";
 
   const instructions = resolveSection(promptSections, "forge_pm_spec_analysis", "instructions");
 
@@ -59,16 +59,16 @@ export function buildChunkExtractionSystemPrompt(
 
 ## Extraction Scope
 
-You are extracting ONLY for: **${targetName}** (subsystem: ${targetSubsystem})
+You are extracting ONLY for: **${targetName}** (unit: ${targetSubsystem})
 Target ID: ${targetId}
 
-Do NOT extract devices, sequences, or alarms belonging to other subsystems. If you see references to devices from other systems, note them in the relevant sequence step's \`devices_involved\` or interlock's \`affected_devices\` but do NOT create device entries for them.
+Do NOT extract control_modules, sequences, or alarms belonging to other units. If you see references to control_modules from other systems, note them in the relevant sequence step's \`control_modules_involved\` or interlock's \`affected_control_modules\` but do NOT create device entries for them.
 
 ## Cross-Cutting Context
 
-The full project has these subsystems: ${survey.extraction_targets.map((t) => t.name).join(", ")}
+The full project has these units: ${survey.extraction_targets.map((t) => t.name).join(", ")}
 
-Safety systems shared across subsystems: ${survey.cross_cutting_concerns.safety_systems.join(", ") || "none identified"}
+Safety systems shared across units: ${survey.cross_cutting_concerns.safety_systems.join(", ") || "none identified"}
 Global settings: ${survey.cross_cutting_concerns.global_settings.join(", ") || "none identified"}
 Shared interlocks: ${survey.cross_cutting_concerns.shared_interlocks.join(", ") || "none identified"}
 
@@ -100,7 +100,7 @@ ${chunk.contextPreamble}
 ${chunk.text}
 </spec_section>
 
-Extract devices, sequences, alarms, interlocks, settings, and hardware from this section. Return the JSON now.`;
+Extract control_modules, sequences, alarms, interlocks, settings, and hardware from this section. Return the JSON now.`;
 }
 
 export function validatePartialSpecAnalysis(
@@ -114,22 +114,22 @@ export function validatePartialSpecAnalysis(
 
   return {
     target_id: (obj.target_id as string) ?? targetId,
-    subsystems: Array.isArray(obj.subsystems)
-      ? (obj.subsystems as Array<{ name: string; description: string }>)
+    units: Array.isArray(obj.units)
+      ? (obj.units as Array<{ name: string; description: string }>)
       : [],
-    assemblies: Array.isArray(obj.assemblies)
-      ? (obj.assemblies as Array<Record<string, unknown>>).map((a) => ({
+    equipment_modules: Array.isArray(obj.equipment_modules)
+      ? (obj.equipment_modules as Array<Record<string, unknown>>).map((a) => ({
           id: (a.id ?? "") as string,
           name: (a.name ?? a.tag ?? "") as string,
           tag: (a.tag ?? a.name ?? "") as string,
-          assembly_type: (a.assembly_type ?? a.type ?? "") as string,
+          equipment_module_type: (a.equipment_module_type ?? a.type ?? "") as string,
           description: (a.description ?? "") as string,
-          subsystem: (a.subsystem ?? "") as string,
-          device_ids: Array.isArray(a.device_ids) ? (a.device_ids as string[]) : [],
+          unit: (a.unit ?? "") as string,
+          control_module_ids: Array.isArray(a.control_module_ids) ? (a.control_module_ids as string[]) : [],
         }))
       : [],
-    devices: Array.isArray(obj.devices)
-      ? (obj.devices as Array<Record<string, unknown>>).map((d) => ({
+    control_modules: Array.isArray(obj.control_modules)
+      ? (obj.control_modules as Array<Record<string, unknown>>).map((d) => ({
           ...d,
           name: (d.name ?? d.tag ?? "") as string,
           tag: (d.tag ?? d.name ?? "") as string,
@@ -142,7 +142,7 @@ export function validatePartialSpecAnalysis(
                 contact_type: (sig.contact_type ?? "") as string,
               }))
             : [],
-        })) as unknown as PartialSpecAnalysis["devices"]
+        })) as unknown as PartialSpecAnalysis["control_modules"]
       : [],
     process_sequences: Array.isArray(obj.process_sequences)
       ? (obj.process_sequences as Array<Record<string, unknown>>).map((s) => ({

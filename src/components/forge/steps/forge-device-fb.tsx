@@ -28,7 +28,7 @@ import { useForgeDeviceGenerate } from "@/hooks/use-forge-device-generate";
 import type { DeviceGenLogEntry } from "@/hooks/use-forge-device-generate";
 import { useCreateFbTemplate } from "@/hooks/use-fb-templates";
 import { useFbDeviceCategories, useCreateFbDeviceCategory } from "@/hooks/use-fb-categories";
-import type { ForgeSession, ForgeArtifact, ForgeDeviceEntry } from "@/types/forge";
+import type { ForgeSession, ForgeArtifact, ForgeControlModuleEntry } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
 import type { FbTemplate } from "@/types/fb-template";
 import type { PatternCandidate } from "@/types";
@@ -134,7 +134,7 @@ export function ForgeDeviceFb({
 
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
   const [reviewArtifact, setReviewArtifact] = useState<ForgeArtifact | null>(null);
-  const [reviewDevice, setReviewDevice] = useState<ForgeDeviceEntry | null>(null);
+  const [reviewDevice, setReviewDevice] = useState<ForgeControlModuleEntry | null>(null);
 
 
   const { generateFbsOnly, regenerateSingleFb, loading: genLoading, progress, error: genError, log: genLog } = useForgeDeviceGenerate();
@@ -203,7 +203,7 @@ export function ForgeDeviceFb({
     for (const artifact of approvedFbs) {
       if (savedToLibrary.has(artifact.id)) continue;
 
-      const device = (session.device_list as ForgeDeviceEntry[])?.find(d =>
+      const device = (session.device_list as ForgeControlModuleEntry[])?.find(d =>
         artifact.name.toLowerCase().includes(d.device_type.toLowerCase().replace(/\s+/g, "")) ||
         d.device_type.toLowerCase().replace(/\s+/g, "").includes(artifact.name.toLowerCase())
       );
@@ -243,7 +243,7 @@ export function ForgeDeviceFb({
   }
 
   function openReview(artifact: ForgeArtifact) {
-    const device = (session.device_list as ForgeDeviceEntry[])?.find(d =>
+    const device = (session.device_list as ForgeControlModuleEntry[])?.find(d =>
       artifact.name.toLowerCase().includes(d.name.toLowerCase().replace(/\s+/g, "")) ||
       d.name.toLowerCase().replace(/\s+/g, "").includes(artifact.name.toLowerCase())
     ) ?? null;

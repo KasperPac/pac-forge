@@ -2,24 +2,24 @@ import { z } from "zod";
 import { callNonStreaming } from "@/hooks/use-generation";
 import {
   CompletionCriterionSchema,
-  InterAssemblyInterlockEffectSchema,
+  InterEquipmentModuleInterlockEffectSchema,
   type CompletionCriterion,
-  type InterAssemblyInterlockEffect,
+  type InterEquipmentModuleInterlockEffect,
 } from "@/types/spec-contract-v2";
 
 export interface RawInterlock {
   interlock_id: string;
-  source_assembly: string;
-  target_assembly: string;
+  source_equipment_module: string;
+  target_equipment_module: string;
   prose_source_condition: string;
   prose_effect: string;
 }
 
 export interface ClassifiedInterlock {
   interlock_id: string;
-  source_assembly: string;
-  target_assembly: string;
-  effect: InterAssemblyInterlockEffect;
+  source_equipment_module: string;
+  target_equipment_module: string;
+  effect: InterEquipmentModuleInterlockEffect;
   source_condition: CompletionCriterion;
   confidence: number;
   reasoning: string;
@@ -27,19 +27,19 @@ export interface ClassifiedInterlock {
 
 const ResponseRowSchema = z.object({
   interlock_id: z.string().min(1),
-  effect: InterAssemblyInterlockEffectSchema,
+  effect: InterEquipmentModuleInterlockEffectSchema,
   source_condition: CompletionCriterionSchema,
   confidence: z.number().min(0).max(1),
   reasoning: z.string(),
 });
 const ResponseSchema = z.object({ rows: z.array(ResponseRowSchema) });
 
-const SYSTEM_PROMPT = `You are classifying inter-assembly interlocks from a legacy FDS document into a structured V2 contract.
+const SYSTEM_PROMPT = `You are classifying inter-equipment_module interlocks from a legacy FDS document into a structured V2 contract.
 
 For EACH input row, output one entry in "rows" with:
 - interlock_id: same as input
 - effect: one of "hold" | "block_transition" | "trigger" | "enable" | "disable"
-  - "hold": pause the target assembly's current state
+  - "hold": pause the target equipment_module's current state
   - "block_transition": prevent the target from leaving its current state
   - "trigger": force the target into a specific state
   - "enable": allow a transition that was previously blocked
@@ -62,8 +62,8 @@ function buildUserPrompt(rows: RawInterlock[]): string {
       [
         `Row ${i + 1}:`,
         `  interlock_id: ${r.interlock_id}`,
-        `  source_assembly: ${r.source_assembly}`,
-        `  target_assembly: ${r.target_assembly}`,
+        `  source_equipment_module: ${r.source_equipment_module}`,
+        `  target_equipment_module: ${r.target_equipment_module}`,
         `  prose source_condition: ${r.prose_source_condition}`,
         `  prose effect: ${r.prose_effect}`,
       ].join("\n"),
@@ -74,8 +74,8 @@ function buildUserPrompt(rows: RawInterlock[]): string {
 function fallbackRow(raw: RawInterlock, reason: string): ClassifiedInterlock {
   return {
     interlock_id: raw.interlock_id,
-    source_assembly: raw.source_assembly,
-    target_assembly: raw.target_assembly,
+    source_equipment_module: raw.source_equipment_module,
+    target_equipment_module: raw.target_equipment_module,
     effect: "hold",
     source_condition: {
       kind: "placeholder",
@@ -139,8 +139,8 @@ export async function classifyInterlocks(
     if (!ai) return fallbackRow(raw, "omitted the row from its response");
     return {
       interlock_id: raw.interlock_id,
-      source_assembly: raw.source_assembly,
-      target_assembly: raw.target_assembly,
+      source_equipment_module: raw.source_equipment_module,
+      target_equipment_module: raw.target_equipment_module,
       effect: ai.effect,
       source_condition: ai.source_condition,
       confidence: ai.confidence,

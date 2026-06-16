@@ -25,13 +25,13 @@ import type {
   InstrumentRegister,
   InstrumentTag,
   SpecSection,
-  SubsystemConfig,
+  UnitConfig,
   TokenUsage,
   IoSummaryRow,
 } from "@/types/spec-builder";
 import { migrateOperatingStates } from "@/types/spec-builder";
 import { composeFdsToSections } from "./fds-compose";
-import type { FdsAssemblySession, SubsystemOrchestration } from "@/types/spec-builder";
+import type { OperationSession, UnitProcedure } from "@/types/spec-builder";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -154,16 +154,16 @@ function addUsage(total: TokenUsage, add: TokenUsage): void {
 }
 
 interface SaveSectionV2Opts {
-  subsystemId?: string;
+  unitId?: string;
   stateName?: string;
-  /** V2 — assembly uuid (required for assembly_state granularity) */
-  assemblyId?: string;
+  /** V2 — equipment_module uuid (required for equipment_module_state granularity) */
+  equipment_moduleId?: string;
   /** V2 — canonical state identifier */
   stateId?: string;
   /** V2 — static vs sequential */
   statePattern?: "static" | "sequential" | null;
   /** V2 — row granularity */
-  granularity?: "assembly_state" | "subsystem" | "project";
+  granularity?: "equipment_module_state" | "unit" | "project";
 }
 
 async function saveSection(
@@ -176,19 +176,19 @@ async function saveSection(
   v2OrSubsystem?: SaveSectionV2Opts | string,
   stateNameLegacy?: string,
 ): Promise<SpecSection> {
-  // Back-compat: legacy signature (subsystemId, stateName) still supported.
+  // Back-compat: legacy signature (unitId, stateName) still supported.
   let opts: SaveSectionV2Opts;
   if (typeof v2OrSubsystem === "string" || v2OrSubsystem === undefined) {
-    opts = { subsystemId: v2OrSubsystem, stateName: stateNameLegacy };
+    opts = { unitId: v2OrSubsystem, stateName: stateNameLegacy };
   } else {
     opts = v2OrSubsystem;
   }
 
   const inferredGranularity: SaveSectionV2Opts["granularity"] = opts.granularity ??
-    (opts.assemblyId || opts.stateId
-      ? "assembly_state"
-      : opts.subsystemId
-        ? "subsystem"
+    (opts.equipment_moduleId || opts.stateId
+      ? "equipment_module_state"
+      : opts.unitId
+        ? "unit"
         : "project");
 
   const { data, error } = await supabase
@@ -196,10 +196,10 @@ async function saveSection(
     .insert({
       spec_project_id: specProjectId,
       section_type: sectionType,
-      subsystem_id: opts.subsystemId ?? null,
+      unit_id: opts.unitId ?? null,
       state_name: opts.stateName ?? null,
       // V2 additive columns — safe to write even when null.
-      assembly_id: opts.assemblyId ?? null,
+      equipment_module_id: opts.equipment_moduleId ?? null,
       state_id: opts.stateId ?? null,
       state_pattern: opts.statePattern ?? null,
       granularity: inferredGranularity,
@@ -214,35 +214,35 @@ async function saveSection(
   return data as SpecSection;
 }
 
-function getTagsForSubsystem(register: InstrumentRegister, sub: SubsystemConfig): InstrumentTag[] {
-  // Build set of all tag names referenced in this subsystem's device hierarchy
+function getTagsForSubsystem(register: InstrumentRegister, sub: UnitConfig): InstrumentTag[] {
+  // Build set of all tag names referenced in this unit's device hierarchy
   const tagNames = new Set<string>();
-  for (const asm of sub.assemblies) {
-    for (const dev of asm.devices) {
+  for (const asm of sub.equipment_modules) {
+    for (const dev of asm.control_modules) {
       for (const sig of dev.io_signals) {
         tagNames.add(sig.tag);
       }
     }
   }
-  // If hierarchy has tags, use them; otherwise fall back to subsystem field match
+  // If hierarchy has tags, use them; otherwise fall back to unit field match
   if (tagNames.size > 0) {
     return register.tags.filter((t) => tagNames.has(t.tag));
   }
-  return register.tags.filter((t) => t.subsystem === sub.subsystem_id);
+  return register.tags.filter((t) => t.unit === sub.unit_id);
 }
 
 /** Compute IO summary table deterministically from register data */
 function computeIoSummary(
-  subsystems: SubsystemConfig[],
+  units: UnitConfig[],
   register: InstrumentRegister,
 ): IoSummaryRow[] {
-  return subsystems
+  return units
     .filter((s) => !s.excluded)
     .map((sub) => {
       const tags = getTagsForSubsystem(register, sub);
       return {
-        subsystem_id: sub.subsystem_id,
-        subsystem_name: sub.subsystem_name,
+        unit_id: sub.unit_id,
+        unit_name: sub.unit_name,
         di_count: tags.filter((t) => t.signal_direction === "DI").length,
         do_count: tags.filter((t) => t.signal_direction === "DO").length,
         ai_count: tags.filter((t) => t.signal_direction === "AI").length,
@@ -264,7 +264,7 @@ export async function generateSpec(
   const totalUsage: TokenUsage = { input: 0, output: 0, total: 0 };
   const errors: string[] = [];
   const sections: SpecSection[] = [];
-  const activeSubsystems = spec.confirmed_subsystems.filter((s) => !s.excluded);
+  const activeSubsystems = spec.confirmed_units.filter((s) => !s.excluded);
   const states = migrateOperatingStates(spec.confirmed_states);
   const staticStates = states.filter((s) => s.state_pattern === "static");
   const sequentialStates = states.filter((s) => s.state_pattern === "sequential");
@@ -284,11 +284,11 @@ export async function generateSpec(
 
   // Total steps:
   //   Section 0 (doc control) + Section 1 (system overview) + Section 2 (control philosophy)
-  //   + per subsystem: 1 (equipment) + 1 (batched static states) + N (sequential states)
+  //   + per unit: 1 (equipment) + 1 (batched static states) + N (sequential states)
   //   + Section 4 (IO list) + Section 5 (alarm spec) + Section 6 (HMI, conditional)
   //   + Section 8 (testing) + audit
-  const subsystemSteps = activeSubsystems.length * (1 + 1 + sequentialStates.length);
-  const totalSteps = 3 + subsystemSteps + 1 + 1 + (hasHmi ? 1 : 0) + 1 + 1;
+  const unitSteps = activeSubsystems.length * (1 + 1 + sequentialStates.length);
+  const totalSteps = 3 + unitSteps + 1 + 1 + (hasHmi ? 1 : 0) + 1 + 1;
   let completedSteps = 0;
 
   const reportProgress = (detail: string) => {
@@ -340,18 +340,18 @@ export async function generateSpec(
       parsed.io_summary = computeIoSummary(activeSubsystems, register);
       // Inject full System → Subsystem → Assembly → Device hierarchy deterministically
       parsed.machine_hierarchy = activeSubsystems.map((s) => ({
-        subsystem_id: s.subsystem_id,
-        subsystem_name: s.subsystem_name,
+        unit_id: s.unit_id,
+        unit_name: s.unit_name,
         equipment_type: s.equipment_type,
         description: s.description,
-        assemblies: s.assemblies.map((a) => ({
-          assembly_id: a.assembly_id,
-          assembly_name: a.assembly_name,
+        equipment_modules: s.equipment_modules.map((a) => ({
+          equipment_module_id: a.equipment_module_id,
+          equipment_module_name: a.equipment_module_name,
           description: a.description,
-          devices: a.devices.map((d) => ({
-            device_id: d.device_id,
-            device_name: d.device_name,
-            device_class: d.device_class,
+          control_modules: a.control_modules.map((d) => ({
+            control_module_id: d.control_module_id,
+            control_module_name: d.control_module_name,
+            control_module_class: d.control_module_class,
             is_safety: d.is_safety,
             description: d.description,
             signal_count: d.io_signals.length,
@@ -396,48 +396,48 @@ export async function generateSpec(
     }
 
     // -----------------------------------------------------------------------
-    // Section 3 — Functional Descriptions (parallel per subsystem)
+    // Section 3 — Functional Descriptions (parallel per unit)
     // -----------------------------------------------------------------------
     const equipmentResults: Record<string, Array<{ device: string; tag: string; description: string }>> = {};
 
-    const subsystemTasks = activeSubsystems.map((sub) => async () => {
+    const unitTasks = activeSubsystems.map((sub) => async () => {
       const tags = getTagsForSubsystem(register, sub);
 
-      // Check for co-authored data — skip AI generation if assemblies are co-authored
+      // Check for co-authored data — skip AI generation if equipment_modules are co-authored
       const { data: coAuthoredSessions } = await supabase
-        .from("fds_assembly_sessions")
+        .from("fds_operation_sessions")
         .select("*")
         .eq("spec_project_id", spec.id)
-        .eq("subsystem_id", sub.subsystem_id)
+        .eq("unit_id", sub.unit_id)
         .eq("status", "complete");
 
       if (coAuthoredSessions && coAuthoredSessions.length > 0) {
         // Fetch orchestration if exists
         const { data: orchData } = await supabase
-          .from("fds_subsystem_orchestrations")
+          .from("fds_unit_procedures")
           .select("*")
           .eq("spec_project_id", spec.id)
-          .eq("subsystem_id", sub.subsystem_id)
+          .eq("unit_id", sub.unit_id)
           .maybeSingle();
 
         try {
           await composeFdsToSections(
             spec.id, sub,
-            coAuthoredSessions as FdsAssemblySession[],
-            orchData as SubsystemOrchestration | null,
+            coAuthoredSessions as OperationSession[],
+            orchData as UnitProcedure | null,
             states,
           );
           // Still generate equipment preamble via AI (prose + device table)
           const eqPrompt = buildEquipmentDescriptionPrompt(sub, tags);
           const eqResult = await callSonnet(eqPrompt, "Generate the equipment description section.", signal, "spec_equipment_desc");
           const eqParsed = JSON.parse(eqResult.content);
-          await saveSection(spec.id, "equipment_description", eqParsed, "claude-sonnet-4-6", eqPrompt, eqResult.usage, sub.subsystem_id);
-          reportProgress(`Section 3: ${sub.subsystem_name} — Co-authored + Equipment`);
+          await saveSection(spec.id, "equipment_description", eqParsed, "claude-sonnet-4-6", eqPrompt, eqResult.usage, sub.unit_id);
+          reportProgress(`Section 3: ${sub.unit_name} — Co-authored + Equipment`);
         } catch (err) {
-          errors.push(`${sub.subsystem_name} compose: ${err instanceof Error ? err.message : "Failed"}`);
-          reportProgress(`Section 3: ${sub.subsystem_name} — Compose failed`);
+          errors.push(`${sub.unit_name} compose: ${err instanceof Error ? err.message : "Failed"}`);
+          reportProgress(`Section 3: ${sub.unit_name} — Compose failed`);
         }
-        return; // Skip AI generation for this subsystem
+        return; // Skip AI generation for this unit
       }
 
       // 3a — Equipment preamble (prose + device instrumentation table)
@@ -445,73 +445,73 @@ export async function generateSpec(
         const eqPrompt = buildEquipmentDescriptionPrompt(sub, tags);
         const eqResult = await callSonnet(eqPrompt, "Generate the equipment description section.", signal, "spec_equipment_desc");
         const eqParsed = JSON.parse(eqResult.content);
-        const eqSection = await saveSection(spec.id, "equipment_description", eqParsed, "claude-sonnet-4-6", eqPrompt, eqResult.usage, sub.subsystem_id);
+        const eqSection = await saveSection(spec.id, "equipment_description", eqParsed, "claude-sonnet-4-6", eqPrompt, eqResult.usage, sub.unit_id);
         sections.push(eqSection);
         addUsage(totalUsage, eqResult.usage);
-        equipmentResults[sub.subsystem_id] = eqParsed.device_table ?? [];
-        reportProgress(`Section 3: ${sub.subsystem_name} — Equipment`);
+        equipmentResults[sub.unit_id] = eqParsed.control_module_table ?? [];
+        reportProgress(`Section 3: ${sub.unit_name} — Equipment`);
       } catch (err) {
-        errors.push(`Equipment ${sub.subsystem_name}: ${err instanceof Error ? err.message : "Failed"}`);
-        equipmentResults[sub.subsystem_id] = tags.map((t) => ({
+        errors.push(`Equipment ${sub.unit_name}: ${err instanceof Error ? err.message : "Failed"}`);
+        equipmentResults[sub.unit_id] = tags.map((t) => ({
           device: `${t.tag} (${t.device_type})`,
           tag: t.tag,
           description: t.description,
         }));
-        reportProgress(`Section 3: ${sub.subsystem_name} — Equipment (failed)`);
+        reportProgress(`Section 3: ${sub.unit_name} — Equipment (failed)`);
       }
 
       // 3b — Pattern A: Batched device state tables for all static states
       if (staticStates.length > 0) {
         try {
-          const deviceTable = equipmentResults[sub.subsystem_id] ?? [];
+          const deviceTable = equipmentResults[sub.unit_id] ?? [];
           const prompt = buildDeviceStateTablePrompt(sub, staticStates, tags, deviceTable);
           const result = await callSonnet(prompt, "Generate device state tables.", signal, "spec_device_state_table");
           const parsed = JSON.parse(result.content);
-          // Save one section per (assembly, static state). The prompt emits a
-          // subsystem-level table; fan it out across assemblies deterministically
-          // so V2's per-(assembly, state) row shape is honoured. Assembly-specific
+          // Save one section per (equipment_module, static state). The prompt emits a
+          // unit-level table; fan it out across equipment_modules deterministically
+          // so V2's per-(equipment_module, state) row shape is honoured. Assembly-specific
           // refinement is delegated to later ingest/co-author passes.
           const statesData = parsed.states as Record<string, Array<{ tag: string; description: string; state: string }>>;
-          const assemblyTagSets = sub.assemblies.map((asm) => {
+          const equipment_moduleTagSets = sub.equipment_modules.map((asm) => {
             const names = new Set<string>();
-            for (const dev of asm.devices) for (const sig of dev.io_signals) names.add(sig.tag);
-            return { assembly_id: asm.assembly_id, tags: names };
+            for (const dev of asm.control_modules) for (const sig of dev.io_signals) names.add(sig.tag);
+            return { equipment_module_id: asm.equipment_module_id, tags: names };
           });
           for (const st of staticStates) {
             const deviceStates = statesData[st.state_name] ?? [];
-            for (const asm of assemblyTagSets) {
+            for (const asm of equipment_moduleTagSets) {
               const scoped = deviceStates.filter((e) => asm.tags.has(e.tag));
               const content = {
                 pattern: "static" as const,
-                device_states: scoped,
+                control_module_states: scoped,
               };
               const stateSection = await saveSection(
                 spec.id, "functional_description", content, "claude-sonnet-4-6",
                 prompt, { input: 0, output: 0 },
                 {
-                  subsystemId: sub.subsystem_id,
+                  unitId: sub.unit_id,
                   stateName: st.state_id,
-                  assemblyId: asm.assembly_id,
+                  equipment_moduleId: asm.equipment_module_id,
                   stateId: st.state_id,
                   statePattern: "static",
-                  granularity: "assembly_state",
+                  granularity: "equipment_module_state",
                 },
               );
               sections.push(stateSection);
             }
           }
           addUsage(totalUsage, result.usage);
-          reportProgress(`Section 3: ${sub.subsystem_name} — Static states`);
+          reportProgress(`Section 3: ${sub.unit_name} — Static states`);
         } catch (err) {
-          errors.push(`${sub.subsystem_name} static states: ${err instanceof Error ? err.message : "Failed"}`);
-          reportProgress(`Section 3: ${sub.subsystem_name} — Static states (failed)`);
+          errors.push(`${sub.unit_name} static states: ${err instanceof Error ? err.message : "Failed"}`);
+          reportProgress(`Section 3: ${sub.unit_name} — Static states (failed)`);
         }
       }
 
       // 3c — Pattern B: Individual step tables for each sequential state
       for (const state of sequentialStates) {
         try {
-          const deviceTable = equipmentResults[sub.subsystem_id] ?? [];
+          const deviceTable = equipmentResults[sub.unit_id] ?? [];
           const prompt = buildStepTablePrompt(sub, state, tags, deviceTable);
           const result = await callSonnet(prompt, "Generate step table.", signal, "spec_step_table");
           const parsed = JSON.parse(result.content);
@@ -521,34 +521,34 @@ export async function generateSpec(
             steps: parsed.steps ?? [],
             notes: parsed.notes ?? null,
           };
-          // Fan out the subsystem-level step table across assemblies. Each
-          // assembly gets the same steps until later passes refine per-assembly
-          // ownership. This keeps V2's (assembly_id, state_id) key honoured.
-          for (const asm of sub.assemblies) {
+          // Fan out the unit-level step table across equipment_modules. Each
+          // equipment_module gets the same steps until later passes refine per-equipment_module
+          // ownership. This keeps V2's (equipment_module_id, state_id) key honoured.
+          for (const asm of sub.equipment_modules) {
             const stateSection = await saveSection(
               spec.id, "functional_description", content, "claude-sonnet-4-6",
               prompt, result.usage,
               {
-                subsystemId: sub.subsystem_id,
+                unitId: sub.unit_id,
                 stateName: state.state_id,
-                assemblyId: asm.assembly_id,
+                equipment_moduleId: asm.equipment_module_id,
                 stateId: state.state_id,
                 statePattern: "sequential",
-                granularity: "assembly_state",
+                granularity: "equipment_module_state",
               },
             );
             sections.push(stateSection);
           }
           addUsage(totalUsage, result.usage);
-          reportProgress(`Section 3: ${sub.subsystem_name} — ${state.state_name}`);
+          reportProgress(`Section 3: ${sub.unit_name} — ${state.state_name}`);
         } catch (err) {
-          errors.push(`${sub.subsystem_name}/${state.state_name}: ${err instanceof Error ? err.message : "Failed"}`);
-          reportProgress(`Section 3: ${sub.subsystem_name} — ${state.state_name} (failed)`);
+          errors.push(`${sub.unit_name}/${state.state_name}: ${err instanceof Error ? err.message : "Failed"}`);
+          reportProgress(`Section 3: ${sub.unit_name} — ${state.state_name} (failed)`);
         }
       }
     });
 
-    await runWithConcurrency(subsystemTasks, 3);
+    await runWithConcurrency(unitTasks, 3);
 
     // -----------------------------------------------------------------------
     // Section 4 — I/O List
@@ -574,7 +574,7 @@ export async function generateSpec(
     try {
       const tagsBySubsystem: Record<string, InstrumentTag[]> = {};
       for (const sub of activeSubsystems) {
-        tagsBySubsystem[sub.subsystem_id] = getTagsForSubsystem(register, sub);
+        tagsBySubsystem[sub.unit_id] = getTagsForSubsystem(register, sub);
       }
       const prompt = buildAlarmSpecificationPrompt(activeSubsystems, tagsBySubsystem, spec.alarm_tiers);
       const result = await callSonnet(prompt, "Generate the alarm specification.", signal, "spec_alarm_specification");
@@ -654,8 +654,8 @@ export async function generateSpec(
         } else if (s.section_type === "control_philosophy") {
           markdownParts.push(`# Section 2 — Control Philosophy\nTransitions: ${json.mode_transitions}\nFault Philosophy: ${json.fault_philosophy}`);
         } else if (s.section_type === "equipment_description") {
-          markdownParts.push(`## Section 3 — Equipment: ${s.subsystem_id}\n${json.prose}\n`);
-          const table = json.device_table as Array<Record<string, string>> | undefined;
+          markdownParts.push(`## Section 3 — Equipment: ${s.unit_id}\n${json.prose}\n`);
+          const table = json.control_module_table as Array<Record<string, string>> | undefined;
           if (table) {
             markdownParts.push("| Device | Tag | Description |\n|---|---|---|");
             for (const row of table) {
@@ -665,9 +665,9 @@ export async function generateSpec(
         } else if (s.section_type === "functional_description") {
           const pattern = json.pattern as string;
           if (pattern === "static") {
-            markdownParts.push(`### ${s.subsystem_id} — ${s.state_name} (Device State Table)\n${JSON.stringify(json.device_states, null, 2)}`);
+            markdownParts.push(`### ${s.unit_id} — ${s.state_name} (Device State Table)\n${JSON.stringify(json.control_module_states, null, 2)}`);
           } else {
-            markdownParts.push(`### ${s.subsystem_id} — ${s.state_name} (Step Table)\nPermissives: ${JSON.stringify(json.permissives)}\nSteps: ${JSON.stringify(json.steps, null, 2)}`);
+            markdownParts.push(`### ${s.unit_id} — ${s.state_name} (Step Table)\nPermissives: ${JSON.stringify(json.permissives)}\nSteps: ${JSON.stringify(json.steps, null, 2)}`);
           }
         } else if (s.section_type === "alarm_specification") {
           markdownParts.push(`# Section 5 — Alarms\n${JSON.stringify(json.alarm_tiers, null, 2)}\nCause & Effect: ${JSON.stringify(json.cause_effect_matrix, null, 2)}`);
@@ -682,11 +682,11 @@ export async function generateSpec(
         else if (s.section_type === "introduction") {
           markdownParts.push(`# Introduction\n${json.overview}\n\n${json.brief_description}`);
         } else if (s.section_type === "functional_state") {
-          markdownParts.push(`### ${s.subsystem_id} — ${s.state_name}\n${json.state_narrative}`);
+          markdownParts.push(`### ${s.unit_id} — ${s.state_name}\n${json.state_narrative}`);
         } else if (s.section_type === "alarm_table") {
           markdownParts.push(`## Alarms\n${JSON.stringify(json.alarm_tiers, null, 2)}`);
         } else if (s.section_type === "settings_table") {
-          markdownParts.push(`## Settings\n${JSON.stringify(json.subsystems, null, 2)}`);
+          markdownParts.push(`## Settings\n${JSON.stringify(json.units, null, 2)}`);
         }
       }
       const fullMarkdown = markdownParts.join("\n\n");

@@ -119,8 +119,8 @@ function fallbackToSections(
     const matchedSections = sections.filter((s) => {
       const heading = s.heading.toLowerCase();
       const name = target.name.toLowerCase();
-      const subsystem = target.subsystem.toLowerCase();
-      return heading.includes(name) || heading.includes(subsystem) || name.includes(heading);
+      const unit = target.unit.toLowerCase();
+      return heading.includes(name) || heading.includes(unit) || name.includes(heading);
     });
 
     if (matchedSections.length > 0) {
@@ -146,7 +146,7 @@ function fallbackSingleTarget(
   const sections = splitIntoSections(specText);
   const matched = sections.filter((s) => {
     const heading = s.heading.toLowerCase();
-    return heading.includes(target.name.toLowerCase()) || heading.includes(target.subsystem.toLowerCase());
+    return heading.includes(target.name.toLowerCase()) || heading.includes(target.unit.toLowerCase());
   });
 
   if (matched.length === 0) return null;
@@ -179,9 +179,9 @@ function buildPreamble(target: SpecExtractionTarget, survey: SpecSurveyResult): 
 
   const lines = [
     `PROJECT: ${survey.project_name}`,
-    `ALL SUBSYSTEMS: ${survey.extraction_targets.map((t) => t.subsystem).filter((v, i, a) => a.indexOf(v) === i).join(", ")}`,
-    `YOU ARE EXTRACTING: ${target.name} (subsystem: ${target.subsystem})`,
-    `EXPECTED DEVICES: ${target.expected_device_count}`,
+    `ALL SUBSYSTEMS: ${survey.extraction_targets.map((t) => t.unit).filter((v, i, a) => a.indexOf(v) === i).join(", ")}`,
+    `YOU ARE EXTRACTING: ${target.name} (unit: ${target.unit})`,
+    `EXPECTED DEVICES: ${target.expected_control_module_count}`,
     target.expected_sequences.length > 0
       ? `EXPECTED SEQUENCES: ${target.expected_sequences.join(", ")}`
       : null,
@@ -193,7 +193,7 @@ function buildPreamble(target: SpecExtractionTarget, survey: SpecSurveyResult): 
     cc.shared_interlocks.length > 0 ? `  Shared interlocks: ${cc.shared_interlocks.join(", ")}` : null,
     "",
     allTargetNames.length > 0
-      ? `OTHER TARGETS (do NOT extract devices belonging to these): ${allTargetNames.join(", ")}`
+      ? `OTHER TARGETS (do NOT extract control_modules belonging to these): ${allTargetNames.join(", ")}`
       : null,
   ];
 

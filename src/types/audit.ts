@@ -180,7 +180,7 @@ export interface ExtractionStats {
   udt_count?: number;
   tag_count?: number;
   hmi_screen_count?: number;
-  hw_device_count?: number;
+  hw_control_module_count?: number;
   library_count?: number;
 }
 
@@ -354,7 +354,7 @@ export interface AuditTag {
 export interface AuditHardwareConfig {
   id: string;
   audit_project_id: string;
-  devices: HwDevice[];
+  control_modules: HwDevice[];
   io_modules: HwIoModule[];
   networks: HwNetwork[];
   drives: HwDrive[];
@@ -387,7 +387,7 @@ export interface HwNetwork {
   name: string;
   type: string;
   subnet_mask: string | null;
-  devices: string[];
+  control_modules: string[];
 }
 
 export interface HwDrive {
@@ -638,7 +638,7 @@ export type SpecProvenanceValue =
   | "interview"
   | "engineer_edit";
 
-/** Maps spec paths ("hierarchy.subsystems.0.assemblies.0.devices.0") → source. */
+/** Maps spec paths ("hierarchy.units.0.equipment_modules.0.control_modules.0") → source. */
 export type SpecProvenanceMap = Record<string, SpecProvenanceValue>;
 
 // ---------------------------------------------------------------------------
@@ -649,8 +649,8 @@ export const FB_ROLES = [
   "device",
   "io_mapper",
   "dispatcher",
-  "assembly",
-  "subsystem",
+  "equipment_module",
+  "unit",
   "sequence",
   "utility",
   "safety",
@@ -664,9 +664,9 @@ export const FB_ROLES = [
 export type FbRole = (typeof FB_ROLES)[number];
 
 export interface HierarchyAssignment {
-  subsystem_id?: string;
-  assembly_id?: string;
-  device_id?: string;
+  unit_id?: string;
+  equipment_module_id?: string;
+  control_module_id?: string;
 }
 
 export interface AuditFbClassification {
@@ -754,7 +754,7 @@ export type ReferenceDocType =
 export type ReferenceDocParseStatus = "pending" | "parsed" | "failed";
 
 export interface ReferenceDocPriors {
-  devices?: Array<{ name: string; tag?: string; description?: string }>;
+  control_modules?: Array<{ name: string; tag?: string; description?: string }>;
   tags?: Array<{
     tag: string;
     address?: string;
@@ -821,7 +821,7 @@ export interface AuditModuleChannel {
 }
 
 // ---------------------------------------------------------------------------
-// IO-Link devices (master-port-device hierarchy). See §12.6.
+// IO-Link control_modules (master-port-device hierarchy). See §12.6.
 // ---------------------------------------------------------------------------
 
 export interface AuditIoLinkDevice {

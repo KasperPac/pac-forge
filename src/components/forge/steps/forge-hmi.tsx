@@ -52,7 +52,7 @@ function screenRoleLabel(role: HmiScreenSpec["screenRole"] | undefined): string 
     case "template_shell": return "Template Shell";
     case "overview": return "Overview";
     case "device_faceplate": return "Device Faceplate";
-    case "subsystem_checklist": return "Subsystem Checklist";
+    case "unit_checklist": return "Subsystem Checklist";
     case "device_checklist": return "Device Checklist";
     case "alarm_summary": return "Alarm Summary";
     case "trend": return "Trend";
@@ -420,9 +420,9 @@ export function ForgeHmi({
                         <div>
                           <span className="text-foreground">Screen #:</span> {selectedScreen.screenNumber ?? "n/a"}
                         </div>
-                        {selectedScreen.subsystem && (
+                        {selectedScreen.unit && (
                           <div>
-                            <span className="text-foreground">Subsystem:</span> {selectedScreen.subsystem}
+                            <span className="text-foreground">Subsystem:</span> {selectedScreen.unit}
                           </div>
                         )}
                         {selectedScreen.deviceType && (

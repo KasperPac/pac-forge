@@ -16,7 +16,7 @@ const monitor: MonitorV2 = {
 };
 
 describe("FlatStep monitors round-trip", () => {
-  it("preserves StepV2.monitors through toFlatSteps → fromFlatSteps", () => {
+  it("preserves PhaseStep.monitors through toFlatSteps → fromFlatSteps", () => {
     const state: SequentialStateV2 = {
       permissives: [],
       notes: null,

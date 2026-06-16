@@ -8,9 +8,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { InterAssemblyInterlockEffectSchema } from "@/types/spec-contract-v2";
+import { InterEquipmentModuleInterlockEffectSchema } from "@/types/spec-contract-v2";
 import type {
-  InterAssemblyInterlockEffect,
+  InterEquipmentModuleInterlockEffect,
   CompletionCriterion,
 } from "@/types/spec-contract-v2";
 import type { ProposedInterlock } from "@/lib/spec-builder/migrate/types";
@@ -26,11 +26,11 @@ function confidenceClass(c: number): string {
   return "bg-red-100 text-red-900 border-red-200";
 }
 
-const EFFECT_OPTIONS = InterAssemblyInterlockEffectSchema.options;
+const EFFECT_OPTIONS = InterEquipmentModuleInterlockEffectSchema.options;
 const CONDITION_KINDS = ["tag_equals", "tag_compare", "expression", "placeholder"] as const;
 
 export function MigrateInterlockRow({ row, onChange }: Props) {
-  function setEffect(effect: InterAssemblyInterlockEffect) {
+  function setEffect(effect: InterEquipmentModuleInterlockEffect) {
     onChange({ ...row, effect });
   }
 
@@ -61,13 +61,13 @@ export function MigrateInterlockRow({ row, onChange }: Props) {
     <div className="grid grid-cols-[100px_100px_1fr_120px_2fr_60px] gap-2 items-center px-3 py-2 border-b text-sm last:border-b-0">
       <div className="font-mono text-xs">
         <span className="block text-muted-foreground">{row.interlock_id}</span>
-        {row.source_assembly}
+        {row.source_equipment_module}
       </div>
-      <div className="font-mono text-xs">{row.target_assembly}</div>
+      <div className="font-mono text-xs">{row.target_equipment_module}</div>
       <div className="text-xs text-muted-foreground truncate" title={row.original_prose_condition}>
         {row.original_prose_condition}
       </div>
-      <Select value={row.effect} onValueChange={(v) => setEffect(v as InterAssemblyInterlockEffect)}>
+      <Select value={row.effect} onValueChange={(v) => setEffect(v as InterEquipmentModuleInterlockEffect)}>
         <SelectTrigger className="h-8">
           <SelectValue />
         </SelectTrigger>

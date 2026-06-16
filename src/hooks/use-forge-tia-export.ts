@@ -141,7 +141,7 @@ export function useForgeTiaExport() {
 
       const allArtifacts: ForgeArtifact[] = [
         ...session.device_artifacts,
-        ...(session.assembly_artifacts ?? []),
+        ...(session.equipment_module_artifacts ?? []),
         ...session.process_artifacts,
       ];
 

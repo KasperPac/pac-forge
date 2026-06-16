@@ -2,57 +2,57 @@
  * Prompt builders for FDS co-author conversational interview.
  *
  * The AI acts as a senior automation engineer asking targeted questions
- * about each assembly's behavior, then building structured tables from
+ * about each equipment_module's behavior, then building structured tables from
  * the engineer's natural language answers.
  *
  * Responses include conversational prose AND embedded JSON blocks
  * for table updates, extracted client-side.
  */
 import type {
-  AssemblyConfig,
-  SubsystemConfig,
+  EquipmentModuleConfig,
+  UnitConfig,
   InstrumentTag,
   OperatingState,
-  DeviceStateEntry,
+  ControlModuleStateEntry,
   SequentialStateData,
 } from "@/types/spec-builder";
 
 // ---------------------------------------------------------------------------
-// Per-assembly interview
+// Per-equipment_module interview
 // ---------------------------------------------------------------------------
 
 /**
- * System prompt for the assembly-level co-authoring conversation.
+ * System prompt for the equipment-module-level co-authoring conversation.
  * Stays stable across turns for prompt caching.
  */
 export function buildFdsInterviewSystemPrompt(
-  assembly: AssemblyConfig,
-  subsystem: SubsystemConfig,
+  equipment_module: EquipmentModuleConfig,
+  unit: UnitConfig,
   tags: InstrumentTag[],
-  staticStates: Record<string, DeviceStateEntry[]>,
+  staticStates: Record<string, ControlModuleStateEntry[]>,
   completedSequentialStates: Record<string, SequentialStateData>,
   allStates: OperatingState[],
 ): string {
-  // Collect this assembly's tags
-  const assemblyTagNames = new Set<string>();
-  for (const dev of assembly.devices) {
+  // Collect this equipment_module's tags
+  const equipment_moduleTagNames = new Set<string>();
+  for (const dev of equipment_module.control_modules) {
     for (const sig of dev.io_signals) {
-      assemblyTagNames.add(sig.tag);
+      equipment_moduleTagNames.add(sig.tag);
     }
   }
-  const assemblyTags = tags.filter((t) => assemblyTagNames.has(t.tag));
+  const equipment_moduleTags = tags.filter((t) => equipment_moduleTagNames.has(t.tag));
 
-  const deviceList = assembly.devices.map((d) => {
+  const deviceList = equipment_module.control_modules.map((d) => {
     const signals = d.io_signals.map((s) => `${s.tag} (${s.signal_type})`).join(", ");
-    return `  - ${d.device_name} (${d.device_class}${d.is_safety ? ", SAFETY" : ""}): ${signals}`;
+    return `  - ${d.control_module_name} (${d.control_module_class}${d.is_safety ? ", SAFETY" : ""}): ${signals}`;
   }).join("\n");
 
-  const outputTags = assemblyTags
+  const outputTags = equipment_moduleTags
     .filter((t) => t.signal_direction === "DO" || t.signal_direction === "AO")
     .map((t) => `  - ${t.tag}: ${t.description} (${t.signal_direction})`)
     .join("\n");
 
-  const inputTags = assemblyTags
+  const inputTags = equipment_moduleTags
     .filter((t) => t.signal_direction === "DI" || t.signal_direction === "AI")
     .map((t) => `  - ${t.tag}: ${t.description} (${t.signal_direction})`)
     .join("\n");
@@ -78,15 +78,15 @@ export function buildFdsInterviewSystemPrompt(
     .join(", ");
   const firstSequentialStateId = sequentialStatesList[0]?.state_id ?? "";
 
-  return `You are a senior automation engineer co-authoring a functional specification with the project engineer. You are working on Assembly "${assembly.assembly_name}" (assembly_id: "${assembly.assembly_id}") within subsystem "${subsystem.subsystem_name}" (subsystem_id: "${subsystem.subsystem_id}", ${subsystem.equipment_type}).
+  return `You are a senior automation engineer co-authoring a functional specification with the project engineer. You are working on Assembly "${equipment_module.equipment_module_name}" (equipment_module_id: "${equipment_module.equipment_module_id}") within unit "${unit.unit_name}" (unit_id: "${unit.unit_id}", ${unit.equipment_type}).
 
 IMMUTABLE IDENTIFIERS — ECHO BACK VERBATIM. DO NOT MUTATE.
-- assembly_id: ${assembly.assembly_id}
-- subsystem_id: ${subsystem.subsystem_id}
+- equipment_module_id: ${equipment_module.equipment_module_id}
+- unit_id: ${unit.unit_id}
 - Every sequential state is referenced by its exact state_id from the list below; never invent or paraphrase state_ids.
 
 YOUR ROLE:
-- Ask targeted, specific questions about how this assembly operates
+- Ask targeted, specific questions about how this equipment_module operates
 - Build structured step tables from the engineer's natural language answers
 - Challenge vague answers — push for specific tag references, timeouts, and fault responses
 - Pre-fill what you can infer, but always confirm with the engineer
@@ -173,33 +173,33 @@ Keep your conversational text concise — the engineer is an expert, not a stude
 }
 
 /**
- * Generate the AI's opening message for an assembly interview.
- * This is the first assistant message — introduces the assembly and asks the first question.
+ * Generate the AI's opening message for an equipment_module interview.
+ * This is the first assistant message — introduces the equipment_module and asks the first question.
  */
 export function buildFdsOpeningMessage(
-  assembly: AssemblyConfig,
+  equipment_module: EquipmentModuleConfig,
   tags: InstrumentTag[],
   firstSequentialState: OperatingState,
 ): string {
-  const assemblyTagNames = new Set<string>();
-  for (const dev of assembly.devices) {
+  const equipment_moduleTagNames = new Set<string>();
+  for (const dev of equipment_module.control_modules) {
     for (const sig of dev.io_signals) {
-      assemblyTagNames.add(sig.tag);
+      equipment_moduleTagNames.add(sig.tag);
     }
   }
-  const assemblyTags = tags.filter((t) => assemblyTagNames.has(t.tag));
+  const equipment_moduleTags = tags.filter((t) => equipment_moduleTagNames.has(t.tag));
 
-  const outputs = assemblyTags
+  const outputs = equipment_moduleTags
     .filter((t) => t.signal_direction === "DO" || t.signal_direction === "AO")
     .map((t) => `${t.tag} (${t.description})`)
     .join(", ");
 
-  const inputs = assemblyTags
+  const inputs = equipment_moduleTags
     .filter((t) => t.signal_direction === "DI" || t.signal_direction === "AI")
     .map((t) => `${t.tag} (${t.description})`)
     .join(", ");
 
-  return `Generate the opening message for the assembly interview. The assembly is "${assembly.assembly_name}" (${assembly.description || "no description"}).
+  return `Generate the opening message for the equipment_module interview. The equipment_module is "${equipment_module.equipment_module_name}" (${equipment_module.description || "no description"}).
 
 Outputs: ${outputs}
 Inputs: ${inputs}
@@ -212,43 +212,43 @@ Ask about the "${firstSequentialState.state_name}" state first. Be specific — 
 // ---------------------------------------------------------------------------
 
 /**
- * System prompt for the subsystem-level orchestration conversation.
- * Used after all individual assemblies are complete.
+ * System prompt for the unit-level orchestration conversation.
+ * Used after all individual equipment_modules are complete.
  */
 export function buildFdsOrchestrationSystemPrompt(
-  subsystem: SubsystemConfig,
-  assemblySummaries: Array<{
-    assembly_name: string;
-    assembly_id: string;
+  unit: UnitConfig,
+  equipment_moduleSummaries: Array<{
+    equipment_module_name: string;
+    equipment_module_id: string;
     sequential_states: Record<string, SequentialStateData>;
   }>,
   sequentialStates: OperatingState[],
 ): string {
-  const assemblySummaryText = assemblySummaries.map((a) => {
+  const equipment_moduleSummaryText = equipment_moduleSummaries.map((a) => {
     const stateText = Object.entries(a.sequential_states)
       .map(([stateId, data]) => {
         const stateName = sequentialStates.find((s) => s.state_id === stateId)?.state_name ?? stateId;
         return `    ${stateName}: ${data.steps.length} steps, ${data.permissives.length} permissives`;
       }).join("\n");
-    return `  ${a.assembly_name} (${a.assembly_id}):\n${stateText}`;
+    return `  ${a.equipment_module_name} (${a.equipment_module_id}):\n${stateText}`;
   }).join("\n");
 
-  return `You are a senior automation engineer defining how assemblies coordinate within subsystem "${subsystem.subsystem_name}" (${subsystem.equipment_type}).
+  return `You are a senior automation engineer defining how equipment_modules coordinate within unit "${unit.unit_name}" (${unit.equipment_type}).
 
-Individual assembly behaviors are already defined. Now you need to define:
-1. The ORDER in which assemblies execute for each sequential state
-2. SHARED PERMISSIVES that gate the entire subsystem (not just one assembly)
-3. INTER-ASSEMBLY INTERLOCKS — conditions where one assembly's state affects another
+Individual equipment_module behaviors are already defined. Now you need to define:
+1. The ORDER in which equipment_modules execute for each sequential state
+2. SHARED PERMISSIVES that gate the entire unit (not just one equipment_module)
+3. INTER-ASSEMBLY INTERLOCKS — conditions where one equipment_module's state affects another
 
 ASSEMBLIES IN THIS SUBSYSTEM:
-${assemblySummaryText}
+${equipment_moduleSummaryText}
 
 SEQUENTIAL STATES: ${sequentialStates.map((s) => s.state_name).join(", ")}
 
 Ask the engineer about:
-- Execution order: Do assemblies start simultaneously, sequentially, or in groups?
-- Dependencies: Must assembly A reach a certain state before assembly B can start?
-- Shared conditions: Are there subsystem-wide permissives beyond individual assembly permissives?
+- Execution order: Do equipment_modules start simultaneously, sequentially, or in groups?
+- Dependencies: Must equipment_module A reach a certain state before equipment_module B can start?
+- Shared conditions: Are there unit-wide permissives beyond individual equipment_module permissives?
 
 RESPONSE FORMAT:
 When you propose orchestration, include a fenced JSON block:
@@ -256,13 +256,13 @@ When you propose orchestration, include a fenced JSON block:
 \`\`\`json
 {
   "state_id": "starting",
-  "assembly_order": ["asm_1", "asm_2", "asm_3"],
+  "equipment_module_order": ["asm_1", "asm_2", "asm_3"],
   "shared_permissives": ["ESTOP_01 = TRUE"],
-  "inter_assembly_interlocks": [
+  "inter_equipment_module_interlocks": [
     {
-      "source_assembly": "asm_1",
+      "source_equipment_module": "asm_1",
       "source_condition": "LFT01_ZSL01 = TRUE",
-      "target_assembly": "asm_2",
+      "target_equipment_module": "asm_2",
       "effect": "Permissive for CV01 Starting"
     }
   ]
@@ -276,13 +276,13 @@ Keep it concise. The engineer knows their machine.`;
  * Opening message for orchestration interview.
  */
 export function buildFdsOrchestrationOpeningMessage(
-  subsystem: SubsystemConfig,
-  assemblyNames: string[],
+  unit: UnitConfig,
+  equipment_moduleNames: string[],
   firstSequentialState: OperatingState,
 ): string {
-  return `Generate the opening message for subsystem orchestration. Subsystem "${subsystem.subsystem_name}" has ${assemblyNames.length} assemblies: ${assemblyNames.join(", ")}.
+  return `Generate the opening message for unit orchestration. Subsystem "${unit.unit_name}" has ${equipment_moduleNames.length} equipment_modules: ${equipment_moduleNames.join(", ")}.
 
-Ask about the "${firstSequentialState.state_name}" state: in what order do the assemblies execute, and are there dependencies between them? Be specific and concise.`;
+Ask about the "${firstSequentialState.state_name}" state: in what order do the equipment_modules execute, and are there dependencies between them? Be specific and concise.`;
 }
 
 // ---------------------------------------------------------------------------

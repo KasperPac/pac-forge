@@ -1,13 +1,13 @@
 // src/lib/spec-builder/random/__tests__/sequence-builder.test.ts
 import { describe, expect, it } from "vitest";
-import { AssemblyContractSchema, StepV2Schema } from "@/types/spec-contract-v2";
-import { buildAssemblyContracts, type ResolvedAssembly, type ResolvedDevice } from "../sequence-builder";
+import { EquipmentModuleContractSchema, PhaseStepSchema } from "@/types/spec-contract-v2";
+import { buildEquipmentModuleContracts, type ResolvedAssembly, type ResolvedDevice } from "../sequence-builder";
 
 function dev(id: string, name: string, deviceClass: string, prefix: string): ResolvedDevice {
   return {
-    device_id: id,
-    device_name: name,
-    device_class: deviceClass as ResolvedDevice["device_class"],
+    control_module_id: id,
+    control_module_name: name,
+    control_module_class: deviceClass as ResolvedDevice["control_module_class"],
     description: "",
     is_safety: false,
     tag_prefix: prefix,
@@ -19,24 +19,24 @@ function dev(id: string, name: string, deviceClass: string, prefix: string): Res
   };
 }
 
-function asm(id: string, name: string, devices: ResolvedDevice[]): ResolvedAssembly {
-  return { assembly_id: id, assembly_name: name, subsystem_id: "11111111-1111-4111-8111-1111111111ff", devices };
+function asm(id: string, name: string, control_modules: ResolvedDevice[]): ResolvedAssembly {
+  return { equipment_module_id: id, equipment_module_name: name, unit_id: "11111111-1111-4111-8111-1111111111ff", control_modules };
 }
 
-describe("buildAssemblyContracts", () => {
+describe("buildEquipmentModuleContracts", () => {
   const aId = "11111111-1111-4111-8111-111111111001";
   const inputs: ResolvedAssembly[] = [
     asm(aId, "CV01", [dev("11111111-1111-4111-8111-111111111aaa", "M01", "motor", "CV01_M01")]),
   ];
 
-  it("produces an AssemblyContract per assembly that passes Zod", () => {
-    const out = buildAssemblyContracts(inputs);
+  it("produces an EquipmentModuleContract per equipment_module that passes Zod", () => {
+    const out = buildEquipmentModuleContracts(inputs);
     expect(out[aId]).toBeDefined();
-    expect(() => AssemblyContractSchema.parse(out[aId])).not.toThrow();
+    expect(() => EquipmentModuleContractSchema.parse(out[aId])).not.toThrow();
   });
 
   it("STARTING sequence contains a step that targets the motor's FB_RUN tag with tag_equals=true", () => {
-    const out = buildAssemblyContracts(inputs);
+    const out = buildEquipmentModuleContracts(inputs);
     const starting = out[aId].sequential_states["3"]; // STATE_ID_STARTING
     expect(starting).toBeDefined();
     expect(starting.steps.length).toBeGreaterThan(0);
@@ -51,7 +51,7 @@ describe("buildAssemblyContracts", () => {
   });
 
   it("every step has both v1 and v2 fields populated", () => {
-    const out = buildAssemblyContracts(inputs);
+    const out = buildEquipmentModuleContracts(inputs);
     const starting = out[aId].sequential_states["3"];
     for (const step of starting.steps) {
       expect(step.step).toBeTypeOf("number");
@@ -61,7 +61,7 @@ describe("buildAssemblyContracts", () => {
       expect(step.branch_id).toBeTypeOf("string");
       expect(Array.isArray(step.actions)).toBe(true);
       expect(Array.isArray(step.transitions)).toBe(true);
-      expect(() => StepV2Schema.parse(step)).not.toThrow();
+      expect(() => PhaseStepSchema.parse(step)).not.toThrow();
     }
   });
 
@@ -72,7 +72,7 @@ describe("buildAssemblyContracts", () => {
         dev("11111111-1111-4111-8111-111111111bbb", "M02", "motor", "CV01_M02"),
       ]),
     ];
-    const out = buildAssemblyContracts(twoDevices);
+    const out = buildEquipmentModuleContracts(twoDevices);
     const steps = out[aId].sequential_states["3"].steps;
     expect(steps.length).toBeGreaterThanOrEqual(2);
     const first = steps[0];
@@ -84,20 +84,20 @@ describe("buildAssemblyContracts", () => {
   });
 
   it("the last step in a sequence has no transitions", () => {
-    const out = buildAssemblyContracts(inputs);
+    const out = buildEquipmentModuleContracts(inputs);
     const steps = out[aId].sequential_states["3"].steps;
     const last = steps[steps.length - 1];
     expect(last.transitions ?? []).toHaveLength(0);
   });
 
-  it("static states IDLE / COMPLETE / E_STOP exist with empty devices arrays (StaticStateV2 shape)", () => {
-    const out = buildAssemblyContracts(inputs);
+  it("static states IDLE / COMPLETE / E_STOP exist with empty control_modules arrays (StaticStateV2 shape)", () => {
+    const out = buildEquipmentModuleContracts(inputs);
     for (const k of ["4", "17", "9"]) {
       const s = out[aId].static_states[k];
       expect(s).toBeDefined();
-      // StaticStateV2 shape, not bare DeviceStateEntry[]
+      // StaticStateV2 shape, not bare ControlModuleStateEntry[]
       expect(Array.isArray(s)).toBe(false);
-      if (!Array.isArray(s)) expect(s.devices).toEqual([]);
+      if (!Array.isArray(s)) expect(s.control_modules).toEqual([]);
     }
   });
 });

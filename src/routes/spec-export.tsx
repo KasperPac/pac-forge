@@ -27,7 +27,7 @@ import { useProject } from "@/hooks/use-projects";
 import { useUnconfirmedLock } from "@/hooks/use-unconfirmed-lock";
 import { UnconfirmedLockBanner } from "@/components/spec-builder/migrate/unconfirmed-lock-banner";
 import {
-  migrateSubsystemConfig,
+  migrateUnitConfig,
   migrateOperatingStates,
 } from "@/types/spec-builder";
 
@@ -42,8 +42,8 @@ export default function SpecExportPage() {
     if (!rawSpec) return null;
     return {
       ...rawSpec,
-      confirmed_subsystems: rawSpec.confirmed_subsystems?.length
-        ? migrateSubsystemConfig(rawSpec.confirmed_subsystems)
+      confirmed_units: rawSpec.confirmed_units?.length
+        ? migrateUnitConfig(rawSpec.confirmed_units)
         : [],
       confirmed_states: rawSpec.confirmed_states?.length
         ? migrateOperatingStates(rawSpec.confirmed_states)

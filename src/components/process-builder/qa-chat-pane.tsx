@@ -93,7 +93,7 @@ export function QaChatPane({ onSend, sending, onClear, onProceed, canProceed }: 
                 Describe your process control system
               </div>
               <div className="mx-auto max-w-xs font-mono text-xs text-muted-foreground/60">
-                The PM will ask questions to understand your devices, IO needs, and control logic before generating code in stages.
+                The PM will ask questions to understand your control_modules, IO needs, and control logic before generating code in stages.
               </div>
               <div className="mx-auto max-w-sm space-y-1 pt-2 text-left">
                 <div className="font-mono text-[10px] font-medium text-muted-foreground/60">Examples:</div>

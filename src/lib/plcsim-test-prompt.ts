@@ -163,7 +163,7 @@ export function buildPlcsimTestUserMessage(
       parts.push("| Tag Name | Signal Type | Data Type | Description | Device |");
       parts.push("|----------|-------------|-----------|-------------|--------|");
       for (const io of inputs) {
-        parts.push(`| ${io.tag_name} | ${io.signal_type} | ${io.data_type} | ${io.description} | ${io.device_id ?? "-"} |`);
+        parts.push(`| ${io.tag_name} | ${io.signal_type} | ${io.data_type} | ${io.description} | ${io.control_module_id ?? "-"} |`);
       }
     } else {
       parts.push("(No physical inputs found in IO list)");
@@ -174,7 +174,7 @@ export function buildPlcsimTestUserMessage(
       parts.push("| Tag Name | Signal Type | Data Type | Description | Device |");
       parts.push("|----------|-------------|-----------|-------------|--------|");
       for (const io of outputs) {
-        parts.push(`| ${io.tag_name} | ${io.signal_type} | ${io.data_type} | ${io.description} | ${io.device_id ?? "-"} |`);
+        parts.push(`| ${io.tag_name} | ${io.signal_type} | ${io.data_type} | ${io.description} | ${io.control_module_id ?? "-"} |`);
       }
     } else {
       parts.push("(No physical outputs found in IO list)");
@@ -197,11 +197,11 @@ export function buildPlcsimTestUserMessage(
       parts.push("- Study the **interlocks** and **safety conditions** in the Device Linkage carefully.");
       parts.push("- You cannot shortcut dependencies by writing directly to a downstream device's input.");
       parts.push("  The device call FC overwrites it from the upstream device's output every scan.");
-      parts.push("- Example: E-Stop → downstream devices:");
+      parts.push("- Example: E-Stop → downstream control_modules:");
       parts.push("  1. Write \"DB_Inputs\".ESTOP_OK := TRUE (healthy NC contact signal)");
       parts.push("  2. Write \"DB_Inputs\".PB_RESET := TRUE, wait for resetHoldTime, then write FALSE");
       parts.push("  3. Wait for ControlEStop FB to process → \"InstESTOP\".safetyOk goes TRUE");
-      parts.push("  4. Only THEN will downstream devices (fans, motors) see their safety interlock satisfied");
+      parts.push("  4. Only THEN will downstream control_modules (fans, motors) see their safety interlock satisfied");
       parts.push("  Writing \"InstFAN01\".safetyOk := TRUE directly will NOT work — the call FC overwrites it from \"InstESTOP\".safetyOk.");
       parts.push("- Walk the FULL dependency chain for each device before writing test actions.");
       parts.push("");
@@ -281,7 +281,7 @@ export function buildPlcsimTestUserMessage(
           parts.push("| Step | Branch | Condition | Action | Output | Next | Type | Devices |");
           parts.push("|------|--------|-----------|--------|--------|------|------|---------|");
           for (const row of seq.rows) {
-            parts.push(`| ${row.step} | ${row.branch ?? "-"} | ${row.condition} | ${row.action} | ${row.output ?? "-"} | ${row.next} | ${row.type} | ${row.devices.join(", ")} |`);
+            parts.push(`| ${row.step} | ${row.branch ?? "-"} | ${row.condition} | ${row.action} | ${row.output ?? "-"} | ${row.next} | ${row.type} | ${row.control_modules.join(", ")} |`);
           }
         }
 
@@ -291,7 +291,7 @@ export function buildPlcsimTestUserMessage(
           for (const step of seq.steps) {
             const conds = step.transition?.conditions?.map(c => c.description).join(" + ") ?? step.completionCriteria ?? "";
             const actions = step.actions?.map(a => a.description).join("; ") ?? step.action ?? "";
-            parts.push(`- Step ${step.stepNumber}: ${actions} | Transition: ${conds} | Devices: ${step.devicesInvolved.join(", ")}`);
+            parts.push(`- Step ${step.stepNumber}: ${actions} | Transition: ${conds} | Devices: ${step.control_modulesInvolved.join(", ")}`);
           }
         }
       }
@@ -337,7 +337,7 @@ export function buildPlcsimTestUserMessage(
   const excluded = options?.excludeDevices;
   if (excluded?.length) {
     parts.push("\n## Devices with Template Tests (DO NOT generate tests for these)");
-    parts.push("The following devices already have proven test procedures from templates. Skip them entirely:");
+    parts.push("The following control_modules already have proven test procedures from templates. Skip them entirely:");
     for (const name of excluded) {
       parts.push(`- ${name}`);
     }

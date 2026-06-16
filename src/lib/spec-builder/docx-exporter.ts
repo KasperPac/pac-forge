@@ -249,7 +249,7 @@ function renderSystemOverview(section: SpecSection): (Paragraph | Table)[] {
         headerRow(["Subsystem", "DI", "DO", "AI", "AO", "Total"]),
         ...c.io_summary.map((r: IoSummaryRow) => new TableRow({
           children: [
-            tableCell(r.subsystem_name, { width: 40 }),
+            tableCell(r.unit_name, { width: 40 }),
             tableCell(String(r.di_count), { width: 12 }),
             tableCell(String(r.do_count), { width: 12 }),
             tableCell(String(r.ai_count), { width: 12 }),
@@ -282,19 +282,19 @@ function renderSystemOverview(section: SpecSection): (Paragraph | Table)[] {
 
   // Machine Hierarchy — deterministic tree: Subsystem → Assembly → Device
   const hierarchy = (c as unknown as { machine_hierarchy?: Array<{
-    subsystem_id?: string;
-    subsystem_name: string;
+    unit_id?: string;
+    unit_name: string;
     equipment_type: string;
     description?: string;
     excluded?: boolean;
-    assemblies: Array<{
-      assembly_id?: string;
-      assembly_name: string;
+    equipment_modules: Array<{
+      equipment_module_id?: string;
+      equipment_module_name: string;
       description?: string;
-      devices: Array<{
-        device_id?: string;
-        device_name: string;
-        device_class: string;
+      control_modules: Array<{
+        control_module_id?: string;
+        control_module_name: string;
+        control_module_class: string;
         is_safety: boolean;
         description?: string;
         signal_count: number;
@@ -305,11 +305,11 @@ function renderSystemOverview(section: SpecSection): (Paragraph | Table)[] {
   if (hierarchy?.length) {
     children.push(heading("1.5 Machine Hierarchy", HeadingLevel.HEADING_2));
     children.push(...prose(
-      "The machine is decomposed into subsystems (functional stations), each comprising coordinated assemblies of physical devices. Every device exposes one or more IO signals to the PLC.",
+      "The machine is decomposed into units (functional stations), each comprising coordinated equipment_modules of physical control_modules. Every device exposes one or more IO signals to the PLC.",
     ));
     for (const sub of hierarchy) {
       children.push(new Paragraph({
-        children: [new TextRun({ text: `${sub.subsystem_name}`, bold: true, size: 22, font: FONT }),
+        children: [new TextRun({ text: `${sub.unit_name}`, bold: true, size: 22, font: FONT }),
           new TextRun({ text: `  (${sub.equipment_type})`, italics: true, size: 20, font: FONT })],
         spacing: { before: 160, after: 60 },
       }));
@@ -320,9 +320,9 @@ function renderSystemOverview(section: SpecSection): (Paragraph | Table)[] {
           indent: { left: 360 },
         }));
       }
-      for (const asm of sub.assemblies) {
+      for (const asm of sub.equipment_modules) {
         children.push(new Paragraph({
-          children: [new TextRun({ text: `• ${asm.assembly_name}`, bold: true, size: 21, font: FONT })],
+          children: [new TextRun({ text: `• ${asm.equipment_module_name}`, bold: true, size: 21, font: FONT })],
           spacing: { before: 80, after: 40 },
           indent: { left: 360 },
         }));
@@ -333,13 +333,13 @@ function renderSystemOverview(section: SpecSection): (Paragraph | Table)[] {
             indent: { left: 720 },
           }));
         }
-        for (const dev of asm.devices) {
+        for (const dev of asm.control_modules) {
           const sigList = dev.signals.map((s) => `${s.tag} (${s.signal_type} ${s.io_address})`).join(", ");
           const safetyMark = dev.is_safety ? " [SAFETY]" : "";
           children.push(new Paragraph({
             children: [
-              new TextRun({ text: `– ${dev.device_name}`, size: 20, font: FONT }),
-              new TextRun({ text: `  [${dev.device_class}${safetyMark}]`, size: 18, font: FONT, italics: true }),
+              new TextRun({ text: `– ${dev.control_module_name}`, size: 20, font: FONT }),
+              new TextRun({ text: `  [${dev.control_module_class}${safetyMark}]`, size: 18, font: FONT, italics: true }),
               new TextRun({ text: `: ${sigList}`, size: 18, font: FONT }),
             ],
             spacing: { after: 40 },
@@ -379,19 +379,19 @@ function renderSystemOverview(section: SpecSection): (Paragraph | Table)[] {
  */
 function hierarchyToContractShape(
   raw: Array<{
-    subsystem_id?: string;
-    subsystem_name: string;
+    unit_id?: string;
+    unit_name: string;
     equipment_type: string;
     description?: string;
     excluded?: boolean;
-    assemblies: Array<{
-      assembly_id?: string;
-      assembly_name: string;
+    equipment_modules: Array<{
+      equipment_module_id?: string;
+      equipment_module_name: string;
       description?: string;
-      devices: Array<{
-        device_id?: string;
-        device_name: string;
-        device_class: string;
+      control_modules: Array<{
+        control_module_id?: string;
+        control_module_name: string;
+        control_module_class: string;
         is_safety: boolean;
         description?: string;
         signals: Array<{ tag: string; signal_type: string; io_address: string }>;
@@ -400,20 +400,20 @@ function hierarchyToContractShape(
   }>,
 ): Hierarchy {
   return {
-    subsystems: raw.map((s) => ({
-      subsystem_id: s.subsystem_id ?? `00000000-0000-0000-0000-${hashTo12Hex(s.subsystem_name)}`,
-      subsystem_name: s.subsystem_name,
+    units: raw.map((s) => ({
+      unit_id: s.unit_id ?? `00000000-0000-0000-0000-${hashTo12Hex(s.unit_name)}`,
+      unit_name: s.unit_name,
       equipment_type: s.equipment_type,
       description: s.description ?? "",
       excluded: Boolean(s.excluded),
-      assemblies: s.assemblies.map((a) => ({
-        assembly_id: a.assembly_id ?? `00000000-0000-0000-0000-${hashTo12Hex(a.assembly_name)}`,
-        assembly_name: a.assembly_name,
+      equipment_modules: s.equipment_modules.map((a) => ({
+        equipment_module_id: a.equipment_module_id ?? `00000000-0000-0000-0000-${hashTo12Hex(a.equipment_module_name)}`,
+        equipment_module_name: a.equipment_module_name,
         description: a.description ?? "",
-        devices: a.devices.map((d) => ({
-          device_id: d.device_id ?? `00000000-0000-0000-0000-${hashTo12Hex(d.device_name)}`,
-          device_name: d.device_name,
-          device_class: d.device_class,
+        control_modules: a.control_modules.map((d) => ({
+          control_module_id: d.control_module_id ?? `00000000-0000-0000-0000-${hashTo12Hex(d.control_module_name)}`,
+          control_module_name: d.control_module_name,
+          control_module_class: d.control_module_class,
           is_safety: d.is_safety,
           description: d.description ?? "",
           io_signals: d.signals.map((sig) => ({
@@ -507,27 +507,27 @@ function renderFunctionalDescriptions(
   const states = migrateOperatingStates(spec.confirmed_states);
 
   equipmentSections.forEach((eq, idx) => {
-    const subsystemName =
-      spec.confirmed_subsystems.find((s) => s.subsystem_id === eq.subsystem_id)?.subsystem_name ??
-      eq.subsystem_id ?? "Unknown";
+    const unitName =
+      spec.confirmed_units.find((s) => s.unit_id === eq.unit_id)?.unit_name ??
+      eq.unit_id ?? "Unknown";
 
     const eqContent = eq.content_json as unknown as EquipmentDescriptionContent;
 
     // Subsystem heading + equipment prose
-    children.push(heading(`3.${idx + 1} ${subsystemName}`, HeadingLevel.HEADING_2));
+    children.push(heading(`3.${idx + 1} ${unitName}`, HeadingLevel.HEADING_2));
     if (eqContent.prose) children.push(...prose(eqContent.prose));
 
     // Device instrumentation table
-    if (eqContent.device_table?.length) {
+    if (eqContent.control_module_table?.length) {
       children.push(p("Control Device Instrumentation:", { bold: true }));
       children.push(new Table({
         width: { size: 100, type: WidthType.PERCENTAGE },
         borders: TABLE_BORDERS,
         rows: [
           headerRow(["Device", "Tag", "Description"]),
-          ...eqContent.device_table.map((row) => new TableRow({
+          ...eqContent.control_module_table.map((row) => new TableRow({
             children: [
-              tableCell(row.device, { width: 30 }),
+              tableCell(row.control_module, { width: 30 }),
               tableCell(row.tag, { width: 20 }),
               tableCell(row.description, { width: 50 }),
             ],
@@ -538,7 +538,7 @@ function renderFunctionalDescriptions(
     }
 
     // Functional description per state
-    const subFuncDescs = funcDescSections.filter((s) => s.subsystem_id === eq.subsystem_id);
+    const subFuncDescs = funcDescSections.filter((s) => s.unit_id === eq.unit_id);
     subFuncDescs.forEach((fd, sIdx) => {
       const stateName = states.find((s) => s.state_id === fd.state_name)?.state_name ?? fd.state_name ?? "";
       const fdContent = fd.content_json as unknown as FunctionalDescriptionContent;
@@ -547,13 +547,13 @@ function renderFunctionalDescriptions(
 
       if (fdContent.pattern === "static") {
         // Pattern A — Device State Table
-        if (fdContent.device_states?.length) {
+        if (fdContent.control_module_states?.length) {
           children.push(new Table({
             width: { size: 100, type: WidthType.PERCENTAGE },
             borders: TABLE_BORDERS,
             rows: [
               headerRow(["Tag", "Description", "State"]),
-              ...fdContent.device_states.map((ds) => {
+              ...fdContent.control_module_states.map((ds) => {
                 // Color-code: STOP/DE-ENERGISED/OFF/FALSE/CLOSED = red, others = green
                 const isOff = /stop|de-energi|off|false|closed|0/i.test(ds.state);
                 return new TableRow({
@@ -839,24 +839,24 @@ function renderLegacyEquipmentGroup(
   children.push(heading(`${startIdx}. Equipment Descriptions`, HeadingLevel.HEADING_1));
 
   equipmentSections.forEach((eq, idx) => {
-    const subsystemName =
-      spec.confirmed_subsystems.find((s) => s.subsystem_id === eq.subsystem_id)?.subsystem_name ??
-      eq.subsystem_id ?? "Unknown";
+    const unitName =
+      spec.confirmed_units.find((s) => s.unit_id === eq.unit_id)?.unit_name ??
+      eq.unit_id ?? "Unknown";
 
     const c = eq.content_json as unknown as EquipmentDescriptionContent;
-    children.push(heading(`${startIdx}.${idx + 1} ${subsystemName}`, HeadingLevel.HEADING_2));
+    children.push(heading(`${startIdx}.${idx + 1} ${unitName}`, HeadingLevel.HEADING_2));
     if (c.prose) children.push(p(c.prose));
 
-    if (c.device_table?.length) {
+    if (c.control_module_table?.length) {
       children.push(p("Control Device Instrumentation:", { bold: true }));
       children.push(new Table({
         width: { size: 100, type: WidthType.PERCENTAGE },
         borders: TABLE_BORDERS,
         rows: [
           headerRow(["Device", "Tag", "Description"]),
-          ...c.device_table.map((row) => new TableRow({
+          ...c.control_module_table.map((row) => new TableRow({
             children: [
-              tableCell(row.device, { width: 30 }),
+              tableCell(row.control_module, { width: 30 }),
               tableCell(row.tag, { width: 20 }),
               tableCell(row.description, { width: 50 }),
             ],
@@ -866,7 +866,7 @@ function renderLegacyEquipmentGroup(
       children.push(spacer());
     }
 
-    const subStates = stateSections.filter((s) => s.subsystem_id === eq.subsystem_id);
+    const subStates = stateSections.filter((s) => s.unit_id === eq.unit_id);
     if (subStates.length > 0) {
       children.push(p("Operating States:", { bold: true }));
       subStates.forEach((state, sIdx) => {
@@ -927,18 +927,18 @@ function renderLegacySettings(
   children.push(heading(`${sectionIdx}. Settings`, HeadingLevel.HEADING_1));
 
   interface SubsystemSettings {
-    subsystem_id: string;
+    unit_id: string;
     process_settings: Array<{ parameter: string; default: string; unit: string; notes: string }>;
     alarm_settings: Array<{ parameter: string; setpoint: string; unit: string; delay: string }>;
   }
 
-  const c = section.content_json as { subsystems?: SubsystemSettings[] };
-  const subs = c.subsystems ?? [];
+  const c = section.content_json as { units?: SubsystemSettings[] };
+  const subs = c.units ?? [];
 
   subs.forEach((sub, sIdx) => {
     const subName =
-      spec.confirmed_subsystems.find((s) => s.subsystem_id === sub.subsystem_id)?.subsystem_name ??
-      sub.subsystem_id;
+      spec.confirmed_units.find((s) => s.unit_id === sub.unit_id)?.unit_name ??
+      sub.unit_id;
     children.push(heading(`${sectionIdx}.${sIdx + 1} ${subName}`, HeadingLevel.HEADING_2));
 
     if (sub.process_settings?.length) {

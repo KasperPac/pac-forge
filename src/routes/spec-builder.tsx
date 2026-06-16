@@ -73,7 +73,7 @@ import {
   computeExportStatus,
 } from "@/components/spec-builder/spec-phase-status";
 import type { SpecProject } from "@/types/spec-builder";
-import { migrateSubsystemConfig, migrateOperatingStates } from "@/types/spec-builder";
+import { migrateUnitConfig, migrateOperatingStates } from "@/types/spec-builder";
 import { RandomFdsDialog } from "@/components/spec-builder/random-fds-dialog";
 import { cn } from "@/lib/utils";
 
@@ -443,11 +443,11 @@ function SpecListItem({
 // ---------------------------------------------------------------------------
 
 function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
-  // Migrate legacy subsystem/state formats to current schema
+  // Migrate legacy unit/state formats to current schema
   const spec = useMemo(() => ({
     ...rawSpec,
-    confirmed_subsystems: rawSpec.confirmed_subsystems?.length
-      ? migrateSubsystemConfig(rawSpec.confirmed_subsystems)
+    confirmed_units: rawSpec.confirmed_units?.length
+      ? migrateUnitConfig(rawSpec.confirmed_units)
       : [],
     confirmed_states: rawSpec.confirmed_states?.length
       ? migrateOperatingStates(rawSpec.confirmed_states)
@@ -460,25 +460,25 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
   const { data: sections } = useSpecSections(spec.id);
   const { data: exports } = useSpecExports(spec.id);
   const { data: fdsSessions } = useFdsSessionsForProject(spec.id);
-  const { data: orchestrations } = useFdsOrchestrationsForProject(spec.id);
+  const { data: unit_procedures } = useFdsOrchestrationsForProject(spec.id);
   const composeFds = useComposeFds();
   const hasRegister = !!register && (register.tags?.length ?? 0) > 0;
-  const hasWizardData = spec.confirmed_subsystems.length > 0 && spec.confirmed_states.length > 0;
+  const hasWizardData = spec.confirmed_units.length > 0 && spec.confirmed_states.length > 0;
   const hasSections = (sections?.length ?? 0) > 0;
   const allApproved = hasSections && (sections ?? []).every((s) => s.approved);
   const hasExports = (exports?.length ?? 0) > 0;
   const states = useMemo(() => migrateOperatingStates(spec.confirmed_states), [spec.confirmed_states]);
 
-  // All assemblies complete when every session across all subsystems is "complete"
-  const totalAssemblies = spec.confirmed_subsystems.reduce((n, s) => n + (s.assemblies?.length ?? 0), 0);
+  // All equipment_modules complete when every session across all units is "complete"
+  const totalAssemblies = spec.confirmed_units.reduce((n, s) => n + (s.equipment_modules?.length ?? 0), 0);
   const completedSessions = (fdsSessions ?? []).filter((s) => s.status === "complete").length;
   const allSessionsComplete = totalAssemblies > 0 && completedSessions >= totalAssemblies;
 
   const handleCompose = async () => {
-    for (const subsystem of spec.confirmed_subsystems) {
-      const sessions = (fdsSessions ?? []).filter((s) => s.subsystem_id === subsystem.subsystem_id);
-      const orchestration = (orchestrations ?? []).find((o) => o.subsystem_id === subsystem.subsystem_id) ?? null;
-      await composeFds.mutateAsync({ spec_project_id: spec.id, subsystem, sessions, orchestration, allStates: states });
+    for (const unit of spec.confirmed_units) {
+      const sessions = (fdsSessions ?? []).filter((s) => s.unit_id === unit.unit_id);
+      const orchestration = (unit_procedures ?? []).find((o) => o.unit_id === unit.unit_id) ?? null;
+      await composeFds.mutateAsync({ spec_project_id: spec.id, unit, sessions, orchestration, allStates: states });
     }
   };
 
@@ -526,7 +526,7 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
       {(!hasRegister || registerExpanded) && (
         <>
           <p className="text-xs text-muted-foreground">
-            Upload the instrument register (Excel/CSV) to extract tags and subsystems.
+            Upload the instrument register (Excel/CSV) to extract tags and units.
           </p>
           <InstrumentRegisterUpload specProjectId={spec.id} onParsed={() => setRegisterExpanded(false)} />
         </>
@@ -555,7 +555,7 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
         <PhaseLaunchCard
           number={3}
           title="FDS Authoring"
-          description="Co-Author each assembly through static + sequential state building."
+          description="Co-Author each equipment_module through static + sequential state building."
           status={computeCoAuthorStatus(spec, fdsSessions)}
           done={allSessionsComplete}
           ctaLabel="Open Co-Author"
@@ -571,8 +571,8 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
         <PhaseLaunchCard
           number={4}
           title="System Orchestration"
-          description="Define cross-subsystem interlocks, shared permissives and startup order."
-          status={spec.confirmed_subsystems.length > 1 ? `${spec.confirmed_subsystems.length} subsystems` : "No subsystems yet"}
+          description="Define cross-unit interlocks, shared permissives and startup order."
+          status={spec.confirmed_units.length > 1 ? `${spec.confirmed_units.length} units` : "No units yet"}
           ctaLabel="Open Orchestration"
           to={`/specs/${projectIdForNav}/${spec.id}/system-orchestration`}
         />

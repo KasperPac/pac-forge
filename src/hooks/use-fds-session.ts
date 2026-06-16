@@ -1,12 +1,12 @@
 /**
- * TanStack Query hooks for FDS assembly sessions and subsystem orchestrations.
+ * TanStack Query hooks for FDS equipment_module sessions and unit unit_procedures.
  */
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type {
-  FdsAssemblySession,
-  SubsystemOrchestration,
-  DeviceStateEntry,
+  OperationSession,
+  UnitProcedure,
+  ControlModuleStateEntry,
   FdsConversationTurn,
   FdsValidationResult,
   FdsSessionStatus,
@@ -19,7 +19,7 @@ import { ensureV2Record } from "@/lib/spec-builder/sequence-legacy-shim";
 // ---------------------------------------------------------------------------
 
 /** Run legacy v1→v2 SFC shim on a session's sequential_states at read time. */
-function applyShim(session: FdsAssemblySession): FdsAssemblySession {
+function applyShim(session: OperationSession): OperationSession {
   if (!session.sequential_states) return session;
   return {
     ...session,
@@ -34,55 +34,55 @@ function applyShim(session: FdsAssemblySession): FdsAssemblySession {
 // ---------------------------------------------------------------------------
 
 const fdsSessionsKey = (specProjectId: string) =>
-  ["fds_assembly_sessions", specProjectId] as const;
+  ["fds_operation_sessions", specProjectId] as const;
 
 const fdsSessionKey = (id: string) =>
-  ["fds_assembly_sessions", "single", id] as const;
+  ["fds_operation_sessions", "single", id] as const;
 
-const fdsOrchestrationKey = (specProjectId: string, subsystemId: string) =>
-  ["fds_subsystem_orchestrations", specProjectId, subsystemId] as const;
+const fdsOrchestrationKey = (specProjectId: string, unitId: string) =>
+  ["fds_unit_procedures", specProjectId, unitId] as const;
 
 const fdsOrchestrationsKey = (specProjectId: string) =>
-  ["fds_subsystem_orchestrations", specProjectId] as const;
+  ["fds_unit_procedures", specProjectId] as const;
 
 // ---------------------------------------------------------------------------
 // Assembly Sessions — Queries
 // ---------------------------------------------------------------------------
 
-/** Fetch all assembly sessions for a spec project */
+/** Fetch all equipment_module sessions for a spec project */
 export function useFdsSessionsForProject(specProjectId: string | undefined) {
   return useQuery({
     queryKey: fdsSessionsKey(specProjectId ?? ""),
     queryFn: async () => {
       if (!specProjectId) return [];
       const { data, error } = await supabase
-        .from("fds_assembly_sessions")
+        .from("fds_operation_sessions")
         .select("*")
         .eq("spec_project_id", specProjectId)
         .order("created_at", { ascending: true });
       if (error) throw error;
-      return (data as FdsAssemblySession[]).map(applyShim);
+      return (data as OperationSession[]).map(applyShim);
     },
     enabled: !!specProjectId,
   });
 }
 
-/** Fetch sessions for a specific subsystem */
-export function useFdsSessionsForSubsystem(specProjectId: string | undefined, subsystemId: string | undefined) {
+/** Fetch sessions for a specific unit */
+export function useFdsSessionsForSubsystem(specProjectId: string | undefined, unitId: string | undefined) {
   return useQuery({
-    queryKey: [...fdsSessionsKey(specProjectId ?? ""), subsystemId],
+    queryKey: [...fdsSessionsKey(specProjectId ?? ""), unitId],
     queryFn: async () => {
-      if (!specProjectId || !subsystemId) return [];
+      if (!specProjectId || !unitId) return [];
       const { data, error } = await supabase
-        .from("fds_assembly_sessions")
+        .from("fds_operation_sessions")
         .select("*")
         .eq("spec_project_id", specProjectId)
-        .eq("subsystem_id", subsystemId)
+        .eq("unit_id", unitId)
         .order("created_at", { ascending: true });
       if (error) throw error;
-      return (data as FdsAssemblySession[]).map(applyShim);
+      return (data as OperationSession[]).map(applyShim);
     },
-    enabled: !!specProjectId && !!subsystemId,
+    enabled: !!specProjectId && !!unitId,
   });
 }
 
@@ -93,12 +93,12 @@ export function useFdsSession(id: string | undefined) {
     queryFn: async () => {
       if (!id) return null;
       const { data, error } = await supabase
-        .from("fds_assembly_sessions")
+        .from("fds_operation_sessions")
         .select("*")
         .eq("id", id)
         .single();
       if (error) throw error;
-      return applyShim(data as FdsAssemblySession);
+      return applyShim(data as OperationSession);
     },
     enabled: !!id,
   });
@@ -108,33 +108,33 @@ export function useFdsSession(id: string | undefined) {
 // Assembly Sessions — Mutations
 // ---------------------------------------------------------------------------
 
-/** Create or get an existing session for an assembly */
+/** Create or get an existing session for an equipment_module */
 export function useEnsureFdsSession() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (input: {
       spec_project_id: string;
-      subsystem_id: string;
-      assembly_id: string;
+      unit_id: string;
+      equipment_module_id: string;
     }) => {
       // Check if session already exists
       const { data: existing } = await supabase
-        .from("fds_assembly_sessions")
+        .from("fds_operation_sessions")
         .select("*")
         .eq("spec_project_id", input.spec_project_id)
-        .eq("subsystem_id", input.subsystem_id)
-        .eq("assembly_id", input.assembly_id)
+        .eq("unit_id", input.unit_id)
+        .eq("equipment_module_id", input.equipment_module_id)
         .maybeSingle();
 
-      if (existing) return existing as FdsAssemblySession;
+      if (existing) return existing as OperationSession;
 
       const { data, error } = await supabase
-        .from("fds_assembly_sessions")
+        .from("fds_operation_sessions")
         .insert(input)
         .select()
         .single();
       if (error) throw error;
-      return data as FdsAssemblySession;
+      return data as OperationSession;
     },
     onSuccess: (_, input) => {
       queryClient.invalidateQueries({ queryKey: fdsSessionsKey(input.spec_project_id) });
@@ -148,10 +148,10 @@ export function useConfirmStaticStates() {
   return useMutation({
     mutationFn: async (input: {
       id: string;
-      static_states: Record<string, DeviceStateEntry[]>;
+      static_states: Record<string, ControlModuleStateEntry[]>;
     }) => {
       const { data, error } = await supabase
-        .from("fds_assembly_sessions")
+        .from("fds_operation_sessions")
         .update({
           static_states: input.static_states,
           static_confirmed: true,
@@ -161,7 +161,7 @@ export function useConfirmStaticStates() {
         .select()
         .single();
       if (error) throw error;
-      return data as FdsAssemblySession;
+      return data as OperationSession;
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: fdsSessionsKey(data.spec_project_id) });
@@ -181,7 +181,7 @@ export function useUpdateSequentialState() {
     }) => {
       // Fetch current to merge
       const { data: current, error: fetchError } = await supabase
-        .from("fds_assembly_sessions")
+        .from("fds_operation_sessions")
         .select("sequential_states, status")
         .eq("id", input.id)
         .single();
@@ -193,7 +193,7 @@ export function useUpdateSequentialState() {
       const newStatus: FdsSessionStatus = current.status === "not_started" ? "in_progress" : current.status;
 
       const { data, error } = await supabase
-        .from("fds_assembly_sessions")
+        .from("fds_operation_sessions")
         .update({
           sequential_states: updated,
           status: newStatus === "static_confirmed" ? "in_progress" : newStatus,
@@ -202,7 +202,7 @@ export function useUpdateSequentialState() {
         .select()
         .single();
       if (error) throw error;
-      return data as FdsAssemblySession;
+      return data as OperationSession;
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: fdsSessionsKey(data.spec_project_id) });
@@ -220,7 +220,7 @@ export function useAppendConversationTurn() {
       turn: FdsConversationTurn;
     }) => {
       const { data: current, error: fetchError } = await supabase
-        .from("fds_assembly_sessions")
+        .from("fds_operation_sessions")
         .select("conversation")
         .eq("id", input.id)
         .single();
@@ -229,13 +229,13 @@ export function useAppendConversationTurn() {
       const conversation = [...((current.conversation as FdsConversationTurn[]) ?? []), input.turn];
 
       const { data, error } = await supabase
-        .from("fds_assembly_sessions")
+        .from("fds_operation_sessions")
         .update({ conversation })
         .eq("id", input.id)
         .select()
         .single();
       if (error) throw error;
-      return data as FdsAssemblySession;
+      return data as OperationSession;
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: fdsSessionKey(data.id) });
@@ -249,7 +249,7 @@ export function useDeleteFdsSession() {
   return useMutation({
     mutationFn: async (input: { id: string; spec_project_id: string }) => {
       const { error } = await supabase
-        .from("fds_assembly_sessions")
+        .from("fds_operation_sessions")
         .delete()
         .eq("id", input.id);
       if (error) throw error;
@@ -266,13 +266,13 @@ export function useCompleteFdsSession() {
   return useMutation({
     mutationFn: async (id: string) => {
       const { data, error } = await supabase
-        .from("fds_assembly_sessions")
+        .from("fds_operation_sessions")
         .update({ status: "complete" })
         .eq("id", id)
         .select()
         .single();
       if (error) throw error;
-      return data as FdsAssemblySession;
+      return data as OperationSession;
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: fdsSessionsKey(data.spec_project_id) });
@@ -287,13 +287,13 @@ export function useSaveValidationResults() {
   return useMutation({
     mutationFn: async (input: { id: string; results: FdsValidationResult }) => {
       const { data, error } = await supabase
-        .from("fds_assembly_sessions")
+        .from("fds_operation_sessions")
         .update({ validation_results: input.results })
         .eq("id", input.id)
         .select()
         .single();
       if (error) throw error;
-      return data as FdsAssemblySession;
+      return data as OperationSession;
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: fdsSessionKey(data.id) });
@@ -301,7 +301,7 @@ export function useSaveValidationResults() {
   });
 }
 
-/** Duplicate a session to target assemblies with tag remap */
+/** Duplicate a session to target equipment_modules with tag remap */
 export function useDuplicateFdsSession() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -309,26 +309,26 @@ export function useDuplicateFdsSession() {
       source_id: string;
       spec_project_id: string;
       targets: Array<{
-        subsystem_id: string;
-        assembly_id: string;
+        unit_id: string;
+        equipment_module_id: string;
         tag_remap: Record<string, string>;
       }>;
     }) => {
       // Fetch source session
       const { data: source, error: fetchError } = await supabase
-        .from("fds_assembly_sessions")
+        .from("fds_operation_sessions")
         .select("*")
         .eq("id", input.source_id)
         .single();
       if (fetchError) throw fetchError;
 
-      const results: FdsAssemblySession[] = [];
+      const results: OperationSession[] = [];
 
       for (const target of input.targets) {
         // Apply remap to static states
-        const remappedStatic: Record<string, DeviceStateEntry[]> = {};
-        for (const [stateId, entries] of Object.entries(source.static_states as Record<string, DeviceStateEntry[]>)) {
-          remappedStatic[stateId] = entries.map((e: DeviceStateEntry) => ({
+        const remappedStatic: Record<string, ControlModuleStateEntry[]> = {};
+        for (const [stateId, entries] of Object.entries(source.static_states as Record<string, ControlModuleStateEntry[]>)) {
+          remappedStatic[stateId] = entries.map((e: ControlModuleStateEntry) => ({
             ...e,
             tag: target.tag_remap[e.tag] ?? e.tag,
           }));
@@ -350,25 +350,25 @@ export function useDuplicateFdsSession() {
 
         // Delete existing session for this target if any
         await supabase
-          .from("fds_assembly_sessions")
+          .from("fds_operation_sessions")
           .delete()
           .eq("spec_project_id", input.spec_project_id)
-          .eq("subsystem_id", target.subsystem_id)
-          .eq("assembly_id", target.assembly_id);
+          .eq("unit_id", target.unit_id)
+          .eq("equipment_module_id", target.equipment_module_id);
 
         const { data, error } = await supabase
-          .from("fds_assembly_sessions")
+          .from("fds_operation_sessions")
           .insert({
             spec_project_id: input.spec_project_id,
-            subsystem_id: target.subsystem_id,
-            assembly_id: target.assembly_id,
+            unit_id: target.unit_id,
+            equipment_module_id: target.equipment_module_id,
             status: "complete",
             static_states: remappedStatic,
             static_confirmed: true,
             sequential_states: remappedSequential,
             conversation: [{
               role: "system",
-              content: `Duplicated from assembly ${source.assembly_id} with tag remapping.`,
+              content: `Duplicated from equipment_module ${source.equipment_module_id} with tag remapping.`,
               timestamp: new Date().toISOString(),
             }],
             duplicated_from: input.source_id,
@@ -377,7 +377,7 @@ export function useDuplicateFdsSession() {
           .select()
           .single();
         if (error) throw error;
-        results.push(data as FdsAssemblySession);
+        results.push(data as OperationSession);
       }
 
       return results;
@@ -392,21 +392,21 @@ export function useDuplicateFdsSession() {
 // Subsystem Orchestrations
 // ---------------------------------------------------------------------------
 
-export function useFdsOrchestration(specProjectId: string | undefined, subsystemId: string | undefined) {
+export function useFdsOrchestration(specProjectId: string | undefined, unitId: string | undefined) {
   return useQuery({
-    queryKey: fdsOrchestrationKey(specProjectId ?? "", subsystemId ?? ""),
+    queryKey: fdsOrchestrationKey(specProjectId ?? "", unitId ?? ""),
     queryFn: async () => {
-      if (!specProjectId || !subsystemId) return null;
+      if (!specProjectId || !unitId) return null;
       const { data, error } = await supabase
-        .from("fds_subsystem_orchestrations")
+        .from("fds_unit_procedures")
         .select("*")
         .eq("spec_project_id", specProjectId)
-        .eq("subsystem_id", subsystemId)
+        .eq("unit_id", unitId)
         .maybeSingle();
       if (error) throw error;
-      return data as SubsystemOrchestration | null;
+      return data as UnitProcedure | null;
     },
-    enabled: !!specProjectId && !!subsystemId,
+    enabled: !!specProjectId && !!unitId,
   });
 }
 
@@ -416,11 +416,11 @@ export function useFdsOrchestrationsForProject(specProjectId: string | undefined
     queryFn: async () => {
       if (!specProjectId) return [];
       const { data, error } = await supabase
-        .from("fds_subsystem_orchestrations")
+        .from("fds_unit_procedures")
         .select("*")
         .eq("spec_project_id", specProjectId);
       if (error) throw error;
-      return data as SubsystemOrchestration[];
+      return data as UnitProcedure[];
     },
     enabled: !!specProjectId,
   });
@@ -431,26 +431,26 @@ export function useUpsertFdsOrchestration() {
   return useMutation({
     mutationFn: async (input: {
       spec_project_id: string;
-      subsystem_id: string;
-      state_sequences: SubsystemOrchestration["state_sequences"];
+      unit_id: string;
+      state_sequences: UnitProcedure["state_sequences"];
       conversation?: FdsConversationTurn[];
     }) => {
       const { data, error } = await supabase
-        .from("fds_subsystem_orchestrations")
+        .from("fds_unit_procedures")
         .upsert({
           spec_project_id: input.spec_project_id,
-          subsystem_id: input.subsystem_id,
+          unit_id: input.unit_id,
           state_sequences: input.state_sequences,
           conversation: input.conversation ?? [],
-        }, { onConflict: "spec_project_id,subsystem_id" })
+        }, { onConflict: "spec_project_id,unit_id" })
         .select()
         .single();
       if (error) throw error;
-      return data as SubsystemOrchestration;
+      return data as UnitProcedure;
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({
-        queryKey: fdsOrchestrationKey(data.spec_project_id, data.subsystem_id),
+        queryKey: fdsOrchestrationKey(data.spec_project_id, data.unit_id),
       });
       queryClient.invalidateQueries({
         queryKey: fdsOrchestrationsKey(data.spec_project_id),
@@ -460,7 +460,7 @@ export function useUpsertFdsOrchestration() {
 }
 
 // ---------------------------------------------------------------------------
-// Compose — merge assembly data into spec_sections
+// Compose — merge equipment_module data into spec_sections
 // ---------------------------------------------------------------------------
 
 export function useComposeFds() {
@@ -468,15 +468,15 @@ export function useComposeFds() {
   return useMutation({
     mutationFn: async (input: {
       spec_project_id: string;
-      subsystem: import("@/types/spec-builder").SubsystemConfig;
-      sessions: FdsAssemblySession[];
-      orchestration: import("@/types/spec-builder").SubsystemOrchestration | null;
+      unit: import("@/types/spec-builder").UnitConfig;
+      sessions: OperationSession[];
+      orchestration: import("@/types/spec-builder").UnitProcedure | null;
       allStates: import("@/types/spec-builder").OperatingState[];
     }) => {
       const { composeFdsToSections } = await import("@/lib/spec-builder/fds-compose");
       await composeFdsToSections(
         input.spec_project_id,
-        input.subsystem,
+        input.unit,
         input.sessions,
         input.orchestration,
         input.allStates,

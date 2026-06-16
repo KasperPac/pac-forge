@@ -6,7 +6,7 @@
  */
 import { z } from "zod";
 
-export const RandomFdsDeviceClassSchema = z.enum([
+export const RandomFdsControlModuleClassSchema = z.enum([
   "valve",
   "motor",
   "sensor_level",
@@ -27,28 +27,28 @@ export const RandomFdsDeviceClassSchema = z.enum([
   "emergency_stop",
   "other",
 ]);
-export type RandomFdsDeviceClass = z.infer<typeof RandomFdsDeviceClassSchema>;
+export type RandomFdsControlModuleClass = z.infer<typeof RandomFdsControlModuleClassSchema>;
 
 export const RandomFdsDeviceSpecSchema = z.object({
-  device_name: z.string().min(1),
-  device_class: RandomFdsDeviceClassSchema,
+  control_module_name: z.string().min(1),
+  control_module_class: RandomFdsControlModuleClassSchema,
   description: z.string(),
   is_safety: z.boolean(),
 });
 export type RandomFdsDeviceSpec = z.infer<typeof RandomFdsDeviceSpecSchema>;
 
 export const RandomFdsAssemblySpecSchema = z.object({
-  assembly_name: z.string().min(1),
+  equipment_module_name: z.string().min(1),
   description: z.string(),
-  devices: z.array(RandomFdsDeviceSpecSchema).min(1),
+  control_modules: z.array(RandomFdsDeviceSpecSchema).min(1),
 });
 export type RandomFdsAssemblySpec = z.infer<typeof RandomFdsAssemblySpecSchema>;
 
 export const RandomFdsSubsystemSpecSchema = z.object({
-  subsystem_name: z.string().min(1),
+  unit_name: z.string().min(1),
   equipment_type: z.string().min(1),
   description: z.string(),
-  assemblies: z.array(RandomFdsAssemblySpecSchema).min(1),
+  equipment_modules: z.array(RandomFdsAssemblySpecSchema).min(1),
 });
 export type RandomFdsSubsystemSpec = z.infer<typeof RandomFdsSubsystemSpecSchema>;
 
@@ -61,6 +61,6 @@ export const RandomFdsThemeSchema = z.object({
   design_principles: z.array(z.string()).min(1),
   machine_theme: z.string(),
   safety_classification: z.string().nullable(),
-  subsystems: z.array(RandomFdsSubsystemSpecSchema).min(1),
+  units: z.array(RandomFdsSubsystemSpecSchema).min(1),
 });
 export type RandomFdsTheme = z.infer<typeof RandomFdsThemeSchema>;

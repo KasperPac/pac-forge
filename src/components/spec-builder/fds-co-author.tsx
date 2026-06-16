@@ -1,13 +1,13 @@
 /**
  * FDS Co-Author — Main container.
- * Three-column layout: assembly sidebar | conversation | live tables.
+ * Three-column layout: equipment_module sidebar | conversation | live tables.
  *
- * Stages per assembly:
+ * Stages per equipment_module:
  *   1. Static state review (auto-filled, confirm)
  *   2. Conversational build (chat + live tables)
  *   3. Mark complete
  *
- * After all assemblies complete → subsystem orchestration.
+ * After all equipment_modules complete → unit orchestration.
  */
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -49,10 +49,10 @@ import type {
   InstrumentRegister,
   InstrumentTag,
   OperatingState,
-  DeviceStateEntry,
-  AssemblyConfig,
-  SubsystemConfig,
-  FdsAssemblySession,
+  ControlModuleStateEntry,
+  EquipmentModuleConfig,
+  UnitConfig,
+  OperationSession,
 } from "@/types/spec-builder";
 import { migrateOperatingStates } from "@/types/spec-builder";
 import type { OperatingStateV2, SequentialStateV2 } from "@/types/spec-contract-v2";
@@ -85,44 +85,44 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
   const [showDuplicate, setShowDuplicate] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  // Find current assembly and session
-  const activeSubsystem = spec.confirmed_subsystems.find((s) => s.subsystem_id === selectedSubsystemId);
-  const activeAssembly = activeSubsystem?.assemblies.find((a) => a.assembly_id === selectedAssemblyId);
+  // Find current equipment_module and session
+  const activeSubsystem = spec.confirmed_units.find((s) => s.unit_id === selectedSubsystemId);
+  const activeAssembly = activeSubsystem?.equipment_modules.find((a) => a.equipment_module_id === selectedAssemblyId);
   const activeSession = sessions.find(
-    (s) => s.subsystem_id === selectedSubsystemId && s.assembly_id === selectedAssemblyId,
+    (s) => s.unit_id === selectedSubsystemId && s.equipment_module_id === selectedAssemblyId,
   );
 
-  // Select an assembly — ensure session exists
+  // Select an equipment_module — ensure session exists
   const handleSelectAssembly = useCallback(
-    async (subsystemId: string, assemblyId: string) => {
-      setSelectedSubsystemId(subsystemId);
-      setSelectedAssemblyId(assemblyId);
+    async (unitId: string, equipment_moduleId: string) => {
+      setSelectedSubsystemId(unitId);
+      setSelectedAssemblyId(equipment_moduleId);
       setOrchestrationSubsystemId(null);
 
       // Ensure a session row exists
       const existing = sessions.find(
-        (s) => s.subsystem_id === subsystemId && s.assembly_id === assemblyId,
+        (s) => s.unit_id === unitId && s.equipment_module_id === equipment_moduleId,
       );
       if (!existing) {
         await ensureSession.mutateAsync({
           spec_project_id: spec.id,
-          subsystem_id: subsystemId,
-          assembly_id: assemblyId,
+          unit_id: unitId,
+          equipment_module_id: equipment_moduleId,
         });
       }
     },
     [sessions, spec.id, ensureSession],
   );
 
-  const handleSelectOrchestration = useCallback((subsystemId: string) => {
-    setOrchestrationSubsystemId(subsystemId);
+  const handleSelectOrchestration = useCallback((unitId: string) => {
+    setOrchestrationSubsystemId(unitId);
     setSelectedAssemblyId(null);
-    setSelectedSubsystemId(subsystemId);
+    setSelectedSubsystemId(unitId);
   }, []);
 
   // Confirm static states
   const handleConfirmStatic = useCallback(
-    async (staticData: Record<string, DeviceStateEntry[]>) => {
+    async (staticData: Record<string, ControlModuleStateEntry[]>) => {
       if (!activeSession) return;
       await confirmStatic.mutateAsync({ id: activeSession.id, static_states: staticData });
     },
@@ -147,7 +147,7 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
     });
   }, [activeSession, deleteSession]);
 
-  // Mark assembly complete
+  // Mark equipment_module complete
   const handleComplete = useCallback(async () => {
     if (!activeSession || !activeAssembly) return;
 
@@ -179,12 +179,12 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
           : "border rounded-lg h-[600px] max-h-[calc(100vh-220px)]",
       )}
     >
-      {/* Left rail — assembly sidebar */}
+      {/* Left rail — equipment_module sidebar */}
       {sidebarCollapsed ? (
         <div
           className="w-6 border-r shrink-0 bg-muted/30 flex items-start justify-center pt-2 cursor-pointer hover:bg-muted/50 transition-colors"
           onClick={() => setSidebarCollapsed(false)}
-          title="Expand assemblies panel"
+          title="Expand equipment_modules panel"
         >
           <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
         </div>
@@ -195,14 +195,14 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
             <button
               onClick={() => setSidebarCollapsed(true)}
               className="text-muted-foreground hover:text-foreground transition-colors"
-              title="Collapse assemblies panel"
+              title="Collapse equipment_modules panel"
             >
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>
           </div>
           <div className="flex-1 min-h-0">
             <FdsAssemblySidebar
-              subsystems={spec.confirmed_subsystems}
+              units={spec.confirmed_units}
               sessions={sessions}
               selectedAssemblyId={selectedAssemblyId}
               selectedOrchestrationSubsystemId={orchestrationSubsystemId}
@@ -221,7 +221,7 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
           specProjectId={spec.id}
           sourceSession={activeSession}
           sourceAssembly={activeAssembly}
-          subsystems={spec.confirmed_subsystems}
+          units={spec.confirmed_units}
           existingSessions={sessions}
         />
       )}
@@ -230,13 +230,13 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
       <div className="flex-1 flex flex-col min-w-0">
         {!activeAssembly && !orchestrationSubsystemId ? (
           <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
-            Select an assembly to begin co-authoring
+            Select an equipment_module to begin co-authoring
           </div>
         ) : orchestrationSubsystemId ? (
           <OrchestrationStage
             specProjectId={spec.id}
-            subsystem={spec.confirmed_subsystems.find((s) => s.subsystem_id === orchestrationSubsystemId)!}
-            sessions={sessions.filter((s) => s.subsystem_id === orchestrationSubsystemId)}
+            unit={spec.confirmed_units.find((s) => s.unit_id === orchestrationSubsystemId)!}
+            sessions={sessions.filter((s) => s.unit_id === orchestrationSubsystemId)}
             // migrateOperatingStates still returns the legacy V1 shape; bridge
             // to V2 here until that helper is migrated. The fields
             // OrchestrationStage / use-fds-orchestration-conversation use
@@ -249,9 +249,9 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
             {/* Assembly header */}
             <div className="px-4 py-2.5 border-b flex items-center justify-between shrink-0">
               <div className="min-w-0">
-                <h3 className="text-sm font-semibold truncate">{activeAssembly.assembly_name}</h3>
+                <h3 className="text-sm font-semibold truncate">{activeAssembly.equipment_module_name}</h3>
                 <p className="text-[11px] text-muted-foreground">
-                  {activeAssembly.devices.length} devices · {activeSubsystem?.subsystem_name}
+                  {activeAssembly.control_modules.length} control_modules · {activeSubsystem?.unit_name}
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
@@ -271,7 +271,7 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
                   onClick={handleReset}
                   disabled={deleteSession.isPending}
                   className="text-muted-foreground hover:text-destructive"
-                  title="Clear and restart this assembly's interview"
+                  title="Clear and restart this equipment_module's interview"
                 >
                   {deleteSession.isPending
                     ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -303,7 +303,7 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
               // Stage 1 — Static state review
               <div className="flex-1 overflow-auto p-4">
                 <FdsStaticReview
-                  assembly={activeAssembly}
+                  equipment_module={activeAssembly}
                   staticStates={staticStates}
                   allTags={register.tags}
                   currentStaticStates={activeSession.static_states}
@@ -316,8 +316,8 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
               // Stage 2 — Conversation + live tables
               <ConversationStage
                 session={activeSession}
-                assembly={activeAssembly}
-                subsystem={activeSubsystem!}
+                equipment_module={activeAssembly}
+                unit={activeSubsystem!}
                 allTags={register.tags}
                 // migrateOperatingStates still returns the legacy V1 shape; bridge
                 // to V2 here until that helper is migrated. The fields ConversationStage
@@ -375,16 +375,16 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
 
 function ConversationStage({
   session,
-  assembly,
-  subsystem,
+  equipment_module,
+  unit,
   allTags,
   allStates,
   sequentialStates,
   onUpdateSequentialState,
 }: {
-  session: FdsAssemblySession;
-  assembly: AssemblyConfig;
-  subsystem: SubsystemConfig;
+  session: OperationSession;
+  equipment_module: EquipmentModuleConfig;
+  unit: UnitConfig;
   allTags: InstrumentTag[];
   allStates: OperatingStateV2[];
   sequentialStates: OperatingState[];
@@ -395,7 +395,7 @@ function ConversationStage({
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const { sendMessage, startInterview, streamingText, isStreaming, error } =
-    useFdsConversation({ session, assembly, subsystem, allTags, allStates });
+    useFdsConversation({ session, equipment_module, unit, allTags, allStates });
 
   // Auto-scroll to bottom when messages change or streaming
   useEffect(() => {
@@ -443,7 +443,7 @@ function ConversationStage({
                 <div className="text-center space-y-3 text-muted-foreground">
                   <MessageSquare className="h-8 w-8 mx-auto opacity-30" />
                   <p className="text-xs">
-                    Describe how {assembly.assembly_name} operates,<br />
+                    Describe how {equipment_module.equipment_module_name} operates,<br />
                     or let the AI interview you.
                   </p>
                   <Button
@@ -557,21 +557,21 @@ function ConversationStage({
 }
 
 // ---------------------------------------------------------------------------
-// Orchestration Stage — subsystem-level coordination (execution order, interlocks)
+// Orchestration Stage — unit-level coordination (execution order, interlocks)
 // ---------------------------------------------------------------------------
 
 function OrchestrationStage({
   specProjectId,
-  subsystem,
+  unit,
   sessions,
   allStates,
 }: {
   specProjectId: string;
-  subsystem: SubsystemConfig;
-  sessions: FdsAssemblySession[];
+  unit: UnitConfig;
+  sessions: OperationSession[];
   allStates: OperatingStateV2[];
 }) {
-  const { data: orchestration } = useFdsOrchestration(specProjectId, subsystem.subsystem_id);
+  const { data: orchestration } = useFdsOrchestration(specProjectId, unit.unit_id);
   const [chatInput, setChatInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -583,7 +583,7 @@ function OrchestrationStage({
   const { sendMessage, startInterview, streamingText, isStreaming, error } =
     useFdsOrchestrationConversation({
       specProjectId,
-      subsystem,
+      unit,
       sessions,
       orchestration: orchestration ?? null,
       allStates,
@@ -597,8 +597,8 @@ function OrchestrationStage({
   }, [conversation.length, streamingText]);
 
   const completeCount = sessions.filter((s) => s.status === "complete").length;
-  const allComplete = subsystem.assemblies.length > 0 &&
-    completeCount === subsystem.assemblies.length;
+  const allComplete = unit.equipment_modules.length > 0 &&
+    completeCount === unit.equipment_modules.length;
 
   const handleSend = useCallback(async () => {
     if (!chatInput.trim() || isStreaming) return;
@@ -612,10 +612,10 @@ function OrchestrationStage({
       <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm p-6">
         <div className="text-center space-y-3">
           <ShieldAlert className="h-8 w-8 mx-auto opacity-30" />
-          <p>Complete all assemblies first</p>
+          <p>Complete all equipment_modules first</p>
           <p className="text-xs">
-            {completeCount} of {subsystem.assemblies.length} assemblies complete.
-            <br />Finish the individual assembly behaviours before defining orchestration.
+            {completeCount} of {unit.equipment_modules.length} equipment_modules complete.
+            <br />Finish the individual equipment_module behaviours before defining orchestration.
           </p>
         </div>
       </div>
@@ -627,9 +627,9 @@ function OrchestrationStage({
       {/* Header */}
       <div className="px-4 py-2.5 border-b flex items-center justify-between shrink-0">
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold truncate">{subsystem.subsystem_name} — Orchestration</h3>
+          <h3 className="text-sm font-semibold truncate">{unit.unit_name} — Orchestration</h3>
           <p className="text-[11px] text-muted-foreground">
-            Define assembly coordination, execution order, and inter-assembly interlocks
+            Define equipment_module coordination, execution order, and inter-equipment_module interlocks
           </p>
         </div>
       </div>
@@ -644,7 +644,7 @@ function OrchestrationStage({
                   <div className="text-center space-y-3 text-muted-foreground">
                     <MessageSquare className="h-8 w-8 mx-auto opacity-30" />
                     <p className="text-xs">
-                      Describe how the assemblies coordinate,<br />
+                      Describe how the equipment_modules coordinate,<br />
                       or let the AI interview you.
                     </p>
                     <Button size="sm" variant="outline" onClick={startInterview} disabled={isStreaming}>
@@ -731,15 +731,15 @@ function OrchestrationStage({
                   <p className="text-[11px] text-muted-foreground italic px-1">No orchestration defined</p>
                 ) : (
                   <div className="space-y-2 text-xs">
-                    {seq.assembly_order.length > 0 && (
+                    {seq.equipment_module_order.length > 0 && (
                       <div>
                         <span className="text-[10px] uppercase text-muted-foreground font-semibold">Order:</span>
                         <div className="flex flex-wrap gap-1.5 mt-1">
-                          {seq.assembly_order.map((asmId, i) => {
-                            const asm = subsystem.assemblies.find((a) => a.assembly_id === asmId);
+                          {seq.equipment_module_order.map((asmId, i) => {
+                            const asm = unit.equipment_modules.find((a) => a.equipment_module_id === asmId);
                             return (
                               <Badge key={asmId} variant="outline" className="text-[10px] font-mono">
-                                {i + 1}. {asm?.assembly_name ?? asmId}
+                                {i + 1}. {asm?.equipment_module_name ?? asmId}
                               </Badge>
                             );
                           })}
@@ -756,16 +756,16 @@ function OrchestrationStage({
                         </ul>
                       </div>
                     )}
-                    {seq.inter_assembly_interlocks.length > 0 && (
+                    {seq.inter_equipment_module_interlocks.length > 0 && (
                       <div>
-                        <span className="text-[10px] uppercase text-muted-foreground font-semibold">Inter-assembly interlocks:</span>
+                        <span className="text-[10px] uppercase text-muted-foreground font-semibold">Inter-equipment_module interlocks:</span>
                         <div className="mt-1 space-y-1">
-                          {seq.inter_assembly_interlocks.map((il, i) => (
+                          {seq.inter_equipment_module_interlocks.map((il, i) => (
                             <div key={i} className="text-[11px] p-1.5 bg-muted/30 rounded">
                               <div className="font-mono">
-                                <span className="text-muted-foreground">{il.source_assembly}:</span> {il.source_condition}
+                                <span className="text-muted-foreground">{il.source_equipment_module}:</span> {il.source_condition}
                               </div>
-                              <div className="text-muted-foreground">→ {il.effect} ({il.target_assembly})</div>
+                              <div className="text-muted-foreground">→ {il.effect} ({il.target_equipment_module})</div>
                             </div>
                           ))}
                         </div>

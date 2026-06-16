@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import {
   Upload,
+  Download,
   FileSpreadsheet,
   Loader2,
   AlertTriangle,
@@ -26,6 +27,40 @@ import { parseInstrumentRegister } from "@/lib/spec-builder/instrument-parser";
 import { useSaveInstrumentRegister } from "@/hooks/use-spec-projects";
 import type { ParseResult } from "@/lib/spec-builder/instrument-parser";
 import type { InstrumentTag, ParseWarning } from "@/types/spec-builder";
+import * as XLSX from "xlsx";
+
+function downloadTemplate() {
+  const headers = [
+    "Tag",
+    "Device Type",
+    "Description",
+    "Signal Type",
+    "IO Address",
+    "Subsystem",
+    "Assembly",
+  ];
+  const exampleRows = [
+    ["CM1_RUN", "Motor Contactor", "Carriage Motor 1 Run", "DO", "Q0.4", "Carriage Drive", "Carriage Assembly"],
+    ["CM1_Fault", "Motor Contactor", "Carriage Motor 1 Fault", "DI", "I0.5", "Carriage Drive", "Carriage Assembly"],
+    ["CM1_Therm", "Thermistor Relay", "Carriage Motor 1 Thermistor Fault", "DI", "I1.1", "Carriage Drive", "Carriage Assembly"],
+    ["VSD1_Speed_Ref", "VSD", "Carriage VSD Speed Reference", "AO", "AQ0", "Carriage Drive", "Carriage Assembly"],
+    ["ES1_Healthy", "Emergency Stop", "E-Stop Healthy", "DI", "I2.4", "Safety", "E-Stop Circuit"],
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...exampleRows]);
+  ws["!cols"] = [
+    { wch: 18 },
+    { wch: 20 },
+    { wch: 40 },
+    { wch: 12 },
+    { wch: 12 },
+    { wch: 20 },
+    { wch: 22 },
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "IO Register");
+  XLSX.writeFile(wb, "IO_Register_Template.xlsx");
+}
 
 interface Props {
   specProjectId: string;
@@ -68,7 +103,7 @@ export function InstrumentRegisterUpload({ specProjectId, onParsed }: Props) {
           spec_project_id: specProjectId,
           raw_filename: file.name,
           tags: parsed.tags,
-          subsystems: parsed.subsystems,
+          units: parsed.units,
           parse_warnings: parsed.warnings,
           haiku_usage: parsed.usage,
         });
@@ -138,6 +173,18 @@ export function InstrumentRegisterUpload({ specProjectId, onParsed }: Props) {
             <p className="text-xs text-muted-foreground">
               Supports .xlsx, .xls, .csv
             </p>
+            <Button
+              variant="link"
+              size="sm"
+              className="text-xs gap-1 text-muted-foreground hover:text-foreground"
+              onClick={(e) => {
+                e.stopPropagation();
+                downloadTemplate();
+              }}
+            >
+              <Download className="h-3 w-3" />
+              Download template
+            </Button>
           </div>
         )}
       </Card>
@@ -162,7 +209,7 @@ export function InstrumentRegisterUpload({ specProjectId, onParsed }: Props) {
               {result.tags.length} tags parsed
             </Badge>
             <Badge variant="secondary" className="gap-1">
-              {result.subsystems.length} subsystems
+              {result.units.length} units
             </Badge>
             {result.warnings.length > 0 && (
               <Badge variant="outline" className="gap-1 text-amber-400 border-amber-400/50">
@@ -177,10 +224,10 @@ export function InstrumentRegisterUpload({ specProjectId, onParsed }: Props) {
 
           {/* Subsystem cards */}
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-            {result.subsystems.map((sub) => (
-              <Card key={sub.subsystem_id} className="p-3 space-y-1">
+            {result.units.map((sub) => (
+              <Card key={sub.unit_id} className="p-3 space-y-1">
                 <p className="text-sm font-mono font-medium truncate">
-                  {sub.subsystem_name}
+                  {sub.unit_name}
                 </p>
                 <div className="flex items-center justify-between">
                   <Badge variant="outline" className="text-xs">
@@ -273,7 +320,7 @@ function TagRow({ tag }: { tag: InstrumentTag }) {
       <TableCell className="font-mono text-xs">{tag.tag}</TableCell>
       <TableCell>
         <Badge variant="outline" className="text-xs">
-          {tag.device_class}
+          {tag.control_module_class}
         </Badge>
       </TableCell>
       <TableCell>
@@ -292,7 +339,7 @@ function TagRow({ tag }: { tag: InstrumentTag }) {
       <TableCell className="text-xs max-w-[200px] truncate">
         {tag.description}
       </TableCell>
-      <TableCell className="font-mono text-xs">{tag.subsystem}</TableCell>
+      <TableCell className="font-mono text-xs">{tag.unit}</TableCell>
       <TableCell>
         {tag.is_safety && (
           <Badge variant="destructive" className="text-xs">

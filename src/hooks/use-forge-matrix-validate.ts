@@ -82,7 +82,7 @@ const VALIDATE_SYSTEM_PROMPT = `You are a JSON API. You output only raw JSON. No
 Check the Process Linkage Matrix for:
 1. Instance DB names not following Inst prefix convention
 2. FB parameter names implausible for the device type
-3. Interlocks referencing devices not in the device list
+3. Interlocks referencing control_modules not in the device list
 4. Device names inconsistent between deviceLinkage and processSequences
 5. Missing permissives or safety conditions for hazardous sequences
 6. Variable name mismatches between processSequences and globalData field names
@@ -107,7 +107,7 @@ Exceptions — do NOT flag these as issues:
 - FB inputs wired to FALSE/TRUE constants for unused optional features (e.g. jamSensor=FALSE when no jam sensor exists) — this is valid, not an error
 - Stop buttons (PB_STOP) are NOT start permissives — they are runtime stop commands handled by monitor steps, not preconditions
 - Bidirectional device wiring (A commands B, B feeds back to A) is normal, NOT a circular dependency
-- Interlocks referencing motor devices from pushbutton context (e.g. PB_STOP.longHold triggers M01 reset) — this is valid if the interlock description explains the relationship
+- Interlocks referencing motor control_modules from pushbutton context (e.g. PB_STOP.longHold triggers M01 reset) — this is valid if the interlock description explains the relationship
 - Same IO tag wired to multiple FB inputs (e.g. single run feedback to both forward and reverse signal inputs) — flag as "info" only, not warning or error`;
 
 // ---------------------------------------------------------------------------

@@ -1510,7 +1510,7 @@ export function compileDeterministicFaultArtifact(input: DeterministicFaultCompi
 // ---------------------------------------------------------------------------
 // Wave D — v2-aware dispatch.
 //
-// When a caller has a SpecContractV2 + assembly/state pair, use this entry
+// When a caller has a SpecContractV2 + equipment_module/state pair, use this entry
 // point. If the target state is `sequence_model_version === 2` it delegates
 // to the SFC compiler in `forge-process-compiler-v2.ts`. Otherwise the caller
 // should keep using `compileDeterministicProcessArtifact` with a v1
@@ -1521,20 +1521,20 @@ export function compileDeterministicFaultArtifact(input: DeterministicFaultCompi
 export function compileSequentialStateFromContract(
   contract: SpecContractV2,
   stateId: string,
-  assemblyId: string,
+  equipment_moduleId: string,
   ctx: CompileV2Context = {},
 ): SequenceCompileResult {
-  const assembly = contract.assemblies[assemblyId];
-  const state = assembly?.sequential_states?.[stateId];
+  const equipment_module = contract.equipment_modules[equipment_moduleId];
+  const state = equipment_module?.sequential_states?.[stateId];
   if (!state) {
     return {
       ok: false,
       errors: [
         {
           kind: "validation",
-          assembly_id: assemblyId,
+          equipment_module_id: equipment_moduleId,
           state_id: stateId,
-          message: `state ${stateId} not found on assembly ${assemblyId}`,
+          message: `state ${stateId} not found on equipment_module ${equipment_moduleId}`,
         },
       ],
     };
@@ -1544,7 +1544,7 @@ export function compileSequentialStateFromContract(
   // single entry point for contract-shaped data while the v1 ProcessSequence
   // flat-list callers stay on `compileDeterministicProcessArtifact`.
   if (state.sequence_model_version === 2) {
-    return compileSequentialStateV2(contract, stateId, assemblyId, ctx);
+    return compileSequentialStateV2(contract, stateId, equipment_moduleId, ctx);
   }
-  return compileSequentialStateV2(contract, stateId, assemblyId, ctx);
+  return compileSequentialStateV2(contract, stateId, equipment_moduleId, ctx);
 }

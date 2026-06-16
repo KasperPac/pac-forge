@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   INTERLOCK_EFFECTS_DOC,
   COMPLETION_CRITERION_DOC,
-  buildFdsSystemOrchestrationSystemPrompt,
+  buildFdsSystemProcedureSystemPrompt,
 } from "../system-orchestration-prompts";
 
 describe("INTERLOCK_EFFECTS_DOC", () => {
@@ -25,9 +25,9 @@ describe("COMPLETION_CRITERION_DOC", () => {
   });
 });
 
-describe("buildFdsSystemOrchestrationSystemPrompt", () => {
+describe("buildFdsSystemProcedureSystemPrompt", () => {
   it("still inlines the shared docs (regression — extraction didn't break the existing prompt)", () => {
-    const prompt = buildFdsSystemOrchestrationSystemPrompt(
+    const prompt = buildFdsSystemProcedureSystemPrompt(
       {
         id: "00000000-0000-4000-8000-000000000001",
         doc_code: "X",

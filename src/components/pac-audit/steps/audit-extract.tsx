@@ -112,7 +112,7 @@ export function AuditExtract({ session, onSessionUpdate }: AuditExtractProps) {
       updateCategory("Tag Tables", { status: "done", count: tagTableCount });
       updateCategory("Hardware Config", {
         status: "done",
-        count: data.hardware?.devices?.length ?? 0,
+        count: data.hardware?.control_modules?.length ?? 0,
       });
       updateCategory("Module Channels", { status: "done", count: moduleChannelCount });
       updateCategory("Cross-References", { status: "done", count: crossRefInputCount });
@@ -139,7 +139,7 @@ export function AuditExtract({ session, onSessionUpdate }: AuditExtractProps) {
               block_count: blockCount,
               udt_count: udtCount,
               tag_count: data.tag_tables?.reduce((sum, t) => sum + t.tags.length, 0) ?? 0,
-              hw_device_count: data.hardware?.devices?.length ?? 0,
+              hw_control_module_count: data.hardware?.control_modules?.length ?? 0,
               hmi_screen_count: hmiScreenCount,
             },
           },
@@ -341,7 +341,7 @@ async function persistExtraction(
   // into audit_blocks; audit_module_channels is independent.
   await supabase.from("audit_cross_references").delete().eq("audit_project_id", auditProjectId);
   await supabase.from("audit_module_channels").delete().eq("audit_project_id", auditProjectId);
-  await supabase.from("audit_io_link_devices").delete().eq("audit_project_id", auditProjectId);
+  await supabase.from("audit_io_link_control_modules").delete().eq("audit_project_id", auditProjectId);
 
   const { error: delBlocksErr } = await supabase.from("audit_blocks").delete().eq("audit_project_id", auditProjectId);
   if (delBlocksErr) console.error("[Audit] Delete blocks error:", delBlocksErr.message);
@@ -424,7 +424,7 @@ async function persistExtraction(
   if (data.hardware) {
     const { error: hwErr } = await supabase.from("audit_hardware_config").insert({
       audit_project_id: auditProjectId,
-      devices: data.hardware.devices ?? [],
+      control_modules: data.hardware.control_modules ?? [],
       io_modules: data.hardware.io_modules ?? [],
       networks: data.hardware.networks ?? [],
       drives: data.drive_details ?? [],

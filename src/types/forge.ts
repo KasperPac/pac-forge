@@ -17,7 +17,7 @@ export const FORGE_STEPS = {
   HARDWARE_IO: "hardware_io",
   INTERFACE_CONTRACT: "interface_contract",
   DEVICE_FB: "device_fb",
-  ASSEMBLY_FB: "assembly_fb",
+  ASSEMBLY_FB: "equipment_module_fb",
   LOGIC_CHECK: "logic_check",
   MATRIX_REVIEW: "matrix_review",
   DEVICE_CODE: "device_code",
@@ -37,7 +37,7 @@ export const FORGE_STEP_LABELS: Record<ForgeStep, string> = {
   hardware_io: "Hardware & IO",
   interface_contract: "Interface Contracts",
   device_fb: "Device FBs",
-  assembly_fb: "Assembly FBs",
+  equipment_module_fb: "Assembly FBs",
   logic_check: "Logic Check",
   matrix_review: "Matrix Review",
   device_code: "Device Code",
@@ -55,7 +55,7 @@ export const FORGE_STEP_ORDER: ForgeStep[] = [
   "hardware_io",
   "interface_contract",
   "device_fb",
-  "assembly_fb",
+  "equipment_module_fb",
   "logic_check",
   "matrix_review",
   "device_code",
@@ -88,7 +88,7 @@ export interface ForgeSession {
   project_id: string;
   user_id: string;
   design_profile_id: string | null;
-  /** Links to FDS spec_project — when set, forge reads behavioral data from fds_assembly_sessions */
+  /** Links to FDS spec_project — when set, forge reads behavioral data from fds_operation_sessions */
   spec_project_id: string | null;
   current_step: ForgeStep;
 
@@ -99,24 +99,24 @@ export interface ForgeSession {
 
   hardware_config: ForgeHardwareConfig;
   io_list: ForgeIoEntry[];
-  device_list: ForgeDeviceEntry[];
+  device_list: ForgeControlModuleEntry[];
   /** Assembly entries with FB assignments — coordinated device groups */
-  assembly_list: ForgeAssemblyEntry[];
+  equipment_module_list: ForgeEquipmentModuleEntry[];
   network_topology: Record<string, unknown>;
 
-  /** Interface contracts defining how assemblies communicate (exposed/consumed signals + state defs) */
+  /** Interface contracts defining how equipment_modules communicate (exposed/consumed signals + state defs) */
   interface_contracts: InterfaceContractMap | null;
 
   /** DeviceFbBrief[] — enriched IO signals with intent comments for device FB generation */
   device_briefs: Record<string, unknown> | null;
-  /** LogicCheckResult — deterministic + AI validation of assembly FBs against FDS */
+  /** LogicCheckResult — deterministic + AI validation of Equipment Module FBs against FDS */
   logic_check_result: Record<string, unknown> | null;
 
   linkage_matrix: ProcessLinkageMatrix | null;
 
   device_artifacts: ForgeArtifact[];
   /** Assembly FB artifacts (FB, config UDT, HMI UDT, instance DB) */
-  assembly_artifacts: ForgeArtifact[];
+  equipment_module_artifacts: ForgeArtifact[];
   process_artifacts: ForgeArtifact[];
   hmi_artifacts: ForgeArtifact[];
 
@@ -156,7 +156,7 @@ export type ForgeSessionUpdate = Partial<
 
 export type ForgeArtifactType = "UDT" | "FB" | "FC" | "DB" | "OB" | "TAG_TABLE" | "HMI_SCREEN" | "HMI_TAG_TABLE";
 export type ForgeArtifactLanguage = "SCL" | "LAD";
-export type ForgeArtifactStage = "device_fb" | "assembly_fb" | "device" | "process" | "hmi";
+export type ForgeArtifactStage = "device_fb" | "equipment_module_fb" | "device" | "process" | "hmi";
 
 export interface ForgeArtifact {
   id: string;
@@ -208,7 +208,7 @@ export interface ForgeIoEntry {
   module: string;
   slot: number;
   /** Device this IO point belongs to (from spec extraction) */
-  device_id?: string;
+  control_module_id?: string;
   /** How the signal behaves: momentary (push button), maintained (selector switch), continuous (sensor), pulsed (encoder) */
   signal_behaviour?: SignalBehaviour;
   /** Contact wiring type: NO (normally open) or NC (normally closed) */
@@ -229,13 +229,13 @@ export interface ForgeDeviceIoSignal {
   contact_type?: ContactType;
 }
 
-export interface ForgeDeviceEntry {
+export interface ForgeControlModuleEntry {
   id: string;
   name: string;
   tag: string;
   device_type: string;
   description: string;
-  subsystem: string;
+  unit: string;
   io_signals: ForgeDeviceIoSignal[];
   /** Matched FB template ID — null means AI must generate the FB */
   fb_template_id: string | null;
@@ -286,7 +286,7 @@ export interface SpecAnalysisDevice {
   tag: string;
   device_type: string;
   description: string;
-  subsystem: string;
+  unit: string;
   io_signals: ForgeDeviceIoSignalExtracted[];
 }
 
@@ -299,7 +299,7 @@ export interface SpecAnalysisProcessStep {
   action: string;
   completion_criteria: string;
   /** Device names involved in this step */
-  devices_involved?: string[];
+  control_modules_involved?: string[];
   /** Signal changes at this step (e.g. "FAN1_CMD = TRUE") */
   outputs?: string[];
   /** What happens if completion_criteria not met within timeout */
@@ -313,7 +313,7 @@ export type SpecAnalysisDepth = 1 | 2 | 3;
 
 export interface SpecAnalysisProcessSequence {
   name: string;
-  subsystem: string;
+  unit: string;
   permissives: string[];
   steps: SpecAnalysisProcessStep[];
   /** What happens when this sequence stops */
@@ -346,7 +346,7 @@ export interface SpecAnalysisInterlock {
   interlock_type?: "permissive" | "runtime_safety";
   /** What happens when interlock trips */
   trip_action?: string;
-  affected_devices: string[];
+  affected_control_modules: string[];
 }
 
 export interface SpecAnalysisHardwareSlot {
@@ -367,29 +367,29 @@ export interface SpecAnalysisProcessSetting {
 }
 
 // ---------------------------------------------------------------------------
-// Assembly — coordinated group of devices (lift table, conveyor, press)
+// Assembly — coordinated group of control_modules (lift table, conveyor, press)
 // ---------------------------------------------------------------------------
 
 export interface SpecAnalysisAssembly {
   id: string;
   name: string;
   tag: string;
-  assembly_type: string;
+  equipment_module_type: string;
   description: string;
-  subsystem: string;
-  /** References to SpecAnalysisDevice.id for constituent devices */
-  device_ids: string[];
+  unit: string;
+  /** References to SpecAnalysisDevice.id for constituent control_modules */
+  control_module_ids: string[];
 }
 
-export interface ForgeAssemblyEntry {
+export interface ForgeEquipmentModuleEntry {
   id: string;
   name: string;
   tag: string;
-  assembly_type: string;
+  equipment_module_type: string;
   description: string;
-  subsystem: string;
-  device_ids: string[];
-  /** Matched assembly FB template ID — null means AI must generate */
+  unit: string;
+  control_module_ids: string[];
+  /** Matched equipment_module FB template ID — null means AI must generate */
   fb_template_id: string | null;
   fb_match_confidence: "exact" | "probable" | "none";
   language_override: "SCL" | "LAD" | null;
@@ -411,11 +411,11 @@ export interface SpecAnalysis {
   process_settings?: SpecAnalysisProcessSetting[];
   /** FB architecture design intent from spec */
   fb_architecture?: string | null;
-  subsystems: Array<{ name: string; description: string }>;
-  /** Coordinated groups of devices — each gets an assembly FB */
-  assemblies: SpecAnalysisAssembly[];
-  /** Leaf-level physical devices with IO signals */
-  devices: SpecAnalysisDevice[];
+  units: Array<{ name: string; description: string }>;
+  /** Coordinated groups of control_modules — each gets an equipment_module FB */
+  equipment_modules: SpecAnalysisAssembly[];
+  /** Leaf-level physical control_modules with IO signals */
+  control_modules: SpecAnalysisDevice[];
   process_sequences: SpecAnalysisProcessSequence[];
   alarms: SpecAnalysisAlarm[];
   interlocks: SpecAnalysisInterlock[];
@@ -442,14 +442,14 @@ export interface SpecExtractionTarget {
   id: string;
   /** Human-readable name: "Fan Staging System" */
   name: string;
-  /** Which subsystem this belongs to */
-  subsystem: string;
+  /** Which unit this belongs to */
+  unit: string;
   /** Literal text from spec marking the START of relevant content */
   start_anchors: string[];
   /** Literal text marking the END of relevant content */
   end_anchors: string[];
   /** Expected device count in this target */
-  expected_device_count: number;
+  expected_control_module_count: number;
   /** Expected sequence names */
   expected_sequences: string[];
   /** Brief description of what to extract */
@@ -459,20 +459,20 @@ export interface SpecExtractionTarget {
 export interface SpecCrossCuttingConcerns {
   /** Global safety systems (E-Stop circuits, safety relays) */
   safety_systems: string[];
-  /** Global settings that apply to multiple subsystems */
+  /** Global settings that apply to multiple units */
   global_settings: string[];
-  /** HMI requirements mentioned across subsystems */
+  /** HMI requirements mentioned across units */
   hmi_requirements: string[];
-  /** Shared interlocks that span subsystems */
+  /** Shared interlocks that span units */
   shared_interlocks: string[];
 }
 
 /** Partial SpecAnalysis from one extraction target (Stage 2 output) */
 export interface PartialSpecAnalysis {
   target_id: string;
-  subsystems: Array<{ name: string; description: string }>;
-  assemblies?: SpecAnalysisAssembly[];
-  devices: SpecAnalysisDevice[];
+  units: Array<{ name: string; description: string }>;
+  equipment_modules?: SpecAnalysisAssembly[];
+  control_modules: SpecAnalysisDevice[];
   process_sequences: SpecAnalysisProcessSequence[];
   alarms: SpecAnalysisAlarm[];
   interlocks: SpecAnalysisInterlock[];
@@ -496,8 +496,8 @@ export interface ChunkedAnalysisProgress {
   chunkName: string;
   /** Progressive extraction stats updated during streaming */
   streamStats?: {
-    devices: number;
-    assemblies: number;
+    control_modules: number;
+    equipment_modules: number;
     sequences: number;
   };
 }

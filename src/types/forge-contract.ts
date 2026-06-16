@@ -1,8 +1,8 @@
 // ---------------------------------------------------------------------------
-// Interface Contract types — defines how assemblies communicate
+// Interface Contract types — defines how equipment_modules communicate
 // ---------------------------------------------------------------------------
 
-/** A single signal that an assembly exposes or consumes */
+/** A single signal that an equipment_module exposes or consumes */
 export interface InterfaceSignal {
   id: string;
   /** Parameter name in lowerCamelCase — becomes VAR_INPUT or VAR_OUTPUT */
@@ -13,19 +13,19 @@ export interface InterfaceSignal {
   /** Intent comment explaining purpose + who reads/writes this signal.
    *  e.g. "TRUE when lift cylinder fully extended — read by CV01 sequence to start transfer" */
   intentComment: string;
-  /** For consumed signals: which assembly provides it */
+  /** For consumed signals: which equipment_module provides it */
   sourceAssemblyTag?: string;
-  /** For consumed signals: which exposed signal name from the source assembly */
+  /** For consumed signals: which exposed signal name from the source equipment_module */
   sourceSignalName?: string;
 }
 
-/** Contract for a single assembly — what it exposes, consumes, and its state machine */
-export interface AssemblyContract {
-  assemblyId: string;
-  assemblyTag: string;
-  /** Signals this assembly outputs to other assemblies / process sequences */
+/** Contract for a single equipment_module — what it exposes, consumes, and its state machine */
+export interface EquipmentModuleContract {
+  equipment_moduleId: string;
+  equipment_moduleTag: string;
+  /** Signals this equipment_module outputs to other equipment_modules / process sequences */
   exposed: InterfaceSignal[];
-  /** Signals this assembly needs from other assemblies */
+  /** Signals this equipment_module needs from other equipment_modules */
   consumed: InterfaceSignal[];
   /** State machine state names — the CASE must implement exactly these.
    *  e.g. ["IDLE", "MOVING_UP", "AT_UPPER", "MOVING_DOWN", "AT_LOWER", "FAULT"] */
@@ -34,5 +34,5 @@ export interface AssemblyContract {
   approved: boolean;
 }
 
-/** All assembly contracts in a session, keyed by assemblyId */
-export type InterfaceContractMap = Record<string, AssemblyContract>;
+/** All equipment_module contracts in a session, keyed by equipment_moduleId */
+export type InterfaceContractMap = Record<string, EquipmentModuleContract>;

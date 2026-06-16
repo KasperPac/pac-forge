@@ -1,8 +1,8 @@
 /**
  * Forge wizard step: Logic Check
  *
- * Validates assembly FB artifacts against FDS behavioral specifications.
- * Shows issues grouped by assembly with severity, category, and suggestions.
+ * Validates equipment_module FB artifacts against FDS behavioral specifications.
+ * Shows issues grouped by equipment_module with severity, category, and suggestions.
  * Engineer can continue with warnings or fix and re-check.
  */
 import { useState, useMemo, useCallback } from "react";
@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useForgeLogicCheck } from "@/hooks/use-forge-logic-check";
-import type { ForgeSession, ForgeArtifact, ForgeAssemblyEntry } from "@/types/forge";
+import type { ForgeSession, ForgeArtifact, ForgeEquipmentModuleEntry } from "@/types/forge";
 import type { LogicCheckIssue, LogicCheckResult } from "@/types/forge-logic-check";
 
 // ---------------------------------------------------------------------------
@@ -157,38 +157,38 @@ function AssemblyGroup({
 export function ForgeLogicCheck({ session, onComplete }: ForgeLogicCheckProps) {
   const { check, result, loading } = useForgeLogicCheck(session);
 
-  const assemblies = useMemo(
+  const equipment_modules = useMemo(
     () =>
-      (session.assembly_list?.length ? session.assembly_list : null) ??
-      (session.spec_analysis?.assemblies as ForgeAssemblyEntry[] | undefined) ??
+      (session.equipment_module_list?.length ? session.equipment_module_list : null) ??
+      (session.spec_analysis?.equipment_modules as ForgeEquipmentModuleEntry[] | undefined) ??
       [],
     [session],
   );
 
-  const assemblyArtifacts = useMemo(
-    () => ((session.assembly_artifacts as ForgeArtifact[]) ?? []).filter((a) => a.stage === "assembly_fb"),
-    [session.assembly_artifacts],
+  const equipment_moduleArtifacts = useMemo(
+    () => ((session.equipment_module_artifacts as ForgeArtifact[]) ?? []).filter((a) => a.stage === "equipment_module_fb"),
+    [session.equipment_module_artifacts],
   );
 
   const handleRunCheck = useCallback(() => {
-    check(assemblies, assemblyArtifacts);
-  }, [check, assemblies, assemblyArtifacts]);
+    check(equipment_modules, equipment_moduleArtifacts);
+  }, [check, equipment_modules, equipment_moduleArtifacts]);
 
-  // Group issues by assembly
+  // Group issues by equipment_module
   const issuesByAssembly = useMemo(() => {
     if (!result) return new Map<string, LogicCheckIssue[]>();
     const map = new Map<string, LogicCheckIssue[]>();
-    // Initialize with all assemblies (even those with no issues)
-    for (const asm of assemblies) {
+    // Initialize with all equipment_modules (even those with no issues)
+    for (const asm of equipment_modules) {
       map.set(asm.tag, []);
     }
     for (const issue of result.issues) {
-      const existing = map.get(issue.assemblyTag) ?? [];
+      const existing = map.get(issue.equipment_moduleTag) ?? [];
       existing.push(issue);
-      map.set(issue.assemblyTag, existing);
+      map.set(issue.equipment_moduleTag, existing);
     }
     return map;
-  }, [result, assemblies]);
+  }, [result, equipment_modules]);
 
   const errorCount = result?.issues.filter((i) => i.severity === "error").length ?? 0;
   const warnCount = result?.issues.filter((i) => i.severity === "warning").length ?? 0;
@@ -201,15 +201,15 @@ export function ForgeLogicCheck({ session, onComplete }: ForgeLogicCheckProps) {
           variant="outline"
           size="sm"
           onClick={handleRunCheck}
-          disabled={loading || assemblyArtifacts.length === 0}
+          disabled={loading || equipment_moduleArtifacts.length === 0}
           className="gap-2"
         >
           {result ? <RotateCcw className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
           {result ? "Re-check" : "Run Logic Check"}
         </Button>
 
-        {assemblyArtifacts.length === 0 && (
-          <span className="text-[10px] text-muted-foreground">No assembly artifacts to check</span>
+        {equipment_moduleArtifacts.length === 0 && (
+          <span className="text-[10px] text-muted-foreground">No equipment_module artifacts to check</span>
         )}
 
         <div className="flex-1" />
@@ -232,7 +232,7 @@ export function ForgeLogicCheck({ session, onComplete }: ForgeLogicCheckProps) {
             )}
 
             <Badge variant="outline" className="font-mono text-[10px]">
-              {result.assembliesChecked} assemblies — {result.artifactsChecked} artifacts
+              {result.equipment_modulesChecked} equipment_modules — {result.artifactsChecked} artifacts
             </Badge>
           </div>
         )}
@@ -247,13 +247,13 @@ export function ForgeLogicCheck({ session, onComplete }: ForgeLogicCheckProps) {
           </Button>
         )}
 
-        {!result && assemblyArtifacts.length === 0 && (
+        {!result && equipment_moduleArtifacts.length === 0 && (
           <Button
             size="sm"
             variant="outline"
-            onClick={() => onComplete({ passed: true, issues: [], checkedAt: new Date().toISOString(), assembliesChecked: 0, artifactsChecked: 0 })}
+            onClick={() => onComplete({ passed: true, issues: [], checkedAt: new Date().toISOString(), equipment_modulesChecked: 0, artifactsChecked: 0 })}
           >
-            Skip — No assemblies to check
+            Skip — No equipment_modules to check
           </Button>
         )}
       </div>
@@ -276,7 +276,7 @@ export function ForgeLogicCheck({ session, onComplete }: ForgeLogicCheckProps) {
         <div className="flex-1 flex items-center justify-center text-muted-foreground">
           <div className="text-center space-y-2">
             <ShieldCheck className="h-8 w-8 mx-auto text-muted-foreground/30" />
-            <p className="text-sm">Run the logic check to validate assembly FBs</p>
+            <p className="text-sm">Run the logic check to validate Equipment Module FBs</p>
             <p className="text-[10px]">
               Checks: state coverage, step sequences, permissives, timeouts, fault handling, interface signals, syntax
             </p>

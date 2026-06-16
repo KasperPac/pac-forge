@@ -44,7 +44,7 @@ import { useAgents } from "@/hooks/use-agents";
 import { computeDiff, extractFocusedSnippets } from "@/lib/diff-engine";
 import { useUiStore } from "@/stores/ui-store";
 import { cn } from "@/lib/utils";
-import type { ForgeSession, ForgeArtifact, ForgeIoEntry, ForgeDeviceEntry } from "@/types/forge";
+import type { ForgeSession, ForgeArtifact, ForgeIoEntry, ForgeControlModuleEntry } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
 import type { FbTemplate } from "@/types/fb-template";
 import type { PatternCandidate, AgentKnowledgeDoc } from "@/types";
@@ -488,7 +488,7 @@ export function ForgeDeviceCode({
     setStageStatus("IO Check", "running");
     try {
       const ioList = session.io_list as ForgeIoEntry[];
-      const deviceList = session.device_list as ForgeDeviceEntry[];
+      const deviceList = session.device_list as ForgeControlModuleEntry[];
       const result = await validateIo(artifacts, ioList, deviceList, profile);
       const round = ioRound + 1;
       setIoRound(round);
@@ -549,7 +549,7 @@ export function ForgeDeviceCode({
       // Re-validate
       setIoStatus("re-reviewing");
       const ioList = session.io_list as ForgeIoEntry[];
-      const deviceList = session.device_list as ForgeDeviceEntry[];
+      const deviceList = session.device_list as ForgeControlModuleEntry[];
       const result = await validateIo(currentArtifacts, ioList, deviceList, profile);
       const round = ioRound + 1;
       setIoRound(round);

@@ -12,11 +12,11 @@
  * treated as a fatal parse error.
  */
 import type {
-  AssemblyV2,
-  DeviceV2,
+  EquipmentModuleV2,
+  ControlModuleV2,
   Hierarchy,
   IoSignalV2,
-  SubsystemV2,
+  UnitV2,
 } from "@/types/spec-contract-v2";
 import { convertSignalDirection } from "@/lib/spec-builder/dialect";
 import type { ParsedDocxTable } from "@/lib/spec-builder/docx-ingest";
@@ -90,8 +90,8 @@ export interface HierarchyParseResult {
   hierarchy: Hierarchy;
   /** Flat index for downstream parsers (states, alarms) to look up ids. */
   deviceIdByTag: Map<string, string>;
-  assemblyIdByName: Map<string, string>;
-  subsystemIdByName: Map<string, string>;
+  equipment_moduleIdByName: Map<string, string>;
+  unitIdByName: Map<string, string>;
 }
 
 export function parseHierarchyTable(
@@ -114,15 +114,15 @@ export function parseHierarchyTable(
     }
   }
 
-  // Accumulate by subsystem → assembly → device using the parsed ids so that
+  // Accumulate by unit → equipment_module → device using the parsed ids so that
   // repeated cells (merged visually) still resolve to the same entity.
-  const subsystemMap = new Map<string, SubsystemV2>();
-  const assemblyMap = new Map<string, AssemblyV2>();
-  const deviceMap = new Map<string, DeviceV2>();
+  const unitMap = new Map<string, UnitV2>();
+  const equipment_moduleMap = new Map<string, EquipmentModuleV2>();
+  const deviceMap = new Map<string, ControlModuleV2>();
 
   const deviceIdByTag = new Map<string, string>();
-  const assemblyIdByName = new Map<string, string>();
-  const subsystemIdByName = new Map<string, string>();
+  const equipment_moduleIdByName = new Map<string, string>();
+  const unitIdByName = new Map<string, string>();
 
   hierarchyTable.rows.forEach((row, rowIdx) => {
     if (row.length < REQUIRED_HEADERS.length) {
@@ -131,59 +131,59 @@ export function parseHierarchyTable(
         [`Row: ${row.join(" | ")}`],
       );
     }
-    const [subsystemCell, assemblyCell, deviceCell, classCell, safetyCell, ioCell] = row;
+    const [unitCell, equipment_moduleCell, deviceCell, classCell, safetyCell, ioCell] = row;
 
-    const sub = extractUuid(subsystemCell, `row ${rowIdx + 1} subsystem`);
-    const asy = extractUuid(assemblyCell, `row ${rowIdx + 1} assembly`);
+    const sub = extractUuid(unitCell, `row ${rowIdx + 1} unit`);
+    const asy = extractUuid(equipment_moduleCell, `row ${rowIdx + 1} equipment_module`);
     const dev = extractUuid(deviceCell, `row ${rowIdx + 1} device`);
 
-    let subsystem = subsystemMap.get(sub.uuid);
-    if (!subsystem) {
-      subsystem = {
-        subsystem_id: sub.uuid,
-        subsystem_name: sub.text,
+    let unit = unitMap.get(sub.uuid);
+    if (!unit) {
+      unit = {
+        unit_id: sub.uuid,
+        unit_name: sub.text,
         equipment_type: "Other",
         description: "",
         excluded: false,
-        assemblies: [],
+        equipment_modules: [],
       };
-      subsystemMap.set(sub.uuid, subsystem);
-      subsystemIdByName.set(sub.text, sub.uuid);
+      unitMap.set(sub.uuid, unit);
+      unitIdByName.set(sub.text, sub.uuid);
     }
 
-    let assembly = assemblyMap.get(asy.uuid);
-    if (!assembly) {
-      assembly = {
-        assembly_id: asy.uuid,
-        assembly_name: asy.text,
+    let equipment_module = equipment_moduleMap.get(asy.uuid);
+    if (!equipment_module) {
+      equipment_module = {
+        equipment_module_id: asy.uuid,
+        equipment_module_name: asy.text,
         description: "",
-        devices: [],
+        control_modules: [],
       };
-      assemblyMap.set(asy.uuid, assembly);
-      subsystem.assemblies.push(assembly);
-      assemblyIdByName.set(asy.text, asy.uuid);
+      equipment_moduleMap.set(asy.uuid, equipment_module);
+      unit.equipment_modules.push(equipment_module);
+      equipment_moduleIdByName.set(asy.text, asy.uuid);
     }
 
     let device = deviceMap.get(dev.uuid);
     if (!device) {
       device = {
-        device_id: dev.uuid,
-        device_name: dev.text,
-        device_class: classCell.trim() || "other",
+        control_module_id: dev.uuid,
+        control_module_name: dev.text,
+        control_module_class: classCell.trim() || "other",
         is_safety: /^(yes|true|1|safety)$/i.test(safetyCell.trim()),
         description: "",
         io_signals: parseIoCell(ioCell),
       };
       deviceMap.set(dev.uuid, device);
-      assembly.devices.push(device);
+      equipment_module.control_modules.push(device);
       deviceIdByTag.set(dev.text, dev.uuid);
     }
   });
 
   return {
-    hierarchy: { subsystems: Array.from(subsystemMap.values()) },
+    hierarchy: { units: Array.from(unitMap.values()) },
     deviceIdByTag,
-    assemblyIdByName,
-    subsystemIdByName,
+    equipment_moduleIdByName,
+    unitIdByName,
   };
 }

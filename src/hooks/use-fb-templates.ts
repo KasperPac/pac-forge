@@ -106,7 +106,7 @@ export function useFbTemplatesForSession(profileId?: string, filter?: FbTemplate
 
       return hydrated.filter((t) => {
         if (!t.is_enabled) return false;
-        if (isAssembly !== undefined && t.is_assembly !== isAssembly) return false;
+        if (isAssembly !== undefined && t.is_equipment_module !== isAssembly) return false;
         const pids = t.profile_ids ?? [];
         if (pids.length === 0) return true; // global
         if (profileId && pids.includes(profileId)) return true;

@@ -2,7 +2,7 @@
  * Forge wizard step: FDS Behavioral Review / Interface Contract
  *
  * Two modes:
- * - FDS-linked (spec_project_id set): Shows FDS behavioral data per assembly
+ * - FDS-linked (spec_project_id set): Shows FDS behavioral data per equipment_module
  *   (operating states, step sequences, device state tables, alarms).
  *   Engineer reviews + annotates + approves.
  * - Standalone (no spec_project_id): Falls back to AI-suggested interface contracts
@@ -35,8 +35,8 @@ import { useForgeFdsHandoff } from "@/hooks/use-forge-fds-handoff";
 import { useForgeContractGenerate } from "@/hooks/use-forge-contract-generate";
 import type { ForgeSession } from "@/types/forge";
 import type { InterfaceContractMap } from "@/types/forge-contract";
-import type { AssemblyBrief, AssemblyBriefMap } from "@/types/forge-brief";
-import type { DeviceStateEntry, StepEntry, OperatingState } from "@/types/spec-builder";
+import type { EquipmentModuleBrief, EquipmentModuleBriefMap } from "@/types/forge-brief";
+import type { ControlModuleStateEntry, StepEntry, OperatingState } from "@/types/spec-builder";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -46,8 +46,8 @@ export interface ForgeInterfaceContractProps {
   session: ForgeSession;
   /** Called with contracts (standalone) or briefs-as-contracts (FDS) */
   onComplete: (contracts: InterfaceContractMap) => void;
-  /** Called with assembly briefs when FDS-linked */
-  onBriefsComplete?: (briefs: AssemblyBriefMap) => void;
+  /** Called with equipment_module briefs when FDS-linked */
+  onBriefsComplete?: (briefs: EquipmentModuleBriefMap) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -69,7 +69,7 @@ function StateBadge({ pattern }: { pattern: string }) {
   );
 }
 
-function DeviceStateTable({ entries }: { entries: DeviceStateEntry[] }) {
+function DeviceStateTable({ entries }: { entries: ControlModuleStateEntry[] }) {
   if (entries.length === 0) return <span className="text-[10px] text-muted-foreground italic">No device states defined</span>;
   return (
     <div className="rounded border border-border/30 overflow-hidden">
@@ -137,8 +137,8 @@ function StepSequenceTable({ steps, permissives }: { steps: StepEntry[]; permiss
   );
 }
 
-function AlarmList({ alarms }: { alarms: AssemblyBrief["alarmConditions"] }) {
-  if (alarms.length === 0) return <span className="text-[10px] text-muted-foreground italic">No alarms matched to this assembly</span>;
+function AlarmList({ alarms }: { alarms: EquipmentModuleBrief["alarmConditions"] }) {
+  if (alarms.length === 0) return <span className="text-[10px] text-muted-foreground italic">No alarms matched to this equipment_module</span>;
   return (
     <div className="space-y-1">
       {alarms.map((a, i) => (
@@ -164,7 +164,7 @@ function FdsBriefEditor({
   onAnnotate,
   onToggleApprove,
 }: {
-  brief: AssemblyBrief;
+  brief: EquipmentModuleBrief;
   operatingStates: OperatingState[];
   onAnnotate: (annotations: string[]) => void;
   onToggleApprove: () => void;
@@ -190,12 +190,12 @@ function FdsBriefEditor({
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="font-mono text-sm font-semibold">{brief.assemblyTag}</h3>
+            <h3 className="font-mono text-sm font-semibold">{brief.equipment_moduleTag}</h3>
             <p className="text-[10px] text-muted-foreground">
-              {brief.assemblyName} — {brief.assemblyType} — {brief.subsystemName}
+              {brief.equipment_moduleName} — {brief.equipment_moduleType} — {brief.unitName}
             </p>
             <p className="text-[10px] text-muted-foreground">
-              {brief.deviceIds.length} devices — {staticStateIds.length} static states — {sequentialStateIds.length} sequential states
+              {brief.deviceIds.length} control_modules — {staticStateIds.length} static states — {sequentialStateIds.length} sequential states
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -345,7 +345,7 @@ export function ForgeInterfaceContract({
   const { generateContracts, loading: contractLoading, error: contractError } = useForgeContractGenerate();
 
   // Local state for briefs (FDS mode) or contracts (standalone mode)
-  const [localBriefs, setLocalBriefs] = useState<AssemblyBriefMap>({});
+  const [localBriefs, setLocalBriefs] = useState<EquipmentModuleBriefMap>({});
   const [standaloneContracts, setStandaloneContracts] = useState<InterfaceContractMap>(
     () => session.interface_contracts ?? {},
   );
@@ -355,7 +355,7 @@ export function ForgeInterfaceContract({
   const briefs = useMemo(() => {
     if (!isFdsLinked) return {};
     // Merge FDS briefs with local edits (annotations, approval)
-    const merged: AssemblyBriefMap = {};
+    const merged: EquipmentModuleBriefMap = {};
     for (const [id, fdsBrief] of Object.entries(fdsBriefs)) {
       merged[id] = {
         ...fdsBrief,
@@ -366,8 +366,8 @@ export function ForgeInterfaceContract({
     return merged;
   }, [isFdsLinked, fdsBriefs, localBriefs]);
 
-  const assemblies = useMemo(
-    () => session.spec_analysis?.assemblies ?? [],
+  const equipment_modules = useMemo(
+    () => session.spec_analysis?.equipment_modules ?? [],
     [session.spec_analysis],
   );
 
@@ -376,15 +376,15 @@ export function ForgeInterfaceContract({
       const briefList = Object.values(briefs);
       return briefList.length > 0 && briefList.every((b) => b.approved);
     }
-    return assemblies.length > 0 && assemblies.every((a) => standaloneContracts[a.id]?.approved);
-  }, [isFdsLinked, briefs, assemblies, standaloneContracts]);
+    return equipment_modules.length > 0 && equipment_modules.every((a) => standaloneContracts[a.id]?.approved);
+  }, [isFdsLinked, briefs, equipment_modules, standaloneContracts]);
 
   // ── Handlers ──
 
-  const updateBrief = useCallback((assemblyId: string, update: Partial<AssemblyBrief>) => {
+  const updateBrief = useCallback((equipment_moduleId: string, update: Partial<EquipmentModuleBrief>) => {
     setLocalBriefs((prev) => ({
       ...prev,
-      [assemblyId]: { ...(briefs[assemblyId] ?? prev[assemblyId]), ...update } as AssemblyBrief,
+      [equipment_moduleId]: { ...(briefs[equipment_moduleId] ?? prev[equipment_moduleId]), ...update } as EquipmentModuleBrief,
     }));
   }, [briefs]);
 
@@ -441,22 +441,22 @@ export function ForgeInterfaceContract({
     );
   }
 
-  // ── No assemblies ──
+  // ── No equipment_modules ──
 
   const briefList = Object.values(briefs);
-  if (isFdsLinked && briefList.length === 0 && assemblies.length === 0) {
+  if (isFdsLinked && briefList.length === 0 && equipment_modules.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
-        <p className="text-sm">No assemblies found in the FDS or spec analysis.</p>
+        <p className="text-sm">No equipment_modules found in the FDS or spec analysis.</p>
         <Button onClick={() => onComplete({})}>Skip — Continue without behavioral review</Button>
       </div>
     );
   }
 
-  if (!isFdsLinked && assemblies.length === 0) {
+  if (!isFdsLinked && equipment_modules.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
-        <p className="text-sm">No assemblies found in the spec analysis.</p>
+        <p className="text-sm">No equipment_modules found in the spec analysis.</p>
         <Button onClick={() => onComplete({})}>Skip — Continue without contracts</Button>
       </div>
     );
@@ -476,7 +476,7 @@ export function ForgeInterfaceContract({
             FDS-Linked
           </Badge>
           <span className="text-[10px] text-muted-foreground">
-            Behavioral data from FDS — review and approve each assembly
+            Behavioral data from FDS — review and approve each equipment_module
           </span>
           <div className="flex-1" />
 
@@ -501,19 +501,19 @@ export function ForgeInterfaceContract({
             <ScrollArea className="h-full">
               <div className="space-y-1 p-2">
                 {briefList.map((brief) => {
-                  const isSelected = selectedId === brief.assemblyId;
+                  const isSelected = selectedId === brief.equipment_moduleId;
                   const staticCount = Object.keys(brief.staticStates).length;
                   const seqCount = Object.keys(brief.sequentialStates).length;
 
                   return (
                     <button
-                      key={brief.assemblyId}
+                      key={brief.equipment_moduleId}
                       className={`w-full text-left rounded px-2 py-2 transition-colors ${
                         isSelected
                           ? "bg-accent border border-accent-foreground/10"
                           : "hover:bg-muted/50 border border-transparent"
                       }`}
-                      onClick={() => setSelectedId(brief.assemblyId)}
+                      onClick={() => setSelectedId(brief.equipment_moduleId)}
                     >
                       <div className="flex items-center gap-2">
                         {brief.approved ? (
@@ -521,7 +521,7 @@ export function ForgeInterfaceContract({
                         ) : (
                           <Circle className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                         )}
-                        <span className="font-mono text-xs font-semibold truncate">{brief.assemblyTag}</span>
+                        <span className="font-mono text-xs font-semibold truncate">{brief.equipment_moduleTag}</span>
                         {brief.annotations.length > 0 && (
                           <Badge variant="outline" className="text-[8px] px-1 py-0 border-orange-500/30 text-orange-400">
                             {brief.annotations.length} notes
@@ -529,7 +529,7 @@ export function ForgeInterfaceContract({
                         )}
                       </div>
                       <div className="text-[10px] text-muted-foreground ml-5.5 truncate">
-                        {brief.assemblyName} ({brief.assemblyType})
+                        {brief.equipment_moduleName} ({brief.equipment_moduleType})
                       </div>
                       <div className="flex gap-2 ml-5.5 mt-0.5">
                         <span className="text-[9px] text-amber-400">{staticCount} static</span>
@@ -551,12 +551,12 @@ export function ForgeInterfaceContract({
               <FdsBriefEditor
                 brief={selectedBrief}
                 operatingStates={operatingStates}
-                onAnnotate={(annotations) => updateBrief(selectedBrief.assemblyId, { annotations, approved: false })}
-                onToggleApprove={() => updateBrief(selectedBrief.assemblyId, { approved: !selectedBrief.approved })}
+                onAnnotate={(annotations) => updateBrief(selectedBrief.equipment_moduleId, { annotations, approved: false })}
+                onToggleApprove={() => updateBrief(selectedBrief.equipment_moduleId, { approved: !selectedBrief.approved })}
               />
             ) : (
               <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                Select an assembly from the list to review its FDS behavioral spec
+                Select an equipment_module from the list to review its FDS behavioral spec
               </div>
             )}
           </ResizablePanel>

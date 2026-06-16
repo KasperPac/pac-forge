@@ -3,19 +3,19 @@ import { SpecContractPatchSchema, validateSpecContractPatch } from "@/lib/spec-b
 import { assembleRandomFds } from "../assemble";
 import type { RandomFdsTheme } from "../theme-schema";
 
-function makeTheme(subsystems: number, assemblies: number, devices: number): RandomFdsTheme {
-  const subs = Array.from({ length: subsystems }, (_, si) => {
-    const asmsForSub = Math.max(1, Math.floor(assemblies / subsystems) + (si === 0 ? assemblies % subsystems : 0));
+function makeTheme(units: number, equipment_modules: number, control_modules: number): RandomFdsTheme {
+  const subs = Array.from({ length: units }, (_, si) => {
+    const asmsForSub = Math.max(1, Math.floor(equipment_modules / units) + (si === 0 ? equipment_modules % units : 0));
     return {
-      subsystem_name: `SS${si + 1}`,
+      unit_name: `SS${si + 1}`,
       equipment_type: "Conveyor",
       description: "",
-      assemblies: Array.from({ length: asmsForSub }, (_, ai) => ({
-        assembly_name: `ASM${si + 1}-${ai + 1}`,
+      equipment_modules: Array.from({ length: asmsForSub }, (_, ai) => ({
+        equipment_module_name: `ASM${si + 1}-${ai + 1}`,
         description: "",
-        devices: Array.from({ length: Math.max(1, Math.floor(devices / assemblies)) }, (_, di) => ({
-          device_name: `M${di + 1}`,
-          device_class: "motor" as const,
+        control_modules: Array.from({ length: Math.max(1, Math.floor(control_modules / equipment_modules)) }, (_, di) => ({
+          control_module_name: `M${di + 1}`,
+          control_module_class: "motor" as const,
           description: "",
           is_safety: false,
         })),
@@ -31,20 +31,20 @@ function makeTheme(subsystems: number, assemblies: number, devices: number): Ran
     design_principles: ["x"],
     machine_theme: "x",
     safety_classification: null,
-    subsystems: subs,
+    units: subs,
   };
 }
 
 describe("assembleRandomFds — patch passes validator", () => {
   const cases = [
-    { subsystems: 1, assemblies: 1, devices: 3, label: "min" },
-    { subsystems: 3, assemblies: 6, devices: 18, label: "mid" },
-    { subsystems: 8, assemblies: 20, devices: 60, label: "max" },
+    { units: 1, equipment_modules: 1, control_modules: 3, label: "min" },
+    { units: 3, equipment_modules: 6, control_modules: 18, label: "mid" },
+    { units: 8, equipment_modules: 20, control_modules: 60, label: "max" },
   ];
 
   for (const c of cases) {
-    it(`${c.label} (${c.subsystems}×${c.assemblies}×${c.devices}) produces a validator-passing patch`, () => {
-      const theme = makeTheme(c.subsystems, c.assemblies, c.devices);
+    it(`${c.label} (${c.units}×${c.equipment_modules}×${c.control_modules}) produces a validator-passing patch`, () => {
+      const theme = makeTheme(c.units, c.equipment_modules, c.control_modules);
       const result = assembleRandomFds(theme, { projectId: "00000000-0000-0000-0000-000000000001" });
 
       const parsed = SpecContractPatchSchema.safeParse(result.patch);
@@ -60,13 +60,13 @@ describe("assembleRandomFds — patch passes validator", () => {
   it("populates instrument register with one tag per IO signal", () => {
     const theme = makeTheme(2, 4, 12);
     const result = assembleRandomFds(theme, { projectId: "00000000-0000-0000-0000-000000000001" });
-    // motor has 3 IO slots → 12 devices × 3 = 36 tags
+    // motor has 3 IO slots → 12 control_modules × 3 = 36 tags
     expect(result.instrumentRegister.tags).toHaveLength(36);
     const addrs = new Set(result.instrumentRegister.tags.map((t) => t.io_address));
     expect(addrs.size).toBe(result.instrumentRegister.tags.length);
   });
 
-  it("emits one 'fault' alarm per motor (devices with a FAULT IO slot)", () => {
+  it("emits one 'fault' alarm per motor (control_modules with a FAULT IO slot)", () => {
     const theme = makeTheme(2, 4, 12); // 12 motors, each has FAULT slot
     const result = assembleRandomFds(theme, { projectId: "00000000-0000-0000-0000-000000000001" });
     expect(result.patch.alarms).toBeDefined();
@@ -77,31 +77,31 @@ describe("assembleRandomFds — patch passes validator", () => {
     }
   });
 
-  it("produces one assembly session row per assembly", () => {
+  it("produces one equipment_module session row per equipment_module", () => {
     const theme = makeTheme(2, 4, 12);
     const result = assembleRandomFds(theme, { projectId: "00000000-0000-0000-0000-000000000001" });
-    expect(result.assemblySessions).toHaveLength(4);
-    for (const row of result.assemblySessions) {
+    expect(result.equipment_moduleSessions).toHaveLength(4);
+    for (const row of result.equipment_moduleSessions) {
       expect(row.status).toBe("complete");
       expect(row.static_confirmed).toBe(true);
     }
   });
 
-  it("produces one orchestration row per multi-assembly subsystem", () => {
-    const theme = makeTheme(2, 4, 12); // 2 assemblies per subsystem ⇒ both eligible
+  it("produces one orchestration row per multi-equipment_module unit", () => {
+    const theme = makeTheme(2, 4, 12); // 2 equipment_modules per unit ⇒ both eligible
     const result = assembleRandomFds(theme, { projectId: "00000000-0000-0000-0000-000000000001" });
-    expect(result.orchestrations).toHaveLength(2);
+    expect(result.unit_procedures).toHaveLength(2);
   });
 
-  it("produces functional_description section rows for every (assembly, state) pair", () => {
+  it("produces functional_description section rows for every (equipment_module, state) pair", () => {
     const theme = makeTheme(2, 4, 12);
     const result = assembleRandomFds(theme, { projectId: "00000000-0000-0000-0000-000000000001" });
-    // 4 assemblies × 6 states = 24
+    // 4 equipment_modules × 6 states = 24
     expect(result.functionalDescriptionRows).toHaveLength(24);
   });
 
-  it("disambiguates devices whose names collapse onto the same 12-char prefix", () => {
-    // Regression: tokenisePrefix slices to 12 chars, so two devices with
+  it("disambiguates control_modules whose names collapse onto the same 12-char prefix", () => {
+    // Regression: tokenisePrefix slices to 12 chars, so two control_modules with
     // long shared prefixes ("Dehumidifier Process Air 1" / "...2") produced
     // identical tag prefixes and tripped validateSpecContractPatch's global
     // IO-tag uniqueness check.
@@ -114,19 +114,19 @@ describe("assembleRandomFds — patch passes validator", () => {
       design_principles: ["x"],
       machine_theme: "x",
       safety_classification: null,
-      subsystems: [
+      units: [
         {
-          subsystem_name: "Dehumidification",
+          unit_name: "Dehumidification",
           equipment_type: "Other",
           description: "",
-          assemblies: [
+          equipment_modules: [
             {
-              assembly_name: "Process Air Loop",
+              equipment_module_name: "Process Air Loop",
               description: "",
-              devices: [
-                { device_name: "Dehumidifier Process Air Sensor 1", device_class: "sensor_temperature", description: "", is_safety: false },
-                { device_name: "Dehumidifier Process Air Sensor 2", device_class: "sensor_temperature", description: "", is_safety: false },
-                { device_name: "Dehumidifier Process Air Sensor 3", device_class: "sensor_temperature", description: "", is_safety: false },
+              control_modules: [
+                { control_module_name: "Dehumidifier Process Air Sensor 1", control_module_class: "sensor_temperature", description: "", is_safety: false },
+                { control_module_name: "Dehumidifier Process Air Sensor 2", control_module_class: "sensor_temperature", description: "", is_safety: false },
+                { control_module_name: "Dehumidifier Process Air Sensor 3", control_module_class: "sensor_temperature", description: "", is_safety: false },
               ],
             },
           ],

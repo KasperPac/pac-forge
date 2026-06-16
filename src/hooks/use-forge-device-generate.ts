@@ -40,7 +40,7 @@ import {
 } from "@/lib/forge-prompts";
 import { loadPlatformRules } from "@/lib/platform-rules";
 import { parseGeneralRules, parseFolderRules, resolveDestinationFolder } from "@/lib/design-profile-schemas";
-import type { ForgeSession, ForgeArtifact, ForgeDeviceEntry, ForgeAssemblyEntry, ForgeIoEntry } from "@/types/forge";
+import type { ForgeSession, ForgeArtifact, ForgeControlModuleEntry, ForgeEquipmentModuleEntry, ForgeIoEntry } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
 import type { FbTemplate } from "@/types/fb-template";
 import type { PatternCandidate, Instruction } from "@/types";
@@ -59,7 +59,7 @@ const DEVICE_GEN_MAX_TOKENS = 8192;
 // ---------------------------------------------------------------------------
 
 /** Normalize device entries from DB — ensures name/tag are never undefined. */
-function normalizeDevices(raw: ForgeDeviceEntry[]): ForgeDeviceEntry[] {
+function normalizeDevices(raw: ForgeControlModuleEntry[]): ForgeControlModuleEntry[] {
   return raw.map(d => ({
     ...d,
     name: d.name || d.tag || "",
@@ -239,7 +239,7 @@ END_TYPE`;
  */
 function normalizeInstanceDbNames(
   artifacts: ForgeArtifact[],
-  devices: ForgeDeviceEntry[],
+  control_modules: ForgeControlModuleEntry[],
   log: (level: DeviceGenLogLevel, msg: string) => void,
   instDbPrefix = "Inst",
 ): ForgeArtifact[] {
@@ -247,7 +247,7 @@ function normalizeInstanceDbNames(
   const canonicalName = (deviceName: string) => `${instDbPrefix}${deviceName.replace(/[^A-Za-z0-9]/g, "")}`;
   const renames = new Map<string, string>(); // oldName → newName
 
-  for (const device of devices) {
+  for (const device of control_modules) {
     const canonical = canonicalName(device.name);
     // Find instance DBs for this device — name starts with prefix and fuzzy-matches device name
     const deviceStem = device.name.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
@@ -1070,7 +1070,7 @@ function backfillGlobalDbFieldsFromWiring(
         else defaultVal = " := T#5s"; // safe default for unrecognized Time fields
       }
       toAdd.push(`    ${fieldName} : ${formatted}${defaultVal};`);
-      existing.add(fieldName); // prevent adding same field twice from different devices
+      existing.add(fieldName); // prevent adding same field twice from different control_modules
     }
 
     if (toAdd.length === 0) return a;
@@ -1159,7 +1159,7 @@ interface NormalizedWiringEntry {
 function buildNormalizedMatrixWiring(
   matrix: ProcessLinkageMatrix | null,
   deviceType: string,
-  allDevices: ForgeDeviceEntry[],
+  allDevices: ForgeControlModuleEntry[],
   instDbPrefix: string,
   ioList: ForgeIoEntry[],
   deviceTypeFbInterfaces: Map<string, string>,
@@ -1262,7 +1262,7 @@ function buildNormalizedMatrixWiring(
     return undefined;
   }
 
-  // --- Build canonical instance DB name map (ALL devices, ALL matrix entries) ---
+  // --- Build canonical instance DB name map (ALL control_modules, ALL matrix entries) ---
   const instDbCanonicalMap = new Map<string, string>(); // stripped lowercase → canonical
   for (const d of allDevices) {
     const canonical = `${instDbPrefix}${d.name.replace(/[^A-Za-z0-9]/g, "")}`;
@@ -1343,7 +1343,7 @@ function buildNormalizedMatrixWiring(
       }
 
       if (targetDb) {
-        // Build a device-prefixed field name to avoid collisions across devices
+        // Build a device-prefixed field name to avoid collisions across control_modules
         // e.g. InstMotor01.running → DB_HmiData.motor01Running
         const deviceName = resolvedDb.replace(new RegExp(`^${instDbPrefix}`, "i"), "");
         const globalField = deviceName.charAt(0).toLowerCase() + deviceName.slice(1) +
@@ -1439,7 +1439,7 @@ function buildNormalizedMatrixWiring(
  * Returns FB/UDT/FC blocks from the template + a deterministically-generated instance DB.
  */
 function copyTemplateAsArtifacts(
-  device: ForgeDeviceEntry,
+  device: ForgeControlModuleEntry,
   template: FbTemplate,
   instDbPrefix = "Inst",
   dbPrefix = "DB_",
@@ -1537,7 +1537,7 @@ function sanitizeIoTag(io: ForgeIoEntry): string {
     .replace(/^[0-9]/, "_$&");
 }
 
-function buildIoWrapperPseudoDevice(io: ForgeIoEntry): ForgeDeviceEntry {
+function buildIoWrapperPseudoDevice(io: ForgeIoEntry): ForgeControlModuleEntry {
   const signalName = sanitizeIoTag(io);
   return {
     id: `io-wrapper-${signalName}`,
@@ -1545,7 +1545,7 @@ function buildIoWrapperPseudoDevice(io: ForgeIoEntry): ForgeDeviceEntry {
     tag: io.tag_name,
     device_type: `${io.signal_type} Wrapper`,
     description: io.description || `${io.signal_type} IO wrapper`,
-    subsystem: "IO",
+    unit: "IO",
     io_signals: [{
       tag_name: io.tag_name,
       signal_type: io.signal_type,
@@ -1855,7 +1855,7 @@ export function useForgeDeviceGenerate() {
 
   const generateSingle = useCallback(
     async (
-      device: ForgeDeviceEntry,
+      device: ForgeControlModuleEntry,
       _session: ForgeSession,
       profile: DesignProfile,
       fbTemplates: FbTemplate[],
@@ -1978,13 +1978,13 @@ export function useForgeDeviceGenerate() {
       setError(null);
       clearLog();
 
-      const devices = normalizeDevices(session.device_list as ForgeDeviceEntry[]);
+      const control_modules = normalizeDevices(session.device_list as ForgeControlModuleEntry[]);
       const ioList = session.io_list as ForgeIoEntry[];
 
       // Fetch instruction library for LAD generation via two-pass AI lookup (non-fatal)
       let ladInstructions: Instruction[] | undefined;
       try {
-        const deviceContext = devices
+        const deviceContext = control_modules
           .map((d) => `${d.name} (${d.device_type}): ${d.description}`)
           .join("\n");
         ladInstructions = await lookupInstructions(
@@ -2003,7 +2003,7 @@ export function useForgeDeviceGenerate() {
       // Global DBs to generate from matrix (HmiData, Configuration, etc.)
       const matrixGlobalDbs = matrix?.globalData ?? [];
       const allArtifacts: ForgeArtifact[] = [];
-      // Track template block names already copied — FB/UDT blocks are shared across devices
+      // Track template block names already copied — FB/UDT blocks are shared across control_modules
       const copiedTemplateBlockNames = new Set<string>();
       const ioWrapperBindings: IoLinkingWrapperBinding[] = [];
       // Track FB interface text and actual FB name per device type for Device Call FC generation
@@ -2029,11 +2029,11 @@ export function useForgeDeviceGenerate() {
 
       // Unique device types, sorted by call order
       const uniqueDeviceTypes = [
-        ...new Set(devices.map((d) => d.device_type)),
+        ...new Set(control_modules.map((d) => d.device_type)),
       ].sort((a, b) => getDeviceCallOrder(a) - getDeviceCallOrder(b));
 
-      // Total steps: devices + Inputs DB + Outputs DB + Global DBs + IoLinking + one Device Call FC per type
-      const totalSteps = devices.length + 3 + matrixGlobalDbs.length + uniqueDeviceTypes.length;
+      // Total steps: control_modules + Inputs DB + Outputs DB + Global DBs + IoLinking + one Device Call FC per type
+      const totalSteps = control_modules.length + 3 + matrixGlobalDbs.length + uniqueDeviceTypes.length;
       setProgress({ current: 0, total: totalSteps, currentDevice: "" });
 
       // --- Step 0: Create config UDT artifacts from matrix definitions ---
@@ -2068,8 +2068,8 @@ END_TYPE`;
 
       try {
         // --- Step 1: Generate FBs + instance DBs per device ---
-        for (let i = 0; i < devices.length; i++) {
-          const device = devices[i];
+        for (let i = 0; i < control_modules.length; i++) {
+          const device = control_modules[i];
           const matchedTemplate =
             device.fb_template_id
               ? fbTemplates.find((t) => t.id === device.fb_template_id) ?? null
@@ -2184,7 +2184,7 @@ END_TYPE`;
 
         // --- Step 2: Inputs DB (deterministic) ---
         setProgress({
-          current: devices.length + 1,
+          current: control_modules.length + 1,
           total: totalSteps,
           currentDevice: "Inputs DB",
         });
@@ -2208,7 +2208,7 @@ END_TYPE`;
 
         // --- Step 3: Outputs DB (deterministic) ---
         setProgress({
-          current: devices.length + 2,
+          current: control_modules.length + 2,
           total: totalSteps,
           currentDevice: "Outputs DB",
         });
@@ -2237,7 +2237,7 @@ END_TYPE`;
           // Apply db_prefix if the name doesn't already have it
           const prefixedDbName = dbPrefix && !gdb.dbName.startsWith(dbPrefix) ? `${dbPrefix}${gdb.dbName}` : gdb.dbName;
           setProgress({
-            current: devices.length + 2 + i + 1,
+            current: control_modules.length + 2 + i + 1,
             total: totalSteps,
             currentDevice: `${prefixedDbName} DB`,
           });
@@ -2274,7 +2274,7 @@ END_TYPE`;
           if (a.name.startsWith("DB_")) globalDbMap0.set(a.name.slice(3).toLowerCase(), a.name);
         }
         for (const deviceType of uniqueDeviceTypes) {
-          const groupDevices = devices.filter(d => d.device_type === deviceType);
+          const groupDevices = control_modules.filter(d => d.device_type === deviceType);
           const wiring = buildNormalizedMatrixWiring(
             matrix, deviceType, groupDevices, instDbPrefix, ioList ?? [], deviceTypeFbInterfaces, appendLog, globalDbMap0, allArtifacts,
           );
@@ -2356,7 +2356,7 @@ END_TYPE`;
           const hmiParams = inOutParams.filter(p => !isElementaryType(p.dataType));
           if (hmiParams.length === 0) continue;
 
-          const groupDevices = devices.filter(d => d.device_type === deviceType);
+          const groupDevices = control_modules.filter(d => d.device_type === deviceType);
           for (const device of groupDevices) {
             const instTag = device.name.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
             for (const p of hmiParams) {
@@ -2400,7 +2400,7 @@ END_TYPE`;
         // --- Step 4: IoLinking FC (deterministic SCL, or LAD via AI) ---
         const ioLinkingFcName = fcPrefix ? `${fcPrefix}IoLinking` : "IoLinking";
         setProgress({
-          current: devices.length + 3 + matrixGlobalDbs.length,
+          current: control_modules.length + 3 + matrixGlobalDbs.length,
           total: totalSteps,
           currentDevice: `${ioLinkingFcName} FC`,
         });
@@ -2410,7 +2410,7 @@ END_TYPE`;
             // LAD IoLinking still uses AI
             const abort = new AbortController();
             const context: DeviceGenContext = { profile, platformRules: loadPlatformRules("forge_device"), patterns, inputsDbName, outputsDbName, instructions: ladInstructions };
-            const ladPrompt = buildIoLinkingLadPrompt(devices, ioList, context, promptSections);
+            const ladPrompt = buildIoLinkingLadPrompt(control_modules, ioList, context, promptSections);
             const { content } = await validateAndCall(
               callNonStreaming,
               ladPrompt,
@@ -2459,12 +2459,12 @@ END_TYPE`;
           const deviceType = uniqueDeviceTypes[i];
           const fcName = deviceTypeToFcName(deviceType, fcPrefix || undefined);
           setProgress({
-            current: devices.length + 3 + matrixGlobalDbs.length + i + 1,
+            current: control_modules.length + 3 + matrixGlobalDbs.length + i + 1,
             total: totalSteps,
             currentDevice: `${fcName} FC`,
           });
 
-          const groupDevices = devices.filter((d) => d.device_type === deviceType);
+          const groupDevices = control_modules.filter((d) => d.device_type === deviceType);
           const instanceDbNames = groupDevices.map(
             (d) => `${instDbPrefix}${d.name.replace(/[^A-Za-z0-9]/g, "")}`,
           );
@@ -2516,7 +2516,7 @@ END_TYPE`;
             fcName,
             deviceType,
             fbName: deviceTypeFbNames.get(deviceType),
-            devices: groupDevices,
+            control_modules: groupDevices,
             instanceDbNames,
             fbInterfaceSection: fbInterfaceText,
             inputsDbFields,
@@ -2694,7 +2694,7 @@ END_TYPE`;
         const dedupedArtifacts = [...deduped.values()];
 
         appendLog("info", `Post-processing ${dedupedArtifacts.length} artifacts…`);
-        const normalized = normalizeInstanceDbNames(dedupedArtifacts, devices, appendLog, instDbPrefix);
+        const normalized = normalizeInstanceDbNames(dedupedArtifacts, control_modules, appendLog, instDbPrefix);
         const fixedRefs = fixFcInstanceDbReferences(normalized, appendLog, instDbPrefix);
         const fixedFields = fixFbInstanceFieldRefs(fixedRefs, appendLog, instDbPrefix);
         const deduped2 = deduplicateFbCallParams(fixedFields, appendLog);
@@ -2730,7 +2730,7 @@ END_TYPE`;
       let ladInstructions: Instruction[] | undefined;
       try { ladInstructions = await fetchInstructionsForPrompt("LAD", DEVICE_FB_CATEGORIES); } catch { /* non-fatal */ }
 
-      const devices = normalizeDevices(session.device_list as ForgeDeviceEntry[]);
+      const control_modules = normalizeDevices(session.device_list as ForgeControlModuleEntry[]);
       const allArtifacts: ForgeArtifact[] = [];
       const copiedTemplateBlockNames = new Set<string>();
       const instDbPrefix = resolveInstDbPrefix(profile);
@@ -2743,14 +2743,14 @@ END_TYPE`;
       const globalDbFolder = resolveDestinationFolder(folders, "global_db");
       const callFcFolder = resolveDestinationFolder(folders, "device_call_fc");
 
-      setProgress({ current: 0, total: devices.length, currentDevice: "" });
+      setProgress({ current: 0, total: control_modules.length, currentDevice: "" });
 
       // Track AI-generated FBs by device_type so we generate once and reuse
       const aiGeneratedTypeMap = new Map<string, string>();
 
       try {
-        for (let i = 0; i < devices.length; i++) {
-          const device = devices[i];
+        for (let i = 0; i < control_modules.length; i++) {
+          const device = control_modules[i];
           const matchedTemplate =
             device.fb_template_id
               ? fbTemplates.find((t) => t.id === device.fb_template_id) ?? null
@@ -2759,7 +2759,7 @@ END_TYPE`;
 
           setProgress({
             current: i + 1,
-            total: devices.length,
+            total: control_modules.length,
             currentDevice: useTemplate ? `${device.name} (from library)` : device.name,
           });
 
@@ -2820,7 +2820,7 @@ END_TYPE`;
                 else if (a.type === "FC") a.destination_folder = callFcFolder;
               }
               allArtifacts.push(...deviceArtifacts.map(a => ({ ...a, stage: "device_fb" as const })));
-              // Track the FB name for this device type so subsequent devices reuse it
+              // Track the FB name for this device type so subsequent control_modules reuse it
               const generatedFb = deviceArtifacts.find((a) => a.type === "FB");
               if (generatedFb) {
                 aiGeneratedTypeMap.set(device.device_type, generatedFb.name);
@@ -2834,7 +2834,7 @@ END_TYPE`;
         for (const a of allArtifacts) deduped.set(`${a.type}:${a.name}`, a);
         const dedupedArtifacts = [...deduped.values()];
         appendLog("info", `FB post-processing ${dedupedArtifacts.length} artifacts…`);
-        const normalized = normalizeInstanceDbNames(dedupedArtifacts, devices, appendLog, instDbPrefix);
+        const normalized = normalizeInstanceDbNames(dedupedArtifacts, control_modules, appendLog, instDbPrefix);
         return reconcileUdtReferences(normalized, appendLog);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -2866,7 +2866,7 @@ END_TYPE`;
       let ladInstructions: Instruction[] | undefined;
       try { ladInstructions = await fetchInstructionsForPrompt("LAD", DEVICE_FB_CATEGORIES); } catch { /* non-fatal */ }
 
-      const devices = normalizeDevices(session.device_list as ForgeDeviceEntry[]);
+      const control_modules = normalizeDevices(session.device_list as ForgeControlModuleEntry[]);
       const ioList = session.io_list as ForgeIoEntry[];
       const matrix = session.linkage_matrix as ProcessLinkageMatrix | null;
       const matrixGlobalDbs = matrix?.globalData ?? [];
@@ -2926,14 +2926,14 @@ END_TYPE`;
       const globalDbFolder = resolveDestinationFolder(folders, "global_db");
 
       const uniqueDeviceTypes = [
-        ...new Set(devices.map((d) => d.device_type)),
+        ...new Set(control_modules.map((d) => d.device_type)),
       ].sort((a, b) => getDeviceCallOrder(a) - getDeviceCallOrder(b));
 
       // Build deviceTypeFbInterfaces and FB names from pre-existing FB artifacts
       // Match by fb_template_id first (reliable), then fall back to name matching (no catch-all)
       const deviceTypeFbInterfaces = new Map<string, string>();
       const deviceTypeFbNames = new Map<string, string>();
-      for (const device of devices) {
+      for (const device of control_modules) {
         if (!deviceTypeFbInterfaces.has(device.device_type)) {
           // 1. Match by fb_template_id (most reliable — set during Device FB step)
           let deviceFb = device.fb_template_id
@@ -3081,7 +3081,7 @@ END_TYPE`;
           if (a.name.startsWith("DB_")) globalDbMap0b.set(a.name.slice(3).toLowerCase(), a.name);
         }
         for (const deviceType of uniqueDeviceTypes) {
-          const groupDevices = devices.filter(d => d.device_type === deviceType);
+          const groupDevices = control_modules.filter(d => d.device_type === deviceType);
           const wiring = buildNormalizedMatrixWiring(
             matrix, deviceType, groupDevices, instDbPrefix, ioList ?? [], deviceTypeFbInterfaces, appendLog, globalDbMap0b, [...fbArtifacts, ...allArtifacts],
           );
@@ -3201,7 +3201,7 @@ END_TYPE`;
           const hmiParams = inOutParams.filter(p => !isElementaryType(p.dataType) && /hmi/i.test(p.dataType));
           if (hmiParams.length === 0) continue;
 
-          const groupDevices = devices.filter(d => d.device_type === deviceType);
+          const groupDevices = control_modules.filter(d => d.device_type === deviceType);
           for (const device of groupDevices) {
             const instTag = device.name.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
             for (const p of hmiParams) {
@@ -3246,7 +3246,7 @@ END_TYPE`;
           if (ioLang === "LAD" && !useDirectIoMode) {
             const abort = new AbortController();
             const context: DeviceGenContext = { profile, platformRules: loadPlatformRules("forge_device"), patterns, inputsDbName, outputsDbName, instructions: ladInstructions };
-            const ladPrompt = buildIoLinkingLadPrompt(devices, ioList, context, promptSections);
+            const ladPrompt = buildIoLinkingLadPrompt(control_modules, ioList, context, promptSections);
             const { content } = await validateAndCall(
               callNonStreaming,
               ladPrompt,
@@ -3299,7 +3299,7 @@ END_TYPE`;
             currentDevice: `${fcName} FC`,
           });
 
-          const groupDevices = devices.filter((d) => d.device_type === deviceType);
+          const groupDevices = control_modules.filter((d) => d.device_type === deviceType);
           const instanceDbNames = groupDevices.map(
             (d) => `${instDbPrefix}${d.name.replace(/[^A-Za-z0-9]/g, "")}`,
           );
@@ -3347,7 +3347,7 @@ END_TYPE`;
             fcName,
             deviceType,
             fbName: deviceTypeFbNames.get(deviceType),
-            devices: groupDevices,
+            control_modules: groupDevices,
             instanceDbNames,
             fbInterfaceSection: fbIfaceText,
             inputsDbFields,
@@ -3506,7 +3506,7 @@ END_TYPE`;
         const dedupedArtifacts = [...deduped.values()];
 
         appendLog("info", `Post-processing ${dedupedArtifacts.length} artifacts…`);
-        const normalized = normalizeInstanceDbNames(dedupedArtifacts, devices, appendLog, instDbPrefix);
+        const normalized = normalizeInstanceDbNames(dedupedArtifacts, control_modules, appendLog, instDbPrefix);
         const fixedRefs = fixFcInstanceDbReferences(normalized, appendLog, instDbPrefix);
         const fixedFields = fixFbInstanceFieldRefs(fixedRefs, appendLog, instDbPrefix);
         const deduped2 = deduplicateFbCallParams(fixedFields, appendLog);
@@ -3526,7 +3526,7 @@ END_TYPE`;
 
   const regenerateSingleFb = useCallback(
     async (
-      device: ForgeDeviceEntry,
+      device: ForgeControlModuleEntry,
       session: ForgeSession,
       profile: DesignProfile,
       patterns: PatternCandidate[],
@@ -3552,7 +3552,7 @@ END_TYPE`;
 
   const generateAssemblyFb = useCallback(
     async (
-      assembly: ForgeAssemblyEntry,
+      equipment_module: ForgeEquipmentModuleEntry,
       session: ForgeSession,
       profile: DesignProfile,
       deviceArtifacts: ForgeArtifact[],
@@ -3560,33 +3560,33 @@ END_TYPE`;
       patterns: PatternCandidate[],
       log: (level: DeviceGenLogLevel, msg: string) => void,
     ): Promise<ForgeArtifact[]> => {
-      const matchedTemplate = assembly.fb_template_id
-        ? fbTemplates.find((t) => t.id === assembly.fb_template_id) ?? null
+      const matchedTemplate = equipment_module.fb_template_id
+        ? fbTemplates.find((t) => t.id === equipment_module.fb_template_id) ?? null
         : null;
 
       if (matchedTemplate && matchedTemplate.blocks && matchedTemplate.blocks.length > 0) {
-        log("info", `Assembly ${assembly.tag}: copying template "${matchedTemplate.name}"`);
+        log("info", `Assembly ${equipment_module.tag}: copying template "${matchedTemplate.name}"`);
         return copyTemplateAsArtifacts(
-          { ...assembly, device_type: assembly.assembly_type, io_signals: [] } as unknown as ForgeDeviceEntry,
+          { ...equipment_module, device_type: equipment_module.equipment_module_type, io_signals: [] } as unknown as ForgeControlModuleEntry,
           matchedTemplate,
-        ).map((a) => ({ ...a, stage: "assembly_fb" as const }));
+        ).map((a) => ({ ...a, stage: "equipment_module_fb" as const }));
       }
 
-      log("info", `Assembly ${assembly.tag}: generating via AI`);
+      log("info", `Assembly ${equipment_module.tag}: generating via AI`);
       const platformRules = await loadPlatformRules();
       const constituentDevices = (session.device_list ?? []).filter(
-        (d) => assembly.device_ids.includes(d.id),
+        (d) => equipment_module.control_module_ids.includes(d.id),
       );
       const specAnalysis = session.spec_analysis;
       const relevantInterlocks = specAnalysis?.interlocks?.filter(
-        (i) => i.affected_devices?.some(
-          (name) => constituentDevices.some((d) => d.name === name || d.tag === name) || name === assembly.name || name === assembly.tag,
+        (i) => i.affected_control_modules?.some(
+          (name) => constituentDevices.some((d) => d.name === name || d.tag === name) || name === equipment_module.name || name === equipment_module.tag,
         ),
       );
       const relevantAlarms = specAnalysis?.alarms?.filter(
         (a) => a.affected_sequences?.some(
-          (seq) => seq.toLowerCase().includes(assembly.tag.toLowerCase()),
-        ) || a.description?.toLowerCase().includes(assembly.tag.toLowerCase()),
+          (seq) => seq.toLowerCase().includes(equipment_module.tag.toLowerCase()),
+        ) || a.description?.toLowerCase().includes(equipment_module.tag.toLowerCase()),
       );
 
       const context: AssemblyGenContext = {
@@ -3599,8 +3599,8 @@ END_TYPE`;
         alarms: relevantAlarms,
       };
 
-      const systemPrompt = buildAssemblySclPrompt(assembly, context, promptSections ?? undefined);
-      const userMessage = buildAssemblySclUserMessage(assembly);
+      const systemPrompt = buildAssemblySclPrompt(equipment_module, context, promptSections ?? undefined);
+      const userMessage = buildAssemblySclUserMessage(equipment_module);
 
       const { content } = await validateAndCall(
         callNonStreaming,
@@ -3608,17 +3608,17 @@ END_TYPE`;
         [{ role: "user", content: userMessage }],
         new AbortController().signal,
         16384,
-        "assembly_fb_generate",
+        "equipment_module_fb_generate",
         false,
-        { prompt_name: "forge-device-generate", agent_role: "assembly_fb_generate", pipeline_step: "assembly_fb_generate" },
+        { prompt_name: "forge-device-generate", agent_role: "equipment_module_fb_generate", pipeline_step: "equipment_module_fb_generate" },
       );
 
       const artifacts = parseSclArtifacts(content, "device").map((a) => ({
         ...a,
-        stage: "assembly_fb" as const,
+        stage: "equipment_module_fb" as const,
       }));
 
-      log("info", `Assembly ${assembly.tag}: generated ${artifacts.length} artifacts`);
+      log("info", `Assembly ${equipment_module.tag}: generated ${artifacts.length} artifacts`);
       return artifacts;
     },
     [promptSections],

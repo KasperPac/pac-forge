@@ -40,8 +40,8 @@ const SESSION_ID = "00000000-0000-4000-8000-000000000s01";
 const baseSession = {
   id: SESSION_ID,
   spec_project_id: "00000000-0000-4000-8000-000000000001",
-  assembly_id: ASSEMBLY_ID,
-  subsystem_id: SUBSYSTEM_ID,
+  equipment_module_id: ASSEMBLY_ID,
+  unit_id: SUBSYSTEM_ID,
   status: "static_confirmed",
   static_states: {},
   sequential_states: {},
@@ -49,13 +49,13 @@ const baseSession = {
 } as never;
 
 const baseAssembly = {
-  assembly_id: ASSEMBLY_ID,
-  assembly_name: "LFT01",
-  devices: [
+  equipment_module_id: ASSEMBLY_ID,
+  equipment_module_name: "LFT01",
+  control_modules: [
     {
-      device_id: "d1",
-      device_name: "Pump M01",
-      device_class: "motor",
+      control_module_id: "d1",
+      control_module_name: "Pump M01",
+      control_module_class: "motor",
       is_safety: false,
       io_signals: [
         { tag: "LFT01_M01_CMD", signal_type: "DO" },
@@ -66,8 +66,8 @@ const baseAssembly = {
 } as never;
 
 const baseSubsystem = {
-  subsystem_id: SUBSYSTEM_ID,
-  subsystem_name: "Catodo",
+  unit_id: SUBSYSTEM_ID,
+  unit_name: "Catodo",
   equipment_type: "lift",
 } as never;
 
@@ -138,8 +138,8 @@ describe("useFdsConversation validator gate", () => {
       () =>
         useFdsConversation({
           session: baseSession,
-          assembly: baseAssembly,
-          subsystem: baseSubsystem,
+          equipment_module: baseAssembly,
+          unit: baseSubsystem,
           allTags: baseTags,
           allStates: baseStates,
         }),
@@ -198,8 +198,8 @@ describe("useFdsConversation validator gate", () => {
       () =>
         useFdsConversation({
           session: baseSession,
-          assembly: baseAssembly,
-          subsystem: baseSubsystem,
+          equipment_module: baseAssembly,
+          unit: baseSubsystem,
           allTags: baseTags,
           allStates: baseStates,
         }),

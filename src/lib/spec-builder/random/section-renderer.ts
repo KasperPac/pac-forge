@@ -1,6 +1,6 @@
 /**
  * Renders spec_sections.functional_description.content_json from V2
- * AssemblyContract state tables. Mirrors the shape produced by
+ * EquipmentModuleContract state tables. Mirrors the shape produced by
  * src/lib/spec-builder/orchestrator.ts so DOCX export and the live
  * wizard's post-processing both work unchanged.
  *
@@ -8,7 +8,7 @@
  * snapshot test will fail and force a paired update.
  */
 import type {
-  DeviceStateEntry,
+  ControlModuleStateEntry,
   SequentialStateV2,
   StaticStateV2,
 } from "@/types/spec-contract-v2";
@@ -26,7 +26,7 @@ export interface SequentialSectionContent {
 
 export interface StaticSectionContent {
   pattern: "static";
-  device_states: Array<{ tag: string; state: string }>;
+  control_module_states: Array<{ tag: string; state: string }>;
 }
 
 export function renderSequentialContentJson(
@@ -45,11 +45,11 @@ export function renderSequentialContentJson(
 }
 
 export function renderStaticContentJson(
-  staticState: StaticStateV2 | DeviceStateEntry[],
+  staticState: StaticStateV2 | ControlModuleStateEntry[],
 ): StaticSectionContent {
-  const devices = Array.isArray(staticState) ? staticState : staticState.devices;
+  const control_modules = Array.isArray(staticState) ? staticState : staticState.control_modules;
   return {
     pattern: "static",
-    device_states: devices.map((d) => ({ tag: d.tag, state: d.state })),
+    control_module_states: control_modules.map((d) => ({ tag: d.tag, state: d.state })),
   };
 }

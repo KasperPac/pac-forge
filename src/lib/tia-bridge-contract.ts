@@ -549,7 +549,7 @@ export interface ProjectInfoResponse {
   udt_count: number;
   tag_table_count: number;
   hmi_screen_count: number;
-  device_count: number;
+  control_module_count: number;
   /** ISO-8601 UTC from `_project.LastModified` (V18-confirmed). Used for stale-snapshot detection. Omitted when unreadable. */
   last_modified_at?: string;
 }
@@ -614,7 +614,7 @@ export interface ExtractedTag {
 }
 
 export interface ExtractedHardware {
-  devices: ExtractedDevice[];
+  control_modules: ExtractedDevice[];
   io_modules: ExtractedIoModule[];
   networks: ExtractedNetwork[];
 }
@@ -661,7 +661,7 @@ export interface ExtractedIoModule {
 export interface ExtractedNetwork {
   name: string;
   type: string;
-  devices: string[];
+  control_modules: string[];
 }
 
 /**
@@ -732,7 +732,7 @@ export interface ExtractedHmiTarget {
   /** HmiTarget.Name. */
   name: string;
   /** Parent Device.Name. */
-  device_name: string;
+  control_module_name: string;
   /** Device.TypeIdentifier, e.g. "OrderNumber:6AV2124-0MC01-0AX0/15.1.0.0". */
   type_id: string | null;
   /** Parsed MLFB from type_id (e.g. "6AV2124-0MC01-0AX0"). */
@@ -766,7 +766,7 @@ export interface ExtractedHmiScreen {
  */
 export interface ExtractedDriveDetail {
   /** Joins back to `ExtractedDevice.name`. */
-  device_name: string;
+  control_module_name: string;
   /** Engineer's physical-device label from the drive's `Comment` attribute. */
   comment: string | null;
   /** Drive family derived from MLFB/TypeIdentifier — "G120C"/"G120"/"S120"/"S210"/"V90"/null. */

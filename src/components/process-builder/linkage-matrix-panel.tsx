@@ -414,7 +414,7 @@ function ProcessSequenceTab() {
       stepNumber: (activeSeq?.steps?.length ?? 0) + 1,
       transition: { combinator: "AND", conditions: [] },
       actions: [],
-      devicesInvolved: [],
+      control_modulesInvolved: [],
       notes: "",
     };
     store.getState().addProcessStep(activeSeqId, step);
@@ -440,10 +440,10 @@ function ProcessSequenceTab() {
       if (!activeSeqId || !activeSeq) return;
       const step = (activeSeq.steps ?? []).find((s) => s.id === stepId);
       if (!step) return;
-      const involved = step.devicesInvolved.includes(deviceName)
-        ? step.devicesInvolved.filter((d) => d !== deviceName)
-        : [...step.devicesInvolved, deviceName];
-      store.getState().updateProcessStep(activeSeqId, stepId, { devicesInvolved: involved });
+      const involved = step.control_modulesInvolved.includes(deviceName)
+        ? step.control_modulesInvolved.filter((d) => d !== deviceName)
+        : [...step.control_modulesInvolved, deviceName];
+      store.getState().updateProcessStep(activeSeqId, stepId, { control_modulesInvolved: involved });
     },
     [activeSeq, activeSeqId, store],
   );
@@ -650,7 +650,7 @@ function ProcessSequenceTab() {
                     {step.actions.length > 1 && <span className="text-muted-foreground/50"> +{step.actions.length - 1}</span>}
                   </span>
                   <div className="flex flex-1 flex-wrap gap-0.5">
-                    {step.devicesInvolved.map((dn) => (
+                    {step.control_modulesInvolved.map((dn) => (
                       <Badge key={dn} variant="outline" className="font-mono text-[9px]">{dn}</Badge>
                     ))}
                   </div>
@@ -783,7 +783,7 @@ function ProcessSequenceTab() {
                             key={dn}
                             onClick={() => toggleDevice(step.id, dn)}
                             className={`rounded px-1.5 py-0.5 font-mono text-[9px] transition-colors ${
-                              step.devicesInvolved.includes(dn)
+                              step.control_modulesInvolved.includes(dn)
                                 ? "bg-blue-500/20 text-blue-400"
                                 : "bg-muted/40 text-muted-foreground/50 hover:bg-muted/60"
                             }`}
@@ -901,12 +901,12 @@ export function LinkageMatrixPanel({ onValidate, onProceed, validating }: Linkag
 
   const statusConfig = STATUS_CONFIG[matrix.reviewStatus];
 
-  // Group devices by type
-  const devicesByType = new Map<string, LinkageDevice[]>();
+  // Group control_modules by type
+  const control_modulesByType = new Map<string, LinkageDevice[]>();
   for (const d of matrix.deviceLinkage) {
     const key = d.deviceType || "Uncategorized";
-    if (!devicesByType.has(key)) devicesByType.set(key, []);
-    devicesByType.get(key)!.push(d);
+    if (!control_modulesByType.has(key)) control_modulesByType.set(key, []);
+    control_modulesByType.get(key)!.push(d);
   }
 
   return (
@@ -916,7 +916,7 @@ export function LinkageMatrixPanel({ onValidate, onProceed, validating }: Linkag
         <div>
           <div className="text-sm font-medium">Linkage Matrix</div>
           <div className="font-mono text-[10px] text-muted-foreground">
-            {matrix.deviceLinkage.length} devices &middot; {matrix.processSequences.length} sequence(s) &middot; {matrix.globalData.length} global DBs
+            {matrix.deviceLinkage.length} control_modules &middot; {matrix.processSequences.length} sequence(s) &middot; {matrix.globalData.length} global DBs
           </div>
         </div>
         <Badge className={`font-mono text-[10px] ${statusConfig.className}`}>
@@ -925,9 +925,9 @@ export function LinkageMatrixPanel({ onValidate, onProceed, validating }: Linkag
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="devices" className="flex min-h-0 flex-1 flex-col">
+      <Tabs defaultValue="control_modules" className="flex min-h-0 flex-1 flex-col">
         <TabsList className="mx-3 mt-2 w-fit">
-          <TabsTrigger value="devices" className="gap-1 font-mono text-xs">
+          <TabsTrigger value="control_modules" className="gap-1 font-mono text-xs">
             <Shield className="h-3 w-3" /> Device Linkage
           </TabsTrigger>
           <TabsTrigger value="sequence" className="gap-1 font-mono text-xs">
@@ -936,7 +936,7 @@ export function LinkageMatrixPanel({ onValidate, onProceed, validating }: Linkag
         </TabsList>
 
         {/* Device Linkage tab */}
-        <TabsContent value="devices" className="mt-0 min-h-0 flex-1">
+        <TabsContent value="control_modules" className="mt-0 min-h-0 flex-1">
           <ScrollArea className="h-full">
             <div className="p-2">
               {/* Column headers */}
@@ -952,14 +952,14 @@ export function LinkageMatrixPanel({ onValidate, onProceed, validating }: Linkag
               </div>
 
               {/* Grouped by device type */}
-              {[...devicesByType.entries()].map(([type, devices]) => (
+              {[...control_modulesByType.entries()].map(([type, control_modules]) => (
                 <div key={type} className="mb-2">
                   <div className="mb-0.5 flex items-center gap-1.5 px-2">
                     <Badge variant="outline" className="font-mono text-[10px]">{type}</Badge>
-                    <span className="font-mono text-[10px] text-muted-foreground">{devices.length} device(s)</span>
+                    <span className="font-mono text-[10px] text-muted-foreground">{control_modules.length} device(s)</span>
                   </div>
                   <div className="rounded-md border">
-                    {devices.map((device) => (
+                    {control_modules.map((device) => (
                       <DeviceRow key={device.id} device={device} />
                     ))}
                   </div>

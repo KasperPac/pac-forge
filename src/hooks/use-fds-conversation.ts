@@ -14,10 +14,10 @@ import {
   stripJsonFromResponse,
 } from "@/lib/spec-builder/fds-prompts";
 import type {
-  AssemblyConfig,
-  SubsystemConfig,
+  EquipmentModuleConfig,
+  UnitConfig,
   InstrumentTag,
-  FdsAssemblySession,
+  OperationSession,
   FdsConversationTurn,
 } from "@/types/spec-builder";
 import type {
@@ -30,9 +30,9 @@ import { SpecContractPatchSchema, validateSpecContractPatch } from "@/lib/spec-b
 import { buildValidationFailureTurn } from "@/lib/spec-builder/validation-failure-turn";
 
 interface UseFdsConversationOptions {
-  session: FdsAssemblySession;
-  assembly: AssemblyConfig;
-  subsystem: SubsystemConfig;
+  session: OperationSession;
+  equipment_module: EquipmentModuleConfig;
+  unit: UnitConfig;
   allTags: InstrumentTag[];
   allStates: OperatingStateV2[];
 }
@@ -47,8 +47,8 @@ interface UseFdsConversationReturn {
 
 export function useFdsConversation({
   session,
-  assembly,
-  subsystem,
+  equipment_module,
+  unit,
   allTags,
   allStates,
 }: UseFdsConversationOptions): UseFdsConversationReturn {
@@ -69,13 +69,13 @@ export function useFdsConversation({
 
   const buildSystemPrompt = useCallback(() => {
     return buildFdsInterviewSystemPrompt(
-      assembly, subsystem, allTags,
+      equipment_module, unit, allTags,
       session.static_states,
       // Prompt builder now consumes SequentialStateV2 directly (Phase 3 Task 2).
       session.sequential_states,
       allStates,
     );
-  }, [assembly, subsystem, allTags, session.static_states, session.sequential_states, allStates]);
+  }, [equipment_module, unit, allTags, session.static_states, session.sequential_states, allStates]);
 
   const buildMessages = useCallback(
     (extraUserMessage?: string) => {
@@ -108,11 +108,11 @@ export function useFdsConversation({
       }
 
       await supabase
-        .from("fds_assembly_sessions")
+        .from("fds_operation_sessions")
         .update(update)
         .eq("id", session.id);
 
-      queryClient.invalidateQueries({ queryKey: ["fds_assembly_sessions"] });
+      queryClient.invalidateQueries({ queryKey: ["fds_operation_sessions"] });
     },
     [session, queryClient],
   );
@@ -163,14 +163,14 @@ export function useFdsConversation({
         };
         const v2 = ensureV2(merged, stateId);
 
-        // Phase 3 — hard validator gate. Build a per-state assembly patch
+        // Phase 3 — hard validator gate. Build a per-state equipment_module patch
         // and check it. Any issues abort just this block; valid blocks in
         // the same response still merge.
         const patch = {
-          assemblies: {
-            [assembly.assembly_id]: {
-              assembly_id: assembly.assembly_id,
-              subsystem_id: subsystem.subsystem_id,
+          equipment_modules: {
+            [equipment_module.equipment_module_id]: {
+              equipment_module_id: equipment_module.equipment_module_id,
+              unit_id: unit.unit_id,
               static_states: session.static_states,
               sequential_states: {
                 ...session.sequential_states,
@@ -202,7 +202,7 @@ export function useFdsConversation({
 
       return { updates, failures };
     },
-    [resolveStateId, session.sequential_states, session.static_states, assembly.assembly_id, subsystem.subsystem_id, allStates],
+    [resolveStateId, session.sequential_states, session.static_states, equipment_module.equipment_module_id, unit.unit_id, allStates],
   );
 
   const sendMessage = useCallback(
@@ -225,7 +225,7 @@ export function useFdsConversation({
         // doesn't overwrite it (session.conversation is a stale closure).
         const conversationWithUser = [...session.conversation, userTurn];
         await supabase
-          .from("fds_assembly_sessions")
+          .from("fds_operation_sessions")
           .update({ conversation: conversationWithUser })
           .eq("id", session.id);
 
@@ -284,10 +284,10 @@ export function useFdsConversation({
           if (session.status === "static_confirmed") update.status = "in_progress";
         }
         await supabase
-          .from("fds_assembly_sessions")
+          .from("fds_operation_sessions")
           .update(update)
           .eq("id", session.id);
-        queryClient.invalidateQueries({ queryKey: ["fds_assembly_sessions"] });
+        queryClient.invalidateQueries({ queryKey: ["fds_operation_sessions"] });
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
         setError(err instanceof Error ? err.message : "Conversation failed");
@@ -315,7 +315,7 @@ export function useFdsConversation({
       // buildFdsOpeningMessage still accepts the legacy OperatingState; bridge
       // until Task 10 narrows it. Only `state_name` is read inside.
       const openingPrompt = buildFdsOpeningMessage(
-        assembly,
+        equipment_module,
         allTags,
         firstState as unknown as import("@/types/spec-builder").OperatingState,
       );
@@ -352,7 +352,7 @@ export function useFdsConversation({
       setIsStreaming(false);
       setStreamingText("");
     }
-  }, [isStreaming, buildSystemPrompt, assembly, allTags, sequentialStates, persistTurn]);
+  }, [isStreaming, buildSystemPrompt, equipment_module, allTags, sequentialStates, persistTurn]);
 
   return { sendMessage, startInterview, streamingText, isStreaming, error };
 }

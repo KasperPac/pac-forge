@@ -11,18 +11,18 @@ describe("RandomFdsThemeSchema", () => {
     design_principles: ["Fail-safe defaults", "Operator-driven reset"],
     machine_theme: "vertical lift",
     safety_classification: null,
-    subsystems: [
+    units: [
       {
-        subsystem_name: "Infeed",
+        unit_name: "Infeed",
         equipment_type: "Conveyor",
         description: "Belt conveyor that feeds parts onto the lift.",
-        assemblies: [
+        equipment_modules: [
           {
-            assembly_name: "Conveyor CV01",
+            equipment_module_name: "Conveyor CV01",
             description: "Single drive belt conveyor.",
-            devices: [
-              { device_name: "Drive Motor M01", device_class: "motor", description: "1.5 kW belt drive", is_safety: false },
-              { device_name: "Part-Present Sensor PS01", device_class: "sensor_position", description: "Photoelectric, part detect", is_safety: false },
+            control_modules: [
+              { control_module_name: "Drive Motor M01", control_module_class: "motor", description: "1.5 kW belt drive", is_safety: false },
+              { control_module_name: "Part-Present Sensor PS01", control_module_class: "sensor_position", description: "Photoelectric, part detect", is_safety: false },
             ],
           },
         ],
@@ -40,15 +40,15 @@ describe("RandomFdsThemeSchema", () => {
     expect(() => RandomFdsThemeSchema.parse(rest)).toThrow();
   });
 
-  it("rejects a device with an unknown device_class", () => {
+  it("rejects a device with an unknown control_module_class", () => {
     const bad = structuredClone(valid);
-    bad.subsystems[0].assemblies[0].devices[0].device_class = "wormhole_drive";
+    bad.units[0].equipment_modules[0].control_modules[0].control_module_class = "wormhole_drive";
     expect(() => RandomFdsThemeSchema.parse(bad)).toThrow();
   });
 
-  it("rejects a subsystem with zero assemblies", () => {
+  it("rejects a unit with zero equipment_modules", () => {
     const bad = structuredClone(valid);
-    bad.subsystems[0].assemblies = [];
+    bad.units[0].equipment_modules = [];
     expect(() => RandomFdsThemeSchema.parse(bad)).toThrow();
   });
 });

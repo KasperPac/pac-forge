@@ -1,14 +1,14 @@
 /**
- * Siemens IO address allocator. Each subsystem gets its own byte/word
- * base; within a subsystem we walk DI/DO bit-by-bit and AI/AO word-by-
+ * Siemens IO address allocator. Each unit gets its own byte/word
+ * base; within a unit we walk DI/DO bit-by-bit and AI/AO word-by-
  * word. Bases are computed by the caller (assemble.ts) so they're
- * disjoint across subsystems.
+ * disjoint across units.
  */
 
 export type IoSignalKind = "DI" | "DO" | "AI" | "AO";
 
 export interface IoAllocatorBases {
-  subsystemIndex: number;
+  unitIndex: number;
   diBase: number; // byte
   doBase: number; // byte
   aiBase: number; // word
@@ -67,19 +67,19 @@ export function createIoAllocator(bases: IoAllocatorBases): IoAllocator {
 }
 
 /**
- * Compute disjoint per-subsystem IO bases given subsystem count.
- * Each subsystem reserves 16 bytes of DI, 16 bytes of DO, 64 words of
+ * Compute disjoint per-unit IO bases given unit count.
+ * Each unit reserves 16 bytes of DI, 16 bytes of DO, 64 words of
  * AI (128 bytes), 64 words of AO (128 bytes). The AI/AO stride covers
- * ≥60 signals per kind per subsystem (slider max — see spec §8.3).
- * 8 subsystems × 128 bytes = 1024 bytes fits the default S7-1500
+ * ≥60 signals per kind per unit (slider max — see spec §8.3).
+ * 8 units × 128 bytes = 1024 bytes fits the default S7-1500
  * process image (1024 bytes I, 1024 bytes Q).
  */
-export function computeSubsystemBases(subsystemIndex: number): IoAllocatorBases {
+export function computeSubsystemBases(unitIndex: number): IoAllocatorBases {
   return {
-    subsystemIndex,
-    diBase: subsystemIndex * 16,
-    doBase: subsystemIndex * 16,
-    aiBase: 128 + subsystemIndex * 128,
-    aoBase: 128 + subsystemIndex * 128,
+    unitIndex,
+    diBase: unitIndex * 16,
+    doBase: unitIndex * 16,
+    aiBase: 128 + unitIndex * 128,
+    aoBase: 128 + unitIndex * 128,
   };
 }

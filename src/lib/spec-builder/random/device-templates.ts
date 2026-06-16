@@ -5,7 +5,7 @@
  * populate sequential states deterministically.
  */
 import type { IoSignalKind } from "./io-allocator";
-import type { RandomFdsDeviceClass } from "./theme-schema";
+import type { RandomFdsControlModuleClass } from "./theme-schema";
 
 export type StateKey = "STARTING" | "EXECUTE" | "STOPPING";
 
@@ -203,7 +203,7 @@ const cooler: DeviceTemplate = {
   },
 };
 
-// Sensors / passive devices contribute IO only, no step templates.
+// Sensors / passive control_modules contribute IO only, no step templates.
 const sensorDi = (descr: string): DeviceTemplate => ({
   ioSlots: [{ suffix: "STATE", kind: "DI", description: descr }],
   stepTemplates: { STARTING: [], EXECUTE: [], STOPPING: [] },
@@ -220,10 +220,10 @@ const passiveDo = (descr: string): DeviceTemplate => ({
 });
 
 // ---------------------------------------------------------------------
-// Registry — every RandomFdsDeviceClass enum value must appear here
+// Registry — every RandomFdsControlModuleClass enum value must appear here
 // ---------------------------------------------------------------------
 
-export const DEVICE_TEMPLATES: Record<RandomFdsDeviceClass, DeviceTemplate> = {
+export const DEVICE_TEMPLATES: Record<RandomFdsControlModuleClass, DeviceTemplate> = {
   valve,
   motor,
   sensor_level: sensorAi("Level transmitter reading"),

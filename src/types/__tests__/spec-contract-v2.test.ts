@@ -2,14 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   ConfigParameterSchema,
   ExpressionSchema,
-  InterAssemblyInterlockSchema,
+  InterEquipmentModuleInterlockSchema,
   OperatingStateV2Schema,
   OperatorModeSchema,
   ProjectSectionContentSchema,
   ProjectSectionTypeSchema,
   SequentialStateV2Schema,
   SpecContractV2Schema,
-  SubsystemStateSequenceSchema,
+  UnitProcedureSequenceSchema,
 } from "../spec-contract-v2";
 
 describe("OperatorModeSchema", () => {
@@ -144,69 +144,69 @@ describe("OperatingStateV2Schema PackML extensions", () => {
   });
 });
 
-describe("InterAssemblyInterlockSchema structured shape", () => {
+describe("InterEquipmentModuleInterlockSchema structured shape", () => {
   it("accepts a structured interlock with closed-set effect and CompletionCriterion source", () => {
     const interlock = {
       interlock_id: "il-1",
-      source_assembly: "CV01",
+      source_equipment_module: "CV01",
       source_condition: {
         kind: "tag_equals",
         tag: "CV01.RUNNING",
         value: true,
       },
-      target_assembly: "LFT01",
+      target_equipment_module: "LFT01",
       effect: "hold",
       prose: "Hold lift until conveyor is running",
     };
-    expect(() => InterAssemblyInterlockSchema.parse(interlock)).not.toThrow();
+    expect(() => InterEquipmentModuleInterlockSchema.parse(interlock)).not.toThrow();
   });
 
   it("accepts effect_target for targeted effects", () => {
     const interlock = {
       interlock_id: "il-2",
-      source_assembly: "CV01",
+      source_equipment_module: "CV01",
       source_condition: {
         kind: "tag_equals",
         tag: "CV01.FAULT",
         value: true,
       },
-      target_assembly: "LFT01",
+      target_equipment_module: "LFT01",
       effect: "block_transition",
-      effect_target: { assembly: "LFT01", state_id: 5 },
+      effect_target: { equipment_module: "LFT01", state_id: 5 },
       prose: "Block lift execute on conveyor fault",
     };
-    expect(() => InterAssemblyInterlockSchema.parse(interlock)).not.toThrow();
+    expect(() => InterEquipmentModuleInterlockSchema.parse(interlock)).not.toThrow();
   });
 
   it("rejects effect outside the closed enum", () => {
     const interlock = {
       interlock_id: "il-3",
-      source_assembly: "A",
+      source_equipment_module: "A",
       source_condition: { kind: "tag_equals", tag: "T", value: true },
-      target_assembly: "B",
+      target_equipment_module: "B",
       effect: "wave-hands",
       prose: "x",
     };
-    expect(() => InterAssemblyInterlockSchema.parse(interlock)).toThrow();
+    expect(() => InterEquipmentModuleInterlockSchema.parse(interlock)).toThrow();
   });
 
   it("rejects prose source_condition (the old shape)", () => {
     const interlock = {
       interlock_id: "il-4",
-      source_assembly: "A",
+      source_equipment_module: "A",
       source_condition: "CV01 is running",
-      target_assembly: "B",
+      target_equipment_module: "B",
       effect: "hold",
       prose: "x",
     };
-    expect(() => InterAssemblyInterlockSchema.parse(interlock)).toThrow();
+    expect(() => InterEquipmentModuleInterlockSchema.parse(interlock)).toThrow();
   });
 });
 
-describe("SubsystemStateSequenceSchema structured shared_permissives", () => {
+describe("UnitProcedureSequenceSchema structured shared_permissives", () => {
   it("accepts SharedPermissive[] structured shape", () => {
     const seq = {
-      assembly_order: ["CV01", "LFT01"],
+      equipment_module_order: ["CV01", "LFT01"],
       shared_permissives: [
         {
           permissive_id: "p1",
@@ -214,20 +214,20 @@ describe("SubsystemStateSequenceSchema structured shared_permissives", () => {
           prose: "E-stop not active",
         },
       ],
-      inter_assembly_interlocks: [],
+      inter_equipment_module_interlocks: [],
       notes: null,
     };
-    expect(() => SubsystemStateSequenceSchema.parse(seq)).not.toThrow();
+    expect(() => UnitProcedureSequenceSchema.parse(seq)).not.toThrow();
   });
 
   it("rejects prose string[] shared_permissives (the old shape)", () => {
     const seq = {
-      assembly_order: ["CV01"],
+      equipment_module_order: ["CV01"],
       shared_permissives: ["ESTOP_01 = TRUE"],
-      inter_assembly_interlocks: [],
+      inter_equipment_module_interlocks: [],
       notes: null,
     };
-    expect(() => SubsystemStateSequenceSchema.parse(seq)).toThrow();
+    expect(() => UnitProcedureSequenceSchema.parse(seq)).toThrow();
   });
 });
 
@@ -277,7 +277,7 @@ describe("ProjectSectionTypeSchema", () => {
     });
   });
 
-  it("rejects per-assembly-state section types", () => {
+  it("rejects per-equipment-module-state section types", () => {
     expect(() => ProjectSectionTypeSchema.parse("functional_description")).toThrow();
   });
 });
@@ -322,11 +322,11 @@ describe("SpecContractV2Schema new top-level fields", () => {
         design_principles: [],
         scope_exclusions: [],
       },
-      hierarchy: { subsystems: [] },
+      hierarchy: { units: [] },
       states: [],
       alarm_tiers: [],
-      assemblies: {},
-      orchestrations: {},
+      equipment_modules: {},
+      unit_procedures: {},
       system_orchestration: null,
       alarms: [],
       io_list: [],

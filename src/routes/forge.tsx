@@ -46,10 +46,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useForgeStore } from "@/stores/forge-store";
 import { FORGE_STEP_LABELS, FORGE_STEP_ORDER } from "@/types/forge";
-import type { ForgeStep, ForgeArtifact, ForgeHardwareConfig, ForgeIoEntry, ForgeDeviceEntry, SpecAnalysis, TiaForgeExportResult, QaMessage } from "@/types/forge";
+import type { ForgeStep, ForgeArtifact, ForgeHardwareConfig, ForgeIoEntry, ForgeControlModuleEntry, SpecAnalysis, TiaForgeExportResult, QaMessage } from "@/types/forge";
 import type { ProcessLinkageMatrix } from "@/types/forge-matrix";
 import type { InterfaceContractMap } from "@/types/forge-contract";
-import type { AssemblyBriefMap } from "@/types/forge-brief";
+import type { EquipmentModuleBriefMap } from "@/types/forge-brief";
 import type { LogicCheckResult } from "@/types/forge-logic-check";
 import type { PlcsimTestSuite } from "@/types/plcsim-test";
 import {
@@ -241,9 +241,9 @@ export default function ForgePage() {
   async function handleHardwareIoComplete(
     hardware: ForgeHardwareConfig,
     ioList: ForgeIoEntry[],
-    devices: ForgeDeviceEntry[],
+    control_modules: ForgeControlModuleEntry[],
   ) {
-    await saveSession({ hardware_config: hardware, io_list: ioList, device_list: devices, current_step: "device_fb" });
+    await saveSession({ hardware_config: hardware, io_list: ioList, device_list: control_modules, current_step: "device_fb" });
 
     // Provision the TIA project and show a progress dialog.
     // If bridge is offline it silently skips; compile step handles it later.
@@ -266,7 +266,7 @@ export default function ForgePage() {
     completeStep("interface_contract");
   }
 
-  async function handleBriefsComplete(briefs: AssemblyBriefMap) {
+  async function handleBriefsComplete(briefs: EquipmentModuleBriefMap) {
     // Store briefs as device_briefs on the session (reusing the JSONB column)
     await saveSession({ device_briefs: briefs as unknown as Record<string, unknown>, current_step: "device_fb" });
   }
@@ -292,11 +292,11 @@ export default function ForgePage() {
   }
 
   async function handleAssemblyArtifactsUpdate(artifacts: ForgeArtifact[]) {
-    await saveSession({ assembly_artifacts: artifacts });
+    await saveSession({ equipment_module_artifacts: artifacts });
   }
 
-  async function handleAssemblyListResolved(assemblies: import("@/types/forge").ForgeAssemblyEntry[]) {
-    await saveSession({ assembly_list: assemblies });
+  async function handleAssemblyListResolved(equipment_modules: import("@/types/forge").ForgeEquipmentModuleEntry[]) {
+    await saveSession({ equipment_module_list: equipment_modules });
   }
 
   async function handleProcessArtifactsUpdate(artifacts: ForgeArtifact[]) {
@@ -456,7 +456,7 @@ export default function ForgePage() {
           />
         );
 
-      case "assembly_fb":
+      case "equipment_module_fb":
         return (
           <ForgeAssemblyFb
             session={session}
@@ -465,7 +465,7 @@ export default function ForgePage() {
             patterns={patterns}
             onArtifactsUpdate={handleAssemblyArtifactsUpdate}
             onAssemblyListResolved={handleAssemblyListResolved}
-            onComplete={() => completeStep("assembly_fb")}
+            onComplete={() => completeStep("equipment_module_fb")}
           />
         );
 
@@ -635,7 +635,7 @@ export default function ForgePage() {
                           <AlertDialogHeader>
                             <AlertDialogTitle>Start a new session?</AlertDialogTitle>
                             <AlertDialogDescription>
-                              This will create a fresh session and discard all current wizard progress — uploaded spec, Q&amp;A, hardware, devices, and generated code. The old session is not deleted and can be recovered from the database, but this wizard will start over from Step 1.
+                              This will create a fresh session and discard all current wizard progress — uploaded spec, Q&amp;A, hardware, control_modules, and generated code. The old session is not deleted and can be recovered from the database, but this wizard will start over from Step 1.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>

@@ -186,7 +186,7 @@ function serializeMatrix(matrix: ProcessLinkageMatrix): string {
             description: a.description,
             deviceName: a.deviceName,
           })),
-          devicesInvolved: ps.devicesInvolved,
+          control_modulesInvolved: ps.control_modulesInvolved,
           notes: ps.notes,
         })),
       })),

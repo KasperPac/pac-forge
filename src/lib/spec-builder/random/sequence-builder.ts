@@ -1,21 +1,21 @@
 /**
- * Builds V2 AssemblyContract records (static + sequential states) per
- * assembly from resolved hierarchy + device IO. Each produced contract
+ * Builds V2 EquipmentModuleContract records (static + sequential states) per
+ * equipment_module from resolved hierarchy + device IO. Each produced contract
  * is Zod-validated before return so a builder bug fails loudly here
  * rather than silently at insert time.
  */
 import {
-  AssemblyContractSchema,
-  type AssemblyContract,
+  EquipmentModuleContractSchema,
+  type EquipmentModuleContract,
   type CompletionCriterion,
   type SequentialStateV2,
   type StaticStateV2,
-  type StepV2,
+  type PhaseStep,
   type TransitionV2,
   type ActionV2,
 } from "@/types/spec-contract-v2";
 import type { IoSignalKind } from "./io-allocator";
-import type { RandomFdsDeviceClass } from "./theme-schema";
+import type { RandomFdsControlModuleClass } from "./theme-schema";
 import { DEVICE_TEMPLATES, type StateKey } from "./device-templates";
 import {
   STATE_ID_IDLE,
@@ -35,21 +35,21 @@ export interface ResolvedIoSignal {
 }
 
 export interface ResolvedDevice {
-  device_id: string;
-  device_name: string;
-  device_class: RandomFdsDeviceClass;
+  control_module_id: string;
+  control_module_name: string;
+  control_module_class: RandomFdsControlModuleClass;
   description: string;
   is_safety: boolean;
-  /** Short tag prefix derived from assembly + device names, e.g. "CV01_M01". */
+  /** Short tag prefix derived from equipment_module + device names, e.g. "CV01_M01". */
   tag_prefix: string;
   io_signals: ResolvedIoSignal[];
 }
 
 export interface ResolvedAssembly {
-  assembly_id: string;
-  assembly_name: string;
-  subsystem_id: string;
-  devices: ResolvedDevice[];
+  equipment_module_id: string;
+  equipment_module_name: string;
+  unit_id: string;
+  control_modules: ResolvedDevice[];
 }
 
 const STATE_KEY_TO_ID: Record<StateKey, number> = {
@@ -62,11 +62,11 @@ function findIo(device: ResolvedDevice, suffix: string): ResolvedIoSignal | unde
   return device.io_signals.find((s) => s.suffix === suffix);
 }
 
-function buildSteps(assembly: ResolvedAssembly, stateKey: StateKey): StepV2[] {
-  // For each device, append its step templates to the assembly's step list.
+function buildSteps(equipment_module: ResolvedAssembly, stateKey: StateKey): PhaseStep[] {
+  // For each device, append its step templates to the equipment_module's step list.
   // Step numbers are 1-based within the state. step_id = "<state>-<n>".
   const stateId = STATE_KEY_TO_ID[stateKey];
-  const branchId = `b-${assembly.assembly_id}-${stateId}-main`;
+  const branchId = `b-${equipment_module.equipment_module_id}-${stateId}-main`;
 
   const collected: Array<{
     deviceTagPrefix: string;
@@ -74,14 +74,14 @@ function buildSteps(assembly: ResolvedAssembly, stateKey: StateKey): StepV2[] {
     template: ReturnType<typeof DEVICE_TEMPLATES.motor.stepTemplates.STARTING.at>;
     device: ResolvedDevice;
   }> = [];
-  for (const dev of assembly.devices) {
-    const tpl = DEVICE_TEMPLATES[dev.device_class];
+  for (const dev of equipment_module.control_modules) {
+    const tpl = DEVICE_TEMPLATES[dev.control_module_class];
     for (const step of tpl.stepTemplates[stateKey]) {
-      collected.push({ deviceTagPrefix: dev.tag_prefix, deviceName: dev.device_name, template: step, device: dev });
+      collected.push({ deviceTagPrefix: dev.tag_prefix, deviceName: dev.control_module_name, template: step, device: dev });
     }
   }
 
-  const built: StepV2[] = collected.map((c, idx) => {
+  const built: PhaseStep[] = collected.map((c, idx) => {
     if (!c.template) throw new Error("step template missing");
     const tpl = c.template;
     const stepNumber = idx + 1;
@@ -158,13 +158,13 @@ function buildSteps(assembly: ResolvedAssembly, stateKey: StateKey): StepV2[] {
 }
 
 function buildSequentialState(
-  assembly: ResolvedAssembly,
+  equipment_module: ResolvedAssembly,
   stateKey: StateKey,
 ): SequentialStateV2 {
   return {
     override_kind: "override",
     permissives: [],
-    steps: buildSteps(assembly, stateKey),
+    steps: buildSteps(equipment_module, stateKey),
     branches: [],
     state_monitors: [],
     sequence_model_version: 2,
@@ -173,17 +173,17 @@ function buildSequentialState(
 }
 
 function emptyStatic(): StaticStateV2 {
-  return { override_kind: "override", devices: [], notes: null };
+  return { override_kind: "override", control_modules: [], notes: null };
 }
 
-export function buildAssemblyContracts(
-  assemblies: ResolvedAssembly[],
-): Record<string, AssemblyContract> {
-  const out: Record<string, AssemblyContract> = {};
-  for (const asm of assemblies) {
-    const contract: AssemblyContract = {
-      assembly_id: asm.assembly_id,
-      subsystem_id: asm.subsystem_id,
+export function buildEquipmentModuleContracts(
+  equipment_modules: ResolvedAssembly[],
+): Record<string, EquipmentModuleContract> {
+  const out: Record<string, EquipmentModuleContract> = {};
+  for (const asm of equipment_modules) {
+    const contract: EquipmentModuleContract = {
+      equipment_module_id: asm.equipment_module_id,
+      unit_id: asm.unit_id,
       static_states: {
         [String(STATE_ID_IDLE)]: emptyStatic(),
         [String(STATE_ID_COMPLETE)]: emptyStatic(),
@@ -196,13 +196,13 @@ export function buildAssemblyContracts(
       },
     };
     // Belt-and-braces — fail loudly here, not at insert time.
-    const parsed = AssemblyContractSchema.safeParse(contract);
+    const parsed = EquipmentModuleContractSchema.safeParse(contract);
     if (!parsed.success) {
       throw new Error(
-        `sequence-builder: assembly ${asm.assembly_id} contract failed Zod parse:\n${parsed.error.message}`,
+        `sequence-builder: equipment_module ${asm.equipment_module_id} contract failed Zod parse:\n${parsed.error.message}`,
       );
     }
-    out[asm.assembly_id] = parsed.data;
+    out[asm.equipment_module_id] = parsed.data;
   }
   return out;
 }

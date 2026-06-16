@@ -11,15 +11,15 @@ import { classifyInterlocks } from "../interlock-classifier";
 const rawInterlocks = [
   {
     interlock_id: "il-1",
-    source_assembly: "CV01",
-    target_assembly: "LFT01",
+    source_equipment_module: "CV01",
+    target_equipment_module: "LFT01",
     prose_source_condition: "CV01 is running",
     prose_effect: "hold the lift",
   },
   {
     interlock_id: "il-2",
-    source_assembly: "CV01",
-    target_assembly: "LFT01",
+    source_equipment_module: "CV01",
+    target_equipment_module: "LFT01",
     prose_source_condition: "CV01 has faulted",
     prose_effect: "block lift execute",
   },
@@ -82,12 +82,12 @@ describe("classifyInterlocks", () => {
     expect(out.every((r) => r.confidence === 0)).toBe(true);
   });
 
-  it("preserves the original interlock_id, source_assembly, target_assembly", async () => {
+  it("preserves the original interlock_id, source_equipment_module, target_equipment_module", async () => {
     callMock.mockResolvedValueOnce({ content: "garbage", usage: null });
     const out = await classifyInterlocks(rawInterlocks);
     expect(out[0].interlock_id).toBe("il-1");
-    expect(out[0].source_assembly).toBe("CV01");
-    expect(out[0].target_assembly).toBe("LFT01");
+    expect(out[0].source_equipment_module).toBe("CV01");
+    expect(out[0].target_equipment_module).toBe("LFT01");
   });
 
   it("returns [] for empty input without calling the AI", async () => {

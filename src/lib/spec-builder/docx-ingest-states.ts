@@ -1,20 +1,20 @@
 /**
- * Deterministic parser: per-assembly operating-state tables.
+ * Deterministic parser: per-equipment_module operating-state tables.
  *
  * Each state table carries a caption of the form:
  *   "Operating State: {name} (pac-forge:state:{stateId})"
- * and is associated with an assembly via an enclosing caption or an adjacent
- * "pac-forge:assembly:{uuid}" sentinel. The static/sequential pattern is
+ * and is associated with an equipment_module via an enclosing caption or an adjacent
+ * "pac-forge:equipment_module:{uuid}" sentinel. The static/sequential pattern is
  * detected by header shape:
  *   Static     → [Tag, Description, State]
  *   Sequential → [Step, Action, Completion Criteria, On Fail]
  */
 import type {
   CompletionCriterion,
-  DeviceStateEntry,
+  ControlModuleStateEntry,
   FaultRef,
   SequentialStateV2,
-  StepV2,
+  PhaseStep,
 } from "@/types/spec-contract-v2";
 import type { ParsedDocxTable } from "@/lib/spec-builder/docx-ingest";
 import { DocxIngestError } from "@/lib/spec-builder/docx-ingest-hierarchy";
@@ -50,7 +50,7 @@ function parseOnFail(text: string): FaultRef | undefined {
   return { fault_code: rawCode, severity };
 }
 
-function parseStaticRows(table: ParsedDocxTable): DeviceStateEntry[] {
+function parseStaticRows(table: ParsedDocxTable): ControlModuleStateEntry[] {
   if (!headersMatch(table.headers, STATIC_HEADERS)) {
     throw new DocxIngestError(
       `Static state table headers must be ${STATIC_HEADERS.join(" | ")}`,
@@ -66,7 +66,7 @@ function parseStaticRows(table: ParsedDocxTable): DeviceStateEntry[] {
     .filter((e) => e.tag.length > 0);
 }
 
-function parseSequentialRows(table: ParsedDocxTable): StepV2[] {
+function parseSequentialRows(table: ParsedDocxTable): PhaseStep[] {
   if (!headersMatch(table.headers, SEQUENTIAL_HEADERS)) {
     throw new DocxIngestError(
       `Sequential state table headers must be ${SEQUENTIAL_HEADERS.join(" | ")}`,
@@ -100,35 +100,35 @@ function parseSequentialRows(table: ParsedDocxTable): StepV2[] {
 }
 
 export interface ParsedAssemblyStates {
-  /** assembly_id → state_id → static state rows */
-  staticByAssembly: Record<string, Record<string, DeviceStateEntry[]>>;
-  /** assembly_id → state_id → sequential state shape */
+  /** equipment_module_id → state_id → static state rows */
+  staticByAssembly: Record<string, Record<string, ControlModuleStateEntry[]>>;
+  /** equipment_module_id → state_id → sequential state shape */
   sequentialByAssembly: Record<string, Record<string, SequentialStateV2>>;
 }
 
 /**
  * Walks all tables with a state sentinel. Uses the most recently seen
- * assembly sentinel to associate a state with an assembly. If no assembly
+ * equipment_module sentinel to associate a state with an equipment_module. If no equipment_module
  * sentinel is present in any prior caption the parser throws.
  */
 export function parseStateTables(
   tables: ParsedDocxTable[],
 ): ParsedAssemblyStates {
-  const staticByAssembly: Record<string, Record<string, DeviceStateEntry[]>> = {};
+  const staticByAssembly: Record<string, Record<string, ControlModuleStateEntry[]>> = {};
   const sequentialByAssembly: Record<string, Record<string, SequentialStateV2>> = {};
 
   let currentAssemblyId: string | null = null;
 
   for (const table of tables) {
-    const assemblyMarker = parseAssemblySentinel(table.caption);
-    if (assemblyMarker) currentAssemblyId = assemblyMarker.assemblyId;
+    const equipment_moduleMarker = parseAssemblySentinel(table.caption);
+    if (equipment_moduleMarker) currentAssemblyId = equipment_moduleMarker.equipment_moduleId;
 
     const stateMarker = parseStateSentinel(table.caption);
     if (!stateMarker) continue;
 
     if (!currentAssemblyId) {
       throw new DocxIngestError(
-        `State table "${table.caption}" not scoped to an assembly — no pac-forge:assembly sentinel seen before it`,
+        `State table "${table.caption}" not scoped to an equipment_module — no pac-forge:equipment_module sentinel seen before it`,
       );
     }
 

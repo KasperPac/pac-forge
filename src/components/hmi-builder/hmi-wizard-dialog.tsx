@@ -108,7 +108,7 @@ export function HmiWizardDialog({ open, onOpenChange, panel, theme, onApply }: H
       setPlan(result);
       // Pre-resolve faceplate suggestions
       const next: DeviceGraphicMap = {};
-      for (const dev of result.devices) {
+      for (const dev of result.control_modules) {
         const match = findOpenLibraryFaceplate(dev.faceplateHint || dev.deviceType, dev.orientation);
         if (match) {
           next[dev.id] = {
@@ -479,7 +479,7 @@ function PromptStep({
 
         {!loading && !error && userPrompt.trim() && (
           <div className="rounded border border-neutral-800/60 bg-neutral-900/30 p-2 font-mono text-[10px] text-muted-foreground">
-            Press Generate Plan to have the AI design the layout, pick devices, and match graphics from the Siemens Open Library.
+            Press Generate Plan to have the AI design the layout, pick control_modules, and match graphics from the Siemens Open Library.
           </div>
         )}
       </div>
@@ -505,19 +505,19 @@ function PlanStep({
   }
 
   function updateDevice(index: number, patch: Partial<HmiWizardPlanDevice>) {
-    const next = [...plan.devices];
+    const next = [...plan.control_modules];
     next[index] = { ...next[index], ...patch };
-    updateField("devices", next);
+    updateField("control_modules", next);
   }
 
   function removeDevice(index: number) {
-    updateField("devices", plan.devices.filter((_, i) => i !== index));
+    updateField("control_modules", plan.control_modules.filter((_, i) => i !== index));
   }
 
   function addDevice() {
     const id = `dev_${Math.random().toString(36).slice(2, 5)}`;
-    updateField("devices", [
-      ...plan.devices,
+    updateField("control_modules", [
+      ...plan.control_modules,
       {
         id,
         label: "New Device",
@@ -602,14 +602,14 @@ function PlanStep({
           <div>
             <div className="flex items-center justify-between">
               <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                Devices ({plan.devices.length})
+                Devices ({plan.control_modules.length})
               </Label>
               <Button size="sm" variant="ghost" onClick={addDevice} className="h-6 px-2 text-[10px]">
                 + Add
               </Button>
             </div>
             <div className="mt-1 space-y-1">
-              {plan.devices.map((dev, i) => (
+              {plan.control_modules.map((dev, i) => (
                 <div
                   key={dev.id}
                   className="grid grid-cols-[1fr_1fr_auto] gap-1 rounded border border-neutral-800 bg-neutral-900/30 p-1.5"
@@ -772,10 +772,10 @@ function GraphicsStep({
   svgError,
 }: GraphicsStepProps) {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(
-    plan.devices[0]?.id ?? null,
+    plan.control_modules[0]?.id ?? null,
   );
   const [showPicker, setShowPicker] = useState(false);
-  const selectedDevice = plan.devices.find((d) => d.id === selectedDeviceId) ?? null;
+  const selectedDevice = plan.control_modules.find((d) => d.id === selectedDeviceId) ?? null;
 
   function handleSwap(entry: { name: string; path: string; category: string }) {
     if (!selectedDevice) return;
@@ -799,7 +799,7 @@ function GraphicsStep({
       {/* Device list on left */}
       <ScrollArea className="w-56 flex-shrink-0 border-r border-border/50">
         <div className="space-y-0.5 p-2">
-          {plan.devices.map((dev) => {
+          {plan.control_modules.map((dev) => {
             const src = graphics[dev.id];
             return (
               <button
@@ -833,7 +833,7 @@ function GraphicsStep({
       <div className="flex min-w-0 flex-1 flex-col">
         {!selectedDevice ? (
           <div className="flex flex-1 items-center justify-center font-mono text-[11px] text-muted-foreground">
-            No devices in plan
+            No control_modules in plan
           </div>
         ) : showPicker ? (
           <div className="flex min-h-0 flex-1 flex-col">

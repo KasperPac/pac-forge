@@ -42,7 +42,7 @@ const createInitialStepStatuses = (): Record<ForgeStep, ForgeStepStatus> => ({
   hardware_io: "pending",
   interface_contract: "pending",
   device_fb: "pending",
-  assembly_fb: "pending",
+  equipment_module_fb: "pending",
   logic_check: "pending",
   matrix_review: "pending",
   device_code: "pending",
@@ -77,7 +77,7 @@ export const useForgeStore = create<ForgeStoreState>((set, get) => ({
     }
 
     // Backward compat: old sessions stored before the 3 new steps
-    // (interface_contract, assembly_fb, logic_check) were added.
+    // (interface_contract, equipment_module_fb, logic_check) were added.
     // If the session is at or past a step that was previously adjacent
     // to the new steps, auto-complete the new steps.
     const currentIdx = getStepIndex(safeStep);

@@ -26,9 +26,9 @@ import { RandomFdsThemeSchema } from "@/lib/spec-builder/random/theme-schema";
 import { assembleRandomFds } from "@/lib/spec-builder/random/assemble";
 
 export interface RandomFdsParams {
-  subsystems: number;
-  assemblies: number;
-  devices: number;
+  units: number;
+  equipment_modules: number;
+  control_modules: number;
   projectId: string;
   projectNumber?: string;
   clientName?: string;
@@ -70,16 +70,16 @@ export function useRandomFdsGenerate() {
         // Stage 1 — AI theme
         params.onProgress?.("Generating theme…");
         const prompt = buildRandomFdsThemePrompt({
-          subsystems: params.subsystems,
-          assemblies: params.assemblies,
-          devices: params.devices,
+          units: params.units,
+          equipment_modules: params.equipment_modules,
+          control_modules: params.control_modules,
         });
         const { content } = await callNonStreaming(
           prompt,
           [
             {
               role: "user",
-              content: `Generate a theme for exactly ${params.subsystems} subsystems, ${params.assemblies} assemblies, ${params.devices} devices.`,
+              content: `Generate a theme for exactly ${params.units} units, ${params.equipment_modules} equipment_modules, ${params.control_modules} control_modules.`,
             },
           ],
           abortRef.current.signal,
@@ -126,11 +126,11 @@ export function useRandomFdsGenerate() {
         // wizard summary query keys the UI consumes. writeSpecContract already
         // persisted these JSONB columns; the cast bridges the V2 contract shapes
         // (looser `equipment_type: string`, `state_id: string|number`) onto the
-        // legacy `SubsystemConfig` / `OperatingState` interfaces which is safe at
+        // legacy `UnitConfig` / `OperatingState` interfaces which is safe at
         // the DB layer (JSONB) and the migrate*() helpers on read.
         await updateSpec.mutateAsync({
           id: spec.id,
-          confirmed_subsystems: (result.patch.hierarchy?.subsystems ?? []) as unknown as SpecProjectUpdate["confirmed_subsystems"],
+          confirmed_units: (result.patch.hierarchy?.units ?? []) as unknown as SpecProjectUpdate["confirmed_units"],
           confirmed_states: (result.patch.states ?? []) as unknown as SpecProjectUpdate["confirmed_states"],
           alarm_tiers: result.patch.alarm_tiers ?? [],
         });
@@ -141,7 +141,7 @@ export function useRandomFdsGenerate() {
           spec_project_id: spec.id,
           raw_filename: `${docCode}-random-fds.synthetic`,
           tags: result.instrumentRegister.tags,
-          subsystems: result.instrumentRegister.subsystems,
+          units: result.instrumentRegister.units,
           parse_warnings: [],
           haiku_usage: { input: 0, output: 0, total: 0 },
         });
@@ -159,27 +159,27 @@ export function useRandomFdsGenerate() {
             .insert(result.functionalDescriptionRows);
           if (secErr) throw new Error(`spec_sections insert: ${secErr.message}`);
         }
-        if (result.assemblySessions.length > 0) {
-          await supabase.from("fds_assembly_sessions").delete().eq("spec_project_id", spec.id);
+        if (result.equipment_moduleSessions.length > 0) {
+          await supabase.from("fds_operation_sessions").delete().eq("spec_project_id", spec.id);
           const { error: sesErr } = await supabase
-            .from("fds_assembly_sessions")
-            .insert(result.assemblySessions);
-          if (sesErr) throw new Error(`fds_assembly_sessions insert: ${sesErr.message}`);
+            .from("fds_operation_sessions")
+            .insert(result.equipment_moduleSessions);
+          if (sesErr) throw new Error(`fds_operation_sessions insert: ${sesErr.message}`);
         }
-        if (result.orchestrations.length > 0) {
+        if (result.unit_procedures.length > 0) {
           await supabase
-            .from("fds_subsystem_orchestrations")
+            .from("fds_unit_procedures")
             .delete()
             .eq("spec_project_id", spec.id);
           const { error: orchErr } = await supabase
-            .from("fds_subsystem_orchestrations")
-            .insert(result.orchestrations);
-          if (orchErr) throw new Error(`fds_subsystem_orchestrations insert: ${orchErr.message}`);
+            .from("fds_unit_procedures")
+            .insert(result.unit_procedures);
+          if (orchErr) throw new Error(`fds_unit_procedures insert: ${orchErr.message}`);
         }
 
         queryClient.invalidateQueries({ queryKey: ["spec_sections", spec.id] });
-        queryClient.invalidateQueries({ queryKey: ["fds_assembly_sessions", spec.id] });
-        queryClient.invalidateQueries({ queryKey: ["fds_subsystem_orchestrations", spec.id] });
+        queryClient.invalidateQueries({ queryKey: ["fds_operation_sessions", spec.id] });
+        queryClient.invalidateQueries({ queryKey: ["fds_unit_procedures", spec.id] });
         await queryClient.refetchQueries({
           queryKey: ["spec_projects", "by_project", params.projectId],
         });

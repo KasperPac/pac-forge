@@ -35,22 +35,22 @@ function validateSpecAnalysis(parsed: unknown): SpecAnalysis {
       ? (obj.process_settings as SpecAnalysis["process_settings"])
       : [],
     fb_architecture: (obj.fb_architecture as string) ?? null,
-    subsystems: Array.isArray(obj.subsystems)
-      ? (obj.subsystems as SpecAnalysis["subsystems"])
+    units: Array.isArray(obj.units)
+      ? (obj.units as SpecAnalysis["units"])
       : [],
-    assemblies: Array.isArray(obj.assemblies)
-      ? (obj.assemblies as Array<Record<string, unknown>>).map((a) => ({
+    equipment_modules: Array.isArray(obj.equipment_modules)
+      ? (obj.equipment_modules as Array<Record<string, unknown>>).map((a) => ({
           id: (a.id ?? "") as string,
           name: (a.name ?? a.tag ?? "") as string,
           tag: (a.tag ?? a.name ?? "") as string,
-          assembly_type: (a.assembly_type ?? a.type ?? "") as string,
+          equipment_module_type: (a.equipment_module_type ?? a.type ?? "") as string,
           description: (a.description ?? "") as string,
-          subsystem: (a.subsystem ?? "") as string,
-          device_ids: Array.isArray(a.device_ids) ? (a.device_ids as string[]) : [],
-        })) as SpecAnalysis["assemblies"]
+          unit: (a.unit ?? "") as string,
+          control_module_ids: Array.isArray(a.control_module_ids) ? (a.control_module_ids as string[]) : [],
+        })) as SpecAnalysis["equipment_modules"]
       : [],
-    devices: Array.isArray(obj.devices)
-      ? (obj.devices as Array<Record<string, unknown>>).map((d) => ({
+    control_modules: Array.isArray(obj.control_modules)
+      ? (obj.control_modules as Array<Record<string, unknown>>).map((d) => ({
           ...d,
           // Normalize: AI sometimes omits name (uses tag only) or vice versa
           name: (d.name ?? d.tag ?? "") as string,
@@ -65,7 +65,7 @@ function validateSpecAnalysis(parsed: unknown): SpecAnalysis {
                 contact_type: (sig.contact_type ?? "") as string,
               }))
             : [],
-        })) as unknown as SpecAnalysis["devices"]
+        })) as unknown as SpecAnalysis["control_modules"]
       : [],
     process_sequences: Array.isArray(obj.process_sequences)
       ? (obj.process_sequences as Array<Record<string, unknown>>).map((s) => ({
@@ -148,7 +148,7 @@ export function useForgeSpecAnalysis() {
         }
 
         const result = validateSpecAnalysis(parsed);
-        console.log("[spec-analysis] OK — devices:", result.devices.length, "assemblies:", result.assemblies.length, "sequences:", result.process_sequences.length);
+        console.log("[spec-analysis] OK — control_modules:", result.control_modules.length, "equipment_modules:", result.equipment_modules.length, "sequences:", result.process_sequences.length);
         return result;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

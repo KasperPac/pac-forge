@@ -39,13 +39,13 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import type {
-  SubsystemConfig,
-  AssemblyConfig,
-  DeviceConfig,
+  UnitConfig,
+  EquipmentModuleConfig,
+  ControlModuleConfig,
   IoSignal,
   InstrumentTag,
   EquipmentType,
-  DeviceClass,
+  ControlModuleClass,
 } from "@/types/spec-builder";
 
 // ---------------------------------------------------------------------------
@@ -65,7 +65,7 @@ const EQUIPMENT_TYPES: EquipmentType[] = [
   "Other",
 ];
 
-const DEVICE_CLASSES: DeviceClass[] = [
+const DEVICE_CLASSES: ControlModuleClass[] = [
   "valve",
   "motor",
   "sensor_level",
@@ -91,13 +91,13 @@ const DEVICE_CLASSES: DeviceClass[] = [
 // Flat row type for rendering the tree
 // ---------------------------------------------------------------------------
 
-type RowLevel = "subsystem" | "assembly" | "device" | "io_signal";
+type RowLevel = "unit" | "equipment_module" | "device" | "io_signal";
 
 interface FlatRow {
   key: string;
   level: RowLevel;
-  subsystemIdx: number;
-  assemblyIdx?: number;
+  unitIdx: number;
+  equipment_moduleIdx?: number;
   deviceIdx?: number;
   signalIdx?: number;
   expanded: boolean;
@@ -110,24 +110,24 @@ interface FlatRow {
 // ---------------------------------------------------------------------------
 
 interface Props {
-  subsystems: SubsystemConfig[];
+  units: UnitConfig[];
   availableTags: InstrumentTag[];
-  onChange: (s: SubsystemConfig[]) => void;
+  onChange: (s: UnitConfig[]) => void;
   onInferHierarchy?: () => void;
   inferring?: boolean;
 }
 
 export function MachineHierarchyTable({
-  subsystems,
+  units,
   availableTags,
   onChange,
   onInferHierarchy,
   inferring,
 }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(() => {
-    // Start with all subsystems expanded
+    // Start with all units expanded
     const keys = new Set<string>();
-    subsystems.forEach((_, i) => keys.add(`sub-${i}`));
+    units.forEach((_, i) => keys.add(`sub-${i}`));
     return keys;
   });
 
@@ -143,9 +143,9 @@ export function MachineHierarchyTable({
   // Build set of all assigned tags for the "already used" filter
   const assignedTags = useMemo(() => {
     const set = new Set<string>();
-    for (const sub of subsystems) {
-      for (const asm of sub.assemblies) {
-        for (const dev of asm.devices) {
+    for (const sub of units) {
+      for (const asm of sub.equipment_modules) {
+        for (const dev of asm.control_modules) {
           for (const sig of dev.io_signals) {
             if (sig.tag) set.add(sig.tag);
           }
@@ -153,44 +153,44 @@ export function MachineHierarchyTable({
       }
     }
     return set;
-  }, [subsystems]);
+  }, [units]);
 
   // Flatten tree for rendering
   const rows = useMemo<FlatRow[]>(() => {
     const result: FlatRow[] = [];
-    subsystems.forEach((sub, si) => {
+    units.forEach((sub, si) => {
       const subKey = `sub-${si}`;
       const subExpanded = expanded.has(subKey);
       result.push({
         key: subKey,
-        level: "subsystem",
-        subsystemIdx: si,
+        level: "unit",
+        unitIdx: si,
         expanded: subExpanded,
-        hasChildren: sub.assemblies.length > 0,
-        childCount: sub.assemblies.reduce((s, a) => s + a.devices.length, 0),
+        hasChildren: sub.equipment_modules.length > 0,
+        childCount: sub.equipment_modules.reduce((s, a) => s + a.control_modules.length, 0),
       });
       if (subExpanded) {
-        sub.assemblies.forEach((asm, ai) => {
+        sub.equipment_modules.forEach((asm, ai) => {
           const asmKey = `sub-${si}-asm-${ai}`;
           const asmExpanded = expanded.has(asmKey);
           result.push({
             key: asmKey,
-            level: "assembly",
-            subsystemIdx: si,
-            assemblyIdx: ai,
+            level: "equipment_module",
+            unitIdx: si,
+            equipment_moduleIdx: ai,
             expanded: asmExpanded,
-            hasChildren: asm.devices.length > 0,
-            childCount: asm.devices.length,
+            hasChildren: asm.control_modules.length > 0,
+            childCount: asm.control_modules.length,
           });
           if (asmExpanded) {
-            asm.devices.forEach((dev, di) => {
+            asm.control_modules.forEach((dev, di) => {
               const devKey = `sub-${si}-asm-${ai}-dev-${di}`;
               const devExpanded = expanded.has(devKey);
               result.push({
                 key: devKey,
                 level: "device",
-                subsystemIdx: si,
-                assemblyIdx: ai,
+                unitIdx: si,
+                equipment_moduleIdx: ai,
                 deviceIdx: di,
                 expanded: devExpanded,
                 hasChildren: dev.io_signals.length > 0,
@@ -201,8 +201,8 @@ export function MachineHierarchyTable({
                   result.push({
                     key: `sub-${si}-asm-${ai}-dev-${di}-sig-${sigIdx}`,
                     level: "io_signal",
-                    subsystemIdx: si,
-                    assemblyIdx: ai,
+                    unitIdx: si,
+                    equipment_moduleIdx: ai,
                     deviceIdx: di,
                     signalIdx: sigIdx,
                     expanded: false,
@@ -217,56 +217,56 @@ export function MachineHierarchyTable({
       }
     });
     return result;
-  }, [subsystems, expanded]);
+  }, [units, expanded]);
 
   // --- Mutation helpers ---
 
   const updateSubsystem = useCallback(
-    (idx: number, patch: Partial<SubsystemConfig>) => {
-      const next = [...subsystems];
+    (idx: number, patch: Partial<UnitConfig>) => {
+      const next = [...units];
       next[idx] = { ...next[idx], ...patch };
       onChange(next);
     },
-    [subsystems, onChange],
+    [units, onChange],
   );
 
   const updateAssembly = useCallback(
-    (si: number, ai: number, patch: Partial<AssemblyConfig>) => {
-      const next = [...subsystems];
-      const sub = { ...next[si], assemblies: [...next[si].assemblies] };
-      sub.assemblies[ai] = { ...sub.assemblies[ai], ...patch };
+    (si: number, ai: number, patch: Partial<EquipmentModuleConfig>) => {
+      const next = [...units];
+      const sub = { ...next[si], equipment_modules: [...next[si].equipment_modules] };
+      sub.equipment_modules[ai] = { ...sub.equipment_modules[ai], ...patch };
       next[si] = sub;
       onChange(next);
     },
-    [subsystems, onChange],
+    [units, onChange],
   );
 
   const updateDevice = useCallback(
-    (si: number, ai: number, di: number, patch: Partial<DeviceConfig>) => {
-      const next = [...subsystems];
-      const sub = { ...next[si], assemblies: [...next[si].assemblies] };
-      const asm = { ...sub.assemblies[ai], devices: [...sub.assemblies[ai].devices] };
-      asm.devices[di] = { ...asm.devices[di], ...patch };
-      sub.assemblies[ai] = asm;
+    (si: number, ai: number, di: number, patch: Partial<ControlModuleConfig>) => {
+      const next = [...units];
+      const sub = { ...next[si], equipment_modules: [...next[si].equipment_modules] };
+      const asm = { ...sub.equipment_modules[ai], control_modules: [...sub.equipment_modules[ai].control_modules] };
+      asm.control_modules[di] = { ...asm.control_modules[di], ...patch };
+      sub.equipment_modules[ai] = asm;
       next[si] = sub;
       onChange(next);
     },
-    [subsystems, onChange],
+    [units, onChange],
   );
 
   const updateIoSignal = useCallback(
     (si: number, ai: number, di: number, sigIdx: number, patch: Partial<IoSignal>) => {
-      const next = [...subsystems];
-      const sub = { ...next[si], assemblies: [...next[si].assemblies] };
-      const asm = { ...sub.assemblies[ai], devices: [...sub.assemblies[ai].devices] };
-      const dev = { ...asm.devices[di], io_signals: [...asm.devices[di].io_signals] };
+      const next = [...units];
+      const sub = { ...next[si], equipment_modules: [...next[si].equipment_modules] };
+      const asm = { ...sub.equipment_modules[ai], control_modules: [...sub.equipment_modules[ai].control_modules] };
+      const dev = { ...asm.control_modules[di], io_signals: [...asm.control_modules[di].io_signals] };
       dev.io_signals[sigIdx] = { ...dev.io_signals[sigIdx], ...patch };
-      asm.devices[di] = dev;
-      sub.assemblies[ai] = asm;
+      asm.control_modules[di] = dev;
+      sub.equipment_modules[ai] = asm;
       next[si] = sub;
       onChange(next);
     },
-    [subsystems, onChange],
+    [units, onChange],
   );
 
   const assignTagToSignal = useCallback(
@@ -286,125 +286,125 @@ export function MachineHierarchyTable({
   const addSubsystem = useCallback(() => {
     const id = `sub_${Date.now()}`;
     onChange([
-      ...subsystems,
+      ...units,
       {
-        subsystem_id: id,
-        subsystem_name: "New Subsystem",
+        unit_id: id,
+        unit_name: "New Subsystem",
         equipment_type: "Other",
         description: "",
-        assemblies: [],
+        equipment_modules: [],
         excluded: false,
       },
     ]);
-    setExpanded((prev) => new Set([...prev, `sub-${subsystems.length}`]));
-  }, [subsystems, onChange]);
+    setExpanded((prev) => new Set([...prev, `sub-${units.length}`]));
+  }, [units, onChange]);
 
   const addAssembly = useCallback(
     (si: number) => {
-      const next = [...subsystems];
-      const sub = { ...next[si], assemblies: [...next[si].assemblies] };
-      sub.assemblies.push({
-        assembly_id: `asm_${Date.now()}`,
-        assembly_name: "New Assembly",
+      const next = [...units];
+      const sub = { ...next[si], equipment_modules: [...next[si].equipment_modules] };
+      sub.equipment_modules.push({
+        equipment_module_id: `asm_${Date.now()}`,
+        equipment_module_name: "New Assembly",
         description: "",
-        devices: [],
+        control_modules: [],
       });
       next[si] = sub;
       onChange(next);
-      const asmKey = `sub-${si}-asm-${sub.assemblies.length - 1}`;
+      const asmKey = `sub-${si}-asm-${sub.equipment_modules.length - 1}`;
       setExpanded((prev) => new Set([...prev, `sub-${si}`, asmKey]));
     },
-    [subsystems, onChange],
+    [units, onChange],
   );
 
   const addDevice = useCallback(
     (si: number, ai: number) => {
-      const next = [...subsystems];
-      const sub = { ...next[si], assemblies: [...next[si].assemblies] };
-      const asm = { ...sub.assemblies[ai], devices: [...sub.assemblies[ai].devices] };
-      asm.devices.push({
-        device_id: `dev_${Date.now()}`,
-        device_name: "New Device",
-        device_class: "other",
+      const next = [...units];
+      const sub = { ...next[si], equipment_modules: [...next[si].equipment_modules] };
+      const asm = { ...sub.equipment_modules[ai], control_modules: [...sub.equipment_modules[ai].control_modules] };
+      asm.control_modules.push({
+        control_module_id: `dev_${Date.now()}`,
+        control_module_name: "New Device",
+        control_module_class: "other",
         description: "",
         is_safety: false,
         io_signals: [],
       });
-      sub.assemblies[ai] = asm;
+      sub.equipment_modules[ai] = asm;
       next[si] = sub;
       onChange(next);
       setExpanded((prev) => new Set([...prev, `sub-${si}`, `sub-${si}-asm-${ai}`]));
     },
-    [subsystems, onChange],
+    [units, onChange],
   );
 
   const addIoSignal = useCallback(
     (si: number, ai: number, di: number) => {
-      const next = [...subsystems];
-      const sub = { ...next[si], assemblies: [...next[si].assemblies] };
-      const asm = { ...sub.assemblies[ai], devices: [...sub.assemblies[ai].devices] };
-      const dev = { ...asm.devices[di], io_signals: [...asm.devices[di].io_signals] };
+      const next = [...units];
+      const sub = { ...next[si], equipment_modules: [...next[si].equipment_modules] };
+      const asm = { ...sub.equipment_modules[ai], control_modules: [...sub.equipment_modules[ai].control_modules] };
+      const dev = { ...asm.control_modules[di], io_signals: [...asm.control_modules[di].io_signals] };
       dev.io_signals.push({ tag: "", signal_type: "", io_address: "", description: "N/A" });
-      asm.devices[di] = dev;
-      sub.assemblies[ai] = asm;
+      asm.control_modules[di] = dev;
+      sub.equipment_modules[ai] = asm;
       next[si] = sub;
       onChange(next);
       const devKey = `sub-${si}-asm-${ai}-dev-${di}`;
       setExpanded((prev) => new Set([...prev, devKey]));
     },
-    [subsystems, onChange],
+    [units, onChange],
   );
 
   const removeSubsystem = useCallback(
     (si: number) => {
-      onChange(subsystems.filter((_, i) => i !== si));
+      onChange(units.filter((_, i) => i !== si));
     },
-    [subsystems, onChange],
+    [units, onChange],
   );
 
   const removeAssembly = useCallback(
     (si: number, ai: number) => {
-      const next = [...subsystems];
-      const sub = { ...next[si], assemblies: next[si].assemblies.filter((_, i) => i !== ai) };
+      const next = [...units];
+      const sub = { ...next[si], equipment_modules: next[si].equipment_modules.filter((_, i) => i !== ai) };
       next[si] = sub;
       onChange(next);
     },
-    [subsystems, onChange],
+    [units, onChange],
   );
 
   const removeDevice = useCallback(
     (si: number, ai: number, di: number) => {
-      const next = [...subsystems];
-      const sub = { ...next[si], assemblies: [...next[si].assemblies] };
-      const asm = { ...sub.assemblies[ai], devices: sub.assemblies[ai].devices.filter((_, i) => i !== di) };
-      sub.assemblies[ai] = asm;
+      const next = [...units];
+      const sub = { ...next[si], equipment_modules: [...next[si].equipment_modules] };
+      const asm = { ...sub.equipment_modules[ai], control_modules: sub.equipment_modules[ai].control_modules.filter((_, i) => i !== di) };
+      sub.equipment_modules[ai] = asm;
       next[si] = sub;
       onChange(next);
     },
-    [subsystems, onChange],
+    [units, onChange],
   );
 
   const removeIoSignal = useCallback(
     (si: number, ai: number, di: number, sigIdx: number) => {
-      const next = [...subsystems];
-      const sub = { ...next[si], assemblies: [...next[si].assemblies] };
-      const asm = { ...sub.assemblies[ai], devices: [...sub.assemblies[ai].devices] };
-      const dev = { ...asm.devices[di], io_signals: asm.devices[di].io_signals.filter((_, i) => i !== sigIdx) };
-      asm.devices[di] = dev;
-      sub.assemblies[ai] = asm;
+      const next = [...units];
+      const sub = { ...next[si], equipment_modules: [...next[si].equipment_modules] };
+      const asm = { ...sub.equipment_modules[ai], control_modules: [...sub.equipment_modules[ai].control_modules] };
+      const dev = { ...asm.control_modules[di], io_signals: asm.control_modules[di].io_signals.filter((_, i) => i !== sigIdx) };
+      asm.control_modules[di] = dev;
+      sub.equipment_modules[ai] = asm;
       next[si] = sub;
       onChange(next);
     },
-    [subsystems, onChange],
+    [units, onChange],
   );
 
-  const activeCount = subsystems.filter((s) => !s.excluded).length;
+  const activeCount = units.filter((s) => !s.excluded).length;
 
-  // Group available tags by subsystem for the IO checklist
+  // Group available tags by unit for the IO checklist
   const tagsBySubsystem = useMemo(() => {
     const groups = new Map<string, InstrumentTag[]>();
     for (const t of availableTags) {
-      const key = t.subsystem || "UNGROUPED";
+      const key = t.unit || "UNGROUPED";
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push(t);
     }
@@ -419,15 +419,15 @@ export function MachineHierarchyTable({
       {/* Toolbar */}
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted-foreground">
-          {activeCount} subsystem{activeCount !== 1 ? "s" : ""} active
+          {activeCount} unit{activeCount !== 1 ? "s" : ""} active
           {" / "}
-          {subsystems.reduce((s, sub) => s + sub.assemblies.length, 0)} assemblies
+          {units.reduce((s, sub) => s + sub.equipment_modules.length, 0)} equipment_modules
           {" / "}
-          {subsystems.reduce(
-            (s, sub) => s + sub.assemblies.reduce((a, asm) => a + asm.devices.length, 0),
+          {units.reduce(
+            (s, sub) => s + sub.equipment_modules.reduce((a, asm) => a + asm.control_modules.length, 0),
             0,
           )}{" "}
-          devices
+          control_modules
         </p>
         <div className="flex gap-2">
           {onInferHierarchy && (
@@ -477,7 +477,7 @@ export function MachineHierarchyTable({
                       <IoSignalRow
                         key={row.key}
                         row={row}
-                        subsystems={subsystems}
+                        units={units}
                         availableTags={availableTags}
                         assignedTags={assignedTags}
                         onAssignTag={assignTagToSignal}
@@ -489,7 +489,7 @@ export function MachineHierarchyTable({
                     <HierarchyRow
                       key={row.key}
                       row={row}
-                      subsystems={subsystems}
+                      units={units}
                       onToggle={toggleExpand}
                       onUpdateSubsystem={updateSubsystem}
                       onUpdateAssembly={updateAssembly}
@@ -520,10 +520,10 @@ export function MachineHierarchyTable({
             </Badge>
           </div>
           <div className="divide-y">
-            {Array.from(tagsBySubsystem.entries()).map(([subsystemName, tags]) => (
-              <div key={subsystemName} className="px-3 py-1.5">
+            {Array.from(tagsBySubsystem.entries()).map(([unitName, tags]) => (
+              <div key={unitName} className="px-3 py-1.5">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">
-                  {subsystemName}
+                  {unitName}
                 </p>
                 <div className="space-y-0.5">
                   {tags.map((t) => {
@@ -572,16 +572,16 @@ export function MachineHierarchyTable({
 }
 
 // ---------------------------------------------------------------------------
-// Row renderer — subsystem / assembly / device
+// Row renderer — unit / equipment_module / device
 // ---------------------------------------------------------------------------
 
 interface RowProps {
   row: FlatRow;
-  subsystems: SubsystemConfig[];
+  units: UnitConfig[];
   onToggle: (key: string) => void;
-  onUpdateSubsystem: (si: number, patch: Partial<SubsystemConfig>) => void;
-  onUpdateAssembly: (si: number, ai: number, patch: Partial<AssemblyConfig>) => void;
-  onUpdateDevice: (si: number, ai: number, di: number, patch: Partial<DeviceConfig>) => void;
+  onUpdateSubsystem: (si: number, patch: Partial<UnitConfig>) => void;
+  onUpdateAssembly: (si: number, ai: number, patch: Partial<EquipmentModuleConfig>) => void;
+  onUpdateDevice: (si: number, ai: number, di: number, patch: Partial<ControlModuleConfig>) => void;
   onAddAssembly: (si: number) => void;
   onAddDevice: (si: number, ai: number) => void;
   onAddIoSignal: (si: number, ai: number, di: number) => void;
@@ -592,7 +592,7 @@ interface RowProps {
 
 function HierarchyRow({
   row,
-  subsystems,
+  units,
   onToggle,
   onUpdateSubsystem,
   onUpdateAssembly,
@@ -604,13 +604,13 @@ function HierarchyRow({
   onRemoveDevice,
 }: RowProps) {
   const indent =
-    row.level === "subsystem" ? 0 : row.level === "assembly" ? 24 : 48;
+    row.level === "unit" ? 0 : row.level === "equipment_module" ? 24 : 48;
   const LevelIcon =
-    row.level === "subsystem" ? Layers : row.level === "assembly" ? Box : Cpu;
+    row.level === "unit" ? Layers : row.level === "equipment_module" ? Box : Cpu;
   const iconColor =
-    row.level === "subsystem"
+    row.level === "unit"
       ? "text-blue-400"
-      : row.level === "assembly"
+      : row.level === "equipment_module"
         ? "text-amber-400"
         : "text-emerald-400";
 
@@ -628,8 +628,8 @@ function HierarchyRow({
     </button>
   ) : null;
 
-  if (row.level === "subsystem") {
-    const sub = subsystems[row.subsystemIdx];
+  if (row.level === "unit") {
+    const sub = units[row.unitIdx];
     return (
       <TableRow
         className={cn(
@@ -642,9 +642,9 @@ function HierarchyRow({
           <div className="flex items-center gap-1.5" style={{ paddingLeft: indent }}>
             <LevelIcon className={cn("h-3.5 w-3.5 shrink-0", iconColor)} />
             <Input
-              value={sub.subsystem_name}
+              value={sub.unit_name}
               onChange={(e) =>
-                onUpdateSubsystem(row.subsystemIdx, { subsystem_name: e.target.value })
+                onUpdateSubsystem(row.unitIdx, { unit_name: e.target.value })
               }
               className="h-6 text-xs font-mono font-medium border-transparent hover:border-border focus:border-border bg-transparent"
             />
@@ -654,7 +654,7 @@ function HierarchyRow({
           <Select
             value={sub.equipment_type}
             onValueChange={(v) =>
-              onUpdateSubsystem(row.subsystemIdx, { equipment_type: v as EquipmentType })
+              onUpdateSubsystem(row.unitIdx, { equipment_type: v as EquipmentType })
             }
           >
             <SelectTrigger className="h-6 text-xs border-transparent hover:border-border">
@@ -674,7 +674,7 @@ function HierarchyRow({
           <Input
             value={sub.description}
             onChange={(e) =>
-              onUpdateSubsystem(row.subsystemIdx, { description: e.target.value })
+              onUpdateSubsystem(row.unitIdx, { description: e.target.value })
             }
             placeholder="Subsystem description..."
             className="h-6 text-xs border-transparent hover:border-border focus:border-border bg-transparent"
@@ -682,7 +682,7 @@ function HierarchyRow({
         </TableCell>
         <TableCell className="px-1 py-1 text-center">
           <Badge variant="outline" className="text-[10px] px-1.5">
-            {sub.assemblies.length}A / {row.childCount}D
+            {sub.equipment_modules.length}A / {row.childCount}D
           </Badge>
         </TableCell>
         <TableCell className="px-1 py-1">
@@ -691,7 +691,7 @@ function HierarchyRow({
               variant="ghost"
               size="icon"
               className="h-5 w-5"
-              onClick={() => onAddAssembly(row.subsystemIdx)}
+              onClick={() => onAddAssembly(row.unitIdx)}
               title="Add Assembly"
             >
               <Plus className="h-3 w-3" />
@@ -701,7 +701,7 @@ function HierarchyRow({
               size="icon"
               className="h-5 w-5"
               onClick={() =>
-                onUpdateSubsystem(row.subsystemIdx, { excluded: !sub.excluded })
+                onUpdateSubsystem(row.unitIdx, { excluded: !sub.excluded })
               }
               title={sub.excluded ? "Include" : "Exclude"}
             >
@@ -713,8 +713,8 @@ function HierarchyRow({
     );
   }
 
-  if (row.level === "assembly") {
-    const asm = subsystems[row.subsystemIdx].assemblies[row.assemblyIdx!];
+  if (row.level === "equipment_module") {
+    const asm = units[row.unitIdx].equipment_modules[row.equipment_moduleIdx!];
     return (
       <TableRow className="group text-xs">
         <TableCell className="px-1 py-1">{expandBtn}</TableCell>
@@ -722,10 +722,10 @@ function HierarchyRow({
           <div className="flex items-center gap-1.5" style={{ paddingLeft: indent }}>
             <LevelIcon className={cn("h-3.5 w-3.5 shrink-0", iconColor)} />
             <Input
-              value={asm.assembly_name}
+              value={asm.equipment_module_name}
               onChange={(e) =>
-                onUpdateAssembly(row.subsystemIdx, row.assemblyIdx!, {
-                  assembly_name: e.target.value,
+                onUpdateAssembly(row.unitIdx, row.equipment_moduleIdx!, {
+                  equipment_module_name: e.target.value,
                 })
               }
               className="h-6 text-xs font-mono border-transparent hover:border-border focus:border-border bg-transparent"
@@ -733,14 +733,14 @@ function HierarchyRow({
           </div>
         </TableCell>
         <TableCell className="px-1 py-1">
-          <span className="text-muted-foreground text-[10px]">assembly</span>
+          <span className="text-muted-foreground text-[10px]">equipment_module</span>
         </TableCell>
         <TableCell className="px-1 py-1" />
         <TableCell className="px-1 py-1">
           <Input
             value={asm.description}
             onChange={(e) =>
-              onUpdateAssembly(row.subsystemIdx, row.assemblyIdx!, {
+              onUpdateAssembly(row.unitIdx, row.equipment_moduleIdx!, {
                 description: e.target.value,
               })
             }
@@ -750,7 +750,7 @@ function HierarchyRow({
         </TableCell>
         <TableCell className="px-1 py-1 text-center">
           <Badge variant="outline" className="text-[10px] px-1.5">
-            {asm.devices.length}D
+            {asm.control_modules.length}D
           </Badge>
         </TableCell>
         <TableCell className="px-1 py-1">
@@ -759,7 +759,7 @@ function HierarchyRow({
               variant="ghost"
               size="icon"
               className="h-5 w-5"
-              onClick={() => onAddDevice(row.subsystemIdx, row.assemblyIdx!)}
+              onClick={() => onAddDevice(row.unitIdx, row.equipment_moduleIdx!)}
               title="Add Device"
             >
               <Plus className="h-3 w-3" />
@@ -768,7 +768,7 @@ function HierarchyRow({
               variant="ghost"
               size="icon"
               className="h-5 w-5"
-              onClick={() => onRemoveAssembly(row.subsystemIdx, row.assemblyIdx!)}
+              onClick={() => onRemoveAssembly(row.unitIdx, row.equipment_moduleIdx!)}
               title="Remove Assembly"
             >
               <Trash2 className="h-3 w-3" />
@@ -780,7 +780,7 @@ function HierarchyRow({
   }
 
   // Device row — expandable to show IO signals
-  const dev = subsystems[row.subsystemIdx].assemblies[row.assemblyIdx!].devices[row.deviceIdx!];
+  const dev = units[row.unitIdx].equipment_modules[row.equipment_moduleIdx!].control_modules[row.deviceIdx!];
   return (
     <TableRow className="group text-xs">
       <TableCell className="px-1 py-1">{expandBtn}</TableCell>
@@ -788,10 +788,10 @@ function HierarchyRow({
         <div className="flex items-center gap-1.5" style={{ paddingLeft: indent }}>
           <LevelIcon className={cn("h-3.5 w-3.5 shrink-0", iconColor)} />
           <Input
-            value={dev.device_name}
+            value={dev.control_module_name}
             onChange={(e) =>
-              onUpdateDevice(row.subsystemIdx, row.assemblyIdx!, row.deviceIdx!, {
-                device_name: e.target.value,
+              onUpdateDevice(row.unitIdx, row.equipment_moduleIdx!, row.deviceIdx!, {
+                control_module_name: e.target.value,
               })
             }
             className="h-6 text-xs font-mono border-transparent hover:border-border focus:border-border bg-transparent"
@@ -800,10 +800,10 @@ function HierarchyRow({
       </TableCell>
       <TableCell className="px-1 py-1">
         <Select
-          value={dev.device_class}
+          value={dev.control_module_class}
           onValueChange={(v) =>
-            onUpdateDevice(row.subsystemIdx, row.assemblyIdx!, row.deviceIdx!, {
-              device_class: v as DeviceClass,
+            onUpdateDevice(row.unitIdx, row.equipment_moduleIdx!, row.deviceIdx!, {
+              control_module_class: v as ControlModuleClass,
             })
           }
         >
@@ -824,7 +824,7 @@ function HierarchyRow({
         <Input
           value={dev.description}
           onChange={(e) =>
-            onUpdateDevice(row.subsystemIdx, row.assemblyIdx!, row.deviceIdx!, {
+            onUpdateDevice(row.unitIdx, row.equipment_moduleIdx!, row.deviceIdx!, {
               description: e.target.value,
             })
           }
@@ -848,7 +848,7 @@ function HierarchyRow({
             variant="ghost"
             size="icon"
             className="h-5 w-5"
-            onClick={() => onAddIoSignal(row.subsystemIdx, row.assemblyIdx!, row.deviceIdx!)}
+            onClick={() => onAddIoSignal(row.unitIdx, row.equipment_moduleIdx!, row.deviceIdx!)}
             title="Add IO Signal"
           >
             <Plus className="h-3 w-3" />
@@ -858,7 +858,7 @@ function HierarchyRow({
             size="icon"
             className="h-5 w-5"
             onClick={() =>
-              onRemoveDevice(row.subsystemIdx, row.assemblyIdx!, row.deviceIdx!)
+              onRemoveDevice(row.unitIdx, row.equipment_moduleIdx!, row.deviceIdx!)
             }
             title="Remove Device"
           >
@@ -876,7 +876,7 @@ function HierarchyRow({
 
 interface IoSignalRowProps {
   row: FlatRow;
-  subsystems: SubsystemConfig[];
+  units: UnitConfig[];
   availableTags: InstrumentTag[];
   assignedTags: Set<string>;
   onAssignTag: (si: number, ai: number, di: number, sigIdx: number, tagName: string) => void;
@@ -885,14 +885,14 @@ interface IoSignalRowProps {
 
 function IoSignalRow({
   row,
-  subsystems,
+  units,
   availableTags,
   assignedTags,
   onAssignTag,
   onRemove,
 }: IoSignalRowProps) {
   const sig =
-    subsystems[row.subsystemIdx].assemblies[row.assemblyIdx!].devices[row.deviceIdx!]
+    units[row.unitIdx].equipment_modules[row.equipment_moduleIdx!].control_modules[row.deviceIdx!]
       .io_signals[row.signalIdx!];
 
   const indent = 72; // device(48) + extra indent for signals
@@ -923,8 +923,8 @@ function IoSignalRow({
             onValueChange={(v) => {
               if (v !== "__none__") {
                 onAssignTag(
-                  row.subsystemIdx,
-                  row.assemblyIdx!,
+                  row.unitIdx,
+                  row.equipment_moduleIdx!,
                   row.deviceIdx!,
                   row.signalIdx!,
                   v,
@@ -994,7 +994,7 @@ function IoSignalRow({
             size="icon"
             className="h-5 w-5"
             onClick={() =>
-              onRemove(row.subsystemIdx, row.assemblyIdx!, row.deviceIdx!, row.signalIdx!)
+              onRemove(row.unitIdx, row.equipment_moduleIdx!, row.deviceIdx!, row.signalIdx!)
             }
             title="Remove IO Signal"
           >

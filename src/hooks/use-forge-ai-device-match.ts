@@ -9,10 +9,10 @@ import { useState, useCallback } from "react";
 import { callNonStreaming } from "@/hooks/use-generation";
 import { matchDevicesToTemplates, matchAssembliesToTemplates } from "@/lib/forge-device-matcher";
 import type { DeviceFbMatch, AssemblyFbMatch } from "@/lib/forge-device-matcher";
-import type { ForgeDeviceEntry, ForgeAssemblyEntry } from "@/types/forge";
+import type { ForgeControlModuleEntry, ForgeEquipmentModuleEntry } from "@/types/forge";
 import type { FbTemplate } from "@/types/fb-template";
 
-const SYSTEM_PROMPT = `You are a senior PLC project manager assigning Function Block templates to field devices.
+const SYSTEM_PROMPT = `You are a senior PLC project manager assigning Function Block templates to field control_modules.
 
 For each device, select the BEST matching FB template based on the template summaries provided.
 
@@ -30,19 +30,19 @@ Confidence:
 - "none": No suitable template — use null for template_id
 
 Respond with ONLY valid JSON (no markdown fences, no explanation):
-[{"device_id":"...","template_id":"..." or null,"confidence":"exact"|"probable"|"none","reason":"one concise sentence"}]`;
+[{"control_module_id":"...","template_id":"..." or null,"confidence":"exact"|"probable"|"none","reason":"one concise sentence"}]`;
 
 export function useForgeAiDeviceMatch() {
   const [loading, setLoading] = useState(false);
 
   const match = useCallback(
     async (
-      devices: ForgeDeviceEntry[],
+      control_modules: ForgeControlModuleEntry[],
       templates: FbTemplate[],
       favourites: Record<string, string> = {},
     ): Promise<DeviceFbMatch[]> => {
       if (templates.length === 0) {
-        return devices.map((device) => ({
+        return control_modules.map((device) => ({
           device,
           template: null,
           confidence: "none" as const,
@@ -52,9 +52,9 @@ export function useForgeAiDeviceMatch() {
 
       // Resolve favourites immediately — don't send these to AI
       const favouriteMatches: DeviceFbMatch[] = [];
-      const devicesToMatch: ForgeDeviceEntry[] = [];
+      const control_modulesToMatch: ForgeControlModuleEntry[] = [];
 
-      for (const device of devices) {
+      for (const device of control_modules) {
         const favId = favourites[device.device_type];
         if (favId) {
           const template = templates.find((t) => t.id === favId) ?? null;
@@ -68,15 +68,15 @@ export function useForgeAiDeviceMatch() {
             continue;
           }
         }
-        devicesToMatch.push(device);
+        control_modulesToMatch.push(device);
       }
 
-      if (devicesToMatch.length === 0) return favouriteMatches;
+      if (control_modulesToMatch.length === 0) return favouriteMatches;
 
       // If no templates have AI summaries or documentation, fall back to heuristic
       const hasContext = templates.some((t) => t.ai_summary || t.documentation);
       if (!hasContext) {
-        return [...favouriteMatches, ...matchDevicesToTemplates(devicesToMatch, templates, favourites)];
+        return [...favouriteMatches, ...matchDevicesToTemplates(control_modulesToMatch, templates, favourites)];
       }
 
       setLoading(true);
@@ -90,7 +90,7 @@ export function useForgeAiDeviceMatch() {
           })
           .join("\n\n---\n\n");
 
-        const deviceList = devicesToMatch
+        const deviceList = control_modulesToMatch
           .map(
             (d) =>
               `ID: ${d.id}\nType: ${d.device_type}\nName: ${d.name}\nDescription: ${d.description}\nIO signals: ${(d.io_signals ?? []).map((s) => `${s.signal_type}:${s.tag_name}`).join(", ") || "none"}`,
@@ -102,7 +102,7 @@ export function useForgeAiDeviceMatch() {
           [
             {
               role: "user",
-              content: `TEMPLATES (${templates.length}):\n\n${templateList}\n\n\nDEVICES (${devicesToMatch.length}):\n\n${deviceList}`,
+              content: `TEMPLATES (${templates.length}):\n\n${templateList}\n\n\nDEVICES (${control_modulesToMatch.length}):\n\n${deviceList}`,
             },
           ],
           new AbortController().signal,
@@ -114,14 +114,14 @@ export function useForgeAiDeviceMatch() {
         if (!jsonMatch) throw new Error("No JSON array in response");
 
         const assignments: Array<{
-          device_id: string;
+          control_module_id: string;
           template_id: string | null;
           confidence: "exact" | "probable" | "none";
           reason: string;
         }> = JSON.parse(jsonMatch[0]);
 
-        const aiResults = devicesToMatch.map((device): DeviceFbMatch => {
-          const a = assignments.find((x) => x.device_id === device.id);
+        const aiResults = control_modulesToMatch.map((device): DeviceFbMatch => {
+          const a = assignments.find((x) => x.control_module_id === device.id);
           if (!a) {
             return {
               device,
@@ -143,7 +143,7 @@ export function useForgeAiDeviceMatch() {
         return [...favouriteMatches, ...aiResults];
       } catch (err) {
         console.warn("AI device matching failed, falling back to heuristic:", err);
-        return [...favouriteMatches, ...matchDevicesToTemplates(devicesToMatch, templates, favourites)];
+        return [...favouriteMatches, ...matchDevicesToTemplates(control_modulesToMatch, templates, favourites)];
       } finally {
         setLoading(false);
       }
@@ -153,29 +153,29 @@ export function useForgeAiDeviceMatch() {
 
   const matchAssemblies = useCallback(
     async (
-      assemblies: ForgeAssemblyEntry[],
+      equipment_modules: ForgeEquipmentModuleEntry[],
       templates: FbTemplate[],
       favourites: Record<string, string> = {},
     ): Promise<AssemblyFbMatch[]> => {
       if (templates.length === 0) {
-        return assemblies.map((assembly) => ({
-          assembly,
+        return equipment_modules.map((equipment_module) => ({
+          equipment_module,
           template: null,
           confidence: "none" as const,
-          reason: "No assembly templates in library.",
+          reason: "No equipment_module templates in library.",
         }));
       }
 
       const favouriteMatches: AssemblyFbMatch[] = [];
-      const assembliesToMatch: ForgeAssemblyEntry[] = [];
+      const equipment_modulesToMatch: ForgeEquipmentModuleEntry[] = [];
 
-      for (const assembly of assemblies) {
-        const favId = favourites[assembly.assembly_type];
+      for (const equipment_module of equipment_modules) {
+        const favId = favourites[equipment_module.equipment_module_type];
         if (favId) {
           const template = templates.find((t) => t.id === favId) ?? null;
           if (template) {
             favouriteMatches.push({
-              assembly,
+              equipment_module,
               template,
               confidence: "exact",
               reason: `Matched via profile favourite: "${template.name}".`,
@@ -183,14 +183,14 @@ export function useForgeAiDeviceMatch() {
             continue;
           }
         }
-        assembliesToMatch.push(assembly);
+        equipment_modulesToMatch.push(equipment_module);
       }
 
-      if (assembliesToMatch.length === 0) return favouriteMatches;
+      if (equipment_modulesToMatch.length === 0) return favouriteMatches;
 
       const hasContext = templates.some((t) => t.ai_summary || t.documentation);
       if (!hasContext) {
-        return [...favouriteMatches, ...matchAssembliesToTemplates(assembliesToMatch, templates, favourites)];
+        return [...favouriteMatches, ...matchAssembliesToTemplates(equipment_modulesToMatch, templates, favourites)];
       }
 
       setLoading(true);
@@ -204,35 +204,35 @@ export function useForgeAiDeviceMatch() {
           })
           .join("\n\n---\n\n");
 
-        const assemblyList = assembliesToMatch
+        const equipment_moduleList = equipment_modulesToMatch
           .map(
             (a) =>
-              `ID: ${a.id}\nType: ${a.assembly_type}\nName: ${a.name}\nTag: ${a.tag}\nDescription: ${a.description}\nDevices: ${a.device_ids.length} constituent devices`,
+              `ID: ${a.id}\nType: ${a.equipment_module_type}\nName: ${a.name}\nTag: ${a.tag}\nDescription: ${a.description}\nDevices: ${a.control_module_ids.length} constituent control_modules`,
           )
           .join("\n\n---\n\n");
 
-        const assemblyPrompt = `You are a senior PLC project manager assigning Assembly Function Block templates to machine assemblies.
+        const equipment_modulePrompt = `You are a senior PLC project manager assigning Assembly Function Block templates to machine equipment_modules.
 
-For each assembly, select the BEST matching assembly FB template based on the template summaries provided.
+For each equipment_module, select the BEST matching equipment_module FB template based on the template summaries provided.
 
 Match criteria:
-- Does the template's purpose align with this assembly type (lift table, conveyor, press, etc.)?
-- Does the template coordinate the right kind of devices?
+- Does the template's purpose align with this equipment_module type (lift table, conveyor, press, etc.)?
+- Does the template coordinate the right kind of control_modules?
 
 Confidence:
-- "exact": Template is clearly right for this assembly type
+- "exact": Template is clearly right for this equipment_module type
 - "probable": Template could work with adaptation
 - "none": No suitable template — use null for template_id
 
 Respond with ONLY valid JSON (no markdown fences, no explanation):
-[{"assembly_id":"...","template_id":"..." or null,"confidence":"exact"|"probable"|"none","reason":"one concise sentence"}]`;
+[{"equipment_module_id":"...","template_id":"..." or null,"confidence":"exact"|"probable"|"none","reason":"one concise sentence"}]`;
 
         const { content } = await callNonStreaming(
-          assemblyPrompt,
+          equipment_modulePrompt,
           [
             {
               role: "user",
-              content: `ASSEMBLY TEMPLATES (${templates.length}):\n\n${templateList}\n\n\nASSEMBLIES (${assembliesToMatch.length}):\n\n${assemblyList}`,
+              content: `ASSEMBLY TEMPLATES (${templates.length}):\n\n${templateList}\n\n\nASSEMBLIES (${equipment_modulesToMatch.length}):\n\n${equipment_moduleList}`,
             },
           ],
           new AbortController().signal,
@@ -243,26 +243,26 @@ Respond with ONLY valid JSON (no markdown fences, no explanation):
         if (!jsonMatch) throw new Error("No JSON array in response");
 
         const assignments: Array<{
-          assembly_id: string;
+          equipment_module_id: string;
           template_id: string | null;
           confidence: "exact" | "probable" | "none";
           reason: string;
         }> = JSON.parse(jsonMatch[0]);
 
-        const aiResults = assembliesToMatch.map((assembly): AssemblyFbMatch => {
-          const a = assignments.find((x) => x.assembly_id === assembly.id);
+        const aiResults = equipment_modulesToMatch.map((equipment_module): AssemblyFbMatch => {
+          const a = assignments.find((x) => x.equipment_module_id === equipment_module.id);
           if (!a) {
-            return { assembly, template: null, confidence: "none", reason: "No assignment returned by AI." };
+            return { equipment_module, template: null, confidence: "none", reason: "No assignment returned by AI." };
           }
           const template = a.template_id
             ? (templates.find((t) => t.id === a.template_id) ?? null)
             : null;
-          return { assembly, template, confidence: a.confidence, reason: a.reason };
+          return { equipment_module, template, confidence: a.confidence, reason: a.reason };
         });
         return [...favouriteMatches, ...aiResults];
       } catch (err) {
-        console.warn("AI assembly matching failed, falling back to heuristic:", err);
-        return [...favouriteMatches, ...matchAssembliesToTemplates(assembliesToMatch, templates, favourites)];
+        console.warn("AI equipment_module matching failed, falling back to heuristic:", err);
+        return [...favouriteMatches, ...matchAssembliesToTemplates(equipment_modulesToMatch, templates, favourites)];
       } finally {
         setLoading(false);
       }

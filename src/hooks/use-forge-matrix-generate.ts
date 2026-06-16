@@ -8,7 +8,7 @@ import {
 } from "@/lib/forge-prompts";
 import { formatDesignProfile, formatPatterns } from "@/lib/prompt-builder";
 import { loadPlatformRules } from "@/lib/platform-rules";
-import type { ForgeDeviceEntry, ForgeIoEntry, ForgeArtifact, SpecAnalysis } from "@/types/forge";
+import type { ForgeControlModuleEntry, ForgeIoEntry, ForgeArtifact, SpecAnalysis } from "@/types/forge";
 import type { FbTemplate } from "@/types/fb-template";
 import type { DesignProfile } from "@/types/design-profile";
 import type { PatternCandidate } from "@/types";
@@ -424,7 +424,7 @@ export function useForgeMatrixGenerate() {
 
   const generate = useCallback(
     async (
-      devices: ForgeDeviceEntry[],
+      control_modules: ForgeControlModuleEntry[],
       ioList: ForgeIoEntry[],
       specAnalysis: SpecAnalysis | null,
       fbTemplates?: FbTemplate[],
@@ -444,11 +444,11 @@ export function useForgeMatrixGenerate() {
           ? agentKnowledgeDocs.map(d => `### ${d.title}\n${d.content}`).join("\n\n---\n\n")
           : undefined;
 
-        // Reference library lookup — build context from devices + spec
+        // Reference library lookup — build context from control_modules + spec
         const abort = new AbortController();
         let refSectionsText: string | undefined;
         try {
-          const refContext = devices.map(d =>
+          const refContext = control_modules.map(d =>
             `${d.name} (${d.device_type}): ${d.description ?? ""}`
           ).join("\n");
           const refSections = await getRelevantReferenceSections(
@@ -461,7 +461,7 @@ export function useForgeMatrixGenerate() {
         // Step 1: Generate device linkage FIRST — we need the wiring field names
         const deviceResult = await callStreamingCollect(
           buildDeviceLinkagePrompt(promptSections, loadPlatformRules("matrix"), profileRules, patternSection, refSectionsText, knowledgeText),
-          [{ role: "user", content: buildDeviceLinkageUserMessage(devices, ioList, fbTemplates, generatedFbArtifacts) }],
+          [{ role: "user", content: buildDeviceLinkageUserMessage(control_modules, ioList, fbTemplates, generatedFbArtifacts) }],
           new AbortController().signal,
           DEVICE_LINKAGE_MAX_TOKENS,
           { pipeline_step: "forge.matrix.device_linkage", artifact_type: "matrix" },
@@ -477,7 +477,7 @@ export function useForgeMatrixGenerate() {
         console.log("[forge:matrix] Wiring field names for sequences:", JSON.stringify(Object.fromEntries([...wiringFieldNames].map(([k, v]) => [k, [...v]]))));
         const sequenceResult = await callStreamingCollect(
           buildSequencesPrompt(promptSections, loadPlatformRules("matrix"), profileRules, patternSection, refSectionsText, knowledgeText),
-          [{ role: "user", content: buildSequencesUserMessage(devices, specAnalysis, wiringFieldNames) }],
+          [{ role: "user", content: buildSequencesUserMessage(control_modules, specAnalysis, wiringFieldNames) }],
           new AbortController().signal,
           SEQUENCES_MAX_TOKENS,
           { pipeline_step: "forge.matrix.sequences", artifact_type: "matrix" },

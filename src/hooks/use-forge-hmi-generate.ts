@@ -49,7 +49,7 @@ function screenRoleToFolder(role: HmiScreenSpec["screenRole"]): string {
   switch (role) {
     case "template_shell":
       return "HMI/TemplateSuite";
-    case "subsystem_checklist":
+    case "unit_checklist":
     case "device_checklist":
       return "HMI/Checklists";
     case "device_faceplate":
@@ -211,7 +211,7 @@ function parseAiScreens(rawContent: string, startScreenNum: number): ForgeArtifa
         backgroundColor: String(screen.backgroundColor ?? "#1E1E1E"),
         elements: Array.isArray(screen.elements) ? normalizeElements(screen.elements) : [],
         screenRole: typeof screen.screenRole === "string" ? screen.screenRole as HmiScreenSpec["screenRole"] : "custom",
-        subsystem: typeof screen.subsystem === "string" ? screen.subsystem : undefined,
+        unit: typeof screen.unit === "string" ? screen.unit : undefined,
         deviceType: typeof screen.deviceType === "string" ? screen.deviceType : undefined,
         deviceNames: Array.isArray(screen.deviceNames) ? screen.deviceNames.map(String) : undefined,
         checklistItems: Array.isArray(screen.checklistItems)
@@ -255,7 +255,7 @@ function parseLegacyHmiArtifacts(rawContent: string): ForgeArtifact[] {
         backgroundColor: String(screen.backgroundColor ?? "#0f172a"),
         elements: Array.isArray(screen.elements) ? normalizeElements(screen.elements) : [],
         screenRole: typeof screen.screenRole === "string" ? screen.screenRole as HmiScreenSpec["screenRole"] : (index === 0 ? "template_shell" : "overview"),
-        subsystem: typeof screen.subsystem === "string" ? screen.subsystem : undefined,
+        unit: typeof screen.unit === "string" ? screen.unit : undefined,
         deviceType: typeof screen.deviceType === "string" ? screen.deviceType : undefined,
         deviceNames: Array.isArray(screen.deviceNames) ? screen.deviceNames.map(String) : undefined,
         screenNumber: typeof screen.screenNumber === "number" ? screen.screenNumber : index + 1,
@@ -319,7 +319,7 @@ export function useForgeHmiGenerate() {
           const unifiedSuite = generateUnifiedScreenSuite({
             panel: panelConfig,
             specAnalysis,
-            devices: session.device_list,
+            control_modules: session.device_list,
             catalog,
             projectName: profile.name ?? "Pac-Forge",
             includeDeviceDetails: false,
@@ -349,7 +349,7 @@ export function useForgeHmiGenerate() {
         const deterministicScreens = generateDeterministicScreens({
           config: panelConfig,
           specAnalysis,
-          devices: session.device_list,
+          control_modules: session.device_list,
           ioList: session.io_list,
           catalog,
           selectedCategories,

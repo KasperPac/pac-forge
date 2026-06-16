@@ -7,8 +7,8 @@ import type { ProposedInterlock } from "@/lib/spec-builder/migrate/types";
 const rows: ProposedInterlock[] = [
   {
     interlock_id: "il-1",
-    source_assembly: "CV01",
-    target_assembly: "LFT01",
+    source_equipment_module: "CV01",
+    target_equipment_module: "LFT01",
     original_prose_condition: "CV01 is running",
     original_prose_effect: "hold the lift",
     effect: "hold",
@@ -18,8 +18,8 @@ const rows: ProposedInterlock[] = [
   },
   {
     interlock_id: "il-2",
-    source_assembly: "CV01",
-    target_assembly: "LFT01",
+    source_equipment_module: "CV01",
+    target_equipment_module: "LFT01",
     original_prose_condition: "CV01 has faulted",
     original_prose_effect: "block lift execute",
     effect: "hold",

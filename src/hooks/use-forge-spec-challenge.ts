@@ -19,7 +19,7 @@ export interface SpecChallengeResult {
     data_type: string;
     unit?: string | null;
   }>;
-  missing_devices: Array<{
+  missing_control_modules: Array<{
     name: string;
     tag: string;
     device_type: string;
@@ -61,7 +61,7 @@ For each process sequence step, check: does the extraction capture WHAT CAUSES t
 Configurable parameters mentioned in the spec (thresholds, setpoints, timeouts, hysteresis values) that were NOT captured in the process_settings array.
 
 ### 3. Missing Devices
-Physical devices mentioned in the spec that were not extracted (sensors, actuators, operator devices).
+Physical control_modules mentioned in the spec that were not extracted (sensors, actuators, operator control_modules).
 
 ### 4. Missing Alarms
 Fault conditions described in the spec that have no corresponding alarm entry.
@@ -92,7 +92,7 @@ Return JSON inside \`\`\`json fences matching this schema:
       "unit": "string | null"
     }
   ],
-  "missing_devices": [
+  "missing_control_modules": [
     {
       "name": "string",
       "tag": "string",
@@ -146,8 +146,8 @@ function validateChallengeResult(parsed: unknown): SpecChallengeResult {
     missing_process_settings: Array.isArray(obj.missing_process_settings)
       ? (obj.missing_process_settings as SpecChallengeResult["missing_process_settings"])
       : [],
-    missing_devices: Array.isArray(obj.missing_devices)
-      ? (obj.missing_devices as SpecChallengeResult["missing_devices"])
+    missing_control_modules: Array.isArray(obj.missing_control_modules)
+      ? (obj.missing_control_modules as SpecChallengeResult["missing_control_modules"])
       : [],
     missing_alarms: Array.isArray(obj.missing_alarms)
       ? (obj.missing_alarms as SpecChallengeResult["missing_alarms"])
@@ -211,7 +211,7 @@ export function mergeChallenge(extraction: SpecAnalysis, challenge: SpecChalleng
       merged.interlocks.push({
         name: mi.name,
         condition: mi.condition,
-        affected_devices: [],
+        affected_control_modules: [],
       });
     }
   }
