@@ -114,10 +114,12 @@ export function InstrumentRegisterUpload({ specProjectId, onParsed }: Props) {
             parse_warnings: parsed.warnings,
             haiku_usage: parsed.usage,
           });
-        } catch (saveErr) {
+        } catch (saveErr: unknown) {
           console.warn("Failed to save register to DB:", saveErr);
-          setError("Parsed successfully but failed to save — " +
-            (saveErr instanceof Error ? saveErr.message : String(saveErr)));
+          const msg = saveErr instanceof Error
+            ? saveErr.message
+            : (saveErr as { message?: string })?.message ?? JSON.stringify(saveErr);
+          setError("Parsed successfully but failed to save — " + msg);
         }
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;

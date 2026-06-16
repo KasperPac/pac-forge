@@ -169,9 +169,11 @@ export function useSaveInstrumentRegister() {
         .delete()
         .eq("spec_project_id", input.spec_project_id);
 
+      // Map 'units' → 'subsystems' to match DB column name
+      const { units, ...rest } = input;
       const { data, error } = await supabase
         .from("instrument_registers")
-        .insert(input)
+        .insert({ ...rest, subsystems: units })
         .select()
         .single();
       if (error) throw error;
