@@ -620,7 +620,8 @@ export interface FdsValidationIssue {
     | "missing_failure_path"
     | "state_completeness"
     | "cross_unit"
-    | "orchestration";
+    | "orchestration"
+    | "isa88_compliance";
   message: string;
   equipment_module_id?: string;
   state_id?: string;

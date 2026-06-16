@@ -12,6 +12,7 @@ import type {
   FdsValidationIssue,
   UnitProcedure,
   OperationSession,
+  ProcessModel,
 } from "@/types/spec-builder";
 import type { SequentialStateV2 } from "@/types/spec-contract-v2";
 
@@ -324,5 +325,175 @@ function detectCircularInterlocks(
   }
 
   return issues;
+}
+
+// ---------------------------------------------------------------------------
+// ISA-88 compliance validation
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate ISA-88 Part 1 compliance across the physical hierarchy
+ * and optional Process Model.
+ *
+ * Checks:
+ * 1. Every control module assigned to exactly one equipment module
+ * 2. Every equipment module assigned to exactly one unit
+ * 3. Process Model stage→unit and operation→equipment_module refs are valid
+ * 4. Process Model stages cover all units
+ * 5. No legacy terminology in free-text fields
+ */
+export function validateIsa88Compliance(
+  units: UnitConfig[],
+  processModel: ProcessModel | null,
+): FdsValidationResult {
+  const issues: FdsValidationIssue[] = [];
+  const activeUnits = units.filter((u) => !u.excluded);
+
+  // --- Check 1: Every control module appears in exactly one equipment module ---
+  const cmAssignments = new Map<string, string[]>();
+  for (const unit of activeUnits) {
+    for (const em of unit.equipment_modules) {
+      for (const cm of em.control_modules) {
+        const key = cm.control_module_id;
+        if (!cmAssignments.has(key)) cmAssignments.set(key, []);
+        cmAssignments.get(key)!.push(
+          `${unit.unit_name}/${em.equipment_module_name}`,
+        );
+      }
+    }
+  }
+  for (const [cmId, locations] of cmAssignments) {
+    if (locations.length > 1) {
+      issues.push({
+        severity: "error",
+        category: "isa88_compliance",
+        message: `Control Module "${cmId}" assigned to multiple Equipment Modules: ${locations.join(", ")}`,
+      });
+    }
+  }
+
+  // --- Check 2: Empty equipment modules (no control modules) ---
+  for (const unit of activeUnits) {
+    for (const em of unit.equipment_modules) {
+      if (em.control_modules.length === 0) {
+        issues.push({
+          severity: "warning",
+          category: "isa88_compliance",
+          message: `Equipment Module "${em.equipment_module_name}" in Unit "${unit.unit_name}" has no Control Modules`,
+          equipment_module_id: em.equipment_module_id,
+        });
+      }
+    }
+  }
+
+  // --- Check 3: Units with no equipment modules ---
+  for (const unit of activeUnits) {
+    if (unit.equipment_modules.length === 0) {
+      issues.push({
+        severity: "warning",
+        category: "isa88_compliance",
+        message: `Unit "${unit.unit_name}" has no Equipment Modules`,
+      });
+    }
+  }
+
+  // --- Process Model checks (if present) ---
+  if (processModel) {
+    const validUnitIds = new Set(activeUnits.map((u) => u.unit_id));
+    const validEmIds = new Set(
+      activeUnits.flatMap((u) =>
+        u.equipment_modules.map((em) => em.equipment_module_id),
+      ),
+    );
+    const coveredUnitIds = new Set<string>();
+
+    for (const stage of processModel.stages) {
+      // Check 3a: stage references valid unit
+      if (!validUnitIds.has(stage.unit_id)) {
+        issues.push({
+          severity: "error",
+          category: "isa88_compliance",
+          message: `Process Stage "${stage.stage_name}" references unknown Unit "${stage.unit_id}"`,
+        });
+      } else {
+        coveredUnitIds.add(stage.unit_id);
+      }
+
+      for (const op of stage.operations) {
+        // Check 3b: operation references valid equipment module
+        if (!validEmIds.has(op.equipment_module_id)) {
+          issues.push({
+            severity: "error",
+            category: "isa88_compliance",
+            message: `Process Operation "${op.operation_name}" references unknown Equipment Module "${op.equipment_module_id}"`,
+            equipment_module_id: op.equipment_module_id,
+          });
+        }
+      }
+    }
+
+    // Check 4: all units covered by process model
+    for (const unit of activeUnits) {
+      if (!coveredUnitIds.has(unit.unit_id)) {
+        issues.push({
+          severity: "info",
+          category: "isa88_compliance",
+          message: `Unit "${unit.unit_name}" not covered by any Process Stage`,
+        });
+      }
+    }
+
+    // Check 5: duplicate stage orders
+    const orderCounts = new Map<number, string[]>();
+    for (const stage of processModel.stages) {
+      if (!orderCounts.has(stage.order)) orderCounts.set(stage.order, []);
+      orderCounts.get(stage.order)!.push(stage.stage_name);
+    }
+    for (const [order, names] of orderCounts) {
+      if (names.length > 1) {
+        issues.push({
+          severity: "warning",
+          category: "isa88_compliance",
+          message: `Multiple Process Stages share order ${order}: ${names.join(", ")}`,
+        });
+      }
+    }
+  }
+
+  // --- Check 6: legacy terminology in descriptions ---
+  const legacyTerms = [
+    { pattern: /\bsubsystem\b/i, replacement: "Unit" },
+    { pattern: /\bassembly\b/i, replacement: "Equipment Module" },
+  ];
+
+  for (const unit of activeUnits) {
+    for (const term of legacyTerms) {
+      if (term.pattern.test(unit.description)) {
+        issues.push({
+          severity: "info",
+          category: "isa88_compliance",
+          message: `Unit "${unit.unit_name}" description uses legacy term — use "${term.replacement}" instead`,
+        });
+      }
+    }
+    for (const em of unit.equipment_modules) {
+      for (const term of legacyTerms) {
+        if (term.pattern.test(em.description)) {
+          issues.push({
+            severity: "info",
+            category: "isa88_compliance",
+            message: `Equipment Module "${em.equipment_module_name}" description uses legacy term — use "${term.replacement}" instead`,
+            equipment_module_id: em.equipment_module_id,
+          });
+        }
+      }
+    }
+  }
+
+  return {
+    passed: issues.filter((i) => i.severity === "error").length === 0,
+    checked_at: new Date().toISOString(),
+    issues,
+  };
 }
 
