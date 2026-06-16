@@ -137,14 +137,16 @@ export interface InstrumentTag {
   description: string;
   signal_type: string;
   io_address: string;
-  // Enriched by Haiku
+  // Enriched by AI / deterministic classification
   control_module_class: ControlModuleClass;
   signal_direction: SignalDirection;
   unit_prefix: string;
   is_safety: boolean;
-  // Assigned unit + equipment module
+  // ISA-88 Physical Model hierarchy assignment (from column or AI-inferred)
+  process_cell: string;
   unit: string;
   equipment_module: string;
+  control_module: string;
 }
 
 export type ControlModuleClass =
@@ -387,23 +389,27 @@ export interface SpecExport {
 // --- Column mapping for register parsing ---
 
 export interface ColumnMapping {
+  process_cell: number | null;
+  unit: number | null;
+  equipment_module: number | null;
+  control_module: number | null;
   tag: number | null;
   device_type: number | null;
   description: number | null;
   signal_type: number | null;
   io_address: number | null;
-  unit: number | null;
-  equipment_module: number | null;
 }
 
 export const CANONICAL_COLUMN_NAMES: Record<keyof ColumnMapping, string[]> = {
+  process_cell: ["process cell", "process_cell", "cell", "line", "plant"],
+  unit: ["unit", "sub system", "system", "area", "group"],
+  equipment_module: ["equipment module", "equipment_module", "assembly name", "equipment", "equipment group", "machine", "station", "em"],
+  control_module: ["control module", "control_module", "device name", "device id", "cm", "instrument"],
   tag: ["tag", "tag number", "tag no", "tag no.", "instrument tag", "device tag", "tag_no"],
-  device_type: ["device", "device type", "type", "instrument type", "device_type"],
+  device_type: ["device type", "device", "type", "instrument type", "device_type"],
   description: ["description", "desc", "function", "instrument description"],
   signal_type: ["signal", "signal type", "io type", "signal_type"],
   io_address: ["address", "io address", "plc address", "%i", "%q", "io_address"],
-  unit: ["unit", "sub system", "system", "area", "unit", "group"],
-  equipment_module: ["equipment_module", "assembly name", "equipment", "equipment group", "machine", "station"],
 } as const;
 
 // --- Equipment type inference from prefix ---

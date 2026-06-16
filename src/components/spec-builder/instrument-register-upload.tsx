@@ -30,32 +30,37 @@ import type { InstrumentTag, ParseWarning } from "@/types/spec-builder";
 import * as XLSX from "xlsx";
 
 function downloadTemplate() {
+  // ISA-88 Physical Model hierarchy columns first, then signal data
   const headers = [
+    "Process Cell",
+    "Unit",
+    "Equipment Module",
+    "Control Module",
     "Tag",
     "Device Type",
     "Description",
     "Signal Type",
     "IO Address",
-    "Unit",
-    "Equipment Module",
   ];
   const exampleRows = [
-    ["CM1_RUN", "Motor Contactor", "Carriage Motor 1 Run", "DO", "Q0.4", "Carriage Drive", "Carriage EM"],
-    ["CM1_Fault", "Motor Contactor", "Carriage Motor 1 Fault", "DI", "I0.5", "Carriage Drive", "Carriage EM"],
-    ["CM1_Therm", "Thermistor Relay", "Carriage Motor 1 Thermistor Fault", "DI", "I1.1", "Carriage Drive", "Carriage EM"],
-    ["VSD1_Speed_Ref", "VSD", "Carriage VSD Speed Reference", "AO", "AQ0", "Carriage Drive", "Carriage EM"],
-    ["ES1_Healthy", "Emergency Stop", "E-Stop Healthy", "DI", "I2.4", "Safety", "E-Stop Circuit"],
+    ["Packaging Line 1", "Carriage Station", "Carriage Drive", "CM1", "CM1_RUN", "Motor Contactor", "Carriage Motor 1 Run", "DO", "Q0.4"],
+    ["Packaging Line 1", "Carriage Station", "Carriage Drive", "CM1", "CM1_Fault", "Motor Contactor", "Carriage Motor 1 Fault", "DI", "I0.5"],
+    ["Packaging Line 1", "Carriage Station", "Carriage Drive", "CM1", "CM1_Therm", "Thermistor Relay", "Carriage Motor 1 Thermistor Fault", "DI", "I1.1"],
+    ["Packaging Line 1", "Carriage Station", "Carriage Drive", "VSD1", "VSD1_Speed_Ref", "VSD", "Carriage VSD Speed Reference", "AO", "AQ0"],
+    ["Packaging Line 1", "Safety", "E-Stop Circuit", "ES1", "ES1_Healthy", "Emergency Stop", "E-Stop Healthy", "DI", "I2.4"],
   ];
 
   const ws = XLSX.utils.aoa_to_sheet([headers, ...exampleRows]);
   ws["!cols"] = [
-    { wch: 18 },
-    { wch: 20 },
-    { wch: 40 },
-    { wch: 12 },
-    { wch: 12 },
-    { wch: 20 },
-    { wch: 22 },
+    { wch: 20 },  // Process Cell
+    { wch: 20 },  // Unit
+    { wch: 22 },  // Equipment Module
+    { wch: 16 },  // Control Module
+    { wch: 18 },  // Tag
+    { wch: 20 },  // Device Type
+    { wch: 40 },  // Description
+    { wch: 12 },  // Signal Type
+    { wch: 12 },  // IO Address
   ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "IO Register");
@@ -282,11 +287,12 @@ export function InstrumentRegisterUpload({ specProjectId, onParsed }: Props) {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-28">Unit</TableHead>
+                    <TableHead className="w-28">Equipment Module</TableHead>
+                    <TableHead className="w-24">Control Module</TableHead>
                     <TableHead className="w-28">Tag</TableHead>
-                    <TableHead className="w-28">Class</TableHead>
                     <TableHead className="w-20">Signal</TableHead>
                     <TableHead>Description</TableHead>
-                    <TableHead className="w-32">Unit</TableHead>
                     <TableHead className="w-16">Safety</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -317,12 +323,10 @@ export function InstrumentRegisterUpload({ specProjectId, onParsed }: Props) {
 function TagRow({ tag }: { tag: InstrumentTag }) {
   return (
     <TableRow>
+      <TableCell className="font-mono text-xs">{tag.unit}</TableCell>
+      <TableCell className="font-mono text-xs">{tag.equipment_module}</TableCell>
+      <TableCell className="font-mono text-xs">{tag.control_module}</TableCell>
       <TableCell className="font-mono text-xs">{tag.tag}</TableCell>
-      <TableCell>
-        <Badge variant="outline" className="text-xs">
-          {tag.control_module_class}
-        </Badge>
-      </TableCell>
       <TableCell>
         <Badge
           variant="outline"
@@ -339,7 +343,6 @@ function TagRow({ tag }: { tag: InstrumentTag }) {
       <TableCell className="text-xs max-w-[200px] truncate">
         {tag.description}
       </TableCell>
-      <TableCell className="font-mono text-xs">{tag.unit}</TableCell>
       <TableCell>
         {tag.is_safety && (
           <Badge variant="destructive" className="text-xs">

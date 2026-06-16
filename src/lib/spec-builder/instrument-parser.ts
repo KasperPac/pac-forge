@@ -37,13 +37,15 @@ export function detectColumns(sheet: XLSX.WorkSheet): {
   // Scan first 10 rows for header
   for (let r = range.s.r; r <= Math.min(range.s.r + 9, range.e.r); r++) {
     const mapping: ColumnMapping = {
+      process_cell: null,
+      unit: null,
+      equipment_module: null,
+      control_module: null,
       tag: null,
       device_type: null,
       description: null,
       signal_type: null,
       io_address: null,
-      unit: null,
-      equipment_module: null,
     };
     let score = 0;
     const unmapped: string[] = [];
@@ -115,8 +117,10 @@ export function extractRows(
       description: cellVal(mapping.description),
       signal_type: cellVal(mapping.signal_type),
       io_address: cellVal(mapping.io_address),
+      process_cell: cellVal(mapping.process_cell),
       unit: cellVal(mapping.unit),
       equipment_module: cellVal(mapping.equipment_module),
+      control_module: cellVal(mapping.control_module),
     });
   }
 
@@ -127,18 +131,26 @@ export function extractRows(
 // Step 2 — Sonnet AI classification (batched)
 // ---------------------------------------------------------------------------
 
-const CLASSIFY_SYSTEM_PROMPT = `You are an expert industrial automation instrument classification agent.
+const CLASSIFY_SYSTEM_PROMPT = `You are an expert industrial automation instrument classification agent using ISA-88 Part 1 terminology.
 
-Given a batch of tags from an instrument register, enrich each one with control_module_class and is_safety.
+Given a batch of tags from an instrument register, enrich each one with classification and ISA-88 hierarchy placement.
 
-Some fields may already be provided in the input (unit, equipment_module, signal_type, device_type, description). When provided, KEEP THEM — do not override. Only fill in what is missing.
+Some fields may already be provided in the input (process_cell, unit, equipment_module, control_module, signal_type, device_type, description). When provided, KEEP THEM — do not override. Only fill in what is missing.
+
+ISA-88 PHYSICAL MODEL HIERARCHY:
+- Process Cell: the full machine or production line (often one per project)
+- Unit: a functional station that can carry out major processing activities (e.g. "Infeed Station", "Hydraulic Press")
+- Equipment Module: a coordinated group of devices working together (e.g. "Conveyor CV01", "Lift Table LFT01")
+- Control Module: a single physical device with IO signals (e.g. motor M01, sensor LS01, valve SOL01)
 
 For each tag, return:
 1. control_module_class: one of [valve, motor, sensor_level, sensor_pressure, sensor_temperature, sensor_weight, sensor_flow, sensor_position, indicator, transmitter, filter, conveyor, hopper, transporter, dryer, cooler, push_button, emergency_stop, other]
 2. signal_direction: one of [DI, DO, AI, AO, internal]. If the input already has a signal_type (DI/DO/AI/AO), copy it exactly.
-3. unit: the logical unit/equipment group. If the input already has a unit field, copy it exactly. Otherwise infer from context.
-4. equipment_module: the equipment/equipment_module this tag belongs to (e.g. "Conveyor CV01", "Lift Table LFT01"). If the input already has an equipment_module field, copy it exactly. Otherwise infer from tag naming and description. An equipment_module is a coordinated group of control_modules working together.
-5. is_safety: boolean — true if safety-critical (E-stop, overload relay, pressure switch interlock, rupture disk, safety relay)
+3. process_cell: the top-level system name. If already provided, copy exactly.
+4. unit: the ISA-88 Unit this tag belongs to. If already provided, copy exactly. Otherwise infer from context.
+5. equipment_module: the ISA-88 Equipment Module (e.g. "Conveyor CV01"). If already provided, copy exactly. Otherwise infer from tag naming and description.
+6. control_module: the ISA-88 Control Module — the physical device this tag belongs to (e.g. "M01", "LS01", "SOL_UP"). Multiple tags share the same control_module when they belong to the same device. If already provided, copy exactly. Otherwise infer from the tag name by stripping the signal suffix.
+7. is_safety: boolean — true if safety-critical (E-stop, overload relay, pressure switch interlock, rupture disk, safety relay)
 
 DEVICE CLASS RULES:
 - Motor Contactor, _CMD, _START, _STOP, _FWD, _REV → "motor"
@@ -162,7 +174,7 @@ IMPORTANT: Use the "device_type" and "description" fields from the input to dete
 
 Respond ONLY with a JSON array, one object per input tag, same order.
 [
-  { "control_module_class": "...", "signal_direction": "...", "unit": "...", "equipment_module": "...", "is_safety": false }
+  { "control_module_class": "...", "signal_direction": "...", "process_cell": "...", "unit": "...", "equipment_module": "...", "control_module": "...", "is_safety": false }
 ]`;
 
 const BATCH_SIZE = 50;
@@ -170,8 +182,10 @@ const BATCH_SIZE = 50;
 interface TagClassification {
   control_module_class: InstrumentTag["control_module_class"];
   signal_direction: InstrumentTag["signal_direction"];
+  process_cell: string;
   unit: string;
   equipment_module: string;
+  control_module: string;
   is_safety: boolean;
 }
 
@@ -192,8 +206,10 @@ export async function classifyTags(
         if (r.device_type) entry.device_type = r.device_type;
         if (r.description) entry.description = r.description;
         if (r.signal_type) entry.signal_type = r.signal_type.trim();
+        if (r.process_cell) entry.process_cell = r.process_cell;
         if (r.unit) entry.unit = r.unit;
         if (r.equipment_module) entry.equipment_module = r.equipment_module;
+        if (r.control_module) entry.control_module = r.control_module;
         return entry;
       })
     );
@@ -225,8 +241,10 @@ export async function classifyTags(
         allClassifications.push({
           control_module_class: "other",
           signal_direction: "internal",
+          process_cell: "",
           unit: "",
           equipment_module: "",
+          control_module: "",
           is_safety: false,
         });
       }
@@ -458,13 +476,16 @@ export function buildHierarchyFromTags(tags: InstrumentTag[]): UnitConfig[] {
   const units: UnitConfig[] = [];
 
   for (const [subKey, subTags] of subGroups) {
-    // Check if any tags have an explicit equipment_module field
+    // Check if any tags have explicit hierarchy columns
     const hasExplicitEquipmentModule = subTags.some((t) => t.equipment_module);
+    const hasExplicitControlModule = subTags.some((t) => t.control_module);
 
-    // Step 2: Group tags into control_modules by device prefix
+    // Step 2: Group tags into control_modules by device prefix or explicit control_module
     const deviceGroups = new Map<string, InstrumentTag[]>();
     for (const t of subTags) {
-      const devPrefix = extractDevicePrefix(t.tag, subKey);
+      const devPrefix = hasExplicitControlModule && t.control_module
+        ? t.control_module
+        : extractDevicePrefix(t.tag, subKey);
       if (!deviceGroups.has(devPrefix)) deviceGroups.set(devPrefix, []);
       deviceGroups.get(devPrefix)!.push(t);
     }
@@ -657,8 +678,10 @@ export async function parseInstrumentRegister(
       signal_direction: det.signal_direction ?? aiCls?.signal_direction ?? "internal",
       unit_prefix: row.unit || aiCls?.unit || "",
       is_safety: det.is_safety ?? aiCls?.is_safety ?? false,
+      process_cell: row.process_cell || aiCls?.process_cell || "",
       unit: row.unit || aiCls?.unit || "",
       equipment_module: row.equipment_module || aiCls?.equipment_module || "",
+      control_module: row.control_module || aiCls?.control_module || "",
     };
   });
 
