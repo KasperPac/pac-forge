@@ -102,21 +102,26 @@ export function InstrumentRegisterUpload({ specProjectId, onParsed }: Props) {
         );
 
         setResult(parsed);
-
-        // Save to Supabase
-        await saveRegister.mutateAsync({
-          spec_project_id: specProjectId,
-          raw_filename: file.name,
-          tags: parsed.tags,
-          units: parsed.units,
-          parse_warnings: parsed.warnings,
-          haiku_usage: parsed.usage,
-        });
-
         onParsed?.(parsed);
+
+        // Save to Supabase (non-blocking — parse results already shown)
+        try {
+          await saveRegister.mutateAsync({
+            spec_project_id: specProjectId,
+            raw_filename: file.name,
+            tags: parsed.tags,
+            units: parsed.units,
+            parse_warnings: parsed.warnings,
+            haiku_usage: parsed.usage,
+          });
+        } catch (saveErr) {
+          console.warn("Failed to save register to DB:", saveErr);
+          setError("Parsed successfully but failed to save — " +
+            (saveErr instanceof Error ? saveErr.message : String(saveErr)));
+        }
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
-        setError(err instanceof Error ? err.message : "Parse failed");
+        setError(err instanceof Error ? err.message : String(err ?? "Parse failed"));
       } finally {
         setParsing(false);
       }

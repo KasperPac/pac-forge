@@ -265,7 +265,10 @@ const DEVICE_TYPE_MAP: Array<{ pattern: RegExp; control_module_class: Instrument
   { pattern: /motor\s*contactor|contactor/i, control_module_class: "motor" },
   { pattern: /motor\s*feedback|run\s*feedback/i, control_module_class: "motor" },
   { pattern: /overload|thermal\s*overload/i, control_module_class: "motor", is_safety: true },
-  { pattern: /vfd|variable\s*freq/i, control_module_class: "motor" },
+  { pattern: /thermistor/i, control_module_class: "motor" },
+  { pattern: /vfd|vsd|variable\s*freq|variable\s*speed/i, control_module_class: "motor" },
+  { pattern: /brake\s*contactor|brake/i, control_module_class: "motor" },
+  { pattern: /braking\s*resistor/i, control_module_class: "motor" },
   { pattern: /temp\s*transmitter|temperature/i, control_module_class: "sensor_temperature" },
   { pattern: /press.*transmitter|pressure/i, control_module_class: "sensor_pressure" },
   { pattern: /level\s*switch|level\s*sensor/i, control_module_class: "sensor_level" },
@@ -273,13 +276,18 @@ const DEVICE_TYPE_MAP: Array<{ pattern: RegExp; control_module_class: Instrument
   { pattern: /flow\s*transmitter|flow\s*meter/i, control_module_class: "sensor_flow" },
   { pattern: /photo.?electric|photoeye|photo.?eye|photo.?sensor/i, control_module_class: "sensor_position" },
   { pattern: /position|proximity|limit\s*switch/i, control_module_class: "sensor_position" },
-  { pattern: /^pb$|push\s*button/i, control_module_class: "push_button" },
+  { pattern: /^pb$|push\s*button|pushbutton/i, control_module_class: "push_button" },
+  { pattern: /pendant/i, control_module_class: "push_button" },
   { pattern: /emergency\s*stop|e-?stop/i, control_module_class: "emergency_stop", is_safety: true },
+  { pattern: /safety\s*relay/i, control_module_class: "emergency_stop", is_safety: true },
+  { pattern: /maintenance\s*switch/i, control_module_class: "emergency_stop", is_safety: true },
   { pattern: /solenoid|valve/i, control_module_class: "valve" },
-  { pattern: /indicator|pilot\s*light/i, control_module_class: "indicator" },
+  { pattern: /indicator|pilot\s*light|horn|strobe|beacon|siren/i, control_module_class: "indicator" },
+  { pattern: /circuit\s*breaker|mcb|mccb|ecb/i, control_module_class: "other" },
   { pattern: /transmitter/i, control_module_class: "transmitter" },
   { pattern: /filter/i, control_module_class: "filter" },
   { pattern: /conveyor/i, control_module_class: "conveyor" },
+  { pattern: /spare/i, control_module_class: "other" },
 ];
 
 const TAG_SUFFIX_MAP: Array<{ pattern: RegExp; control_module_class: InstrumentTag["control_module_class"]; signal_direction?: InstrumentTag["signal_direction"]; is_safety?: boolean }> = [
@@ -649,14 +657,30 @@ export async function parseInstrumentRegister(
   let usage: TokenUsage = { input: 0, output: 0, total: 0 };
 
   if (needsAi.length > 0) {
-    // Step 2b — AI classification for unresolved tags only
-    const aiResult = await classifyTags(
-      needsAi,
-      abortSignal,
-      (done, total) => onProgress?.("Classifying tags (AI)", done, total)
-    );
-    aiClassifications = aiResult.classifications;
-    usage = aiResult.usage;
+    // Step 2b — AI classification for unresolved tags only (gracefully optional)
+    try {
+      const aiResult = await classifyTags(
+        needsAi,
+        abortSignal,
+        (done, total) => onProgress?.("Classifying tags (AI)", done, total)
+      );
+      aiClassifications = aiResult.classifications;
+      usage = aiResult.usage;
+    } catch (aiErr) {
+      // AI classification failed (auth, network, etc.) — fall back to deterministic-only
+      console.warn("AI classification unavailable, using deterministic only:", aiErr);
+      for (let k = 0; k < needsAi.length; k++) {
+        aiClassifications.push({
+          control_module_class: "other",
+          signal_direction: "internal",
+          process_cell: "",
+          unit: "",
+          equipment_module: "",
+          control_module: "",
+          is_safety: false,
+        });
+      }
+    }
   }
 
   // Merge: deterministic first, AI fills gaps
