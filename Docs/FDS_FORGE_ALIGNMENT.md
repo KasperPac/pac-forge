@@ -16,7 +16,7 @@ A human automation engineer works like this:
 1. Design engineer writes the FDS (operating states, step sequences, device state tables, alarms, interlocks)
 2. Coding engineer reads the FDS and implements it in PLC code
 3. Coding engineer picks standard FBs from their library for devices (motors, valves, sensors)
-4. The creative work is in the assembly FBs — translating the FDS behavioral description into a state machine
+4. The creative work is in the equipment module FBs — translating the FDS behavioral description into a state machine
 5. They wire everything per the FDS
 6. They verify the code matches the spec
 
@@ -26,7 +26,7 @@ The forge wizard is step 2-6. It should never ask the user to "design the interf
 
 ## What the Forge Wizard Needs From the FDS
 
-### Per Assembly (CRITICAL — this drives assembly FB generation)
+### Per Equipment Module (CRITICAL — this drives equipment module FB generation)
 
 | Data | FDS Source | How Forge Uses It |
 |------|-----------|------------------|
@@ -39,7 +39,7 @@ The forge wizard is step 2-6. It should never ask the user to "design the interf
 | Fault conditions | `AlarmSpecificationContent.alarm_tiers[].alarms[]` | Becomes fault detection + fault code assignments |
 | Fault philosophy | `ControlPhilosophyContent.fault_philosophy` | Drives fault handling pattern (auto-clear vs manual reset) |
 | Device state tables | `DeviceStateEntry[]` per static state | Defines safe states for E-STOP, IDLE, HELD |
-| Inter-assembly interlocks | From `SubsystemOrchestration` (fds-compose.ts) | Becomes consumed signals / permissive conditions |
+| Inter-assembly interlocks | From `UnitProcedure` (fds-compose.ts) | Becomes consumed signals / permissive conditions |
 
 ### Per Device
 
@@ -86,12 +86,12 @@ interface ForgeSpecHandoff {
 
   // From SubsystemConfig[]
   subsystems: Array<{
-    subsystem_id: string;
+    unit_id: string;
     subsystem_name: string;
     equipment_type: string;
     description: string;
     assemblies: Array<{
-      assembly_id: string;
+      equipment_module_id: string;
       assembly_name: string;
       description: string;
       devices: DeviceConfig[];
@@ -99,9 +99,9 @@ interface ForgeSpecHandoff {
   }>;
 
   // From SpecSection (type: "functional_description")
-  // Keyed by subsystem_id + state_name
+  // Keyed by unit_id + state_name
   functional_descriptions: Array<{
-    subsystem_id: string;
+    unit_id: string;
     state_name: string;
     pattern: "static" | "sequential";
     device_states?: DeviceStateEntry[];     // Pattern A
@@ -166,7 +166,7 @@ spec_upload → qa_review → project_setup → hardware_io → interface_contra
 2. Project Setup   — CPU, TIA version, design profile, language choices
 3. Hardware & IO   — Confirm rack layout, IO addresses (from FDS Section 4)
 4. Device FB       — Library-first selection. AI generation only for gaps. Flag missing templates.
-5. Assembly Brief  — Show FDS behavioral spec per assembly:
+5. Equipment Module Brief  — Show FDS behavioral spec per equipment module:
                      - Operating states (from control philosophy)
                      - Step sequences (from functional descriptions)
                      - Permissives, completion criteria, timeouts
@@ -174,7 +174,7 @@ spec_upload → qa_review → project_setup → hardware_io → interface_contra
                      - Fault conditions from alarm spec
                      Engineer confirms: "implement this"
                      Adds annotations where FDS is ambiguous
-6. Assembly FB     — AI generates code FROM the FDS behavioral spec
+6. Equipment Module FB     — AI generates code FROM the FDS behavioral spec
                      Not "design a state machine" but "implement this exact spec in SCL"
 7. Logic Check     — Verify code matches FDS:
                      Does code implement every operating state?
@@ -182,18 +182,18 @@ spec_upload → qa_review → project_setup → hardware_io → interface_contra
                      Are all permissives checked?
                      Are all completion criteria implemented?
                      Are all faults handled per alarm spec?
-8. Matrix/Wiring   — Connect device FBs ↔ assembly FBs ↔ process
+8. Matrix/Wiring   — Connect device FBs ↔ equipment module FBs ↔ process
 9. Device Code     — Call FCs, IO linking
 10. Process Code   — Orchestration across assemblies
 11. HMI            — Screen generation from HMI spec
 12. TIA Export     — Bundle for import
 ```
 
-### Key Difference: Step 5 (Assembly Brief)
+### Key Difference: Step 5 (Equipment Module Brief)
 
 This replaces the "interface contract" concept. Instead of asking the engineer to define signals in a table, we show them the FDS content and ask them to confirm the implementation approach.
 
-The step shows per assembly:
+The step shows per equipment module:
 - **States**: "The FDS defines these operating states: IDLE, STARTING, EXECUTE, STOPPING, E-STOP, FAULT"
 - **Sequences**: "During STARTING: Step 1: Open inlet valve → completion: valve open feedback within T#3s. Step 2: Start motor → completion: motor running within T#5s."
 - **Static states**: "During E-STOP: Motor = STOP, Valve = DE-ENERGISED"
@@ -219,9 +219,9 @@ For the forge wizard to work well, the FDS sections need:
 
 2. **Explicit device tag references in steps** — When a step says "start motor", which motor tag? The forge wizard needs to map step actions to specific device FBs.
 
-3. **Assembly-level functional descriptions** — Currently functional_descriptions are per-subsystem × state. The forge wizard needs them per-assembly (since each assembly gets its own FB). If a subsystem has 3 assemblies, the wizard needs to know which steps apply to which assembly.
+3. **Equipment-module-level functional descriptions** — Currently functional_descriptions are per-unit × state. The forge wizard needs them per-equipment-module (since each equipment module gets its own FB). If a unit has 3 equipment modules, the wizard needs to know which steps apply to which equipment module.
 
-4. **Inter-assembly dependencies** — From `SubsystemOrchestration` in fds-compose.ts. The forge wizard needs to know: "Assembly A must complete step X before Assembly B can start step Y."
+4. **Inter-equipment-module dependencies** — From `UnitProcedure` in fds-compose.ts. The forge wizard needs to know: "Equipment Module A must complete step X before Equipment Module B can start step Y."
 
 5. **Failsafe states per device** — The IO list has `normal_state` and `failsafe_state`. These must match the static state device tables. The forge wizard uses both.
 
@@ -229,13 +229,13 @@ For the forge wizard to work well, the FDS sections need:
 
 ## Open Questions for Alignment
 
-1. **Granularity of functional descriptions**: Should the FDS produce functional descriptions per-assembly (ideal for forge) or per-subsystem (current)? A subsystem with multiple assemblies needs assembly-level behavioral descriptions.
+1. **Granularity of functional descriptions**: Should the FDS produce functional descriptions per-equipment-module (ideal for forge) or per-unit (current)? A subsystem with multiple assemblies needs equipment-module-level behavioral descriptions.
 
 2. **Structured completion criteria**: Should `StepEntry` gain structured fields (`condition_tag`, `timeout_value`, `timeout_action`) alongside the prose `completion_criteria`? This would eliminate the forge wizard needing to regex-parse conditions.
 
-3. **Assembly orchestration data**: How does `SubsystemOrchestration` from fds-compose.ts get passed to the forge wizard? Is it a separate section type or embedded in functional_descriptions?
+3. **Equipment Module orchestration data**: How does `UnitProcedure` from fds-compose.ts get passed to the forge wizard? Is it a separate section type or embedded in functional_descriptions?
 
-4. **Operating modes (Auto/Manual/Service)**: The FDS has `OperatingState[]` which covers machine states (Idle, Execute, etc.) but does it cover operator modes? The assembly FB needs to handle Manual (jog), Auto (sequence), and possibly Service mode.
+4. **Operating modes (Auto/Manual/Service)**: The FDS has `OperatingState[]` which covers machine states (Idle, Execute, etc.) but does it cover operator modes? The equipment module FB needs to handle Manual (jog), Auto (sequence), and possibly Service mode.
 
 5. **Linking mechanism**: How does a forge session link to a spec_project? Currently forge has `spec_text` (uploaded doc). Should it also have `spec_project_id` (direct link to FDS builder output)?
 
@@ -247,4 +247,4 @@ The FDS builder and forge wizard are two halves of the same workflow:
 - **FDS builder** = design engineer creating the behavioral specification
 - **Forge wizard** = coding engineer implementing that specification in PLC code
 
-The handoff must be seamless. The forge wizard should consume FDS structured data directly, not re-extract from prose. The assembly FB generation step should receive the exact FDS behavioral description and implement it faithfully — not design from scratch.
+The handoff must be seamless. The forge wizard should consume FDS structured data directly, not re-extract from prose. The equipment module FB generation step should receive the exact FDS behavioral description and implement it faithfully — not design from scratch.

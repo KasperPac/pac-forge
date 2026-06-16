@@ -12,7 +12,7 @@
 4. [HMI Builder](#4-hmi-builder)
 5. [Pattern Librarian](#5-pattern-librarian)
 6. [Multi-Agent Pipeline](#6-multi-agent-pipeline)
-7. [Assembly FB Library](#7-assembly-fb-library)
+7. [Equipment Module FB Library](#7-equipment-module-fb-library)
 8. [Planned Changes Not Yet Implemented](#8-planned-changes-not-yet-implemented)
 
 ---
@@ -49,9 +49,9 @@ The user uploads an IO spreadsheet (CSV or Excel) listing all physical signals. 
 A 6-step guided form that captures the machine hierarchy and operating philosophy. The user defines:
 
 - **System** — the full machine/production line
-- **Subsystems** — functional stations (e.g. "Infeed Conveyor Station", "Hydraulic Lift Station")
-- **Assemblies** per subsystem — coordinated groups of devices (e.g. "LFT01 Lift Table", "CV01 Conveyor")
-- **Devices** per assembly — individual physical things (e.g. motor M01, limit switch LS_TOP)
+- **Units** — functional stations (e.g. "Infeed Conveyor Station", "Hydraulic Lift Station")
+- **Equipment Modules** per unit — coordinated groups of devices (e.g. "LFT01 Lift Table", "CV01 Conveyor")
+- **Devices** per equipment module — individual physical things (e.g. motor M01, limit switch LS_TOP)
 - **Operating States** — the named operating modes the machine can be in (e.g. AUTO, MANUAL, ESTOP, CLEANING). Each state is classified as either `static` (outputs held in a fixed position) or `sequential` (a step sequence executes)
 - **Alarm Tiers** — severity levels and their escalation rules
 
@@ -59,8 +59,8 @@ Claude Sonnet is used once to infer likely operating states from the machine des
 
 **User inputs required:**
 - Machine name and description
-- Subsystem names and descriptions
-- Assembly names, which devices belong to each
+- Unit names and descriptions
+- Equipment module names, which devices belong to each
 - Device names, types (motor/VFD/solenoid/sensor/etc.), and IO signal assignments from the instrument register
 - Operating state names and classification (static/sequential)
 - Alarm tier definitions
@@ -71,11 +71,11 @@ Claude Sonnet is used once to infer likely operating states from the machine des
 
 Route: `/specs/:projectId/:specId/co-author`
 
-This is the core of the FDS Builder. The engineer works through each assembly one at a time, co-authoring its behavioral specification with Claude.
+This is the core of the FDS Builder. The engineer works through each equipment module one at a time, co-authoring its behavioral specification with Claude.
 
-**Sidebar:** Lists all subsystems → assemblies in a tree. Status icons show progress per assembly (not started / static confirmed / in progress / complete). A progress bar shows N/total assemblies done.
+**Sidebar:** Lists all units → equipment modules in a tree. Status icons show progress per equipment module (not started / static confirmed / in progress / complete). A progress bar shows N/total equipment modules done.
 
-**For each assembly, two stages:**
+**For each equipment module, two stages:**
 
 **Stage 1 — Static State Review**
 
@@ -96,13 +96,13 @@ The AI updates a live structured table (`FdsTablePane`) as the conversation prog
 
 When the engineer is satisfied, they click **Mark Complete**. A deterministic logic checker (`fds-logic-checker.ts`) runs immediately — validating tag coverage, completion criteria, permissive references against the instrument register, and fault path presence. Issues are shown in a bottom drawer. The engineer can mark complete with warnings or fix them first.
 
-**Duplicate feature:** For assemblies that are structurally identical (same device class + IO signal count), the engineer can clone a completed assembly's behavioral data and remap tags automatically. This is the main time-saver for machines with repeated assembly types.
+**Duplicate feature:** For equipment modules that are structurally identical (same device class + IO signal count), the engineer can clone a completed equipment module's behavioral data and remap tags automatically. This is the main time-saver for machines with repeated equipment-module types.
 
-**Random FDS generation:** A "Generate Random FDS" dialog (three sliders: subsystems, assemblies, devices) generates a complete fake machine spec via a single AI call — used for development and demos.
+**Random FDS generation:** A "Generate Random FDS" dialog (three sliders: units, equipment_modules, devices) generates a complete fake machine spec via a single AI call — used for development and demos.
 
 **User inputs required:**
-- For each assembly: review/confirm static state values
-- For each assembly: answer the AI's interview questions about the sequential operating logic, or type them directly into the table
+- For each equipment module: review/confirm static state values
+- For each equipment module: answer the AI's interview questions about the sequential operating logic, or type them directly into the table
 - Tag selections from the instrument register picker
 
 ---
@@ -111,20 +111,20 @@ When the engineer is satisfied, they click **Mark Complete**. A deterministic lo
 
 Route: `/specs/:projectId/:specId/system-orchestration`
 
-After all per-assembly sessions are complete, the engineer defines how subsystems coordinate with each other at the system level. This is done via an AI conversation at the subsystem-to-subsystem level (not device/assembly level).
+After all per-equipment-module sessions are complete, the engineer defines how units coordinate with each other at the system level. This is done via an AI conversation at the unit-to-unit level (not device/equipment-module level).
 
-**Left pane:** Streaming AI conversation. The AI asks about subsystem ordering for each operating state, shared permissives across subsystems, and inter-subsystem interlocks (e.g. "Subsystem A must finish its AUTO_RUN sequence before Subsystem B can start").
+**Left pane:** Streaming AI conversation. The AI asks about unit ordering for each operating state, shared permissives across units, and inter-unit interlocks (e.g. "Unit A must finish its AUTO_RUN sequence before Unit B can start").
 
-**Right pane:** Tabbed view — Overview (graph visualization of subsystem relationships) and per-state editors (subsystem ordering drag-reorder, shared permissives form, inter-subsystem interlock form).
+**Right pane:** Tabbed view — Overview (graph visualization of unit relationships) and per-state editors (unit ordering drag-reorder, shared permissives form, inter-unit interlock form).
 
 The interlock model supports five effects: `hold`, `block_transition`, `trigger`, `enable`, `disable`.
 
 The AI validates its own output before persisting. Validation errors are shown inline.
 
 **User inputs required:**
-- Subsystem execution order per operating state
+- Unit execution order per operating state
 - Shared permissive conditions
-- Inter-subsystem interlock definitions
+- Inter-unit interlock definitions
 
 ---
 
@@ -132,7 +132,7 @@ The AI validates its own output before persisting. Validation errors are shown i
 
 Route: `/specs/:projectId/:specId/editor`
 
-Unlocks only after all FDS sessions are `complete` and sections have been composed (via `composeFdsToSections()`). A document tree navigator on the left, section-by-section approval flow on the right. The compose step merges all assembly sessions into `spec_sections` rows, respecting assembly ordering from the orchestration layer and merging shared permissives.
+Unlocks only after all FDS sessions are `complete` and sections have been composed (via `composeFdsToSections()`). A document tree navigator on the left, section-by-section approval flow on the right. The compose step merges all equipment-module sessions into `spec_sections` rows, respecting equipment-module ordering from the orchestration layer and merging shared permissives.
 
 ---
 
@@ -146,19 +146,19 @@ Exports the approved spec as a formatted Word document (.docx) in the Cathodo/Pa
 
 ### Key Data Structures
 
-- `SpecProject` — top-level record with wizard state (`confirmed_subsystems`, `confirmed_states`, `alarm_tiers`)
-- `SubsystemConfig → AssemblyConfig → DeviceConfig → IoSignal[]` — the 4-level machine hierarchy
-- `FdsAssemblySession` — per-assembly authoring state (`static_states`, `sequential_states`, `conversation`, `status`)
+- `SpecProject` — top-level record with wizard state (`confirmed_units`, `confirmed_states`, `alarm_tiers`)
+- `UnitConfig → EquipmentModuleConfig → DeviceConfig → IoSignal[]` — the 4-level machine hierarchy
+- `FdsEquipmentModuleSession` — per-equipment-module authoring state (`static_states`, `sequential_states`, `conversation`, `status`)
 - `SequentialStateV2` — structured step schema with `PermissiveCondition[]`, `StepV2[]` (each with `actions`, `transitions`, `completion_criteria`, `within_ms`, `on_fail`)
-- `SubsystemOrchestration` — per-subsystem coordination (`assembly_order`, `shared_permissives`, `inter_assembly_interlocks`)
-- `FdsSystemOrchestration` — system-level coordination across subsystems
+- `UnitOrchestration` — per-unit coordination (`equipment_module_order`, `shared_permissives`, `inter_equipment_module_interlocks`)
+- `FdsSystemOrchestration` — system-level coordination across units
 
 ### Database
 
 - `spec_projects` — one row per spec
 - `spec_sections` — composed section rows (output of Phase 5 compose)
-- `fds_assembly_sessions` — one row per (spec_project, subsystem, assembly)
-- `fds_subsystem_orchestrations` — one row per (spec_project, subsystem)
+- `fds_equipment_module_sessions` — one row per (spec_project, unit, equipment_module)
+- `fds_unit_orchestrations` — one row per (spec_project, unit)
 - `fds_system_orchestrations` — one row per spec_project
 - `spec_alarms` — alarm definitions
 
@@ -185,13 +185,13 @@ The wizard enforces the same 4-level hierarchy as the FDS Builder:
 | Level | Description | Gets FB? | Gets Process Sequence? |
 |---|---|---|---|
 | System | Full machine/production line | No | No |
-| Subsystem | Functional station | No | Yes (orchestration) |
-| Assembly | Coordinated group of devices | Yes (Assembly FB) | No — commands devices |
+| Unit | Functional station | No | Yes (orchestration) |
+| Equipment Module | Coordinated group of devices | Yes (Equipment Module FB) | No — commands devices |
 | Device | Single physical thing with IO | Yes (Device FB) | No |
 
 **Critical rules:**
 - Only devices appear in the device list and get device FBs
-- Assemblies appear in process sequences as coordination logic
+- Equipment modules appear in process sequences as coordination logic
 - The spec defines the hierarchy — AI extracts it, never invents it
 
 ---
@@ -234,7 +234,7 @@ A configuration form.
 
 #### Step 4 — Hardware & IO (hardware_io)
 
-Hardware rack/module configuration and IO list editing. The AI device matcher runs automatically — it reads the device list from the spec and matches each device to a template in the FB Library. Assembly template matching also runs here.
+Hardware rack/module configuration and IO list editing. The AI device matcher runs automatically — it reads the device list from the spec and matches each device to a template in the FB Library. Equipment module template matching also runs here.
 
 If the bridge is online, TIA project provisioning starts (creates the TIA project structure, imports hardware config).
 
@@ -247,11 +247,11 @@ If the bridge is online, TIA project provisioning starts (creates the TIA projec
 
 #### Step 5 — Interface Contracts (interface_contract)
 
-The AI generates `InterfaceContractMap` — for each assembly, the exposed/consumed signals and state machine state definitions. The engineer reviews and approves per assembly.
+The AI generates `InterfaceContractMap` — for each equipment module, the exposed/consumed signals and state machine state definitions. The engineer reviews and approves per equipment module.
 
-When FDS-linked, assembly briefs are derived from the spec contract (operating states, device state tables, sequential steps, alarms, permissives) via `useForgeFdsHandoff`.
+When FDS-linked, equipment-module briefs are derived from the spec contract (operating states, device state tables, sequential steps, alarms, permissives) via `useForgeFdsHandoff`.
 
-**User inputs:** Review and approval of per-assembly interface contracts.
+**User inputs:** Review and approval of per-equipment-module interface contracts.
 
 ---
 
@@ -271,17 +271,17 @@ The engineer reviews all artifacts in Monaco editors and can approve or request 
 
 ---
 
-#### Step 7 — Assembly FBs (assembly_fb)
+#### Step 7 — Equipment Module FBs (equipment_module_fb)
 
-For each assembly:
-- **Library match:** If the assembly FB Library has a matching template (by `is_assembly=true` and template selection from Step 4), its artifacts are copied.
-- **AI generation:** Otherwise, Claude generates the Assembly FB in SCL — a state machine that commands the constituent devices using the interface contract as the behavioral spec.
+For each equipment module:
+- **Library match:** If the Equipment Module FB Library has a matching template (by `is_equipment_module=true` and template selection from Step 4), its artifacts are copied.
+- **AI generation:** Otherwise, Claude generates the Equipment Module FB in SCL — a state machine that commands the constituent devices using the interface contract as the behavioral spec.
 
-Generated artifacts per assembly: Assembly FB (SCL state machine), config UDT, HMI UDT, instance DB.
+Generated artifacts per equipment module: Equipment Module FB (SCL state machine), config UDT, HMI UDT, instance DB.
 
 When FDS-linked, the generation context includes the full behavioral brief from the spec (static device states, sequential step sequences, alarms, permissives). The Logic Check in Step 8 validates the generated code against this brief.
 
-**User inputs:** Review and approval per assembly; optional regeneration.
+**User inputs:** Review and approval per equipment module; optional regeneration.
 
 ---
 
@@ -289,7 +289,7 @@ When FDS-linked, the generation context includes the full behavioral brief from 
 
 A deterministic (no AI) validation pass. Runs instantly.
 
-When FDS-linked, validates generated assembly FB code against the FDS behavioral spec across 10 categories:
+When FDS-linked, validates generated equipment-module FB code against the FDS behavioral spec across 10 categories:
 - State coverage (does the FB handle all operating states?)
 - Step sequence (does the sequence match the spec?)
 - Permissives (are all permissive conditions wired?)
@@ -300,7 +300,7 @@ When FDS-linked, validates generated assembly FB code against the FDS behavioral
 - Syntax (SCL structural validity)
 - General checks
 
-Returns `LogicCheckResult` with `passed`, `issues[]`, `assembliesChecked`, `artifactsChecked`.
+Returns `LogicCheckResult` with `passed`, `issues[]`, `equipmentModulesChecked`, `artifactsChecked`.
 
 **User inputs:** None required. Engineer reviews findings and decides whether to proceed or return to Step 7.
 
@@ -310,9 +310,9 @@ Returns `LogicCheckResult` with `passed`, `issues[]`, `assembliesChecked`, `arti
 
 Two sequential AI calls:
 
-1. **Device Linkage** — The PM agent builds the `DeviceLinkageMatrix`: which devices each assembly FB calls, what wiring connects them, interlock conditions, status mirrors. Returns `{deviceLinkage, configUdts}`.
+1. **Device Linkage** — The PM agent builds the `DeviceLinkageMatrix`: which devices each equipment-module FB calls, what wiring connects them, interlock conditions, status mirrors. Returns `{deviceLinkage, configUdts}`.
 
-2. **Sequences** — Fed with the wiring field names from Step 1, the PM agent builds `ProcessSequences`: the step-by-step process logic for each subsystem in each operating state. Returns `{processSequences, globalData}`.
+2. **Sequences** — Fed with the wiring field names from Step 1, the PM agent builds `ProcessSequences`: the step-by-step process logic for each unit in each operating state. Returns `{processSequences, globalData}`.
 
 Post-processing: `splitOrRows()`, `fixOrphanSteps()`. Deterministic validation: T# timer fix, structural checks via `validateSequence()` (orphan steps, unreachable states, coil conflicts). AI patch calls for fixable issues.
 
@@ -420,25 +420,25 @@ FDS Builder                              Forge Wizard
 ─────────────────────────────────────────────────────
 Design engineer authors spec         → Coding engineer generates TIA code
 Instrument Register (tags)           → IO Linking FC (physical wiring)
-Static device state tables           → Assembly FB state outputs
+Static device state tables           → Equipment Module FB state outputs
 Sequential step sequences            → Process sequence matrix
 Permissive conditions                → Interlock logic
-Assembly orchestration               → ProcessState UDT assembly
+Unit orchestration                   → ProcessState UDT assembly
 System orchestration                 → OB/Main call order
 ```
 
 ### How the Handoff Works
 
-When a Forge session has a `spec_project_id` set (migration 063), the wizard queries the Postgres function `_build_contract_snapshot(spec_project_id)` which returns a full `SpecContractV2` JSONB snapshot. The React hook `useForgeFdsHandoff` reads this and returns an `AssemblyBriefMap` keyed by `assembly_id`.
+When a Forge session has a `spec_project_id` set (migration 063), the wizard queries the Postgres function `_build_contract_snapshot(spec_project_id)` which returns a full `SpecContractV2` JSONB snapshot. The React hook `useForgeFdsHandoff` reads this and returns an `EquipmentModuleBriefMap` keyed by `equipment_module_id`.
 
-The brief for each assembly contains:
+The brief for each equipment module contains:
 - `operatingStates[]` — all states from the spec header
 - `staticStates: Record<state_id, DeviceStateEntry[]>` — what every output does in each state
 - `sequentialStates: Record<state_id, {permissives, steps, notes}>` — step sequences per state
-- `alarmConditions: AssemblyAlarm[]` — assembly-specific alarms
+- `alarmConditions: EquipmentModuleAlarm[]` — equipment-module-specific alarms
 
 This brief is consumed by:
-- **Step 7 (Assembly FBs)** — drives AI generation context; assembly FB state machine is generated to match these behavioral specs
+- **Step 7 (Equipment Module FBs)** — drives AI generation context; equipment-module FB state machine is generated to match these behavioral specs
 - **Step 5 (Interface Contracts)** — brief data seeds the contract form
 - **Step 8 (Logic Check)** — the deterministic checker validates generated FB code against the brief
 
@@ -452,7 +452,7 @@ The session is linked by setting `spec_project_id` on the `forge_sessions` row. 
 |---|---|---|
 | Step 1 (Spec) | Manual .docx/.pdf upload + AI extraction | Auto-populated from spec contract |
 | Step 5 (Contracts) | AI generates contracts from extracted spec | Contracts seeded from FDS behavioral data |
-| Step 7 (Assembly FBs) | AI generates FB with limited context | AI generates FB against the full behavioral brief |
+| Step 7 (Equipment Module FBs) | AI generates FB with limited context | AI generates FB against the full behavioral brief |
 | Step 8 (Logic Check) | Skipped (no spec to check against) | Full 10-category validation against FDS spec |
 
 ---
@@ -623,7 +623,7 @@ Only `APPROVED` patterns with `plc_brand = "SIEMENS_TIA"` are fetched by `useAct
 | TIA Console demo | `use-demo-pipeline.ts` | `buildPrompt()` (same as pipeline) |
 | Compile fix | `use-compile-fix.ts` | `buildCompileFixSystemPrompt()` |
 
-The Forge Wizard generation paths (`use-forge-device-generate.ts`, `use-forge-assembly-generate.ts`, `use-forge-process-generate.ts`) also inject approved patterns via `formatPatterns()` through their respective prompt builders.
+The Forge Wizard generation paths (`use-forge-device-generate.ts`, `use-forge-equipment-module-generate.ts`, `use-forge-process-generate.ts`) also inject approved patterns via `formatPatterns()` through their respective prompt builders.
 
 ---
 
@@ -766,19 +766,19 @@ There are exactly four independent AI code-generation paths. Any change to "what
 
 ---
 
-## 7. Assembly FB Library
+## 7. Equipment Module FB Library
 
 ### What It Is
 
-The Assembly FB Library (the focus of the `feature/assembly-fb-library` branch) replaces greenfield AI-invented assembly code with a catalog of typed, versioned, instance-parameterised templates.
+The Equipment Module FB Library (the focus of the `feature/equipment-module-fb-library` branch) replaces greenfield AI-invented equipment-module code with a catalog of typed, versioned, instance-parameterised templates.
 
-The vision: when a spec has an assembly of a known type (e.g. "Conveyor Standard VSD", "Pusher Linear Cylinder"), the system picks the matching template from the library, wires up the instance-specific parameters (IO signals, tag names, UDT references), and uses the proven, TIA-compiled, tested SCL code — no AI generation needed. AI generation becomes a fallback for novel assembly types with no library match.
+The vision: when a spec has an equipment module of a known type (e.g. "Conveyor Standard VSD", "Pusher Linear Cylinder"), the system picks the matching template from the library, wires up the instance-specific parameters (IO signals, tag names, UDT references), and uses the proven, TIA-compiled, tested SCL code — no AI generation needed. AI generation becomes a fallback for novel equipment-module types with no library match.
 
 ---
 
 ### Interface Contract Schema
 
-Each assembly FB template has an `interface_contract` JSONB field that defines:
+Each equipment-module FB template has an `interface_contract` JSONB field that defines:
 
 - **Inputs** (`name`, `tia_name`, `data_type`, `role`, `description`, `agent_description`, `default_value`, `required`) — roles include: `auto_run`, `start_cmd`, `reset_cmd`, `emergency_stop_in`, `permissive`, `upstream_ready`, `downstream_ready`, `setpoint`, `command_mode`, and others
 - **Outputs** (`name`, `tia_name`, `data_type`, `role`, `description`) — roles include: `running`, `at_home`, `at_target`, `at_position`, `faulted`, `fault_code`, `ready`, and others
@@ -819,8 +819,8 @@ All 8 contracts are seeded in the DB. Body SCL authoring (the actual FB logic) i
 | 3 | SCL → contract parser + Pre-fill button | Complete |
 | 4 | Seed v1 catalog | Contracts complete; body SCL pending Kasper |
 | 5 | Spec Builder integration (template matching in Phase 2, contract form in Phase 3 Co-Author) | Not started |
-| 6 | Subsystem orchestration SFC editor | Not started |
-| 7 | Forge wire-through verification (assembly generator uses `interface_contract` + `instance_params`) | Not started |
+| 6 | Unit orchestration SFC editor | Not started |
+| 7 | Forge wire-through verification (equipment-module generator uses `interface_contract` + `instance_params`) | Not started |
 | 8 | AI-assisted authoring (Mode D) | Not started |
 | 9 | Versioning + upgrade UI | Not started |
 | 10 | PILOT-001 re-run on library-first flow | Not started |
@@ -833,14 +833,14 @@ All 8 contracts are seeded in the DB. Body SCL authoring (the actual FB logic) i
 - `interface_contract jsonb NOT NULL DEFAULT '{}'`
 - `deprecated boolean NOT NULL DEFAULT false`
 
-**`fds_assembly_sessions` additions:**
+**`fds_equipment_module_sessions` additions:**
 - `fb_template_id uuid REFERENCES fb_templates(id)`
 - `fb_template_version int`
 - `instance_params jsonb NOT NULL DEFAULT '{}'`
 - `instance_overrides jsonb NOT NULL DEFAULT '{}'`
 - `process_intent text`
 
-**`AssemblyConfig` additions** (spec-builder types):
+**`EquipmentModuleConfig` additions** (spec-builder types):
 - `fb_template_id?: string | null`
 - `fb_template_version?: number | null`
 - `instance_params?: Record<string, string>`
@@ -855,7 +855,7 @@ All 8 contracts are seeded in the DB. Body SCL authoring (the actual FB logic) i
 2. No SCL naming convention enforced by the parser — reclassify via the UI after pre-fill
 3. FB Builder UI revival deferred to Phase 8
 4. VSD telegram parameterisation deferred to Phase 5 (v1 hardcodes telegram-352)
-5. ProcessState UDT naming: `ProcessState_<SUBSYSTEM>.<assembly_tag>_<signal_name>` with globally-unique tags
+5. ProcessState UDT naming: `ProcessState_<UNIT>.<equipment_module_tag>_<signal_name>` with globally-unique tags
 6. FB `VERSION : 1.0` on all seed templates
 7. Diverter: GateActuatorCmdA = `zero_or_one` (spring-return), GateActuatorCmdB = `one` (active solenoid)
 8. Pusher: ExtendSolenoid = `one` always, RetractSolenoid = `zero_or_one`
@@ -868,7 +868,7 @@ All 8 contracts are seeded in the DB. Body SCL authoring (the actual FB logic) i
 
 **Structured StepEntry optional fields** (`output_tag`, `condition_tag`, `condition_value`, `timeout_value`, `timeout_action` as separate typed fields on `StepEntry`): Agreed in alignment docs as "Phase C". The V2 schema (`SequentialStateV2`) uses a different, richer structure (`ActionV2[]` + `CompletionCriterion[]`) that may have superseded this, but the alignment doc item is not formally closed.
 
-**Operator modes** (`confirmed_modes?: OperatorMode[]` on `SpecProject`): Auto/Manual/Service modes per assembly were identified as a gap in both alignment documents. Not yet present in any type definition or DB schema.
+**Operator modes** (`confirmed_modes?: OperatorMode[]` on `SpecProject`): Auto/Manual/Service modes per equipment module were identified as a gap in both alignment documents. Not yet present in any type definition or DB schema.
 
 **`buildForgeHandoff()` standalone function** (proposed in `FDS_FORGE_ALIGNMENT_RESPONSE.md`): Described as a future deliverable. Currently replaced by `useSpecContract` + `useForgeFdsHandoff`, but the proposed typed function (`src/lib/spec-builder/fds-handoff.ts`) was never created.
 
@@ -886,13 +886,13 @@ All 8 contracts are seeded in the DB. Body SCL authoring (the actual FB logic) i
 
 ---
 
-### Assembly FB Library
+### Equipment Module FB Library
 
-**Phase 5 — Spec Builder integration:** When an assembly in the spec skeleton matches a library template, the Phase 2 Machine Hierarchy step should run `matchAssembliesToTemplates()` and pre-select the template. The Phase 3 Co-Author should render the interface-contract form (tag picker per IO slot, scoped to the assembly's instrument-register tags) instead of the standard interview for template-backed assemblies.
+**Phase 5 — Spec Builder integration:** When an equipment module in the spec skeleton matches a library template, the Phase 2 Machine Hierarchy step should run `matchEquipmentModulesToTemplates()` and pre-select the template. The Phase 3 Co-Author should render the interface-contract form (tag picker per IO slot, scoped to the equipment module's instrument-register tags) instead of the standard interview for template-backed equipment modules.
 
-**Phase 7 — Forge wire-through:** Verify that `use-forge-assembly-generate.ts` correctly consumes `interface_contract` and `instance_params` from a matched template when generating assembly FBs. The generate hook exists but has not been tested end-to-end with a library-first spec.
+**Phase 7 — Forge wire-through:** Verify that `use-forge-equipment-module-generate.ts` correctly consumes `interface_contract` and `instance_params` from a matched template when generating equipment-module FBs. The generate hook exists but has not been tested end-to-end with a library-first spec.
 
-**ProcessState UDT auto-assembly:** The spec contract defines which `process_state_writes[]` each assembly declares. The plan is to auto-build the ProcessState UDT from the union of all member assemblies' declarations at spec time. This is not yet implemented.
+**ProcessState UDT auto-assembly:** The spec contract defines which `process_state_writes[]` each equipment module declares. The plan is to auto-build the ProcessState UDT from the union of all member equipment modules' declarations at spec time. This is not yet implemented.
 
 ---
 

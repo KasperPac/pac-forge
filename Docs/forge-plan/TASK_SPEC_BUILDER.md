@@ -13,10 +13,10 @@ Pac-Forge requires the ability to generate industrial automation functional spec
 1. **Document header** — project code, revision, dates, sign-offs  
 2. **Table of contents**  
 3. **Introduction** — system overview, brief description  
-4. **Equipment descriptions** — per-subsystem device tag tables (Device | Tag | Description)  
-5. **Functional description** — per-equipment behaviour across each operating state (Idle, Starting, Execute, Completing, Completed, E-Stop)  
+4. **Equipment descriptions** — per-unit device tag tables (Device | Tag | Description)  
+5. **Functional description** — per-unit behaviour across each operating state (Idle, Starting, Execute, Completing, Completed, E-Stop)  
 6. **Alarms** — four tiers: Immediate Shutdown, Controlled Shutdown, Warnings, Interlocks  
-7. **Process and alarm settings** — setpoint tables per subsystem  
+7. **Process and alarm settings** — setpoint tables per unit  
 
 The quality bar is: an experienced automation engineer should be unable to distinguish the output from a manually authored spec.
 
@@ -29,10 +29,10 @@ The quality bar is: an experienced automation engineer should be unable to disti
 
 | Agent Role | Model | Rationale |
 |---|---|---|
-| Instrument register parser | `claude-haiku-4-5-20251001` | High-volume tag classification, column normalisation, subsystem grouping. No frontier capability needed. |
-| Spec skeleton builder | `claude-sonnet-4-6` | Project metadata, subsystem topology, operating mode structure. Moderate reasoning. |
-| Section generator (per subsystem) | `claude-sonnet-4-6` | Generates device tables + per-state narrative for each subsystem. Runs in parallel N times. |
-| Alarm table generator | `claude-sonnet-4-6` | Categorises alarms into four tiers across all subsystems. |
+| Instrument register parser | `claude-haiku-4-5-20251001` | High-volume tag classification, column normalisation, unit grouping. No frontier capability needed. |
+| Spec skeleton builder | `claude-sonnet-4-6` | Project metadata, unit topology, operating mode structure. Moderate reasoning. |
+| Section generator (per unit) | `claude-sonnet-4-6` | Generates device tables + per-state narrative for each unit. Runs in parallel N times. |
+| Alarm table generator | `claude-sonnet-4-6` | Categorises alarms into four tiers across all units. |
 | Settings table generator | `claude-sonnet-4-6` | Generates process and alarm setpoint tables with placeholder values. |
 | Gap audit agent | `claude-opus-4-6` | Final single pass — reads entire generated spec, identifies missing coverage, inconsistent tags, incomplete alarm tiers. Single call per spec. |
 | DOCX assembler | N/A (docx skill + Node.js) | Renders structured JSON IR to Cathodo-format Word document. No AI call. |
@@ -92,12 +92,12 @@ CREATE TABLE instrument_registers (
   parsed_at TIMESTAMPTZ DEFAULT NOW(),
   
   -- Parsed tags as structured array
-  -- Each entry: { tag, device_type, device_class, subsystem, description, signal_type, io_address }
+  -- Each entry: { tag, device_type, device_class, unit, description, signal_type, io_address }
   tags JSONB NOT NULL DEFAULT '[]',
   
-  -- Subsystem groupings derived from tags
-  -- Each entry: { subsystem_id, subsystem_name, tag_count }
-  subsystems JSONB NOT NULL DEFAULT '[]',
+  -- Unit groupings derived from tags
+  -- Each entry: { unit_id, unit_name, tag_count }
+  units JSONB NOT NULL DEFAULT '[]',
   
   -- Parser metadata
   parse_warnings JSONB DEFAULT '[]',        -- tags with ambiguous classification
@@ -113,17 +113,17 @@ CREATE TABLE spec_sections (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   spec_project_id UUID REFERENCES spec_projects(id) ON DELETE CASCADE,
   
-  section_type TEXT NOT NULL               
+  section_type TEXT NOT NULL
     CHECK (section_type IN (
       'introduction',
-      'equipment_description', 
+      'equipment_description',
       'functional_state',
       'alarm_table',
       'settings_table',
       'audit_report'
     )),
-  
-  subsystem_id TEXT,                       -- null for global sections (alarms, settings)
+
+  unit_id TEXT,                       -- null for global sections (alarms, settings)
   state_name TEXT,                         -- for functional_state sections: 'idle','starting','execute','completing','completed','estop'
   
   -- Generated content
@@ -179,7 +179,7 @@ Create `src/components/spec-builder/InstrumentRegisterUpload.tsx`.
 - Accepts `.xlsx`, `.xls`, `.csv` file types
 - Displays upload zone with drag-and-drop
 - On file select, calls the parse API endpoint
-- Shows parse results: subsystem count, tag count, any warnings
+- Shows parse results: unit count, tag count, any warnings
 - Allows re-upload if the parse result looks wrong
 
 ### 1.2 — Parse API Endpoint
@@ -197,9 +197,9 @@ Read the uploaded file using `xlsx` (npm package). Detect the header row. Map co
 | `description` | description, desc, function, instrument description |
 | `signal_type` | signal, signal type, io type, type |
 | `io_address` | address, io address, plc address, %i, %q |
-| `subsystem` | subsystem, system, area, unit, group |
+| `unit` | unit, subsystem, system, area, group |
 
-If a `subsystem` column is present, use it directly. If not, derive subsystem from tag prefix (see Step 3).
+If a `unit` column is present, use it directly. If not, derive unit from tag prefix (see Step 3).
 
 **Step 2 — Send to Haiku for classification**
 
@@ -241,9 +241,9 @@ Respond ONLY with a JSON object. No preamble.
 
 Batch rows in groups of 50 per Haiku call to minimise API calls. Parse the JSON response and merge back into the row data.
 
-**Step 3 — Subsystem grouping**
+**Step 3 — Unit grouping**
 
-Group parsed tags by `subsystem` (from column) or `subsystem_prefix` (from Haiku). For each group, derive a `subsystem_name` using this mapping:
+Group parsed tags by `unit` (from column) or `unit_prefix` (from Haiku). For each group, derive a `unit_name` using this mapping:
 
 | Prefix pattern | Inferred equipment type |
 |---|---|
@@ -256,21 +256,21 @@ Group parsed tags by `subsystem` (from column) or `subsystem_prefix` (from Haiku
 | Contains "GK" | Fan/Blower |
 | Contains "mill" | Milling |
 
-Store results in `instrument_registers.tags` (array of enriched tag objects) and `instrument_registers.subsystems` (array of subsystem summaries).
+Store results in `instrument_registers.tags` (array of enriched tag objects) and `instrument_registers.units` (array of unit summaries).
 
 **Step 4 — Parse warning generation**
 
 Flag these conditions as warnings (stored in `parse_warnings`):
 - Tags with `device_class: "other"` — Haiku could not classify
 - Tags with no `io_address` — may be internal/virtual tags
-- Subsystems with fewer than 3 tags — possibly a grouping error
+- Units with fewer than 3 tags — possibly a grouping error
 - Duplicate tag values
 
 ### 1.3 — Acceptance Criteria
 
-- Upload an Excel file with 50+ rows, mixed subsystems, messy column names
+- Upload an Excel file with 50+ rows, mixed units, messy column names
 - All tags classified with a `device_class` (none should remain "other" for standard ISA prefixes)
-- Subsystems correctly grouped — tags from the same physical equipment appear in the same group
+- Units correctly grouped — tags from the same physical equipment appear in the same group
 - Parse warnings surfaced in the UI for any ambiguous rows
 - Parsed data written to `instrument_registers` table with correct `spec_project_id`
 - Haiku token usage recorded in `haiku_usage` field
@@ -279,7 +279,7 @@ Flag these conditions as warnings (stored in `parse_warnings`):
 
 ## Phase 2 — Spec Skeleton Wizard
 
-**Goal:** Collect project metadata and confirm the subsystem topology before generation begins.
+**Goal:** Collect project metadata and confirm the unit topology before generation begins.
 
 **Model:** `claude-sonnet-4-6` (for the operating modes inference step only — see 2.3)
 
@@ -296,21 +296,21 @@ Pre-populate from `spec_project` record if already exists.
 **Step 2 — Control System**
 Fields: PLC Model (text, e.g. "Siemens S7-1500 CPU 1517F"), HMI Type (dropdown: WinCC Unified / WinCC Comfort / None / Other), Communications Protocol (multi-select: OPC UA / PROFINET / Ethernet/IP / None).
 
-**Step 3 — Subsystem Review**
-Display the subsystems derived from the instrument register (from Phase 1). Each subsystem shown as a card with: name, equipment type, tag count.  
+**Step 3 — Unit Review**
+Display the units derived from the instrument register (from Phase 1). Each unit shown as a card with: name, equipment type, tag count.
 Allow the engineer to:
-- Rename a subsystem
+- Rename a unit
 - Change the equipment type (dropdown: Hopper / Transporter / Dryer / Cooler / Unloading Station / Filter / Milling / Other)
-- Merge two subsystems
-- Delete a subsystem (tags remain in the register, just excluded from spec generation)
-- Add a manual subsystem (for equipment with no instrumentation e.g. conveyors)
+- Merge two units
+- Delete a unit (tags remain in the register, just excluded from spec generation)
+- Add a manual unit (for equipment with no instrumentation e.g. conveyors)
 
 **Step 4 — Operating Modes**
-Call Sonnet once with the subsystem list to infer likely operating modes.
+Call Sonnet once with the unit list to infer likely operating modes.
 
 System prompt:
 ```
-You are an industrial automation engineering expert. Given this list of subsystems from an instrument register, infer the likely operating states/modes for this plant.
+You are an industrial automation engineering expert. Given this list of units from an instrument register, infer the likely operating states/modes for this plant.
 
 Use ISA-88 state machine conventions where applicable. Typical states include:
 Idle, Starting, Execute (Running), Completing, Completed, E-Stop, Abort, Held.
@@ -337,13 +337,13 @@ Pre-populate the four standard alarm tiers with defaults:
 Allow renaming tiers. Allow adding custom tiers.
 
 **Step 6 — Review and Confirm**
-Summary of all entries. Estimated generation scope shown: N subsystems × M states = X sections to generate. Confirm button triggers Phase 3.
+Summary of all entries. Estimated generation scope shown: N units × M states = X sections to generate. Confirm button triggers Phase 3.
 
 ### 2.2 — Acceptance Criteria
 
 - All six wizard steps navigable with back/forward
-- Subsystem topology editable and saved correctly to `spec_projects`
-- Operating modes inferred correctly from a realistic subsystem list (test against Cathodo subsystem list)
+- Unit topology editable and saved correctly to `spec_projects`
+- Operating modes inferred correctly from a realistic unit list (test against Cathodo unit list)
 - Confirmed wizard data persisted — wizard can be exited and resumed
 - Confirm button disabled until all required fields in Step 1 are complete
 
@@ -363,26 +363,26 @@ Create `src/lib/spec-generator/orchestrator.ts`.
 
 ```
 1. Generate introduction section (1 Sonnet call)
-2. For each subsystem [PARALLEL]:
+2. For each unit [PARALLEL]:
    a. Generate equipment description section (device table)
    b. For each operating state:
       Generate functional state section (state narrative)
-3. Generate alarm table section (1 Sonnet call, all subsystems in context)
-4. Generate settings table section (1 Sonnet call, all subsystems in context)
+3. Generate alarm table section (1 Sonnet call, all units in context)
+4. Generate settings table section (1 Sonnet call, all units in context)
 5. Run gap audit (1 Opus call, full spec context)
 ```
 
-Steps 2a and 2b run in parallel across subsystems. Use `Promise.allSettled` — if one subsystem fails, others continue. Failed sections are flagged for manual entry.
+Steps 2a and 2b run in parallel across units. Use `Promise.allSettled` — if one unit fails, others continue. Failed sections are flagged for manual entry.
 
 Update `spec_projects.status` to `'generating'` at start, `'review'` on completion.
 
 ### 3.2 — Section Generator: Equipment Description
 
-For each subsystem, generate its device table section.
+For each unit, generate its device table section.
 
 **Context passed to Sonnet:**
-- Subsystem name and equipment type
-- All tags belonging to this subsystem (from instrument register)
+- Unit name and equipment type
+- All tags belonging to this unit (from instrument register)
 - Design profile rules (if `design_profile_id` is set — inject as `RULE:` format)
 
 **System prompt:**
@@ -390,12 +390,12 @@ For each subsystem, generate its device table section.
 You are a senior automation engineer authoring a formal functional specification document.
 Your output style must match this example exactly.
 
-You are generating the "Description of Subsystem Equipment" section for: {subsystem_name} ({equipment_type}).
+You are generating the "Description of Unit Equipment" section for: {unit_name} ({equipment_type}).
 
 RULES:
 {design_profile_rules}
 
-INSTRUMENT REGISTER FOR THIS SUBSYSTEM:
+INSTRUMENT REGISTER FOR THIS UNIT:
 {tags_json}
 
 Generate a section with:
@@ -417,16 +417,16 @@ Respond ONLY with a JSON object:
 }
 ```
 
-Store result in `spec_sections` with `section_type: 'equipment_description'`, `subsystem_id`, `content_json`.
+Store result in `spec_sections` with `section_type: 'equipment_description'`, `unit_id`, `content_json`.
 
 ### 3.3 — Section Generator: Functional State
 
-For each subsystem × operating state combination, generate the state narrative.
+For each unit × operating state combination, generate the state narrative.
 
 **Context passed to Sonnet:**
-- Subsystem name and equipment type
+- Unit name and equipment type
 - Operating state name and description
-- Tags for this subsystem
+- Tags for this unit
 - Device table already generated (from 3.2) — prevents tag name hallucination
 - Equipment type template (see templates below)
 
@@ -470,7 +470,7 @@ Add templates for: Cooler, Unloading Station, Magnetic Filter, Milling.
 ```
 You are a senior automation engineer authoring a formal functional specification.
 
-You are generating the "{state_name}" state section for: {subsystem_name} ({equipment_type}).
+You are generating the "{state_name}" state section for: {unit_name} ({equipment_type}).
 
 DEVICE TABLE (use ONLY these tag names — never invent tags):
 {device_table_json}
@@ -490,18 +490,18 @@ Respond ONLY with a JSON object:
 }
 ```
 
-Store in `spec_sections` with `section_type: 'functional_state'`, `subsystem_id`, `state_name`.
+Store in `spec_sections` with `section_type: 'functional_state'`, `unit_id`, `state_name`.
 
 ### 3.4 — Section Generator: Alarm Table
 
-Single Sonnet call with all subsystems' device tables in context.
+Single Sonnet call with all units' device tables in context.
 
 **System prompt:**
 ```
 You are a senior automation engineer authoring a formal functional specification alarm section.
 
-SUBSYSTEMS AND DEVICE TABLES:
-{all_subsystems_with_device_tables_json}
+UNITS AND DEVICE TABLES:
+{all_units_with_device_tables_json}
 
 ALARM TIERS DEFINED FOR THIS PROJECT:
 {alarm_tiers_json}
@@ -539,26 +539,26 @@ Respond ONLY with a JSON object:
 
 ### 3.5 — Section Generator: Settings Table
 
-Single Sonnet call generating process parameter and setpoint tables per subsystem.
+Single Sonnet call generating process parameter and setpoint tables per unit.
 
 **System prompt:**
 ```
 You are generating the Process Settings and Alarm Settings section of a functional specification.
 
-SUBSYSTEMS:
-{subsystems_with_equipment_types_json}
+UNITS:
+{units_with_equipment_types_json}
 
-For each subsystem, generate two tables:
+For each unit, generate two tables:
 1. Process settings — operational parameters (temperatures, pressures, weights, timers, speeds)
 2. Alarm settings — the threshold values that trigger alarms
 
 For every setpoint value, use "[ENGINEER TO SET]" as placeholder unless the value is a well-known industry standard for this equipment type.
 
-Respond ONLY with a JSON object per subsystem:
+Respond ONLY with a JSON object per unit:
 {
-  "subsystems": [
+  "units": [
     {
-      "subsystem_id": "...",
+      "unit_id": "...",
       "process_settings": [
         { "parameter": "Transport pressure setpoint", "default": "[ENGINEER TO SET]", "unit": "bar", "notes": "" }
       ],
@@ -577,7 +577,7 @@ Single Opus call after all sections are generated.
 **Context passed to Opus:**
 - Full spec as assembled markdown (all sections concatenated)
 - Complete instrument register (all tags)
-- Subsystem list and state list
+- Unit list and state list
 
 **System prompt:**
 ```
@@ -593,7 +593,7 @@ Conduct a structured gap audit. Check:
 
 1. TAG COVERAGE — Is every tag in the instrument register referenced at least once in the specification? List any missing tags.
 
-2. STATE COVERAGE — For each subsystem, is every defined operating state (Idle, Starting, Execute, Completing, Completed, E-Stop) described? List any missing state/subsystem combinations.
+2. STATE COVERAGE — For each unit, is every defined operating state (Idle, Starting, Execute, Completing, Completed, E-Stop) described? List any missing state/unit combinations.
 
 3. ALARM COVERAGE — Is every safety device (PS, rupture disk, pressure transmitter) represented in the alarm table? List any missing.
 
@@ -620,7 +620,7 @@ Store audit result in `spec_sections` with `section_type: 'audit_report'`.
 
 ### 3.7 — Acceptance Criteria
 
-- All subsystem × state combinations generate a section (or are flagged as failed)
+- All unit × state combinations generate a section (or are flagged as failed)
 - No generated section references a tag not in the instrument register
 - Alarm table contains at least one entry per safety device in the register
 - Opus audit report generated and stored
@@ -643,11 +643,11 @@ Create `src/components/spec-builder/SpecEditor.tsx`.
 ```
 ├── Introduction
 ├── Equipment Descriptions
-│   ├── [Subsystem 1 name]
-│   ├── [Subsystem 2 name]
+│   ├── [Unit 1 name]
+│   ├── [Unit 2 name]
 │   └── ...
 ├── Functional Description
-│   ├── [Subsystem 1]
+│   ├── [Unit 1]
 │   │   ├── Idle
 │   │   ├── Starting
 │   │   ├── Execute
@@ -659,7 +659,7 @@ Create `src/components/spec-builder/SpecEditor.tsx`.
 │   ├── Warnings
 │   └── Interlocks
 ├── Settings
-│   ├── [Subsystem 1]
+│   ├── [Unit 1]
 │   └── ...
 └── Audit Report  ← shows Opus gap analysis
 ```
@@ -681,7 +681,7 @@ Create `src/components/spec-builder/SpecEditor.tsx`.
 - Add/remove alarm rows
 
 **Section editor — settings table:**
-- Two sub-tables per subsystem: Process Settings | Alarm Settings
+- Two sub-tables per unit: Process Settings | Alarm Settings
 - All "[ENGINEER TO SET]" cells highlighted, click-to-edit
 
 **Audit report panel:**
@@ -738,14 +738,14 @@ Section 1: Introduction
   1.1 Brief Functioning Description
   1.2 Control System
 
-Section 2: Description of Subsystem Equipment
-  2.N [Subsystem Name]
-    2.N.1 Control Device Instrumentation [Subsystem Name]
+Section 2: Description of Unit Equipment
+  2.N [Unit Name]
+    2.N.1 Control Device Instrumentation [Unit Name]
       [Device table: 3 columns, header row shaded, all borders]
 
 Section 3: Functional Description
   3.1 Mode of Operation and Machine Behaviour
-  3.2+ [Per state, per subsystem]
+  3.2+ [Per state, per unit]
 
 Section 4: Alarms
   4.1 Immediate Shutdown [table]
@@ -754,7 +754,7 @@ Section 4: Alarms
   4.4 Interlocks [table]
 
 Section 5: Process Settings and Alarm Settings
-  5.N [Per subsystem — two tables each]
+  5.N [Per unit — two tables each]
 ```
 
 **Formatting rules (match Cathodo exactly):**
@@ -769,7 +769,7 @@ Section 5: Process Settings and Alarm Settings
 ### 5.2 — Export Flow
 
 1. Validate all sections are approved (`approved = TRUE`)
-2. Assemble full document from `spec_sections` ordered by section type and subsystem order
+2. Assemble full document from `spec_sections` ordered by section type and unit order
 3. Run DOCX renderer
 4. Upload resulting `.docx` to Supabase Storage at `spec-exports/{spec_project_id}/{doc_code}_Rev{revision}.docx`
 5. Create `spec_exports` record
@@ -817,7 +817,7 @@ Section 5: Process Settings and Alarm Settings
 
 - [ ] Instrument register upload parses a real 50+ tag Excel file correctly
 - [ ] Wizard completes and persists all project metadata
-- [ ] Full generation pipeline runs end-to-end on the Cathodo subsystem set
+- [ ] Full generation pipeline runs end-to-end on the Cathodo unit set
 - [ ] No generated section contains a tag name not present in the instrument register
 - [ ] Opus audit report generated and displayed in the editor
 - [ ] All placeholder cells highlighted amber in the editor

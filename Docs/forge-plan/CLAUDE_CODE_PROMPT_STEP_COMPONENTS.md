@@ -49,7 +49,7 @@ The first step. Two modes:
 - Left side (40%): file info card (filename, "Replace" button)
 - Right side (60%): analysis results displayed as:
   - Project overview card (name, PLC type, HMI type, description)
-  - Devices table — columns: Name, Tag, Type, Subsystem, IO Count. Editable — rows can be deleted.
+  - Devices table — columns: Name, Tag, Type, Unit, IO Count. Editable — rows can be deleted.
   - Process sequences — collapsible list, each showing step count
   - Alarms summary — count by severity
   - Interlocks count
@@ -125,7 +125,7 @@ Tabbed view with 3 tabs using shadcn Tabs component:
 
 **Tab 3 — Device List:**
 - Table showing all devices from spec analysis
-- Columns: Name, Tag, Device Type, Description, Subsystem, FB Template (Select dropdown), IO Count
+- Columns: Name, Tag, Device Type, Description, Unit, FB Template (Select dropdown), IO Count
 - FB Template column: dropdown populated from `useFbTemplates()` — show matched template name, or "AI Generate" for unmatched
 - Run `matchDevicesToTemplates()` from `@/lib/forge-device-matcher` on mount to auto-assign templates
 
