@@ -1,6 +1,47 @@
 // Spec Builder types — functional specification document generation
 import type { PermissiveCondition, SequentialStateV2 } from "./spec-contract-v2";
 
+// --- ISA-88 Process Model (§4.3) ---
+// Describes WHAT happens to the product (product-centric), not HOW equipment does it.
+// Links to the Procedural Control Model and Physical Model:
+//   Process Stage ↔ Unit Procedure ↔ Unit
+//   Process Operation ↔ Operation ↔ Equipment Module
+//   Process Action ↔ Phase ↔ Control Module action
+
+export interface ProcessAction {
+  action_id: string;
+  action_name: string;
+  description: string;
+  /** Optional link to the control module tag that executes this action */
+  control_module_tag?: string;
+}
+
+export interface ProcessOperation {
+  operation_id: string;
+  operation_name: string;
+  description: string;
+  /** Links to an equipment_module_id in UnitConfig.equipment_modules */
+  equipment_module_id: string;
+  actions: ProcessAction[];
+}
+
+export interface ProcessStage {
+  stage_id: string;
+  stage_name: string;
+  description: string;
+  /** Links to a unit_id in confirmed_units */
+  unit_id: string;
+  operations: ProcessOperation[];
+  /** Execution order within the process (1-based) */
+  order: number;
+}
+
+export interface ProcessModel {
+  process_name: string;
+  process_description: string;
+  stages: ProcessStage[];
+}
+
 // --- Spec Project ---
 
 export interface SpecProject {
@@ -34,6 +75,8 @@ export interface SpecProject {
   status: "draft" | "generating" | "review" | "complete";
   // FDS Engine Phase 1 — per-project migration gate (migration 088)
   confirmation_status: "unconfirmed" | "confirmed";
+  // ISA-88 Process Model (migration 091)
+  process_model: ProcessModel | null;
   created_at: string;
   updated_at: string;
 }
@@ -83,6 +126,7 @@ export interface SpecProjectUpdate {
   fault_philosophy?: string;
   design_principles?: string[];
   status?: SpecProject["status"];
+  process_model?: ProcessModel | null;
 }
 
 // --- Instrument Register ---

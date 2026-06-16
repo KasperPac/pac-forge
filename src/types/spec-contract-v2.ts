@@ -897,6 +897,44 @@ export type SystemProcedure = z.infer<typeof SystemProcedureSchema>;
 export const ConfirmationStatusSchema = z.enum(["unconfirmed", "confirmed"]);
 export type ConfirmationStatus = z.infer<typeof ConfirmationStatusSchema>;
 
+// --- ISA-88 Process Model (§4.3) — product-centric hierarchy ---
+
+export const ProcessActionSchema = z.object({
+  action_id: z.string().min(1),
+  action_name: z.string().min(1),
+  description: z.string(),
+  control_module_tag: z.string().optional(),
+});
+export type ProcessActionV2 = z.infer<typeof ProcessActionSchema>;
+
+export const ProcessOperationSchema = z.object({
+  operation_id: z.string().min(1),
+  operation_name: z.string().min(1),
+  description: z.string(),
+  equipment_module_id: z.string().min(1),
+  actions: z.array(ProcessActionSchema),
+});
+export type ProcessOperationV2 = z.infer<typeof ProcessOperationSchema>;
+
+export const ProcessStageSchema = z.object({
+  stage_id: z.string().min(1),
+  stage_name: z.string().min(1),
+  description: z.string(),
+  unit_id: z.string().min(1),
+  operations: z.array(ProcessOperationSchema),
+  order: z.number().int().min(1),
+});
+export type ProcessStageV2 = z.infer<typeof ProcessStageSchema>;
+
+export const ProcessModelSchema = z.object({
+  process_name: z.string().min(1),
+  process_description: z.string(),
+  stages: z.array(ProcessStageSchema),
+});
+export type ProcessModelV2 = z.infer<typeof ProcessModelSchema>;
+
+// ============================================================
+
 export const SpecContractV2Schema = z.object({
   schema_version: z.literal(3),
   project: SpecProjectHeaderSchema,
@@ -926,5 +964,7 @@ export const SpecContractV2Schema = z.object({
     .partialRecord(ProjectSectionTypeSchema, ProjectSectionContentSchema)
     .optional(),
   confirmation_status: ConfirmationStatusSchema.default("unconfirmed"),
+  // ISA-88 Process Model — optional, absent until authored
+  process_model: ProcessModelSchema.nullable().optional(),
 });
 export type SpecContractV2 = z.infer<typeof SpecContractV2Schema>;

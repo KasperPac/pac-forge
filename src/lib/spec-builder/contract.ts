@@ -31,6 +31,7 @@ import {
   ProjectSectionTypeSchema,
   ProjectSectionContentSchema,
   ConfirmationStatusSchema,
+  ProcessModelSchema,
   type AlarmRow,
   type AlarmTier,
   type EquipmentModuleContract,
@@ -55,6 +56,7 @@ import {
   type ProjectSectionType,
   type ProjectSectionContent,
   type ConfirmationStatus,
+  type ProcessModelV2,
 } from "@/types/spec-contract-v2";
 import { z } from "zod";
 
@@ -91,6 +93,7 @@ export interface SpecContractPatch {
   configuration_parameters?: ConfigParameter[];
   section_overrides?: Partial<Record<ProjectSectionType, ProjectSectionContent>>;
   confirmation_status?: ConfirmationStatus;
+  process_model?: ProcessModelV2 | null;
 }
 
 export const SpecContractPatchSchema = z.object({
@@ -126,6 +129,7 @@ export const SpecContractPatchSchema = z.object({
     .partialRecord(ProjectSectionTypeSchema, ProjectSectionContentSchema)
     .optional(),
   confirmation_status: ConfirmationStatusSchema.optional(),
+  process_model: ProcessModelSchema.nullable().optional(),
 });
 
 /**
@@ -853,6 +857,8 @@ export async function loadSpecContract(
         | Partial<Record<ProjectSectionType, ProjectSectionContent>>
         | null) ?? undefined,
     confirmation_status: confirmationStatus,
+    process_model:
+      (projectRow.process_model as ProcessModelV2 | null) ?? undefined,
   });
 }
 
@@ -1061,6 +1067,9 @@ export async function writeSpecContract(
   }
   if (parsed.confirmation_status !== undefined) {
     projectUpdate.confirmation_status = parsed.confirmation_status;
+  }
+  if (parsed.process_model !== undefined) {
+    projectUpdate.process_model = parsed.process_model;
   }
   if (Object.keys(projectUpdate).length > 0) {
     const { error: updErr } = await supabase

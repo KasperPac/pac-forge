@@ -30,6 +30,7 @@ import type {
   InstrumentTag,
   ControlModuleStateEntry,
   OperatingState,
+  ProcessModel,
 } from "@/types/spec-builder";
 import type {
   OperatingStateV2,
@@ -546,6 +547,127 @@ export function buildFdsOrchestrationOpeningMessage(
   return `Generate the opening message for unit orchestration. Unit "${unit.unit_name}" has ${equipment_moduleNames.length} equipment_modules: ${equipment_moduleNames.join(", ")}.
 
 Ask about the "${firstSequentialState.state_name}" state: in what order do the equipment_modules execute, and are there dependencies between them? Be specific and concise.`;
+}
+
+// ---------------------------------------------------------------------------
+// Process Model authoring prompt (ISA-88 §4.3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the system prompt for AI-driven Process Model generation.
+ * Given the confirmed physical hierarchy (Units + Equipment Modules) and
+ * operating states, the AI proposes a product-centric Process Model that
+ * maps to the existing physical/procedural structure.
+ */
+export function buildProcessModelSystemPrompt(
+  units: UnitConfig[],
+  systemDescription: string | null,
+  existingModel: ProcessModel | null,
+): string {
+  const hierarchyBlock = units
+    .filter((u) => !u.excluded)
+    .map((u) => {
+      const ems = u.equipment_modules
+        .map((em) => `    - Equipment Module: ${em.equipment_module_name} (${em.equipment_module_id})`)
+        .join("\n");
+      return `  - Unit: ${u.unit_name} (${u.unit_id})\n${ems}`;
+    })
+    .join("\n");
+
+  const existingBlock = existingModel
+    ? `\n## EXISTING PROCESS MODEL (edit/refine this)\n\`\`\`json\n${JSON.stringify(existingModel, null, 2)}\n\`\`\``
+    : "";
+
+  return `You are an ISA-88 Process Model specialist.
+
+## YOUR TASK
+
+Propose a Process Model (ISA-88 §4.3) for the machine described below.
+The Process Model is PRODUCT-CENTRIC — it describes what happens to the
+product/material, not how the equipment does it.
+
+## ISA-88 PROCESS MODEL HIERARCHY
+
+Process
+  └── Process Stage    (maps to a Unit — one stage per unit that transforms product)
+        └── Process Operation  (maps to an Equipment Module — what that EM does to product)
+              └── Process Action   (maps to a Control Module action — lowest product transformation)
+
+## RULES
+
+1. Every Process Stage MUST reference an existing unit_id from the hierarchy below.
+2. Every Process Operation MUST reference an existing equipment_module_id from the hierarchy below.
+3. Process Stages describe PRODUCT TRANSFORMATION, not equipment behavior.
+   - GOOD: "Heat Treatment", "Material Transport", "Mixing"
+   - BAD: "Run Motor", "Open Valve" (these are equipment actions, not product transformations)
+4. Use plain descriptive names — no tag prefixes, no PLC naming.
+5. Stage order reflects the production sequence (order field, 1-based).
+6. Keep descriptions concise (1-2 sentences).
+7. If an Equipment Module does not transform the product (e.g. pure safety systems),
+   it may be omitted from the Process Model or included with a monitoring operation.
+
+## PHYSICAL HIERARCHY (confirmed)
+
+${hierarchyBlock}
+
+${systemDescription ? `## SYSTEM DESCRIPTION\n\n${systemDescription}` : ""}
+${existingBlock}
+
+## OUTPUT FORMAT
+
+Respond with a JSON block containing the Process Model:
+
+\`\`\`json
+{
+  "process_name": "string",
+  "process_description": "string",
+  "stages": [
+    {
+      "stage_id": "PS_01",
+      "stage_name": "string",
+      "description": "string",
+      "unit_id": "existing unit_id",
+      "order": 1,
+      "operations": [
+        {
+          "operation_id": "PO_01_01",
+          "operation_name": "string",
+          "description": "string",
+          "equipment_module_id": "existing equipment_module_id",
+          "actions": [
+            {
+              "action_id": "PA_01_01_01",
+              "action_name": "string",
+              "description": "string",
+              "control_module_tag": "optional tag"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+\`\`\`
+
+${existingModel ? "Refine the existing model based on the engineer's feedback." : "Propose an initial Process Model based on the hierarchy and system description."}
+After the JSON block, briefly explain your rationale for the stage ordering and grouping.`;
+}
+
+/**
+ * Build the opening user message that kicks off Process Model authoring.
+ */
+export function buildProcessModelOpeningMessage(
+  units: UnitConfig[],
+  existingModel: ProcessModel | null,
+): string {
+  if (existingModel) {
+    return "Please review and refine the existing Process Model. Is the stage ordering correct? Are any operations missing or misplaced?";
+  }
+  const unitNames = units
+    .filter((u) => !u.excluded)
+    .map((u) => u.unit_name)
+    .join(", ");
+  return `Please propose an ISA-88 Process Model for this machine. The confirmed units are: ${unitNames}. What does the product go through from start to finish?`;
 }
 
 // ---------------------------------------------------------------------------
