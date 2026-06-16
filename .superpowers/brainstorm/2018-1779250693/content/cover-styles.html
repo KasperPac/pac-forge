@@ -1,0 +1,250 @@
+<h2>Which cover page style?</h2>
+<p class="subtitle">All pair with clean white content pages (Option A). Click to select.</p>
+
+<style>
+  .cover-cards {
+    display: flex;
+    gap: 24px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 24px;
+  }
+  .cover-card {
+    width: 210px;
+    cursor: pointer;
+    border-radius: 10px;
+    border: 2px solid transparent;
+    overflow: hidden;
+    background: #fff;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.10);
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .cover-card:hover { border-color: #3050A0; box-shadow: 0 4px 20px rgba(48,80,160,0.18); }
+  .cover-card.selected { border-color: #3050A0; box-shadow: 0 0 0 4px rgba(48,80,160,0.18); }
+  .cover-card .label-bar {
+    padding: 10px 14px 10px;
+    background: #f5f7fc;
+    border-top: 1px solid #e2eaf7;
+  }
+  .cover-card .label-bar h3 { margin: 0 0 3px; font-size: 13px; color: #122044; }
+  .cover-card .label-bar p { margin: 0; font-size: 11px; color: #45443f; line-height: 1.4; }
+
+  /* Shared page chrome */
+  .page-chrome {
+    font-family: 'Inter', sans-serif;
+    font-size: 7px;
+    line-height: 1.45;
+    background: #fff;
+  }
+  .chrome-hdr {
+    background: #fff;
+    border-bottom: 2px solid #3050A0;
+    padding: 7px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .chrome-hdr-brand { font-weight: 700; font-size: 9px; color: #122044; letter-spacing: 0.01em; }
+  .chrome-hdr-sub { font-size: 5.5px; color: #5f5e5a; letter-spacing: 0.06em; text-transform: uppercase; }
+  .chrome-hdr-meta { font-size: 6px; color: #45443f; text-align: right; font-family: 'JetBrains Mono', monospace; }
+
+  /* --- Cover 1: Full Bleed Dark Navy --- */
+  .cover-1 {
+    background: linear-gradient(145deg, #122044 0%, #1B2F60 60%, #243F80 100%);
+    padding: 22px 16px 20px;
+    min-height: 180px;
+    position: relative;
+    overflow: hidden;
+  }
+  .cover-1::before {
+    content: '';
+    position: absolute;
+    right: -20px; bottom: -20px;
+    width: 120px; height: 120px;
+    border-radius: 50%;
+    background: rgba(48,80,160,0.25);
+  }
+  .cover-1::after {
+    content: '';
+    position: absolute;
+    right: 30px; bottom: 30px;
+    width: 60px; height: 60px;
+    border-radius: 50%;
+    background: rgba(48,80,160,0.18);
+  }
+  .cover-1-rule { width: 28px; height: 2px; background: #3050A0; margin-bottom: 14px; }
+  .cover-1-kicker { font-size: 5.5px; color: rgba(255,255,255,0.5); letter-spacing: 0.1em; text-transform: uppercase; font-family: monospace; margin-bottom: 6px; }
+  .cover-1-title { font-size: 15px; font-weight: 700; color: #fff; line-height: 1.15; margin-bottom: 6px; }
+  .cover-1-client { font-size: 7px; color: rgba(255,255,255,0.65); margin-bottom: 3px; }
+  .cover-1-proj { font-size: 6px; color: rgba(255,255,255,0.4); font-family: monospace; }
+  .cover-1-bottom {
+    position: absolute; bottom: 14px; right: 16px;
+    text-align: right;
+  }
+  .cover-1-tag { display: inline-block; background: rgba(48,80,160,0.6); color: rgba(255,255,255,0.85); font-size: 5.5px; font-family: monospace; text-transform: uppercase; letter-spacing: 0.08em; padding: 2px 6px; border-radius: 2px; }
+  .cover-1-date { font-size: 5.5px; color: rgba(255,255,255,0.35); margin-top: 3px; font-family: monospace; }
+
+  /* --- Cover 2: Navy Top Band --- */
+  .cover-2 {
+    min-height: 210px;
+    display: flex;
+    flex-direction: column;
+  }
+  .cover-2-band {
+    background: #122044;
+    padding: 14px 14px 12px;
+    position: relative;
+    overflow: hidden;
+  }
+  .cover-2-band::after {
+    content: '';
+    position: absolute;
+    right: 0; top: 0; bottom: 0;
+    width: 40px;
+    background: linear-gradient(90deg, transparent, rgba(48,80,160,0.3));
+  }
+  .cover-2-brand { font-weight: 700; font-size: 9px; color: #fff; margin-bottom: 1px; }
+  .cover-2-tagline { font-size: 5.5px; color: rgba(255,255,255,0.45); letter-spacing: 0.08em; text-transform: uppercase; }
+  .cover-2-body {
+    flex: 1;
+    padding: 14px 14px;
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .cover-2-tag { display: inline-block; background: #E2EAF7; color: #3050A0; font-size: 5.5px; font-family: monospace; text-transform: uppercase; letter-spacing: 0.06em; padding: 1.5px 5px; border-radius: 2px; margin-bottom: 8px; }
+  .cover-2-title { font-size: 14px; font-weight: 700; color: #122044; line-height: 1.2; margin-bottom: 5px; }
+  .cover-2-meta { display: grid; grid-template-columns: 52px 1fr; gap: 2px 6px; margin-top: 6px; }
+  .cover-2-key { font-size: 5.5px; color: #8c8b86; text-transform: uppercase; letter-spacing: 0.05em; }
+  .cover-2-val { font-size: 6px; color: #2f2e2a; font-family: monospace; }
+  .cover-2-divider { height: 1px; background: #E2EAF7; margin: 8px 0; }
+
+  /* --- Cover 3: Diagonal Split --- */
+  .cover-3 {
+    min-height: 210px;
+    position: relative;
+    overflow: hidden;
+    background: #fff;
+  }
+  .cover-3-bg {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 110px;
+    background: #122044;
+    clip-path: polygon(0 0, 100% 0, 100% 70%, 0 100%);
+  }
+  .cover-3-content {
+    position: relative;
+    padding: 14px 14px;
+  }
+  .cover-3-brand { font-weight: 700; font-size: 9px; color: #fff; margin-bottom: 1px; }
+  .cover-3-tagline { font-size: 5.5px; color: rgba(255,255,255,0.5); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 28px; }
+  .cover-3-card {
+    background: #fff;
+    border-radius: 4px;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.15);
+    padding: 10px 12px;
+    margin-top: 4px;
+  }
+  .cover-3-tag { display: inline-block; background: #3050A0; color: #fff; font-size: 5.5px; font-family: monospace; text-transform: uppercase; letter-spacing: 0.06em; padding: 1.5px 5px; border-radius: 2px; margin-bottom: 5px; }
+  .cover-3-title { font-size: 12px; font-weight: 700; color: #122044; line-height: 1.2; margin-bottom: 4px; }
+  .cover-3-sub { font-size: 6px; color: #5f5e5a; margin-bottom: 6px; }
+  .cover-3-rule { height: 1px; background: #E2EAF7; margin: 6px 0; }
+  .cover-3-meta { display: flex; gap: 10px; }
+  .cover-3-meta-item { }
+  .cover-3-meta-key { font-size: 5px; color: #8c8b86; text-transform: uppercase; letter-spacing: 0.05em; }
+  .cover-3-meta-val { font-size: 6px; color: #122044; font-family: monospace; font-weight: 600; }
+</style>
+
+<div class="cover-cards">
+
+  <!-- Cover 1: Full Bleed Dark Navy -->
+  <div class="cover-card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="page-chrome">
+      <div class="chrome-hdr">
+        <div><div class="chrome-hdr-brand">Pac Technologies</div><div class="chrome-hdr-sub">Industrial Automation</div></div>
+        <div class="chrome-hdr-meta">Q-2026-001 · Rev 1</div>
+      </div>
+      <div class="cover-1">
+        <div class="cover-1-rule"></div>
+        <div class="cover-1-kicker">Quotation</div>
+        <div class="cover-1-title">Automated Packaging Line Upgrade</div>
+        <div class="cover-1-client">Prepared for Acme Manufacturing Pty Ltd</div>
+        <div class="cover-1-proj">PAC-2026-042</div>
+        <div class="cover-1-bottom">
+          <div class="cover-1-tag">Q-2026-001 · Rev 1</div>
+          <div class="cover-1-date">20 May 2026</div>
+        </div>
+      </div>
+    </div>
+    <div class="label-bar">
+      <h3>A — Full Bleed Navy</h3>
+      <p>Entire cover page is deep navy with geometric circle accents. Bold, premium feel.</p>
+    </div>
+  </div>
+
+  <!-- Cover 2: Navy Top Band -->
+  <div class="cover-card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="page-chrome">
+      <div class="chrome-hdr">
+        <div><div class="chrome-hdr-brand">Pac Technologies</div><div class="chrome-hdr-sub">Industrial Automation</div></div>
+        <div class="chrome-hdr-meta">Q-2026-001 · Rev 1</div>
+      </div>
+      <div class="cover-2">
+        <div class="cover-2-band">
+          <div class="cover-2-brand">Pac Technologies</div>
+          <div class="cover-2-tagline">Industrial Automation</div>
+        </div>
+        <div class="cover-2-body">
+          <div><div class="cover-2-tag">Quotation</div></div>
+          <div class="cover-2-title">Automated Packaging Line Upgrade</div>
+          <div class="cover-2-divider"></div>
+          <div class="cover-2-meta">
+            <div class="cover-2-key">Client</div><div class="cover-2-val">Acme Manufacturing</div>
+            <div class="cover-2-key">Project</div><div class="cover-2-val">PAC-2026-042</div>
+            <div class="cover-2-key">Quote No.</div><div class="cover-2-val">Q-2026-001 · Rev 1</div>
+            <div class="cover-2-key">Date</div><div class="cover-2-val">20 May 2026</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="label-bar">
+      <h3>B — Navy Header Band</h3>
+      <p>Dark navy header strip, white lower half with project metadata grid. Structured, formal.</p>
+    </div>
+  </div>
+
+  <!-- Cover 3: Diagonal Split -->
+  <div class="cover-card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="page-chrome">
+      <div class="chrome-hdr">
+        <div><div class="chrome-hdr-brand">Pac Technologies</div><div class="chrome-hdr-sub">Industrial Automation</div></div>
+        <div class="chrome-hdr-meta">Q-2026-001 · Rev 1</div>
+      </div>
+      <div class="cover-3">
+        <div class="cover-3-bg"></div>
+        <div class="cover-3-content">
+          <div class="cover-3-brand">Pac Technologies</div>
+          <div class="cover-3-tagline">Industrial Automation</div>
+          <div class="cover-3-card">
+            <div><div class="cover-3-tag">Quotation</div></div>
+            <div class="cover-3-title">Automated Packaging Line Upgrade</div>
+            <div class="cover-3-sub">Prepared for Acme Manufacturing Pty Ltd</div>
+            <div class="cover-3-rule"></div>
+            <div class="cover-3-meta">
+              <div class="cover-3-meta-item"><div class="cover-3-meta-key">Project</div><div class="cover-3-meta-val">PAC-2026-042</div></div>
+              <div class="cover-3-meta-item"><div class="cover-3-meta-key">Quote</div><div class="cover-3-meta-val">Q-2026-001 Rev 1</div></div>
+              <div class="cover-3-meta-item"><div class="cover-3-meta-key">Date</div><div class="cover-3-meta-val">20 May 2026</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="label-bar">
+      <h3>C — Diagonal Split + Card</h3>
+      <p>Navy diagonal sweeps across the top, project details in a floating white card. Dynamic, modern.</p>
+    </div>
+  </div>
+
+</div>

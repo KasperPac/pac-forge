@@ -19,11 +19,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import type { SubsystemConfig } from "@/types/spec-builder";
+import type { UnitConfig } from "@/types/spec-builder";
 import type { SharedPermissive } from "@/types/spec-contract-v2";
 
 interface Props {
-  subsystems: SubsystemConfig[];
+  units: UnitConfig[];
   initial?: SharedPermissive;
   onSubmit: (value: SharedPermissive) => void;
   onCancel: () => void;
@@ -33,16 +33,16 @@ function genId(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 }
 
-export function SystemOrchestrationPermissiveForm({
-  subsystems,
+export function SystemProcedurePermissiveForm({
+  units,
   initial,
   onSubmit,
   onCancel,
 }: Props) {
   const [permissiveId, setPermissiveId] = useState(initial?.permissive_id ?? genId("SP"));
   const [prose, setProse] = useState(initial?.prose ?? "");
-  const [sourceSubsystem, setSourceSubsystem] = useState(
-    initial?.source_subsystem ?? "",
+  const [sourceUnit, setSourceUnit] = useState(
+    initial?.source_unit ?? "",
   );
   const [exprText, setExprText] = useState(() => {
     if (!initial) return "";
@@ -69,7 +69,7 @@ export function SystemOrchestrationPermissiveForm({
         text: exprText.trim(),
         referenced_tags,
       },
-      source_subsystem: sourceSubsystem || undefined,
+      source_unit: sourceUnit || undefined,
       prose: prose.trim(),
     };
     onSubmit(value);
@@ -86,17 +86,17 @@ export function SystemOrchestrationPermissiveForm({
         />
       </div>
       <div className="grid gap-1">
-        <Label className="text-xs">Source subsystem (optional)</Label>
+        <Label className="text-xs">Source unit (optional)</Label>
         {/* FALLBACK: inline <Select> — Wave B replaces with SubsystemPicker */}
-        <Select value={sourceSubsystem} onValueChange={setSourceSubsystem}>
+        <Select value={sourceUnit} onValueChange={setSourceUnit}>
           <SelectTrigger className="text-xs">
             <SelectValue placeholder="— none —" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="">— none —</SelectItem>
-            {subsystems.map((s) => (
-              <SelectItem key={s.subsystem_id} value={s.subsystem_id}>
-                {s.subsystem_name}
+            {units.map((s) => (
+              <SelectItem key={s.unit_id} value={s.unit_id}>
+                {s.unit_name}
               </SelectItem>
             ))}
           </SelectContent>

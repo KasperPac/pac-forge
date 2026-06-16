@@ -1,0 +1,194 @@
+<h2>Option A with logomark watermark</h2>
+<p class="subtitle">Two placements — click your preference.</p>
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  .cover-cards {
+    display: flex;
+    gap: 32px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 28px;
+  }
+  .cover-card {
+    width: 230px;
+    cursor: pointer;
+    border-radius: 10px;
+    border: 2px solid transparent;
+    overflow: hidden;
+    background: #fff;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.10);
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .cover-card:hover { border-color: #3050A0; box-shadow: 0 6px 24px rgba(48,80,160,0.18); }
+  .cover-card.selected { border-color: #3050A0; box-shadow: 0 0 0 4px rgba(48,80,160,0.18); }
+  .cover-card .label-bar {
+    padding: 11px 14px 12px;
+    background: #f5f7fc;
+    border-top: 1px solid #e2eaf7;
+  }
+  .cover-card .label-bar h3 { margin: 0 0 3px; font-size: 13px; color: #122044; font-family: 'Inter', sans-serif; }
+  .cover-card .label-bar p { margin: 0; font-size: 11px; color: #45443f; line-height: 1.45; font-family: 'Inter', sans-serif; }
+
+  /* shared page shell */
+  .page {
+    font-family: 'Inter', sans-serif;
+    background: #fff;
+    min-height: 280px;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 20px 18px 18px;
+  }
+
+  /* The watermark SVG — shared styles */
+  .wm {
+    position: absolute;
+    pointer-events: none;
+  }
+  .wm svg { display: block; }
+
+  /* Placement A: bottom-right bleed */
+  .wm-br {
+    right: -60px;
+    bottom: -40px;
+    width: 220px;
+    opacity: 0.065;
+  }
+
+  /* Placement B: center-right bleed, slightly rotated */
+  .wm-cr {
+    right: -55px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 200px;
+    opacity: 0.065;
+  }
+
+  /* Placement C: large, top-right, more visible */
+  .wm-tr {
+    right: -30px;
+    top: -20px;
+    width: 180px;
+    opacity: 0.07;
+  }
+
+  /* content */
+  .top { position: relative; z-index: 1; }
+  .wordmark { font-size: 9px; font-weight: 700; color: #122044; letter-spacing: 0.01em; }
+  .tagline { font-size: 5.5px; color: #8c8b86; letter-spacing: 0.10em; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; }
+  .rule { width: 100%; height: 2px; background: #3050A0; margin: 14px 0 12px; }
+  .kicker { font-size: 5.5px; color: #3050A0; letter-spacing: 0.12em; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; margin-bottom: 6px; }
+  .title { font-size: 18px; font-weight: 800; color: #0F0E0C; line-height: 1.1; letter-spacing: -0.025em; }
+  .bottom { position: relative; z-index: 1; }
+  .divider { height: 1px; background: #DEDED9; margin-bottom: 8px; }
+  .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 0; }
+  .meta-key { font-size: 5px; color: #8c8b86; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 1px; }
+  .meta-val { font-size: 6.5px; color: #122044; font-weight: 500; }
+</style>
+
+<!-- The logomark SVG paths — just the arc + circle, no text -->
+<!-- Original viewBox 0 0 420 140, mark occupies ~0-165, 0-145 -->
+
+<div class="cover-cards">
+
+  <!-- Placement 1: Bottom-right bleed -->
+  <div class="cover-card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="page">
+      <div class="wm wm-br">
+        <svg viewBox="0 0 165 145" xmlns="http://www.w3.org/2000/svg">
+          <path d="M 30 120 C 30 55 65 30 125 30" fill="none" stroke="#3050A0" stroke-width="28" stroke-linecap="round"/>
+          <circle cx="125" cy="30" r="25" fill="#3050A0"/>
+        </svg>
+      </div>
+      <div class="top">
+        <div class="wordmark">Pac Technologies</div>
+        <div class="tagline">Industrial Automation</div>
+        <div class="rule"></div>
+        <div class="kicker">Quotation</div>
+        <div class="title">Automated Packaging Line Upgrade</div>
+      </div>
+      <div class="bottom">
+        <div class="divider"></div>
+        <div class="meta">
+          <div><div class="meta-key">Client</div><div class="meta-val">Acme Manufacturing</div></div>
+          <div><div class="meta-key">Quote No.</div><div class="meta-val">Q-2026-001 r1</div></div>
+          <div><div class="meta-key">Project</div><div class="meta-val">PAC-2026-042</div></div>
+          <div><div class="meta-key">Date</div><div class="meta-val">20 May 2026</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="label-bar">
+      <h3>A — Bottom-right bleed</h3>
+      <p>Mark anchored to the bottom-right corner, bleeding off both edges. Arc curves up into the page.</p>
+    </div>
+  </div>
+
+  <!-- Placement 2: Center-right, vertically centred -->
+  <div class="cover-card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="page">
+      <div class="wm wm-cr">
+        <svg viewBox="0 0 165 145" xmlns="http://www.w3.org/2000/svg">
+          <path d="M 30 120 C 30 55 65 30 125 30" fill="none" stroke="#3050A0" stroke-width="28" stroke-linecap="round"/>
+          <circle cx="125" cy="30" r="25" fill="#3050A0"/>
+        </svg>
+      </div>
+      <div class="top">
+        <div class="wordmark">Pac Technologies</div>
+        <div class="tagline">Industrial Automation</div>
+        <div class="rule"></div>
+        <div class="kicker">Quotation</div>
+        <div class="title">Automated Packaging Line Upgrade</div>
+      </div>
+      <div class="bottom">
+        <div class="divider"></div>
+        <div class="meta">
+          <div><div class="meta-key">Client</div><div class="meta-val">Acme Manufacturing</div></div>
+          <div><div class="meta-key">Quote No.</div><div class="meta-val">Q-2026-001 r1</div></div>
+          <div><div class="meta-key">Project</div><div class="meta-val">PAC-2026-042</div></div>
+          <div><div class="meta-key">Date</div><div class="meta-val">20 May 2026</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="label-bar">
+      <h3>B — Centre-right bleed</h3>
+      <p>Mark floats vertically centred on the right edge, bleeding off the right side only.</p>
+    </div>
+  </div>
+
+  <!-- Placement 3: Top-right, bleeds off top and right -->
+  <div class="cover-card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="page">
+      <div class="wm wm-tr">
+        <svg viewBox="0 0 165 145" xmlns="http://www.w3.org/2000/svg">
+          <path d="M 30 120 C 30 55 65 30 125 30" fill="none" stroke="#3050A0" stroke-width="28" stroke-linecap="round"/>
+          <circle cx="125" cy="30" r="25" fill="#3050A0"/>
+        </svg>
+      </div>
+      <div class="top">
+        <div class="wordmark">Pac Technologies</div>
+        <div class="tagline">Industrial Automation</div>
+        <div class="rule"></div>
+        <div class="kicker">Quotation</div>
+        <div class="title">Automated Packaging Line Upgrade</div>
+      </div>
+      <div class="bottom">
+        <div class="divider"></div>
+        <div class="meta">
+          <div><div class="meta-key">Client</div><div class="meta-val">Acme Manufacturing</div></div>
+          <div><div class="meta-key">Quote No.</div><div class="meta-val">Q-2026-001 r1</div></div>
+          <div><div class="meta-key">Project</div><div class="meta-val">PAC-2026-042</div></div>
+          <div><div class="meta-key">Date</div><div class="meta-val">20 May 2026</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="label-bar">
+      <h3>C — Top-right bleed</h3>
+      <p>Mark anchored top-right, arc sweeps down into the page. Circle bleeds off the top edge.</p>
+    </div>
+  </div>
+
+</div>

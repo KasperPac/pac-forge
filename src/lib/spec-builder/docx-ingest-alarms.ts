@@ -2,8 +2,8 @@
  * Deterministic parser: alarm specification table → SpecContractV2 AlarmRow[].
  *
  * Identified by strict header match: the first table whose headers start
- * with the expected columns. Subsystem scoping is resolved by device_id or
- * assembly_id (both optional) — the contract leaves `subsystem_id` inferred
+ * with the expected columns. Unit scoping is resolved by control_module_id or
+ * equipment_module_id (both optional) — the contract leaves `unit_id` inferred
  * later.
  */
 import type { AlarmRow } from "@/types/spec-contract-v2";
@@ -15,7 +15,7 @@ const REQUIRED_HEADERS = [
   "Description",
   "Tier",
   "Device ID",
-  "Assembly ID",
+  "Equipment Module ID",
   "Setpoint",
   "Delay",
 ] as const;
@@ -47,7 +47,7 @@ export function parseAlarmTable(
     const description = (row[1] ?? "").trim();
     const tierId = (row[2] ?? "").trim();
     const deviceId = cleanUuid(row[3] ?? "");
-    const assemblyId = cleanUuid(row[4] ?? "");
+    const equipment_moduleId = cleanUuid(row[4] ?? "");
     const setpoint = (row[5] ?? "").trim();
     const delay = (row[6] ?? "").trim();
 
@@ -61,9 +61,9 @@ export function parseAlarmTable(
     const out: AlarmRow = {
       id: `alarm-${idx + 1}`,
       tier_id: tierId,
-      device_id: deviceId,
-      assembly_id: assemblyId,
-      subsystem_id: null,
+      control_module_id: deviceId,
+      equipment_module_id: equipment_moduleId,
+      unit_id: null,
       tag,
       description,
       action: "",

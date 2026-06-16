@@ -1,24 +1,24 @@
 {
-  "subsystem": {
-    "subsystem_id": "00000000-0000-4000-8000-000000000b01",
-    "subsystem_name": "Catodo Lift Station",
+  "unit": {
+    "unit_id": "00000000-0000-4000-8000-000000000b01",
+    "unit_name": "Catodo Lift Station",
     "equipment_type": "lift",
     "assemblies": [
-      { "assembly_id": "00000000-0000-4000-8000-000000000a01", "assembly_name": "LFT01" },
-      { "assembly_id": "00000000-0000-4000-8000-000000000a02", "assembly_name": "CV01" }
+      { "equipment_module_id": "00000000-0000-4000-8000-000000000a01", "equipment_module_name": "LFT01" },
+      { "equipment_module_id": "00000000-0000-4000-8000-000000000a02", "equipment_module_name": "CV01" }
     ]
   },
-  "assemblySummaries": [
+  "equipment_moduleSummaries": [
     {
-      "assembly_name": "LFT01",
-      "assembly_id": "00000000-0000-4000-8000-000000000a01",
+      "equipment_module_name": "LFT01",
+      "equipment_module_id": "00000000-0000-4000-8000-000000000a01",
       "sequential_states": {
         "6": { "permissives": [], "steps": [{ "step_id": "lft01_execute_step_10", "branch_id": "main", "actions": [], "monitors": [], "transitions": [] }], "notes": null }
       }
     },
     {
-      "assembly_name": "CV01",
-      "assembly_id": "00000000-0000-4000-8000-000000000a02",
+      "equipment_module_name": "CV01",
+      "equipment_module_id": "00000000-0000-4000-8000-000000000a02",
       "sequential_states": {
         "6": { "permissives": [], "steps": [], "notes": null }
       }

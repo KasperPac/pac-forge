@@ -126,7 +126,7 @@ export function buildPanelConfig(
 export const HMI_SCREEN_CATEGORIES = {
   FRAMEWORK: "framework",
   OVERVIEW: "overview",
-  SUBSYSTEM_CHECKLIST: "subsystem_checklist",
+  SUBSYSTEM_CHECKLIST: "unit_checklist",
   DEVICE_CHECKLIST: "device_checklist",
   DEVICE_FACEPLATE: "device_faceplate",
   ALARM_SUMMARY: "alarm_summary",
@@ -140,7 +140,7 @@ export type HmiScreenCategory =
 export const HMI_SCREEN_CATEGORY_LABELS: Record<HmiScreenCategory, string> = {
   framework: "Framework / Navigation",
   overview: "Plant Overview",
-  subsystem_checklist: "Subsystem Checklists",
+  unit_checklist: "Unit Checklists",
   device_checklist: "Device Checklists",
   device_faceplate: "Device Faceplates",
   alarm_summary: "Alarm Summary",
@@ -158,7 +158,7 @@ export const REQUIRED_SCREEN_CATEGORIES: HmiScreenCategory[] = [
 export const DETERMINISTIC_CATEGORIES: HmiScreenCategory[] = [
   "framework",
   "overview",
-  "subsystem_checklist",
+  "unit_checklist",
   "device_checklist",
 ];
 

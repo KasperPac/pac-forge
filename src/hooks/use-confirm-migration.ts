@@ -34,9 +34,9 @@ function assemblePatch(contract: SpecContractV2, draft: MigrationDraft): SpecCon
   return {
     modes: draft.modes?.rows ?? [],
     states,
-    assemblies: applyOverrideKind(contract.assemblies),
-    orchestrations: applyStructuredInterlocks(
-      contract.orchestrations,
+    equipment_modules: applyOverrideKind(contract.equipment_modules),
+    unit_procedures: applyStructuredInterlocks(
+      contract.unit_procedures,
       draft.interlocks?.rows ?? [],
     ),
     confirmation_status: "confirmed",
@@ -53,8 +53,8 @@ export function useConfirmMigration(specProjectId: string) {
 
       // TODO(fds-engine phase 2.5): archive in-flight co-author conversations.
       // Spec §4.4 calls for this but the schema doesn't have a single conversation
-      // table to update — conversations live across fds_assembly_sessions,
-      // fds_subsystem_orchestrations, fds_system_orchestrations as JSONB columns.
+      // table to update — conversations live across fds_operation_sessions,
+      // fds_unit_procedures, fds_system_procedures as JSONB columns.
       // Resolve in a follow-up wave when a conversation schema decision lands.
 
       // Telemetry — single row.

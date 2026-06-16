@@ -51,8 +51,8 @@ ${ioSection}
 ## Instructions
 
 1. Read the user's message carefully to understand what they want to generate.
-2. Cross-reference with the IO list to understand what devices/equipment are involved.
-3. Select ALL templates that match the devices, equipment types, or processes described — not just one per device. A single physical device may require multiple FBs working together (e.g. a VFD-driven motor needs both the VFD FB and the Motor FB; an analog sensor needs the IO FB and possibly a process control FB).
+2. Cross-reference with the IO list to understand what control_modules/equipment are involved.
+3. Select ALL templates that match the control_modules, equipment types, or processes described — not just one per device. A single physical device may require multiple FBs working together (e.g. a VFD-driven motor needs both the VFD FB and the Motor FB; an analog sensor needs the IO FB and possibly a process control FB).
 4. Think about template relationships: which FBs feed data to others, which share companion UDTs, which are typically used together for a complete device control solution.
 5. **IO FBs are CRITICAL**: If the library contains IO handling FBs (DigitalInput, DigitalOutput, AnalogInput, AnalogOutput), these should be selected for EVERY physical IO signal — they handle scaling, filtering, HMI binding, manual override, and mode control. Do NOT skip these in favour of wiring IO directly to device FBs.
 6. **Library FBs over custom**: When both a library template and a custom template could match, prefer the library template — it has been tested and includes HMI integration via companion UDTs.

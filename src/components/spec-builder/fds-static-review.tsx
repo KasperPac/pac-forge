@@ -11,25 +11,25 @@ import { Card } from "@/components/ui/card";
 import { CheckCircle2, RotateCcw } from "lucide-react";
 import { autoFillStaticStates } from "@/lib/spec-builder/fds-auto-fill";
 import type {
-  AssemblyConfig,
+  EquipmentModuleConfig,
   OperatingState,
   InstrumentTag,
-  DeviceStateEntry,
+  ControlModuleStateEntry,
 } from "@/types/spec-builder";
 import { cn } from "@/lib/utils";
 
 interface Props {
-  assembly: AssemblyConfig;
+  equipment_module: EquipmentModuleConfig;
   staticStates: OperatingState[];
   allTags: InstrumentTag[];
-  currentStaticStates: Record<string, DeviceStateEntry[]>;
-  onConfirm: (states: Record<string, DeviceStateEntry[]>) => void;
+  currentStaticStates: Record<string, ControlModuleStateEntry[]>;
+  onConfirm: (states: Record<string, ControlModuleStateEntry[]>) => void;
   confirming?: boolean;
   alreadyConfirmed?: boolean;
 }
 
 export function FdsStaticReview({
-  assembly,
+  equipment_module,
   staticStates,
   allTags,
   currentStaticStates,
@@ -39,13 +39,13 @@ export function FdsStaticReview({
 }: Props) {
   // Auto-fill as starting point, merge with any existing data
   const autoFilled = useMemo(
-    () => autoFillStaticStates(assembly, staticStates, allTags),
-    [assembly, staticStates, allTags],
+    () => autoFillStaticStates(equipment_module, staticStates, allTags),
+    [equipment_module, staticStates, allTags],
   );
 
-  const [editableStates, setEditableStates] = useState<Record<string, DeviceStateEntry[]>>(() => {
+  const [editableStates, setEditableStates] = useState<Record<string, ControlModuleStateEntry[]>>(() => {
     // Use existing data if available, otherwise auto-fill
-    const result: Record<string, DeviceStateEntry[]> = {};
+    const result: Record<string, ControlModuleStateEntry[]> = {};
     for (const state of staticStates) {
       result[state.state_id] = currentStaticStates[state.state_id]?.length
         ? currentStaticStates[state.state_id]
@@ -56,7 +56,7 @@ export function FdsStaticReview({
 
   const [activeTab, setActiveTab] = useState(staticStates[0]?.state_id ?? "");
 
-  const updateEntry = (stateId: string, idx: number, patch: Partial<DeviceStateEntry>) => {
+  const updateEntry = (stateId: string, idx: number, patch: Partial<ControlModuleStateEntry>) => {
     setEditableStates((prev) => ({
       ...prev,
       [stateId]: prev[stateId].map((e, i) => (i === idx ? { ...e, ...patch } : e)),
@@ -75,7 +75,7 @@ export function FdsStaticReview({
         <div>
           <h3 className="text-sm font-semibold">Static State Review</h3>
           <p className="text-xs text-muted-foreground">
-            Confirm output states for {assembly.assembly_name}. Every DO/AO tag must have an explicit state.
+            Confirm output states for {equipment_module.equipment_module_name}. Every DO/AO tag must have an explicit state.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -150,7 +150,7 @@ export function FdsStaticReview({
             {entries.length === 0 && (
               <tr>
                 <td colSpan={3} className="p-4 text-center text-muted-foreground">
-                  No output tags for this assembly.
+                  No output tags for this equipment_module.
                 </td>
               </tr>
             )}

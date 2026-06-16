@@ -24,7 +24,7 @@ import type {
   SpecAnalysis,
   ForgeHardwareConfig,
   ForgeIoEntry,
-  ForgeDeviceEntry,
+  ForgeControlModuleEntry,
 } from "@/types/forge";
 import type { FbTemplate } from "@/types/fb-template";
 
@@ -63,7 +63,7 @@ function ioEntryToForgeIo(
     module: e.module,
     slot: e.slot,
     signal_type: existing?.signal_type ?? inferSignalType(e.address),
-    device_id: existing?.device_id,
+    control_module_id: existing?.control_module_id,
   };
 }
 
@@ -119,14 +119,14 @@ function deriveTagName(deviceTag: string, sig: { description?: string; signal_ty
   return `${base}_${prefix}${index}`;
 }
 
-function devicesFromAnalysis(analysis: SpecAnalysis): ForgeDeviceEntry[] {
-  return (analysis.devices ?? []).map((d) => ({
+function control_modulesFromAnalysis(analysis: SpecAnalysis): ForgeControlModuleEntry[] {
+  return (analysis.control_modules ?? []).map((d) => ({
     id: d.id,
     name: d.name || d.tag || "",
     tag: d.tag || d.name || "",
     device_type: d.device_type,
     description: d.description,
-    subsystem: d.subsystem,
+    unit: d.unit,
     io_signals: (d.io_signals ?? []).map((sig, sigIdx) => {
       // Normalize: AI sometimes stores signal_name instead of tag_name
       const raw = sig as unknown as Record<string, unknown>;
@@ -145,7 +145,7 @@ function devicesFromAnalysis(analysis: SpecAnalysis): ForgeDeviceEntry[] {
 
 function ioFromAnalysis(analysis: SpecAnalysis): ForgeIoEntry[] {
   const entries: ForgeIoEntry[] = [];
-  for (const device of (analysis.devices ?? [])) {
+  for (const device of (analysis.control_modules ?? [])) {
     for (const sig of device.io_signals ?? []) {
       entries.push({
         address: "",
@@ -155,7 +155,7 @@ function ioFromAnalysis(analysis: SpecAnalysis): ForgeIoEntry[] {
         description: sig.description,
         module: "",
         slot: 0,
-        device_id: device.id,
+        control_module_id: device.id,
       });
     }
   }
@@ -164,9 +164,9 @@ function ioFromAnalysis(analysis: SpecAnalysis): ForgeIoEntry[] {
 
 // ── IO summary ────────────────────────────────────────────────────────────────
 
-function countIoSignals(devices: ForgeDeviceEntry[]) {
+function countIoSignals(control_modules: ForgeControlModuleEntry[]) {
   const counts = { DI: 0, DQ: 0, AI: 0, AQ: 0 };
-  for (const d of devices) {
+  for (const d of control_modules) {
     for (const sig of d.io_signals ?? []) {
       const t = sig.signal_type.toUpperCase() as keyof typeof counts;
       if (t in counts) counts[t]++;
@@ -268,8 +268,8 @@ function buildAddressPool(hardware: ForgeHardwareConfig): PhysicalPoint[] {
 
 export interface ForgeHardwareIoProps {
   specAnalysis: SpecAnalysis | null;
-  /** Previously saved device list from session — used when spec analysis has no devices. */
-  savedDevices?: ForgeDeviceEntry[];
+  /** Previously saved device list from session — used when spec analysis has no control_modules. */
+  savedDevices?: ForgeControlModuleEntry[];
   /** Previously saved IO list from session — used when spec analysis has no IO. */
   savedIoList?: ForgeIoEntry[];
   /** Previously saved hardware config from session. */
@@ -283,7 +283,7 @@ export interface ForgeHardwareIoProps {
   onComplete: (
     hardware: ForgeHardwareConfig,
     ioList: ForgeIoEntry[],
-    devices: ForgeDeviceEntry[],
+    control_modules: ForgeControlModuleEntry[],
   ) => void;
 }
 
@@ -293,7 +293,7 @@ interface AddDeviceForm {
   device_type: string;
   name: string;
   tag: string;
-  subsystem: string;
+  unit: string;
   description: string;
   quantity: number;
 }
@@ -302,7 +302,7 @@ const EMPTY_FORM: AddDeviceForm = {
   device_type: "",
   name: "",
   tag: "",
-  subsystem: "",
+  unit: "",
   description: "",
   quantity: 1,
 };
@@ -343,13 +343,13 @@ export function ForgeHardwareIo({
   // so its internal slot state re-initialises from the updated rackLayout prop
   const [hardwareKey, setHardwareKey] = useState(0);
 
-  const [devices, setDevices] = useState<ForgeDeviceEntry[]>(() => {
+  const [control_modules, setDevices] = useState<ForgeControlModuleEntry[]>(() => {
     if (savedDevices && savedDevices.length > 0) {
-      // Saved devices already have user-confirmed confidence (AI matcher / manual overrides) — do NOT re-run matcher
+      // Saved control_modules already have user-confirmed confidence (AI matcher / manual overrides) — do NOT re-run matcher
       return savedDevices;
     }
     // Fresh extraction from spec — run matcher to get initial confidence
-    const raw = specAnalysis ? devicesFromAnalysis(specAnalysis) : [];
+    const raw = specAnalysis ? control_modulesFromAnalysis(specAnalysis) : [];
     const matches = matchDevicesToTemplates(raw, fbTemplates, fbFavourites);
     return applyMatchesToDevices(raw, matches);
   });
@@ -368,18 +368,18 @@ export function ForgeHardwareIo({
   const { match: aiMatch, loading: aiMatchLoading } = useForgeAiDeviceMatch();
 
   const handleAiMatch = useCallback(async () => {
-    const aiMatches = await aiMatch(devices, fbTemplates, fbFavourites);
-    setDevices(applyMatchesToDevices(devices, aiMatches));
-  }, [devices, fbTemplates, aiMatch]);
+    const aiMatches = await aiMatch(control_modules, fbTemplates, fbFavourites);
+    setDevices(applyMatchesToDevices(control_modules, aiMatches));
+  }, [control_modules, fbTemplates, aiMatch]);
 
   // Populate from spec analysis when it arrives late (React Query async).
-  // Only runs when there are no saved/existing devices — never overwrites user edits.
+  // Only runs when there are no saved/existing control_modules — never overwrites user edits.
   useEffect(() => {
     if (!specAnalysis) return;
 
     setDevices((prev) => {
       if (prev.length > 0) return prev; // already have data (saved or derived)
-      const raw = devicesFromAnalysis(specAnalysis);
+      const raw = control_modulesFromAnalysis(specAnalysis);
       const matches = matchDevicesToTemplates(raw, fbTemplates, fbFavourites);
       return applyMatchesToDevices(raw, matches);
     });
@@ -456,7 +456,7 @@ export function ForgeHardwareIo({
 
   function removeDevice(deviceId: string) {
     setDevices((prev) => prev.filter((d) => d.id !== deviceId));
-    setIoList((prev) => prev.filter((io) => io.device_id !== deviceId));
+    setIoList((prev) => prev.filter((io) => io.control_module_id !== deviceId));
     setExpandedDeviceIds((prev) => {
       const next = new Set(prev);
       next.delete(deviceId);
@@ -481,7 +481,7 @@ export function ForgeHardwareIo({
     const defaults = DEVICE_TYPE_IO_DEFAULTS[addForm.device_type] ?? [];
     const qty = Math.max(1, addForm.quantity);
 
-    const newDevices: ForgeDeviceEntry[] = [];
+    const newDevices: ForgeControlModuleEntry[] = [];
     const newIo: ForgeIoEntry[] = [];
 
     for (let i = 0; i < qty; i++) {
@@ -502,7 +502,7 @@ export function ForgeHardwareIo({
         tag,
         device_type: addForm.device_type,
         description: addForm.description,
-        subsystem: addForm.subsystem,
+        unit: addForm.unit,
         io_signals: signals,
         fb_template_id: null,
         fb_match_confidence: "none" as const,
@@ -519,7 +519,7 @@ export function ForgeHardwareIo({
           description: sig.description,
           module: "",
           slot: 0,
-          device_id: id,
+          control_module_id: id,
         });
       }
     }
@@ -548,7 +548,7 @@ export function ForgeHardwareIo({
   // ── Recommend modules ─────────────────────────────────────────────────────
 
   function recommendModules() {
-    const counts = countIoSignals(devices);
+    const counts = countIoSignals(control_modules);
     const cpuIo = getCpuOnboardIo(hardware.cpu_type);
 
     // Only recommend modules for IO that exceeds what the CPU provides onboard
@@ -612,7 +612,7 @@ export function ForgeHardwareIo({
     setHardwareKey((k) => k + 1);
   }
 
-  // ── Generate IO list from devices ─────────────────────────────────────────
+  // ── Generate IO list from control_modules ─────────────────────────────────────────
 
   function generateIoListFromDevices() {
     const pool = buildAddressPool(hardware);
@@ -622,14 +622,14 @@ export function ForgeHardwareIo({
       // One row per physical address. Auto-assign device signals in order.
 
       // Collect all device signals bucketed by type
-      const byType: Record<"DI" | "DQ" | "AI" | "AQ", Array<{ tag_name: string; description: string; device_id: string; signal_behaviour?: string; contact_type?: string }>> = {
+      const byType: Record<"DI" | "DQ" | "AI" | "AQ", Array<{ tag_name: string; description: string; control_module_id: string; signal_behaviour?: string; contact_type?: string }>> = {
         DI: [], DQ: [], AI: [], AQ: [],
       };
-      for (const device of devices) {
+      for (const device of control_modules) {
         for (const sig of device.io_signals ?? []) {
           const raw = sig as unknown as Record<string, unknown>;
           const t = sig.signal_type.toUpperCase() as "DI" | "DQ" | "AI" | "AQ";
-          if (t in byType) byType[t].push({ tag_name: sig.tag_name || (raw.signal_name as string) || "", description: sig.description, device_id: device.id, signal_behaviour: sig.signal_behaviour, contact_type: sig.contact_type });
+          if (t in byType) byType[t].push({ tag_name: sig.tag_name || (raw.signal_name as string) || "", description: sig.description, control_module_id: device.id, signal_behaviour: sig.signal_behaviour, contact_type: sig.contact_type });
         }
       }
 
@@ -645,7 +645,7 @@ export function ForgeHardwareIo({
           description: sig?.description ?? "",
           module: pt.module,
           slot: pt.slot,
-          device_id: sig?.device_id,
+          control_module_id: sig?.control_module_id,
           ...(sig?.signal_behaviour && { signal_behaviour: sig.signal_behaviour as ForgeIoEntry["signal_behaviour"] }),
           ...(sig?.contact_type && { contact_type: sig.contact_type as ForgeIoEntry["contact_type"] }),
         };
@@ -663,7 +663,7 @@ export function ForgeHardwareIo({
     const aiSignals: ForgeIoEntry[] = [];
     const aqSignals: ForgeIoEntry[] = [];
 
-    for (const device of devices) {
+    for (const device of control_modules) {
       for (const sig of device.io_signals ?? []) {
         const raw = sig as unknown as Record<string, unknown>;
         const sigType = sig.signal_type.toUpperCase() as "DI" | "DQ" | "AI" | "AQ";
@@ -675,7 +675,7 @@ export function ForgeHardwareIo({
           description: sig.description,
           module: "",
           slot: 0,
-          device_id: device.id,
+          control_module_id: device.id,
           ...(sig.signal_behaviour && { signal_behaviour: sig.signal_behaviour }),
           ...(sig.contact_type && { contact_type: sig.contact_type }),
         };
@@ -712,7 +712,7 @@ export function ForgeHardwareIo({
 
   // ── Confidence badge ──────────────────────────────────────────────────────
 
-  function confidenceBadge(conf: ForgeDeviceEntry["fb_match_confidence"]) {
+  function confidenceBadge(conf: ForgeControlModuleEntry["fb_match_confidence"]) {
     if (conf === "exact")
       return (
         <Badge variant="outline" className="border-green-600/50 font-mono text-[10px] text-green-500">
@@ -740,7 +740,7 @@ export function ForgeHardwareIo({
 
   // All device signals available as tag assignments in the IO list
   const availableTags = useMemo(() =>
-    devices.flatMap(d =>
+    control_modules.flatMap(d =>
       (d.io_signals ?? []).map(sig => {
         const raw = sig as unknown as Record<string, unknown>;
         return {
@@ -750,9 +750,9 @@ export function ForgeHardwareIo({
         };
       })
     ),
-    [devices]
+    [control_modules]
   );
-  const ioCounts = countIoSignals(devices);
+  const ioCounts = countIoSignals(control_modules);
   const totalIo = ioCounts.DI + ioCounts.DQ + ioCounts.AI + ioCounts.AQ;
   const cpuOnboard = getCpuOnboardIo(hardware.cpu_type);
   const hasOnboardIo = cpuOnboard.di > 0 || cpuOnboard.dq > 0 || cpuOnboard.ai > 0 || cpuOnboard.aq > 0;
@@ -764,18 +764,18 @@ export function ForgeHardwareIo({
   };
   const needsExpansion = overflow.DI > 0 || overflow.DQ > 0 || overflow.AI > 0 || overflow.AQ > 0;
 
-  const missingDeviceSuggestions = suggestMissingDevices(devices, specAnalysis?.assemblies).filter(
+  const missingDeviceSuggestions = suggestMissingDevices(control_modules, specAnalysis?.equipment_modules).filter(
     (s) => !dismissedSuggestions.has(s.suggestedTag),
   );
 
   function addSuggestedDevices(suggestions: MissingDeviceSuggestion[]) {
-    const newDevices: ForgeDeviceEntry[] = suggestions.map((s) => ({
+    const newDevices: ForgeControlModuleEntry[] = suggestions.map((s) => ({
       id: `suggested_${s.suggestedTag}_${Date.now()}`,
       name: s.suggestedName,
       tag: s.suggestedTag,
       device_type: s.suggestedType,
       description: s.reason.split(".")[0] ?? s.suggestedType,
-      subsystem: "",
+      unit: "",
       io_signals: [],
       fb_template_id: null,
       fb_match_confidence: "none" as const,
@@ -806,7 +806,7 @@ export function ForgeHardwareIo({
             <Badge variant="outline" className="font-mono text-[10px]">{ioCounts.AI} AI</Badge>
             <Badge variant="outline" className="font-mono text-[10px]">{ioCounts.AQ} AQ</Badge>
           </div>
-          <span className="ml-auto font-mono text-[10px] text-muted-foreground">{totalIo} points · {devices.length} devices</span>
+          <span className="ml-auto font-mono text-[10px] text-muted-foreground">{totalIo} points · {control_modules.length} control_modules</span>
         </div>
         {hasOnboardIo && (
           <div className="mt-1.5 flex items-center gap-3">
@@ -825,9 +825,9 @@ export function ForgeHardwareIo({
         )}
       </div>
 
-      <Tabs defaultValue="devices" className="flex flex-1 flex-col">
+      <Tabs defaultValue="control_modules" className="flex flex-1 flex-col">
         <TabsList className="w-fit">
-          <TabsTrigger value="devices" className="font-mono text-xs uppercase tracking-wider">
+          <TabsTrigger value="control_modules" className="font-mono text-xs uppercase tracking-wider">
             Devices
           </TabsTrigger>
           <TabsTrigger value="hardware" className="font-mono text-xs uppercase tracking-wider">
@@ -839,12 +839,12 @@ export function ForgeHardwareIo({
         </TabsList>
 
         {/* Devices Tab */}
-        <TabsContent value="devices" className="mt-3 flex-1">
+        <TabsContent value="control_modules" className="mt-3 flex-1">
           <div className="flex flex-col gap-2">
             {/* Device list header */}
             <div className="flex items-center justify-between">
               <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-                {devices.length} device{devices.length !== 1 ? "s" : ""}
+                {control_modules.length} device{control_modules.length !== 1 ? "s" : ""}
               </span>
               <div className="flex items-center gap-1.5">
                 {fbTemplates.some((t) => t.ai_summary) && (
@@ -853,8 +853,8 @@ export function ForgeHardwareIo({
                     variant="outline"
                     className="h-7 gap-1.5 font-mono text-xs"
                     onClick={handleAiMatch}
-                    disabled={aiMatchLoading || devices.length === 0}
-                    title="Re-match devices to FB templates using AI summaries"
+                    disabled={aiMatchLoading || control_modules.length === 0}
+                    title="Re-match control_modules to FB templates using AI summaries"
                   >
                     {aiMatchLoading ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -970,15 +970,15 @@ export function ForgeHardwareIo({
                   </div>
 
                   <div>
-                    <label htmlFor={`${formId}-subsystem`} className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-                      Subsystem
+                    <label htmlFor={`${formId}-unit`} className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                      Unit
                     </label>
                     <Input
-                      id={`${formId}-subsystem`}
+                      id={`${formId}-unit`}
                       className="h-7 font-mono text-xs"
                       placeholder="Conveyor"
-                      value={addForm.subsystem}
-                      onChange={(e) => setAddForm((f) => ({ ...f, subsystem: e.target.value }))}
+                      value={addForm.unit}
+                      onChange={(e) => setAddForm((f) => ({ ...f, unit: e.target.value }))}
                     />
                   </div>
 
@@ -1050,15 +1050,15 @@ export function ForgeHardwareIo({
 
             {/* Device List */}
             <ScrollArea className="h-[600px]">
-              {devices.length === 0 ? (
+              {control_modules.length === 0 ? (
                 <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
-                  No devices yet — add one above or upload a spec in Step 1.
+                  No control_modules yet — add one above or upload a spec in Step 1.
                 </div>
               ) : (
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 bg-background/90">
                     <tr className="border-b border-border/60">
-                      {["", "Name", "Tag", "Type", "Subsystem", "FB Template", "Language", "IO", "Match", ""].map(
+                      {["", "Name", "Tag", "Type", "Unit", "FB Template", "Language", "IO", "Match", ""].map(
                         (h, i) => (
                           <th
                             key={i}
@@ -1071,11 +1071,11 @@ export function ForgeHardwareIo({
                     </tr>
                   </thead>
                   <tbody>
-                    {/* Subsystem → Assembly → Device hierarchy */}
+                    {/* Unit → Equipment Module → Device hierarchy */}
                     {(() => {
-                      const assemblies = specAnalysis?.assemblies ?? [];
-                      const subsystems = specAnalysis?.subsystems ?? [];
-                      const assemblyDeviceIds = new Set(assemblies.flatMap((a) => a.device_ids));
+                      const equipment_modules = specAnalysis?.equipment_modules ?? [];
+                      const units = specAnalysis?.units ?? [];
+                      const equipment_moduleDeviceIds = new Set(equipment_modules.flatMap((a) => a.control_module_ids));
 
                       const toggleSection = (key: string) =>
                         setCollapsedSections((prev) => {
@@ -1086,23 +1086,23 @@ export function ForgeHardwareIo({
 
                       const rows: React.ReactNode[] = [];
 
-                      // Group by subsystem
-                      const subsystemNames = subsystems.length > 0
-                        ? subsystems.map((s) => s.name)
-                        : [...new Set(devices.map((d) => d.subsystem))];
+                      // Group by unit
+                      const unitNames = units.length > 0
+                        ? units.map((s) => s.name)
+                        : [...new Set(control_modules.map((d) => d.unit))];
 
-                      for (const subName of subsystemNames) {
+                      for (const subName of unitNames) {
                         const subKey = `ss-${subName}`;
                         const subCollapsed = collapsedSections.has(subKey);
-                        const subAssemblies = assemblies.filter((a) => a.subsystem === subName);
-                        const subStandalone = devices.filter(
-                          (d) => d.subsystem === subName && !assemblyDeviceIds.has(d.id),
+                        const subAssemblies = equipment_modules.filter((a) => a.unit === subName);
+                        const subStandalone = control_modules.filter(
+                          (d) => d.unit === subName && !equipment_moduleDeviceIds.has(d.id),
                         );
-                        const subDeviceCount = devices.filter((d) => d.subsystem === subName).length;
+                        const subDeviceCount = control_modules.filter((d) => d.unit === subName).length;
 
                         if (subDeviceCount === 0 && subAssemblies.length === 0) continue;
 
-                        // Subsystem header
+                        // Unit header
                         rows.push(
                           <tr key={subKey} className="bg-muted/10 border-b border-border/50">
                             <td colSpan={10} className="px-2 py-1.5">
@@ -1124,11 +1124,11 @@ export function ForgeHardwareIo({
 
                         if (subCollapsed) continue;
 
-                        // Assemblies in this subsystem
+                        // Assemblies in this unit
                         for (const asm of subAssemblies) {
                           const asmKey = `asm-${asm.id}`;
                           const asmCollapsed = collapsedSections.has(asmKey);
-                          const asmDevices = devices.filter((d) => asm.device_ids.includes(d.id));
+                          const asmDevices = control_modules.filter((d) => asm.control_module_ids.includes(d.id));
                           if (asmDevices.length === 0) continue;
 
                           rows.push(
@@ -1144,7 +1144,7 @@ export function ForgeHardwareIo({
                                     {asm.tag}
                                   </Badge>
                                   <span className="font-mono text-xs font-semibold text-blue-300/80">{asm.name}</span>
-                                  <span className="font-mono text-[10px] text-muted-foreground">({asm.assembly_type} — {asmDevices.length} devices)</span>
+                                  <span className="font-mono text-[10px] text-muted-foreground">({asm.equipment_module_type} — {asmDevices.length} control_modules)</span>
                                 </button>
                               </td>
                             </tr>,
@@ -1157,7 +1157,7 @@ export function ForgeHardwareIo({
                           }
                         }
 
-                        // Standalone devices in this subsystem
+                        // Standalone control_modules in this unit
                         if (subStandalone.length > 0) {
                           if (subAssemblies.length > 0) {
                             rows.push(
@@ -1176,7 +1176,7 @@ export function ForgeHardwareIo({
 
                       return rows;
 
-                      function renderDeviceRow(d: ForgeDeviceEntry) {
+                      function renderDeviceRow(d: ForgeControlModuleEntry) {
                         return (
                       <Fragment key={d.id}>
                         <tr className="border-b border-border/40 hover:bg-muted/20">
@@ -1196,7 +1196,7 @@ export function ForgeHardwareIo({
                           <td className="px-2 py-1.5 font-mono text-xs">{d.name}</td>
                           <td className="px-2 py-1.5 font-mono text-xs text-muted-foreground">{d.tag}</td>
                           <td className="px-2 py-1.5 text-xs">{d.device_type}</td>
-                          <td className="px-2 py-1.5 text-xs text-muted-foreground">{d.subsystem}</td>
+                          <td className="px-2 py-1.5 text-xs text-muted-foreground">{d.unit}</td>
                           <td className="px-2 py-1.5">
                             <FbTemplateSelector
                               device={d}
@@ -1283,7 +1283,7 @@ export function ForgeHardwareIo({
                 className="h-7 gap-1.5 font-mono text-xs"
                 onClick={recommendModules}
                 disabled={totalIo === 0}
-                title={totalIo === 0 ? "Add devices first to get recommendations" : ""}
+                title={totalIo === 0 ? "Add control_modules first to get recommendations" : ""}
               >
                 Recommend Modules
               </Button>
@@ -1313,7 +1313,7 @@ export function ForgeHardwareIo({
                 variant="outline"
                 className="h-7 gap-1.5 font-mono text-xs"
                 onClick={generateIoListFromDevices}
-                disabled={devices.length === 0}
+                disabled={control_modules.length === 0}
               >
                 Generate IO List (sequential addresses)
               </Button>
@@ -1349,7 +1349,7 @@ export function ForgeHardwareIo({
         </div>
       )}
 
-      <Button variant="outline" className="w-full" onClick={() => onComplete(hardware, ioList, devices)}>
+      <Button variant="outline" className="w-full" onClick={() => onComplete(hardware, ioList, control_modules)}>
         Confirm Hardware & IO
         <ChevronRight className="ml-2 h-4 w-4" />
       </Button>
@@ -1368,7 +1368,7 @@ function FbTemplateSelector({
   value,
   onValueChange,
 }: {
-  device: ForgeDeviceEntry;
+  device: ForgeControlModuleEntry;
   templates: FbTemplate[];
   favourites?: Record<string, string>;
   value: string;

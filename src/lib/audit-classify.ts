@@ -5,7 +5,7 @@
  * Applies a multi-rule cascade in two passes:
  *   Pass 1 — leaves with intrinsic signals (ob, utility, safety, fault,
  *            sequence, io_mapper, device, comms). First rule to match wins.
- *   Pass 2 — containers + fallback (assembly, dispatcher, subsystem,
+ *   Pass 2 — containers + fallback (equipment_module, dispatcher, unit,
  *            tentative sequence, logic, unknown).
  *
  * No AI anywhere. Each classification carries a `rule_id` so the
@@ -372,9 +372,9 @@ function matchAssemblyByDeviceChildren(
   if (deviceChildren.length >= 2) {
     return {
       block_id: block.id,
-      role: "assembly",
+      role: "equipment_module",
       rule_id: "R09_instantiates_device_fbs_legacy",
-      auto_reason: `Instantiates ${deviceChildren.length} device FBs (legacy assembly pattern).`,
+      auto_reason: `Instantiates ${deviceChildren.length} device FBs (legacy equipment_module pattern).`,
     };
   }
   return null;
@@ -411,21 +411,21 @@ function matchSubsystemOrTentativeSequence(
   if (!callerBlock || callerBlock.block_type !== "OB") return null;
 
   const targets = distinctInstantiatedTargets(block, index);
-  const assemblyChildren = [...targets].filter((t) => roleByBlockId.get(t) === "assembly");
+  const equipment_moduleChildren = [...targets].filter((t) => roleByBlockId.get(t) === "equipment_module");
 
-  if (assemblyChildren.length >= 1) {
+  if (equipment_moduleChildren.length >= 1) {
     return {
       block_id: block.id,
-      role: "subsystem",
-      rule_id: "R10_subsystem_ob_called_with_assembly",
-      auto_reason: `Called once from OB "${callerBlock.name}" and instantiates ${assemblyChildren.length} assembly FB(s).`,
+      role: "unit",
+      rule_id: "R10_unit_ob_called_with_equipment_module",
+      auto_reason: `Called once from OB "${callerBlock.name}" and instantiates ${equipment_moduleChildren.length} equipment_module FB(s).`,
     };
   }
   return {
     block_id: block.id,
     role: "sequence",
     rule_id: "R11_sequence_ob_called_tentative",
-    auto_reason: `Tentative: called once from OB "${callerBlock.name}" with no assembly children — likely a top-level sequence.`,
+    auto_reason: `Tentative: called once from OB "${callerBlock.name}" with no equipment_module children — likely a top-level sequence.`,
   };
 }
 
@@ -498,7 +498,7 @@ export function classifyBlocks(input: ClassifyInput): ClassifyResult[] {
   const roleByBlockId = new Map<string, FbRole>();
   for (const r of results.values()) roleByBlockId.set(r.block_id, r.role);
 
-  // Legacy assembly first (depends on device classification).
+  // Legacy equipment_module first (depends on device classification).
   for (const block of eligible) {
     if (results.has(block.id)) continue;
     const m = matchAssemblyByDeviceChildren(block, index, roleByBlockId);
@@ -508,7 +508,7 @@ export function classifyBlocks(input: ClassifyInput): ClassifyResult[] {
     }
   }
 
-  // Dispatcher before subsystem — a block that both instantiates peers AND
+  // Dispatcher before unit — a block that both instantiates peers AND
   // is called once from an OB should be labelled as the more specific
   // "bulk caller" concept. Most real dispatchers don't have OB callers
   // anyway, but the ordering matters when they do.
@@ -561,7 +561,7 @@ export function classifyBlocks(input: ClassifyInput): ClassifyResult[] {
 export function countByRole(results: ClassifyResult[]): Record<FbRole, number> {
   const counts = {} as Record<FbRole, number>;
   const roles: FbRole[] = [
-    "device", "io_mapper", "dispatcher", "assembly", "subsystem",
+    "device", "io_mapper", "dispatcher", "equipment_module", "unit",
     "sequence", "utility", "safety", "comms", "fault", "logic",
     "ob", "unknown",
   ];

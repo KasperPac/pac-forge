@@ -173,11 +173,11 @@ describe("validateSpecContractPatch — PackML state IDs", () => {
 });
 
 describe("validateSpecContractPatch — override_kind content rules", () => {
-  function makeAssembly(seqOverride: Record<string, unknown>) {
+  function makeEquipmentModule(seqOverride: Record<string, unknown>) {
     return {
       "00000000-0000-0000-0000-000000000aaa": {
-        assembly_id: "00000000-0000-0000-0000-000000000aaa",
-        subsystem_id: "00000000-0000-0000-0000-000000000bbb",
+        equipment_module_id: "00000000-0000-0000-0000-000000000aaa",
+        unit_id: "00000000-0000-0000-0000-000000000bbb",
         static_states: {},
         sequential_states: {
           "auto::execute": {
@@ -194,7 +194,7 @@ describe("validateSpecContractPatch — override_kind content rules", () => {
 
   it("rejects an inherit row with steps", () => {
     const issues = validateSpecContractPatch({
-      assemblies: makeAssembly({
+      equipment_modules: makeEquipmentModule({
         steps: [
           {
             step: 10,
@@ -210,7 +210,7 @@ describe("validateSpecContractPatch — override_kind content rules", () => {
 
   it("rejects a suppressed row with permissives", () => {
     const issues = validateSpecContractPatch({
-      assemblies: makeAssembly({
+      equipment_modules: makeEquipmentModule({
         override_kind: "suppressed",
         permissives: [{ tag: "X", operator: "=", value: true }],
       } as never) as never,
@@ -220,14 +220,14 @@ describe("validateSpecContractPatch — override_kind content rules", () => {
 
   it("accepts an inherit row with empty content", () => {
     const issues = validateSpecContractPatch({
-      assemblies: makeAssembly({}) as never,
+      equipment_modules: makeEquipmentModule({}) as never,
     });
     expect(issues.filter((i) => /inherit|suppressed/i.test(i))).toEqual([]);
   });
 
   it("accepts an override row with content", () => {
     const issues = validateSpecContractPatch({
-      assemblies: makeAssembly({
+      equipment_modules: makeEquipmentModule({
         override_kind: "override",
         permissives: [{ tag: "X", operator: "=", value: true }],
       } as never) as never,
@@ -242,10 +242,10 @@ describe("validateSpecContractPatch — parameter_ref existence", () => {
       configuration_parameters: [
         { parameter_id: "battery_chemistry", name: "X", allowed_values: ["LFP"], default: "LFP" },
       ],
-      assemblies: {
+      equipment_modules: {
         "00000000-0000-0000-0000-000000000aaa": {
-          assembly_id: "00000000-0000-0000-0000-000000000aaa",
-          subsystem_id: "00000000-0000-0000-0000-000000000bbb",
+          equipment_module_id: "00000000-0000-0000-0000-000000000aaa",
+          unit_id: "00000000-0000-0000-0000-000000000bbb",
           static_states: {},
           sequential_states: {
             "auto::execute": {
@@ -286,10 +286,10 @@ describe("validateSpecContractPatch — parameter_ref existence", () => {
       configuration_parameters: [
         { parameter_id: "battery_chemistry", name: "X", allowed_values: ["LFP"], default: "LFP" },
       ],
-      assemblies: {
+      equipment_modules: {
         "00000000-0000-0000-0000-000000000aaa": {
-          assembly_id: "00000000-0000-0000-0000-000000000aaa",
-          subsystem_id: "00000000-0000-0000-0000-000000000bbb",
+          equipment_module_id: "00000000-0000-0000-0000-000000000aaa",
+          unit_id: "00000000-0000-0000-0000-000000000bbb",
           static_states: {},
           sequential_states: {
             "auto::execute": {

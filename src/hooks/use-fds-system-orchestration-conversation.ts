@@ -2,20 +2,20 @@
  * System-level orchestration conversation hook (Wave C).
  *
  * Mirrors `use-fds-orchestration-conversation.ts` but is scoped to an
- * entire spec rather than a single subsystem. Persists via the Wave-A
- * `useUpsertSystemOrchestration` mutation.
+ * entire spec rather than a single unit. Persists via the Wave-A
+ * `useUpsertSystemProcedure` mutation.
  */
 import { useState, useCallback, useRef } from "react";
 import { streamFromEdgeFunction } from "@/hooks/use-generation";
 import type { PromptLayerMeta } from "@/hooks/use-generation";
 import {
-  useSystemOrchestration,
-  useUpsertSystemOrchestration,
+  useSystemProcedure,
+  useUpsertSystemProcedure,
 } from "@/hooks/use-system-orchestration";
 import {
-  buildFdsSystemOrchestrationSystemPrompt,
-  buildFdsSystemOrchestrationOpeningMessage,
-  validateSystemOrchestrationDelta,
+  buildFdsSystemProcedureSystemPrompt,
+  buildFdsSystemProcedureOpeningMessage,
+  validateSystemProcedureDelta,
 } from "@/lib/spec-builder/system-orchestration-prompts";
 import {
   extractJsonFromResponse,
@@ -23,23 +23,23 @@ import {
 } from "@/lib/spec-builder/fds-prompts";
 import type {
   SpecProject,
-  SubsystemConfig,
+  UnitConfig,
   OperatingState,
 } from "@/types/spec-builder";
 import type {
   FdsConversationTurn,
   SystemStateSequence,
   SharedPermissive,
-  InterSubsystemInterlock,
+  InterUnitInterlock,
 } from "@/types/spec-contract-v2";
 
-interface UseFdsSystemOrchestrationConversationOptions {
+interface UseFdsSystemProcedureConversationOptions {
   spec: SpecProject;
-  subsystems: SubsystemConfig[];
+  units: UnitConfig[];
   states: OperatingState[];
 }
 
-interface UseFdsSystemOrchestrationConversationReturn {
+interface UseFdsSystemProcedureConversationReturn {
   sendMessage: (text: string) => Promise<void>;
   startInterview: () => Promise<void>;
   streamingText: string;
@@ -48,13 +48,13 @@ interface UseFdsSystemOrchestrationConversationReturn {
   validationErrors: string[];
 }
 
-export function useFdsSystemOrchestrationConversation({
+export function useFdsSystemProcedureConversation({
   spec,
-  subsystems,
+  units,
   states,
-}: UseFdsSystemOrchestrationConversationOptions): UseFdsSystemOrchestrationConversationReturn {
-  const { data: orchestration } = useSystemOrchestration(spec.id);
-  const upsert = useUpsertSystemOrchestration();
+}: UseFdsSystemProcedureConversationOptions): UseFdsSystemProcedureConversationReturn {
+  const { data: orchestration } = useSystemProcedure(spec.id);
+  const upsert = useUpsertSystemProcedure();
 
   const [streamingText, setStreamingText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -92,7 +92,7 @@ export function useFdsSystemOrchestrationConversation({
       const extracted = extractJsonFromResponse(fullText);
       if (!extracted) return undefined;
 
-      const errs = validateSystemOrchestrationDelta(extracted, subsystems, states);
+      const errs = validateSystemProcedureDelta(extracted, units, states);
       setValidationErrors(errs);
       if (errs.length > 0) return undefined;
 
@@ -100,28 +100,28 @@ export function useFdsSystemOrchestrationConversation({
       if (!stateId) return undefined;
 
       const existing = orchestration?.state_sequences[stateId] ?? {
-        subsystem_order: [],
+        unit_order: [],
         shared_permissives: [],
-        inter_subsystem_interlocks: [],
+        inter_unit_interlocks: [],
         notes: null,
       };
 
       return {
         state_id: stateId,
         sequence: {
-          subsystem_order:
-            (extracted.subsystem_order as string[]) ?? existing.subsystem_order,
+          unit_order:
+            (extracted.unit_order as string[]) ?? existing.unit_order,
           shared_permissives:
             (extracted.shared_permissives as SharedPermissive[]) ??
             existing.shared_permissives,
-          inter_subsystem_interlocks:
-            (extracted.inter_subsystem_interlocks as InterSubsystemInterlock[]) ??
-            existing.inter_subsystem_interlocks,
+          inter_unit_interlocks:
+            (extracted.inter_unit_interlocks as InterUnitInterlock[]) ??
+            existing.inter_unit_interlocks,
           notes: (extracted.notes as string | null) ?? existing.notes,
         },
       };
     },
-    [sequentialStates, orchestration, subsystems, states],
+    [sequentialStates, orchestration, units, states],
   );
 
   const sendMessage = useCallback(
@@ -142,9 +142,9 @@ export function useFdsSystemOrchestrationConversation({
         };
         await persistTurn(userTurn);
 
-        const systemPrompt = buildFdsSystemOrchestrationSystemPrompt(
+        const systemPrompt = buildFdsSystemProcedureSystemPrompt(
           spec,
-          subsystems,
+          units,
           states,
           orchestration ?? null,
         );
@@ -194,7 +194,7 @@ export function useFdsSystemOrchestrationConversation({
       isStreaming,
       conversation,
       spec,
-      subsystems,
+      units,
       states,
       orchestration,
       persistTurn,
@@ -215,14 +215,14 @@ export function useFdsSystemOrchestrationConversation({
       const firstState = sequentialStates[0];
       if (!firstState) throw new Error("No sequential states defined for this spec");
 
-      const systemPrompt = buildFdsSystemOrchestrationSystemPrompt(
+      const systemPrompt = buildFdsSystemProcedureSystemPrompt(
         spec,
-        subsystems,
+        units,
         states,
         orchestration ?? null,
       );
-      const openingPrompt = buildFdsSystemOrchestrationOpeningMessage(
-        subsystems,
+      const openingPrompt = buildFdsSystemProcedureOpeningMessage(
+        units,
         firstState,
       );
 
@@ -265,7 +265,7 @@ export function useFdsSystemOrchestrationConversation({
   }, [
     isStreaming,
     spec,
-    subsystems,
+    units,
     states,
     orchestration,
     sequentialStates,

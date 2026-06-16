@@ -3,35 +3,35 @@
  * No AI needed — every output gets its safe state based on device type.
  */
 import type {
-  AssemblyConfig,
+  EquipmentModuleConfig,
   OperatingState,
   InstrumentTag,
-  DeviceStateEntry,
+  ControlModuleStateEntry,
 } from "@/types/spec-builder";
 
 /**
- * Auto-fill device state tables for all static states for a given assembly.
- * Returns { [state_id]: DeviceStateEntry[] } with every DO/AO tag listed.
+ * Auto-fill device state tables for all static states for a given equipment_module.
+ * Returns { [state_id]: ControlModuleStateEntry[] } with every DO/AO tag listed.
  */
 export function autoFillStaticStates(
-  assembly: AssemblyConfig,
+  equipment_module: EquipmentModuleConfig,
   staticStates: OperatingState[],
   allTags: InstrumentTag[],
-): Record<string, DeviceStateEntry[]> {
-  // Collect all tag names for this assembly
-  const assemblyTagNames = new Set<string>();
-  for (const dev of assembly.devices) {
+): Record<string, ControlModuleStateEntry[]> {
+  // Collect all tag names for this equipment_module
+  const equipment_moduleTagNames = new Set<string>();
+  for (const dev of equipment_module.control_modules) {
     for (const sig of dev.io_signals) {
-      assemblyTagNames.add(sig.tag);
+      equipment_moduleTagNames.add(sig.tag);
     }
   }
 
   // Filter to output tags only (DO, AO)
   const outputTags = allTags.filter(
-    (t) => assemblyTagNames.has(t.tag) && (t.signal_direction === "DO" || t.signal_direction === "AO"),
+    (t) => equipment_moduleTagNames.has(t.tag) && (t.signal_direction === "DO" || t.signal_direction === "AO"),
   );
 
-  const result: Record<string, DeviceStateEntry[]> = {};
+  const result: Record<string, ControlModuleStateEntry[]> = {};
 
   for (const state of staticStates) {
     result[state.state_id] = outputTags.map((tag) => ({
@@ -57,7 +57,7 @@ function inferSafeState(tag: InstrumentTag, state: OperatingState): string {
 
   // DO — infer from device class / type
   const deviceType = tag.device_type.toLowerCase();
-  const deviceClass = tag.device_class;
+  const deviceClass = tag.control_module_class;
 
   // Motor contactors
   if (deviceClass === "motor" || /motor|contactor|pump/i.test(deviceType)) {
@@ -89,10 +89,10 @@ function inferSafeState(tag: InstrumentTag, state: OperatingState): string {
  * Apply a tag remap to device state entries (for duplicate & edit).
  */
 export function remapDeviceStates(
-  states: Record<string, DeviceStateEntry[]>,
+  states: Record<string, ControlModuleStateEntry[]>,
   remap: Record<string, string>,
-): Record<string, DeviceStateEntry[]> {
-  const result: Record<string, DeviceStateEntry[]> = {};
+): Record<string, ControlModuleStateEntry[]> {
+  const result: Record<string, ControlModuleStateEntry[]> = {};
   for (const [stateId, entries] of Object.entries(states)) {
     result[stateId] = entries.map((e) => ({
       ...e,

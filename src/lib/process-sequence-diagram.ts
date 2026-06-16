@@ -6,7 +6,7 @@ import type {
   LinkageDevice,
   SequenceRow,
 } from "@/types/forge-matrix";
-import type { ForgeIoEntry, ForgeDeviceEntry } from "@/types/forge";
+import type { ForgeIoEntry, ForgeControlModuleEntry } from "@/types/forge";
 
 // ---------------------------------------------------------------------------
 // Text reduction helpers
@@ -234,7 +234,7 @@ function getStepClass(step: ProcessStep, deviceLinkage: LinkageDevice[]): string
 
   const deviceInstances = new Set(deviceLinkage.map(d => d.instanceDbName.toLowerCase()));
   const deviceNames = new Set(deviceLinkage.map(d => d.name.toLowerCase()));
-  if ((step.devicesInvolved ?? []).some(d =>
+  if ((step.control_modulesInvolved ?? []).some(d =>
     deviceInstances.has(d.toLowerCase()) || deviceNames.has(d.toLowerCase())
   )) {
     return "fb_call";
@@ -261,7 +261,7 @@ export function formatTransitionLabel(transition: TransitionCondition, clean = f
 // ---------------------------------------------------------------------------
 
 export interface ProcessFlowContext {
-  devices: ForgeDeviceEntry[];
+  control_modules: ForgeControlModuleEntry[];
   deviceLinkage: LinkageDevice[];
   ioList: ForgeIoEntry[];
 }
@@ -282,10 +282,10 @@ function isOutputDevice(dev: LinkageDevice): boolean {
 
 /**
  * Find the "key output" parameter names for an input FB device —
- * those outputs that other devices consume as FB inputs.
+ * those outputs that other control_modules consume as FB inputs.
  */
 function getKeyOutputs(dev: LinkageDevice, allDevices: LinkageDevice[]): string[] {
-  // Collect all connectedTo values from other devices' "in" FB wires
+  // Collect all connectedTo values from other control_modules' "in" FB wires
   const fbSources = new Set<string>();
   for (const other of allDevices) {
     if (other.instanceDbName === dev.instanceDbName) continue;
@@ -639,8 +639,8 @@ function detectSynthBranch(steps: ProcessStep[]): SynthBranchInfo | null {
 
 /**
  * Augment a keyword-based filter with device names and signal names from the
- * wiring data. Finds devices mentioned in conditionText, then follows FB wires
- * to downstream devices, and collects their output signal names.
+ * wiring data. Finds control_modules mentioned in conditionText, then follows FB wires
+ * to downstream control_modules, and collects their output signal names.
  */
 function buildWiringEnhancedFilter(
   conditionText: string,
@@ -649,7 +649,7 @@ function buildWiringEnhancedFilter(
 ): RegExp {
   const condLower = conditionText.toLowerCase();
 
-  // Find devices mentioned in the condition text
+  // Find control_modules mentioned in the condition text
   const rootDevices: string[] = [];
   for (const dev of deviceLinkage) {
     if (
@@ -661,7 +661,7 @@ function buildWiringEnhancedFilter(
   }
   if (rootDevices.length === 0) return baseFilter;
 
-  // Follow FB wires: find devices that receive input from root devices
+  // Follow FB wires: find control_modules that receive input from root control_modules
   const downstream = new Set<string>(rootDevices);
   for (const dev of deviceLinkage) {
     if (downstream.has(dev.instanceDbName)) continue;
@@ -674,7 +674,7 @@ function buildWiringEnhancedFilter(
     if (connected) downstream.add(dev.instanceDbName);
   }
 
-  // Collect output signal names from downstream devices
+  // Collect output signal names from downstream control_modules
   const signals: string[] = [];
   for (const dev of deviceLinkage) {
     if (!downstream.has(dev.instanceDbName)) continue;
@@ -808,7 +808,7 @@ function insertMonitoringSteps(
         combinator: "AND",
         conditions: [{ id: `_mc_${i}`, description: condDesc, deviceName: null }],
       },
-      devicesInvolved: steps[i].devicesInvolved ?? [],
+      control_modulesInvolved: steps[i].control_modulesInvolved ?? [],
       notes: "",
     });
   }
@@ -1092,7 +1092,7 @@ function buildStepsSection(
     const hasFaultExit =
       (step.notes ?? "").toLowerCase().includes("fault") ||
       (step.actions ?? []).some(a => a.description.toLowerCase().includes("fault")) ||
-      (step.devicesInvolved ?? []).some(d => /estop|emergency/i.test(d));
+      (step.control_modulesInvolved ?? []).some(d => /estop|emergency/i.test(d));
     if (hasFaultExit) {
       lines.push(`    ${stepId} -->|Fault| FAULT`);
     }
@@ -1575,7 +1575,7 @@ export function buildSequenceDiagram(sequence: ProcessSequence): string {
 
     const hasFaultExit = (step.notes ?? "").toLowerCase().includes("fault")
       || (step.actions ?? []).some(a => (a.description ?? "").toLowerCase().includes("fault"))
-      || (step.devicesInvolved ?? []).some(d => d.toLowerCase().includes("estop"));
+      || (step.control_modulesInvolved ?? []).some(d => d.toLowerCase().includes("estop"));
     if (hasFaultExit) {
       if (!faultNodeAdded) {
         lines.push(`    Fault[/"⚠ FAULT"/]`);

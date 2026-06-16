@@ -24,13 +24,13 @@ const FIXTURES: Array<{ name: string; data: unknown }> = [
 // confident structured classification mirroring the original prose.
 function autoClassify(contract: SpecContractV2): ProposedInterlock[] {
   const out: ProposedInterlock[] = [];
-  for (const stateMap of Object.values(contract.orchestrations)) {
+  for (const stateMap of Object.values(contract.unit_procedures)) {
     for (const seq of Object.values(stateMap)) {
-      for (const il of seq.inter_assembly_interlocks ?? []) {
+      for (const il of seq.inter_equipment_module_interlocks ?? []) {
         out.push({
           interlock_id: il.interlock_id,
-          source_assembly: il.source_assembly,
-          target_assembly: il.target_assembly,
+          source_equipment_module: il.source_equipment_module,
+          target_equipment_module: il.target_equipment_module,
           original_prose_condition:
             typeof il.source_condition === "string"
               ? il.source_condition
@@ -86,9 +86,9 @@ describe.each(FIXTURES)("migration end-to-end: $name", ({ data }) => {
               state_pattern: "static",
             },
       ),
-      assemblies: applyOverrideKind(contract.assemblies),
-      orchestrations: applyStructuredInterlocks(
-        contract.orchestrations,
+      equipment_modules: applyOverrideKind(contract.equipment_modules),
+      unit_procedures: applyStructuredInterlocks(
+        contract.unit_procedures,
         interlocks,
       ),
       confirmation_status: "confirmed",

@@ -1,0 +1,277 @@
+<h2>Which design direction feels right for the quote PDF?</h2>
+<p class="subtitle">Each mockup shows the cover area + first section. Click to select.</p>
+
+<style>
+  .direction-cards {
+    display: flex;
+    gap: 28px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 24px;
+  }
+  .direction-card {
+    width: 240px;
+    cursor: pointer;
+    border-radius: 10px;
+    border: 2px solid transparent;
+    overflow: hidden;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    background: #fff;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.10);
+  }
+  .direction-card:hover { border-color: #3050A0; box-shadow: 0 4px 20px rgba(48,80,160,0.18); }
+  .direction-card.selected { border-color: #3050A0; box-shadow: 0 0 0 4px rgba(48,80,160,0.18); }
+  .direction-card .label-bar {
+    padding: 10px 14px 8px;
+    background: #f5f7fc;
+    border-top: 1px solid #e2eaf7;
+  }
+  .direction-card .label-bar h3 { margin: 0 0 2px; font-size: 13px; color: #122044; }
+  .direction-card .label-bar p { margin: 0; font-size: 11px; color: #45443f; }
+
+  /* --- Mockup A: Clean Corporate --- */
+  .mock-a {
+    font-family: 'Inter', sans-serif;
+    font-size: 7px;
+    background: #fff;
+    line-height: 1.4;
+  }
+  .mock-a .hdr {
+    background: #fff;
+    border-bottom: 2px solid #3050A0;
+    padding: 8px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .mock-a .hdr-brand { font-weight: 700; font-size: 9px; color: #122044; }
+  .mock-a .hdr-meta { font-size: 6.5px; color: #45443f; text-align: right; }
+  .mock-a .body { padding: 10px 12px; }
+  .mock-a .tag-pill {
+    display: inline-block;
+    background: #E2EAF7;
+    color: #3050A0;
+    font-size: 5.5px;
+    font-family: monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 1.5px 5px;
+    border-radius: 3px;
+    margin-bottom: 4px;
+  }
+  .mock-a .proj-title { font-size: 13px; font-weight: 700; color: #122044; margin-bottom: 1px; }
+  .mock-a .proj-sub { font-size: 6.5px; color: #5f5e5a; }
+  .mock-a .section-hdr {
+    font-size: 8px;
+    font-weight: 600;
+    color: #122044;
+    border-bottom: 1px solid #deded9;
+    padding-bottom: 2px;
+    margin: 10px 0 5px;
+  }
+  .mock-a .scope-row { display: flex; gap: 4px; margin-bottom: 3px; align-items: flex-start; }
+  .mock-a .scope-dot { width: 4px; height: 4px; background: #3050A0; border-radius: 50%; margin-top: 2px; flex-shrink: 0; }
+  .mock-a .scope-text { font-size: 6.5px; color: #2f2e2a; line-height: 1.4; }
+  .mock-a .scope-sub { font-size: 5.5px; color: #5f5e5a; }
+  .mock-a .price-row {
+    display: flex;
+    justify-content: space-between;
+    border-top: 1px solid #efefec;
+    padding: 2px 0;
+    font-size: 6.5px;
+    color: #2f2e2a;
+  }
+  .mock-a .price-total {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 4px;
+    font-size: 7.5px;
+    font-weight: 700;
+    color: #122044;
+    font-family: monospace;
+  }
+
+  /* --- Mockup B: Cover Page + Content --- */
+  .mock-b {
+    font-family: 'Inter', sans-serif;
+    font-size: 7px;
+    line-height: 1.4;
+  }
+  .mock-b .cover {
+    background: #122044;
+    padding: 18px 14px 14px;
+    min-height: 120px;
+    position: relative;
+    overflow: hidden;
+  }
+  .mock-b .cover::before {
+    content: '';
+    position: absolute;
+    right: -30px;
+    top: -30px;
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    background: rgba(48,80,160,0.35);
+  }
+  .mock-b .cover::after {
+    content: '';
+    position: absolute;
+    right: 10px;
+    bottom: -20px;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: rgba(48,80,160,0.2);
+  }
+  .mock-b .cover-brand { color: rgba(255,255,255,0.7); font-size: 7px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 16px; }
+  .mock-b .cover-tag { display: inline-block; background: rgba(48,80,160,0.7); color: #fff; font-size: 5.5px; font-family: monospace; text-transform: uppercase; letter-spacing: 0.08em; padding: 2px 6px; border-radius: 3px; margin-bottom: 5px; }
+  .mock-b .cover-title { font-size: 14px; font-weight: 700; color: #fff; line-height: 1.2; margin-bottom: 4px; }
+  .mock-b .cover-client { font-size: 6.5px; color: rgba(255,255,255,0.6); }
+  .mock-b .cover-num { position: absolute; bottom: 10px; right: 14px; font-family: monospace; font-size: 6px; color: rgba(255,255,255,0.4); }
+  .mock-b .content-page { background: #fff; padding: 10px 12px; }
+  .mock-b .section-hdr {
+    font-size: 8px;
+    font-weight: 600;
+    color: #3050A0;
+    border-bottom: 2px solid #3050A0;
+    padding-bottom: 2px;
+    margin: 0 0 6px;
+  }
+  .mock-b .item { margin-bottom: 4px; }
+  .mock-b .item-title { font-size: 7px; font-weight: 600; color: #122044; }
+  .mock-b .item-body { font-size: 6px; color: #45443f; }
+  .mock-b .divider { border: none; border-top: 1px solid #efefec; margin: 6px 0; }
+
+  /* --- Mockup C: Accent Bar --- */
+  .mock-c {
+    font-family: 'Inter', sans-serif;
+    font-size: 7px;
+    line-height: 1.4;
+    display: flex;
+    min-height: 220px;
+  }
+  .mock-c .sidebar {
+    width: 7px;
+    background: linear-gradient(180deg, #3050A0 0%, #122044 100%);
+    flex-shrink: 0;
+  }
+  .mock-c .main { flex: 1; }
+  .mock-c .hdr {
+    background: #F4F7FC;
+    padding: 8px 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #E2EAF7;
+  }
+  .mock-c .hdr-brand { font-weight: 700; font-size: 9px; color: #122044; }
+  .mock-c .hdr-meta { font-size: 6px; color: #45443f; text-align: right; }
+  .mock-c .cover { padding: 12px 10px; background: #fff; border-bottom: 1px solid #E2EAF7; }
+  .mock-c .cover-tag { display: inline-block; background: #3050A0; color: #fff; font-size: 5.5px; font-family: monospace; text-transform: uppercase; letter-spacing: 0.06em; padding: 1.5px 5px; border-radius: 2px; margin-bottom: 4px; }
+  .mock-c .cover-title { font-size: 12px; font-weight: 700; color: #122044; margin-bottom: 2px; }
+  .mock-c .cover-client { font-size: 6px; color: #5f5e5a; }
+  .mock-c .body { padding: 8px 10px; }
+  .mock-c .section-hdr {
+    font-size: 7.5px;
+    font-weight: 700;
+    color: #fff;
+    background: #3050A0;
+    padding: 2px 6px;
+    margin: 0 0 5px;
+    letter-spacing: 0.04em;
+  }
+  .mock-c .item { margin-bottom: 4px; padding-left: 6px; border-left: 2px solid #C2D1EE; }
+  .mock-c .item-title { font-size: 7px; font-weight: 600; color: #122044; }
+  .mock-c .item-body { font-size: 6px; color: #45443f; }
+  .mock-c .price-block { margin-top: 8px; background: #F4F7FC; border: 1px solid #E2EAF7; padding: 5px 8px; }
+  .mock-c .price-total { display: flex; justify-content: space-between; font-size: 8px; font-weight: 700; color: #122044; font-family: monospace; }
+</style>
+
+<div class="direction-cards">
+
+  <!-- Option A: Clean Corporate -->
+  <div class="direction-card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="mock-a">
+      <div class="hdr">
+        <div class="hdr-brand">Pac Technologies</div>
+        <div class="hdr-meta">Q-2026-001 · Rev 1<br>Acme Manufacturing<br>20 May 2026</div>
+      </div>
+      <div class="body">
+        <div class="tag-pill">Quotation</div>
+        <div class="proj-title">Automated Packaging Line</div>
+        <div class="proj-sub">PAC-2026-042 · Prepared for Acme Manufacturing</div>
+        <div class="section-hdr">Scope of Work</div>
+        <div class="scope-row"><div class="scope-dot"></div><div><div class="scope-text">PLC Programming — Siemens S7-1500</div><div class="scope-sub">TIA Portal V18 structured text, FB design</div></div></div>
+        <div class="scope-row"><div class="scope-dot"></div><div><div class="scope-text">HMI Development — WinCC Unified</div><div class="scope-sub">10 screens, alarm management, trending</div></div></div>
+        <div class="scope-row"><div class="scope-dot"></div><div><div class="scope-text">Site Commissioning — 5 days on-site</div></div></div>
+        <div class="section-hdr">Pricing</div>
+        <div class="price-row"><span>Engineering</span><span>$48,500</span></div>
+        <div class="price-row"><span>Software Licences</span><span>$12,000</span></div>
+        <div class="price-row"><span>Commissioning</span><span>$9,200</span></div>
+        <div class="price-total"><span>GRAND TOTAL (EXCL. GST)</span><span>$69,700</span></div>
+      </div>
+    </div>
+    <div class="label-bar">
+      <h3>A — Clean Corporate</h3>
+      <p>White pages, blue accents on headers. Familiar, highly readable, classic professional format.</p>
+    </div>
+  </div>
+
+  <!-- Option B: Cover Page + Content -->
+  <div class="direction-card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="mock-b">
+      <div class="cover">
+        <div class="cover-brand">Pac Technologies</div>
+        <div><div class="cover-tag">Quotation</div></div>
+        <div class="cover-title">Automated Packaging Line</div>
+        <div class="cover-client">Prepared for Acme Manufacturing · 20 May 2026</div>
+        <div class="cover-num">Q-2026-001 · Rev 1</div>
+      </div>
+      <div class="content-page">
+        <div class="section-hdr">Scope of Work</div>
+        <div class="item"><div class="item-title">PLC Programming — Siemens S7-1500</div><div class="item-body">TIA Portal V18 structured text, FB design and commissioning support</div></div>
+        <hr class="divider">
+        <div class="item"><div class="item-title">HMI Development — WinCC Unified</div><div class="item-body">10 operator screens, alarm management, production trending</div></div>
+        <hr class="divider">
+        <div class="item"><div class="item-title">Site Commissioning</div><div class="item-body">5 days on-site, loop checks, FAT/SAT support</div></div>
+      </div>
+    </div>
+    <div class="label-bar">
+      <h3>B — Dark Cover + White Body</h3>
+      <p>Full dark-blue cover page for impact, clean white content pages. Proposal-quality feel.</p>
+    </div>
+  </div>
+
+  <!-- Option C: Accent Bar -->
+  <div class="direction-card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="mock-c">
+      <div class="sidebar"></div>
+      <div class="main">
+        <div class="hdr">
+          <div class="hdr-brand">Pac Technologies</div>
+          <div class="hdr-meta">Q-2026-001 · Rev 1<br>Acme Manufacturing</div>
+        </div>
+        <div class="cover">
+          <div class="cover-tag">Quotation</div>
+          <div class="cover-title">Automated Packaging Line</div>
+          <div class="cover-client">PAC-2026-042 · Acme Manufacturing · 20 May 2026</div>
+        </div>
+        <div class="body">
+          <div class="section-hdr">SCOPE OF WORK</div>
+          <div class="item"><div class="item-title">PLC Programming — S7-1500</div><div class="item-body">TIA Portal V18, FB design, structured text</div></div>
+          <div class="item"><div class="item-title">HMI Development</div><div class="item-body">WinCC Unified, 10 screens, alarms</div></div>
+          <div class="price-block">
+            <div class="price-total"><span>GRAND TOTAL EX GST</span><span>$69,700</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="label-bar">
+      <h3>C — Vertical Accent Bar</h3>
+      <p>Pac Blue gradient stripe down the left edge. Bold blue section headers. Strong brand presence throughout.</p>
+    </div>
+  </div>
+
+</div>

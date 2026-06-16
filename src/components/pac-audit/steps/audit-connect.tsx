@@ -325,7 +325,7 @@ export function AuditConnect({ session, onSessionUpdate }: AuditConnectProps) {
               { label: "UDTs", value: String(projectInfo.udt_count) },
               { label: "Tag Tables", value: String(projectInfo.tag_table_count) },
               { label: "HMI Screens", value: String(projectInfo.hmi_screen_count) },
-              { label: "Devices", value: String(projectInfo.device_count) },
+              { label: "Devices", value: String(projectInfo.control_module_count) },
             ].map((item) => (
               <div key={item.label}>
                 <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">

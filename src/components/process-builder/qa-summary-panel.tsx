@@ -225,7 +225,7 @@ export function QaSummaryPanel() {
             >
               {matrix.deviceLinkage.length === 0 ? (
                 <div className="font-mono text-xs text-muted-foreground/60">
-                  No devices in matrix yet
+                  No control_modules in matrix yet
                 </div>
               ) : (
                 <div className="space-y-1.5">
@@ -308,7 +308,7 @@ export function QaSummaryPanel() {
               )}
               {hasMatrix && (
                 <>
-                  {" "}&middot; {matrix.deviceLinkage.length} devices
+                  {" "}&middot; {matrix.deviceLinkage.length} control_modules
                   {" "}&middot; {matrix.processSequences.length} sequence(s)
                 </>
               )}

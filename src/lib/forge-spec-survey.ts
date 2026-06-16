@@ -17,19 +17,19 @@ const SURVEY_SCHEMA = `{
     {
       "id": "string (T01, T02, ...)",
       "name": "string (human-readable: 'Fan Staging System', 'Conveyor Infeed')",
-      "subsystem": "string (which logical subsystem)",
+      "unit": "string (which logical unit)",
       "start_anchors": ["string (2-3 literal text strings from the spec that mark WHERE this section starts — use exact heading text, table titles, or unique phrases)"],
       "end_anchors": ["string (2-3 literal text strings that mark WHERE this section ends)"],
-      "expected_device_count": "number (how many devices you expect to extract from this section)",
+      "expected_control_module_count": "number (how many control_modules you expect to extract from this section)",
       "expected_sequences": ["string (names of process sequences in this section)"],
       "extraction_notes": "string (brief note on what to focus on when extracting this target)"
     }
   ],
   "cross_cutting_concerns": {
-    "safety_systems": ["string (E-Stop circuits, safety relays, guard switches — shared across subsystems)"],
-    "global_settings": ["string (configurable parameters that apply to multiple subsystems — thresholds, timeouts)"],
+    "safety_systems": ["string (E-Stop circuits, safety relays, guard switches — shared across units)"],
+    "global_settings": ["string (configurable parameters that apply to multiple units — thresholds, timeouts)"],
     "hmi_requirements": ["string (HMI screens, pages, or display requirements mentioned)"],
-    "shared_interlocks": ["string (interlocks that span multiple subsystems)"]
+    "shared_interlocks": ["string (interlocks that span multiple units)"]
   }
 }`;
 
@@ -40,21 +40,21 @@ Your job is NOT to extract detailed data. Your job is to READ THE ENTIRE DOCUMEN
 
 ## What You Must Do
 
-1. **Identify all subsystems/logical groups** in the spec. Each becomes an extraction target.
-   - A subsystem is a self-contained group of devices that work together (e.g., "Fan Cooling System", "Conveyor Infeed Section", "Packaging Station")
+1. **Identify all units/logical groups** in the spec. Each becomes an extraction target.
+   - A unit is a self-contained group of control_modules that work together (e.g., "Fan Cooling System", "Conveyor Infeed Section", "Packaging Station")
    - If the spec has clear section headings, use those as boundaries
    - If not, group by function/purpose
 
 2. **For each extraction target**, provide:
    - **start_anchors**: 2-3 literal text strings copied EXACTLY from the spec that mark where this section begins. Use heading text, table titles, or unique phrases. These will be used for substring matching — they must appear verbatim in the document.
    - **end_anchors**: 2-3 literal text strings that mark where this section ends (typically the start of the next section)
-   - **expected_device_count**: how many physical devices (motors, sensors, valves, buttons) you see in this section
+   - **expected_control_module_count**: how many physical control_modules (motors, sensors, valves, buttons) you see in this section
    - **expected_sequences**: names of any process sequences described in this section
    - **extraction_notes**: what's important to capture — especially ANALOG THRESHOLDS, TEMPERATURE/PRESSURE/LEVEL CONDITIONS, STAGED OPERATIONS, and CONDITIONAL LOGIC
 
-3. **Identify cross-cutting concerns** that span multiple subsystems:
+3. **Identify cross-cutting concerns** that span multiple units:
    - Safety systems (E-Stop, safety relays)
-   - Global configurable settings (thresholds, timeouts used by multiple subsystems)
+   - Global configurable settings (thresholds, timeouts used by multiple units)
    - HMI requirements
    - Shared interlocks
 
@@ -63,9 +63,9 @@ Your job is NOT to extract detailed data. Your job is to READ THE ENTIRE DOCUMEN
 - SCAN THE ENTIRE DOCUMENT. Do not stop after the first few sections.
 - Prefer MORE extraction targets over fewer. A spec should have 5-15 targets, not 1-3.
 - Each target should cover roughly 3-15 pages of spec content. NEVER create a target spanning more than 20 pages.
-- If a section contains BOTH devices AND process sequences for ONE subsystem, keep them in ONE target.
-- If process sequences span MULTIPLE subsystems or states, split them into SEPARATE targets (e.g. one target per state: "Idle State", "Starting Sequence", "Execute State", "E-Stop State"). NEVER bundle all sequences into a single target.
-- Safety devices (E-Stop) that are shared across subsystems go in cross_cutting_concerns, but also include them in the extraction target where they're physically described.
+- If a section contains BOTH control_modules AND process sequences for ONE unit, keep them in ONE target.
+- If process sequences span MULTIPLE units or states, split them into SEPARATE targets (e.g. one target per state: "Idle State", "Starting Sequence", "Execute State", "E-Stop State"). NEVER bundle all sequences into a single target.
+- Safety control_modules (E-Stop) that are shared across units go in cross_cutting_concerns, but also include them in the extraction target where they're physically described.
 - The anchors must be EXACT TEXT from the document — not paraphrased, not summarized.
 - If the spec is in Italian, still use the original Italian text for anchors (they need to match the source).
 
@@ -82,7 +82,7 @@ export function buildSurveyUserMessage(specText: string): string {
 ${specText}
 </spec_document>
 
-Survey this specification. Identify all subsystems, find their text boundaries, and produce the section map JSON.`;
+Survey this specification. Identify all units, find their text boundaries, and produce the section map JSON.`;
 }
 
 export function validateSurveyResult(parsed: unknown): SpecSurveyResult {
@@ -95,10 +95,10 @@ export function validateSurveyResult(parsed: unknown): SpecSurveyResult {
     ? (obj.extraction_targets as Array<Record<string, unknown>>).map((t, i) => ({
         id: (t.id as string) ?? `T${String(i + 1).padStart(2, "0")}`,
         name: (t.name as string) ?? `Target ${i + 1}`,
-        subsystem: (t.subsystem as string) ?? "",
+        unit: (t.unit as string) ?? "",
         start_anchors: Array.isArray(t.start_anchors) ? (t.start_anchors as string[]) : [],
         end_anchors: Array.isArray(t.end_anchors) ? (t.end_anchors as string[]) : [],
-        expected_device_count: typeof t.expected_device_count === "number" ? t.expected_device_count : 0,
+        expected_control_module_count: typeof t.expected_control_module_count === "number" ? t.expected_control_module_count : 0,
         expected_sequences: Array.isArray(t.expected_sequences) ? (t.expected_sequences as string[]) : [],
         extraction_notes: (t.extraction_notes as string) ?? "",
       }))

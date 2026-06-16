@@ -25,29 +25,29 @@ export function mergePartialAnalyses(
   partials: PartialSpecAnalysis[],
 ): SpecAnalysis {
   // Concat all arrays from partials
-  const allDevices = partials.flatMap((p) => p.devices);
-  const allAssemblies = partials.flatMap((p) => p.assemblies ?? []);
+  const allDevices = partials.flatMap((p) => p.control_modules);
+  const allAssemblies = partials.flatMap((p) => p.equipment_modules ?? []);
   const allSequences = partials.flatMap((p) => p.process_sequences);
   const allAlarms = partials.flatMap((p) => p.alarms);
   const allInterlocks = partials.flatMap((p) => p.interlocks);
   const allSettings = partials.flatMap((p) => p.process_settings);
   const allHardware = partials.flatMap((p) => p.hardware_rack);
-  const allSubsystems = partials.flatMap((p) => p.subsystems);
+  const allSubsystems = partials.flatMap((p) => p.units);
 
   // Deduplicate
-  const devices = deduplicateDevices(allDevices);
-  const assemblies = deduplicateAssemblies(allAssemblies);
+  const control_modules = deduplicateDevices(allDevices);
+  const equipment_modules = deduplicateAssemblies(allAssemblies);
   const alarms = deduplicateAlarms(allAlarms);
   const interlocks = deduplicateInterlocks(allInterlocks);
   const processSettings = deduplicateSettings(allSettings);
   const hardwareRack = deduplicateHardware(allHardware);
-  const subsystems = deduplicateSubsystems(allSubsystems);
+  const units = deduplicateSubsystems(allSubsystems);
 
   // Assign sequential IDs
-  devices.forEach((d, i) => {
+  control_modules.forEach((d, i) => {
     d.id = `DEV${String(i + 1).padStart(3, "0")}`;
   });
-  assemblies.forEach((a, i) => {
+  equipment_modules.forEach((a, i) => {
     a.id = `ASM${String(i + 1).padStart(3, "0")}`;
   });
 
@@ -61,20 +61,20 @@ export function mergePartialAnalyses(
     hardware_rack: hardwareRack.length > 0 ? hardwareRack : undefined,
     process_settings: processSettings.length > 0 ? processSettings : undefined,
     fb_architecture: null,
-    subsystems,
-    assemblies,
-    devices,
+    units,
+    equipment_modules,
+    control_modules,
     process_sequences: allSequences,
     alarms,
     interlocks,
   };
 }
 
-/** Deduplicate devices by tag (exact, case-insensitive). Keep the one with more IO signals. */
-function deduplicateDevices(devices: SpecAnalysisDevice[]): SpecAnalysisDevice[] {
+/** Deduplicate control_modules by tag (exact, case-insensitive). Keep the one with more IO signals. */
+function deduplicateDevices(control_modules: SpecAnalysisDevice[]): SpecAnalysisDevice[] {
   const seen = new Map<string, SpecAnalysisDevice>();
 
-  for (const device of devices) {
+  for (const device of control_modules) {
     const key = (device.tag || device.name).toLowerCase();
     const existing = seen.get(key);
     if (!existing) {
@@ -114,7 +114,7 @@ function deduplicateAlarms(alarms: SpecAnalysisAlarm[]): SpecAnalysisAlarm[] {
   return Array.from(seen.values());
 }
 
-/** Deduplicate interlocks by name. Merge affected_devices arrays. */
+/** Deduplicate interlocks by name. Merge affected_control_modules arrays. */
 function deduplicateInterlocks(interlocks: SpecAnalysisInterlock[]): SpecAnalysisInterlock[] {
   const seen = new Map<string, SpecAnalysisInterlock>();
 
@@ -125,10 +125,10 @@ function deduplicateInterlocks(interlocks: SpecAnalysisInterlock[]): SpecAnalysi
       seen.set(key, { ...interlock });
     } else {
       const merged = new Set([
-        ...(existing.affected_devices ?? []),
-        ...(interlock.affected_devices ?? []),
+        ...(existing.affected_control_modules ?? []),
+        ...(interlock.affected_control_modules ?? []),
       ]);
-      existing.affected_devices = Array.from(merged);
+      existing.affected_control_modules = Array.from(merged);
     }
   }
 
@@ -167,12 +167,12 @@ function deduplicateHardware(slots: SpecAnalysisHardwareSlot[]): SpecAnalysisHar
   return Array.from(seen.values()).sort((a, b) => a.slot - b.slot);
 }
 
-/** Deduplicate subsystems by name (case-insensitive). */
+/** Deduplicate units by name (case-insensitive). */
 function deduplicateSubsystems(
-  subsystems: Array<{ name: string; description: string }>,
+  units: Array<{ name: string; description: string }>,
 ): Array<{ name: string; description: string }> {
   const seen = new Map<string, { name: string; description: string }>();
-  for (const sub of subsystems) {
+  for (const sub of units) {
     const key = sub.name.toLowerCase();
     if (!seen.has(key)) {
       seen.set(key, sub);
@@ -181,18 +181,18 @@ function deduplicateSubsystems(
   return Array.from(seen.values());
 }
 
-/** Deduplicate assemblies by tag (case-insensitive). Keep the one with more device_ids. */
-function deduplicateAssemblies(assemblies: SpecAnalysisAssembly[]): SpecAnalysisAssembly[] {
+/** Deduplicate equipment_modules by tag (case-insensitive). Keep the one with more control_module_ids. */
+function deduplicateAssemblies(equipment_modules: SpecAnalysisAssembly[]): SpecAnalysisAssembly[] {
   const seen = new Map<string, SpecAnalysisAssembly>();
 
-  for (const assembly of assemblies) {
-    const key = (assembly.tag || assembly.name).toLowerCase();
+  for (const equipment_module of equipment_modules) {
+    const key = (equipment_module.tag || equipment_module.name).toLowerCase();
     const existing = seen.get(key);
     if (!existing) {
-      seen.set(key, assembly);
+      seen.set(key, equipment_module);
     } else {
-      if ((assembly.device_ids ?? []).length > (existing.device_ids ?? []).length) {
-        seen.set(key, assembly);
+      if ((equipment_module.control_module_ids ?? []).length > (existing.control_module_ids ?? []).length) {
+        seen.set(key, equipment_module);
       }
     }
   }

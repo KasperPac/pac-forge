@@ -332,49 +332,35 @@ LAD (Ladder Logic) editor at `/pac-lad` → `src/routes/pac-lad.tsx`. Key files:
 - Prefer deterministic, auditable implementations over cleverness
 - Ask for missing requirements only when truly required
 
-## Machine Hierarchy (Non-negotiable)
+## Machine Hierarchy — ISA-88 Part 1 Compliant (Non-negotiable)
 
-Pac-Forge models machines with a 4-level hierarchy based on **ISA-88** (the physical
-equipment model), with **PackML** governing the state/behaviour layer. These are
-industry standards, not a custom Pac convention. The functional spec defines the
-structure — the AI **extracts** it, never invents it.
+The forge wizard uses a 4-level hierarchy per ANSI/ISA-88.00.01 §4.4 (Physical Model):
 
-| Label (used in code/DB/UI) | ISA-88 equivalent | Definition | Code artifact |
-|---|---|---|---|
-| **System** | Process Cell | The whole machine / production line | Sequence logic (top orchestration) |
-| **Subsystem** | Unit | The set of assemblies governed by **one** coordinated operating sequence | Sequence logic (step sequencer) that calls assembly FBs |
-| **Assembly** | Equipment Module | A coordinated group of devices that run together (a conveyor, a drive) | Its **own FB**, with named signal I/O wired to device signals |
-| **Device** | Control Module | A single physical thing with IO signals (motor, sensor, valve, push button) | An FB instance in a per-type device layer (e.g. `SEN[4]`, `MOT[2]`) |
-
-**FB-assignment model:**
-- Every **device** gets its own FB instance, organised by type in a device layer.
-- Every **assembly** gets its own FB with named signal inputs/outputs. The assembly FB
-  does **not** instantiate device FBs — its inputs are wired externally to device-FB
-  members (e.g. `Sensor_A <- SEN[4].Ctrl.OutDelayOnOff`).
-- **Subsystem** and **System** levels are **sequence logic** that drive the assembly FBs,
-  not wrapper FBs that contain them.
-- Devices and assemblies are peers in code, coupled by wiring; a shared device can feed
-  multiple assemblies. "Device under assembly" in the spec tree is a logical grouping,
-  not code ownership.
-
-**Subsystem boundary rule:**
-- **Default to a single subsystem** (= the machine). A lone assembly is never its own subsystem.
-- Create multiple subsystems **only** when the spec describes assemblies running under
-  **independent operating sequences** (e.g. an infeed area vs. an outfeed area), or
-  replicated identical systems.
-- Extract subsystem boundaries from the spec document — **never invent** them. When only
-  an instrument register is available (no document), default to one subsystem and let the
-  engineer split manually.
+- **Process Cell** — the full machine / production line (§4.4.3.3)
+- **Unit** — a functional station carrying out a major processing activity (e.g. "Carriage Unit", "Safety Unit") (§4.4.3.4)
+- **Equipment Module** — a coordinated group of control modules that carries out a finite number of specific minor processing activities (e.g. "Carriage Drive", "Rotator Brake") (§4.4.3.5). COLLAPSIBLE per §4.4.3.7 — when collapsed, Control Modules belong directly to the Unit.
+- **Control Module** — a single physical device with IO signals (e.g. motor M01, limit switch LS_TOP, solenoid SOL_UP) (§4.4.3.6). Gets an FB (basic control), instance DB, and IO wiring.
 
 **Rules:**
-- Only **devices** appear in the device list. **Assemblies** and **devices** both get FBs.
-- **Assemblies** are driven by subsystem/system process-sequence logic.
-- The spec builder outputs this hierarchy — the wizard extracts it directly.
+- Only **Control Modules** appear in the control module list and get FBs (basic control, `CM_` prefix)
+- **Equipment Modules** get FBs with state machines (procedural control, `EM_` prefix)
+- **Units** are coordination — each typically has its own Unit Procedure(s) (coordination control, `UC_` prefix)
+- A Process Cell with 3 conveyors and 2 lift tables = 5 equipment modules across however many units
+- Equipment Module layer is optional — when collapsed, Control Modules belong directly to the Unit
+- Default to a single Unit; create more only when the spec describes equipment modules running under independent operating sequences. Extract boundaries from the spec — never invent them.
+- The spec builder outputs this hierarchy — the wizard extracts it directly
 
-**State/behaviour layer — PackML (ISA-TR88.00.02 / OMAC):** operating states, modes, and
-the machine data interface (PackTags) follow PackML. The spec-builder already uses the
-PackML state model (`state-machine.ts`, `OperatingStateV2`, `CANONICAL_STATES`); treat
-PackML as the standard for the state/mode layer.
+**State/behaviour layer — PackML (ISA-TR88.00.02 / OMAC):** operating states, modes, and the machine data interface (PackTags) follow PackML. The spec-builder uses the PackML state model (`state-machine.ts`, `OperatingStateV2`, `CANONICAL_STATES`); treat PackML as the standard for the state/mode layer.
+
+**Three Control Types (ISA-88 §5):**
+- **Basic Control** (§5.2) → Control Module FBs (`CM_` prefix) — direct IO, no state machine
+- **Procedural Control** (§5.3) → Equipment Module FBs (`EM_` prefix) — state machine, calls CM FBs
+- **Coordination Control** (§5.4) → Unit/System FCs (`UC_`/`SC_` prefix) — coordinates EMs, manages interlocks
+
+**Process vs Procedure (ISA-88 §4.3 vs §5.3):**
+- Process Model = WHAT happens to the product (product-centric)
+- Procedural Model = HOW the equipment does it (equipment-centric)
+- Both are maintained in the FDS
 
 ## Critical: All Changes Must Be Generic (Non-negotiable)
 

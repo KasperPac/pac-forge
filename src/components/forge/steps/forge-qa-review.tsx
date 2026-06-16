@@ -27,9 +27,9 @@ function SpecSummaryCard({ analysis }: { analysis: SpecAnalysis }) {
   const missingFields: string[] = [];
   if (fieldMissing(analysis.plc_type)) missingFields.push("PLC type");
   if (fieldMissing(analysis.hmi_type)) missingFields.push("HMI type");
-  if ((analysis.devices ?? []).length === 0) missingFields.push("Devices");
+  if ((analysis.control_modules ?? []).length === 0) missingFields.push("Devices");
   if ((analysis.process_sequences ?? []).length === 0) missingFields.push("Process sequences");
-  const devicesWithoutIo = (analysis.devices ?? []).filter((d) => !d.io_signals?.length);
+  const control_modulesWithoutIo = (analysis.control_modules ?? []).filter((d) => !d.io_signals?.length);
 
   return (
     <div className="flex flex-col gap-3">
@@ -58,7 +58,7 @@ function SpecSummaryCard({ analysis }: { analysis: SpecAnalysis }) {
 
       <div className="grid grid-cols-2 gap-2">
         {[
-          { label: "Devices", count: (analysis.devices ?? []).length },
+          { label: "Devices", count: (analysis.control_modules ?? []).length },
           { label: "Sequences", count: (analysis.process_sequences ?? []).length },
           { label: "Alarms", count: (analysis.alarms ?? []).length },
           { label: "Interlocks", count: (analysis.interlocks ?? []).length },
@@ -72,18 +72,18 @@ function SpecSummaryCard({ analysis }: { analysis: SpecAnalysis }) {
         ))}
       </div>
 
-      {(analysis.subsystems ?? []).length > 0 && (
+      {(analysis.units ?? []).length > 0 && (
         <div>
           <div className="mb-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Subsystems</div>
           <div className="flex flex-wrap gap-1">
-            {(analysis.subsystems ?? []).map((s) => (
+            {(analysis.units ?? []).map((s) => (
               <Badge key={s.name} variant="outline" className="font-mono text-[10px]">{s.name}</Badge>
             ))}
           </div>
         </div>
       )}
 
-      {(missingFields.length > 0 || devicesWithoutIo.length > 0) && (
+      {(missingFields.length > 0 || control_modulesWithoutIo.length > 0) && (
         <div className="rounded border border-amber-600/30 bg-amber-500/5 px-3 py-2">
           <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-amber-500">
             <AlertCircle className="h-3 w-3" />
@@ -93,9 +93,9 @@ function SpecSummaryCard({ analysis }: { analysis: SpecAnalysis }) {
             {missingFields.map((f) => (
               <li key={f} className="text-xs text-amber-400/90">• {f} not specified</li>
             ))}
-            {devicesWithoutIo.length > 0 && (
+            {control_modulesWithoutIo.length > 0 && (
               <li className="text-xs text-amber-400/90">
-                • {devicesWithoutIo.length} device{devicesWithoutIo.length > 1 ? "s" : ""} without IO signals
+                • {control_modulesWithoutIo.length} device{control_modulesWithoutIo.length > 1 ? "s" : ""} without IO signals
               </li>
             )}
           </ul>

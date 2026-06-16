@@ -25,11 +25,12 @@
  *     model from flipping between them randomly
  */
 import type {
-  AssemblyConfig,
-  SubsystemConfig,
+  EquipmentModuleConfig,
+  UnitConfig,
   InstrumentTag,
-  DeviceStateEntry,
+  ControlModuleStateEntry,
   OperatingState,
+  ProcessModel,
 } from "@/types/spec-builder";
 import type {
   OperatingStateV2,
@@ -41,33 +42,33 @@ import {
 } from "./system-orchestration-prompts";
 
 export function buildFdsInterviewSystemPrompt(
-  assembly: AssemblyConfig,
-  subsystem: SubsystemConfig,
+  equipment_module: EquipmentModuleConfig,
+  unit: UnitConfig,
   tags: InstrumentTag[],
-  staticStates: Record<string, DeviceStateEntry[]>,
+  staticStates: Record<string, ControlModuleStateEntry[]>,
   completedSequentialStates: Record<string, SequentialStateV2>,
   allStates: OperatingStateV2[],
 ): string {
   // --- Data gathering (unchanged from original) ---
-  const assemblyTagNames = new Set<string>();
-  for (const dev of assembly.devices) {
+  const equipment_moduleTagNames = new Set<string>();
+  for (const dev of equipment_module.control_modules) {
     for (const sig of dev.io_signals) {
-      assemblyTagNames.add(sig.tag);
+      equipment_moduleTagNames.add(sig.tag);
     }
   }
-  const assemblyTags = tags.filter((t) => assemblyTagNames.has(t.tag));
+  const equipment_moduleTags = tags.filter((t) => equipment_moduleTagNames.has(t.tag));
 
-  const deviceList = assembly.devices.map((d) => {
+  const deviceList = equipment_module.control_modules.map((d) => {
     const signals = d.io_signals.map((s) => `${s.tag} (${s.signal_type})`).join(", ");
-    return `  - ${d.device_name} (${d.device_class}${d.is_safety ? ", SAFETY" : ""}): ${signals}`;
+    return `  - ${d.control_module_name} (${d.control_module_class}${d.is_safety ? ", SAFETY" : ""}): ${signals}`;
   }).join("\n");
 
-  const outputTags = assemblyTags
+  const outputTags = equipment_moduleTags
     .filter((t) => t.signal_direction === "DO" || t.signal_direction === "AO")
     .map((t) => `  - ${t.tag}: ${t.description} (${t.signal_direction})`)
     .join("\n");
 
-  const inputTags = assemblyTags
+  const inputTags = equipment_moduleTags
     .filter((t) => t.signal_direction === "DI" || t.signal_direction === "AI")
     .map((t) => `  - ${t.tag}: ${t.description} (${t.signal_direction})`)
     .join("\n");
@@ -102,12 +103,12 @@ export function buildFdsInterviewSystemPrompt(
   const firstSequentialStateId = sequentialStatesList[0]?.state_id ?? "";
 
   // --- Revised prompt template ---
-  return `You are a senior automation engineer co-authoring a functional specification with the project engineer for Assembly "${assembly.assembly_name}" (assembly_id: "${assembly.assembly_id}") within subsystem "${subsystem.subsystem_name}" (subsystem_id: "${subsystem.subsystem_id}", ${subsystem.equipment_type}).
+  return `You are a senior automation engineer co-authoring a functional specification with the project engineer for Equipment Module "${equipment_module.equipment_module_name}" (equipment_module_id: "${equipment_module.equipment_module_id}") within unit "${unit.unit_name}" (unit_id: "${unit.unit_id}", ${unit.equipment_type}).
 
 # IMMUTABLE IDENTIFIERS
 Echo these back verbatim — never mutate or paraphrase.
-- assembly_id: ${assembly.assembly_id}
-- subsystem_id: ${subsystem.subsystem_id}
+- equipment_module_id: ${equipment_module.equipment_module_id}
+- unit_id: ${unit.unit_id}
 - state_id: MUST be a number from the SEQUENTIAL STATES REMAINING list below (PackML 1..17 or a custom state >100). Never invent a state_id. Never use a name as the state_id.
 
 # ASSEMBLY DEVICES
@@ -206,7 +207,7 @@ Examples: \`F_LFT01_PUMP_START\`, \`F_CV01_VALVE_OPEN\`, \`F_LFT01_LEVEL_LOW\`.
 \`on_fail_severity\` MUST be one of:
 - \`"warning"\` — step retries or continues; operator notified
 - \`"fault"\` — state aborts to Fault state; manual reset required
-- \`"critical"\` — subsystem-wide shutdown; safety-relevant
+- \`"critical"\` — unit-wide shutdown; safety-relevant
 
 ## Branching
 Use multiple \`branches[]\` entries only when the step has >1 possible successor depending on a runtime condition (material type, part presence, mode selection). If the step has exactly one successor, use a single \`branches[]\` entry containing its completion conditions.
@@ -414,29 +415,29 @@ If you have no table update to propose (still gathering info), do not include a 
 // ---------------------------------------------------------------------------
 
 export function buildFdsOpeningMessage(
-  assembly: AssemblyConfig,
+  equipment_module: EquipmentModuleConfig,
   tags: InstrumentTag[],
   firstSequentialState: OperatingState,
 ): string {
-  const assemblyTagNames = new Set<string>();
-  for (const dev of assembly.devices) {
+  const equipment_moduleTagNames = new Set<string>();
+  for (const dev of equipment_module.control_modules) {
     for (const sig of dev.io_signals) {
-      assemblyTagNames.add(sig.tag);
+      equipment_moduleTagNames.add(sig.tag);
     }
   }
-  const assemblyTags = tags.filter((t) => assemblyTagNames.has(t.tag));
+  const equipment_moduleTags = tags.filter((t) => equipment_moduleTagNames.has(t.tag));
 
-  const outputs = assemblyTags
+  const outputs = equipment_moduleTags
     .filter((t) => t.signal_direction === "DO" || t.signal_direction === "AO")
     .map((t) => `${t.tag} (${t.description})`)
     .join(", ");
 
-  const inputs = assemblyTags
+  const inputs = equipment_moduleTags
     .filter((t) => t.signal_direction === "DI" || t.signal_direction === "AI")
     .map((t) => `${t.tag} (${t.description})`)
     .join(", ");
 
-  return `Generate the opening message for the assembly interview. The assembly is "${assembly.assembly_name}" (${assembly.description || "no description"}).
+  return `Generate the opening message for the equipment_module interview. The equipment_module is "${equipment_module.equipment_module_name}" (${equipment_module.description || "no description"}).
 
 Outputs: ${outputs}
 Inputs: ${inputs}
@@ -445,26 +446,26 @@ Ask about the "${firstSequentialState.state_name}" state first. Be specific — 
 }
 
 // ---------------------------------------------------------------------------
-// Subsystem orchestration interview
+// Unit orchestration interview
 // ---------------------------------------------------------------------------
 
 export function buildFdsOrchestrationSystemPrompt(
-  subsystem: SubsystemConfig,
-  assemblySummaries: Array<{
-    assembly_name: string;
-    assembly_id: string;
+  unit: UnitConfig,
+  equipment_moduleSummaries: Array<{
+    equipment_module_name: string;
+    equipment_module_id: string;
     sequential_states: Record<string, SequentialStateV2>;
   }>,
   sequentialStates: OperatingStateV2[],
 ): string {
-  const assemblySummaryText = assemblySummaries.map((a) => {
+  const equipment_moduleSummaryText = equipment_moduleSummaries.map((a) => {
     const stateText = Object.entries(a.sequential_states)
       .map(([stateId, data]) => {
         const matched = sequentialStates.find((s) => String(s.state_id) === stateId);
         const stateName = matched?.display_name ?? matched?.state_name ?? stateId;
         return `    ${stateName}: ${data.steps.length} step(s), ${data.permissives.length} permissive(s)`;
       }).join("\n");
-    return `  ${a.assembly_name} (${a.assembly_id}):\n${stateText}`;
+    return `  ${a.equipment_module_name} (${a.equipment_module_id}):\n${stateText}`;
   }).join("\n");
 
   const sequentialStatesTable = sequentialStates
@@ -473,23 +474,23 @@ export function buildFdsOrchestrationSystemPrompt(
 
   const firstSequentialStateId = sequentialStates[0]?.state_id ?? 6;
 
-  return `You are a senior automation engineer defining how assemblies coordinate within subsystem "${subsystem.subsystem_name}" (${subsystem.equipment_type}).
+  return `You are a senior automation engineer defining how equipment_modules coordinate within unit "${unit.unit_name}" (${unit.equipment_type}).
 
-Individual assembly behaviors are already defined. Now you need to define:
-1. The ORDER in which assemblies execute for each sequential state
-2. SHARED PERMISSIVES that gate the entire subsystem (not just one assembly)
-3. INTER-ASSEMBLY INTERLOCKS — conditions where one assembly's state affects another
+Individual equipment_module behaviors are already defined. Now you need to define:
+1. The ORDER in which equipment_modules execute for each sequential state
+2. SHARED PERMISSIVES that gate the entire unit (not just one equipment_module)
+3. INTER-EQUIPMENT-MODULE INTERLOCKS — conditions where one equipment_module's state affects another
 
 ASSEMBLIES IN THIS SUBSYSTEM:
-${assemblySummaryText}
+${equipment_moduleSummaryText}
 
 SEQUENTIAL STATES (state_id is a number — emit it verbatim):
 ${sequentialStatesTable}
 
 Ask the engineer about:
-- Execution order: Do assemblies start simultaneously, sequentially, or in groups?
-- Dependencies: Must assembly A reach a certain state before assembly B can start?
-- Shared conditions: Are there subsystem-wide permissives beyond individual assembly permissives?
+- Execution order: Do equipment_modules start simultaneously, sequentially, or in groups?
+- Dependencies: Must equipment_module A reach a certain state before equipment_module B can start?
+- Shared conditions: Are there unit-wide permissives beyond individual equipment_module permissives?
 
 ${INTERLOCK_EFFECTS_DOC}
 
@@ -498,19 +499,19 @@ Each shared_permissive is a structured object:
 {
   "permissive_id": "<stable slug, e.g. SP_ESTOP_OK>",
   "condition": <CompletionCriterion — see below>,
-  "source_subsystem": "<optional subsystem_id that owns the signal>",
+  "source_unit": "<optional unit_id that owns the signal>",
   "prose": "<one-line natural language>"
 }
 
 ${COMPLETION_CRITERION_DOC}
 
 RESPONSE FORMAT:
-When you propose orchestration for a state, include a fenced JSON block at the END of your message. The state_id is a NUMBER from the SEQUENTIAL STATES list above. assembly_order, source_assembly, and target_assembly must be assembly_ids from this subsystem.
+When you propose orchestration for a state, include a fenced JSON block at the END of your message. The state_id is a NUMBER from the SEQUENTIAL STATES list above. equipment_module_order, source_equipment_module, and target_equipment_module must be equipment_module_ids from this unit.
 
 \`\`\`json
 {
   "state_id": ${firstSequentialStateId},
-  "assembly_order": ["00000000-0000-4000-8000-...asm1", "00000000-0000-4000-8000-...asm2"],
+  "equipment_module_order": ["00000000-0000-4000-8000-...asm1", "00000000-0000-4000-8000-...asm2"],
   "shared_permissives": [
     {
       "permissive_id": "SP_ESTOP_OK",
@@ -518,14 +519,14 @@ When you propose orchestration for a state, include a fenced JSON block at the E
       "prose": "Emergency stop circuit healthy"
     }
   ],
-  "inter_assembly_interlocks": [
+  "inter_equipment_module_interlocks": [
     {
       "interlock_id": "IL_LFT01_LIMIT_TO_CV01_START",
-      "source_assembly": "00000000-0000-4000-8000-...asm1",
+      "source_equipment_module": "00000000-0000-4000-8000-...asm1",
       "source_condition": { "kind": "tag_equals", "tag": "LFT01_ZSL01", "value": true },
-      "target_assembly": "00000000-0000-4000-8000-...asm2",
+      "target_equipment_module": "00000000-0000-4000-8000-...asm2",
       "effect": "enable",
-      "effect_target": { "assembly": "00000000-0000-4000-8000-...asm2", "state_id": 3 },
+      "effect_target": { "equipment_module": "00000000-0000-4000-8000-...asm2", "state_id": 3 },
       "prose": "CV01 may begin Starting once LFT01 reaches its lower limit"
     }
   ],
@@ -533,19 +534,140 @@ When you propose orchestration for a state, include a fenced JSON block at the E
 }
 \`\`\`
 
-Required fields per interlock: interlock_id (stable slug), source_assembly, source_condition (CompletionCriterion), target_assembly, effect (from the closed set above), prose (one-line natural language for DOCX rendering). effect_target is REQUIRED when effect is "block_transition" or "trigger"; optional otherwise.
+Required fields per interlock: interlock_id (stable slug), source_equipment_module, source_condition (CompletionCriterion), target_equipment_module, effect (from the closed set above), prose (one-line natural language for DOCX rendering). effect_target is REQUIRED when effect is "block_transition" or "trigger"; optional otherwise.
 
 Only include a JSON block when you have a concrete update to persist. When asking clarifying questions, omit it. Keep prose concise — the engineer is a peer.`;
 }
 
 export function buildFdsOrchestrationOpeningMessage(
-  subsystem: SubsystemConfig,
-  assemblyNames: string[],
+  unit: UnitConfig,
+  equipment_moduleNames: string[],
   firstSequentialState: OperatingState,
 ): string {
-  return `Generate the opening message for subsystem orchestration. Subsystem "${subsystem.subsystem_name}" has ${assemblyNames.length} assemblies: ${assemblyNames.join(", ")}.
+  return `Generate the opening message for unit orchestration. Unit "${unit.unit_name}" has ${equipment_moduleNames.length} equipment_modules: ${equipment_moduleNames.join(", ")}.
 
-Ask about the "${firstSequentialState.state_name}" state: in what order do the assemblies execute, and are there dependencies between them? Be specific and concise.`;
+Ask about the "${firstSequentialState.state_name}" state: in what order do the equipment_modules execute, and are there dependencies between them? Be specific and concise.`;
+}
+
+// ---------------------------------------------------------------------------
+// Process Model authoring prompt (ISA-88 §4.3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the system prompt for AI-driven Process Model generation.
+ * Given the confirmed physical hierarchy (Units + Equipment Modules) and
+ * operating states, the AI proposes a product-centric Process Model that
+ * maps to the existing physical/procedural structure.
+ */
+export function buildProcessModelSystemPrompt(
+  units: UnitConfig[],
+  systemDescription: string | null,
+  existingModel: ProcessModel | null,
+): string {
+  const hierarchyBlock = units
+    .filter((u) => !u.excluded)
+    .map((u) => {
+      const ems = u.equipment_modules
+        .map((em) => `    - Equipment Module: ${em.equipment_module_name} (${em.equipment_module_id})`)
+        .join("\n");
+      return `  - Unit: ${u.unit_name} (${u.unit_id})\n${ems}`;
+    })
+    .join("\n");
+
+  const existingBlock = existingModel
+    ? `\n## EXISTING PROCESS MODEL (edit/refine this)\n\`\`\`json\n${JSON.stringify(existingModel, null, 2)}\n\`\`\``
+    : "";
+
+  return `You are an ISA-88 Process Model specialist.
+
+## YOUR TASK
+
+Propose a Process Model (ISA-88 §4.3) for the machine described below.
+The Process Model is PRODUCT-CENTRIC — it describes what happens to the
+product/material, not how the equipment does it.
+
+## ISA-88 PROCESS MODEL HIERARCHY
+
+Process
+  └── Process Stage    (maps to a Unit — one stage per unit that transforms product)
+        └── Process Operation  (maps to an Equipment Module — what that EM does to product)
+              └── Process Action   (maps to a Control Module action — lowest product transformation)
+
+## RULES
+
+1. Every Process Stage MUST reference an existing unit_id from the hierarchy below.
+2. Every Process Operation MUST reference an existing equipment_module_id from the hierarchy below.
+3. Process Stages describe PRODUCT TRANSFORMATION, not equipment behavior.
+   - GOOD: "Heat Treatment", "Material Transport", "Mixing"
+   - BAD: "Run Motor", "Open Valve" (these are equipment actions, not product transformations)
+4. Use plain descriptive names — no tag prefixes, no PLC naming.
+5. Stage order reflects the production sequence (order field, 1-based).
+6. Keep descriptions concise (1-2 sentences).
+7. If an Equipment Module does not transform the product (e.g. pure safety systems),
+   it may be omitted from the Process Model or included with a monitoring operation.
+
+## PHYSICAL HIERARCHY (confirmed)
+
+${hierarchyBlock}
+
+${systemDescription ? `## SYSTEM DESCRIPTION\n\n${systemDescription}` : ""}
+${existingBlock}
+
+## OUTPUT FORMAT
+
+Respond with a JSON block containing the Process Model:
+
+\`\`\`json
+{
+  "process_name": "string",
+  "process_description": "string",
+  "stages": [
+    {
+      "stage_id": "PS_01",
+      "stage_name": "string",
+      "description": "string",
+      "unit_id": "existing unit_id",
+      "order": 1,
+      "operations": [
+        {
+          "operation_id": "PO_01_01",
+          "operation_name": "string",
+          "description": "string",
+          "equipment_module_id": "existing equipment_module_id",
+          "actions": [
+            {
+              "action_id": "PA_01_01_01",
+              "action_name": "string",
+              "description": "string",
+              "control_module_tag": "optional tag"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+\`\`\`
+
+${existingModel ? "Refine the existing model based on the engineer's feedback." : "Propose an initial Process Model based on the hierarchy and system description."}
+After the JSON block, briefly explain your rationale for the stage ordering and grouping.`;
+}
+
+/**
+ * Build the opening user message that kicks off Process Model authoring.
+ */
+export function buildProcessModelOpeningMessage(
+  units: UnitConfig[],
+  existingModel: ProcessModel | null,
+): string {
+  if (existingModel) {
+    return "Please review and refine the existing Process Model. Is the stage ordering correct? Are any operations missing or misplaced?";
+  }
+  const unitNames = units
+    .filter((u) => !u.excluded)
+    .map((u) => u.unit_name)
+    .join(", ");
+  return `Please propose an ISA-88 Process Model for this machine. The confirmed units are: ${unitNames}. What does the product go through from start to finish?`;
 }
 
 // ---------------------------------------------------------------------------

@@ -53,7 +53,7 @@ export function AuditReady({ session, onSessionUpdate }: AuditReadyProps) {
           .eq("audit_project_id", session.id),
         supabase
           .from("audit_hardware_config")
-          .select("id, devices")
+          .select("id, control_modules")
           .eq("audit_project_id", session.id)
           .maybeSingle(),
       ]);
@@ -91,7 +91,7 @@ export function AuditReady({ session, onSessionUpdate }: AuditReadyProps) {
       }, {});
 
       const totalTags = tagTables.reduce((sum, t) => sum + ((t.tag_count as number) ?? 0), 0);
-      const deviceCount = (hw?.devices as unknown[])?.length ?? 0;
+      const deviceCount = (hw?.control_modules as unknown[])?.length ?? 0;
 
       return {
         analyzedCount,

@@ -28,7 +28,7 @@ export interface SessionContext {
   compileResult?: TiaCompileResult | null;
   /** Compile-fix chat messages (auto-fix conversation history) */
   compileFixMessages?: CompileFixMessage[];
-  /** Active forge wizard session — spec analysis, devices, artifacts, Q&A */
+  /** Active forge wizard session — spec analysis, control_modules, artifacts, Q&A */
   forgeSession?: ForgeSession | null;
 }
 
@@ -88,7 +88,7 @@ export function buildAgentChatPrompt(
     }
   }
 
-  // Inject forge wizard context — spec analysis, devices, Q&A, artifacts
+  // Inject forge wizard context — spec analysis, control_modules, Q&A, artifacts
   if (sessionContext?.forgeSession) {
     const fs = sessionContext.forgeSession;
     sections.push("", "## Forge Wizard — Active Session");
@@ -105,32 +105,32 @@ export function buildAgentChatPrompt(
       sections.push(`**Description:** ${sa.project_description}`);
       sections.push(`**PLC:** ${sa.plc_type} | **HMI:** ${sa.hmi_type || "not specified"}`);
 
-      if (sa.subsystems.length > 0) {
+      if (sa.units.length > 0) {
         sections.push("", "**Subsystems:**");
-        for (const sub of sa.subsystems) {
+        for (const sub of sa.units) {
           sections.push(`- ${sub.name}: ${sub.description}`);
         }
       }
 
-      if (sa.devices.length > 0) {
+      if (sa.control_modules.length > 0) {
         sections.push("", "**Devices extracted from spec:**");
-        for (const d of sa.devices) {
+        for (const d of sa.control_modules) {
           const signals = d.io_signals.map(s => `${s.tag_name}(${s.signal_type})`).join(", ");
-          sections.push(`- ${d.tag} — ${d.name} (${d.device_type}, subsystem: ${d.subsystem})${signals ? ` | IO: ${signals}` : ""}`);
+          sections.push(`- ${d.tag} — ${d.name} (${d.device_type}, unit: ${d.unit})${signals ? ` | IO: ${signals}` : ""}`);
         }
       }
 
       if (sa.process_sequences.length > 0) {
         sections.push("", "**Process Sequences:**");
         for (const seq of sa.process_sequences) {
-          sections.push(`- **${seq.name}** (${seq.subsystem}): ${seq.steps.length} steps, permissives: ${seq.permissives.join(", ") || "none"}`);
+          sections.push(`- **${seq.name}** (${seq.unit}): ${seq.steps.length} steps, permissives: ${seq.permissives.join(", ") || "none"}`);
         }
       }
 
       if (sa.interlocks.length > 0) {
         sections.push("", "**Interlocks:**");
         for (const il of sa.interlocks) {
-          sections.push(`- ${il.name}: ${il.condition} → affects: ${il.affected_devices.join(", ")}`);
+          sections.push(`- ${il.name}: ${il.condition} → affects: ${il.affected_control_modules.join(", ")}`);
         }
       }
 

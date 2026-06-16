@@ -52,7 +52,7 @@ export interface HmiConfiguratorProps {
 const ALL_CATEGORIES: HmiScreenCategory[] = [
   "framework",
   "overview",
-  "subsystem_checklist",
+  "unit_checklist",
   "device_checklist",
   "device_faceplate",
   "alarm_summary",
@@ -77,7 +77,7 @@ export function HmiConfigurator({
   );
   const [selectedCategories, setSelectedCategories] = useState<Set<HmiScreenCategory>>(
     () => new Set<HmiScreenCategory>([
-      "framework", "overview", "subsystem_checklist", "device_checklist", "alarm_summary",
+      "framework", "overview", "unit_checklist", "device_checklist", "alarm_summary",
     ]),
   );
   const [importedFramework, setImportedFramework] = useState<HmiScreenSpec[] | null>(null);
@@ -139,7 +139,7 @@ export function HmiConfigurator({
   };
 
   // Count how many screens will be generated per category
-  const subsystemCount = session.spec_analysis?.subsystems?.length ?? 0;
+  const unitCount = session.spec_analysis?.units?.length ?? 0;
   const deviceTypeCount = new Set(session.device_list.map((d) => d.device_type)).size;
 
   return (
@@ -287,7 +287,7 @@ export function HmiConfigurator({
             const isSelected = selectedCategories.has(cat);
 
             let countLabel = "";
-            if (cat === "subsystem_checklist") countLabel = ` (${subsystemCount})`;
+            if (cat === "unit_checklist") countLabel = ` (${unitCount})`;
             if (cat === "device_checklist") countLabel = ` (${deviceTypeCount})`;
             if (cat === "device_faceplate") countLabel = ` (${deviceTypeCount})`;
 

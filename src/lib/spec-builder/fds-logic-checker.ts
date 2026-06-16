@@ -3,41 +3,42 @@
  * No AI calls. Runs instantly for immediate feedback.
  */
 import type {
-  AssemblyConfig,
-  SubsystemConfig,
+  EquipmentModuleConfig,
+  UnitConfig,
   OperatingState,
   InstrumentTag,
-  DeviceStateEntry,
+  ControlModuleStateEntry,
   FdsValidationResult,
   FdsValidationIssue,
-  SubsystemOrchestration,
-  FdsAssemblySession,
+  UnitProcedure,
+  OperationSession,
+  ProcessModel,
 } from "@/types/spec-builder";
 import type { SequentialStateV2 } from "@/types/spec-contract-v2";
 
 // ---------------------------------------------------------------------------
-// Assembly-level validation
+// Equipment-module-level validation
 // ---------------------------------------------------------------------------
 
-export function validateAssembly(
-  assembly: AssemblyConfig,
-  staticStates: Record<string, DeviceStateEntry[]>,
+export function validateEquipmentModule(
+  equipment_module: EquipmentModuleConfig,
+  staticStates: Record<string, ControlModuleStateEntry[]>,
   sequentialStates: Record<string, SequentialStateV2>,
   allStates: OperatingState[],
   allTags: InstrumentTag[],
 ): FdsValidationResult {
   const issues: FdsValidationIssue[] = [];
 
-  // Collect this assembly's tags
-  const assemblyTagNames = new Set<string>();
-  for (const dev of assembly.devices) {
+  // Collect this equipment_module's tags
+  const equipment_moduleTagNames = new Set<string>();
+  for (const dev of equipment_module.control_modules) {
     for (const sig of dev.io_signals) {
-      assemblyTagNames.add(sig.tag);
+      equipment_moduleTagNames.add(sig.tag);
     }
   }
 
-  const assemblyTags = allTags.filter((t) => assemblyTagNames.has(t.tag));
-  const outputTags = assemblyTags.filter((t) => t.signal_direction === "DO" || t.signal_direction === "AO");
+  const equipment_moduleTags = allTags.filter((t) => equipment_moduleTagNames.has(t.tag));
+  const outputTags = equipment_moduleTags.filter((t) => t.signal_direction === "DO" || t.signal_direction === "AO");
   const allTagNames = new Set(allTags.map((t) => t.tag));
 
   const staticStateIds = allStates.filter((s) => s.state_pattern === "static");
@@ -54,7 +55,7 @@ export function validateAssembly(
           severity: "error",
           category: "tag_coverage",
           message: `Output tag ${tag.tag} missing from ${state.state_name} device state table`,
-          assembly_id: assembly.assembly_id,
+          equipment_module_id: equipment_module.equipment_module_id,
           state_id: state.state_id,
           tag: tag.tag,
         });
@@ -70,7 +71,7 @@ export function validateAssembly(
         severity: "error",
         category: "state_completeness",
         message: `No steps defined for ${state.state_name}`,
-        assembly_id: assembly.assembly_id,
+        equipment_module_id: equipment_module.equipment_module_id,
         state_id: state.state_id,
       });
       continue;
@@ -83,7 +84,7 @@ export function validateAssembly(
           severity: "warning",
           category: "permissive_ref",
           message: `Permissive tag "${perm.tag}" is not in the instrument register`,
-          assembly_id: assembly.assembly_id,
+          equipment_module_id: equipment_module.equipment_module_id,
           state_id: state.state_id,
         });
       } else if (!perm.tag) {
@@ -91,7 +92,7 @@ export function validateAssembly(
           severity: "warning",
           category: "permissive_ref",
           message: "Permissive has no tag selected",
-          assembly_id: assembly.assembly_id,
+          equipment_module_id: equipment_module.equipment_module_id,
           state_id: state.state_id,
         });
       }
@@ -114,7 +115,7 @@ export function validateAssembly(
           severity: "warning",
           category: "completion_ref",
           message: `Step ${step.step} completion criteria doesn't reference any known tag`,
-          assembly_id: assembly.assembly_id,
+          equipment_module_id: equipment_module.equipment_module_id,
           state_id: state.state_id,
         });
       }
@@ -126,7 +127,7 @@ export function validateAssembly(
           severity: "warning",
           category: "completion_ref",
           message: `Step ${step.step} completion criteria has no timeout specified`,
-          assembly_id: assembly.assembly_id,
+          equipment_module_id: equipment_module.equipment_module_id,
           state_id: state.state_id,
         });
       }
@@ -138,7 +139,7 @@ export function validateAssembly(
           severity: "warning",
           category: "missing_failure_path",
           message: `Step ${step.step} has no failure/fault handling defined`,
-          assembly_id: assembly.assembly_id,
+          equipment_module_id: equipment_module.equipment_module_id,
           state_id: state.state_id,
         });
       }
@@ -153,45 +154,45 @@ export function validateAssembly(
 }
 
 // ---------------------------------------------------------------------------
-// Subsystem-level validation (cross-assembly)
+// Unit-level validation (cross-equipment_module)
 // ---------------------------------------------------------------------------
 
-export function validateSubsystem(
-  subsystem: SubsystemConfig,
-  sessions: FdsAssemblySession[],
-  orchestration: SubsystemOrchestration | null,
+export function validateUnit(
+  unit: UnitConfig,
+  sessions: OperationSession[],
+  orchestration: UnitProcedure | null,
   allStates: OperatingState[],
   allTags: InstrumentTag[],
 ): FdsValidationResult {
   const issues: FdsValidationIssue[] = [];
   const sequentialStates = allStates.filter((s) => s.state_pattern === "sequential");
 
-  // Run assembly-level validation for each session
+  // Run equipment-module-level validation for each session
   for (const session of sessions) {
-    const assembly = subsystem.assemblies.find((a) => a.assembly_id === session.assembly_id);
-    if (!assembly) continue;
+    const equipment_module = unit.equipment_modules.find((a) => a.equipment_module_id === session.equipment_module_id);
+    if (!equipment_module) continue;
 
-    const assemblyResult = validateAssembly(
-      assembly,
+    const equipment_moduleResult = validateEquipmentModule(
+      equipment_module,
       session.static_states,
       session.sequential_states,
       allStates,
       allTags,
     );
-    issues.push(...assemblyResult.issues);
+    issues.push(...equipment_moduleResult.issues);
   }
 
   // --- Check: Orchestration exists ---
-  if (subsystem.assemblies.length > 1 && !orchestration) {
+  if (unit.equipment_modules.length > 1 && !orchestration) {
     issues.push({
       severity: "warning",
       category: "orchestration",
-      message: `Subsystem "${subsystem.subsystem_name}" has ${subsystem.assemblies.length} assemblies but no orchestration defined`,
+      message: `Unit "${unit.unit_name}" has ${unit.equipment_modules.length} equipment_modules but no orchestration defined`,
     });
   }
 
   if (orchestration) {
-    const assemblyIds = new Set(subsystem.assemblies.map((a) => a.assembly_id));
+    const equipment_moduleIds = new Set(unit.equipment_modules.map((a) => a.equipment_module_id));
 
     for (const state of sequentialStates) {
       const seq = orchestration.state_sequences[state.state_id];
@@ -205,34 +206,34 @@ export function validateSubsystem(
         continue;
       }
 
-      // Check assembly order references valid assemblies
-      for (const asmId of seq.assembly_order) {
-        if (!assemblyIds.has(asmId)) {
+      // Check equipment_module order references valid equipment_modules
+      for (const asmId of seq.equipment_module_order) {
+        if (!equipment_moduleIds.has(asmId)) {
           issues.push({
             severity: "error",
             category: "orchestration",
-            message: `Assembly order references unknown assembly "${asmId}" in ${state.state_name}`,
+            message: `Equipment Module order references unknown equipment_module "${asmId}" in ${state.state_name}`,
             state_id: state.state_id,
-            assembly_id: asmId,
+            equipment_module_id: asmId,
           });
         }
       }
 
-      // Check all assemblies are in the order
-      for (const asmId of assemblyIds) {
-        if (!seq.assembly_order.includes(asmId)) {
+      // Check all equipment_modules are in the order
+      for (const asmId of equipment_moduleIds) {
+        if (!seq.equipment_module_order.includes(asmId)) {
           issues.push({
             severity: "warning",
             category: "orchestration",
-            message: `Assembly "${asmId}" not included in ${state.state_name} execution order`,
+            message: `Equipment Module "${asmId}" not included in ${state.state_name} execution order`,
             state_id: state.state_id,
-            assembly_id: asmId,
+            equipment_module_id: asmId,
           });
         }
       }
 
       // --- Check: Circular interlocks ---
-      const circularIssues = detectCircularInterlocks(seq.inter_assembly_interlocks);
+      const circularIssues = detectCircularInterlocks(seq.inter_equipment_module_interlocks);
       issues.push(...circularIssues.map((msg) => ({
         severity: "error" as const,
         category: "circular_interlock" as const,
@@ -284,13 +285,13 @@ function hasFailurePath(text: string): boolean {
 
 /** Detect circular interlocks via DFS cycle detection */
 function detectCircularInterlocks(
-  interlocks: Array<{ source_assembly: string; target_assembly: string }>,
+  interlocks: Array<{ source_equipment_module: string; target_equipment_module: string }>,
 ): string[] {
   // Build adjacency list: target depends on source
   const deps = new Map<string, Set<string>>();
   for (const il of interlocks) {
-    if (!deps.has(il.target_assembly)) deps.set(il.target_assembly, new Set());
-    deps.get(il.target_assembly)!.add(il.source_assembly);
+    if (!deps.has(il.target_equipment_module)) deps.set(il.target_equipment_module, new Set());
+    deps.get(il.target_equipment_module)!.add(il.source_equipment_module);
   }
 
   const issues: string[] = [];
@@ -324,5 +325,175 @@ function detectCircularInterlocks(
   }
 
   return issues;
+}
+
+// ---------------------------------------------------------------------------
+// ISA-88 compliance validation
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate ISA-88 Part 1 compliance across the physical hierarchy
+ * and optional Process Model.
+ *
+ * Checks:
+ * 1. Every control module assigned to exactly one equipment module
+ * 2. Every equipment module assigned to exactly one unit
+ * 3. Process Model stage→unit and operation→equipment_module refs are valid
+ * 4. Process Model stages cover all units
+ * 5. No legacy terminology in free-text fields
+ */
+export function validateIsa88Compliance(
+  units: UnitConfig[],
+  processModel: ProcessModel | null,
+): FdsValidationResult {
+  const issues: FdsValidationIssue[] = [];
+  const activeUnits = units.filter((u) => !u.excluded);
+
+  // --- Check 1: Every control module appears in exactly one equipment module ---
+  const cmAssignments = new Map<string, string[]>();
+  for (const unit of activeUnits) {
+    for (const em of unit.equipment_modules) {
+      for (const cm of em.control_modules) {
+        const key = cm.control_module_id;
+        if (!cmAssignments.has(key)) cmAssignments.set(key, []);
+        cmAssignments.get(key)!.push(
+          `${unit.unit_name}/${em.equipment_module_name}`,
+        );
+      }
+    }
+  }
+  for (const [cmId, locations] of cmAssignments) {
+    if (locations.length > 1) {
+      issues.push({
+        severity: "error",
+        category: "isa88_compliance",
+        message: `Control Module "${cmId}" assigned to multiple Equipment Modules: ${locations.join(", ")}`,
+      });
+    }
+  }
+
+  // --- Check 2: Empty equipment modules (no control modules) ---
+  for (const unit of activeUnits) {
+    for (const em of unit.equipment_modules) {
+      if (em.control_modules.length === 0) {
+        issues.push({
+          severity: "warning",
+          category: "isa88_compliance",
+          message: `Equipment Module "${em.equipment_module_name}" in Unit "${unit.unit_name}" has no Control Modules`,
+          equipment_module_id: em.equipment_module_id,
+        });
+      }
+    }
+  }
+
+  // --- Check 3: Units with no equipment modules ---
+  for (const unit of activeUnits) {
+    if (unit.equipment_modules.length === 0) {
+      issues.push({
+        severity: "warning",
+        category: "isa88_compliance",
+        message: `Unit "${unit.unit_name}" has no Equipment Modules`,
+      });
+    }
+  }
+
+  // --- Process Model checks (if present) ---
+  if (processModel) {
+    const validUnitIds = new Set(activeUnits.map((u) => u.unit_id));
+    const validEmIds = new Set(
+      activeUnits.flatMap((u) =>
+        u.equipment_modules.map((em) => em.equipment_module_id),
+      ),
+    );
+    const coveredUnitIds = new Set<string>();
+
+    for (const stage of processModel.stages) {
+      // Check 3a: stage references valid unit
+      if (!validUnitIds.has(stage.unit_id)) {
+        issues.push({
+          severity: "error",
+          category: "isa88_compliance",
+          message: `Process Stage "${stage.stage_name}" references unknown Unit "${stage.unit_id}"`,
+        });
+      } else {
+        coveredUnitIds.add(stage.unit_id);
+      }
+
+      for (const op of stage.operations) {
+        // Check 3b: operation references valid equipment module
+        if (!validEmIds.has(op.equipment_module_id)) {
+          issues.push({
+            severity: "error",
+            category: "isa88_compliance",
+            message: `Process Operation "${op.operation_name}" references unknown Equipment Module "${op.equipment_module_id}"`,
+            equipment_module_id: op.equipment_module_id,
+          });
+        }
+      }
+    }
+
+    // Check 4: all units covered by process model
+    for (const unit of activeUnits) {
+      if (!coveredUnitIds.has(unit.unit_id)) {
+        issues.push({
+          severity: "info",
+          category: "isa88_compliance",
+          message: `Unit "${unit.unit_name}" not covered by any Process Stage`,
+        });
+      }
+    }
+
+    // Check 5: duplicate stage orders
+    const orderCounts = new Map<number, string[]>();
+    for (const stage of processModel.stages) {
+      if (!orderCounts.has(stage.order)) orderCounts.set(stage.order, []);
+      orderCounts.get(stage.order)!.push(stage.stage_name);
+    }
+    for (const [order, names] of orderCounts) {
+      if (names.length > 1) {
+        issues.push({
+          severity: "warning",
+          category: "isa88_compliance",
+          message: `Multiple Process Stages share order ${order}: ${names.join(", ")}`,
+        });
+      }
+    }
+  }
+
+  // --- Check 6: legacy terminology in descriptions ---
+  const legacyTerms = [
+    { pattern: /\bsubsystem\b/i, replacement: "Unit" },
+    { pattern: /\bassembly\b/i, replacement: "Equipment Module" },
+  ];
+
+  for (const unit of activeUnits) {
+    for (const term of legacyTerms) {
+      if (term.pattern.test(unit.description)) {
+        issues.push({
+          severity: "info",
+          category: "isa88_compliance",
+          message: `Unit "${unit.unit_name}" description uses legacy term — use "${term.replacement}" instead`,
+        });
+      }
+    }
+    for (const em of unit.equipment_modules) {
+      for (const term of legacyTerms) {
+        if (term.pattern.test(em.description)) {
+          issues.push({
+            severity: "info",
+            category: "isa88_compliance",
+            message: `Equipment Module "${em.equipment_module_name}" description uses legacy term — use "${term.replacement}" instead`,
+            equipment_module_id: em.equipment_module_id,
+          });
+        }
+      }
+    }
+  }
+
+  return {
+    passed: issues.filter((i) => i.severity === "error").length === 0,
+    checked_at: new Date().toISOString(),
+    issues,
+  };
 }
 

@@ -20,8 +20,8 @@ import { usePickerIndex, type IndexedSubsystem } from "./use-picker-index";
 import { cn } from "@/lib/utils";
 
 export interface ResolvedSubsystem {
-  subsystem_id: string;
-  subsystem_name: string;
+  unit_id: string;
+  unit_name: string;
   equipment_type: string;
 }
 
@@ -40,7 +40,7 @@ export function SubsystemPicker({
   onChange,
   specProjectId,
   includeExcluded = false,
-  placeholder = "Pick a subsystem…",
+  placeholder = "Pick a unit…",
   disabled,
   className,
 }: SubsystemPickerProps) {
@@ -50,21 +50,21 @@ export function SubsystemPicker({
   const index = usePickerIndex(contract);
 
   const filtered = useMemo(() => {
-    let list = index.subsystems;
+    let list = index.units;
     if (!includeExcluded) list = list.filter((s) => !s.excluded);
     if (!query.trim()) return list;
     const q = query.toLowerCase();
     return list.filter((s) => s.searchKey.includes(q));
-  }, [index.subsystems, includeExcluded, query]);
+  }, [index.units, includeExcluded, query]);
 
   const current = value
-    ? (index.subsystems.find((s) => s.subsystem_id === value) ?? null)
+    ? (index.units.find((s) => s.unit_id === value) ?? null)
     : null;
 
   const handleSelect = (s: IndexedSubsystem) => {
     onChange({
-      subsystem_id: s.subsystem_id,
-      subsystem_name: s.subsystem_name,
+      unit_id: s.unit_id,
+      unit_name: s.unit_name,
       equipment_type: s.equipment_type,
     });
     setOpen(false);
@@ -85,7 +85,7 @@ export function SubsystemPicker({
           )}
         >
           <span className="truncate">
-            {current?.subsystem_name ?? placeholder}
+            {current?.unit_name ?? placeholder}
           </span>
           <ChevronsUpDown className="h-3 w-3 shrink-0 opacity-50" />
         </Button>
@@ -93,27 +93,27 @@ export function SubsystemPicker({
       <PopoverContent className="w-[320px] p-0" align="start">
         <Command shouldFilter={false}>
           <CommandInput
-            placeholder="Search subsystems…"
+            placeholder="Search units…"
             value={query}
             onValueChange={setQuery}
           />
           <CommandList>
-            <CommandEmpty>No matching subsystems.</CommandEmpty>
+            <CommandEmpty>No matching units.</CommandEmpty>
             <CommandGroup>
               {filtered.map((s) => (
                 <CommandItem
-                  key={s.subsystem_id}
-                  value={`${s.subsystem_name} ${s.searchKey}`}
+                  key={s.unit_id}
+                  value={`${s.unit_name} ${s.searchKey}`}
                   onSelect={() => handleSelect(s)}
                   className="flex items-center gap-2"
                 >
                   <Check
                     className={cn(
                       "h-3 w-3",
-                      value === s.subsystem_id ? "opacity-100" : "opacity-0",
+                      value === s.unit_id ? "opacity-100" : "opacity-0",
                     )}
                   />
-                  <span className="truncate flex-1">{s.subsystem_name}</span>
+                  <span className="truncate flex-1">{s.unit_name}</span>
                   <Badge
                     variant="outline"
                     className="h-4 px-1 text-[9px] font-mono"

@@ -492,7 +492,7 @@ The following are company-standard, pre-approved FB templates. When a template m
        fdbkRun  => "Tag_MotorRunning"
    );
    \`\`\`
-4. **CREATE multiple instances** if the project has multiple devices of the same type.
+4. **CREATE multiple instances** if the project has multiple control_modules of the same type.
 5. **Generate additional FBs from scratch** only for device types that have NO matching template.
 
 **TEMPLATE RELATIONSHIPS — multiple FBs per device:**

@@ -75,7 +75,7 @@ export function SpecDepthDialog({ open, onSelect, onCancel, specLength }: SpecDe
         {isLargeSpec && (
           <div className="flex items-center gap-2 rounded-md border border-blue-500/30 bg-blue-500/5 px-3 py-2 text-xs text-blue-400">
             <Scan className="h-3.5 w-3.5 shrink-0" />
-            Large spec detected ({Math.round(specLength / 1000)}K chars). Chunked extraction will be used automatically — the spec will be surveyed first, then each subsystem extracted separately for better accuracy.
+            Large spec detected ({Math.round(specLength / 1000)}K chars). Chunked extraction will be used automatically — the spec will be surveyed first, then each unit extracted separately for better accuracy.
           </div>
         )}
 

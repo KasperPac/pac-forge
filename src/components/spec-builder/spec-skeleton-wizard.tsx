@@ -27,10 +27,10 @@ import type { PromptLayerMeta } from "@/hooks/use-generation";
 import type {
   SpecProject,
   InstrumentRegister,
-  SubsystemConfig,
+  UnitConfig,
   AlarmTier,
 } from "@/types/spec-builder";
-import { migrateSubsystemConfig, getSubsystemDeviceCount, inferStatePattern } from "@/types/spec-builder";
+import { migrateUnitConfig, getUnitControlModuleCount, inferStatePattern } from "@/types/spec-builder";
 import type { StatePattern } from "@/types/spec-builder";
 import type { OperatingStateV2 } from "@/types/spec-contract-v2";
 import { CANONICAL_STATES } from "@/lib/spec-builder/random/state-machine";
@@ -84,11 +84,11 @@ export function SpecSkeletonWizard({ spec, register, onComplete }: Props) {
   });
 
   // Step 3 — Machine hierarchy (seeded from register tags)
-  const [subsystems, setSubsystems] = useState<SubsystemConfig[]>(() => {
-    if (spec.confirmed_subsystems?.length) {
-      return migrateSubsystemConfig(spec.confirmed_subsystems);
+  const [units, setSubsystems] = useState<UnitConfig[]>(() => {
+    if (spec.confirmed_units?.length) {
+      return migrateUnitConfig(spec.confirmed_units);
     }
-    return buildHierarchyFromTags(register.tags, spec.title);
+    return buildHierarchyFromTags(register.tags);
   });
   const [inferringHierarchy, setInferringHierarchy] = useState(false);
 
@@ -117,7 +117,7 @@ export function SpecSkeletonWizard({ spec, register, onComplete }: Props) {
   const canNext = (() => {
     if (step === 0) return meta.doc_code.trim() && meta.title.trim() && meta.client_name.trim();
     if (step === 1) return control.plc_model.trim();
-    if (step === 2) return subsystems.some((s) => !s.excluded && s.assemblies.length > 0);
+    if (step === 2) return units.some((s) => !s.excluded && s.equipment_modules.length > 0);
     if (step === 3) return states.length > 0;
     if (step === 4) return alarmTiers.length > 0;
     return true;
@@ -133,7 +133,7 @@ export function SpecSkeletonWizard({ spec, register, onComplete }: Props) {
       id: spec.id,
       ...meta,
       ...control,
-      confirmed_subsystems: subsystems,
+      confirmed_units: units,
       // confirmed_states column is JSONB; the V2 shape is structurally a
       // superset of the V1 SpecProjectUpdate.confirmed_states type. Cast
       // bridges the explicit type bound without losing the V2 fields.
@@ -141,7 +141,7 @@ export function SpecSkeletonWizard({ spec, register, onComplete }: Props) {
       alarm_tiers: alarmTiers,
     });
     onComplete();
-  }, [step, spec.id, meta, control, subsystems, states, alarmTiers, updateSpec, onComplete]);
+  }, [step, spec.id, meta, control, units, states, alarmTiers, updateSpec, onComplete]);
 
   const handleBack = () => setStep((s) => Math.max(0, s - 1));
 
@@ -155,34 +155,34 @@ export function SpecSkeletonWizard({ spec, register, onComplete }: Props) {
         device_type: t.device_type,
         description: t.description,
         signal_type: t.signal_type,
-        subsystem: t.subsystem,
+        unit: t.unit,
       }));
 
       const systemPrompt = `You are an industrial automation engineer applying the ISA-88 equipment model. Organize the instrument register tags into a machine hierarchy:
 
-System (Process Cell) -> Subsystem (Unit) -> Assembly (Equipment Module) -> Device (Control Module)
+System (Process Cell) → Unit → Equipment Module → Control Module
 
 Rules:
-- **Device (Control Module)** = a single physical thing with IO signals (motor, sensor, valve, push button). Tags with different suffixes (_CMD, _FB, _OL, _FAULT, _THERM) that belong to the same physical device MUST be grouped as io_signals on ONE device, never as separate devices.
-- **Assembly (Equipment Module)** = a coordinated group of devices that run together (a conveyor, a drive, a lift). Each assembly later gets its own FB wired to device signals.
-- **Subsystem (Unit)** = the set of assemblies governed by ONE coordinated operating sequence. DEFAULT TO A SINGLE SUBSYSTEM containing all assemblies. Create more than one subsystem ONLY when the provided specification clearly describes assemblies running under INDEPENDENT operating sequences (for example a distinct infeed area vs. outfeed area). NEVER invent a subsystem split that is not stated in the specification. A lone assembly is never its own subsystem.
-- **System (Process Cell)** = the whole machine.
-- Extract the structure as described in the source material. Do not invent groupings. When uncertain, prefer fewer subsystems.
+- **Unit** = the set of equipment modules governed by ONE coordinated operating sequence (e.g. "Fan Array", "Infeed Conveyor Station", "Hydraulic Lift Station"). DEFAULT TO A SINGLE UNIT containing all equipment modules. Create more than one unit ONLY when the provided specification clearly describes equipment modules running under INDEPENDENT operating sequences (for example a distinct infeed area vs. outfeed area). NEVER invent a unit split that is not stated in the specification. A lone equipment module is never its own unit.
+- **Equipment Module** = a coordinated group of control modules that work together (a conveyor, a drive, a lift), e.g. "Conveyor CV01", "Fan GK01". Group related control modules into equipment modules by equipment ID prefix.
+- **Control Module** = a single physical device with IO signals (motor, sensor, valve, push button). Gets its own FB. Tags with different suffixes (_CMD, _FB, _OL, _FAULT, _THERM) that belong to the same physical device MUST be grouped as io_signals on ONE control module, never as separate control modules.
+- **System (Process Cell)** = the whole machine. Tags that share a unit prefix go under the same unit.
+- Extract the structure as described in the source material. Do not invent groupings. When uncertain, prefer fewer units.
 
 Return ONLY a JSON array matching this TypeScript interface:
 [{
-  "subsystem_id": "string",
-  "subsystem_name": "string",
+  "unit_id": "string",
+  "unit_name": "string",
   "equipment_type": "Hopper"|"Pneumatic Transporter"|"Dryer"|"Cooler"|"Unloading Station"|"Magnetic Filter"|"Fan/Blower"|"Milling"|"Conveyor"|"Other",
   "description": "string",
-  "assemblies": [{
-    "assembly_id": "string",
-    "assembly_name": "string",
+  "equipment_modules": [{
+    "equipment_module_id": "string",
+    "equipment_module_name": "string",
     "description": "string",
-    "devices": [{
-      "device_id": "string",
-      "device_name": "string",
-      "device_class": "valve"|"motor"|"sensor_level"|"sensor_pressure"|"sensor_temperature"|"sensor_weight"|"sensor_flow"|"sensor_position"|"indicator"|"transmitter"|"filter"|"conveyor"|"hopper"|"transporter"|"dryer"|"cooler"|"push_button"|"emergency_stop"|"other",
+    "control_modules": [{
+      "control_module_id": "string",
+      "control_module_name": "string",
+      "control_module_class": "valve"|"motor"|"sensor_level"|"sensor_pressure"|"sensor_temperature"|"sensor_weight"|"sensor_flow"|"sensor_position"|"indicator"|"transmitter"|"filter"|"conveyor"|"hopper"|"transporter"|"dryer"|"cooler"|"push_button"|"emergency_stop"|"other",
       "description": "string",
       "is_safety": boolean,
       "io_signals": [{ "tag": "string", "signal_type": "string", "io_address": "string", "description": "string" }]
@@ -205,27 +205,27 @@ Return ONLY a JSON array matching this TypeScript interface:
         plMeta,
       );
 
-      const parsed = JSON.parse(result.content) as SubsystemConfig[];
+      const parsed = JSON.parse(result.content) as UnitConfig[];
       setSubsystems(parsed);
     } catch {
       // Fallback to deterministic hierarchy builder
-      setSubsystems(buildHierarchyFromTags(register.tags, spec.title));
+      setSubsystems(buildHierarchyFromTags(register.tags));
     } finally {
       setInferringHierarchy(false);
     }
-  }, [register.tags, spec.title]);
+  }, [register.tags]);
 
   // Step 4 — infer operating modes via Sonnet
   const inferStates = useCallback(async () => {
     setInferring(true);
     try {
       const controller = new AbortController();
-      const subsystemList = subsystems
+      const unitList = units
         .filter((s) => !s.excluded)
-        .map((s) => `${s.subsystem_name} (${s.equipment_type}, ${s.assemblies.length} assemblies, ${getSubsystemDeviceCount(s)} devices)`)
+        .map((s) => `${s.unit_name} (${s.equipment_type}, ${s.equipment_modules.length} equipment_modules, ${getUnitControlModuleCount(s)} control_modules)`)
         .join("\n");
 
-      const systemPrompt = `You are an industrial automation engineering expert. Given this list of subsystems from an instrument register, infer the likely operating states/modes for this plant.
+      const systemPrompt = `You are an industrial automation engineering expert. Given this list of units from an instrument register, infer the likely operating states/modes for this plant.
 
 Use PackML state-model conventions where applicable. Canonical state names:
 Idle, Starting, Execute, Stopping, Complete, E-Stop (also Held, Suspended for advanced machines).
@@ -247,7 +247,7 @@ Return ONLY a JSON array of state objects. No preamble.
 
       const result = await callNonStreaming(
         systemPrompt,
-        [{ role: "user" as const, content: `Subsystems:\n${subsystemList}` }],
+        [{ role: "user" as const, content: `Subsystems:\n${unitList}` }],
         controller.signal,
         4096,
         plMeta
@@ -268,7 +268,7 @@ Return ONLY a JSON array of state objects. No preamble.
     } finally {
       setInferring(false);
     }
-  }, [subsystems]);
+  }, [units]);
 
   return (
     <div className="space-y-4">
@@ -315,7 +315,7 @@ Return ONLY a JSON array of state objects. No preamble.
         {step === 1 && <StepControlSystem control={control} onChange={setControl} />}
         {step === 2 && (
           <MachineHierarchyTable
-            subsystems={subsystems}
+            units={units}
             availableTags={register.tags}
             onChange={setSubsystems}
             onInferHierarchy={inferHierarchy}
@@ -335,7 +335,7 @@ Return ONLY a JSON array of state objects. No preamble.
           <StepReview
             meta={meta}
             control={control}
-            subsystems={subsystems}
+            units={units}
             states={states}
             alarmTiers={alarmTiers}
           />
@@ -633,7 +633,7 @@ function StepOperatingModes({
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted-foreground">
-          Define the operating states for each subsystem.
+          Define the operating states for each unit.
         </p>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={onInfer} disabled={inferring}>
@@ -653,7 +653,7 @@ function StepOperatingModes({
 
       {states.length === 0 ? (
         <Card className="p-6 text-center text-sm text-muted-foreground">
-          No states defined. Click "Infer with AI" to auto-detect from subsystems, or add manually.
+          No states defined. Click "Infer with AI" to auto-detect from units, or add manually.
         </Card>
       ) : (
         <div>
@@ -873,23 +873,23 @@ function StepAlarmConfig({
 function StepReview({
   meta,
   control,
-  subsystems,
+  units,
   states,
   alarmTiers,
 }: {
   meta: MetaForm;
   control: ControlForm;
-  subsystems: SubsystemConfig[];
+  units: UnitConfig[];
   states: OperatingStateV2[];
   alarmTiers: AlarmTier[];
 }) {
-  const activeSubs = subsystems.filter((s) => !s.excluded);
-  const totalAssemblies = activeSubs.reduce((s, sub) => s + sub.assemblies.length, 0);
+  const activeSubs = units.filter((s) => !s.excluded);
+  const totalAssemblies = activeSubs.reduce((s, sub) => s + sub.equipment_modules.length, 0);
   const totalDevices = activeSubs.reduce(
-    (s, sub) => s + sub.assemblies.reduce((a, asm) => a + asm.devices.length, 0),
+    (s, sub) => s + sub.equipment_modules.reduce((a, asm) => a + asm.control_modules.length, 0),
     0,
   );
-  // V2: Sections 0-8 + audit = up to 10 top-level + per-subsystem functional descriptions
+  // V2: Sections 0-8 + audit = up to 10 top-level + per-unit functional descriptions
   const funcDescSections = activeSubs.length * (1 + states.length); // equipment preamble + states
   const totalSections = 9 + funcDescSections + 1; // 9 numbered sections + func desc details + audit
 
@@ -935,10 +935,10 @@ function StepReview({
         </div>
         <div className="space-y-1 mt-2">
           {activeSubs.map((sub) => (
-            <div key={sub.subsystem_id} className="text-xs">
-              <span className="font-medium">{sub.subsystem_name}</span>
+            <div key={sub.unit_id} className="text-xs">
+              <span className="font-medium">{sub.unit_name}</span>
               <span className="text-muted-foreground ml-1">
-                ({sub.equipment_type}, {sub.assemblies.length}A / {getSubsystemDeviceCount(sub)}D)
+                ({sub.equipment_type}, {sub.equipment_modules.length}A / {getUnitControlModuleCount(sub)}D)
               </span>
             </div>
           ))}
@@ -977,7 +977,7 @@ function StepReview({
       <Card className="p-3 bg-primary/5 border-primary/20">
         <p className="text-xs">
           <span className="font-semibold">Generation scope:</span>{" "}
-          9 document sections + {activeSubs.length} subsystems × {states.length} states ={" "}
+          9 document sections + {activeSubs.length} units × {states.length} states ={" "}
           <span className="font-mono font-bold">{totalSections} AI calls</span> + Opus audit
         </p>
       </Card>

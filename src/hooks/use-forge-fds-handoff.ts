@@ -4,23 +4,23 @@
  * Wave 5: this hook previously stitched together FDS session rows + spec
  * project meta + alarm spec with name-based reconciliation. All of that is
  * gone — every spec-shaped read goes through `useSpecContract`, which
- * returns canonical IEC signal types and keys everything by `assembly_id`.
+ * returns canonical IEC signal types and keys everything by `equipment_module_id`.
  *
- * Returns briefs keyed by `assembly_id` (not name-mapped), assembly
+ * Returns briefs keyed by `equipment_module_id` (not name-mapped), equipment_module
  * entries whose `id` matches the brief key, and the operating states
  * from the contract header. No Siemens dialect conversion happens here.
  */
 import { useMemo } from "react";
 import { useSpecContract } from "@/hooks/use-spec-contract";
 import type { OperatingState } from "@/types/spec-builder";
-import type { AssemblyBriefMap, AssemblyAlarm } from "@/types/forge-brief";
-import type { ForgeAssemblyEntry } from "@/types/forge";
+import type { EquipmentModuleBriefMap, EquipmentModuleAlarm } from "@/types/forge-brief";
+import type { ForgeEquipmentModuleEntry } from "@/types/forge";
 
 export interface FdsHandoff {
-  /** Assembly briefs keyed by `assembly_id`. Empty when no spec_project_id. */
-  briefs: AssemblyBriefMap;
-  /** Assembly entries with `id === assembly_id`. */
-  assemblyEntries: ForgeAssemblyEntry[];
+  /** Equipment Module briefs keyed by `equipment_module_id`. Empty when no spec_project_id. */
+  briefs: EquipmentModuleBriefMap;
+  /** Equipment Module entries with `id === equipment_module_id`. */
+  equipment_moduleEntries: ForgeEquipmentModuleEntry[];
   /** Operating states from the contract header. */
   operatingStates: OperatingState[];
   /** Whether the contract is still loading. */
@@ -42,8 +42,8 @@ export function useForgeFdsHandoff(
   const result = useMemo(() => {
     if (!enabled || !contract) {
       return {
-        briefs: {} as AssemblyBriefMap,
-        assemblyEntries: [] as ForgeAssemblyEntry[],
+        briefs: {} as EquipmentModuleBriefMap,
+        equipment_moduleEntries: [] as ForgeEquipmentModuleEntry[],
         operatingStates: [] as OperatingState[],
       };
     }
@@ -56,22 +56,22 @@ export function useForgeFdsHandoff(
       state_pattern: s.state_pattern,
     })) as OperatingState[];
 
-    // Build entries + briefs from the hierarchy. Keys are assembly_id.
-    const briefs: AssemblyBriefMap = {};
-    const assemblyEntries: ForgeAssemblyEntry[] = [];
+    // Build entries + briefs from the hierarchy. Keys are equipment_module_id.
+    const briefs: EquipmentModuleBriefMap = {};
+    const equipment_moduleEntries: ForgeEquipmentModuleEntry[] = [];
 
-    for (const sub of contract.hierarchy.subsystems) {
+    for (const sub of contract.hierarchy.units) {
       if (sub.excluded) continue;
-      for (const asm of sub.assemblies) {
-        const asmContract = contract.assemblies[asm.assembly_id];
+      for (const asm of sub.equipment_modules) {
+        const asmContract = contract.equipment_modules[asm.equipment_module_id];
 
-        // Alarms attached to this assembly OR to any of its devices.
-        const deviceIdSet = new Set(asm.devices.map((d) => d.device_id));
-        const assemblyAlarms: AssemblyAlarm[] = contract.alarms
+        // Alarms attached to this equipment_module OR to any of its control_modules.
+        const deviceIdSet = new Set(asm.control_modules.map((d) => d.control_module_id));
+        const equipment_moduleAlarms: EquipmentModuleAlarm[] = contract.alarms
           .filter(
             (a) =>
-              a.assembly_id === asm.assembly_id ||
-              (a.device_id && deviceIdSet.has(a.device_id)),
+              a.equipment_module_id === asm.equipment_module_id ||
+              (a.control_module_id && deviceIdSet.has(a.control_module_id)),
           )
           .map((a) => ({
             code: a.tag,
@@ -82,39 +82,39 @@ export function useForgeFdsHandoff(
             action: a.action,
           }));
 
-        briefs[asm.assembly_id] = {
-          assemblyId: asm.assembly_id,
-          assemblyTag: asm.assembly_name,
-          assemblyName: asm.assembly_name,
-          assemblyType: sub.equipment_type,
-          subsystemName: sub.subsystem_name,
-          deviceIds: asm.devices.map((d) => d.device_id),
+        briefs[asm.equipment_module_id] = {
+          equipment_moduleId: asm.equipment_module_id,
+          equipment_moduleTag: asm.equipment_module_name,
+          equipment_moduleName: asm.equipment_module_name,
+          equipment_moduleType: sub.equipment_type,
+          unitName: sub.unit_name,
+          deviceIds: asm.control_modules.map((d) => d.control_module_id),
           operatingStates,
-          // static_states was widened in Task 8 to `DeviceStateEntry[] | StaticStateV2`.
-          // The handoff brief expects the legacy `DeviceStateEntry[]` shape; unwrap.
+          // static_states was widened in Task 8 to `ControlModuleStateEntry[] | StaticStateV2`.
+          // The handoff brief expects the legacy `ControlModuleStateEntry[]` shape; unwrap.
           staticStates: asmContract?.static_states
             ? Object.fromEntries(
                 Object.entries(asmContract.static_states).map(([k, v]) => [
                   k,
-                  Array.isArray(v) ? v : v.devices,
+                  Array.isArray(v) ? v : v.control_modules,
                 ]),
               )
             : {},
-          sequentialStates: (asmContract?.sequential_states ?? {}) as unknown as AssemblyBriefMap[string]["sequentialStates"],
-          alarmConditions: assemblyAlarms,
+          sequentialStates: (asmContract?.sequential_states ?? {}) as unknown as EquipmentModuleBriefMap[string]["sequentialStates"],
+          alarmConditions: equipment_moduleAlarms,
           annotations: [],
           approved: false,
           source: "fds",
         };
 
-        assemblyEntries.push({
-          id: asm.assembly_id,
-          name: asm.assembly_name,
-          tag: asm.assembly_name,
-          assembly_type: sub.equipment_type,
+        equipment_moduleEntries.push({
+          id: asm.equipment_module_id,
+          name: asm.equipment_module_name,
+          tag: asm.equipment_module_name,
+          equipment_module_type: sub.equipment_type,
           description: asm.description,
-          subsystem: sub.subsystem_name,
-          device_ids: asm.devices.map((d) => d.device_id),
+          unit: sub.unit_name,
+          control_module_ids: asm.control_modules.map((d) => d.control_module_id),
           fb_template_id: null,
           fb_match_confidence: "none",
           language_override: null,
@@ -123,7 +123,7 @@ export function useForgeFdsHandoff(
       }
     }
 
-    return { briefs, assemblyEntries, operatingStates };
+    return { briefs, equipment_moduleEntries, operatingStates };
   }, [enabled, contract]);
 
   return {

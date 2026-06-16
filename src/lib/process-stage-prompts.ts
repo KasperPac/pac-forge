@@ -37,7 +37,7 @@ export interface StagePromptBase {
 // Stage-specific matrix formatters — each stage gets ONLY what it needs
 // ---------------------------------------------------------------------------
 
-/** IO stage: devices + IO-type wires only. These are the signals needing physical IO module assignment. */
+/** IO stage: control_modules + IO-type wires only. These are the signals needing physical IO module assignment. */
 export function formatMatrixForIo(matrix: ProcessLinkageMatrix): string {
   if (matrix.deviceLinkage.length === 0) return "";
 
@@ -80,13 +80,13 @@ export function formatMatrixForFolders(matrix: ProcessLinkageMatrix): string {
 **Total Devices:** ${matrix.deviceLinkage.length}`;
 }
 
-/** FB stage: devices filtered by type + wiring + interlocks. Full parameter interface for FB generation. */
+/** FB stage: control_modules filtered by type + wiring + interlocks. Full parameter interface for FB generation. */
 export function formatMatrixForFb(matrix: ProcessLinkageMatrix, deviceType: string): string {
-  const devices = matrix.deviceLinkage.filter((d) => d.deviceType === deviceType);
-  if (devices.length === 0) return "";
+  const control_modules = matrix.deviceLinkage.filter((d) => d.deviceType === deviceType);
+  if (control_modules.length === 0) return "";
 
   const lines: string[] = [];
-  for (const d of devices) {
+  for (const d of control_modules) {
     lines.push(`### ${d.name} — ${d.description}`);
     lines.push(`- FB: ${d.fbName}`);
     if (d.fbTemplateName) lines.push(`- Template: ${d.fbTemplateName}${d.fbTemplateId ? " (from library)" : " (new)"}`);
@@ -113,7 +113,7 @@ export function formatMatrixForFb(matrix: ProcessLinkageMatrix, deviceType: stri
 
 ${lines.join("\n")}
 
-**${devices.length}** ${deviceType} device(s) need this FB. Generate a single FB that handles all instances.
+**${control_modules.length}** ${deviceType} device(s) need this FB. Generate a single FB that handles all instances.
 The wiring above defines the complete VAR_INPUT/VAR_OUTPUT interface for this FB.`;
 }
 
@@ -236,7 +236,7 @@ export function formatMatrixForFc(matrix: ProcessLinkageMatrix, hasProcessRules 
       for (const ps of (seq.steps ?? [])) {
         const transLabel = ps.transition ? formatTransitionLabel(ps.transition) : "";
         const actionLabel = (ps.actions ?? []).map((a) => a.description).join("; ");
-        lines.push(`| ${ps.stepNumber} | ${transLabel} | ${actionLabel} | ${(ps.devicesInvolved ?? []).join(", ")} |`);
+        lines.push(`| ${ps.stepNumber} | ${transLabel} | ${actionLabel} | ${(ps.control_modulesInvolved ?? []).join(", ")} |`);
       }
     }
 
@@ -460,7 +460,7 @@ export function buildFbStagePrompt(
 
   const matrixContext = linkageMatrix ? formatMatrixForFb(linkageMatrix, deviceType) : "";
 
-  const systemPrompt = `You are the **Code Architect** generating Function Blocks for **${deviceType}** devices.
+  const systemPrompt = `You are the **Code Architect** generating Function Blocks for **${deviceType}** control_modules.
 
 ${buildSharedPreamble(input)}
 
@@ -482,7 +482,7 @@ ${stageInstructions}`;
       { role: "assistant" as const, content: "Understood. I'll reference these existing artifacts for consistency." },
     );
   }
-  messages.push({ role: "user" as const, content: `Generate the Function Block artifacts for ${deviceType} devices.` });
+  messages.push({ role: "user" as const, content: `Generate the Function Block artifacts for ${deviceType} control_modules.` });
 
   return { systemPrompt, messages };
 }

@@ -5,8 +5,8 @@
  * V1 prompts (introduction, equipment_description, functional_state, alarm_table, settings_table)
  * are kept for backward compatibility. V2 prompts follow the industry-standard FDS structure.
  */
-import type { SubsystemConfig, OperatingState, AlarmTier, InstrumentTag } from "@/types/spec-builder";
-import { getSubsystemDeviceCount } from "@/types/spec-builder";
+import type { UnitConfig, OperatingState, AlarmTier, InstrumentTag } from "@/types/spec-builder";
+import { getUnitControlModuleCount } from "@/types/spec-builder";
 
 // ---------------------------------------------------------------------------
 // Introduction
@@ -18,13 +18,13 @@ export function buildIntroductionPrompt(
   plcModel: string,
   hmiType: string,
   commsProtocol: string,
-  subsystems: SubsystemConfig[],
+  units: UnitConfig[],
 ): string {
-  const subsystemList = subsystems
+  const unitList = units
     .filter((s) => !s.excluded)
     .map((s) => {
-      const asmNames = s.assemblies.map((a) => a.assembly_name).join(", ");
-      return `- ${s.subsystem_name} (${s.equipment_type}, ${s.assemblies.length} assemblies, ${getSubsystemDeviceCount(s)} devices)${asmNames ? `\n  Assemblies: ${asmNames}` : ""}`;
+      const asmNames = s.equipment_modules.map((a) => a.equipment_module_name).join(", ");
+      return `- ${s.unit_name} (${s.equipment_type}, ${s.equipment_modules.length} Equipment Modules, ${getUnitControlModuleCount(s)} Control Modules)${asmNames ? `\n  Equipment Modules: ${asmNames}` : ""}`;
     })
     .join("\n");
 
@@ -39,11 +39,11 @@ CONTROL SYSTEM:
 - Communications: ${commsProtocol || "Not specified"}
 
 SUBSYSTEMS:
-${subsystemList}
+${unitList}
 
 Generate:
 1. "overview" — 2-4 sentences describing the overall system purpose and scope (formal technical register, third person)
-2. "brief_description" — 1-2 sentences per subsystem summarising its role
+2. "brief_description" — 1-2 sentences per unit summarising its role
 
 Respond ONLY with a JSON object:
 {
@@ -53,11 +53,11 @@ Respond ONLY with a JSON object:
 }
 
 // ---------------------------------------------------------------------------
-// Equipment Description (per subsystem)
+// Equipment Description (per unit)
 // ---------------------------------------------------------------------------
 
 export function buildEquipmentDescriptionPrompt(
-  subsystem: SubsystemConfig,
+  unit: UnitConfig,
   tags: InstrumentTag[],
   designProfileRules?: string,
 ): string {
@@ -66,7 +66,7 @@ export function buildEquipmentDescriptionPrompt(
       tag: t.tag,
       device_type: t.device_type,
       description: t.description,
-      device_class: t.device_class,
+      control_module_class: t.control_module_class,
       signal_direction: t.signal_direction,
       io_address: t.io_address,
       is_safety: t.is_safety,
@@ -75,14 +75,14 @@ export function buildEquipmentDescriptionPrompt(
     2
   );
 
-  // Build assembly→device hierarchy for context
-  const assemblyHierarchy = subsystem.assemblies.map((a) => ({
-    assembly: a.assembly_name,
+  // Build equipment_module→device hierarchy for context
+  const equipment_moduleHierarchy = unit.equipment_modules.map((a) => ({
+    equipment_module: a.equipment_module_name,
     description: a.description,
-    devices: a.devices.map((d) => ({
-      device_id: d.device_id,
-      device_name: d.device_name,
-      device_class: d.device_class,
+    control_modules: a.control_modules.map((d) => ({
+      control_module_id: d.control_module_id,
+      control_module_name: d.control_module_name,
+      control_module_class: d.control_module_class,
       is_safety: d.is_safety,
       signals: d.io_signals.map((s) => s.tag),
     })),
@@ -95,28 +95,28 @@ export function buildEquipmentDescriptionPrompt(
   return `You are a senior automation engineer authoring a formal functional specification document.
 Your output style must match professional EFD (Engineering Functional Description) documents.
 
-You are generating the "Description of Subsystem Equipment" section for: ${subsystem.subsystem_name} (${subsystem.equipment_type}).
-${subsystem.description ? `Subsystem description: ${subsystem.description}\n` : ""}${rulesSection}
+You are generating the "Description of Unit Equipment" section for: ${unit.unit_name} (${unit.equipment_type}).
+${unit.description ? `Unit description: ${unit.description}\n` : ""}${rulesSection}
 MACHINE HIERARCHY (Assemblies and Devices):
-${JSON.stringify(assemblyHierarchy, null, 2)}
+${JSON.stringify(equipment_moduleHierarchy, null, 2)}
 
 INSTRUMENT REGISTER FOR THIS SUBSYSTEM:
 ${tagsJson}
 
 Generate a section with:
 1. A short prose description of the equipment's purpose and operation (2-4 sentences, formal technical register, third person).
-   - Reference the assembly structure: describe each assembly and its role within the subsystem.
+   - Reference the equipment_module structure: describe each equipment_module and its role within the unit.
 2. A control device instrumentation table with columns: Device | Tag | Description
    - Every tag in the instrument register must appear in the table
    - Device column format: TAG (Type) e.g. "LP059 (Valve)"
    - Description column must be specific, not generic — state the device's actual function
-   - Safety devices must include "(Safety)" in description
-   - Group related devices by assembly, then by device (e.g. motor command + feedback + overload as consecutive rows)
+   - Safety control_modules must include "(Safety)" in description
+   - Group related control_modules by equipment_module, then by device (e.g. motor command + feedback + overload as consecutive rows)
 
 Respond ONLY with a JSON object:
 {
   "prose": "...",
-  "device_table": [
+  "control_module_table": [
     { "device": "FAN1_CMD (Motor Contactor)", "tag": "FAN1_CMD", "description": "Fan 1 motor contactor coil — 24VDC output" },
     ...
   ]
@@ -124,11 +124,11 @@ Respond ONLY with a JSON object:
 }
 
 // ---------------------------------------------------------------------------
-// Functional State (per subsystem × operating state)
+// Functional State (per unit × operating state)
 // ---------------------------------------------------------------------------
 
 export function buildFunctionalStatePrompt(
-  subsystem: SubsystemConfig,
+  unit: UnitConfig,
   state: OperatingState,
   deviceTable: Array<{ device: string; tag: string; description: string }>,
 ): string {
@@ -136,7 +136,7 @@ export function buildFunctionalStatePrompt(
 
   return `You are a senior automation engineer authoring a formal functional specification.
 
-You are generating the "${state.state_name}" state section for: ${subsystem.subsystem_name} (${subsystem.equipment_type}).
+You are generating the "${state.state_name}" state section for: ${unit.unit_name} (${unit.equipment_type}).
 
 State description: ${state.description}
 
@@ -156,24 +156,24 @@ Respond ONLY with a JSON object:
 }
 
 // ---------------------------------------------------------------------------
-// Alarm Table (all subsystems)
+// Alarm Table (all units)
 // ---------------------------------------------------------------------------
 
 export function buildAlarmTablePrompt(
-  subsystems: SubsystemConfig[],
-  tagsBySubsystem: Record<string, InstrumentTag[]>,
+  units: UnitConfig[],
+  tagsByUnit: Record<string, InstrumentTag[]>,
   alarmTiers: AlarmTier[],
 ): string {
-  const subsystemData = subsystems
+  const unitData = units
     .filter((s) => !s.excluded)
     .map((s) => ({
-      subsystem: s.subsystem_name,
+      unit: s.unit_name,
       equipment_type: s.equipment_type,
-      tags: (tagsBySubsystem[s.subsystem_id] ?? []).map((t) => ({
+      tags: (tagsByUnit[s.unit_id] ?? []).map((t) => ({
         tag: t.tag,
         device_type: t.device_type,
         description: t.description,
-        device_class: t.device_class,
+        control_module_class: t.control_module_class,
         is_safety: t.is_safety,
       })),
     }));
@@ -181,7 +181,7 @@ export function buildAlarmTablePrompt(
   return `You are a senior automation engineer authoring a formal functional specification alarm section.
 
 SUBSYSTEMS AND DEVICE TABLES:
-${JSON.stringify(subsystemData, null, 2)}
+${JSON.stringify(unitData, null, 2)}
 
 ALARM TIERS DEFINED FOR THIS PROJECT:
 ${JSON.stringify(alarmTiers, null, 2)}
@@ -194,9 +194,9 @@ Generate an alarm table for each tier. For each alarm entry include:
 - delay: use "[ENGINEER TO SET]" as placeholder if not determinable
 
 Classification rules:
-- Safety devices (is_safety: true) → highest severity tier
+- Safety control_modules (is_safety: true) → highest severity tier
 - Overload relays → Immediate Shutdown or Controlled Shutdown
-- E-Stop devices → Immediate Shutdown
+- E-Stop control_modules → Immediate Shutdown
 - Temperature out of range → Warning or Controlled Shutdown depending on severity
 - Run feedback timeout on motors → Controlled Shutdown
 - Position confirmation timeout → Controlled Shutdown
@@ -216,30 +216,30 @@ Respond ONLY with a JSON object:
 }
 
 // ---------------------------------------------------------------------------
-// Settings Table (all subsystems)
+// Settings Table (all units)
 // ---------------------------------------------------------------------------
 
 export function buildSettingsTablePrompt(
-  subsystems: SubsystemConfig[],
+  units: UnitConfig[],
 ): string {
-  const subsystemList = subsystems
+  const unitList = units
     .filter((s) => !s.excluded)
     .map((s) => ({
-      subsystem_id: s.subsystem_id,
-      subsystem_name: s.subsystem_name,
+      unit_id: s.unit_id,
+      unit_name: s.unit_name,
       equipment_type: s.equipment_type,
-      assemblies: s.assemblies.map((a) => ({
-        assembly_name: a.assembly_name,
-        device_count: a.devices.length,
+      equipment_modules: s.equipment_modules.map((a) => ({
+        equipment_module_name: a.equipment_module_name,
+        control_module_count: a.control_modules.length,
       })),
     }));
 
   return `You are generating the Process Settings and Alarm Settings section of a functional specification.
 
 SUBSYSTEMS:
-${JSON.stringify(subsystemList, null, 2)}
+${JSON.stringify(unitList, null, 2)}
 
-For each subsystem, generate two tables:
+For each unit, generate two tables:
 1. Process settings — operational parameters (temperatures, pressures, weights, timers, speeds)
 2. Alarm settings — the threshold values that trigger alarms
 
@@ -247,9 +247,9 @@ For every setpoint value, use "[ENGINEER TO SET]" as placeholder unless the valu
 
 Respond ONLY with a JSON object:
 {
-  "subsystems": [
+  "units": [
     {
-      "subsystem_id": "...",
+      "unit_id": "...",
       "process_settings": [
         { "parameter": "...", "default": "[ENGINEER TO SET]", "unit": "...", "notes": "" }
       ],
@@ -272,7 +272,7 @@ export function buildGapAuditPrompt(
   return `You are a principal automation engineer conducting a formal review of a functional specification document before client issue.
 
 COMPLETE INSTRUMENT REGISTER:
-${JSON.stringify(allTags.map((t) => ({ tag: t.tag, device_type: t.device_type, description: t.description, subsystem: t.subsystem, is_safety: t.is_safety })), null, 2)}
+${JSON.stringify(allTags.map((t) => ({ tag: t.tag, device_type: t.device_type, description: t.description, unit: t.unit, is_safety: t.is_safety })), null, 2)}
 
 GENERATED SPECIFICATION:
 ${fullSpecMarkdown}
@@ -281,7 +281,7 @@ Conduct a structured gap audit. Check:
 
 1. TAG COVERAGE — Is every tag in the instrument register referenced at least once in the specification? List any missing tags.
 
-2. STATE COVERAGE — For each subsystem, is every defined operating state described? List any missing state/subsystem combinations.
+2. STATE COVERAGE — For each unit, is every defined operating state described? List any missing state/unit combinations.
 
 3. ALARM COVERAGE — Is every safety device represented in the alarm table? List any missing.
 
@@ -323,11 +323,11 @@ export function buildDocumentControlPrompt(
   docCode: string,
   revision: string,
   clientName: string,
-  subsystems: SubsystemConfig[],
+  units: UnitConfig[],
 ): string {
-  const equipmentList = subsystems
+  const equipmentList = units
     .filter((s) => !s.excluded)
-    .map((s) => s.subsystem_name)
+    .map((s) => s.unit_name)
     .join(", ");
 
   return `You are a senior automation engineer preparing the Document Control section of a functional specification.
@@ -366,15 +366,15 @@ export function buildSystemOverviewPrompt(
   plcModel: string,
   hmiType: string,
   commsProtocol: string,
-  subsystems: SubsystemConfig[],
+  units: UnitConfig[],
   scopeExclusions: string[],
   safetyClassification: string | null,
 ): string {
-  const subsystemList = subsystems
+  const unitList = units
     .filter((s) => !s.excluded)
     .map((s) => {
-      const devCount = getSubsystemDeviceCount(s);
-      return `- ${s.subsystem_name} (${s.equipment_type}, ${s.assemblies.length} assemblies, ${devCount} devices)`;
+      const devCount = getUnitControlModuleCount(s);
+      return `- ${s.unit_name} (${s.equipment_type}, ${s.equipment_modules.length} equipment_modules, ${devCount} control_modules)`;
     })
     .join("\n");
 
@@ -391,7 +391,7 @@ Communications: ${commsProtocol || "Not specified"}
 Safety Classification: ${safetyClassification || "Non-safety (standard control)"}
 
 SUBSYSTEMS:
-${subsystemList}
+${unitList}
 ${exclusionsText}
 
 Generate:
@@ -414,7 +414,7 @@ Respond ONLY with a JSON object:
 // ---------------------------------------------------------------------------
 
 export function buildControlPhilosophyPrompt(
-  subsystems: SubsystemConfig[],
+  units: UnitConfig[],
   states: OperatingState[],
   alarmTiers: AlarmTier[],
   faultPhilosophy: string | null,
@@ -424,9 +424,9 @@ export function buildControlPhilosophyPrompt(
     .map((s) => `- ${s.state_name} (${s.state_pattern}): ${s.description}`)
     .join("\n");
 
-  const subsystemList = subsystems
+  const unitList = units
     .filter((s) => !s.excluded)
-    .map((s) => `- ${s.subsystem_name} (${s.equipment_type})`)
+    .map((s) => `- ${s.unit_name} (${s.equipment_type})`)
     .join("\n");
 
   const tierList = alarmTiers
@@ -444,7 +444,7 @@ export function buildControlPhilosophyPrompt(
   return `You are a senior automation engineer authoring the Control Philosophy section of a functional specification. This section must be concise (2–3 pages) — it defines the RULES that govern all functional descriptions. The detailed per-device per-state behaviour belongs in Section 3, not here.
 
 SUBSYSTEMS:
-${subsystemList}
+${unitList}
 
 OPERATING STATES:
 ${stateList}
@@ -458,7 +458,7 @@ Generate:
 1. "state_list" — For each operating state, provide the state name, its pattern (static/sequential), and a brief 1–2 sentence description of what the system does in this state.
 2. "mode_transitions" — 2–4 paragraphs describing how the system transitions between states. Cover: normal start sequence flow, normal stop flow, emergency stop transitions, fault-to-idle recovery. Reference specific state names.
 3. "fault_philosophy" — 2–3 paragraphs describing the general fault handling approach: how faults are detected, how they are latched, how they are cleared/reset, and the fault priority hierarchy. If user-defined text was provided, incorporate and expand it.
-4. "design_principles" — A list of 6–10 general design principles that apply across all subsystems. Include any user-defined principles and add standard industry practices (e.g. "All outputs de-energise to safe state on loss of communications", "Fault conditions are latched and require manual acknowledgement").
+4. "design_principles" — A list of 6–10 general design principles that apply across all units. Include any user-defined principles and add standard industry practices (e.g. "All outputs de-energise to safe state on loss of communications", "Fault conditions are latched and require manual acknowledgement").
 
 Use formal technical register, third person throughout.
 
@@ -474,17 +474,17 @@ Respond ONLY with a JSON object:
 }
 
 // ---------------------------------------------------------------------------
-// Section 3 — Functional Description: Equipment Preamble (per subsystem)
+// Section 3 — Functional Description: Equipment Preamble (per unit)
 // ---------------------------------------------------------------------------
 // Note: buildEquipmentDescriptionPrompt (V1) is reused for the Section 3 preamble.
-// It already generates the prose + device instrumentation table per subsystem.
+// It already generates the prose + device instrumentation table per unit.
 
 // ---------------------------------------------------------------------------
 // Section 3 — Functional Description: Pattern A (Device State Table)
 // ---------------------------------------------------------------------------
 
 export function buildDeviceStateTablePrompt(
-  subsystem: SubsystemConfig,
+  unit: UnitConfig,
   states: OperatingState[],
   tags: InstrumentTag[],
   deviceTable: Array<{ device: string; tag: string; description: string }>,
@@ -501,11 +501,11 @@ export function buildDeviceStateTablePrompt(
   const staticStates = states.filter((s) => s.state_pattern === "static");
   const stateNames = staticStates.map((s) => s.state_name);
 
-  return `You are a senior automation engineer authoring the functional specification for ${subsystem.subsystem_name} (${subsystem.equipment_type}).
+  return `You are a senior automation engineer authoring the functional specification for ${unit.unit_name} (${unit.equipment_type}).
 
 You are generating Device State Tables for ALL static operating states. In a device state table, every output (DO/AO) is listed with its exact state in that operating mode. This is the definitive reference — a PLC programmer must be able to read this table and know exactly what every output does in each state.
 
-DEVICE TABLE (reference — all devices for this subsystem):
+DEVICE TABLE (reference — all control_modules for this unit):
 ${JSON.stringify(deviceTable, null, 2)}
 
 OUTPUT TAGS (these must ALL appear in every device state table):
@@ -538,7 +538,7 @@ ${stateNames.map((n) => `    "${n}": [
 // ---------------------------------------------------------------------------
 
 export function buildStepTablePrompt(
-  subsystem: SubsystemConfig,
+  unit: UnitConfig,
   state: OperatingState,
   tags: InstrumentTag[],
   deviceTable: Array<{ device: string; tag: string; description: string }>,
@@ -554,14 +554,14 @@ export function buildStepTablePrompt(
     2,
   );
 
-  return `You are a senior automation engineer authoring the functional specification for ${subsystem.subsystem_name} (${subsystem.equipment_type}).
+  return `You are a senior automation engineer authoring the functional specification for ${unit.unit_name} (${unit.equipment_type}).
 
 You are generating a Step Table for the "${state.state_name}" state. A step table is a numbered sequence of actions with explicit completion criteria — the PLC programmer reads this as a direct programming specification.
 
 State: ${state.state_name}
 Description: ${state.description}
 
-DEVICE TABLE (reference — all devices for this subsystem):
+DEVICE TABLE (reference — all control_modules for this unit):
 ${JSON.stringify(deviceTable, null, 2)}
 
 ALL TAGS FOR THIS SUBSYSTEM:
@@ -609,7 +609,7 @@ export function buildIoListPrompt(
       io_address: t.io_address,
       signal_direction: t.signal_direction,
       is_safety: t.is_safety,
-      subsystem: t.subsystem,
+      unit: t.unit,
     })),
     null,
     2,
@@ -627,7 +627,7 @@ Rules:
 - Digital Outputs (DO): Normal state = FALSE (de-energised). Failsafe state = FALSE (de-energised) unless specified otherwise
 - Analog Inputs (AI): Normal state = "0" or "4 mA" depending on signal range. Failsafe state = "Last value" or "0"
 - Analog Outputs (AO): Normal state = "0" or "0%". Failsafe state = "0" (safe value)
-- Safety devices: Failsafe state must ensure safe condition (E-Stop failsafe = trip/de-energise)
+- Safety control_modules: Failsafe state must ensure safe condition (E-Stop failsafe = trip/de-energise)
 - Emergency stop inputs are typically N/C (Normal state = TRUE, loss of signal = fault)
 - If the normal or failsafe state cannot be determined from the tag info, use "[ENGINEER TO CONFIRM]"
 
@@ -652,20 +652,20 @@ Respond ONLY with a JSON object:
 // ---------------------------------------------------------------------------
 
 export function buildAlarmSpecificationPrompt(
-  subsystems: SubsystemConfig[],
-  tagsBySubsystem: Record<string, InstrumentTag[]>,
+  units: UnitConfig[],
+  tagsByUnit: Record<string, InstrumentTag[]>,
   alarmTiers: AlarmTier[],
 ): string {
-  const subsystemData = subsystems
+  const unitData = units
     .filter((s) => !s.excluded)
     .map((s) => ({
-      subsystem: s.subsystem_name,
+      unit: s.unit_name,
       equipment_type: s.equipment_type,
-      tags: (tagsBySubsystem[s.subsystem_id] ?? []).map((t) => ({
+      tags: (tagsByUnit[s.unit_id] ?? []).map((t) => ({
         tag: t.tag,
         device_type: t.device_type,
         description: t.description,
-        device_class: t.device_class,
+        control_module_class: t.control_module_class,
         signal_direction: t.signal_direction,
         is_safety: t.is_safety,
       })),
@@ -677,7 +677,7 @@ export function buildAlarmSpecificationPrompt(
   return `You are a senior automation engineer authoring the Alarm Specification section of a functional specification.
 
 SUBSYSTEMS AND DEVICE TABLES:
-${JSON.stringify(subsystemData, null, 2)}
+${JSON.stringify(unitData, null, 2)}
 
 ALARM TIERS:
 ${JSON.stringify(alarmTiers, null, 2)}
@@ -692,8 +692,8 @@ Generate TWO things:
 - delay: use "[ENGINEER TO SET]" if not determinable
 
 Classification rules:
-- Safety devices (is_safety: true) → highest severity tier
-- E-Stop devices → Immediate Shutdown
+- Safety control_modules (is_safety: true) → highest severity tier
+- E-Stop control_modules → Immediate Shutdown
 - Overload relays → Immediate Shutdown or Controlled Shutdown
 - Temperature out of range → Warning or Controlled Shutdown depending on severity
 - Run feedback timeout on motors → Controlled Shutdown
@@ -731,12 +731,12 @@ Respond ONLY with a JSON object:
 
 export function buildHmiSpecificationPrompt(
   hmiType: string,
-  subsystems: SubsystemConfig[],
+  units: UnitConfig[],
   tags: InstrumentTag[],
 ): string {
-  const subsystemList = subsystems
+  const unitList = units
     .filter((s) => !s.excluded)
-    .map((s) => `- ${s.subsystem_name} (${s.equipment_type}, ${getSubsystemDeviceCount(s)} devices)`)
+    .map((s) => `- ${s.unit_name} (${s.equipment_type}, ${getUnitControlModuleCount(s)} control_modules)`)
     .join("\n");
 
   const analogTags = tags.filter((t) => t.signal_direction === "AI" || t.signal_direction === "AO");
@@ -747,13 +747,13 @@ export function buildHmiSpecificationPrompt(
 HMI Type: ${hmiType}
 
 SUBSYSTEMS:
-${subsystemList}
+${unitList}
 
 ANALOG TAGS (candidates for trending):
 ${analogList || "None"}
 
 Generate:
-1. "screen_hierarchy" — A screen navigation tree. Include: Overview screen, one screen per subsystem, Alarm summary screen, Trend screen, Settings/Parameter screen, User administration screen. Each entry has a parent reference (null for top-level).
+1. "screen_hierarchy" — A screen navigation tree. Include: Overview screen, one screen per unit, Alarm summary screen, Trend screen, Settings/Parameter screen, User administration screen. Each entry has a parent reference (null for top-level).
 
 2. "access_levels" — A capability matrix with at least 4 levels:
    - Level 1 (Viewer): View screens only
@@ -768,7 +768,7 @@ Use formal technical register, third person.
 Respond ONLY with a JSON object:
 {
   "screen_hierarchy": [
-    { "screen_name": "Overview", "parent": null, "description": "System overview showing all subsystem status" }
+    { "screen_name": "Overview", "parent": null, "description": "System overview showing all unit status" }
   ],
   "access_levels": [
     { "level": 1, "name": "Viewer", "capabilities": ["View process screens", "View alarm history"] }
@@ -784,14 +784,14 @@ Respond ONLY with a JSON object:
 // ---------------------------------------------------------------------------
 
 export function buildTestingFatPrompt(
-  subsystems: SubsystemConfig[],
+  units: UnitConfig[],
   states: OperatingState[],
   alarmTiers: AlarmTier[],
   tags: InstrumentTag[],
 ): string {
-  const subsystemList = subsystems
+  const unitList = units
     .filter((s) => !s.excluded)
-    .map((s) => `- ${s.subsystem_name} (${s.equipment_type})`)
+    .map((s) => `- ${s.unit_name} (${s.equipment_type})`)
     .join("\n");
 
   const stateList = states
@@ -804,7 +804,7 @@ export function buildTestingFatPrompt(
   return `You are a senior automation engineer preparing the Factory Acceptance Test (FAT) procedure section of a functional specification.
 
 SUBSYSTEMS:
-${subsystemList}
+${unitList}
 
 OPERATING STATES:
 ${stateList}
@@ -819,12 +819,12 @@ Generate a structured test procedure table. Each test must:
 - Have a unique test ID (T001, T002, etc.)
 - Reference the specification section it validates (e.g. "3.1 Fan Array — Starting")
 - Include specific acceptance criteria the tester can verify
-- Cover: power-up/initialisation, each operating state transition for each subsystem, each alarm tier, E-Stop response and recovery, HMI functionality (if applicable)
+- Cover: power-up/initialisation, each operating state transition for each unit, each alarm tier, E-Stop response and recovery, HMI functionality (if applicable)
 - Result column should be "[PASS/FAIL]" (to be completed during test)
 
 Minimum test coverage:
-- 1 test per subsystem for power-up / initialisation
-- 1 test per subsystem × sequential state (starting, execute, completing)
+- 1 test per unit for power-up / initialisation
+- 1 test per unit × sequential state (starting, execute, completing)
 - 1 test per static state (idle state verification, E-Stop response)
 - 1 test per alarm tier
 - 1 test per safety device

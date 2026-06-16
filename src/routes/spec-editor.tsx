@@ -15,7 +15,7 @@ import {
   useSpecSections,
 } from "@/hooks/use-spec-projects";
 import {
-  migrateSubsystemConfig,
+  migrateUnitConfig,
   migrateOperatingStates,
 } from "@/types/spec-builder";
 import { useUnconfirmedLock } from "@/hooks/use-unconfirmed-lock";
@@ -31,8 +31,8 @@ export default function SpecEditorRoute() {
     if (!rawSpec) return null;
     return {
       ...rawSpec,
-      confirmed_subsystems: rawSpec.confirmed_subsystems?.length
-        ? migrateSubsystemConfig(rawSpec.confirmed_subsystems)
+      confirmed_units: rawSpec.confirmed_units?.length
+        ? migrateUnitConfig(rawSpec.confirmed_units)
         : [],
       confirmed_states: rawSpec.confirmed_states?.length
         ? migrateOperatingStates(rawSpec.confirmed_states)

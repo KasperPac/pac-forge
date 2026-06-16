@@ -110,7 +110,7 @@ interface FormState {
   tags: string[];
   blocks: BlockFormEntry[];
   profile_ids: string[];
-  is_assembly: boolean;
+  is_equipment_module: boolean;
 }
 
 const EMPTY_BLOCK: BlockFormEntry = {
@@ -130,13 +130,13 @@ function emptyForm(): FormState {
     tags: [],
     blocks: [{ ...EMPTY_BLOCK }],
     profile_ids: [],
-    is_assembly: false,
+    is_equipment_module: false,
   };
 }
 
 export default function FbLibraryPage() {
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
-  const [assemblyFilter, setAssemblyFilter] = useState<"all" | "device" | "assembly">("all");
+  const [equipment_moduleFilter, setAssemblyFilter] = useState<"all" | "device" | "equipment_module">("all");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<FbTemplate | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm());
@@ -170,8 +170,8 @@ export default function FbLibraryPage() {
   // Search + filter
   const filteredTemplates = useMemo(() => {
     let list = templates ?? [];
-    if (assemblyFilter !== "all") {
-      list = list.filter((t) => assemblyFilter === "assembly" ? t.is_assembly : !t.is_assembly);
+    if (equipment_moduleFilter !== "all") {
+      list = list.filter((t) => equipment_moduleFilter === "equipment_module" ? t.is_equipment_module : !t.is_equipment_module);
     }
     if (sourceFilter !== "all") {
       list = list.filter((t) => sourceFilter === "library" ? t.source === "library" : t.source !== "library");
@@ -191,7 +191,7 @@ export default function FbLibraryPage() {
       );
     }
     return list;
-  }, [templates, searchQuery, assemblyFilter, sourceFilter, langFilter]);
+  }, [templates, searchQuery, equipment_moduleFilter, sourceFilter, langFilter]);
   const { data: categories, isLoading: catsLoading } = useFbDeviceCategories();
   const { data: profiles } = useDesignProfiles();
   const createTemplate = useCreateFbTemplate();
@@ -234,7 +234,7 @@ export default function FbLibraryPage() {
             }))
           : [{ ...EMPTY_BLOCK }],
       profile_ids: template.profile_ids ?? [],
-      is_assembly: template.is_assembly ?? false,
+      is_equipment_module: template.is_equipment_module ?? false,
     });
     setTagInput(template.tags.join(", "));
     setActiveBlockIdx(0);
@@ -262,7 +262,7 @@ export default function FbLibraryPage() {
         sort_order: i,
       })),
       profile_ids: form.profile_ids,
-      is_assembly: form.is_assembly,
+      is_equipment_module: form.is_equipment_module,
     };
 
     const errorHandler = (err: Error) => {
@@ -865,14 +865,14 @@ export default function FbLibraryPage() {
             className="h-8 pl-8 font-mono text-xs"
           />
         </div>
-        <Select value={assemblyFilter} onValueChange={(v) => setAssemblyFilter(v as "all" | "device" | "assembly")}>
+        <Select value={equipment_moduleFilter} onValueChange={(v) => setAssemblyFilter(v as "all" | "device" | "equipment_module")}>
           <SelectTrigger className="h-8 w-28 text-xs">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All types</SelectItem>
             <SelectItem value="device">Device FBs</SelectItem>
-            <SelectItem value="assembly">Assembly FBs</SelectItem>
+            <SelectItem value="equipment_module">Equipment Module FBs</SelectItem>
           </SelectContent>
         </Select>
         <Select value={sourceFilter} onValueChange={(v) => setSourceFilter(v as "all" | "library" | "custom")}>
@@ -975,18 +975,18 @@ export default function FbLibraryPage() {
               </div>
             </div>
 
-            {/* Assembly toggle */}
+            {/* Equipment Module toggle */}
             <div className="flex items-center gap-2">
               <Switch
-                checked={form.is_assembly}
-                onCheckedChange={(checked) => setForm((f) => ({ ...f, is_assembly: checked }))}
-                id="is-assembly-toggle"
+                checked={form.is_equipment_module}
+                onCheckedChange={(checked) => setForm((f) => ({ ...f, is_equipment_module: checked }))}
+                id="is-equipment-module-toggle"
               />
-              <label htmlFor="is-assembly-toggle" className="font-mono text-xs text-muted-foreground cursor-pointer">
-                Assembly FB
+              <label htmlFor="is-equipment-module-toggle" className="font-mono text-xs text-muted-foreground cursor-pointer">
+                Equipment Module FB
               </label>
               <span className="font-mono text-[10px] text-muted-foreground/60">
-                {form.is_assembly ? "Coordinates groups of devices (conveyor, lift table, press)" : "Controls a single physical device (motor, sensor, valve)"}
+                {form.is_equipment_module ? "Coordinates groups of control_modules (conveyor, lift table, press)" : "Controls a single physical device (motor, sensor, valve)"}
               </span>
             </div>
 
@@ -1349,9 +1349,9 @@ function TemplateCard({
         <Badge variant="secondary" className="shrink-0 font-mono text-[10px] px-1.5 py-0">
           {template.device_category}
         </Badge>
-        {template.is_assembly && (
+        {template.is_equipment_module && (
           <Badge variant="outline" className="shrink-0 font-mono text-[10px] px-1 py-0 border-blue-500/40 text-blue-400">
-            assembly
+            equipment_module
           </Badge>
         )}
         {template.source === "library" && (

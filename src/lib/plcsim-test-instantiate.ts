@@ -2,12 +2,12 @@
  * plcsim-test-instantiate.ts
  *
  * Resolves parameterized tag placeholders in test templates to produce
- * concrete PlcsimTestCase instances for specific devices.
+ * concrete PlcsimTestCase instances for specific control_modules.
  */
 
 import type { PlcsimTestTemplate } from "@/types/plcsim-test-template";
 import type { PlcsimTestCase, TestStep, TestIoAction, IoSimulationRule } from "@/types/plcsim-test";
-import type { ForgeDeviceEntry } from "@/types/forge";
+import type { ForgeControlModuleEntry } from "@/types/forge";
 import type { LinkageDevice } from "@/types/forge-matrix";
 
 // ---------------------------------------------------------------------------
@@ -26,7 +26,7 @@ import type { LinkageDevice } from "@/types/forge-matrix";
  *   {device:tag}           → device tag prefix
  */
 function buildReplacementMap(
-  device: ForgeDeviceEntry,
+  device: ForgeControlModuleEntry,
   wiring: LinkageDevice | undefined,
 ): Map<string, string> {
   const map = new Map<string, string>();
@@ -118,7 +118,7 @@ function instantiateStep(
  */
 export function instantiateTestTemplate(
   template: PlcsimTestTemplate,
-  device: ForgeDeviceEntry,
+  device: ForgeControlModuleEntry,
   wiring: LinkageDevice | undefined,
 ): PlcsimTestCase {
   const map = buildReplacementMap(device, wiring);
@@ -142,7 +142,7 @@ export function instantiateTestTemplate(
  */
 export function instantiateSimRules(
   rules: IoSimulationRule[],
-  device: ForgeDeviceEntry,
+  device: ForgeControlModuleEntry,
   wiring: LinkageDevice | undefined,
 ): IoSimulationRule[] {
   const map = buildReplacementMap(device, wiring);
@@ -169,7 +169,7 @@ export function instantiateSimRules(
  */
 export function findMatchingTemplate(
   templates: PlcsimTestTemplate[],
-  device: ForgeDeviceEntry,
+  device: ForgeControlModuleEntry,
 ): PlcsimTestTemplate | null {
   // 1. Try FB-specific match
   if (device.fb_template_id) {

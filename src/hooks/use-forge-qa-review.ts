@@ -73,7 +73,7 @@ export function useForgeQaReview() {
       const controller = new AbortController();
 
       const analysisIsEmpty =
-        (analysis.devices ?? []).length === 0 &&
+        (analysis.control_modules ?? []).length === 0 &&
         (analysis.process_sequences ?? []).length === 0;
 
       const specTextSection =
@@ -178,16 +178,16 @@ export function useForgeQaReview() {
     specText?: string,
   ): Promise<SpecAnalysis> => {
     // Check if the last PM message already has a JSON block.
-    // Only trust it if it contains at least as many devices as the original —
+    // Only trust it if it contains at least as many control_modules as the original —
     // PM responses during Q&A often include only partial/discussed data.
     const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
     if (lastAssistant) {
       for (const candidateText of getJsonResponseCandidates(lastAssistant.content)) {
         try {
           const candidate = JSON.parse(candidateText) as SpecAnalysis;
-          const originalDeviceCount = (originalAnalysis.devices ?? []).length;
-          const candidateDeviceCount = (candidate.devices ?? []).length;
-          // Only use if it preserves all original devices (or original had none)
+          const originalDeviceCount = (originalAnalysis.control_modules ?? []).length;
+          const candidateDeviceCount = (candidate.control_modules ?? []).length;
+          // Only use if it preserves all original control_modules (or original had none)
           if (originalDeviceCount === 0 || candidateDeviceCount >= originalDeviceCount) {
             return candidate;
           }
@@ -205,17 +205,17 @@ export function useForgeQaReview() {
       const controller = new AbortController();
 
       // When the analysis is mostly empty, include the original spec text so the
-      // AI can re-extract devices/sequences directly rather than relying on
+      // AI can re-extract control_modules/sequences directly rather than relying on
       // the (empty) JSON alone.
       const analysisIsEmpty =
-        (originalAnalysis.devices ?? []).length === 0 &&
+        (originalAnalysis.control_modules ?? []).length === 0 &&
         (originalAnalysis.process_sequences ?? []).length === 0;
 
       const specTextSection =
         analysisIsEmpty && specText
           ? [
               "",
-              "Original functional specification (use this to extract devices and sequences):",
+              "Original functional specification (use this to extract control_modules and sequences):",
               "```",
               specText.slice(0, 20000), // cap to avoid exceeding context
               "```",

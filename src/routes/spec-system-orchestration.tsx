@@ -27,29 +27,29 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSpecProject } from "@/hooks/use-spec-projects";
 import {
-  useSystemOrchestration,
-  useUpsertSystemOrchestration,
+  useSystemProcedure,
+  useUpsertSystemProcedure,
 } from "@/hooks/use-system-orchestration";
-import { useFdsSystemOrchestrationConversation } from "@/hooks/use-fds-system-orchestration-conversation";
+import { useFdsSystemProcedureConversation } from "@/hooks/use-fds-system-orchestration-conversation";
 import { useUnconfirmedLock } from "@/hooks/use-unconfirmed-lock";
 import { UnconfirmedLockBanner } from "@/components/spec-builder/migrate/unconfirmed-lock-banner";
-import { SystemOrchestrationGraph } from "@/components/spec-builder/system-orchestration-graph";
-import { SystemOrchestrationPermissiveForm } from "@/components/spec-builder/system-orchestration-permissive-form";
-import { SystemOrchestrationInterlockForm } from "@/components/spec-builder/system-orchestration-interlock-form";
+import { SystemProcedureGraph } from "@/components/spec-builder/system-orchestration-graph";
+import { SystemProcedurePermissiveForm } from "@/components/spec-builder/system-orchestration-permissive-form";
+import { SystemProcedureInterlockForm } from "@/components/spec-builder/system-orchestration-interlock-form";
 import {
-  migrateSubsystemConfig,
+  migrateUnitConfig,
   migrateOperatingStates,
 } from "@/types/spec-builder";
-import type { SubsystemConfig, OperatingState } from "@/types/spec-builder";
+import type { UnitConfig, OperatingState } from "@/types/spec-builder";
 import type {
   SystemStateSequence,
   SharedPermissive,
-  InterSubsystemInterlock,
-  SystemOrchestration,
+  InterUnitInterlock,
+  SystemProcedure,
 } from "@/types/spec-contract-v2";
 import { cn } from "@/lib/utils";
 
-export default function SpecSystemOrchestrationPage() {
+export default function SpecSystemProcedurePage() {
   const { projectId, specId } = useParams<{
     projectId: string;
     specId: string;
@@ -61,8 +61,8 @@ export default function SpecSystemOrchestrationPage() {
     if (!rawSpec) return null;
     return {
       ...rawSpec,
-      confirmed_subsystems: rawSpec.confirmed_subsystems?.length
-        ? migrateSubsystemConfig(rawSpec.confirmed_subsystems)
+      confirmed_units: rawSpec.confirmed_units?.length
+        ? migrateUnitConfig(rawSpec.confirmed_units)
         : [],
       confirmed_states: rawSpec.confirmed_states?.length
         ? migrateOperatingStates(rawSpec.confirmed_states)
@@ -97,7 +97,7 @@ export default function SpecSystemOrchestrationPage() {
   }
 
   return (
-    <SystemOrchestrationLayout
+    <SystemProcedureLayout
       spec={spec}
       projectId={projectId}
       isUnconfirmed={isUnconfirmed}
@@ -106,7 +106,7 @@ export default function SpecSystemOrchestrationPage() {
   );
 }
 
-function SystemOrchestrationLayout({
+function SystemProcedureLayout({
   spec,
   projectId,
   isUnconfirmed,
@@ -117,24 +117,24 @@ function SystemOrchestrationLayout({
     doc_code: string;
     title: string;
     revision: string;
-    confirmed_subsystems: SubsystemConfig[];
+    confirmed_units: UnitConfig[];
     confirmed_states: OperatingState[];
   } & Record<string, unknown>;
   projectId: string;
   isUnconfirmed: boolean;
   migrateHref: string;
 }) {
-  const subsystems = spec.confirmed_subsystems;
+  const units = spec.confirmed_units;
   const states = spec.confirmed_states;
   const sequentialStates = states.filter((s) => s.state_pattern === "sequential");
 
-  const { data: orchestration } = useSystemOrchestration(spec.id);
-  const upsert = useUpsertSystemOrchestration();
+  const { data: orchestration } = useSystemProcedure(spec.id);
+  const upsert = useUpsertSystemProcedure();
 
-  const conv = useFdsSystemOrchestrationConversation({
-    // casting — our SystemOrchestrationLayout props narrow the spec shape
-    spec: spec as unknown as Parameters<typeof useFdsSystemOrchestrationConversation>[0]["spec"],
-    subsystems,
+  const conv = useFdsSystemProcedureConversation({
+    // casting — our SystemProcedureLayout props narrow the spec shape
+    spec: spec as unknown as Parameters<typeof useFdsSystemProcedureConversation>[0]["spec"],
+    units,
     states,
   });
 
@@ -162,9 +162,9 @@ function SystemOrchestrationLayout({
   };
 
   const emptySequence = (): SystemStateSequence => ({
-    subsystem_order: subsystems.filter((s) => !s.excluded).map((s) => s.subsystem_id),
+    unit_order: units.filter((s) => !s.excluded).map((s) => s.unit_id),
     shared_permissives: [],
-    inter_subsystem_interlocks: [],
+    inter_unit_interlocks: [],
     notes: null,
   });
 
@@ -309,8 +309,8 @@ function SystemOrchestrationLayout({
               ))}
             </TabsList>
             <TabsContent value="overview" className="flex-1 min-h-0 m-0 p-0">
-              <SystemOrchestrationGraph
-                subsystems={subsystems}
+              <SystemProcedureGraph
+                units={units}
                 states={states}
                 orchestration={orchestration ?? null}
               />
@@ -326,7 +326,7 @@ function SystemOrchestrationLayout({
                 >
                   <StateEditor
                     state={s}
-                    subsystems={subsystems}
+                    units={units}
                     states={states}
                     sequence={seq}
                     onChange={(next) => persistStateSequence(s.state_id, next)}
@@ -347,13 +347,13 @@ function SystemOrchestrationLayout({
 
 function StateEditor({
   state,
-  subsystems,
+  units,
   states,
   sequence,
   onChange,
 }: {
   state: OperatingState;
-  subsystems: SubsystemConfig[];
+  units: UnitConfig[];
   states: OperatingState[];
   sequence: SystemStateSequence;
   onChange: (next: SystemStateSequence) => Promise<void> | void;
@@ -361,20 +361,20 @@ function StateEditor({
   const [addingPermissive, setAddingPermissive] = useState(false);
   const [addingInterlock, setAddingInterlock] = useState(false);
 
-  const subsystemName = (id: string) =>
-    subsystems.find((s) => s.subsystem_id === id)?.subsystem_name ?? id;
+  const unitName = (id: string) =>
+    units.find((s) => s.unit_id === id)?.unit_name ?? id;
 
   const moveOrder = (idx: number, dir: -1 | 1) => {
-    const next = [...sequence.subsystem_order];
+    const next = [...sequence.unit_order];
     const j = idx + dir;
     if (j < 0 || j >= next.length) return;
     [next[idx], next[j]] = [next[j], next[idx]];
-    onChange({ ...sequence, subsystem_order: next });
+    onChange({ ...sequence, unit_order: next });
   };
 
   const removeOrder = (idx: number) => {
-    const next = sequence.subsystem_order.filter((_, i) => i !== idx);
-    onChange({ ...sequence, subsystem_order: next });
+    const next = sequence.unit_order.filter((_, i) => i !== idx);
+    onChange({ ...sequence, unit_order: next });
   };
 
   const addPermissive = (p: SharedPermissive) => {
@@ -394,10 +394,10 @@ function StateEditor({
     });
   };
 
-  const addInterlock = (il: InterSubsystemInterlock) => {
+  const addInterlock = (il: InterUnitInterlock) => {
     onChange({
       ...sequence,
-      inter_subsystem_interlocks: [...sequence.inter_subsystem_interlocks, il],
+      inter_unit_interlocks: [...sequence.inter_unit_interlocks, il],
     });
     setAddingInterlock(false);
   };
@@ -405,7 +405,7 @@ function StateEditor({
   const removeInterlock = (id: string) => {
     onChange({
       ...sequence,
-      inter_subsystem_interlocks: sequence.inter_subsystem_interlocks.filter(
+      inter_unit_interlocks: sequence.inter_unit_interlocks.filter(
         (il) => il.interlock_id !== id,
       ),
     });
@@ -423,22 +423,22 @@ function StateEditor({
           </p>
         </div>
 
-        {/* Subsystem order */}
+        {/* Unit order */}
         <section className="space-y-2">
-          <h4 className="text-xs font-semibold font-mono">Subsystem order</h4>
-          {sequence.subsystem_order.length === 0 ? (
+          <h4 className="text-xs font-semibold font-mono">Unit order</h4>
+          {sequence.unit_order.length === 0 ? (
             <p className="text-[10px] text-muted-foreground">
               No ordering yet. The AI interview will seed one.
             </p>
           ) : (
             <ol className="space-y-1">
-              {sequence.subsystem_order.map((id, i) => (
+              {sequence.unit_order.map((id, i) => (
                 <li
                   key={id}
                   className="flex items-center gap-2 text-xs border rounded-md px-2 py-1 font-mono"
                 >
                   <span className="text-muted-foreground">{i + 1}.</span>
-                  <span className="flex-1 truncate">{subsystemName(id)}</span>
+                  <span className="flex-1 truncate">{unitName(id)}</span>
                   <Button
                     size="icon"
                     variant="ghost"
@@ -453,7 +453,7 @@ function StateEditor({
                     variant="ghost"
                     className="h-5 w-5"
                     onClick={() => moveOrder(i, 1)}
-                    disabled={i === sequence.subsystem_order.length - 1}
+                    disabled={i === sequence.unit_order.length - 1}
                   >
                     <ArrowDown className="h-3 w-3" />
                   </Button>
@@ -516,20 +516,20 @@ function StateEditor({
             </div>
           ))}
           {addingPermissive && (
-            <SystemOrchestrationPermissiveForm
-              subsystems={subsystems}
+            <SystemProcedurePermissiveForm
+              units={units}
               onSubmit={addPermissive}
               onCancel={() => setAddingPermissive(false)}
             />
           )}
         </section>
 
-        {/* Inter-subsystem interlocks */}
+        {/* Inter-unit interlocks */}
         <section className="space-y-2">
           <div className="flex items-center justify-between">
             <h4 className="text-xs font-semibold font-mono">
-              Inter-subsystem interlocks (
-              {sequence.inter_subsystem_interlocks.length})
+              Inter-unit interlocks (
+              {sequence.inter_unit_interlocks.length})
             </h4>
             {!addingInterlock && (
               <Button
@@ -543,7 +543,7 @@ function StateEditor({
               </Button>
             )}
           </div>
-          {sequence.inter_subsystem_interlocks.length === 0 ? (
+          {sequence.inter_unit_interlocks.length === 0 ? (
             <p className="text-[10px] text-muted-foreground">
               No interlocks defined for this state.
             </p>
@@ -560,13 +560,13 @@ function StateEditor({
                 </tr>
               </thead>
               <tbody>
-                {sequence.inter_subsystem_interlocks.map((il) => (
+                {sequence.inter_unit_interlocks.map((il) => (
                   <tr key={il.interlock_id} className="border-t">
                     <td className="p-1.5 font-mono text-[10px] text-muted-foreground">
                       {il.interlock_id}
                     </td>
                     <td className="p-1.5">
-                      {subsystemName(il.source_subsystem_id)}
+                      {unitName(il.source_unit_id)}
                     </td>
                     <td className="p-1.5 font-mono text-[10px]">
                       {il.source_condition.kind === "expression"
@@ -574,7 +574,7 @@ function StateEditor({
                         : il.source_condition.kind}
                     </td>
                     <td className="p-1.5">
-                      {subsystemName(il.target_subsystem_id)}
+                      {unitName(il.target_unit_id)}
                     </td>
                     <td className="p-1.5 font-mono text-[10px]">
                       {il.effect}
@@ -598,8 +598,8 @@ function StateEditor({
             </table>
           )}
           {addingInterlock && (
-            <SystemOrchestrationInterlockForm
-              subsystems={subsystems}
+            <SystemProcedureInterlockForm
+              units={units}
               states={states}
               onSubmit={addInterlock}
               onCancel={() => setAddingInterlock(false)}
@@ -612,4 +612,4 @@ function StateEditor({
 }
 
 // Unused-export guard — keeps the type import live for the casted conv call.
-export type _InternalSystemOrchestration = SystemOrchestration;
+export type _InternalSystemProcedure = SystemProcedure;

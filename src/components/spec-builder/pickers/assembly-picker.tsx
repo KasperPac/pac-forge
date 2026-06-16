@@ -1,5 +1,5 @@
 /**
- * AssemblyPicker — grouped by subsystem.
+ * AssemblyPicker — grouped by unit.
  */
 import { useMemo, useState } from "react";
 import { Check, ChevronsUpDown } from "lucide-react";
@@ -19,16 +19,16 @@ import { usePickerIndex, type IndexedAssembly } from "./use-picker-index";
 import { cn } from "@/lib/utils";
 
 export interface ResolvedAssembly {
-  assembly_id: string;
-  assembly_name: string;
-  subsystem_id: string;
+  equipment_module_id: string;
+  equipment_module_name: string;
+  unit_id: string;
 }
 
 export interface AssemblyPickerProps {
   value: string | null;
   onChange: (resolved: ResolvedAssembly | null) => void;
   specProjectId?: string;
-  filter?: { subsystemId?: string };
+  filter?: { unitId?: string };
   placeholder?: string;
   disabled?: boolean;
   className?: string;
@@ -39,7 +39,7 @@ export function AssemblyPicker({
   onChange,
   specProjectId,
   filter,
-  placeholder = "Pick an assembly…",
+  placeholder = "Pick an equipment_module…",
   disabled,
   className,
 }: AssemblyPickerProps) {
@@ -49,13 +49,13 @@ export function AssemblyPicker({
   const index = usePickerIndex(contract);
 
   const filtered = useMemo(() => {
-    let list = index.assemblies;
-    if (filter?.subsystemId)
-      list = list.filter((a) => a.subsystem_id === filter.subsystemId);
+    let list = index.equipment_modules;
+    if (filter?.unitId)
+      list = list.filter((a) => a.unit_id === filter.unitId);
     if (!query.trim()) return list;
     const q = query.toLowerCase();
     return list.filter((a) => a.searchKey.includes(q));
-  }, [index.assemblies, filter, query]);
+  }, [index.equipment_modules, filter, query]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, IndexedAssembly[]>();
@@ -68,14 +68,14 @@ export function AssemblyPicker({
   }, [filtered]);
 
   const current = value
-    ? (index.assemblies.find((a) => a.assembly_id === value) ?? null)
+    ? (index.equipment_modules.find((a) => a.equipment_module_id === value) ?? null)
     : null;
 
   const handleSelect = (a: IndexedAssembly) => {
     onChange({
-      assembly_id: a.assembly_id,
-      assembly_name: a.assembly_name,
-      subsystem_id: a.subsystem_id,
+      equipment_module_id: a.equipment_module_id,
+      equipment_module_name: a.equipment_module_name,
+      unit_id: a.unit_id,
     });
     setOpen(false);
   };
@@ -95,7 +95,7 @@ export function AssemblyPicker({
           )}
         >
           <span className="truncate font-mono">
-            {current?.assembly_name ?? placeholder}
+            {current?.equipment_module_name ?? placeholder}
           </span>
           <ChevronsUpDown className="h-3 w-3 shrink-0 opacity-50" />
         </Button>
@@ -103,32 +103,32 @@ export function AssemblyPicker({
       <PopoverContent className="w-[320px] p-0" align="start">
         <Command shouldFilter={false}>
           <CommandInput
-            placeholder="Search assemblies…"
+            placeholder="Search equipment_modules…"
             value={query}
             onValueChange={setQuery}
           />
           <CommandList>
-            <CommandEmpty>No matching assemblies.</CommandEmpty>
+            <CommandEmpty>No matching equipment_modules.</CommandEmpty>
             {grouped.map(([label, items]) => (
               <CommandGroup key={label} heading={label}>
                 {items.map((a) => (
                   <CommandItem
-                    key={a.assembly_id}
-                    value={`${a.assembly_name} ${a.searchKey}`}
+                    key={a.equipment_module_id}
+                    value={`${a.equipment_module_name} ${a.searchKey}`}
                     onSelect={() => handleSelect(a)}
                     className="flex items-center gap-2"
                   >
                     <Check
                       className={cn(
                         "h-3 w-3",
-                        value === a.assembly_id ? "opacity-100" : "opacity-0",
+                        value === a.equipment_module_id ? "opacity-100" : "opacity-0",
                       )}
                     />
                     <span className="font-mono truncate flex-1">
-                      {a.assembly_name}
+                      {a.equipment_module_name}
                     </span>
                     <span className="text-[10px] text-muted-foreground shrink-0">
-                      {a.device_count} dev
+                      {a.control_module_count} dev
                     </span>
                   </CommandItem>
                 ))}

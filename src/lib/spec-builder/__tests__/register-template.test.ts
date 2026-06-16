@@ -22,14 +22,14 @@ describe("register template", () => {
     expect(rows[0]).toEqual(REGISTER_TEMPLATE_HEADERS);
   });
 
-  it("parser detects tag/device/assembly/subsystem from the template header", () => {
+  it("parser detects tag/control_module/equipment_module/unit from the template header", () => {
     const wb = buildRegisterTemplateWorkbook();
     const { mapping } = detectColumns(wb.Sheets["Register"]!);
     expect(mapping.tag).not.toBeNull();
-    expect(mapping.device).not.toBeNull();
-    expect(mapping.assembly).not.toBeNull();
-    expect(mapping.subsystem).not.toBeNull();
+    expect(mapping.control_module).not.toBeNull();
+    expect(mapping.equipment_module).not.toBeNull();
+    expect(mapping.unit).not.toBeNull();
     expect(mapping.signal_type).not.toBeNull();
-    expect(mapping.device).not.toBe(mapping.device_type);
+    expect(mapping.control_module).not.toBe(mapping.device_type);
   });
 });

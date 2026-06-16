@@ -1,0 +1,325 @@
+<h2>More distinctive cover directions</h2>
+<p class="subtitle">Less template, more considered. Click to select.</p>
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  .cover-cards {
+    display: flex;
+    gap: 28px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 24px;
+  }
+  .cover-card {
+    width: 220px;
+    cursor: pointer;
+    border-radius: 10px;
+    border: 2px solid transparent;
+    overflow: hidden;
+    background: #fff;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.10);
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .cover-card:hover { border-color: #3050A0; box-shadow: 0 6px 24px rgba(48,80,160,0.18); }
+  .cover-card.selected { border-color: #3050A0; box-shadow: 0 0 0 4px rgba(48,80,160,0.18); }
+  .cover-card .label-bar {
+    padding: 11px 14px 12px;
+    background: #f5f7fc;
+    border-top: 1px solid #e2eaf7;
+  }
+  .cover-card .label-bar h3 { margin: 0 0 3px; font-size: 13px; color: #122044; font-family: 'Inter', sans-serif; }
+  .cover-card .label-bar p { margin: 0; font-size: 11px; color: #45443f; line-height: 1.45; font-family: 'Inter', sans-serif; }
+
+  /* =========================================
+     Cover A: Typography-first, pure white
+     The cover is entirely white. Giant oversized
+     project name. A single bold Pac Blue rule
+     and precise metadata. Confidence through restraint.
+     ========================================= */
+  .cov-a {
+    font-family: 'Inter', sans-serif;
+    background: #fff;
+    min-height: 230px;
+    padding: 20px 18px 16px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    position: relative;
+  }
+  .cov-a-top { }
+  .cov-a-wordmark {
+    font-size: 8.5px;
+    font-weight: 700;
+    color: #122044;
+    letter-spacing: 0.01em;
+    margin-bottom: 1px;
+  }
+  .cov-a-tagline {
+    font-size: 5.5px;
+    color: #8c8b86;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .cov-a-rule {
+    width: 100%;
+    height: 2px;
+    background: #3050A0;
+    margin: 14px 0 12px;
+  }
+  .cov-a-kicker {
+    font-size: 5.5px;
+    color: #3050A0;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-family: 'JetBrains Mono', monospace;
+    margin-bottom: 6px;
+  }
+  .cov-a-title {
+    font-size: 17px;
+    font-weight: 800;
+    color: #0F0E0C;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    margin-bottom: 0;
+  }
+  .cov-a-bottom {
+    margin-top: 16px;
+  }
+  .cov-a-divider { height: 1px; background: #DEDED9; margin-bottom: 8px; }
+  .cov-a-meta {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 0;
+  }
+  .cov-a-meta-item { }
+  .cov-a-meta-key { font-size: 5px; color: #8c8b86; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 1px; }
+  .cov-a-meta-val { font-size: 6.5px; color: #122044; font-weight: 500; }
+
+  /* =========================================
+     Cover B: Wide Pac Blue sidebar — bold, asymmetric
+     Left 1/3 is solid Pac Blue with quote number
+     rotated vertically. Right 2/3 white with project info.
+     Feels like an architecture firm's proposal.
+     ========================================= */
+  .cov-b {
+    font-family: 'Inter', sans-serif;
+    background: #fff;
+    min-height: 230px;
+    display: flex;
+  }
+  .cov-b-sidebar {
+    width: 58px;
+    background: #3050A0;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 0;
+    position: relative;
+  }
+  .cov-b-sidebar-top {
+    font-size: 5.5px;
+    color: rgba(255,255,255,0.5);
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    font-family: 'JetBrains Mono', monospace;
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+  }
+  .cov-b-sidebar-num {
+    font-size: 20px;
+    font-weight: 800;
+    color: rgba(255,255,255,0.12);
+    font-family: 'JetBrains Mono', monospace;
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    letter-spacing: -0.04em;
+    line-height: 1;
+  }
+  .cov-b-sidebar-bottom {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(255,255,255,0.25);
+  }
+  .cov-b-main {
+    flex: 1;
+    padding: 16px 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .cov-b-wordmark { font-size: 8.5px; font-weight: 700; color: #122044; margin-bottom: 1px; }
+  .cov-b-tagline { font-size: 5px; color: #8c8b86; letter-spacing: 0.10em; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; }
+  .cov-b-center { margin-top: 14px; }
+  .cov-b-kicker { font-size: 5.5px; color: #3050A0; font-family: 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 0.10em; margin-bottom: 5px; }
+  .cov-b-title { font-size: 13px; font-weight: 800; color: #122044; line-height: 1.15; letter-spacing: -0.015em; }
+  .cov-b-client { font-size: 6.5px; color: #5f5e5a; margin-top: 4px; }
+  .cov-b-bottom { }
+  .cov-b-rule { height: 1px; background: #E2EAF7; margin-bottom: 6px; }
+  .cov-b-meta { font-size: 5.5px; color: #8c8b86; font-family: 'JetBrains Mono', monospace; line-height: 1.7; }
+  .cov-b-meta span { color: #122044; font-weight: 500; }
+
+  /* =========================================
+     Cover C: Technical grid aesthetic
+     Subtle dot-grid or cross pattern background,
+     precise engineering-drawing-style title block
+     at the bottom. Nods to the engineering context.
+     ========================================= */
+  .cov-c {
+    font-family: 'Inter', sans-serif;
+    background: #fff;
+    min-height: 230px;
+    position: relative;
+    overflow: hidden;
+  }
+  .cov-c-grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+      radial-gradient(circle, #C2D1EE 0.8px, transparent 0.8px);
+    background-size: 12px 12px;
+    opacity: 0.45;
+  }
+  .cov-c-content {
+    position: relative;
+    padding: 18px 16px;
+    display: flex;
+    flex-direction: column;
+    min-height: 230px;
+    justify-content: space-between;
+  }
+  .cov-c-wordmark { font-size: 8.5px; font-weight: 700; color: #122044; }
+  .cov-c-tagline { font-size: 5px; color: #8c8b86; letter-spacing: 0.10em; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; }
+  .cov-c-center { margin-top: 12px; }
+  .cov-c-rule { width: 24px; height: 3px; background: #3050A0; margin-bottom: 10px; border-radius: 1px; }
+  .cov-c-kicker { font-size: 5.5px; color: #3050A0; font-family: 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 5px; }
+  .cov-c-title { font-size: 16px; font-weight: 800; color: #122044; line-height: 1.1; letter-spacing: -0.02em; }
+  /* Title block at bottom — like an engineering drawing */
+  .cov-c-titleblock {
+    border: 1px solid #C2D1EE;
+    margin-top: 16px;
+  }
+  .cov-c-tb-header {
+    background: #3050A0;
+    padding: 3px 8px;
+    font-size: 5.5px;
+    font-family: 'JetBrains Mono', monospace;
+    color: rgba(255,255,255,0.85);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .cov-c-tb-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    border-top: none;
+  }
+  .cov-c-tb-cell {
+    padding: 4px 6px;
+    border-right: 1px solid #C2D1EE;
+    border-top: 1px solid #C2D1EE;
+  }
+  .cov-c-tb-cell:last-child { border-right: none; }
+  .cov-c-tb-key { font-size: 4.5px; color: #8c8b86; text-transform: uppercase; letter-spacing: 0.08em; }
+  .cov-c-tb-val { font-size: 6px; color: #122044; font-family: 'JetBrains Mono', monospace; font-weight: 500; margin-top: 1px; }
+</style>
+
+<div class="cover-cards">
+
+  <!-- Cover A: Typography-first pure white -->
+  <div class="cover-card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="cov-a">
+      <div class="cov-a-top">
+        <div class="cov-a-wordmark">Pac Technologies</div>
+        <div class="cov-a-tagline">Industrial Automation</div>
+        <div class="cov-a-rule"></div>
+        <div class="cov-a-kicker">Quotation</div>
+        <div class="cov-a-title">Automated Packaging Line Upgrade</div>
+      </div>
+      <div class="cov-a-bottom">
+        <div class="cov-a-divider"></div>
+        <div class="cov-a-meta">
+          <div class="cov-a-meta-item"><div class="cov-a-meta-key">Client</div><div class="cov-a-meta-val">Acme Manufacturing</div></div>
+          <div class="cov-a-meta-item"><div class="cov-a-meta-key">Quote No.</div><div class="cov-a-meta-val">Q-2026-001 r1</div></div>
+          <div class="cov-a-meta-item"><div class="cov-a-meta-key">Project</div><div class="cov-a-meta-val">PAC-2026-042</div></div>
+          <div class="cov-a-meta-item"><div class="cov-a-meta-key">Date</div><div class="cov-a-meta-val">20 May 2026</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="label-bar">
+      <h3>A — Typography First</h3>
+      <p>All white. Oversized project name, single Pac Blue rule, precise metadata grid. Confidence through restraint.</p>
+    </div>
+  </div>
+
+  <!-- Cover B: Wide sidebar, asymmetric -->
+  <div class="cover-card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="cov-b">
+      <div class="cov-b-sidebar">
+        <div class="cov-b-sidebar-top">Pac Technologies</div>
+        <div class="cov-b-sidebar-num">Q01</div>
+        <div class="cov-b-sidebar-bottom"></div>
+      </div>
+      <div class="cov-b-main">
+        <div>
+          <div class="cov-b-wordmark">Pac Technologies</div>
+          <div class="cov-b-tagline">Industrial Automation</div>
+          <div class="cov-b-center">
+            <div class="cov-b-kicker">Quotation · Rev 1</div>
+            <div class="cov-b-title">Automated Packaging Line Upgrade</div>
+            <div class="cov-b-client">Acme Manufacturing Pty Ltd</div>
+          </div>
+        </div>
+        <div class="cov-b-bottom">
+          <div class="cov-b-rule"></div>
+          <div class="cov-b-meta">
+            Project <span>PAC-2026-042</span><br>
+            Date <span>20 May 2026</span><br>
+            Ref <span>Q-2026-001</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="label-bar">
+      <h3>B — Asymmetric Sidebar</h3>
+      <p>Bold Pac Blue sidebar (~1/3 width), quote ref ghosted vertically inside it. Asymmetric, architectural.</p>
+    </div>
+  </div>
+
+  <!-- Cover C: Technical grid / title block -->
+  <div class="cover-card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="cov-c">
+      <div class="cov-c-grid"></div>
+      <div class="cov-c-content">
+        <div>
+          <div class="cov-c-wordmark">Pac Technologies</div>
+          <div class="cov-c-tagline">Industrial Automation</div>
+          <div class="cov-c-center">
+            <div class="cov-c-rule"></div>
+            <div class="cov-c-kicker">Quotation</div>
+            <div class="cov-c-title">Automated Packaging Line Upgrade</div>
+          </div>
+        </div>
+        <div class="cov-c-titleblock">
+          <div class="cov-c-tb-header">Document Register</div>
+          <div class="cov-c-tb-grid">
+            <div class="cov-c-tb-cell"><div class="cov-c-tb-key">Client</div><div class="cov-c-tb-val">Acme Mfg</div></div>
+            <div class="cov-c-tb-cell"><div class="cov-c-tb-key">Project</div><div class="cov-c-tb-val">PAC-2026-042</div></div>
+            <div class="cov-c-tb-cell"><div class="cov-c-tb-key">Quote No.</div><div class="cov-c-tb-val">Q-2026-001</div></div>
+            <div class="cov-c-tb-cell"><div class="cov-c-tb-key">Rev</div><div class="cov-c-tb-val">01</div></div>
+            <div class="cov-c-tb-cell"><div class="cov-c-tb-key">Date</div><div class="cov-c-tb-val">20 May 2026</div></div>
+            <div class="cov-c-tb-cell"><div class="cov-c-tb-key">Status</div><div class="cov-c-tb-val">ISSUED</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="label-bar">
+      <h3>C — Engineering Grid</h3>
+      <p>Subtle dot grid background, formal title block at the bottom (like a drawing sheet). Nods to the technical context.</p>
+    </div>
+  </div>
+
+</div>

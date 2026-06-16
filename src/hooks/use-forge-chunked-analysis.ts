@@ -4,7 +4,7 @@
  * Stage 1 (Survey) → Stage 2 (Streaming Extraction per chunk) → Stage 3 (Merge)
  *
  * Chunk extraction uses streaming to avoid Supabase gateway timeouts.
- * Progressive updates show device/assembly counts as they're found.
+ * Progressive updates show device/equipment_module counts as they're found.
  */
 
 import { useState, useCallback } from "react";
@@ -46,13 +46,13 @@ function countMatches(text: string, pattern: RegExp): number {
 
 /**
  * Stream a chunk extraction call, returning the accumulated content.
- * Reports progressive device/assembly/sequence counts via onProgress.
+ * Reports progressive device/equipment_module/sequence counts via onProgress.
  */
 async function streamChunkExtraction(
   systemPrompt: string,
   userMessage: string,
   signal: AbortSignal,
-  onProgress?: (stats: { devices: number; assemblies: number; sequences: number }) => void,
+  onProgress?: (stats: { control_modules: number; equipment_modules: number; sequences: number }) => void,
 ): Promise<string> {
   let accumulated = "";
   let lastReport = 0;
@@ -70,11 +70,11 @@ async function streamChunkExtraction(
       // Report progressive stats every ~500 chars to avoid excessive updates
       if (onProgress && accumulated.length - lastReport > 500) {
         lastReport = accumulated.length;
-        const devices = countMatches(accumulated, /"device_type"\s*:/g);
-        const assemblies = countMatches(accumulated, /"assembly_type"\s*:/g);
-        const sequences = countMatches(accumulated, /"subsystem"\s*:\s*"[^"]*"\s*,\s*"permissives"/g)
-          + countMatches(accumulated, /"name"\s*:\s*"[^"]*"\s*,\s*"subsystem"\s*:\s*"[^"]*"\s*,\s*"permissives"/g);
-        onProgress({ devices, assemblies, sequences });
+        const control_modules = countMatches(accumulated, /"device_type"\s*:/g);
+        const equipment_modules = countMatches(accumulated, /"equipment_module_type"\s*:/g);
+        const sequences = countMatches(accumulated, /"unit"\s*:\s*"[^"]*"\s*,\s*"permissives"/g)
+          + countMatches(accumulated, /"name"\s*:\s*"[^"]*"\s*,\s*"unit"\s*:\s*"[^"]*"\s*,\s*"permissives"/g);
+        onProgress({ control_modules, equipment_modules, sequences });
       }
     },
     CHUNK_EXTRACT_MAX_TOKENS,
@@ -164,7 +164,7 @@ export function useForgeChunkedAnalysis() {
             currentChunk: i + 1,
             totalChunks: chunks.length,
             chunkName: chunk.targetName,
-            streamStats: { devices: totalDevices, assemblies: totalAssemblies, sequences: totalSequences },
+            streamStats: { control_modules: totalDevices, equipment_modules: totalAssemblies, sequences: totalSequences },
           });
 
           const systemPrompt = buildChunkExtractionSystemPrompt(
@@ -183,8 +183,8 @@ export function useForgeChunkedAnalysis() {
                 setProgress((prev) => ({
                   ...prev,
                   streamStats: {
-                    devices: totalDevices + stats.devices,
-                    assemblies: totalAssemblies + stats.assemblies,
+                    control_modules: totalDevices + stats.control_modules,
+                    equipment_modules: totalAssemblies + stats.equipment_modules,
                     sequences: totalSequences + stats.sequences,
                   },
                 }));
@@ -227,13 +227,13 @@ export function useForgeChunkedAnalysis() {
           partials.push(partial);
 
           // Update running totals
-          totalDevices += (partial.devices ?? []).length;
-          totalAssemblies += (partial.assemblies ?? []).length;
+          totalDevices += (partial.control_modules ?? []).length;
+          totalAssemblies += (partial.equipment_modules ?? []).length;
           totalSequences += (partial.process_sequences ?? []).length;
 
           console.log(
             `[Chunked Analysis] Chunk "${chunk.targetName}" done — ` +
-            `${partial.devices.length} devices, ${(partial.assemblies ?? []).length} assemblies, ` +
+            `${partial.control_modules.length} control_modules, ${(partial.equipment_modules ?? []).length} equipment_modules, ` +
             `${partial.process_sequences.length} sequences`,
           );
         }
@@ -248,13 +248,13 @@ export function useForgeChunkedAnalysis() {
           currentChunk: chunks.length,
           totalChunks: chunks.length,
           chunkName: "",
-          streamStats: { devices: totalDevices, assemblies: totalAssemblies, sequences: totalSequences },
+          streamStats: { control_modules: totalDevices, equipment_modules: totalAssemblies, sequences: totalSequences },
         });
 
         const merged = mergePartialAnalyses(surveyResult, partials);
         console.log(
           `[Chunked Analysis] Merge complete — ` +
-          `${merged.devices.length} devices, ${merged.assemblies.length} assemblies, ` +
+          `${merged.control_modules.length} control_modules, ${merged.equipment_modules.length} equipment_modules, ` +
           `${merged.process_sequences.length} sequences`,
         );
         return merged;

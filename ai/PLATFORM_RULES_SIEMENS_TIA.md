@@ -918,3 +918,65 @@ When calling a library FB (Open Library, etc.), parameters that are not used by 
 "InstFAN01".bOutCommandRun := "DB_ProcessCommands".fan01Run;
 ```
 This applies to ALL library FB parameters (inputs AND outputs) that are not wired in the linkage matrix. Only assign real process values to parameters that appear in the wiring map.
+
+---
+
+## 13. ISA-88 COMPLIANCE (ANSI/ISA-88.00.01 §4.4, §5.2–5.4)
+
+All generated code must follow ISA-88 Part 1 physical model and control type classification.
+
+### Physical Model Hierarchy
+
+| ISA-88 Level | Code Prefix | Block Type | Description |
+|---|---|---|---|
+| Process Cell | `SC_` | FC/OB | Full machine/production line coordination |
+| Unit | `UC_` | FC | Functional station coordination |
+| Equipment Module | `EM_` | FB (with state machine) | Coordinated group of control modules |
+| Control Module | `CM_` | FB (no state machine) | Single physical device with IO |
+
+### Control Type Classification
+
+**Basic Control (Control Module FBs — CM_ prefix):**
+- Single device control: motor start/stop, valve open/close, sensor read
+- NO state machine — direct IO with interlocks
+- Standard interface: `start`, `stop`, `feedbackRun`, `runCmd`, `faulted`, `state`, `status`, `error`
+
+**Procedural Control (Equipment Module FBs — EM_ prefix):**
+- State machine driven (PackML 17-state model)
+- Calls Control Module FBs as multi-instances
+- Manages Operations and Phases
+- Standard interface: `cmd`, `mode`, `state`, `status`, `error`
+
+**Coordination Control (Unit/Process Cell FCs — UC_/SC_ prefix):**
+- Coordinates Equipment Modules within a Unit (UC_) or Units within a Process Cell (SC_)
+- Manages Unit Procedures and System Procedures
+- Handles inter-Equipment-Module and inter-Unit interlocks
+- Stateless (FC) — state held in called Equipment Module FBs
+
+### FB Header Comment
+
+Every generated FB must include an ISA-88 classification header:
+```scl
+// ISA-88 Classification: Control Module — Basic Control (§5.2)
+// Physical Level: Control Module (§4.4.3.6)
+FUNCTION_BLOCK "CM_Motor_M01"
+```
+
+### Naming Convention
+
+```
+CM_{DeviceClass}_{Tag}     — Control Module FB      (e.g., CM_Motor_M01)
+CM_IDB_{Tag}               — Control Module IDB     (e.g., CM_IDB_M01)
+EM_{Name}                  — Equipment Module FB     (e.g., EM_CarriageDrive)
+EM_IDB_{Name}              — Equipment Module IDB    (e.g., EM_IDB_CarriageDrive)
+UC_{Name}                  — Unit FC                 (e.g., UC_Carriage)
+SC_{Name}                  — Process Cell FC/OB      (e.g., SC_SegmentWagon)
+```
+
+### Equipment Module Collapsibility (§4.4.3.7)
+
+The Equipment Module layer is optional. When collapsed:
+- Control Modules belong directly to the Unit
+- No EM_ prefix FBs are generated
+- The Unit FC directly calls Control Module FBs
+- Procedural control moves to the Unit level

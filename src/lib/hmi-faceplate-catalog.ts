@@ -10,7 +10,7 @@
 
 import type { HmiFaceplateProperty } from "@/types/hmi-screen";
 import type { FaceplateCatalogEntry } from "@/types/hmi-panel";
-import type { ForgeDeviceEntry } from "@/types/forge";
+import type { ForgeControlModuleEntry } from "@/types/forge";
 import type { FbTemplate } from "@/types/fb-template";
 import { findOpenLibraryFaceplate } from "@/lib/open-library-catalog";
 
@@ -31,13 +31,13 @@ import { findOpenLibraryFaceplate } from "@/lib/open-library-catalog";
  * so the engineer can supply a manual override.
  */
 export function buildFaceplateCatalog(
-  devices: ForgeDeviceEntry[],
+  control_modules: ForgeControlModuleEntry[],
   templates: FbTemplate[],
 ): FaceplateCatalogEntry[] {
   const templateMap = new Map(templates.map((t) => [t.id, t]));
   const seen = new Map<string, FaceplateCatalogEntry>();
 
-  for (const device of devices) {
+  for (const device of control_modules) {
     if (seen.has(device.device_type)) continue;
 
     const template = device.fb_template_id
@@ -225,7 +225,7 @@ function mapSclToHmiDataType(
  * Used when a device has no matched FB template.
  */
 function defaultPropertiesForDevice(
-  device: ForgeDeviceEntry,
+  device: ForgeControlModuleEntry,
 ): HmiFaceplateProperty[] {
   return device.io_signals.map((signal) => ({
     name: signal.tag_name,

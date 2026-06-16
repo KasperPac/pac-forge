@@ -120,7 +120,7 @@ export default function SpecMigratePage() {
       <header className="px-4 py-3 border-b">
         <h1 className="text-lg font-semibold">Migrate to V2 — {contract.project.title}</h1>
         <p className="text-sm text-muted-foreground">
-          Review modes, state vocabulary, and inter-assembly interlocks. Confirm at the bottom to
+          Review modes, state vocabulary, and inter-equipment_module interlocks. Confirm at the bottom to
           unlock editing on every spec-builder route.
         </p>
       </header>

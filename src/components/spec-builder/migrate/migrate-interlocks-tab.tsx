@@ -29,7 +29,7 @@ export function MigrateInterlocksTab({ rows, onChange, onTabComplete, onReclassi
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          Review every inter-assembly interlock. The AI classifier proposed an effect and structured
+          Review every inter-equipment_module interlock. The AI classifier proposed an effect and structured
           source_condition for each row; engineer-confirm or edit. Rows with a 0% confidence chip
           fell back to placeholder shape and need manual entry.
         </p>
@@ -59,7 +59,7 @@ export function MigrateInterlocksTab({ rows, onChange, onTabComplete, onReclassi
         ))}
         {rows.length === 0 && (
           <div className="p-4 text-sm text-muted-foreground">
-            No inter-assembly interlocks in this project — nothing to classify.
+            No inter-equipment_module interlocks in this project — nothing to classify.
           </div>
         )}
       </Card>

@@ -1,24 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { applyOverrideKind } from "../apply-override-kind";
-import type { AssemblyContract } from "@/types/spec-contract-v2";
+import type { EquipmentModuleContract } from "@/types/spec-contract-v2";
 
 const ASM_ID = "00000000-0000-0000-0000-000000000aaa";
 const SUB_ID = "00000000-0000-0000-0000-000000000bbb";
 
-function makeAssembly(overrides: Partial<AssemblyContract> = {}): AssemblyContract {
+function makeEquipmentModule(overrides: Partial<EquipmentModuleContract> = {}): EquipmentModuleContract {
   return {
-    assembly_id: ASM_ID,
-    subsystem_id: SUB_ID,
+    equipment_module_id: ASM_ID,
+    unit_id: SUB_ID,
     static_states: {},
     sequential_states: {},
     ...overrides,
-  } as AssemblyContract;
+  } as EquipmentModuleContract;
 }
 
 describe("applyOverrideKind", () => {
   it("wraps sequential_states with override_kind: 'override'", () => {
     const input = {
-      [ASM_ID]: makeAssembly({
+      [ASM_ID]: makeEquipmentModule({
         sequential_states: {
           "execute": {
             permissives: [],
@@ -34,7 +34,7 @@ describe("applyOverrideKind", () => {
 
   it("wraps legacy static_states array into StaticStateV2 with override_kind", () => {
     const input = {
-      [ASM_ID]: makeAssembly({
+      [ASM_ID]: makeEquipmentModule({
         static_states: {
           "idle": [{ tag: "MOTOR_01.RUN", description: "off", state: "false" }] as never,
         },
@@ -44,16 +44,16 @@ describe("applyOverrideKind", () => {
     const wrapped = out[ASM_ID].static_states["idle"];
     expect(Array.isArray(wrapped)).toBe(false);
     expect((wrapped as { override_kind: string }).override_kind).toBe("override");
-    expect((wrapped as { devices: unknown[] }).devices).toHaveLength(1);
+    expect((wrapped as { control_modules: unknown[] }).control_modules).toHaveLength(1);
   });
 
   it("preserves existing StaticStateV2 wrapping (idempotent)", () => {
     const input = {
-      [ASM_ID]: makeAssembly({
+      [ASM_ID]: makeEquipmentModule({
         static_states: {
           "idle": {
             override_kind: "override",
-            devices: [{ tag: "X", description: "y", state: "z" }],
+            control_modules: [{ tag: "X", description: "y", state: "z" }],
             notes: null,
           } as never,
         },
@@ -65,7 +65,7 @@ describe("applyOverrideKind", () => {
 
   it("preserves notes when wrapping", () => {
     const input = {
-      [ASM_ID]: makeAssembly({
+      [ASM_ID]: makeEquipmentModule({
         sequential_states: {
           "execute": {
             permissives: [],

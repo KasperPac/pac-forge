@@ -13,7 +13,7 @@ import {
   isCleanReview,
   type ForgeReviewResult,
 } from "@/lib/forge-review-parser";
-import type { ForgeArtifact, ForgeIoEntry, ForgeDeviceEntry } from "@/types/forge";
+import type { ForgeArtifact, ForgeIoEntry, ForgeControlModuleEntry } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
 import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 
@@ -26,14 +26,14 @@ export function useForgeIoValidate() {
     async (
       artifacts: ForgeArtifact[],
       ioList: ForgeIoEntry[],
-      devices: ForgeDeviceEntry[],
+      control_modules: ForgeControlModuleEntry[],
       profile?: DesignProfile,
     ): Promise<ForgeReviewResult> => {
       setLoading(true);
       setError(null);
 
       try {
-        const systemPrompt = buildForgeIoValidationPrompt(devices, ioList, promptSections);
+        const systemPrompt = buildForgeIoValidationPrompt(control_modules, ioList, promptSections);
         const userMessage = buildForgeIoValidationUserMessage(artifacts);
         const controller = new AbortController();
 

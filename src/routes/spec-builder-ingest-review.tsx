@@ -2,7 +2,7 @@
  * Engineer-confirm step for AI-ingested foreign specs.
  *
  * Reads the parked draft from `useIngestReviewStore`. The engineer can edit
- * subsystem / assembly / device names inline before committing. Commit calls
+ * unit / equipment_module / device names inline before committing. Commit calls
  * `create_draft_from_ingest` with source="foreign_ingest"; cancel drops the
  * result and returns to the spec-builder list.
  */
@@ -18,11 +18,11 @@ import { Separator } from "@/components/ui/separator";
 import { useIngestReviewStore } from "@/hooks/use-spec-ingest";
 import { useCreateDraftFromIngest } from "@/hooks/use-spec-revisions";
 import type {
-  AssemblyV2,
-  DeviceV2,
+  EquipmentModuleV2,
+  ControlModuleV2,
   Hierarchy,
   SpecContractV2,
-  SubsystemV2,
+  UnitV2,
 } from "@/types/spec-contract-v2";
 
 /**
@@ -51,20 +51,20 @@ export default function SpecBuilderIngestReviewPage() {
 
   const warnings = parked?.warnings ?? [];
 
-  const subsystemCount = draft?.hierarchy.subsystems.length ?? 0;
-  const assemblyCount = useMemo(
+  const unitCount = draft?.hierarchy.units.length ?? 0;
+  const equipment_moduleCount = useMemo(
     () =>
-      draft?.hierarchy.subsystems.reduce(
-        (n, s) => n + s.assemblies.length,
+      draft?.hierarchy.units.reduce(
+        (n, s) => n + s.equipment_modules.length,
         0,
       ) ?? 0,
     [draft],
   );
   const deviceCount = useMemo(
     () =>
-      draft?.hierarchy.subsystems.reduce(
+      draft?.hierarchy.units.reduce(
         (n, s) =>
-          n + s.assemblies.reduce((m, a) => m + a.devices.length, 0),
+          n + s.equipment_modules.reduce((m, a) => m + a.control_modules.length, 0),
         0,
       ) ?? 0,
     [draft],
@@ -83,17 +83,17 @@ export default function SpecBuilderIngestReviewPage() {
     );
   }
 
-  const updateSubsystem = (subId: string, patch: Partial<SubsystemV2>) => {
+  const updateUnit = (subId: string, patch: Partial<UnitV2>) => {
     setDraft((prev) =>
       prev ? { ...prev, hierarchy: updateSub(prev.hierarchy, subId, patch) } : prev,
     );
   };
-  const updateAssembly = (asyId: string, patch: Partial<AssemblyV2>) => {
+  const updateEquipmentModule = (asyId: string, patch: Partial<EquipmentModuleV2>) => {
     setDraft((prev) =>
       prev ? { ...prev, hierarchy: updateAsy(prev.hierarchy, asyId, patch) } : prev,
     );
   };
-  const updateDevice = (devId: string, patch: Partial<DeviceV2>) => {
+  const updateDevice = (devId: string, patch: Partial<ControlModuleV2>) => {
     setDraft((prev) =>
       prev ? { ...prev, hierarchy: updateDev(prev.hierarchy, devId, patch) } : prev,
     );
@@ -126,8 +126,8 @@ export default function SpecBuilderIngestReviewPage() {
         <div>
           <h2 className="text-base font-semibold">Confirm Imported Hierarchy</h2>
           <p className="text-xs text-muted-foreground">
-            {subsystemCount} subsystem{subsystemCount === 1 ? "" : "s"} ·{" "}
-            {assemblyCount} assembl{assemblyCount === 1 ? "y" : "ies"} ·{" "}
+            {unitCount} unit{unitCount === 1 ? "" : "s"} ·{" "}
+            {equipment_moduleCount} assembl{equipment_moduleCount === 1 ? "y" : "ies"} ·{" "}
             {deviceCount} device{deviceCount === 1 ? "" : "s"}
           </p>
         </div>
@@ -171,53 +171,53 @@ export default function SpecBuilderIngestReviewPage() {
 
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-4">
-          {draft.hierarchy.subsystems.map((sub) => (
-            <Card key={sub.subsystem_id} className="p-3 space-y-2">
+          {draft.hierarchy.units.map((sub) => (
+            <Card key={sub.unit_id} className="p-3 space-y-2">
               <div className="flex items-center gap-2">
                 <Badge variant="outline" className="text-xs">
-                  Subsystem
+                  Unit
                 </Badge>
                 <Input
                   className="h-7 text-sm flex-1"
-                  value={sub.subsystem_name}
+                  value={sub.unit_name}
                   onChange={(e) =>
-                    updateSubsystem(sub.subsystem_id, {
-                      subsystem_name: e.target.value,
+                    updateUnit(sub.unit_id, {
+                      unit_name: e.target.value,
                     })
                   }
                 />
               </div>
               <Separator />
-              {sub.assemblies.map((asy) => (
-                <div key={asy.assembly_id} className="pl-4 space-y-2">
+              {sub.equipment_modules.map((asy) => (
+                <div key={asy.equipment_module_id} className="pl-4 space-y-2">
                   <div className="flex items-center gap-2">
                     <Badge variant="outline" className="text-xs">
-                      Assembly
+                      Equipment Module
                     </Badge>
                     <Input
                       className="h-7 text-xs flex-1"
-                      value={asy.assembly_name}
+                      value={asy.equipment_module_name}
                       onChange={(e) =>
-                        updateAssembly(asy.assembly_id, {
-                          assembly_name: e.target.value,
+                        updateEquipmentModule(asy.equipment_module_id, {
+                          equipment_module_name: e.target.value,
                         })
                       }
                     />
                   </div>
-                  {asy.devices.map((dev) => (
+                  {asy.control_modules.map((dev) => (
                     <div
-                      key={dev.device_id}
+                      key={dev.control_module_id}
                       className="pl-4 flex items-center gap-2"
                     >
                       <Badge variant="secondary" className="text-xs">
-                        {dev.device_class}
+                        {dev.control_module_class}
                       </Badge>
                       <Input
                         className="h-7 text-xs flex-1 font-mono"
-                        value={dev.device_name}
+                        value={dev.control_module_name}
                         onChange={(e) =>
-                          updateDevice(dev.device_id, {
-                            device_name: e.target.value,
+                          updateDevice(dev.control_module_id, {
+                            control_module_name: e.target.value,
                           })
                         }
                       />
@@ -240,33 +240,33 @@ export default function SpecBuilderIngestReviewPage() {
 // Tiny immutable helpers
 // ---------------------------------------------------------------------------
 
-function updateSub(h: Hierarchy, id: string, patch: Partial<SubsystemV2>): Hierarchy {
+function updateSub(h: Hierarchy, id: string, patch: Partial<UnitV2>): Hierarchy {
   return {
-    subsystems: h.subsystems.map((s) =>
-      s.subsystem_id === id ? { ...s, ...patch } : s,
+    units: h.units.map((s) =>
+      s.unit_id === id ? { ...s, ...patch } : s,
     ),
   };
 }
 
-function updateAsy(h: Hierarchy, id: string, patch: Partial<AssemblyV2>): Hierarchy {
+function updateAsy(h: Hierarchy, id: string, patch: Partial<EquipmentModuleV2>): Hierarchy {
   return {
-    subsystems: h.subsystems.map((s) => ({
+    units: h.units.map((s) => ({
       ...s,
-      assemblies: s.assemblies.map((a) =>
-        a.assembly_id === id ? { ...a, ...patch } : a,
+      equipment_modules: s.equipment_modules.map((a) =>
+        a.equipment_module_id === id ? { ...a, ...patch } : a,
       ),
     })),
   };
 }
 
-function updateDev(h: Hierarchy, id: string, patch: Partial<DeviceV2>): Hierarchy {
+function updateDev(h: Hierarchy, id: string, patch: Partial<ControlModuleV2>): Hierarchy {
   return {
-    subsystems: h.subsystems.map((s) => ({
+    units: h.units.map((s) => ({
       ...s,
-      assemblies: s.assemblies.map((a) => ({
+      equipment_modules: s.equipment_modules.map((a) => ({
         ...a,
-        devices: a.devices.map((d) =>
-          d.device_id === id ? { ...d, ...patch } : d,
+        control_modules: a.control_modules.map((d) =>
+          d.control_module_id === id ? { ...d, ...patch } : d,
         ),
       })),
     })),

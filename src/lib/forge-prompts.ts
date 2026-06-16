@@ -6,8 +6,8 @@
 
 import type { DesignProfile } from "@/types/design-profile";
 import type {
-  ForgeDeviceEntry,
-  ForgeAssemblyEntry,
+  ForgeControlModuleEntry,
+  ForgeEquipmentModuleEntry,
   ForgeIoEntry,
   ForgeArtifact,
   ForgeSession,
@@ -114,28 +114,28 @@ export const SPEC_ANALYSIS_SCHEMA = `{
     }
   ],
   "fb_architecture": "string | null (design intent from spec — e.g. 'FanStagingController FB manages threshold logic, three ControlMotor instances handle contactor control')",
-  "subsystems": [
+  "units": [
     { "name": "string", "description": "string" }
   ],
-  "assemblies": [
+  "equipment_modules": [
     {
       "id": "string (e.g. ASM001)",
       "name": "string (e.g. LFT01 Lift Table)",
       "tag": "string (e.g. LFT01)",
-      "assembly_type": "string (e.g. Lift Table, Belt Conveyor, Stamping Press)",
+      "equipment_module_type": "string (e.g. Lift Table, Belt Conveyor, Stamping Press)",
       "description": "string (one line)",
-      "subsystem": "string",
-      "device_ids": ["string (device IDs, e.g. DEV003, DEV004)"]
+      "unit": "string",
+      "control_module_ids": ["string (device IDs, e.g. DEV003, DEV004)"]
     }
   ],
-  "devices": [
+  "control_modules": [
     {
       "id": "string (unique, e.g. DEV001)",
       "name": "string (e.g. GK002-M01-VFD)",
       "tag": "string (instrument tag)",
       "device_type": "string (e.g. Motor DOL, Motor VFD, Solenoid 2-pos, Photoelectric Sensor, Proximity Sensor, Valve)",
       "description": "string (one line, what it does)",
-      "subsystem": "string (which subsystem it belongs to)",
+      "unit": "string (which unit it belongs to)",
       "io_signals": [
         {
           "tag_name": "string (full PLC tag name)",
@@ -150,7 +150,7 @@ export const SPEC_ANALYSIS_SCHEMA = `{
   "process_sequences": [
     {
       "name": "string (e.g. Conveyor Sorting Sequence)",
-      "subsystem": "string",
+      "unit": "string",
       "permissives": ["string (pre-conditions that must be true before sequence can start)"],
       "steps": [
         {
@@ -158,7 +158,7 @@ export const SPEC_ANALYSIS_SCHEMA = `{
           "trigger_condition": "string | null (WHAT causes this step to activate — a machine-parseable condition expression. For analog thresholds: 'temperature > 40.0 °C', 'pressure < 2.5 bar'. For digital: 'FAN1_RUN = TRUE', 'pushButton = TRUE'. For timed: 'delay elapsed T#5s'. For the first step use the start/permissive condition. NEVER leave null if the spec describes a condition.)",
           "action": "string (what happens — be specific: which device, what command)",
           "completion_criteria": "string (observable signal/condition — e.g. 'FAN1_RUN = TRUE within T#5s')",
-          "devices_involved": ["string (device names involved in this step)"],
+          "control_modules_involved": ["string (device names involved in this step)"],
           "outputs": ["string (signal changes — e.g. 'FAN1_CMD = TRUE', 'ConveyorDirection = FORWARD')"],
           "timeout_action": "string | null (what happens if completion_criteria not met — e.g. 'Fault F003, stop motor')",
           "notes": "string | null (edge cases, conditions, or clarifications)"
@@ -187,7 +187,7 @@ export const SPEC_ANALYSIS_SCHEMA = `{
       "condition": "string (Boolean expression or natural language — e.g. 'ESTOP_OK = TRUE')",
       "interlock_type": "permissive | runtime_safety (permissive = must be true to start, runtime_safety = continuously monitored during operation)",
       "trip_action": "string (what happens when interlock trips — e.g. 'Immediate de-energise all fan CMDs', 'Hold current step, prevent advance')",
-      "affected_devices": ["string (device names)"]
+      "affected_control_modules": ["string (device names)"]
     }
   ]
 }`;
@@ -244,39 +244,39 @@ ${SPEC_ANALYSIS_SCHEMA}`;
 }
 
 // ---------------------------------------------------------------------------
-// Interface Contract prompts — defines how assemblies communicate
+// Interface Contract prompts — defines how equipment_modules communicate
 // ---------------------------------------------------------------------------
 
 /**
- * System prompt for AI to suggest interface contracts for all assemblies.
+ * System prompt for AI to suggest interface contracts for all equipment_modules.
  * Called after spec analysis + hardware_io, before device FB generation.
  * The AI only sees spec-level data (no device FB code exists yet).
  *
  * HARDCODED — not configurable via Prompts page.
  */
 export function buildInterfaceContractPrompt(): string {
-  return `You are a senior automation engineer designing the **interface contracts** between assembly function blocks in a Siemens S7-1200/S7-1500 PLC program.
+  return `You are a senior automation engineer designing the **interface contracts** between equipment_module function blocks in a Siemens S7-1200/S7-1500 PLC program.
 
 ## What is an Interface Contract?
 
-Each assembly (e.g. lift table, conveyor, stamping press) is a coordinated group of devices controlled by a single Assembly FB. Assemblies communicate with each other and with process sequences through their FB interfaces:
+Each equipment_module (e.g. lift table, conveyor, stamping press) is a coordinated group of control_modules controlled by a single Equipment Module FB. Assemblies communicate with each other and with process sequences through their FB interfaces:
 
-- **Exposed signals** — outputs this assembly provides (status, positions, faults). These become VAR_OUTPUT on the assembly FB.
-- **Consumed signals** — inputs this assembly needs from OTHER assemblies. These become VAR_INPUT on the assembly FB, wired by the call FC.
-- **State definitions** — the state machine states this assembly implements (IDLE, MOVING_UP, AT_UPPER, FAULT, etc.)
+- **Exposed signals** — outputs this equipment_module provides (status, positions, faults). These become VAR_OUTPUT on the equipment_module FB.
+- **Consumed signals** — inputs this equipment_module needs from OTHER equipment_modules. These become VAR_INPUT on the equipment_module FB, wired by the call FC.
+- **State definitions** — the state machine states this equipment_module implements (IDLE, MOVING_UP, AT_UPPER, FAULT, etc.)
 
 The interface contract is the binding agreement that ensures:
-1. Every assembly exposes what downstream consumers need
-2. Every consumed signal has a matching exposed signal from a source assembly
+1. Every equipment_module exposes what downstream consumers need
+2. Every consumed signal has a matching exposed signal from a source equipment_module
 3. The process sequence logic knows what status signals are available
 
 ## Rules
 
 - Use lowerCamelCase for all signal names (Siemens Style Guide V2.1)
-- Every assembly MUST expose at minimum: \`busy\` (Bool), \`done\` (Bool), \`error\` (Bool), \`faultCode\` (Word), \`stateNumber\` (Int)
-- Position/status signals depend on assembly type (e.g. lift table exposes \`atUpper\`, \`atLower\`; conveyor exposes \`running\`, \`atSpeed\`)
-- Command inputs are NOT consumed signals — they come from the process sequence, not other assemblies
-- Consumed signals should reference the SOURCE assembly tag and signal name
+- Every equipment_module MUST expose at minimum: \`busy\` (Bool), \`done\` (Bool), \`error\` (Bool), \`faultCode\` (Word), \`stateNumber\` (Int)
+- Position/status signals depend on equipment_module type (e.g. lift table exposes \`atUpper\`, \`atLower\`; conveyor exposes \`running\`, \`atSpeed\`)
+- Command inputs are NOT consumed signals — they come from the process sequence, not other equipment_modules
+- Consumed signals should reference the SOURCE equipment_module tag and signal name
 - State definitions should cover: normal operation states, fault state(s), and any waiting/transitional states
 - Intent comments MUST explain the signal's purpose AND who reads/writes it
 
@@ -286,9 +286,9 @@ Return JSON inside \`\`\`json fences matching this schema exactly:
 
 \`\`\`json
 {
-  "<assemblyId>": {
-    "assemblyId": "string",
-    "assemblyTag": "string",
+  "<equipment_moduleId>": {
+    "equipment_moduleId": "string",
+    "equipment_moduleTag": "string",
     "exposed": [
       {
         "id": "string (unique, e.g. exp_001)",
@@ -301,11 +301,11 @@ Return JSON inside \`\`\`json fences matching this schema exactly:
     "consumed": [
       {
         "id": "string (unique, e.g. con_001)",
-        "name": "string (lowerCamelCase — how this assembly sees the signal)",
+        "name": "string (lowerCamelCase — how this equipment_module sees the signal)",
         "dataType": "string",
         "direction": "consume",
-        "intentComment": "string (why this assembly needs it)",
-        "sourceAssemblyTag": "string (tag of assembly that provides this)",
+        "intentComment": "string (why this equipment_module needs it)",
+        "sourceAssemblyTag": "string (tag of equipment_module that provides this)",
         "sourceSignalName": "string (name of exposed signal on source)"
       }
     ],
@@ -320,25 +320,25 @@ Return JSON inside \`\`\`json fences matching this schema exactly:
  * User message containing the spec analysis data for contract generation.
  */
 export function buildInterfaceContractUserMessage(analysis: SpecAnalysis): string {
-  const assemblies = analysis.assemblies ?? [];
-  const devices = analysis.devices ?? [];
+  const equipment_modules = analysis.equipment_modules ?? [];
+  const control_modules = analysis.control_modules ?? [];
   const interlocks = analysis.interlocks ?? [];
   const sequences = analysis.process_sequences ?? [];
   const alarms = analysis.alarms ?? [];
 
-  if (assemblies.length === 0) {
-    return "No assemblies found in the spec analysis. Return an empty JSON object: {}";
+  if (equipment_modules.length === 0) {
+    return "No equipment_modules found in the spec analysis. Return an empty JSON object: {}";
   }
 
-  const assemblySection = assemblies.map((a) => {
-    const devNames = devices
-      .filter((d) => a.device_ids.includes(d.id))
+  const equipment_moduleSection = equipment_modules.map((a) => {
+    const devNames = control_modules
+      .filter((d) => a.control_module_ids.includes(d.id))
       .map((d) => `    - ${d.name} (${d.device_type}, tag: ${d.tag}): ${d.description}\n      IO: ${d.io_signals.map((s) => `${s.signal_type}:${s.tag_name} — ${s.description}`).join(", ") || "none"}`)
       .join("\n");
-    return `### ${a.name} [${a.tag}] — ${a.assembly_type}
+    return `### ${a.name} [${a.tag}] — ${a.equipment_module_type}
   Description: ${a.description}
-  Subsystem: ${a.subsystem}
-  Constituent devices:
+  Unit: ${a.unit}
+  Constituent control_modules:
 ${devNames}`;
   }).join("\n\n");
 
@@ -346,15 +346,15 @@ ${devNames}`;
     ? `## Process Sequences (${sequences.length})
 ${sequences.map((s) => {
   const steps = (s.steps ?? []).map((st) =>
-    `    Step ${st.step_number}: ${st.action}${st.devices_involved?.length ? ` [devices: ${st.devices_involved.join(", ")}]` : ""}`,
+    `    Step ${st.step_number}: ${st.action}${st.control_modules_involved?.length ? ` [control_modules: ${st.control_modules_involved.join(", ")}]` : ""}`,
   ).join("\n");
-  return `  - **${s.name}** (${s.subsystem})\n    Permissives: ${s.permissives?.join(", ") || "none"}\n${steps}`;
+  return `  - **${s.name}** (${s.unit})\n    Permissives: ${s.permissives?.join(", ") || "none"}\n${steps}`;
 }).join("\n")}`
     : "";
 
   const interlockSection = interlocks.length > 0
     ? `## Interlocks (${interlocks.length})
-${interlocks.map((i) => `  - **${i.name}**: ${i.condition} (${i.interlock_type ?? "permissive"}) — affects: ${i.affected_devices.join(", ")}`).join("\n")}`
+${interlocks.map((i) => `  - **${i.name}**: ${i.condition} (${i.interlock_type ?? "permissive"}) — affects: ${i.affected_control_modules.join(", ")}`).join("\n")}`
     : "";
 
   const alarmSection = alarms.length > 0
@@ -362,11 +362,11 @@ ${interlocks.map((i) => `  - **${i.name}**: ${i.condition} (${i.interlock_type ?
 ${alarms.map((a) => `  - **${a.name}** [${a.severity}]: ${a.description}${a.trigger_condition ? ` — trigger: ${a.trigger_condition}` : ""}`).join("\n")}`
     : "";
 
-  return `Generate interface contracts for the following assemblies.
+  return `Generate interface contracts for the following equipment_modules.
 
-## Assemblies (${assemblies.length})
+## Assemblies (${equipment_modules.length})
 
-${assemblySection}
+${equipment_moduleSection}
 
 ${sequenceSection}
 
@@ -374,7 +374,7 @@ ${interlockSection}
 
 ${alarmSection}
 
-Analyze how these assemblies interact based on the process sequences, interlocks, and device relationships. Define the exposed signals, consumed signals (with source assembly references), and state machine states for each assembly.
+Analyze how these equipment_modules interact based on the process sequences, interlocks, and device relationships. Define the exposed signals, consumed signals (with source equipment_module references), and state machine states for each equipment_module.
 
 Return the JSON now.`;
 }
@@ -396,12 +396,12 @@ Return the JSON now.`;
  * To make configurable: add "forge:spec_analysis" section key to PROMPT_DEFAULTS and use resolveSection().
  */
 export function buildSpecAnalysisPrompt(fbTemplates?: FbTemplate[], promptSections?: Record<string, string>): string {
-  const deviceTemplates = (fbTemplates ?? []).filter((t) => !t.is_assembly);
-  const assemblyTemplates = (fbTemplates ?? []).filter((t) => t.is_assembly);
+  const deviceTemplates = (fbTemplates ?? []).filter((t) => !t.is_equipment_module);
+  const equipment_moduleTemplates = (fbTemplates ?? []).filter((t) => t.is_equipment_module);
 
   // Deduplicate templates by category — spec analysis only needs to know what types exist
   const deviceCategories = [...new Set(deviceTemplates.map((t) => t.device_category ?? t.name))];
-  const assemblyCategories = [...new Set(assemblyTemplates.map((t) => t.device_category ?? t.name))];
+  const equipment_moduleCategories = [...new Set(equipment_moduleTemplates.map((t) => t.device_category ?? t.name))];
 
   let librarySection = "";
   if (deviceCategories.length > 0) {
@@ -411,10 +411,10 @@ Categories: ${deviceCategories.join(", ")}
 
 `;
   }
-  if (assemblyCategories.length > 0) {
-    librarySection += `## Assembly FB Library (${assemblyTemplates.length} templates)
-Each assembly FB coordinates a group of devices.
-Categories: ${assemblyCategories.join(", ")}
+  if (equipment_moduleCategories.length > 0) {
+    librarySection += `## Equipment Module FB Library (${equipment_moduleTemplates.length} templates)
+Each equipment_module FB coordinates a group of control_modules.
+Categories: ${equipment_moduleCategories.join(", ")}
 
 `;
   }
@@ -442,7 +442,7 @@ export function buildSpecAnalysisUserMessage(specText: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Assembly FB SCL code generation prompt
+// Equipment Module FB SCL code generation prompt
 // ---------------------------------------------------------------------------
 
 export interface AssemblyGenContext {
@@ -450,20 +450,20 @@ export interface AssemblyGenContext {
   platformRules: string;
   patterns?: PatternCandidate[];
   fbTemplate?: FbTemplate | null;
-  constituentDevices: ForgeDeviceEntry[];
+  constituentDevices: ForgeControlModuleEntry[];
   deviceArtifacts: ForgeArtifact[];
   interlocks?: SpecAnalysisInterlock[];
   alarms?: SpecAnalysisAlarm[];
   instructions?: Instruction[];
   /** FDS-derived behavioral brief — when present, the AI implements the FDS spec */
-  brief?: import("@/types/forge-brief").AssemblyBrief;
+  brief?: import("@/types/forge-brief").EquipmentModuleBrief;
 }
 
 /**
- * Builds the FDS behavioral specification section for the assembly prompt.
+ * Builds the FDS behavioral specification section for the equipment_module prompt.
  * This tells the AI exactly what to implement — states, step sequences, device safe states, faults.
  */
-function buildFdsBehavioralSection(brief: import("@/types/forge-brief").AssemblyBrief): string {
+function buildFdsBehavioralSection(brief: import("@/types/forge-brief").EquipmentModuleBrief): string {
   const parts: string[] = [];
   parts.push(`## FDS Behavioral Specification (IMPLEMENT THIS EXACTLY)\n`);
   parts.push(`Source: Functional Design Specification — this defines the required behavior.\n`);
@@ -498,7 +498,7 @@ function buildFdsBehavioralSection(brief: import("@/types/forge-brief").Assembly
   const seqIds = Object.keys(brief.sequentialStates);
   if (seqIds.length > 0) {
     parts.push(`### Sequential State Step Sequences`);
-    parts.push(`In these states, the assembly executes a step sequence:\n`);
+    parts.push(`In these states, the equipment_module executes a step sequence:\n`);
     for (const stateId of seqIds) {
       const stateName = brief.operatingStates.find((os) => os.state_id === stateId)?.state_name ?? stateId;
       const seq = brief.sequentialStates[stateId];
@@ -555,7 +555,7 @@ function buildFdsBehavioralSection(brief: import("@/types/forge-brief").Assembly
 }
 
 export function buildAssemblySclPrompt(
-  assembly: ForgeAssemblyEntry,
+  equipment_module: ForgeEquipmentModuleEntry,
   context: AssemblyGenContext,
   _promptSections?: Record<string, string>, // eslint-disable-line @typescript-eslint/no-unused-vars
 ): string {
@@ -580,7 +580,7 @@ export function buildAssemblySclPrompt(
     : "";
 
   const interlocksSection = context.interlocks && context.interlocks.length > 0
-    ? `## Relevant Interlocks\n${context.interlocks.map((i) => `- **${i.name}**: ${i.condition} (${i.interlock_type ?? "permissive"}) — affects: ${i.affected_devices.join(", ")}`).join("\n")}\n\n`
+    ? `## Relevant Interlocks\n${context.interlocks.map((i) => `- **${i.name}**: ${i.condition} (${i.interlock_type ?? "permissive"}) — affects: ${i.affected_control_modules.join(", ")}`).join("\n")}\n\n`
     : "";
 
   const alarmsSection = context.alarms && context.alarms.length > 0
@@ -590,25 +590,25 @@ export function buildAssemblySclPrompt(
   // Build FDS behavioral spec section when brief is available
   const fdsBehavioralSection = context.brief ? buildFdsBehavioralSection(context.brief) : "";
 
-  return `You are a Code Architect generating an Assembly Function Block in SCL for Siemens S7-1200/S7-1500.
+  return `You are a Code Architect generating an Equipment Module Function Block in SCL for Siemens S7-1200/S7-1500.
 
-## What is an Assembly FB?
+## What is an Equipment Module FB?
 
-An Assembly FB coordinates a group of physical devices that work together as a functional unit (e.g. a lift table, a conveyor, a stamping press). It contains:
+An Equipment Module FB coordinates a group of physical control_modules that work together as a functional unit (e.g. a lift table, a conveyor, a stamping press). It contains:
 - **State machine** — states defined by the functional design specification (FDS)
 - **Fault detection** — travel timeout, overtravel, motor fault, position loss
 - **Command interface** — inputs like cmdRaise, cmdLower, cmdStop, reset, enable
-- **Status outputs** — busy, done, error, faultCode, stateNumber, plus assembly-specific status
+- **Status outputs** — busy, done, error, faultCode, stateNumber, plus equipment-module-specific status
 - **HMI UDT** — VAR_IN_OUT for HMI faceplate binding
 - **Config UDT** — VAR_INPUT for configurable parameters (timeouts, thresholds)
 
-The assembly FB does NOT read physical IO directly — it reads device status from its input parameters, which are wired by the call FC.
+The equipment_module FB does NOT read physical IO directly — it reads device status from its input parameters, which are wired by the call FC.
 
-## Assembly: ${assembly.name}
-- **Tag:** ${assembly.tag}
-- **Type:** ${assembly.assembly_type}
-- **Description:** ${assembly.description}
-- **Subsystem:** ${assembly.subsystem}
+## Equipment Module: ${equipment_module.name}
+- **Tag:** ${equipment_module.tag}
+- **Type:** ${equipment_module.equipment_module_type}
+- **Description:** ${equipment_module.description}
+- **Unit:** ${equipment_module.unit}
 - **Constituent Devices (${constituentDevices.length}):**
 
 ${deviceInterfaces}
@@ -626,10 +626,10 @@ Emit ALL blocks as fenced SCL. Each block as:
 \`\`\`
 
 Required blocks:
-1. **Config UDT** — \`[UDT:type${sanitizeBlockName(assembly.tag)}Config]\` — configurable parameters (timeouts, thresholds)
-2. **HMI UDT** — \`[UDT:udtHMI_${sanitizeBlockName(assembly.tag)}]\` — HMI faceplate binding struct
-3. **Assembly FB** — \`[FB:Control${sanitizeBlockName(assembly.tag)}]\` — main assembly logic
-4. **Instance DB** — \`[DB:Inst${sanitizeBlockName(assembly.tag)}]\` — instance of the assembly FB
+1. **Config UDT** — \`[UDT:type${sanitizeBlockName(equipment_module.tag)}Config]\` — configurable parameters (timeouts, thresholds)
+2. **HMI UDT** — \`[UDT:udtHMI_${sanitizeBlockName(equipment_module.tag)}]\` — HMI faceplate binding struct
+3. **Equipment Module FB** — \`[FB:Control${sanitizeBlockName(equipment_module.tag)}]\` — main equipment_module logic
+4. **Instance DB** — \`[DB:Inst${sanitizeBlockName(equipment_module.tag)}]\` — instance of the equipment_module FB
 
 ## Rules
 - Use lowerCamelCase for parameters (Siemens Style Guide V2.1)
@@ -642,8 +642,8 @@ Required blocks:
 ${context.brief ? "- CRITICAL: Implement the FDS behavioral specification EXACTLY as described above. Do not invent states or steps not in the FDS." : ""}`;
 }
 
-export function buildAssemblySclUserMessage(assembly: ForgeAssemblyEntry): string {
-  return `Generate the Assembly FB for ${assembly.name} (${assembly.assembly_type}) with tag ${assembly.tag}.\n\nInclude the config UDT, HMI UDT, assembly FB, and instance DB. Emit all blocks now.`;
+export function buildAssemblySclUserMessage(equipment_module: ForgeEquipmentModuleEntry): string {
+  return `Generate the Equipment Module FB for ${equipment_module.name} (${equipment_module.equipment_module_type}) with tag ${equipment_module.tag}.\n\nInclude the config UDT, HMI UDT, equipment_module FB, and instance DB. Emit all blocks now.`;
 }
 
 function sanitizeBlockName(tag: string): string {
@@ -707,7 +707,7 @@ export interface DeviceGenContext {
  * To make configurable: add "forge:device_scl" section key to PROMPT_DEFAULTS and use resolveSection().
  */
 export function buildDeviceSclPrompt(
-  device: ForgeDeviceEntry,
+  device: ForgeControlModuleEntry,
   context: DeviceGenContext,
   promptSections?: Record<string, string>,
 ): string {
@@ -775,7 +775,7 @@ END_TYPE
 /**
  * User message for device SCL generation.
  */
-export function buildDeviceSclUserMessage(device: ForgeDeviceEntry): string {
+export function buildDeviceSclUserMessage(device: ForgeControlModuleEntry): string {
   const signals = device.io_signals
     .map((s) => `  - ${s.tag_name} (${s.signal_type}): ${s.description}`)
     .join("\n");
@@ -786,7 +786,7 @@ export function buildDeviceSclUserMessage(device: ForgeDeviceEntry): string {
 **Tag:** ${device.tag}
 **Type:** ${device.device_type}
 **Description:** ${device.description}
-**Subsystem:** ${device.subsystem}
+**Unit:** ${device.unit}
 
 **IO Signals:**
 ${signals || "  (no IO signals specified)"}
@@ -811,7 +811,7 @@ Generate complete, compile-ready SCL code.`;
  * To make configurable: add "forge:device_lad" section key to PROMPT_DEFAULTS and use resolveSection().
  */
 export function buildDeviceLadPrompt(
-  _device: ForgeDeviceEntry,
+  _device: ForgeControlModuleEntry,
   context: DeviceGenContext,
 ): string {
   const { profile, platformRules, patterns, instructions } = context;
@@ -871,7 +871,7 @@ CRITICAL: every rung MUST contain at least one output element (OUTPUT_COIL, SET_
 /**
  * User message for device LAD generation (same device info as SCL variant).
  */
-export function buildDeviceLadUserMessage(device: ForgeDeviceEntry): string {
+export function buildDeviceLadUserMessage(device: ForgeControlModuleEntry): string {
   return buildDeviceSclUserMessage(device).replace(
     "Generate complete, compile-ready SCL code.",
     "Generate the LadProgram JSON for this device.",
@@ -1155,8 +1155,8 @@ export interface DeviceCallFcContext {
   deviceType: string;
   /** EXACT FB block name from the generated artifact, e.g. "PE_Sensor". MUST be used verbatim. */
   fbName?: string;
-  /** All devices of this type */
-  devices: ForgeDeviceEntry[];
+  /** All control_modules of this type */
+  control_modules: ForgeControlModuleEntry[];
   /** Instance DB names for each device, e.g. ["InstMotor1", "InstMotor2"] */
   instanceDbNames: string[];
   /** VAR_INPUT/VAR_OUTPUT/VAR_IN_OUT sections extracted from the FB artifact for this type */
@@ -1175,7 +1175,7 @@ export interface DeviceCallFcContext {
   platformRules: string;
   patterns?: PatternCandidate[];
   /**
-   * Matrix wiring for devices of this type — engineer-confirmed connections from Matrix Review.
+   * Matrix wiring for control_modules of this type — engineer-confirmed connections from Matrix Review.
    * When present, used as the primary wiring reference (no guessing).
    * When empty, the AI infers from device descriptions and FB interfaces.
    */
@@ -1241,13 +1241,13 @@ function findFacePlateFieldName(
  * To make configurable: add "forge:device_call_fc" section key to PROMPT_DEFAULTS and use resolveSection().
  */
 export function buildDeviceCallFcPrompt(context: DeviceCallFcContext, promptSections?: Record<string, string>): string {
-  const { profile, platformRules, patterns, fcName, deviceType, devices, instanceDbNames, fbInterfaceSection, inputsDbFields, outputsDbFields, inputsDbName, outputsDbName, ioLinkingMode, matrixWiring, referenceSections } = context;
+  const { profile, platformRules, patterns, fcName, deviceType, control_modules, instanceDbNames, fbInterfaceSection, inputsDbFields, outputsDbFields, inputsDbName, outputsDbName, ioLinkingMode, matrixWiring, referenceSections } = context;
 
   const profileSection = profile ? formatDesignProfile(profile, "general") : "";
   const patternSection = formatPatterns(patterns ?? []);
   const referenceSection = referenceSections ? `\n## Reference Documentation\n${referenceSections}\n` : "";
 
-  const deviceList = devices
+  const deviceList = control_modules
     .map((d, i) => `  ${i + 1}. "${instanceDbNames[i] ?? `Inst${d.name.replace(/[^A-Za-z0-9]/g, "")}`}" — ${d.name} (${d.tag}): ${d.description}`)
     .join("\n");
 
@@ -1411,7 +1411,7 @@ ${outputFieldsList}
  * Generates a LadProgram JSON where each network calls one FB instance.
  */
 export function buildDeviceCallFcLadPrompt(context: DeviceCallFcContext): string {
-  const { profile, platformRules, patterns, fcName, deviceType, devices, instanceDbNames, fbInterfaceSection, inputsDbFields, outputsDbFields, inputsDbName, outputsDbName, ioLinkingMode, matrixWiring, referenceSections, instructions } = context;
+  const { profile, platformRules, patterns, fcName, deviceType, control_modules, instanceDbNames, fbInterfaceSection, inputsDbFields, outputsDbFields, inputsDbName, outputsDbName, ioLinkingMode, matrixWiring, referenceSections, instructions } = context;
 
   const profileSection = profile ? formatDesignProfile(profile, "general") : "";
   const patternSection = formatPatterns(patterns ?? []);
@@ -1420,7 +1420,7 @@ export function buildDeviceCallFcLadPrompt(context: DeviceCallFcContext): string
     ? `\n${formatInstructions(instructions)}\n`
     : "";
 
-  const deviceList = devices
+  const deviceList = control_modules
     .map((d, i) => `  ${i + 1}. "${instanceDbNames[i] ?? `Inst${d.name.replace(/[^A-Za-z0-9]/g, "")}`}" — ${d.name} (${d.tag}): ${d.description}`)
     .join("\n");
 
@@ -1551,7 +1551,7 @@ CRITICAL: Every rung must have exactly ONE FB_CALL element. Do NOT use NO_CONTAC
  * User message for Device Call FC generation.
  */
 export function buildDeviceCallFcUserMessage(context: DeviceCallFcContext): string {
-  return `Generate the "${context.fcName}" FC that calls all ${context.devices.length} "${context.deviceType}" device instance(s) with all inputs fully wired.`;
+  return `Generate the "${context.fcName}" FC that calls all ${context.control_modules.length} "${context.deviceType}" device instance(s) with all inputs fully wired.`;
 }
 
 /**
@@ -1660,7 +1660,7 @@ function needsPolarityInversion(
 /**
  * Generate a Device Call FC deterministically from matrix wiring — no AI needed.
  *
- * When the matrix has wiring entries for all devices of this type, we can produce
+ * When the matrix has wiring entries for all control_modules of this type, we can produce
  * exact SCL directly: each instance DB is called with named-association params built
  * from the matrix wiring array. This eliminates AI hallucinations (invented HmiData
  * fields, wrong param names, duplicate assignments).
@@ -1995,7 +1995,7 @@ export function generateDeviceCallFcLad(context: DeviceCallFcContext): string | 
  * To make configurable: add "forge:io_linking_lad" section key to PROMPT_DEFAULTS and use resolveSection().
  */
 export function buildIoLinkingLadPrompt(
-  devices: ForgeDeviceEntry[],
+  control_modules: ForgeControlModuleEntry[],
   ioList: ForgeIoEntry[],
   context: DeviceGenContext,
   promptSections?: Record<string, string>,
@@ -2013,7 +2013,7 @@ export function buildIoLinkingLadPrompt(
       ? `## IO Linking Rules (from Design Profile)\n${profile.io_linking_rules}`
       : "";
 
-  const deviceNames = devices
+  const deviceNames = control_modules
     .map((d) => {
       const instDbName = `Inst${d.name.replace(/[^A-Za-z0-9]/g, "")}`;
       return `  - ${d.name} (tag: ${d.tag}, instanceDB: "${instDbName}")`;
@@ -2091,14 +2091,14 @@ CRITICAL: You MUST generate a rung for EVERY IO entry — digital AND analog. Us
  * Kept for backward compatibility — routes to the appropriate builder.
  */
 export function buildIoLinkingPrompt(
-  devices: ForgeDeviceEntry[],
+  control_modules: ForgeControlModuleEntry[],
   ioList: ForgeIoEntry[],
   context: DeviceGenContext,
   language: "SCL" | "LAD" = "SCL",
 ): string {
-  if (language === "LAD") return buildIoLinkingLadPrompt(devices, ioList, context);
+  if (language === "LAD") return buildIoLinkingLadPrompt(control_modules, ioList, context);
   // SCL is now deterministic — return a minimal stub prompt (caller should use generateIoLinkingFc())
-  return buildIoLinkingLadPrompt(devices, ioList, context);
+  return buildIoLinkingLadPrompt(control_modules, ioList, context);
 }
 
 // ---------------------------------------------------------------------------
@@ -2115,11 +2115,11 @@ export interface ProcessGenContext {
   sequenceArtifactNames?: string[];
   ioEntries?: ForgeIoEntry[];
   /** Device entries (for IO wiring context) */
-  deviceEntries?: ForgeDeviceEntry[];
-  /** Assembly entries — sequences command these, not individual devices */
-  assemblyEntries?: ForgeAssemblyEntry[];
-  /** Assembly FB interface sections (SCL VAR_INPUT/OUTPUT) */
-  assemblyFbInterfaces?: string;
+  deviceEntries?: ForgeControlModuleEntry[];
+  /** Equipment Module entries — sequences command these, not individual control_modules */
+  equipment_moduleEntries?: ForgeEquipmentModuleEntry[];
+  /** Equipment Module FB interface sections (SCL VAR_INPUT/OUTPUT) */
+  equipment_moduleFbInterfaces?: string;
   /** Full linkage matrix with engineer-confirmed device wiring and process sequences */
   linkageMatrix?: ProcessLinkageMatrix;
   /** SCL content of generated global DBs (HmiData, ProcessCommands, Configuration) */
@@ -2263,14 +2263,14 @@ export function buildProcessSclPrompt(context: ProcessGenContext, promptSections
 Use these exact field names — do NOT invent alternatives.
 
 ${wiringSummary}` : "",
-    // Assembly context for assembly-first sequencing
-    context.assemblyEntries?.length
-      ? `## Assemblies (command these in sequences, NOT individual devices)
-${context.assemblyEntries.map((a) => `- **${a.name}** [${a.tag}] (${a.assembly_type}) — ${a.device_ids.length} devices`).join("\n")}
-${context.assemblyFbInterfaces ? `\n## Assembly FB Interfaces\n${context.assemblyFbInterfaces}` : ""}
+    // Equipment Module context for equipment-module-first sequencing
+    context.equipment_moduleEntries?.length
+      ? `## Assemblies (command these in sequences, NOT individual control_modules)
+${context.equipment_moduleEntries.map((a) => `- **${a.name}** [${a.tag}] (${a.equipment_module_type}) — ${a.control_module_ids.length} control_modules`).join("\n")}
+${context.equipment_moduleFbInterfaces ? `\n## Equipment Module FB Interfaces\n${context.equipment_moduleFbInterfaces}` : ""}
 
-**CRITICAL:** Process sequences command assemblies via ProcessCommands DB (e.g. "DB_ProcessCommands".lft01CmdRaise := TRUE).
-Read assembly status from ProcessState DB (e.g. "DB_ProcessState".lft01AtUpper). Fault handling is INSIDE assembly FBs.`
+**CRITICAL:** Process sequences command equipment_modules via ProcessCommands DB (e.g. "DB_ProcessCommands".lft01CmdRaise := TRUE).
+Read equipment_module status from ProcessState DB (e.g. "DB_ProcessState".lft01AtUpper). Fault handling is INSIDE Equipment Module FBs.`
       : "",
     // Full signal path map — shows IO addresses, cross-device references, interlocks
     buildWiringContext(linkageMatrix, context.ioEntries ?? []),
@@ -2336,7 +2336,7 @@ END_FUNCTION_BLOCK
  */
 export function buildProcessSclUserMessage(
   sequence: SpecAnalysisProcessSequence,
-  devices: ForgeDeviceEntry[],
+  control_modules: ForgeControlModuleEntry[],
 ): string {
   const steps = (sequence.steps ?? [])
     .map((s) => `  Step ${s.step_number}: ${s.action} → Done when: ${s.completion_criteria}`)
@@ -2347,8 +2347,8 @@ export function buildProcessSclUserMessage(
       ? `\n**Permissives (must be true before starting):**\n${(sequence.permissives ?? []).map((p) => `  - ${p}`).join("\n")}`
       : "";
 
-  const relevantDevices = devices.filter(
-    (d) => d.subsystem === sequence.subsystem || devices.length <= 5,
+  const relevantDevices = control_modules.filter(
+    (d) => d.unit === sequence.unit || control_modules.length <= 5,
   );
   const deviceList = relevantDevices
     .map((d) => `  - ${d.name} (${d.device_type}, tag: ${d.tag})`)
@@ -2357,14 +2357,14 @@ export function buildProcessSclUserMessage(
   return `Generate the SCL process FC for this sequence:
 
 **Sequence name:** ${sequence.name}
-**Subsystem:** ${sequence.subsystem}
+**Unit:** ${sequence.unit}
 ${permissives}
 
 **Steps:**
 ${steps}
 
-**Relevant devices:**
-${deviceList || "  (use all available devices)"}
+**Relevant control_modules:**
+${deviceList || "  (use all available control_modules)"}
 
 Generate a complete, compile-ready FB/FC using the code structure pattern defined in the system prompt.`;
 }
@@ -2648,11 +2648,11 @@ CRITICAL RULES:
 
 export function buildFaultFcUserMessage(
   sequences: Array<{ name: string; description?: string }>,
-  devices: ForgeDeviceEntry[],
+  control_modules: ForgeControlModuleEntry[],
   faultEntries?: FaultEntry[],
 ): string {
   const seqList = sequences.map(s => `- ${s.name}${s.description ? `: ${s.description}` : ""}`).join("\n");
-  const deviceList = devices.map(d => `- ${d.name} (${d.device_type}, tag: ${d.tag})`).join("\n");
+  const deviceList = control_modules.map(d => `- ${d.name} (${d.device_type}, tag: ${d.tag})`).join("\n");
   const faultList = (faultEntries ?? [])
     .map(f => `- ${f.code}: "DB_Faults".${f.tag} — ${f.description} [from: ${f.source}]`)
     .join("\n");
@@ -2696,20 +2696,20 @@ Output ONLY the raw JSON object. Do NOT output SCL code.`;
  */
 export function buildHmiPrompt(session: ForgeSession, theme: string): string {
   const projectName = session.spec_analysis?.project_name ?? "Unnamed Project";
-  const subsystems = session.spec_analysis?.subsystems ?? [];
+  const units = session.spec_analysis?.units ?? [];
   const sequences = session.spec_analysis?.process_sequences ?? [];
   const hasIoChecklistData = session.io_list.length > 0;
 
-  const subsystemSection = subsystems.length > 0
-    ? subsystems.map((subsystem) => `- ${subsystem.name}: ${subsystem.description}`).join("\n")
-    : "- No explicit subsystems supplied";
+  const unitSection = units.length > 0
+    ? units.map((unit) => `- ${unit.name}: ${unit.description}`).join("\n")
+    : "- No explicit units supplied";
   const sequenceSection = sequences.length > 0
     ? sequences.map((sequence) => {
       const stepSummary = sequence.steps
         .slice(0, 5)
         .map((step) => `${step.step_number}. ${step.action}`)
         .join(" | ");
-      return `- ${sequence.name} (${sequence.subsystem}): ${stepSummary}`;
+      return `- ${sequence.name} (${sequence.unit}): ${stepSummary}`;
     }).join("\n")
     : "- No explicit process sequences supplied";
 
@@ -2739,7 +2739,7 @@ Return a JSON array of HmiScreenSpec objects. Every screen MUST include:
 Optional but strongly preferred fields when applicable:
 - screenNumber
 - templateName
-- subsystem
+- unit
 - deviceType
 - deviceNames
 - checklistItems
@@ -2748,12 +2748,12 @@ Optional but strongly preferred fields when applicable:
 Create a coherent HMI suite with these screen roles:
 1. One template shell / navigation host screen.
    - screenRole: "template_shell"
-   - Must provide top-level navigation affordances for overview, subsystem checklists, alarms, and device-detail access.
+   - Must provide top-level navigation affordances for overview, unit checklists, alarms, and device-detail access.
 2. One plant overview screen.
    - screenRole: "overview"
    - Show the full line / cell status at a glance with grouped equipment zones.
-3. One subsystem checklist screen per subsystem when subsystem data exists.
-   - screenRole: "subsystem_checklist"
+3. One unit checklist screen per unit when unit data exists.
+   - screenRole: "unit_checklist"
    - Include checklistItems for operator pre-start / permissive checks.
 4. One detail / faceplate screen per unique device type.
    - screenRole: "device_faceplate"
@@ -2775,14 +2775,14 @@ Create a coherent HMI suite with these screen roles:
 
 ## Project Context
 ### Subsystems
-${subsystemSection}
+${unitSection}
 
 ### Process Sequences
 ${sequenceSection}
 
 ### IO Checklist Guidance
 ${hasIoChecklistData
-    ? "Use the IO list and device IO to create meaningful subsystem checklistItems for field readiness, permissives, confirmations, and operator checks."
+    ? "Use the IO list and device IO to create meaningful unit checklistItems for field readiness, permissives, confirmations, and operator checks."
     : "No IO list is available, so derive checklist items from device descriptions and process sequences."}
 
 ## Output Quality Bar
@@ -2797,34 +2797,34 @@ ${hasIoChecklistData
  * User message for HMI generation.
  */
 export function buildHmiUserMessage(session: ForgeSession): string {
-  const devices = session.device_list;
-  const deviceList = devices
+  const control_modules = session.device_list;
+  const deviceList = control_modules
     .map(
       (d) =>
         `  - ${d.name} (${d.device_type}, tag: ${d.tag}): ${d.description}`,
     )
     .join("\n");
 
-  const ioBySubsystem = new Map<string, ForgeIoEntry[]>();
+  const ioByUnit = new Map<string, ForgeIoEntry[]>();
   for (const io of session.io_list) {
     const device = session.device_list.find((candidate) =>
       candidate.io_signals.some((signal) => signal.tag_name === io.tag_name),
     );
-    const subsystem = device?.subsystem ?? "General";
-    const list = ioBySubsystem.get(subsystem) ?? [];
+    const unit = device?.unit ?? "General";
+    const list = ioByUnit.get(unit) ?? [];
     list.push(io);
-    ioBySubsystem.set(subsystem, list);
+    ioByUnit.set(unit, list);
   }
-  const ioSection = ioBySubsystem.size > 0
-    ? [...ioBySubsystem.entries()]
-      .map(([subsystem, ioEntries]) => `  - ${subsystem}: ${ioEntries.slice(0, 8).map((io) => `${io.tag_name} (${io.signal_type})`).join(", ")}`)
+  const ioSection = ioByUnit.size > 0
+    ? [...ioByUnit.entries()]
+      .map(([unit, ioEntries]) => `  - ${unit}: ${ioEntries.slice(0, 8).map((io) => `${io.tag_name} (${io.signal_type})`).join(", ")}`)
       .join("\n")
     : "  - No IO list supplied";
 
-  const subsystemList = session.spec_analysis?.subsystems?.map((subsystem) => `  - ${subsystem.name}: ${subsystem.description}`).join("\n")
-    ?? "  - No subsystem summary supplied";
+  const unitList = session.spec_analysis?.units?.map((unit) => `  - ${unit.name}: ${unit.description}`).join("\n")
+    ?? "  - No unit summary supplied";
   const sequenceList = session.spec_analysis?.process_sequences?.map((sequence) =>
-    `  - ${sequence.name} (${sequence.subsystem}): ${sequence.steps.map((step) => `${step.step_number}:${step.action}`).join(", ")}`
+    `  - ${sequence.name} (${sequence.unit}): ${sequence.steps.map((step) => `${step.step_number}:${step.action}`).join(", ")}`
   ).join("\n") ?? "  - No sequences supplied";
 
   return `Generate the WinCC Unified HMI Builder output for this project.
@@ -2833,12 +2833,12 @@ Project:
   - ${session.spec_analysis?.project_name ?? "Unnamed Project"}
 
 Subsystems:
-${subsystemList}
+${unitList}
 
 Devices:
-${deviceList || "  - No devices supplied"}
+${deviceList || "  - No control_modules supplied"}
 
-IO by subsystem:
+IO by unit:
 ${ioSection}
 
 Process sequences:
@@ -2847,7 +2847,7 @@ ${sequenceList}
 Create a full screen suite:
 1. Template shell / navigation host
 2. Plant overview
-3. Subsystem checklist screens
+3. Unit checklist screens
 4. Device-type detail / faceplate screens
 5. Alarm summary screen when applicable
 
@@ -2948,7 +2948,7 @@ export function buildHmiCustomScreenUserMessage(
   session: ForgeSession,
   requestedTypes: string[],
 ): string {
-  const devices = session.device_list;
+  const control_modules = session.device_list;
   const sequences = session.spec_analysis?.process_sequences ?? [];
   const alarms = session.spec_analysis?.alarms ?? [];
 
@@ -2972,9 +2972,9 @@ export function buildHmiCustomScreenUserMessage(
   }
 
   if (requestedTypes.includes("device_faceplate")) {
-    const deviceTypes = [...new Set(devices.map((d) => d.device_type))];
+    const deviceTypes = [...new Set(control_modules.map((d) => d.device_type))];
     const fpInfo = deviceTypes.map((dt) => {
-      const instances = devices.filter((d) => d.device_type === dt);
+      const instances = control_modules.filter((d) => d.device_type === dt);
       return `  - ${dt}: ${instances.length} instance(s) — ${instances.map((d) => d.tag).join(", ")}`;
     }).join("\n");
     sections.push(`\n## Device Faceplate Screens (one per device type)\n${fpInfo}`);
@@ -2988,7 +2988,7 @@ export function buildHmiCustomScreenUserMessage(
   sections.push(`\n## Process Sequences`);
   if (sequences.length > 0) {
     for (const seq of sequences.slice(0, 5)) {
-      sections.push(`- ${seq.name} (${seq.subsystem}): ${seq.steps.slice(0, 4).map((s) => `${s.step_number}:${s.action}`).join(", ")}`);
+      sections.push(`- ${seq.name} (${seq.unit}): ${seq.steps.slice(0, 4).map((s) => `${s.step_number}:${s.action}`).join(", ")}`);
     }
   } else {
     sections.push("- No sequences available");
@@ -3040,7 +3040,7 @@ const MATRIX_RULES_COMMON = `## Rules
   2. Add a note in the matrix \`notes\` field: "cv01Direction (Int) must be converted to Bool before writing to ControlConveyor.direction — process code or device call FC must handle conversion"
   3. The conversion happens in the process code or device call FC, NOT in the matrix wiring
   Do NOT silently wire an Int to a Bool — it will cause a compile error. Flag it for downstream handling.
-- **CRITICAL — Device hierarchy: sequences command PARENT devices, never child devices directly:**
+- **CRITICAL — Device hierarchy: sequences command PARENT control_modules, never child control_modules directly:**
   - If a conveyor (CV01) contains a motor (M01), the sequence sets ProcessCommands.cv01Run — the conveyor FB internally commands the motor via its runForward/runReverse outputs. The sequence NEVER writes ProcessCommands.m01CmdFwd directly.
   - WRONG: sequence sets ProcessCommands.m01CmdFwd = TRUE (bypasses conveyor logic)
   - RIGHT: sequence sets ProcessCommands.cv01Run = TRUE, ProcessCommands.cv01Direction = 1 (conveyor FB handles M01)
@@ -3151,7 +3151,7 @@ const SEQUENCES_SCHEMA = `{
           "output": "string | null — specific signal change e.g. 'M01_CMD_FWD = TRUE', null if no output",
           "next": "number | FAULT | IDLE — step number to go to next, or FAULT, or IDLE",
           "type": "action | monitor | branch | fault_exit | merge",
-          "devices": ["string — device names involved"]
+          "control_modules": ["string — device names involved"]
         }
       ]
     }
@@ -3187,12 +3187,12 @@ export function buildDeviceLinkagePrompt(
 
   return `${identity}
 ${platformBlock}${profileBlock}${patternBlock}${referenceBlock}${knowledgeBlock}
-Generate the deviceLinkage array AND the assemblyLinkage array.
-- deviceLinkage: which FB each device uses, its instance DB name, how FB parameters wire to IO tags or global data, and interlocks between devices.
-- assemblyLinkage: which FB each assembly uses, its instance DB name, how assembly FB parameters wire to ProcessCommands (inputs) and ProcessState (outputs). Include statusMirrors for assembly outputs.
+Generate the deviceLinkage array AND the equipment_moduleLinkage array.
+- deviceLinkage: which FB each device uses, its instance DB name, how FB parameters wire to IO tags or global data, and interlocks between control_modules.
+- equipment_moduleLinkage: which FB each equipment_module uses, its instance DB name, how equipment_module FB parameters wire to ProcessCommands (inputs) and ProcessState (outputs). Include statusMirrors for equipment_module outputs.
 
 ${MATRIX_RULES_COMMON}
-- Interlocks must reference devices that exist in the device list
+- Interlocks must reference control_modules that exist in the device list
 - Use EXACT parameter names from the FB Template Interfaces provided
 - If an FB has a configuration/settings parameter of a UDT type (e.g. \`config : typeMotorConfig\`), wire it as: \`{ "wireType": "global", "connectedTo": "Configuration.<instanceName>Config" }\`. NEVER wire a struct param as \`constant: TRUE\`.
 - When wiring individual FB params to config subfields (e.g. \`ClearDly\` → \`Configuration.pe01Config.clearDelay\`), you MUST define the config UDT in the \`configUdts\` array with ALL the subfields you reference. Each configUdt entry defines a TYPE that will be generated as a UDT artifact.
@@ -3227,7 +3227,7 @@ Process sequences need to read device operational status (is motor running? what
 - **Motor/Drive**: Mirror the run feedback IO tag → \`ProcessState.{tag}Running\` (sourceType: "io")
 - **Analog input/sensor**: Mirror the engineering value FB output → \`ProcessState.{tag}Value\` (sourceType: "fb_output", source: "rOutEngUnitsValue" or equivalent)
 - **Valve**: Mirror position feedback IO tags → \`ProcessState.{tag}Open\`, \`ProcessState.{tag}Closed\` (sourceType: "io")
-- **Conveyor/subsystem**: Mirror run feedback → \`ProcessState.{tag}Running\` (sourceType: "io" or "fb_output")
+- **Conveyor/unit**: Mirror run feedback → \`ProcessState.{tag}Running\` (sourceType: "io" or "fb_output")
 - **Any device whose status is used as a condition in process sequences**
 
 **CRITICAL — Synthetic feedback when no physical signal exists:**
@@ -3410,7 +3410,7 @@ Each sequence has a \`rows\` array. EVERY row represents ONE condition, ONE acti
 
 ## CRITICAL — Stop/Pause Buttons in Motion Sequences
 
-If ANY device in the device list is a stop button, pause button, or emergency stop (device_type contains "stop", "pause", or "estop"), it MUST be included in every motion sequence as a monitoring condition that triggers a controlled stop. Stop buttons are input-only devices with no command outputs, but they MUST still appear in sequences.
+If ANY device in the device list is a stop button, pause button, or emergency stop (device_type contains "stop", "pause", or "estop"), it MUST be included in every motion sequence as a monitoring condition that triggers a controlled stop. Stop buttons are input-only control_modules with no command outputs, but they MUST still appear in sequences.
 
 For each motion sequence (raise, lower, advance, retract, etc.):
 1. Add the stop button's \`shortHold\` or \`pressed\` output as a safety condition or monitoring row
@@ -3420,7 +3420,7 @@ For each motion sequence (raise, lower, advance, retract, etc.):
 Example — operator stop during a motion sequence:
   { "step": 20, "branch": null, "condition": "DB_ProcessState.pbStopPressed = TRUE", "action": "Operator stop — de-energise actuator and stop motor", "output": "DB_ProcessCommands.solUpCmdWork = FALSE", "next": 40, "type": "monitor" }
 
-Do NOT exclude stop buttons just because they are input-only devices. They are critical operator controls.
+Do NOT exclude stop buttons just because they are input-only control_modules. They are critical operator controls.
 
 ## Output Format
 Wrap the JSON in [SEQUENCES_DATA]...[/SEQUENCES_DATA] tags:
@@ -3434,7 +3434,7 @@ ${SEQUENCES_SCHEMA}`;
 
 /** Shared helper: build device table, IO summary, and FB interface text. */
 function buildMatrixContext(
-  devices: ForgeDeviceEntry[],
+  control_modules: ForgeControlModuleEntry[],
   ioList: ForgeIoEntry[],
   fbTemplates?: FbTemplate[],
   generatedFbArtifacts?: ForgeArtifact[],
@@ -3443,7 +3443,7 @@ function buildMatrixContext(
     (fbTemplates ?? []).map((t) => [t.id, t]),
   );
 
-  const deviceTable = devices
+  const deviceTable = control_modules
     .map((d) => {
       const signals = (d.io_signals ?? [])
         .map((s) => `    - ${s.tag_name} (${s.signal_type}): ${s.description}`)
@@ -3452,7 +3452,7 @@ function buildMatrixContext(
       const fbInfo = tpl
         ? `FB Template: ${tpl.name} (${d.fb_match_confidence} match)`
         : `FB Template: none (AI-generated)`;
-      return `**${d.name}** [${d.tag}]\n  Type: ${d.device_type}\n  Subsystem: ${d.subsystem}\n  ${fbInfo}\n  IO Signals:\n${signals || "    (none)"}`;
+      return `**${d.name}** [${d.tag}]\n  Type: ${d.device_type}\n  Unit: ${d.unit}\n  ${fbInfo}\n  IO Signals:\n${signals || "    (none)"}`;
     })
     .join("\n\n");
 
@@ -3470,9 +3470,9 @@ function buildMatrixContext(
       .join(", ");
   }
 
-  // Library template interfaces (for devices with fb_template_id)
+  // Library template interfaces (for control_modules with fb_template_id)
   const referencedTemplateIds = new Set(
-    devices.map((d) => d.fb_template_id).filter(Boolean),
+    control_modules.map((d) => d.fb_template_id).filter(Boolean),
   );
   const templateInterfaces = referencedTemplateIds.size > 0
     ? [...referencedTemplateIds]
@@ -3512,25 +3512,25 @@ function buildMatrixContext(
  * Contains: device list, IO signals, FB interfaces.
  */
 export function buildDeviceLinkageUserMessage(
-  devices: ForgeDeviceEntry[],
+  control_modules: ForgeControlModuleEntry[],
   ioList: ForgeIoEntry[],
   fbTemplates?: FbTemplate[],
   generatedFbArtifacts?: ForgeArtifact[],
-  assemblies?: ForgeAssemblyEntry[],
-  assemblyArtifacts?: ForgeArtifact[],
+  equipment_modules?: ForgeEquipmentModuleEntry[],
+  equipment_moduleArtifacts?: ForgeArtifact[],
 ): string {
-  const { deviceTable, ioSummary, fbInterfacesText } = buildMatrixContext(devices, ioList, fbTemplates, generatedFbArtifacts);
+  const { deviceTable, ioSummary, fbInterfacesText } = buildMatrixContext(control_modules, ioList, fbTemplates, generatedFbArtifacts);
 
-  const assemblySection = assemblies && assemblies.length > 0
-    ? `## Assemblies (${assemblies.length})
-${assemblies.map((a) => {
-  const devNames = devices.filter((d) => a.device_ids.includes(d.id)).map((d) => d.tag).join(", ");
-  return `  - **${a.name}** [${a.tag}] (${a.assembly_type}) — devices: ${devNames}`;
+  const equipment_moduleSection = equipment_modules && equipment_modules.length > 0
+    ? `## Assemblies (${equipment_modules.length})
+${equipment_modules.map((a) => {
+  const devNames = control_modules.filter((d) => a.control_module_ids.includes(d.id)).map((d) => d.tag).join(", ");
+  return `  - **${a.name}** [${a.tag}] (${a.equipment_module_type}) — control_modules: ${devNames}`;
 }).join("\n")}
 
-## Assembly FB Interfaces
-${(assemblyArtifacts ?? [])
-  .filter((a) => a.type === "FB" && a.stage === "assembly_fb")
+## Equipment Module FB Interfaces
+${(equipment_moduleArtifacts ?? [])
+  .filter((a) => a.type === "FB" && a.stage === "equipment_module_fb")
   .map((a) => {
     const varSections = extractVarSectionsForMatrix(a.content);
     return `### ${a.name}\n\`\`\`scl\n${varSections}\n\`\`\``;
@@ -3538,19 +3538,19 @@ ${(assemblyArtifacts ?? [])
 `
     : "";
 
-  return `Generate the device linkage AND assembly linkage sections for this project.
+  return `Generate the device linkage AND equipment_module linkage sections for this project.
 
-## Confirmed Device List (${devices.length} devices)
+## Confirmed Device List (${control_modules.length} control_modules)
 ${deviceTable}
 
-${assemblySection}
+${equipment_moduleSection}
 ## IO List (${ioList.length} signals)
 ${ioSummary}
 
 ## FB Template Interfaces (use EXACT parameter names for wiring)
 ${fbInterfacesText}
 
-Generate the deviceLinkage AND assemblyLinkage JSON now, wrapped in [DEVICE_LINKAGE]...[/DEVICE_LINKAGE] tags.`;
+Generate the deviceLinkage AND equipment_moduleLinkage JSON now, wrapped in [DEVICE_LINKAGE]...[/DEVICE_LINKAGE] tags.`;
 }
 
 function extractVarSectionsForMatrix(sclContent: string): string {
@@ -3575,17 +3575,17 @@ function extractVarSectionsForMatrix(sclContent: string): string {
  * Contains: device name list (compact), sequences from spec, interlocks.
  */
 export function buildSequencesUserMessage(
-  devices: ForgeDeviceEntry[],
+  control_modules: ForgeControlModuleEntry[],
   specAnalysis: SpecAnalysis | null,
   wiringFieldNames?: Map<string, Set<string>>,
-  assemblies?: ForgeAssemblyEntry[],
+  equipment_modules?: ForgeEquipmentModuleEntry[],
 ): string {
-  const deviceNames = devices
-    .map((d) => `  - ${d.name} [${d.tag}] (${d.device_type}, ${d.subsystem})`)
+  const deviceNames = control_modules
+    .map((d) => `  - ${d.name} [${d.tag}] (${d.device_type}, ${d.unit})`)
     .join("\n");
 
-  const assemblyNames = (assemblies ?? specAnalysis?.assemblies ?? [])
-    .map((a) => `  - ${a.name} [${a.tag}] (${a.assembly_type}, ${a.subsystem}) — devices: ${a.device_ids.join(", ")}`)
+  const equipment_moduleNames = (equipment_modules ?? specAnalysis?.equipment_modules ?? [])
+    .map((a) => `  - ${a.name} [${a.tag}] (${a.equipment_module_type}, ${a.unit}) — control_modules: ${a.control_module_ids.join(", ")}`)
     .join("\n");
 
   const sequenceSummary = specAnalysis?.process_sequences?.length
@@ -3594,7 +3594,7 @@ export function buildSequencesUserMessage(
           const steps = (seq.steps ?? [])
             .map((st) => {
               let line = `      Step ${st.step_number}: ${st.action} → ${st.completion_criteria}`;
-              if (st.devices_involved?.length) line += `\n        Devices: ${st.devices_involved.join(", ")}`;
+              if (st.control_modules_involved?.length) line += `\n        Devices: ${st.control_modules_involved.join(", ")}`;
               if (st.outputs?.length) line += `\n        Outputs: ${st.outputs.join(", ")}`;
               if (st.timeout_action) line += `\n        Timeout: ${st.timeout_action}`;
               if (st.notes) line += `\n        Notes: ${st.notes}`;
@@ -3604,7 +3604,7 @@ export function buildSequencesUserMessage(
           const perms = (seq.permissives ?? []).length > 0 ? `\n    Permissives: ${(seq.permissives ?? []).join(", ")}` : "";
           const shutdown = seq.shutdown_behaviour ? `\n    Shutdown: ${seq.shutdown_behaviour}` : "";
           const related = (seq.related_sequences ?? []).length > 0 ? `\n    Related: ${seq.related_sequences?.join(", ")}` : "";
-          return `  **${seq.name}** (${seq.subsystem})${perms}${shutdown}${related}\n${steps}`;
+          return `  **${seq.name}** (${seq.unit})${perms}${shutdown}${related}\n${steps}`;
         })
         .join("\n\n")
     : "  (none)";
@@ -3614,7 +3614,7 @@ export function buildSequencesUserMessage(
         .map((il) => {
           const type = il.interlock_type ? ` [${il.interlock_type}]` : "";
           const trip = il.trip_action ? ` → Action: ${il.trip_action}` : "";
-          return `  - ${il.name}${type}: ${il.condition}${trip} → affects: ${(il.affected_devices ?? []).join(", ")}`;
+          return `  - ${il.name}${type}: ${il.condition}${trip} → affects: ${(il.affected_control_modules ?? []).join(", ")}`;
         })
         .join("\n")
     : "  (none)";
@@ -3697,9 +3697,9 @@ For any ADDITIONAL faults your sequences need (e.g. step timeout, feedback timeo
 
   return `Generate the process sequences and global data for this project.
 
-## Device List (${devices.length} devices — reference for device names in conditions)
+## Device List (${control_modules.length} control_modules — reference for device names in conditions)
 ${deviceNames}
-${assemblyNames ? `\n## Assemblies (command these in sequences, not individual devices)\n${assemblyNames}\n` : ""}
+${equipment_moduleNames ? `\n## Assemblies (command these in sequences, not individual control_modules)\n${equipment_moduleNames}\n` : ""}
 ${wiringSection}
 ## Process Sequences from Spec
 ${sequenceSummary}

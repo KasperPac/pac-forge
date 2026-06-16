@@ -19,7 +19,7 @@ import { parseGeneralRules, parseProcessRules } from "@/lib/design-profile-schem
 import type {
   ForgeSession,
   ForgeArtifact,
-  ForgeDeviceEntry,
+  ForgeControlModuleEntry,
   SpecAnalysis,
   SpecAnalysisProcessSequence,
 } from "@/types/forge";
@@ -67,7 +67,7 @@ function extractFbInterfaces(deviceArtifacts: ForgeArtifact[]): string {
     ? interfaces.join("\n\n")
     : "(no device FB interfaces available)";
 
-  // Cap total interface text to prevent prompt bloat with many devices
+  // Cap total interface text to prevent prompt bloat with many control_modules
   if (result.length > 6000) {
     return result.slice(0, 6000) + "\n// ... (truncated — see Device Wiring Reference for field names)";
   }
@@ -229,8 +229,8 @@ function buildDbNameMap(deviceArtifacts: ForgeArtifact[]): Map<string, string> {
 
 /**
  * Build a filtered tag dictionary for a specific sequence.
- * Only includes tags for devices used in this sequence + project-wide DBs (faults, step/action).
- * Uses linkage matrix wiring to map devices → global DB fields.
+ * Only includes tags for control_modules used in this sequence + project-wide DBs (faults, step/action).
+ * Uses linkage matrix wiring to map control_modules → global DB fields.
  */
 function buildFilteredTagDictionary(
   deviceArtifacts: ForgeArtifact[],
@@ -240,9 +240,9 @@ function buildFilteredTagDictionary(
   faultEntries: FaultEntry[],
 ): string {
   const lines: string[] = [];
-  // Wave 5: device identity should come from contract device_id, not a
+  // Wave 5: device identity should come from contract control_module_id, not a
   // lowercased name substring match. `sequenceDeviceNames` is still a name
-  // list until the matrix refactor threads device_ids through; the caller
+  // list until the matrix refactor threads control_module_ids through; the caller
   // pre-filters so this local match is bounded.
   const deviceNamesLower = new Set(sequenceDeviceNames.map(n => n.toLowerCase()));
 
@@ -631,7 +631,7 @@ export function useForgeProcessGenerate() {
         return [result.artifact];
       }
 
-      const devices = (session.device_list as ForgeDeviceEntry[]) ?? [];
+      const control_modules = (session.device_list as ForgeControlModuleEntry[]) ?? [];
       const matrix = session.linkage_matrix as ProcessLinkageMatrix | null;
 
       // Fetch instruction library for LAD generation via two-pass AI lookup (non-fatal)
@@ -773,7 +773,7 @@ ${stepsSection}
 Generate a complete, compile-ready FB (or FC if purely stateless) using the code structure pattern defined in the system prompt.
 Output MUST use the tagged fenced block format: \`\`\`scl [FB:${matrixSequence.name}] ... \`\`\``;
         } else {
-          userMessage = buildProcessSclUserMessage(sequence, devices);
+          userMessage = buildProcessSclUserMessage(sequence, control_modules);
         }
       }
 
@@ -919,7 +919,7 @@ Output MUST use the tagged fenced block format: \`\`\`scl [FB:${matrixSequence.n
 
       const specAnalysis = session.spec_analysis as SpecAnalysis | null;
       const specSequences = specAnalysis?.process_sequences ?? [];
-      const devices = (session.device_list as ForgeDeviceEntry[]) ?? [];
+      const control_modules = (session.device_list as ForgeControlModuleEntry[]) ?? [];
       const matrix = session.linkage_matrix as ProcessLinkageMatrix | null;
       const matrixSequences = matrix?.processSequences ?? [];
       const faultMatrix = matrix?.faultMatrix ?? [];
@@ -949,7 +949,7 @@ Output MUST use the tagged fenced block format: \`\`\`scl [FB:${matrixSequence.n
         add("faultEStop", "E-Stop activated", "System");
 
         // 2. Device-derived faults
-        for (const d of devices) {
+        for (const d of control_modules) {
           const isMotor = /motor|vfd|dol/i.test(d.device_type);
           if (isMotor) {
             add("faultOverload", "Motor overload tripped", "Device");
@@ -1022,7 +1022,7 @@ Output MUST use the tagged fenced block format: \`\`\`scl [FB:${matrixSequence.n
             // Build a minimal SpecAnalysisProcessSequence stub from the matrix sequence if no spec match
             const seqStub: SpecAnalysisProcessSequence = specSeq ?? {
               name: matrixSeq.name,
-              subsystem: matrixSeq.description ?? "",
+              unit: matrixSeq.description ?? "",
               permissives: [],
               steps: (matrixSeq.steps ?? []).map(s => ({
                 step_number: s.stepNumber ?? 0,
@@ -1031,9 +1031,9 @@ Output MUST use the tagged fenced block format: \`\`\`scl [FB:${matrixSequence.n
               })),
             };
             // Collect device names from matrix rows for this sequence
-            const seqDeviceNames = [...new Set((matrixSeq.rows ?? []).flatMap(r => r.devices ?? []))];
+            const seqDeviceNames = [...new Set((matrixSeq.rows ?? []).flatMap(r => r.control_modules ?? []))];
             const seqTags = buildFilteredTagDictionary(devArtifacts, matrix, seqDeviceNames, stepActionDbNames.get(matrixSeq.name), []);
-            console.log(`[forge-process] Tags for ${matrixSeq.name}: ${seqDeviceNames.length} devices, ${(seqTags.length / 1024).toFixed(1)}KB`);
+            console.log(`[forge-process] Tags for ${matrixSeq.name}: ${seqDeviceNames.length} control_modules, ${(seqTags.length / 1024).toFixed(1)}KB`);
             const artifacts = await generateSequence(seqStub, session, profile, patterns, matrixSeq, [], stepActionDbNames.get(matrixSeq.name), seqTags);
             allArtifacts.push(...artifacts);
           }
@@ -1189,7 +1189,7 @@ END_DATA_BLOCK`;
         const ioLinkingFcName = fcPrefix ? `${fcPrefix}IoLinking` : "IoLinking";
 
         const uniqueDeviceTypes = [
-          ...new Set(devices.map((d) => d.device_type)),
+          ...new Set(control_modules.map((d) => d.device_type)),
         ].sort((a, b) => getDeviceCallOrder(a) - getDeviceCallOrder(b));
         const deviceCallFcNames = uniqueDeviceTypes.map((dt) =>
           deviceTypeToFcName(dt, fcPrefix || undefined),

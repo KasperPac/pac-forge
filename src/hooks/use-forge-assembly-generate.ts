@@ -1,6 +1,6 @@
 /**
- * Hook for generating assembly FBs — extracted from use-forge-device-generate.ts.
- * Supports both FDS-driven generation (AssemblyBrief) and standalone (SpecAnalysis).
+ * Hook for generating Equipment Module FBs — extracted from use-forge-device-generate.ts.
+ * Supports both FDS-driven generation (EquipmentModuleBrief) and standalone (SpecAnalysis).
  */
 import { useState, useCallback } from "react";
 import { callNonStreaming } from "@/hooks/use-generation";
@@ -17,12 +17,12 @@ import { useActivePromptSections } from "@/hooks/use-prompt-sections";
 import type {
   ForgeSession,
   ForgeArtifact,
-  ForgeAssemblyEntry,
+  ForgeEquipmentModuleEntry,
 } from "@/types/forge";
 import type { DesignProfile } from "@/types/design-profile";
 import type { FbTemplate } from "@/types/fb-template";
 import type { PatternCandidate } from "@/types";
-import type { AssemblyBrief } from "@/types/forge-brief";
+import type { EquipmentModuleBrief } from "@/types/forge-brief";
 
 // ---------------------------------------------------------------------------
 // Artifact parser (duplicated from use-forge-device-generate — pure function)
@@ -62,7 +62,7 @@ function parseSclArtifacts(
 // ---------------------------------------------------------------------------
 
 function copyTemplateAsAssemblyArtifacts(
-  _assembly: ForgeAssemblyEntry,
+  _equipment_module: ForgeEquipmentModuleEntry,
   template: FbTemplate,
 ): ForgeArtifact[] {
   return (template.blocks ?? [])
@@ -76,7 +76,7 @@ function copyTemplateAsAssemblyArtifacts(
       approved: false,
       fb_template_id: template.id,
       library_block: template.source === "library",
-      stage: "assembly_fb" as const,
+      stage: "equipment_module_fb" as const,
       destination_folder:
         block.block_type === "UDT" ? "Types"
         : block.block_type === "DB" ? "Data blocks"
@@ -93,7 +93,7 @@ function copyTemplateAsAssemblyArtifacts(
 export interface AssemblyGenProgress {
   current: number;
   total: number;
-  assemblyTag: string;
+  equipment_moduleTag: string;
 }
 
 export type AssemblyGenLogLevel = "info" | "warn" | "error" | "fix";
@@ -111,7 +111,7 @@ export interface AssemblyGenLogEntry {
 export function useForgeAssemblyGenerate() {
   const { data: promptSections } = useActivePromptSections();
   const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState<AssemblyGenProgress>({ current: 0, total: 0, assemblyTag: "" });
+  const [progress, setProgress] = useState<AssemblyGenProgress>({ current: 0, total: 0, equipment_moduleTag: "" });
   const [error, setError] = useState<string | null>(null);
   const [logEntries, setLogEntries] = useState<AssemblyGenLogEntry[]>([]);
 
@@ -122,57 +122,57 @@ export function useForgeAssemblyGenerate() {
   const clearLog = useCallback(() => setLogEntries([]), []);
 
   /**
-   * Generate a single assembly FB.
+   * Generate a single equipment_module FB.
    * If a library template matches, copies it. Otherwise generates via AI.
    * When brief is provided, the prompt includes FDS behavioral data.
    */
   const generateSingle = useCallback(
     async (
-      assembly: ForgeAssemblyEntry,
+      equipment_module: ForgeEquipmentModuleEntry,
       session: ForgeSession,
       profile: DesignProfile,
       deviceArtifacts: ForgeArtifact[],
       fbTemplates: FbTemplate[],
       patterns: PatternCandidate[],
-      brief?: AssemblyBrief,
+      brief?: EquipmentModuleBrief,
       instructions?: string,
     ): Promise<ForgeArtifact[]> => {
       // Check for library template match
-      const matchedTemplate = assembly.fb_template_id
-        ? fbTemplates.find((t) => t.id === assembly.fb_template_id) ?? null
+      const matchedTemplate = equipment_module.fb_template_id
+        ? fbTemplates.find((t) => t.id === equipment_module.fb_template_id) ?? null
         : null;
 
       if (matchedTemplate && matchedTemplate.blocks && matchedTemplate.blocks.length > 0) {
-        log("info", `${assembly.tag}: copying template "${matchedTemplate.name}"`);
-        return copyTemplateAsAssemblyArtifacts(assembly, matchedTemplate);
+        log("info", `${equipment_module.tag}: copying template "${matchedTemplate.name}"`);
+        return copyTemplateAsAssemblyArtifacts(equipment_module, matchedTemplate);
       }
 
       // AI generation
-      log("info", `${assembly.tag}: generating via AI${brief ? " (FDS-driven)" : ""}`);
+      log("info", `${equipment_module.tag}: generating via AI${brief ? " (FDS-driven)" : ""}`);
       const platformRules = await loadPlatformRules();
 
       const constituentDevices = (session.device_list ?? []).filter(
-        (d) => assembly.device_ids.includes(d.id),
+        (d) => equipment_module.control_module_ids.includes(d.id),
       );
 
       const specAnalysis = session.spec_analysis;
       const relevantInterlocks = specAnalysis?.interlocks?.filter(
-        (i) => i.affected_devices?.some(
+        (i) => i.affected_control_modules?.some(
           (name) =>
             constituentDevices.some((d) => d.name === name || d.tag === name) ||
-            name === assembly.name ||
-            name === assembly.tag,
+            name === equipment_module.name ||
+            name === equipment_module.tag,
         ),
       );
       // Wave 5 note: the contract-backed path populates `brief.alarmConditions`
-      // by device_id / assembly_id foreign keys. The tag-substring fallback
+      // by control_module_id / equipment_module_id foreign keys. The tag-substring fallback
       // below only fires when no contract is bound (standalone SpecAnalysis
       // mode) — it should be removed once standalone mode is retired.
       const relevantAlarms = specAnalysis?.alarms?.filter(
         (a) =>
           a.affected_sequences?.some((seq) =>
-            seq.toLowerCase().includes(assembly.tag.toLowerCase()),
-          ) || a.description?.toLowerCase().includes(assembly.tag.toLowerCase()),
+            seq.toLowerCase().includes(equipment_module.tag.toLowerCase()),
+          ) || a.description?.toLowerCase().includes(equipment_module.tag.toLowerCase()),
       );
 
       const context: AssemblyGenContext = {
@@ -186,9 +186,9 @@ export function useForgeAssemblyGenerate() {
         brief,
       };
 
-      const systemPrompt = buildAssemblySclPrompt(assembly, context, promptSections ?? undefined);
+      const systemPrompt = buildAssemblySclPrompt(equipment_module, context, promptSections ?? undefined);
 
-      let userMessage = buildAssemblySclUserMessage(assembly);
+      let userMessage = buildAssemblySclUserMessage(equipment_module);
       if (instructions) {
         userMessage += `\n\n## Engineer Instructions\n${instructions}`;
       }
@@ -199,37 +199,37 @@ export function useForgeAssemblyGenerate() {
         [{ role: "user", content: userMessage }],
         controller.signal,
         16384,
-        { prompt_name: "forge-assembly-fb", agent_role: "code_architect", pipeline_step: "assembly_fb" },
+        { prompt_name: "forge-assembly-fb", agent_role: "code_architect", pipeline_step: "equipment_module_fb" },
       );
 
-      const artifacts = parseSclArtifacts(content, "assembly_fb");
-      log("info", `${assembly.tag}: generated ${artifacts.length} artifacts`);
+      const artifacts = parseSclArtifacts(content, "equipment_module_fb");
+      log("info", `${equipment_module.tag}: generated ${artifacts.length} artifacts`);
       return artifacts;
     },
     [promptSections, log],
   );
 
   /**
-   * Generate all assembly FBs sequentially.
+   * Generate all Equipment Module FBs sequentially.
    */
   const generateAll = useCallback(
     async (
-      assemblies: ForgeAssemblyEntry[],
+      equipment_modules: ForgeEquipmentModuleEntry[],
       session: ForgeSession,
       profile: DesignProfile,
       deviceArtifacts: ForgeArtifact[],
       fbTemplates: FbTemplate[],
       patterns: PatternCandidate[],
-      briefs?: Record<string, AssemblyBrief>,
+      briefs?: Record<string, EquipmentModuleBrief>,
     ): Promise<ForgeArtifact[]> => {
       setLoading(true);
       setError(null);
       const allArtifacts: ForgeArtifact[] = [];
 
       try {
-        for (let i = 0; i < assemblies.length; i++) {
-          const asm = assemblies[i];
-          setProgress({ current: i + 1, total: assemblies.length, assemblyTag: asm.tag });
+        for (let i = 0; i < equipment_modules.length; i++) {
+          const asm = equipment_modules[i];
+          setProgress({ current: i + 1, total: equipment_modules.length, equipment_moduleTag: asm.tag });
 
           const arts = await generateSingle(
             asm,
@@ -245,7 +245,7 @@ export function useForgeAssemblyGenerate() {
 
         return allArtifacts;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Assembly generation failed";
+        const msg = err instanceof Error ? err.message : "Equipment Module generation failed";
         setError(msg);
         log("error", msg);
         throw err;

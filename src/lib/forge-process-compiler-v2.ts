@@ -7,10 +7,10 @@
  *
  * Output shape (per state):
  *
- *   CASE "Inst<Assembly>_stateVar" OF
- *     "Inst<Assembly>_Step_<name>":
+ *   CASE "Inst<EquipmentModule>_stateVar" OF
+ *     "Inst<EquipmentModule>_Step_<name>":
  *       <actions>
- *       IF <guard> THEN "Inst<Assembly>_stateVar" := <next>; END_IF;
+ *       IF <guard> THEN "Inst<EquipmentModule>_stateVar" := <next>; END_IF;
  *     ...
  *   END_CASE;
  *
@@ -22,18 +22,18 @@
  *
  * Placeholder expressions / criteria abort the whole state compile — the
  * caller decides whether to surface that as a contract-level failure or
- * just a per-assembly failure. See `compileSequentialStateV2`.
+ * just a per-equipment_module failure. See `compileSequentialStateV2`.
  */
 import type {
   ActionV2,
-  AssemblyContract,
+  EquipmentModuleContract,
   BranchV2,
   CompletionCriterion,
   Expression,
   MonitorV2,
   SequentialStateV2,
   SpecContractV2,
-  StepV2,
+  PhaseStep,
   TransitionV2,
 } from "@/types/spec-contract-v2";
 import { ensureV2 } from "@/lib/spec-builder/sequence-legacy-shim";
@@ -44,7 +44,7 @@ import { ensureV2 } from "@/lib/spec-builder/sequence-legacy-shim";
 
 export interface UnresolvedPlaceholderError {
   kind: "unresolved_placeholder";
-  assembly_id: string;
+  equipment_module_id: string;
   state_id: string;
   step_id: string | null;
   action_id: string | null;
@@ -54,7 +54,7 @@ export interface UnresolvedPlaceholderError {
 
 export interface ValidationError {
   kind: "validation";
-  assembly_id: string;
+  equipment_module_id: string;
   state_id: string;
   message: string;
 }
@@ -78,43 +78,43 @@ export interface CompileV2Context {
 
 /**
  * Compile a single sequential state from a contract. Walks
- * `contract.assemblies[assemblyId].sequential_states[stateId]`.
+ * `contract.equipment_modules[equipment_moduleId].sequential_states[stateId]`.
  *
  * Returns SCL on success, or a list of errors (placeholder / validation).
  */
 export function compileSequentialStateV2(
   contract: SpecContractV2,
   stateId: string,
-  assemblyId: string,
+  equipment_moduleId: string,
   ctx: CompileV2Context = {},
 ): SequenceCompileResult {
-  const assembly = contract.assemblies[assemblyId] as
-    | AssemblyContract
+  const equipment_module = contract.equipment_modules[equipment_moduleId] as
+    | EquipmentModuleContract
     | undefined;
-  if (!assembly) {
+  if (!equipment_module) {
     return {
       ok: false,
       errors: [
         {
           kind: "validation",
-          assembly_id: assemblyId,
+          equipment_module_id: equipment_moduleId,
           state_id: stateId,
-          message: `assembly ${assemblyId} not found in contract`,
+          message: `equipment_module ${equipment_moduleId} not found in contract`,
         },
       ],
     };
   }
 
-  const rawState = assembly.sequential_states[stateId];
+  const rawState = equipment_module.sequential_states[stateId];
   if (!rawState) {
     return {
       ok: false,
       errors: [
         {
           kind: "validation",
-          assembly_id: assemblyId,
+          equipment_module_id: equipment_moduleId,
           state_id: stateId,
-          message: `state ${stateId} not found on assembly ${assemblyId}`,
+          message: `state ${stateId} not found on equipment_module ${equipment_moduleId}`,
         },
       ],
     };
@@ -124,8 +124,8 @@ export function compileSequentialStateV2(
   // compiler can run without blowing up.
   const state: SequentialStateV2 = ensureV2(rawState, stateId);
 
-  const assemblyName = resolveAssemblyName(contract, assemblyId) ?? assemblyId;
-  const instPrefix = `Inst${sanitizeIdent(assemblyName)}`;
+  const equipment_moduleName = resolveAssemblyName(contract, equipment_moduleId) ?? equipment_moduleId;
+  const instPrefix = `Inst${sanitizeIdent(equipment_moduleName)}`;
   const stateVarQualified = `"${instPrefix}_stateVar"`;
 
   const errors: SequenceCompileError[] = [];
@@ -150,7 +150,7 @@ export function compileSequentialStateV2(
       if (step.actions && step.actions.length > 0) {
         for (const action of step.actions) {
           const rendered = renderAction(action, {
-            assembly_id: assemblyId,
+            equipment_module_id: equipment_moduleId,
             state_id: stateId,
             step_id: step.step_id ?? null,
             ctx,
@@ -170,7 +170,7 @@ export function compileSequentialStateV2(
         lines.push(`    (* Transitions *)`);
         transitions.forEach((tr, idx) => {
           const guardExpr = renderGuard(tr.guard, {
-            assembly_id: assemblyId,
+            equipment_module_id: equipment_moduleId,
             state_id: stateId,
             step_id: step.step_id ?? null,
             errors,
@@ -194,7 +194,7 @@ export function compileSequentialStateV2(
         lines.push(`    (* Step monitors *)`);
         for (const mon of step.monitors) {
           for (const l of renderMonitor(mon, instPrefix, stateVarQualified, {
-            assembly_id: assemblyId,
+            equipment_module_id: equipment_moduleId,
             state_id: stateId,
             step_id: step.step_id ?? null,
             errors,
@@ -216,7 +216,7 @@ export function compileSequentialStateV2(
     lines.push(`(* State monitors — evaluated every scan *)`);
     for (const mon of state.state_monitors) {
       for (const l of renderMonitor(mon, instPrefix, stateVarQualified, {
-        assembly_id: assemblyId,
+        equipment_module_id: equipment_moduleId,
         state_id: stateId,
         step_id: null,
         errors,
@@ -256,7 +256,7 @@ function deriveBranches(state: SequentialStateV2): BranchV2[] {
 // ---------------------------------------------------------------------------
 
 interface EmitCtx {
-  assembly_id: string;
+  equipment_module_id: string;
   state_id: string;
   step_id: string | null;
   errors: SequenceCompileError[];
@@ -353,7 +353,7 @@ function renderExpression(
     case "placeholder":
       ec.errors.push({
         kind: "unresolved_placeholder",
-        assembly_id: ec.assembly_id,
+        equipment_module_id: ec.equipment_module_id,
         state_id: ec.state_id,
         step_id: ec.step_id,
         action_id: null,
@@ -369,7 +369,7 @@ function renderExpression(
       // remains syntactically inspectable.
       ec.errors.push({
         kind: "validation",
-        assembly_id: ec.assembly_id,
+        equipment_module_id: ec.equipment_module_id,
         state_id: ec.state_id,
         message: `parameter_ref expression at ${ec.pathHint} (parameter_id=${expr.parameter_id}) is not yet supported by the compiler`,
       });
@@ -426,7 +426,7 @@ function renderCriterion(
     case "placeholder":
       ec.errors.push({
         kind: "unresolved_placeholder",
-        assembly_id: ec.assembly_id,
+        equipment_module_id: ec.equipment_module_id,
         state_id: ec.state_id,
         step_id: ec.step_id,
         action_id: null,
@@ -529,11 +529,11 @@ function escapeComment(s: string): string {
 
 function resolveAssemblyName(
   contract: SpecContractV2,
-  assemblyId: string,
+  equipment_moduleId: string,
 ): string | undefined {
-  for (const sub of contract.hierarchy.subsystems) {
-    for (const asy of sub.assemblies) {
-      if (asy.assembly_id === assemblyId) return asy.assembly_name;
+  for (const sub of contract.hierarchy.units) {
+    for (const asy of sub.equipment_modules) {
+      if (asy.equipment_module_id === equipment_moduleId) return asy.equipment_module_name;
     }
   }
   return undefined;
@@ -544,4 +544,4 @@ function resolveAssemblyName(
 // ---------------------------------------------------------------------------
 
 // ts re-exports (avoid circular import of runtime values).
-export type { StepV2 };
+export type { PhaseStep };

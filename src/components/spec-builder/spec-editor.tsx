@@ -33,7 +33,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useUpdateSpecSection } from "@/hooks/use-spec-projects";
-import type { SpecSection, SpecProject, FunctionalDescriptionContent, DeviceStateEntry, StepEntry } from "@/types/spec-builder";
+import type { SpecSection, SpecProject, FunctionalDescriptionContent, ControlModuleStateEntry, StepEntry } from "@/types/spec-builder";
 import { migrateOperatingStates } from "@/types/spec-builder";
 import { cn } from "@/lib/utils";
 
@@ -57,8 +57,8 @@ interface TreeGroup {
 
 function buildTree(sections: SpecSection[], spec: SpecProject): TreeGroup[] {
   const groups: TreeGroup[] = [];
-  const subsystemName = (id: string | null) =>
-    spec.confirmed_subsystems.find((s) => s.subsystem_id === id)?.subsystem_name ?? id ?? "?";
+  const unitName = (id: string | null) =>
+    spec.confirmed_units.find((s) => s.unit_id === id)?.unit_name ?? id ?? "?";
   const states = migrateOperatingStates(spec.confirmed_states);
   const stateName = (id: string | null) =>
     states.find((s) => s.state_id === id)?.state_name ?? id ?? "?";
@@ -95,44 +95,44 @@ function buildTree(sections: SpecSection[], spec: SpecProject): TreeGroup[] {
       ]});
     }
 
-    // Section 3 — Equipment + Functional Descriptions grouped by subsystem
+    // Section 3 — Equipment + Functional Descriptions grouped by unit
     const equipment = sections.filter((s) => s.section_type === "equipment_description");
     const funcDescs = sections.filter((s) => s.section_type === "functional_description");
-    const assemblyName = (subsystemId: string | null, assemblyId: string | null) => {
-      if (!assemblyId) return null;
-      const sub = spec.confirmed_subsystems.find((s) => s.subsystem_id === subsystemId);
-      return sub?.assemblies.find((a) => a.assembly_id === assemblyId)?.assembly_name ?? assemblyId;
+    const equipment_moduleName = (unitId: string | null, equipment_moduleId: string | null) => {
+      if (!equipment_moduleId) return null;
+      const sub = spec.confirmed_units.find((s) => s.unit_id === unitId);
+      return sub?.equipment_modules.find((a) => a.equipment_module_id === equipment_moduleId)?.equipment_module_name ?? equipment_moduleId;
     };
     if (equipment.length > 0 || funcDescs.length > 0) {
       const funcNodes: TreeNode[] = [];
       for (const eq of equipment) {
         funcNodes.push({
           id: eq.id,
-          label: `${subsystemName(eq.subsystem_id)} — Equipment`,
+          label: `${unitName(eq.unit_id)} — Equipment`,
           icon: Boxes,
           section: eq,
           approved: eq.approved,
         });
-        // Add functional descriptions for this subsystem — sort by (state, assembly name)
+        // Add functional descriptions for this unit — sort by (state, equipment_module name)
         const subFuncs = funcDescs
-          .filter((fd) => fd.subsystem_id === eq.subsystem_id)
+          .filter((fd) => fd.unit_id === eq.unit_id)
           .slice()
           .sort((a, b) => {
             const stateA = stateName(a.state_name);
             const stateB = stateName(b.state_name);
             if (stateA !== stateB) return stateA.localeCompare(stateB);
-            const aId = (a.content_json as { assembly_id?: string | null })?.assembly_id ?? null;
-            const bId = (b.content_json as { assembly_id?: string | null })?.assembly_id ?? null;
-            const aName = assemblyName(a.subsystem_id, aId) ?? "";
-            const bName = assemblyName(b.subsystem_id, bId) ?? "";
+            const aId = (a.content_json as { equipment_module_id?: string | null })?.equipment_module_id ?? null;
+            const bId = (b.content_json as { equipment_module_id?: string | null })?.equipment_module_id ?? null;
+            const aName = equipment_moduleName(a.unit_id, aId) ?? "";
+            const bName = equipment_moduleName(b.unit_id, bId) ?? "";
             return aName.localeCompare(bName);
           });
         for (const fd of subFuncs) {
-          const asmId = (fd.content_json as { assembly_id?: string | null })?.assembly_id ?? null;
-          const asmName = assemblyName(fd.subsystem_id, asmId);
+          const asmId = (fd.content_json as { equipment_module_id?: string | null })?.equipment_module_id ?? null;
+          const asmName = equipment_moduleName(fd.unit_id, asmId);
           const label = asmName
-            ? `${subsystemName(fd.subsystem_id)} · ${asmName} — ${stateName(fd.state_name)}`
-            : `${subsystemName(fd.subsystem_id)} — ${stateName(fd.state_name)}`;
+            ? `${unitName(fd.unit_id)} · ${asmName} — ${stateName(fd.state_name)}`
+            : `${unitName(fd.unit_id)} — ${stateName(fd.state_name)}`;
           funcNodes.push({
             id: fd.id,
             label,
@@ -191,14 +191,14 @@ function buildTree(sections: SpecSection[], spec: SpecProject): TreeGroup[] {
     const equipment = sections.filter((s) => s.section_type === "equipment_description");
     if (equipment.length) {
       groups.push({ label: "Equipment", icon: Boxes, nodes: equipment.map((s) => ({
-        id: s.id, label: subsystemName(s.subsystem_id), icon: Boxes, section: s, approved: s.approved,
+        id: s.id, label: unitName(s.unit_id), icon: Boxes, section: s, approved: s.approved,
       }))});
     }
 
     const legacyStates = sections.filter((s) => s.section_type === "functional_state");
     if (legacyStates.length) {
       groups.push({ label: "Functional States", icon: Activity, nodes: legacyStates.map((s) => ({
-        id: s.id, label: `${subsystemName(s.subsystem_id)} — ${stateName(s.state_name)}`, icon: Activity, section: s, approved: s.approved,
+        id: s.id, label: `${unitName(s.unit_id)} — ${stateName(s.state_name)}`, icon: Activity, section: s, approved: s.approved,
       }))});
     }
 
@@ -418,7 +418,7 @@ function sectionTitle(section: SpecSection): string {
     case "document_control": return "Document Control";
     case "system_overview": return "System Overview";
     case "control_philosophy": return "Control Philosophy";
-    case "functional_description": return `Functional Description — ${section.subsystem_id ?? ""} / ${section.state_name ?? ""}`;
+    case "functional_description": return `Functional Description — ${section.unit_id ?? ""} / ${section.state_name ?? ""}`;
     case "io_list": return "I/O List";
     case "alarm_specification": return "Alarm Specification";
     case "hmi_specification": return "HMI Specification";
@@ -426,8 +426,8 @@ function sectionTitle(section: SpecSection): string {
     case "testing_fat": return "Testing / FAT";
     // V1 legacy
     case "introduction": return "Introduction";
-    case "equipment_description": return `Equipment — ${section.subsystem_id ?? ""}`;
-    case "functional_state": return `State — ${section.subsystem_id ?? ""} / ${section.state_name ?? ""}`;
+    case "equipment_description": return `Equipment — ${section.unit_id ?? ""}`;
+    case "functional_state": return `State — ${section.unit_id ?? ""} / ${section.state_name ?? ""}`;
     case "alarm_table": return "Alarm Table";
     case "settings_table": return "Settings Table";
     case "audit_report": return "Gap Audit Report";
@@ -472,18 +472,18 @@ interface DeviceRow {
 }
 
 function EquipmentEditor({ content, set }: EditorProps) {
-  const table = (content.device_table as DeviceRow[]) ?? [];
+  const table = (content.control_module_table as DeviceRow[]) ?? [];
 
   const updateRow = (i: number, patch: Partial<DeviceRow>) => {
     const next = table.map((r, idx) => (idx === i ? { ...r, ...patch } : r));
-    set({ device_table: next });
+    set({ control_module_table: next });
   };
 
   const addRow = () =>
-    set({ device_table: [...table, { device: "", tag: "", description: "" }] });
+    set({ control_module_table: [...table, { device: "", tag: "", description: "" }] });
 
   const removeRow = (i: number) =>
-    set({ device_table: table.filter((_, idx) => idx !== i) });
+    set({ control_module_table: table.filter((_, idx) => idx !== i) });
 
   return (
     <div className="space-y-4">
@@ -550,7 +550,7 @@ function EquipmentEditor({ content, set }: EditorProps) {
               {table.length === 0 && (
                 <tr>
                   <td colSpan={4} className="p-4 text-center text-muted-foreground">
-                    No devices. Click Add Row to start.
+                    No control_modules. Click Add Row to start.
                   </td>
                 </tr>
               )}
@@ -664,7 +664,7 @@ function SystemOverviewEditor({ content, set }: EditorProps) {
             <table className="w-full text-xs">
               <thead className="bg-muted/50">
                 <tr>
-                  <th className="p-2 text-left font-mono font-normal">Subsystem</th>
+                  <th className="p-2 text-left font-mono font-normal">Unit</th>
                   <th className="p-2 text-left font-mono font-normal">DI</th>
                   <th className="p-2 text-left font-mono font-normal">DO</th>
                   <th className="p-2 text-left font-mono font-normal">AI</th>
@@ -674,7 +674,7 @@ function SystemOverviewEditor({ content, set }: EditorProps) {
               <tbody>
                 {(content.io_summary as Array<Record<string, unknown>>).map((r, i) => (
                   <tr key={i} className="border-t">
-                    <td className="p-2 text-xs">{String(r.subsystem_name)}</td>
+                    <td className="p-2 text-xs">{String(r.unit_name)}</td>
                     <td className="p-2 text-xs font-mono">{String(r.di_count)}</td>
                     <td className="p-2 text-xs font-mono">{String(r.do_count)}</td>
                     <td className="p-2 text-xs font-mono">{String(r.ai_count)}</td>
@@ -723,11 +723,11 @@ function FunctionalDescriptionEditor({ content, set }: EditorProps) {
 
   if (fdContent.pattern === "static") {
     // Pattern A — Device State Table
-    const deviceStates = (fdContent.device_states ?? []) as DeviceStateEntry[];
+    const deviceStates = (fdContent.control_module_states ?? []) as ControlModuleStateEntry[];
 
-    const updateRow = (i: number, patch: Partial<DeviceStateEntry>) => {
+    const updateRow = (i: number, patch: Partial<ControlModuleStateEntry>) => {
       const next = deviceStates.map((r, idx) => (idx === i ? { ...r, ...patch } : r));
-      set({ device_states: next });
+      set({ control_module_states: next });
     };
 
     return (
@@ -756,7 +756,7 @@ function FunctionalDescriptionEditor({ content, set }: EditorProps) {
             </tbody>
           </table>
         </div>
-        <Button size="sm" variant="outline" onClick={() => set({ device_states: [...deviceStates, { tag: "", description: "", state: "" }] })}><Plus className="h-3 w-3 mr-1" /> Add Row</Button>
+        <Button size="sm" variant="outline" onClick={() => set({ control_module_states: [...deviceStates, { tag: "", description: "", state: "" }] })}><Plus className="h-3 w-3 mr-1" /> Add Row</Button>
       </div>
     );
   }
@@ -1129,37 +1129,37 @@ interface AlarmSetting {
 }
 
 interface SubsystemSettings {
-  subsystem_id: string;
+  unit_id: string;
   process_settings: ProcessSetting[];
   alarm_settings: AlarmSetting[];
 }
 
 function SettingsEditor({ content, set }: EditorProps) {
-  const subsystems = (content.subsystems as SubsystemSettings[]) ?? [];
+  const units = (content.units as SubsystemSettings[]) ?? [];
 
   const updateProcess = (sIdx: number, pIdx: number, patch: Partial<ProcessSetting>) => {
-    const next = subsystems.map((s, si) =>
+    const next = units.map((s, si) =>
       si === sIdx
         ? { ...s, process_settings: s.process_settings.map((p, pi) => (pi === pIdx ? { ...p, ...patch } : p)) }
         : s
     );
-    set({ subsystems: next });
+    set({ units: next });
   };
 
   const updateAlarm = (sIdx: number, aIdx: number, patch: Partial<AlarmSetting>) => {
-    const next = subsystems.map((s, si) =>
+    const next = units.map((s, si) =>
       si === sIdx
         ? { ...s, alarm_settings: s.alarm_settings.map((a, ai) => (ai === aIdx ? { ...a, ...patch } : a)) }
         : s
     );
-    set({ subsystems: next });
+    set({ units: next });
   };
 
   return (
     <div className="space-y-6">
-      {subsystems.map((sub, sIdx) => (
+      {units.map((sub, sIdx) => (
         <div key={sIdx} className="space-y-3">
-          <h4 className="text-xs font-semibold font-mono">{sub.subsystem_id}</h4>
+          <h4 className="text-xs font-semibold font-mono">{sub.unit_id}</h4>
 
           <div className="space-y-1.5">
             <label className="text-[10px] uppercase font-semibold text-muted-foreground">
@@ -1264,7 +1264,7 @@ function SettingsEditor({ content, set }: EditorProps) {
               </table>
             </div>
           </div>
-          {sIdx < subsystems.length - 1 && <Separator />}
+          {sIdx < units.length - 1 && <Separator />}
         </div>
       ))}
     </div>
@@ -1274,7 +1274,7 @@ function SettingsEditor({ content, set }: EditorProps) {
 function AuditViewer({ content }: { content: Record<string, unknown> }) {
   const status = content.overall_status as string;
   const missingTags = (content.missing_tags as string[]) ?? [];
-  const missingStates = (content.missing_states as Array<{ subsystem: string; state: string }>) ?? [];
+  const missingStates = (content.missing_states as Array<{ unit: string; state: string }>) ?? [];
   const missingAlarms = (content.missing_alarms as string[]) ?? [];
   const placeholders = (content.placeholders as Array<{ text: string; location: string }>) ?? [];
   const inconsistencies = (content.tag_inconsistencies as string[]) ?? [];
@@ -1296,7 +1296,7 @@ function AuditViewer({ content }: { content: Record<string, unknown> }) {
       <AuditList title="Missing Tags" items={missingTags} />
       <AuditList
         title="Missing States"
-        items={missingStates.map((s) => `${s.subsystem} — ${s.state}`)}
+        items={missingStates.map((s) => `${s.unit} — ${s.state}`)}
       />
       <AuditList title="Missing Alarms" items={missingAlarms} />
       <AuditList

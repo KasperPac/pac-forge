@@ -126,7 +126,7 @@ export function buildMachineDataAppendix(
     new TableRow({
       tableHeader: true,
       children: [
-        headerCell("Assembly ID", 20),
+        headerCell("Equipment Module ID", 20),
         headerCell("State ID", 12),
         headerCell("Step", 8),
         headerCell("Criterion JSON", 60),
@@ -134,14 +134,14 @@ export function buildMachineDataAppendix(
     }),
   ];
 
-  for (const [assemblyId, assembly] of Object.entries(contract.assemblies)) {
-    for (const [stateId, seq] of Object.entries(assembly.sequential_states)) {
+  for (const [equipment_moduleId, equipment_module] of Object.entries(contract.equipment_modules)) {
+    for (const [stateId, seq] of Object.entries(equipment_module.sequential_states)) {
       for (const step of seq.steps) {
         for (const criterion of step.completion_criteria) {
           criteriaRows.push(
             new TableRow({
               children: [
-                monoCell(assemblyId, 20),
+                monoCell(equipment_moduleId, 20),
                 monoCell(stateId, 12),
                 plainCell(String(step.step), 8),
                 monoCell(JSON.stringify(criterion), 60),

@@ -1,9 +1,9 @@
 /**
  * Section 1.6 — Canonical Machine Hierarchy table renderer.
  *
- * Emits a single structured table (one row per device) with Subsystem,
- * Assembly, Device, Device Class, Safety, and IO Tags columns. Subsystem and
- * Assembly cells repeat verbatim (no cell merging — Word cell merges break
+ * Emits a single structured table (one row per device) with Unit,
+ * Equipment Module, Device, Device Class, Safety, and IO Tags columns. Unit and
+ * Equipment Module cells repeat verbatim (no cell merging — Word cell merges break
  * downstream ingest parsers).
  *
  * Every identifier cell carries its UUID in a trailing `[<uuid>]` bracket so
@@ -73,16 +73,16 @@ function plainCell(text: string, widthPct: number): TableCell {
 }
 
 /**
- * Build the Section 1.6 hierarchy table. One row per device; subsystem and
- * assembly names/UUIDs repeat verbatim per row (never merged). No assemblies
- * or no devices for a subsystem → the subsystem contributes no rows.
+ * Build the Section 1.6 hierarchy table. One row per device; unit and
+ * equipment_module names/UUIDs repeat verbatim per row (never merged). No equipment_modules
+ * or no control_modules for a unit → the unit contributes no rows.
  */
 export function buildHierarchyTable(hierarchy: Hierarchy): Table {
   const header = new TableRow({
     tableHeader: true,
     children: [
-      headerCell("Subsystem", 18),
-      headerCell("Assembly", 18),
+      headerCell("Unit", 18),
+      headerCell("Equipment Module", 18),
       headerCell("Device", 18),
       headerCell("Device Class", 14),
       headerCell("Safety", 8),
@@ -92,20 +92,20 @@ export function buildHierarchyTable(hierarchy: Hierarchy): Table {
 
   const rows: TableRow[] = [header];
 
-  for (const sub of hierarchy.subsystems) {
+  for (const sub of hierarchy.units) {
     if (sub.excluded) continue;
-    for (const asm of sub.assemblies) {
-      for (const dev of asm.devices) {
+    for (const asm of sub.equipment_modules) {
+      for (const dev of asm.control_modules) {
         const ioList = dev.io_signals
           .map((s) => `${s.tag}:${s.signal_type}`)
           .join(", ");
         rows.push(
           new TableRow({
             children: [
-              bodyCell(sub.subsystem_name, sub.subsystem_id, 18),
-              bodyCell(asm.assembly_name, asm.assembly_id, 18),
-              bodyCell(dev.device_name, dev.device_id, 18),
-              plainCell(dev.device_class, 14),
+              bodyCell(sub.unit_name, sub.unit_id, 18),
+              bodyCell(asm.equipment_module_name, asm.equipment_module_id, 18),
+              bodyCell(dev.control_module_name, dev.control_module_id, 18),
+              plainCell(dev.control_module_class, 14),
               plainCell(dev.is_safety ? "Y" : "N", 8),
               plainCell(ioList, 24),
             ],

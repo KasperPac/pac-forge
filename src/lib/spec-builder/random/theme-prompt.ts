@@ -6,9 +6,9 @@
  */
 
 export interface RandomFdsThemeParams {
-  subsystems: number;
-  assemblies: number;
-  devices: number;
+  units: number;
+  equipment_modules: number;
+  control_modules: number;
 }
 
 export function buildRandomFdsThemePrompt(p: RandomFdsThemeParams): string {
@@ -20,7 +20,7 @@ Choose ONE realistic industrial machine or system. Examples:
 - Material handling (conveyors, palletisers, AS/RS, shuttle systems)
 - Packaging lines (filling, capping, labelling, case packing)
 - Process systems (mixing, batching, CIP, pasteurisation)
-- Assembly (press fitting, screwing, welding stations)
+- Equipment Module (press fitting, screwing, welding stations)
 - Treatment (coating, drying, curing, heat treatment)
 - Food/bev (forming, baking, cooling, freezing)
 - Pharma (tablet press, coating pan, blister packing)
@@ -31,9 +31,9 @@ Pick something specific. Give it a realistic project title.
 
 ## Required counts
 
-- Subsystems: exactly ${p.subsystems}
-- Assemblies: exactly ${p.assemblies} total, distributed across subsystems (every subsystem must have at least 1)
-- Devices: exactly ${p.devices} total, distributed across assemblies (every assembly must have at least 1)
+- Subsystems: exactly ${p.units}
+- Assemblies: exactly ${p.equipment_modules} total, distributed across units (every unit must have at least 1)
+- Devices: exactly ${p.control_modules} total, distributed across equipment_modules (every equipment_module must have at least 1)
 
 ## Device classes (use these exact strings)
 
@@ -56,16 +56,16 @@ Return ONLY this JSON, no markdown fences, no commentary:
   "design_principles": ["3–5 short bullets"],
   "machine_theme": "short free-form flavour string (e.g. 'rotary tablet press', 'vertical lift')",
   "safety_classification": "string or null",
-  "subsystems": [{
-    "subsystem_name": "string",
+  "units": [{
+    "unit_name": "string",
     "equipment_type": "string (from list above)",
-    "description": "1–2 sentence subsystem overview",
-    "assemblies": [{
-      "assembly_name": "string",
+    "description": "1–2 sentence unit overview",
+    "equipment_modules": [{
+      "equipment_module_name": "string",
       "description": "1 sentence",
-      "devices": [{
-        "device_name": "string (ISA-style, e.g. 'Conveyor Motor M01')",
-        "device_class": "string (from list above)",
+      "control_modules": [{
+        "control_module_name": "string (ISA-style, e.g. 'Conveyor Motor M01')",
+        "control_module_class": "string (from list above)",
         "description": "1 sentence",
         "is_safety": false
       }]

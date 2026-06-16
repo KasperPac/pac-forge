@@ -2,7 +2,7 @@
  * Section 1.7 — Network Device Configuration table renderer.
  *
  * Emits one row per device that carries a `network_config`. Returns null when
- * no devices have network config — caller should skip Section 1.7 entirely in
+ * no control_modules have network config — caller should skip Section 1.7 entirely in
  * that case. Caption includes `pac-forge:network-v2` sentinel for ingest.
  */
 import {
@@ -98,7 +98,7 @@ function renderFamily(cfg: NetworkConfig): string {
 }
 
 /**
- * Build the Section 1.7 network device table, or return null if no devices
+ * Build the Section 1.7 network device table, or return null if no control_modules
  * carry a `network_config`.
  */
 export function buildNetworkDeviceTable(hierarchy: Hierarchy): Table | null {
@@ -119,17 +119,17 @@ export function buildNetworkDeviceTable(hierarchy: Hierarchy): Table | null {
   ];
 
   let networkedCount = 0;
-  for (const sub of hierarchy.subsystems) {
+  for (const sub of hierarchy.units) {
     if (sub.excluded) continue;
-    for (const asm of sub.assemblies) {
-      for (const dev of asm.devices) {
+    for (const asm of sub.equipment_modules) {
+      for (const dev of asm.control_modules) {
         if (!dev.network_config) continue;
         networkedCount++;
         const cfg = dev.network_config;
         rows.push(
           new TableRow({
             children: [
-              idCell(dev.device_name, dev.device_id, 18),
+              idCell(dev.control_module_name, dev.control_module_id, 18),
               plainCell(renderFamily(cfg), 10),
               plainCell(cfg.protocol, 10),
               plainCell(cfg.ip_address, 12),

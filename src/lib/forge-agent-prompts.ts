@@ -4,7 +4,7 @@
  * Stage-scoped for Standards Reviewer; rewrite and compile-fix for Code Architect.
  */
 
-import type { ForgeArtifact, ForgeIoEntry, ForgeDeviceEntry } from "@/types/forge";
+import type { ForgeArtifact, ForgeIoEntry, ForgeControlModuleEntry } from "@/types/forge";
 import type { ReviewFinding } from "@/lib/forge-review-parser";
 import type { PatternCandidate } from "@/types";
 import { resolveSection } from "@/lib/prompt-defaults";
@@ -13,7 +13,7 @@ import { resolveSection } from "@/lib/prompt-defaults";
 // Types
 // ---------------------------------------------------------------------------
 
-export type ReviewStage = "io" | "fb" | "assembly" | "db" | "fc_ob" | "process" | "full";
+export type ReviewStage = "io" | "fb" | "equipment_module" | "db" | "fc_ob" | "process" | "full";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -53,12 +53,12 @@ const STAGE_SCOPE: Record<ReviewStage, string> = {
 Check ONLY: tag naming, data types, address format (%I/%Q/%IW/%QW), no duplicate addresses, inputs use %I/%IW, outputs use %Q/%QW.
 Do NOT flag: missing FBs, FCs, OBs, DBs, or program logic — those come in later stages.`,
 
-  fb: `## Stage Scope: Function Blocks (Device + Assembly)
-Check ONLY: FB interface sections, static vs temp declarations, no absolute addressing inside FBs, REGION blocks, CASE ELSE branches, naming conventions, timer/counter/edge in VAR. Assembly FBs should have state machines, fault detection, config UDT, and HMI UDT.
+  fb: `## Stage Scope: Function Blocks (Device + Equipment Module)
+Check ONLY: FB interface sections, static vs temp declarations, no absolute addressing inside FBs, REGION blocks, CASE ELSE branches, naming conventions, timer/counter/edge in VAR. Equipment Module FBs should have state machines, fault detection, config UDT, and HMI UDT.
 Do NOT flag: missing OB1, instance DBs, Global DBs, Process FC, IO tag definitions — those come in other stages.`,
 
-  assembly: `## Stage Scope: Assembly Function Blocks
-Check ONLY: Assembly FB has state machine (CASE), fault detection (travel timeout, overtravel, motor fault), config UDT input, HMI UDT IN_OUT, command inputs (enable, reset, cmd*), status outputs (busy, done, error, faultCode, stateNumber), REGION blocks. Assembly FB must NOT read physical IO directly.
+  equipment_module: `## Stage Scope: Equipment Module Function Blocks
+Check ONLY: Equipment Module FB has state machine (CASE), fault detection (travel timeout, overtravel, motor fault), config UDT input, HMI UDT IN_OUT, command inputs (enable, reset, cmd*), status outputs (busy, done, error, faultCode, stateNumber), REGION blocks. Equipment Module FB must NOT read physical IO directly.
 Do NOT flag: missing OB1, device FBs, Global DBs, Process FC — those come in other stages.`,
 
   db: `## Stage Scope: Data Blocks
@@ -156,7 +156,7 @@ Failure to update the DB schema when adding new wires will cause "undeclared var
 - DB_HmiData: WRITE-ONLY for HMI display. Device call FCs write status to it. NO PLC logic ever reads from it.
 - DB_ProcessCommands: Sequence → device commands. Written by process code, read by device call FCs.
 - DB_ProcessState: Internal state. Written/read by process code.
-- DB_FaultData: Fault latches. Written by devices/process, read by process/sequences.
+- DB_FaultData: Fault latches. Written by control_modules/process, read by process/sequences.
 - Siemens Open Library FBs have HMI UDTs as VAR_IN_OUT — the HMI faceplate reads the instance DB directly.
 
 ## LAD JSON Artifacts
@@ -302,13 +302,13 @@ export function buildForgePatternAnalysisUserMessage(
  * real, declared FB parameter — no invented variable names, no orphaned signals.
  */
 export function buildForgeIoValidationPrompt(
-  devices: ForgeDeviceEntry[],
+  control_modules: ForgeControlModuleEntry[],
   ioList: ForgeIoEntry[],
   promptSections?: Record<string, string>,
 ): string {
   const identity = resolveSection(promptSections, "forge_io_validator", "identity");
   const instructions = resolveSection(promptSections, "forge_io_validator", "instructions");
-  const deviceSummary = devices
+  const deviceSummary = control_modules
     .map((d) => {
       const signals = (d.io_signals ?? [])
         .map((s) => `    ${s.tag_name} (${s.signal_type}): ${s.description ?? ""}`)

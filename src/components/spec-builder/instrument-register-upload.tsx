@@ -69,21 +69,28 @@ export function InstrumentRegisterUpload({ specProjectId, onParsed }: Props) {
         );
 
         setResult(parsed);
-
-        // Save to Supabase
-        await saveRegister.mutateAsync({
-          spec_project_id: specProjectId,
-          raw_filename: file.name,
-          tags: parsed.tags,
-          subsystems: parsed.subsystems,
-          parse_warnings: parsed.warnings,
-          haiku_usage: parsed.usage,
-        });
-
         onParsed?.(parsed);
+
+        // Save to Supabase (non-blocking — parse results already shown)
+        try {
+          await saveRegister.mutateAsync({
+            spec_project_id: specProjectId,
+            raw_filename: file.name,
+            tags: parsed.tags,
+            units: parsed.units,
+            parse_warnings: parsed.warnings,
+            haiku_usage: parsed.usage,
+          });
+        } catch (saveErr: unknown) {
+          console.warn("Failed to save register to DB:", saveErr);
+          const msg = saveErr instanceof Error
+            ? saveErr.message
+            : (saveErr as { message?: string })?.message ?? JSON.stringify(saveErr);
+          setError("Parsed successfully but failed to save — " + msg);
+        }
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
-        setError(err instanceof Error ? err.message : "Parse failed");
+        setError(err instanceof Error ? err.message : String(err ?? "Parse failed"));
       } finally {
         setParsing(false);
       }
@@ -177,7 +184,7 @@ export function InstrumentRegisterUpload({ specProjectId, onParsed }: Props) {
               {result.tags.length} tags parsed
             </Badge>
             <Badge variant="secondary" className="gap-1">
-              {result.subsystems.length} assemblies
+              {result.units.length} units
             </Badge>
             {result.warnings.length > 0 && (
               <Badge variant="outline" className="gap-1 text-amber-400 border-amber-400/50">
@@ -190,12 +197,12 @@ export function InstrumentRegisterUpload({ specProjectId, onParsed }: Props) {
             </Badge>
           </div>
 
-          {/* Subsystem cards */}
+          {/* Unit cards */}
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-            {result.subsystems.map((sub) => (
-              <Card key={sub.subsystem_id} className="p-3 space-y-1">
+            {result.units.map((sub) => (
+              <Card key={sub.unit_id} className="p-3 space-y-1">
                 <p className="text-sm font-mono font-medium truncate">
-                  {sub.subsystem_name}
+                  {sub.unit_name}
                 </p>
                 <div className="flex items-center justify-between">
                   <Badge variant="outline" className="text-xs">
@@ -250,11 +257,12 @@ export function InstrumentRegisterUpload({ specProjectId, onParsed }: Props) {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-28">Unit</TableHead>
+                    <TableHead className="w-28">Equipment Module</TableHead>
+                    <TableHead className="w-24">Control Module</TableHead>
                     <TableHead className="w-28">Tag</TableHead>
-                    <TableHead className="w-28">Class</TableHead>
                     <TableHead className="w-20">Signal</TableHead>
                     <TableHead>Description</TableHead>
-                    <TableHead className="w-32">Subsystem</TableHead>
                     <TableHead className="w-16">Safety</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -285,12 +293,10 @@ export function InstrumentRegisterUpload({ specProjectId, onParsed }: Props) {
 function TagRow({ tag }: { tag: InstrumentTag }) {
   return (
     <TableRow>
+      <TableCell className="font-mono text-xs">{tag.unit}</TableCell>
+      <TableCell className="font-mono text-xs">{tag.equipment_module}</TableCell>
+      <TableCell className="font-mono text-xs">{tag.control_module}</TableCell>
       <TableCell className="font-mono text-xs">{tag.tag}</TableCell>
-      <TableCell>
-        <Badge variant="outline" className="text-xs">
-          {tag.device_class}
-        </Badge>
-      </TableCell>
       <TableCell>
         <Badge
           variant="outline"
@@ -307,7 +313,6 @@ function TagRow({ tag }: { tag: InstrumentTag }) {
       <TableCell className="text-xs max-w-[200px] truncate">
         {tag.description}
       </TableCell>
-      <TableCell className="font-mono text-xs">{tag.subsystem}</TableCell>
       <TableCell>
         {tag.is_safety && (
           <Badge variant="destructive" className="text-xs">

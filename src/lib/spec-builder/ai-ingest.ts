@@ -36,11 +36,11 @@ is to extract the machine hierarchy, operating states, alarms, and device IO
 into the strict SpecContractV2 shape defined below.
 
 The four-level hierarchy is NON-NEGOTIABLE:
-  System (the machine) → Subsystem (functional station) → Assembly (group of
-  devices working together) → Device (single physical thing with IO signals).
-Only devices have IO. Only assemblies appear in process sequences. If the
+  System (the machine) → Unit (functional station) → Equipment Module (group of
+  control_modules working together) → Device (single physical thing with IO signals).
+Only control_modules have IO. Only equipment_modules appear in process sequences. If the
 spec is ambiguous, err towards describing the real physical decomposition —
-never invent devices or assemblies that are not grounded in the text.
+never invent control_modules or equipment_modules that are not grounded in the text.
 
 Return a single JSON object matching this TypeScript shape (derived from
 Zod schema SpecContractV2Schema):
@@ -62,20 +62,20 @@ interface SpecContractV2 {
     scope_exclusions: string[];
   };
   hierarchy: {
-    subsystems: Array<{
-      subsystem_id: string;           // UUID — mint a new one
-      subsystem_name: string;
+    units: Array<{
+      unit_id: string;           // UUID — mint a new one
+      unit_name: string;
       equipment_type: string;
       description: string;
       excluded: boolean;
-      assemblies: Array<{
-        assembly_id: string;          // UUID
-        assembly_name: string;
+      equipment_modules: Array<{
+        equipment_module_id: string;          // UUID
+        equipment_module_name: string;
         description: string;
-        devices: Array<{
-          device_id: string;          // UUID
-          device_name: string;
-          device_class: string;
+        control_modules: Array<{
+          control_module_id: string;          // UUID
+          control_module_name: string;
+          control_module_class: string;
           is_safety: boolean;
           description: string;
           io_signals: Array<{
@@ -96,9 +96,9 @@ interface SpecContractV2 {
     state_pattern: "static" | "sequential";
   }>;
   alarm_tiers: Array<{ tier_id: string; tier_name: string; description: string }>;
-  assemblies: Record<string, {
-    assembly_id: string;
-    subsystem_id: string;
+  equipment_modules: Record<string, {
+    equipment_module_id: string;
+    unit_id: string;
     static_states: Record<string, Array<{ tag: string; description: string; state: string }>>;
     sequential_states: Record<string, {
       permissives: string[];
@@ -117,18 +117,18 @@ interface SpecContractV2 {
       notes: string | null;
     }>;
   }>;
-  orchestrations: Record<string, Record<string, {
-    assembly_order: string[];
+  unit_procedures: Record<string, Record<string, {
+    equipment_module_order: string[];
     shared_permissives: string[];
-    inter_assembly_interlocks: Array<{ source_assembly: string; source_condition: string; target_assembly: string; effect: string }>;
+    inter_equipment_module_interlocks: Array<{ source_equipment_module: string; source_condition: string; target_equipment_module: string; effect: string }>;
     notes: string | null;
   }>>;
   alarms: Array<{
     id: string;
     tier_id: string;
-    device_id: string | null;
-    assembly_id: string | null;
-    subsystem_id: string | null;
+    control_module_id: string | null;
+    equipment_module_id: string | null;
+    unit_id: string | null;
     tag: string;
     description: string;
     action: string;
@@ -142,10 +142,10 @@ interface SpecContractV2 {
 
 RULES:
 - Signal types: always canonical IEC. Use "DO" (never "DQ"), "AO" (never "AQ").
-- Mint RFC 4122 v4 UUIDs for every subsystem_id, assembly_id, device_id.
+- Mint RFC 4122 v4 UUIDs for every unit_id, equipment_module_id, control_module_id.
 - If the document hints at a "system" or line that contains multiple stations,
-  each station is a subsystem. A conveyor with motor + sensors is ONE assembly.
-- "excluded": true only if the spec explicitly excludes the subsystem from scope.
+  each station is a unit. A conveyor with motor + sensors is ONE equipment_module.
+- "excluded": true only if the spec explicitly excludes the unit from scope.
 - Return ONLY the JSON object. No markdown fences, no prose, no trailing text.
 `;
 
@@ -231,7 +231,7 @@ ${specText}
 // Wave D — SFC step-ID remap.
 //
 // The AI often emits temporary string IDs like "s1"/"s2" rather than real
-// UUIDs. Walk every assembly.sequential_states.steps[] and, if the step_id
+// UUIDs. Walk every equipment_module.sequential_states.steps[] and, if the step_id
 // does not look like a UUID, mint one via crypto.randomUUID() and record
 // the mapping. Then fix every transition.target_step_id(s) that points at
 // a remapped ID. Transitions that reference an unknown temp ID are dropped
@@ -242,12 +242,12 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 function remapSequenceStepIds(root: Record<string, unknown>): Warning[] {
   const warnings: Warning[] = [];
-  const assemblies = root.assemblies as Record<string, unknown> | undefined;
-  if (!assemblies || typeof assemblies !== "object") return warnings;
+  const equipment_modules = root.equipment_modules as Record<string, unknown> | undefined;
+  if (!equipment_modules || typeof equipment_modules !== "object") return warnings;
 
   let remappedCount = 0;
 
-  for (const [asyId, asyVal] of Object.entries(assemblies)) {
+  for (const [asyId, asyVal] of Object.entries(equipment_modules)) {
     if (!asyVal || typeof asyVal !== "object") continue;
     const asy = asyVal as Record<string, unknown>;
     const seqStates = asy.sequential_states;
@@ -293,7 +293,7 @@ function remapSequenceStepIds(root: Record<string, unknown>): Warning[] {
               t.target_step_id = mapping.get(before)!;
             } else if (!UUID_RE.test(before)) {
               warnings.push({
-                path: `assemblies.${asyId}.sequential_states.${stateId}.step[${(s.step_id as string) ?? "?"}].transition`,
+                path: `equipment_modules.${asyId}.sequential_states.${stateId}.step[${(s.step_id as string) ?? "?"}].transition`,
                 message: `AI referenced unknown step id "${before}" — transition dropped`,
               });
               drop = true;
@@ -308,14 +308,14 @@ function remapSequenceStepIds(root: Record<string, unknown>): Warning[] {
               else if (UUID_RE.test(tid)) remapped.push(tid);
               else {
                 warnings.push({
-                  path: `assemblies.${asyId}.sequential_states.${stateId}.step[${(s.step_id as string) ?? "?"}].transition.parallel`,
+                  path: `equipment_modules.${asyId}.sequential_states.${stateId}.step[${(s.step_id as string) ?? "?"}].transition.parallel`,
                   message: `AI referenced unknown step id "${tid}" — dropped from parallel split`,
                 });
               }
             }
             if (remapped.length < 2) {
               warnings.push({
-                path: `assemblies.${asyId}.sequential_states.${stateId}.step[${(s.step_id as string) ?? "?"}].transition`,
+                path: `equipment_modules.${asyId}.sequential_states.${stateId}.step[${(s.step_id as string) ?? "?"}].transition`,
                 message: `parallel split collapsed below 2 targets after remap — transition dropped`,
               });
               drop = true;
@@ -333,7 +333,7 @@ function remapSequenceStepIds(root: Record<string, unknown>): Warning[] {
 
   if (remappedCount > 0) {
     warnings.unshift({
-      path: "assemblies",
+      path: "equipment_modules",
       message: `AI assigned ${remappedCount} step IDs`,
     });
   }
@@ -367,33 +367,33 @@ function postProcess(raw: unknown): Record<string, unknown> {
 
   // Hierarchy UUID + signal normalisation
   const hierarchy = (obj.hierarchy as Record<string, unknown>) ?? {};
-  const subsystems = Array.isArray(hierarchy.subsystems) ? hierarchy.subsystems : [];
-  const normalisedSubs = subsystems.map((s) => {
+  const units = Array.isArray(hierarchy.units) ? hierarchy.units : [];
+  const normalisedSubs = units.map((s) => {
     const sub = s as Record<string, unknown>;
-    const assemblies = Array.isArray(sub.assemblies) ? sub.assemblies : [];
+    const equipment_modules = Array.isArray(sub.equipment_modules) ? sub.equipment_modules : [];
     return {
       ...sub,
-      subsystem_id: ensureUuid(sub.subsystem_id),
-      subsystem_name: String(sub.subsystem_name ?? ""),
+      unit_id: ensureUuid(sub.unit_id),
+      unit_name: String(sub.unit_name ?? ""),
       equipment_type: String(sub.equipment_type ?? "Other"),
       description: String(sub.description ?? ""),
       excluded: Boolean(sub.excluded),
-      assemblies: assemblies.map((a) => {
+      equipment_modules: equipment_modules.map((a) => {
         const asy = a as Record<string, unknown>;
-        const devices = Array.isArray(asy.devices) ? asy.devices : [];
+        const control_modules = Array.isArray(asy.control_modules) ? asy.control_modules : [];
         return {
           ...asy,
-          assembly_id: ensureUuid(asy.assembly_id),
-          assembly_name: String(asy.assembly_name ?? ""),
+          equipment_module_id: ensureUuid(asy.equipment_module_id),
+          equipment_module_name: String(asy.equipment_module_name ?? ""),
           description: String(asy.description ?? ""),
-          devices: devices.map((d) => {
+          control_modules: control_modules.map((d) => {
             const dev = d as Record<string, unknown>;
             const signals = Array.isArray(dev.io_signals) ? dev.io_signals : [];
             return {
               ...dev,
-              device_id: ensureUuid(dev.device_id),
-              device_name: String(dev.device_name ?? ""),
-              device_class: String(dev.device_class ?? "other"),
+              control_module_id: ensureUuid(dev.control_module_id),
+              control_module_name: String(dev.control_module_name ?? ""),
+              control_module_class: String(dev.control_module_class ?? "other"),
               is_safety: Boolean(dev.is_safety),
               description: String(dev.description ?? ""),
               io_signals: signals.map((sig) => {
@@ -432,14 +432,14 @@ function postProcess(raw: unknown): Record<string, unknown> {
       design_principles: [],
       scope_exclusions: [],
     },
-    hierarchy: { subsystems: normalisedSubs },
+    hierarchy: { units: normalisedSubs },
     states: Array.isArray(obj.states) ? obj.states : [],
     alarm_tiers: Array.isArray(obj.alarm_tiers) ? obj.alarm_tiers : [],
-    assemblies:
-      obj.assemblies && typeof obj.assemblies === "object" ? obj.assemblies : {},
-    orchestrations:
-      obj.orchestrations && typeof obj.orchestrations === "object"
-        ? obj.orchestrations
+    equipment_modules:
+      obj.equipment_modules && typeof obj.equipment_modules === "object" ? obj.equipment_modules : {},
+    unit_procedures:
+      obj.unit_procedures && typeof obj.unit_procedures === "object"
+        ? obj.unit_procedures
         : {},
     alarms: Array.isArray(obj.alarms) ? obj.alarms : [],
     io_list: Array.isArray(obj.io_list) ? obj.io_list : [],

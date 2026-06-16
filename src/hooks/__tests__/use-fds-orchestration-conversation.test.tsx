@@ -30,19 +30,19 @@ const SUBSYSTEM_ID = "00000000-0000-4000-8000-000000000b01";
 const ASM1 = "00000000-0000-4000-8000-000000000a01";
 const ASM2 = "00000000-0000-4000-8000-000000000a02";
 
-const baseSubsystem = {
-  subsystem_id: SUBSYSTEM_ID,
-  subsystem_name: "Catodo",
+const baseUnit = {
+  unit_id: SUBSYSTEM_ID,
+  unit_name: "Catodo",
   equipment_type: "lift",
-  assemblies: [
-    { assembly_id: ASM1, assembly_name: "LFT01" },
-    { assembly_id: ASM2, assembly_name: "CV01" },
+  equipment_modules: [
+    { equipment_module_id: ASM1, equipment_module_name: "LFT01" },
+    { equipment_module_id: ASM2, equipment_module_name: "CV01" },
   ],
 } as never;
 
 const baseSessions = [
-  { assembly_id: ASM1, status: "complete", sequential_states: { "6": { permissives: [], steps: [], notes: null } } },
-  { assembly_id: ASM2, status: "complete", sequential_states: { "6": { permissives: [], steps: [], notes: null } } },
+  { equipment_module_id: ASM1, status: "complete", sequential_states: { "6": { permissives: [], steps: [], notes: null } } },
+  { equipment_module_id: ASM2, status: "complete", sequential_states: { "6": { permissives: [], steps: [], notes: null } } },
 ] as never;
 
 const baseStates: OperatingStateV2[] = [
@@ -66,10 +66,10 @@ describe("useFdsOrchestrationConversation validator gate", () => {
 \`\`\`json
 {
   "state_id": 6,
-  "assembly_order": ["${ASM1}", "${ASM2}"],
+  "equipment_module_order": ["${ASM1}", "${ASM2}"],
   "shared_permissives": [],
-  "inter_assembly_interlocks": [
-    { "interlock_id": "IL_X", "source_assembly": "${ASM1}", "source_condition": { "kind": "tag_equals", "tag": "LFT01_RUNNING", "value": true }, "target_assembly": "${ASM2}", "effect": "enable", "prose": "x" }
+  "inter_equipment_module_interlocks": [
+    { "interlock_id": "IL_X", "source_equipment_module": "${ASM1}", "source_condition": { "kind": "tag_equals", "tag": "LFT01_RUNNING", "value": true }, "target_equipment_module": "${ASM2}", "effect": "enable", "prose": "x" }
   ],
   "notes": null
 }
@@ -83,7 +83,7 @@ describe("useFdsOrchestrationConversation validator gate", () => {
       () =>
         useFdsOrchestrationConversation({
           specProjectId: SPEC_ID,
-          subsystem: baseSubsystem,
+          unit: baseUnit,
           sessions: baseSessions,
           orchestration: null,
           allStates: baseStates,
@@ -110,10 +110,10 @@ describe("useFdsOrchestrationConversation validator gate", () => {
 \`\`\`json
 {
   "state_id": 6,
-  "assembly_order": ["${ASM1}"],
+  "equipment_module_order": ["${ASM1}"],
   "shared_permissives": [],
-  "inter_assembly_interlocks": [
-    { "interlock_id": "IL_X", "source_assembly": "${ASM1}", "source_condition": { "kind": "tag_equals", "tag": "X", "value": true }, "target_assembly": "${ASM2}", "effect": "fly_to_the_moon", "prose": "x" }
+  "inter_equipment_module_interlocks": [
+    { "interlock_id": "IL_X", "source_equipment_module": "${ASM1}", "source_condition": { "kind": "tag_equals", "tag": "X", "value": true }, "target_equipment_module": "${ASM2}", "effect": "fly_to_the_moon", "prose": "x" }
   ],
   "notes": null
 }
@@ -127,7 +127,7 @@ describe("useFdsOrchestrationConversation validator gate", () => {
       () =>
         useFdsOrchestrationConversation({
           specProjectId: SPEC_ID,
-          subsystem: baseSubsystem,
+          unit: baseUnit,
           sessions: baseSessions,
           orchestration: null,
           allStates: baseStates,

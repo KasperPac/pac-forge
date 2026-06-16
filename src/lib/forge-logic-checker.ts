@@ -1,10 +1,10 @@
 /**
- * Deterministic logic checker for assembly FBs.
+ * Deterministic logic checker for Equipment Module FBs.
  * Pure client-side checks — no AI calls, instant results.
  * Validates generated SCL code against FDS behavioral specifications.
  */
-import type { ForgeArtifact, ForgeAssemblyEntry } from "@/types/forge";
-import type { AssemblyBrief } from "@/types/forge-brief";
+import type { ForgeArtifact, ForgeEquipmentModuleEntry } from "@/types/forge";
+import type { EquipmentModuleBrief } from "@/types/forge-brief";
 import type { LogicCheckIssue, LogicCheckResult } from "@/types/forge-logic-check";
 
 // ---------------------------------------------------------------------------
@@ -76,20 +76,20 @@ function sclContains(scl: string, term: string): boolean {
 function issue(
   severity: LogicCheckIssue["severity"],
   category: LogicCheckIssue["category"],
-  assemblyTag: string,
+  equipment_moduleTag: string,
   blockName: string,
   message: string,
   suggestion?: string,
 ): LogicCheckIssue {
-  return { id: crypto.randomUUID(), severity, category, assemblyTag, blockName, message, suggestion };
+  return { id: crypto.randomUUID(), severity, category, equipment_moduleTag, blockName, message, suggestion };
 }
 
 /** Check state coverage: does the code implement every FDS operating state? */
 function checkStateCoverage(
-  assemblyTag: string,
+  equipment_moduleTag: string,
   fbCode: string,
   fbName: string,
-  brief: AssemblyBrief,
+  brief: EquipmentModuleBrief,
 ): LogicCheckIssue[] {
   const issues: LogicCheckIssue[] = [];
   const codeStates = extractCaseStates(fbCode);
@@ -105,7 +105,7 @@ function checkStateCoverage(
     if (!found) {
       const severity = os.state_pattern === "sequential" ? "error" : "warning";
       issues.push(issue(
-        severity, "state_coverage", assemblyTag, fbName,
+        severity, "state_coverage", equipment_moduleTag, fbName,
         `Operating state "${os.state_name}" (${os.state_pattern}) not found in code`,
         `Add a CASE branch or REGION for ${stateName}`,
       ));
@@ -117,10 +117,10 @@ function checkStateCoverage(
 
 /** Check step sequence: do sequential states have the right number of steps? */
 function checkStepSequences(
-  assemblyTag: string,
+  equipment_moduleTag: string,
   fbCode: string,
   fbName: string,
-  brief: AssemblyBrief,
+  brief: EquipmentModuleBrief,
 ): LogicCheckIssue[] {
   const issues: LogicCheckIssue[] = [];
 
@@ -134,7 +134,7 @@ function checkStepSequences(
       const anyFound = terms.some((t) => sclContains(fbCode, t));
       if (!anyFound && terms.length > 0) {
         issues.push(issue(
-          "warning", "permissive", assemblyTag, fbName,
+          "warning", "permissive", equipment_moduleTag, fbName,
           `Permissive "${permissive}" for state "${stateName}" may not be checked in code`,
           `Verify the permissive condition is evaluated before entering ${stateName}`,
         ));
@@ -149,7 +149,7 @@ function checkStepSequences(
       const stepRefs = (fbCode.match(/step|Step|STEP/g) ?? []).length;
       if (stepRefs < stepCount / 2) {
         issues.push(issue(
-          "info", "step_sequence", assemblyTag, fbName,
+          "info", "step_sequence", equipment_moduleTag, fbName,
           `State "${stateName}" has ${stepCount} FDS steps but code has few step references`,
           `Verify all ${stepCount} steps are implemented in the state machine`,
         ));
@@ -162,10 +162,10 @@ function checkStepSequences(
 
 /** Check timeout coverage: sequential steps with timeouts should have TON timers */
 function checkTimeouts(
-  assemblyTag: string,
+  equipment_moduleTag: string,
   fbCode: string,
   fbName: string,
-  brief: AssemblyBrief,
+  brief: EquipmentModuleBrief,
 ): LogicCheckIssue[] {
   const issues: LogicCheckIssue[] = [];
   const timers = extractTimerInstances(fbCode);
@@ -183,13 +183,13 @@ function checkTimeouts(
 
   if (stepsWithTimeouts > 0 && timers.length === 0) {
     issues.push(issue(
-      "error", "timeout", assemblyTag, fbName,
+      "error", "timeout", equipment_moduleTag, fbName,
       `FDS specifies ${stepsWithTimeouts} steps with timeouts but no TON/TOF timers declared`,
       "Add TON timer instances for step timeout monitoring",
     ));
   } else if (stepsWithTimeouts > timers.length) {
     issues.push(issue(
-      "warning", "timeout", assemblyTag, fbName,
+      "warning", "timeout", equipment_moduleTag, fbName,
       `FDS has ${stepsWithTimeouts} steps with timeouts but only ${timers.length} timer instances`,
       "Some steps may share timers, but verify all timeouts are covered",
     ));
@@ -200,10 +200,10 @@ function checkTimeouts(
 
 /** Check fault handling: are FDS alarm conditions detected? */
 function checkFaultHandling(
-  assemblyTag: string,
+  equipment_moduleTag: string,
   fbCode: string,
   fbName: string,
-  brief: AssemblyBrief,
+  brief: EquipmentModuleBrief,
 ): LogicCheckIssue[] {
   const issues: LogicCheckIssue[] = [];
 
@@ -213,7 +213,7 @@ function checkFaultHandling(
   const hasFaultCode = sclContains(fbCode, "faultCode") || sclContains(fbCode, "fault_code") || sclContains(fbCode, "16#8");
   if (!hasFaultCode) {
     issues.push(issue(
-      "error", "fault_handling", assemblyTag, fbName,
+      "error", "fault_handling", equipment_moduleTag, fbName,
       `FDS defines ${brief.alarmConditions.length} alarm conditions but no fault code handling found`,
       "Add fault detection logic with faultCode assignments (16#8001+)",
     ));
@@ -229,7 +229,7 @@ function checkFaultHandling(
 
     if (!codeRef && !termRef) {
       issues.push(issue(
-        "warning", "fault_handling", assemblyTag, fbName,
+        "warning", "fault_handling", equipment_moduleTag, fbName,
         `Alarm "${alarm.code}: ${alarm.description}" may not be detected in code`,
         `Add fault detection for ${alarm.code}`,
       ));
@@ -241,10 +241,10 @@ function checkFaultHandling(
 
 /** Check static state device tables: are safe states set correctly? */
 function checkDeviceStates(
-  assemblyTag: string,
+  equipment_moduleTag: string,
   fbCode: string,
   fbName: string,
-  brief: AssemblyBrief,
+  brief: EquipmentModuleBrief,
 ): LogicCheckIssue[] {
   const issues: LogicCheckIssue[] = [];
 
@@ -255,9 +255,9 @@ function checkDeviceStates(
       // Check if the device tag appears in the code at all
       if (!sclContains(fbCode, entry.tag)) {
         issues.push(issue(
-          "info", "device_state", assemblyTag, fbName,
+          "info", "device_state", equipment_moduleTag, fbName,
           `Device "${entry.tag}" from FDS static state "${stateName}" not referenced in code`,
-          `The assembly FB may not directly control ${entry.tag} (it may be handled via device FB parameters)`,
+          `The equipment_module FB may not directly control ${entry.tag} (it may be handled via device FB parameters)`,
         ));
       }
     }
@@ -268,7 +268,7 @@ function checkDeviceStates(
 
 /** Check basic SCL syntax/structure */
 function checkSyntax(
-  assemblyTag: string,
+  equipment_moduleTag: string,
   fbCode: string,
   fbName: string,
 ): LogicCheckIssue[] {
@@ -277,7 +277,7 @@ function checkSyntax(
   // CASE must have ELSE
   if (/CASE\s+/i.test(fbCode) && !hasCaseElse(fbCode)) {
     issues.push(issue(
-      "error", "syntax", assemblyTag, fbName,
+      "error", "syntax", equipment_moduleTag, fbName,
       "CASE statement without ELSE branch",
       "Add ELSE branch for undefined state handling",
     ));
@@ -289,7 +289,7 @@ function checkSyntax(
   for (const req of requiredOutputs) {
     if (!outputs.some((o) => o.toLowerCase() === req.toLowerCase())) {
       issues.push(issue(
-        "warning", "interface", assemblyTag, fbName,
+        "warning", "interface", equipment_moduleTag, fbName,
         `Missing required VAR_OUTPUT: ${req}`,
         `Add ${req} to VAR_OUTPUT section`,
       ));
@@ -299,7 +299,7 @@ function checkSyntax(
   // Check END_FUNCTION_BLOCK exists
   if (/FUNCTION_BLOCK/i.test(fbCode) && !/END_FUNCTION_BLOCK/i.test(fbCode)) {
     issues.push(issue(
-      "error", "syntax", assemblyTag, fbName,
+      "error", "syntax", equipment_moduleTag, fbName,
       "Missing END_FUNCTION_BLOCK",
     ));
   }
@@ -312,22 +312,22 @@ function checkSyntax(
 // ---------------------------------------------------------------------------
 
 /**
- * Run all deterministic checks on assembly FB artifacts.
+ * Run all deterministic checks on equipment_module FB artifacts.
  * When briefs are available (FDS-linked), checks against FDS spec.
  * When standalone, runs structural checks only.
  */
 export function runLogicCheck(
-  assemblies: ForgeAssemblyEntry[],
+  equipment_modules: ForgeEquipmentModuleEntry[],
   artifacts: ForgeArtifact[],
-  briefs?: Record<string, AssemblyBrief>,
+  briefs?: Record<string, EquipmentModuleBrief>,
 ): LogicCheckResult {
   const allIssues: LogicCheckIssue[] = [];
   let artifactsChecked = 0;
 
-  for (const asm of assemblies) {
+  for (const asm of equipment_modules) {
     const tagClean = asm.tag.toLowerCase().replace(/[^a-z0-9]/g, "");
     const asmArtifacts = artifacts.filter(
-      (a) => a.stage === "assembly_fb" && a.name.toLowerCase().includes(tagClean),
+      (a) => a.stage === "equipment_module_fb" && a.name.toLowerCase().includes(tagClean),
     );
 
     // Find the main FB artifact
@@ -335,8 +335,8 @@ export function runLogicCheck(
     if (!fbArtifact) {
       allIssues.push(issue(
         "error", "general", asm.tag, "(missing)",
-        `No FB artifact found for assembly ${asm.tag}`,
-        "Generate the assembly FB first",
+        `No FB artifact found for equipment_module ${asm.tag}`,
+        "Generate the equipment_module FB first",
       ));
       continue;
     }
@@ -363,7 +363,7 @@ export function runLogicCheck(
     passed: !hasErrors,
     issues: allIssues,
     checkedAt: new Date().toISOString(),
-    assembliesChecked: assemblies.length,
+    equipment_modulesChecked: equipment_modules.length,
     artifactsChecked,
   };
 }

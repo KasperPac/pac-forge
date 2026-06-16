@@ -8,7 +8,7 @@ Add an "Add Device" button that opens a small inline form or row with:
 - Device Type dropdown: Motor DOL, Motor VFD, Solenoid 2-pos, Solenoid 3-pos, Pneumatic Cylinder, Photoelectric Sensor, Proximity Sensor, Temperature Sensor (Analog), Pressure Sensor (Analog), Flow Meter (Analog), Level Switch, Level Transmitter (Analog), E-Stop Circuit, Safety Light Curtain, Valve Motorised, Valve Pneumatic
 - Device Name (text input, e.g. "Conv1_Motor")
 - Device Tag (text input, e.g. "M101")
-- Subsystem (text input, optional)
+- Unit (text input, optional)
 - Description (text input)
 - Quantity (number input, default 1 — for adding multiple of the same type like "6x Proximity Sensor")
 

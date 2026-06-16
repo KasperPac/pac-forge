@@ -42,9 +42,9 @@ const KINDS: Array<{ value: Kind; label: string }> = [
 
 const PLACEHOLDER_TYPES: PlaceholderInferredType[] = [
   "tag",
-  "device",
-  "assembly",
-  "subsystem",
+  "control_module",
+  "equipment_module",
+  "unit",
   "state",
   "value",
 ];

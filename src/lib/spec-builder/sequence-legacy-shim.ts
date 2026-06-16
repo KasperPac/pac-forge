@@ -29,7 +29,7 @@ import type {
   PermissiveOperator,
   PermissiveValue,
   SequentialStateV2,
-  StepV2,
+  PhaseStep,
   TransitionV2,
 } from "@/types/spec-contract-v2";
 
@@ -116,7 +116,7 @@ function migratePermissives(
   return result;
 }
 
-function isV2Step(step: StepV2): boolean {
+function isV2Step(step: PhaseStep): boolean {
   return (
     typeof step.step_id === "string" &&
     step.step_id.length > 0 &&
@@ -243,7 +243,7 @@ export function ensureV2(
   const hasFaultStep = legacySteps.some((s) => !!s.on_fail);
   const faultStepId = faultStepIdFor(stateId);
 
-  const newSteps: StepV2[] = legacySteps.map((step, idx) => {
+  const newSteps: PhaseStep[] = legacySteps.map((step, idx) => {
     const stepNum = step.step ?? idx + 1;
     const thisStepId = stepIdFor(stateId, stepNum);
     const nextStepId =
@@ -330,7 +330,7 @@ export function ensureV2(
       }
     }
 
-    const upgraded: StepV2 = {
+    const upgraded: PhaseStep = {
       step_id: thisStepId,
       branch_id: "main",
       name: step.action && step.action.length > 0

@@ -3,7 +3,7 @@
  *
  * Walks the known contract shape and emits typed add/remove/modify buckets
  * per top-level key. Keyed lookups use UUIDs for hierarchy, ids for states/
- * alarms, and (section_type, subsystem_id, state_id, assembly_id) tuples for
+ * alarms, and (section_type, unit_id, state_id, equipment_module_id) tuples for
  * sections. jsondiffpatch is used only as a deep-detail fallback inside
  * `modified` rows so we don't have to hand-code every leaf field.
  *
@@ -14,14 +14,14 @@
 import * as jsondiffpatch from "jsondiffpatch";
 import type {
   AlarmRow,
-  AssemblyContract,
-  AssemblyV2,
-  DeviceV2,
+  EquipmentModuleContract,
+  EquipmentModuleV2,
+  ControlModuleV2,
   Hierarchy,
   OperatingStateV2,
   SpecContractV2,
   SpecSectionRow,
-  SubsystemV2,
+  UnitV2,
 } from "@/types/spec-contract-v2";
 
 const differ = jsondiffpatch.create({
@@ -29,9 +29,9 @@ const differ = jsondiffpatch.create({
     const o = obj as Record<string, unknown>;
     return (
       (o?.id as string | undefined) ??
-      (o?.device_id as string | undefined) ??
-      (o?.assembly_id as string | undefined) ??
-      (o?.subsystem_id as string | undefined) ??
+      (o?.control_module_id as string | undefined) ??
+      (o?.equipment_module_id as string | undefined) ??
+      (o?.unit_id as string | undefined) ??
       (o?.state_id as string | undefined) ??
       (o?.fault_code as string | undefined) ??
       `$$index:${index ?? 0}`
@@ -44,18 +44,18 @@ const differ = jsondiffpatch.create({
 // ============================================================
 
 export interface HierarchyDiff {
-  subsystem_added: Array<{ subsystem: SubsystemV2 }>;
-  subsystem_removed: Array<{ subsystem_id: string; subsystem_name: string }>;
-  subsystem_renamed: Array<{ subsystem_id: string; before: string; after: string }>;
-  assembly_added: Array<{ subsystem_id: string; assembly: AssemblyV2 }>;
-  assembly_removed: Array<{ subsystem_id: string; assembly_id: string; assembly_name: string }>;
-  assembly_renamed: Array<{ subsystem_id: string; assembly_id: string; before: string; after: string }>;
-  device_added: Array<{ subsystem_id: string; assembly_id: string; device: DeviceV2 }>;
-  device_removed: Array<{ subsystem_id: string; assembly_id: string; device_id: string; device_name: string }>;
+  unit_added: Array<{ unit: UnitV2 }>;
+  unit_removed: Array<{ unit_id: string; unit_name: string }>;
+  unit_renamed: Array<{ unit_id: string; before: string; after: string }>;
+  equipment_module_added: Array<{ unit_id: string; equipment_module: EquipmentModuleV2 }>;
+  equipment_module_removed: Array<{ unit_id: string; equipment_module_id: string; equipment_module_name: string }>;
+  equipment_module_renamed: Array<{ unit_id: string; equipment_module_id: string; before: string; after: string }>;
+  device_added: Array<{ unit_id: string; equipment_module_id: string; device: ControlModuleV2 }>;
+  device_removed: Array<{ unit_id: string; equipment_module_id: string; control_module_id: string; control_module_name: string }>;
   device_modified: Array<{
-    subsystem_id: string;
-    assembly_id: string;
-    device_id: string;
+    unit_id: string;
+    equipment_module_id: string;
+    control_module_id: string;
     detail: jsondiffpatch.Delta;
   }>;
 }
@@ -88,15 +88,15 @@ export interface AssemblyDiff {
     | "removed"
     | "static_states_changed"
     | "sequential_states_changed";
-  assembly_id: string;
+  equipment_module_id: string;
   detail?: jsondiffpatch.Delta;
 }
 
 export interface SectionDiff {
   kind: "added" | "removed" | "modified";
   section_type: string;
-  subsystem_id: string | null;
-  assembly_id: string | null;
+  unit_id: string | null;
+  equipment_module_id: string | null;
   state_id: string | null;
   detail?: jsondiffpatch.Delta;
 }
@@ -105,7 +105,7 @@ export interface RevisionDiff {
   hierarchy: HierarchyDiff;
   states: StateDiff[];
   alarms: AlarmDiff[];
-  assemblies: AssemblyDiff[];
+  equipment_modules: AssemblyDiff[];
   sections: SectionDiff[];
 }
 
@@ -115,80 +115,80 @@ export interface RevisionDiff {
 
 function diffHierarchy(before: Hierarchy, after: Hierarchy): HierarchyDiff {
   const out: HierarchyDiff = {
-    subsystem_added: [],
-    subsystem_removed: [],
-    subsystem_renamed: [],
-    assembly_added: [],
-    assembly_removed: [],
-    assembly_renamed: [],
+    unit_added: [],
+    unit_removed: [],
+    unit_renamed: [],
+    equipment_module_added: [],
+    equipment_module_removed: [],
+    equipment_module_renamed: [],
     device_added: [],
     device_removed: [],
     device_modified: [],
   };
 
-  const beforeSubs = new Map(before.subsystems.map((s) => [s.subsystem_id, s]));
-  const afterSubs = new Map(after.subsystems.map((s) => [s.subsystem_id, s]));
+  const beforeSubs = new Map(before.units.map((s) => [s.unit_id, s]));
+  const afterSubs = new Map(after.units.map((s) => [s.unit_id, s]));
 
   for (const [id, sub] of afterSubs) {
-    if (!beforeSubs.has(id)) out.subsystem_added.push({ subsystem: sub });
+    if (!beforeSubs.has(id)) out.unit_added.push({ unit: sub });
   }
   for (const [id, sub] of beforeSubs) {
     if (!afterSubs.has(id))
-      out.subsystem_removed.push({ subsystem_id: id, subsystem_name: sub.subsystem_name });
+      out.unit_removed.push({ unit_id: id, unit_name: sub.unit_name });
   }
 
   for (const [id, afterSub] of afterSubs) {
     const beforeSub = beforeSubs.get(id);
     if (!beforeSub) continue;
-    if (beforeSub.subsystem_name !== afterSub.subsystem_name) {
-      out.subsystem_renamed.push({
-        subsystem_id: id,
-        before: beforeSub.subsystem_name,
-        after: afterSub.subsystem_name,
+    if (beforeSub.unit_name !== afterSub.unit_name) {
+      out.unit_renamed.push({
+        unit_id: id,
+        before: beforeSub.unit_name,
+        after: afterSub.unit_name,
       });
     }
 
-    const beforeAsm = new Map(beforeSub.assemblies.map((a) => [a.assembly_id, a]));
-    const afterAsm = new Map(afterSub.assemblies.map((a) => [a.assembly_id, a]));
+    const beforeAsm = new Map(beforeSub.equipment_modules.map((a) => [a.equipment_module_id, a]));
+    const afterAsm = new Map(afterSub.equipment_modules.map((a) => [a.equipment_module_id, a]));
 
     for (const [aid, asm] of afterAsm) {
-      if (!beforeAsm.has(aid)) out.assembly_added.push({ subsystem_id: id, assembly: asm });
+      if (!beforeAsm.has(aid)) out.equipment_module_added.push({ unit_id: id, equipment_module: asm });
     }
     for (const [aid, asm] of beforeAsm) {
       if (!afterAsm.has(aid))
-        out.assembly_removed.push({
-          subsystem_id: id,
-          assembly_id: aid,
-          assembly_name: asm.assembly_name,
+        out.equipment_module_removed.push({
+          unit_id: id,
+          equipment_module_id: aid,
+          equipment_module_name: asm.equipment_module_name,
         });
     }
 
     for (const [aid, afterAsmRow] of afterAsm) {
       const beforeAsmRow = beforeAsm.get(aid);
       if (!beforeAsmRow) continue;
-      if (beforeAsmRow.assembly_name !== afterAsmRow.assembly_name) {
-        out.assembly_renamed.push({
-          subsystem_id: id,
-          assembly_id: aid,
-          before: beforeAsmRow.assembly_name,
-          after: afterAsmRow.assembly_name,
+      if (beforeAsmRow.equipment_module_name !== afterAsmRow.equipment_module_name) {
+        out.equipment_module_renamed.push({
+          unit_id: id,
+          equipment_module_id: aid,
+          before: beforeAsmRow.equipment_module_name,
+          after: afterAsmRow.equipment_module_name,
         });
       }
 
-      const beforeDev = new Map(beforeAsmRow.devices.map((d) => [d.device_id, d]));
-      const afterDev = new Map(afterAsmRow.devices.map((d) => [d.device_id, d]));
+      const beforeDev = new Map(beforeAsmRow.control_modules.map((d) => [d.control_module_id, d]));
+      const afterDev = new Map(afterAsmRow.control_modules.map((d) => [d.control_module_id, d]));
 
       for (const [did, dev] of afterDev) {
         if (!beforeDev.has(did))
-          out.device_added.push({ subsystem_id: id, assembly_id: aid, device: dev });
+          out.device_added.push({ unit_id: id, equipment_module_id: aid, device: dev });
       }
       for (const [did, dev] of beforeDev) {
         if (!afterDev.has(did))
           out.device_removed.push({
-            subsystem_id: id,
-            assembly_id: aid,
-            device_id: did,
-            device_name: dev.device_name,
+            unit_id: id,
+            equipment_module_id: aid,
+            control_module_id: did,
+            control_module_name: dev.control_module_name,
           });
       }
       for (const [did, afterDevRow] of afterDev) {
@@ -197,9 +197,9 @@ function diffHierarchy(before: Hierarchy, after: Hierarchy): HierarchyDiff {
         const delta = differ.diff(beforeDevRow, afterDevRow);
         if (delta) {
           out.device_modified.push({
-            subsystem_id: id,
-            assembly_id: aid,
-            device_id: did,
+            unit_id: id,
+            equipment_module_id: aid,
+            control_module_id: did,
             detail: delta,
           });
         }
@@ -313,22 +313,22 @@ function diffAlarms(before: AlarmRow[], after: AlarmRow[]): AlarmDiff[] {
       });
     }
     if (
-      (before_.device_id ?? "") !== (after_.device_id ?? "") ||
-      (before_.assembly_id ?? "") !== (after_.assembly_id ?? "") ||
-      (before_.subsystem_id ?? "") !== (after_.subsystem_id ?? "")
+      (before_.control_module_id ?? "") !== (after_.control_module_id ?? "") ||
+      (before_.equipment_module_id ?? "") !== (after_.equipment_module_id ?? "") ||
+      (before_.unit_id ?? "") !== (after_.unit_id ?? "")
     ) {
       out.push({
         kind: "link_changed",
         alarm_id: id,
         before: {
-          device_id: before_.device_id,
-          assembly_id: before_.assembly_id,
-          subsystem_id: before_.subsystem_id,
+          control_module_id: before_.control_module_id,
+          equipment_module_id: before_.equipment_module_id,
+          unit_id: before_.unit_id,
         },
         after: {
-          device_id: after_.device_id,
-          assembly_id: after_.assembly_id,
-          subsystem_id: after_.subsystem_id,
+          control_module_id: after_.control_module_id,
+          equipment_module_id: after_.equipment_module_id,
+          unit_id: after_.unit_id,
         },
       });
     }
@@ -341,18 +341,18 @@ function diffAlarms(before: AlarmRow[], after: AlarmRow[]): AlarmDiff[] {
 // ============================================================
 
 function diffAssemblies(
-  before: Record<string, AssemblyContract>,
-  after: Record<string, AssemblyContract>,
+  before: Record<string, EquipmentModuleContract>,
+  after: Record<string, EquipmentModuleContract>,
 ): AssemblyDiff[] {
   const out: AssemblyDiff[] = [];
   const beforeIds = new Set(Object.keys(before));
   const afterIds = new Set(Object.keys(after));
 
   for (const id of afterIds) {
-    if (!beforeIds.has(id)) out.push({ kind: "added", assembly_id: id });
+    if (!beforeIds.has(id)) out.push({ kind: "added", equipment_module_id: id });
   }
   for (const id of beforeIds) {
-    if (!afterIds.has(id)) out.push({ kind: "removed", assembly_id: id });
+    if (!afterIds.has(id)) out.push({ kind: "removed", equipment_module_id: id });
   }
   for (const id of afterIds) {
     if (!beforeIds.has(id)) continue;
@@ -360,11 +360,11 @@ function diffAssemblies(
     const a = after[id];
     const staticDelta = differ.diff(b.static_states, a.static_states);
     if (staticDelta) {
-      out.push({ kind: "static_states_changed", assembly_id: id, detail: staticDelta });
+      out.push({ kind: "static_states_changed", equipment_module_id: id, detail: staticDelta });
     }
     const seqDelta = differ.diff(b.sequential_states, a.sequential_states);
     if (seqDelta) {
-      out.push({ kind: "sequential_states_changed", assembly_id: id, detail: seqDelta });
+      out.push({ kind: "sequential_states_changed", equipment_module_id: id, detail: seqDelta });
     }
   }
   return out;
@@ -377,8 +377,8 @@ function diffAssemblies(
 function sectionKey(r: SpecSectionRow): string {
   return [
     r.section_type,
-    r.subsystem_id ?? "-",
-    r.assembly_id ?? "-",
+    r.unit_id ?? "-",
+    r.equipment_module_id ?? "-",
     r.state_id ?? "-",
   ].join("|");
 }
@@ -401,8 +401,8 @@ function diffSections(
       out.push({
         kind: "added",
         section_type: row.section_type,
-        subsystem_id: row.subsystem_id,
-        assembly_id: row.assembly_id,
+        unit_id: row.unit_id,
+        equipment_module_id: row.equipment_module_id,
         state_id: row.state_id,
       });
     }
@@ -412,8 +412,8 @@ function diffSections(
       out.push({
         kind: "removed",
         section_type: row.section_type,
-        subsystem_id: row.subsystem_id,
-        assembly_id: row.assembly_id,
+        unit_id: row.unit_id,
+        equipment_module_id: row.equipment_module_id,
         state_id: row.state_id,
       });
     }
@@ -426,8 +426,8 @@ function diffSections(
       out.push({
         kind: "modified",
         section_type: afterRow.section_type,
-        subsystem_id: afterRow.subsystem_id,
-        assembly_id: afterRow.assembly_id,
+        unit_id: afterRow.unit_id,
+        equipment_module_id: afterRow.equipment_module_id,
         state_id: afterRow.state_id,
         detail: delta,
       });
@@ -448,7 +448,7 @@ export function diffContracts(
     hierarchy: diffHierarchy(before.hierarchy, after.hierarchy),
     states: diffStates(before.states, after.states),
     alarms: diffAlarms(before.alarms, after.alarms),
-    assemblies: diffAssemblies(before.assemblies, after.assemblies),
+    equipment_modules: diffAssemblies(before.equipment_modules, after.equipment_modules),
     sections: diffSections(before.sections, after.sections),
   };
 }

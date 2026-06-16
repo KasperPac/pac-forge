@@ -150,7 +150,7 @@ export function buildItemsFromPlan(input: BuildLayoutInput): HmiUnifiedItemPaylo
     ? getContentRect(panel, new Set(plan.visibleNavLevels as HmiNavLevel[]))
     : { x: 0, y: 0, width: panel.screenWidth, height: panel.screenHeight };
 
-  // Layout within content rect: controls row at top, devices in the middle, status strip at bottom
+  // Layout within content rect: controls row at top, control_modules in the middle, status strip at bottom
   const padding = 2 * GRID;
   const controlsHeight = plan.controls.length > 0 ? 6 * GRID : 0;
   const statusStripHeight = plan.statusFields.length > 0 ? 6 * GRID : 0;
@@ -170,10 +170,10 @@ export function buildItemsFromPlan(input: BuildLayoutInput): HmiUnifiedItemPaylo
 
   // Devices grid
   const deviceAreaHeight = contentInnerH - (cursorY - contentInnerY) - (statusStripHeight + padding);
-  if (plan.devices.length > 0 && deviceAreaHeight > 4 * GRID) {
+  if (plan.control_modules.length > 0 && deviceAreaHeight > 4 * GRID) {
     placeDevices(
       items,
-      plan.devices,
+      plan.control_modules,
       graphics,
       contentInnerX,
       cursorY,
@@ -293,21 +293,21 @@ function placeControls(
 
 function placeDevices(
   items: HmiUnifiedItemPayload[],
-  devices: HmiWizardPlanDevice[],
+  control_modules: HmiWizardPlanDevice[],
   graphics: DeviceGraphicMap,
   x: number,
   y: number,
   width: number,
   height: number,
 ) {
-  const n = devices.length;
+  const n = control_modules.length;
   const cols = Math.min(n, Math.max(1, Math.floor(width / (24 * GRID))));
   const rows = Math.ceil(n / cols);
   const cellW = snap(width / cols);
   const cellH = snap(height / rows);
   const gfxSize = snap(Math.min(cellW, cellH) - 4 * GRID);
 
-  devices.forEach((dev, i) => {
+  control_modules.forEach((dev, i) => {
     const col = i % cols;
     const row = Math.floor(i / cols);
     const cellX = x + col * cellW;

@@ -5,20 +5,20 @@
  * spec-builder dashboard and the dedicated full-screen routes stay in sync.
  */
 import type { SpecProject, SpecSection, SpecExport } from "@/types/spec-builder";
-import type { FdsAssemblySession } from "@/types/spec-builder";
+import type { OperationSession } from "@/types/spec-builder";
 
 export function computeCoAuthorStatus(
   spec: SpecProject,
-  sessions: FdsAssemblySession[] | undefined,
+  sessions: OperationSession[] | undefined,
 ): string {
-  const totalAssemblies = spec.confirmed_subsystems.reduce(
-    (n, s) => n + (s.assemblies?.length ?? 0),
+  const totalAssemblies = spec.confirmed_units.reduce(
+    (n, s) => n + (s.equipment_modules?.length ?? 0),
     0,
   );
-  if (totalAssemblies === 0) return "No assemblies defined yet";
+  if (totalAssemblies === 0) return "No equipment_modules defined yet";
   const completed =
     sessions?.filter((s) => s.status === "complete").length ?? 0;
-  return `${completed} of ${totalAssemblies} assemblies complete`;
+  return `${completed} of ${totalAssemblies} equipment_modules complete`;
 }
 
 export function computeEditorStatus(sections: SpecSection[] | undefined): string {

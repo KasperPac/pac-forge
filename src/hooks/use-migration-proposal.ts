@@ -18,13 +18,13 @@ export interface MigrationProposal {
 
 function collectRawInterlocks(contract: SpecContractV2): RawInterlock[] {
   const out: RawInterlock[] = [];
-  for (const [, stateMap] of Object.entries(contract.orchestrations)) {
+  for (const [, stateMap] of Object.entries(contract.unit_procedures)) {
     for (const [, seq] of Object.entries(stateMap)) {
-      for (const il of seq.inter_assembly_interlocks ?? []) {
+      for (const il of seq.inter_equipment_module_interlocks ?? []) {
         out.push({
           interlock_id: il.interlock_id,
-          source_assembly: il.source_assembly,
-          target_assembly: il.target_assembly,
+          source_equipment_module: il.source_equipment_module,
+          target_equipment_module: il.target_equipment_module,
           prose_source_condition:
             typeof il.source_condition === "string"
               ? il.source_condition
@@ -62,8 +62,8 @@ export function useMigrationProposal(
         const raw = collectRawInterlocks(contract).find((r) => r.interlock_id === c.interlock_id);
         return {
           interlock_id: c.interlock_id,
-          source_assembly: c.source_assembly,
-          target_assembly: c.target_assembly,
+          source_equipment_module: c.source_equipment_module,
+          target_equipment_module: c.target_equipment_module,
           original_prose_condition: raw?.prose_source_condition ?? "",
           original_prose_effect: raw?.prose_effect ?? "",
           effect: c.effect,

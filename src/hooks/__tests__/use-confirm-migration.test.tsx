@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import type { SpecContractV2, AssemblyContract } from "@/types/spec-contract-v2";
+import type { SpecContractV2, EquipmentModuleContract } from "@/types/spec-contract-v2";
 import type { MigrationDraft } from "@/lib/spec-builder/migrate/types";
 
 const writeMock = vi.fn();
@@ -54,18 +54,18 @@ function makeContract(): SpecContractV2 {
       design_principles: [],
       scope_exclusions: [],
     },
-    hierarchy: { subsystems: [] },
+    hierarchy: { units: [] },
     states: [],
     alarm_tiers: [],
-    assemblies: {
+    equipment_modules: {
       "00000000-0000-0000-0000-000000000aaa": {
-        assembly_id: "00000000-0000-0000-0000-000000000aaa",
-        subsystem_id: "00000000-0000-0000-0000-000000000bbb",
+        equipment_module_id: "00000000-0000-0000-0000-000000000aaa",
+        unit_id: "00000000-0000-0000-0000-000000000bbb",
         static_states: {},
         sequential_states: { execute: { permissives: [], steps: [], notes: null } } as never,
-      } as AssemblyContract,
+      } as EquipmentModuleContract,
     },
-    orchestrations: {},
+    unit_procedures: {},
     system_orchestration: null,
     alarms: [],
     io_list: [],

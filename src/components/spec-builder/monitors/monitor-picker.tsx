@@ -1,7 +1,7 @@
 // src/components/spec-builder/monitors/monitor-picker.tsx
 /**
  * Dialog for authoring a MonitorV2[] slice. Used both for step-level
- * monitors (StepV2.monitors) and state-level monitors
+ * monitors (PhaseStep.monitors) and state-level monitors
  * (SequentialStateV2.state_monitors) — same shape, two entry points.
  *
  * Holds a local copy of the array so Cancel is a real cancel; Save

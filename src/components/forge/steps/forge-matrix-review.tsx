@@ -221,7 +221,7 @@ function migrateStepsToRows(steps: ProcessStep[]): SequenceRow[] {
         output: outputMatch ? outputMatch[1] : null,
         next: "IDLE",
         type: isMonitor ? "monitor" : "action",
-        devices: step.devicesInvolved ?? [],
+        control_modules: step.control_modulesInvolved ?? [],
       });
     }
 
@@ -237,7 +237,7 @@ function migrateStepsToRows(steps: ProcessStep[]): SequenceRow[] {
           output: null,
           next: c.targetStepNumber ?? "IDLE",
           type: "branch",
-          devices: step.devicesInvolved ?? [],
+          control_modules: step.control_modulesInvolved ?? [],
         });
       }
     }
@@ -521,7 +521,7 @@ export function ForgeMatrixReview({ session, fbTemplates, profile, patterns, age
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const { generate, loading, error } = useForgeMatrixGenerate();
 
-  const [activeTab, setActiveTab] = useState<"devices" | "sequences" | "faults" | "wiring">("devices");
+  const [activeTab, setActiveTab] = useState<"control_modules" | "sequences" | "faults" | "wiring">("control_modules");
   const [selectedSeqId, setSelectedSeqId] = useState<string | undefined>(undefined);
   const { validate, applySelectedFixes, fixDiagnostic, loading: validating, applying: applyingFixes, result: validationResult, clear: clearValidation } = useForgeMatrixValidate();
   const createPattern = useCreatePatternCandidate();
@@ -618,7 +618,7 @@ export function ForgeMatrixReview({ session, fbTemplates, profile, patterns, age
             </span>
             {matrix && (
               <Badge variant="outline" className="font-mono text-[9px]">
-                {matrix.deviceLinkage.length} devices · {matrix.processSequences.length} sequences
+                {matrix.deviceLinkage.length} control_modules · {matrix.processSequences.length} sequences
               </Badge>
             )}
           </div>
@@ -897,10 +897,10 @@ export function ForgeMatrixReview({ session, fbTemplates, profile, patterns, age
             <div className="flex gap-1 border-b border-border/60 pb-0">
               <button
                 type="button"
-                onClick={() => setActiveTab("devices")}
+                onClick={() => setActiveTab("control_modules")}
                 className={cn(
                   "flex items-center gap-1.5 px-3 pb-2 font-mono text-[10px] uppercase tracking-wider transition-colors",
-                  activeTab === "devices"
+                  activeTab === "control_modules"
                     ? "border-b-2 border-primary text-foreground"
                     : "text-muted-foreground hover:text-foreground",
                 )}
@@ -951,14 +951,14 @@ export function ForgeMatrixReview({ session, fbTemplates, profile, patterns, age
 
             <ScrollArea className="flex-1">
               <div className="space-y-2 pr-1">
-                {activeTab === "devices" && (
+                {activeTab === "control_modules" && (
                   <>
                     {matrix.deviceLinkage.map((device) => (
                       <DeviceCard key={device.id} device={device} />
                     ))}
                     {matrix.deviceLinkage.length === 0 && (
                       <div className="py-6 text-center font-mono text-xs text-muted-foreground">
-                        No devices in matrix
+                        No control_modules in matrix
                       </div>
                     )}
                   </>

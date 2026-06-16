@@ -1,6 +1,6 @@
 /**
- * FDS Co-Author — Duplicate assembly dialog.
- * Clones a completed assembly's behavioral data to target assemblies with tag remapping.
+ * FDS Co-Author — Duplicate equipment_module dialog.
+ * Clones a completed equipment_module's behavioral data to target equipment_modules with tag remapping.
  */
 import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
@@ -17,19 +17,19 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Copy, ArrowRight, Loader2 } from "lucide-react";
 import { useDuplicateFdsSession } from "@/hooks/use-fds-session";
 import type {
-  SubsystemConfig,
-  AssemblyConfig,
-  FdsAssemblySession,
+  UnitConfig,
+  EquipmentModuleConfig,
+  OperationSession,
 } from "@/types/spec-builder";
 
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   specProjectId: string;
-  sourceSession: FdsAssemblySession;
-  sourceAssembly: AssemblyConfig;
-  subsystems: SubsystemConfig[];
-  existingSessions: FdsAssemblySession[];
+  sourceSession: OperationSession;
+  sourceEquipmentModule: EquipmentModuleConfig;
+  units: UnitConfig[];
+  existingSessions: OperationSession[];
 }
 
 export function FdsDuplicateDialog({
@@ -37,48 +37,48 @@ export function FdsDuplicateDialog({
   onOpenChange,
   specProjectId,
   sourceSession,
-  sourceAssembly,
-  subsystems,
+  sourceEquipmentModule,
+  units,
   existingSessions,
 }: Props) {
   const duplicate = useDuplicateFdsSession();
 
-  // Find assemblies with matching device structure (same number and types of devices)
+  // Find equipment_modules with matching device structure (same number and types of control_modules)
   const sourceDeviceSignature = useMemo(() => {
-    return sourceAssembly.devices
-      .map((d) => `${d.device_class}:${d.io_signals.length}`)
+    return sourceEquipmentModule.control_modules
+      .map((d) => `${d.control_module_class}:${d.io_signals.length}`)
       .sort()
       .join(",");
-  }, [sourceAssembly]);
+  }, [sourceEquipmentModule]);
 
-  // All assemblies across all subsystems that match the source's device structure
+  // All equipment_modules across all units that match the source's device structure
   const matchingAssemblies = useMemo(() => {
-    const matches: Array<{ subsystem: SubsystemConfig; assembly: AssemblyConfig }> = [];
-    for (const sub of subsystems) {
-      for (const asm of sub.assemblies) {
-        if (asm.assembly_id === sourceAssembly.assembly_id) continue; // skip source
-        const sig = asm.devices
-          .map((d) => `${d.device_class}:${d.io_signals.length}`)
+    const matches: Array<{ unit: UnitConfig; equipment_module: EquipmentModuleConfig }> = [];
+    for (const sub of units) {
+      for (const asm of sub.equipment_modules) {
+        if (asm.equipment_module_id === sourceEquipmentModule.equipment_module_id) continue; // skip source
+        const sig = asm.control_modules
+          .map((d) => `${d.control_module_class}:${d.io_signals.length}`)
           .sort()
           .join(",");
         if (sig === sourceDeviceSignature) {
-          matches.push({ subsystem: sub, assembly: asm });
+          matches.push({ unit: sub, equipment_module: asm });
         }
       }
     }
     return matches;
-  }, [subsystems, sourceAssembly, sourceDeviceSignature]);
+  }, [units, sourceEquipmentModule, sourceDeviceSignature]);
 
   // Selected targets
   const [selectedTargets, setSelectedTargets] = useState<Set<string>>(new Set());
 
   // Build tag remap for each target
-  const buildRemap = (target: AssemblyConfig): Record<string, string> => {
+  const buildRemap = (target: EquipmentModuleConfig): Record<string, string> => {
     const remap: Record<string, string> = {};
-    // Match devices by position (same index = same role)
-    for (let i = 0; i < sourceAssembly.devices.length && i < target.devices.length; i++) {
-      const srcDev = sourceAssembly.devices[i];
-      const tgtDev = target.devices[i];
+    // Match control_modules by position (same index = same role)
+    for (let i = 0; i < sourceEquipmentModule.control_modules.length && i < target.control_modules.length; i++) {
+      const srcDev = sourceEquipmentModule.control_modules[i];
+      const tgtDev = target.control_modules[i];
       // Map each signal
       for (let j = 0; j < srcDev.io_signals.length && j < tgtDev.io_signals.length; j++) {
         remap[srcDev.io_signals[j].tag] = tgtDev.io_signals[j].tag;
@@ -98,11 +98,11 @@ export function FdsDuplicateDialog({
 
   const handleDuplicate = async () => {
     const targets = matchingAssemblies
-      .filter((m) => selectedTargets.has(m.assembly.assembly_id))
+      .filter((m) => selectedTargets.has(m.equipment_module.equipment_module_id))
       .map((m) => ({
-        subsystem_id: m.subsystem.subsystem_id,
-        assembly_id: m.assembly.assembly_id,
-        tag_remap: buildRemap(m.assembly),
+        unit_id: m.unit.unit_id,
+        equipment_module_id: m.equipment_module.equipment_module_id,
+        tag_remap: buildRemap(m.equipment_module),
       }));
 
     if (targets.length === 0) return;
@@ -123,33 +123,33 @@ export function FdsDuplicateDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Copy className="h-4 w-4" />
-            Duplicate Assembly
+            Duplicate Equipment Module
           </DialogTitle>
           <DialogDescription>
-            Clone {sourceAssembly.assembly_name}'s behavioral data to assemblies with matching device structures.
+            Clone {sourceEquipmentModule.equipment_module_name}'s behavioral data to equipment_modules with matching device structures.
             Tags will be automatically remapped.
           </DialogDescription>
         </DialogHeader>
 
         {matchingAssemblies.length === 0 ? (
           <div className="py-6 text-center text-sm text-muted-foreground">
-            No assemblies with matching device structure found.
+            No equipment_modules with matching device structure found.
           </div>
         ) : (
           <ScrollArea className="max-h-[300px]">
             <div className="space-y-2">
-              {matchingAssemblies.map(({ subsystem, assembly }) => {
+              {matchingAssemblies.map(({ unit, equipment_module }) => {
                 const existing = existingSessions.find(
-                  (s) => s.assembly_id === assembly.assembly_id,
+                  (s) => s.equipment_module_id === equipment_module.equipment_module_id,
                 );
-                const isSelected = selectedTargets.has(assembly.assembly_id);
-                const remap = buildRemap(assembly);
+                const isSelected = selectedTargets.has(equipment_module.equipment_module_id);
+                const remap = buildRemap(equipment_module);
                 const remapEntries = Object.entries(remap);
 
                 return (
                   <button
-                    key={assembly.assembly_id}
-                    onClick={() => toggleTarget(assembly.assembly_id)}
+                    key={equipment_module.equipment_module_id}
+                    onClick={() => toggleTarget(equipment_module.equipment_module_id)}
                     className={`w-full text-left p-3 rounded-md border transition-colors ${
                       isSelected
                         ? "border-primary bg-primary/5"
@@ -157,7 +157,7 @@ export function FdsDuplicateDialog({
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-medium">{assembly.assembly_name}</span>
+                      <span className="text-sm font-medium">{equipment_module.equipment_module_name}</span>
                       <div className="flex items-center gap-1.5">
                         {existing?.status === "complete" && (
                           <Badge variant="outline" className="text-[9px] text-amber-400">
@@ -165,7 +165,7 @@ export function FdsDuplicateDialog({
                           </Badge>
                         )}
                         <Badge variant="outline" className="text-[9px]">
-                          {subsystem.subsystem_name}
+                          {unit.unit_name}
                         </Badge>
                       </div>
                     </div>

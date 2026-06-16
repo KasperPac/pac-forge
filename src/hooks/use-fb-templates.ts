@@ -86,13 +86,13 @@ export function useFbTemplate(id: string | undefined) {
  * + templates tagged to the given profile. Includes blocks.
  */
 export interface FbTemplateSessionFilter {
-  isAssembly?: boolean;
+  isEquipmentModule?: boolean;
 }
 
 export function useFbTemplatesForSession(profileId?: string, filter?: FbTemplateSessionFilter) {
-  const isAssembly = filter?.isAssembly;
+  const isEquipmentModule = filter?.isEquipmentModule;
   return useQuery({
-    queryKey: [...FB_TEMPLATES_KEY, "session", profileId ?? "none", isAssembly ?? "all"],
+    queryKey: [...FB_TEMPLATES_KEY, "session", profileId ?? "none", isEquipmentModule ?? "all"],
     queryFn: async (): Promise<FbTemplate[]> => {
       // Fetch all templates with their profile tags
       const { data: allTemplates, error } = await supabase
@@ -106,7 +106,7 @@ export function useFbTemplatesForSession(profileId?: string, filter?: FbTemplate
 
       return hydrated.filter((t) => {
         if (!t.is_enabled) return false;
-        if (isAssembly !== undefined && t.is_assembly !== isAssembly) return false;
+        if (isEquipmentModule !== undefined && t.is_equipment_module !== isEquipmentModule) return false;
         const pids = t.profile_ids ?? [];
         if (pids.length === 0) return true; // global
         if (profileId && pids.includes(profileId)) return true;

@@ -42,39 +42,39 @@ export function RandomFdsDialog({
   clientName,
   onCreated,
 }: RandomFdsDialogProps) {
-  const [subsystems, setSubsystems] = useState(2);
-  const [assemblies, setAssemblies] = useState(4);
-  const [devices, setDevices] = useState(12);
+  const [units, setSubsystems] = useState(2);
+  const [equipment_modules, setAssemblies] = useState(4);
+  const [control_modules, setDevices] = useState(12);
   const [progressLabel, setProgressLabel] = useState<string | null>(null);
 
   const { generate, loading, error, cancel } = useRandomFdsGenerate();
 
-  // Enforce: assemblies >= subsystems, devices >= assemblies
+  // Enforce: equipment_modules >= units, control_modules >= equipment_modules
   const handleSubsystemsChange = (v: number[]) => {
     const val = v[0];
     setSubsystems(val);
-    if (assemblies < val) setAssemblies(val);
-    if (devices < val) setDevices(val);
+    if (equipment_modules < val) setAssemblies(val);
+    if (control_modules < val) setDevices(val);
   };
 
   const handleAssembliesChange = (v: number[]) => {
     const val = v[0];
     setAssemblies(val);
-    if (devices < val) setDevices(val);
+    if (control_modules < val) setDevices(val);
   };
 
   const handleDevicesChange = (v: number[]) => {
     setDevices(v[0]);
   };
 
-  const totalSignals = Math.round(devices * 2.5); // rough estimate
+  const totalSignals = Math.round(control_modules * 2.5); // rough estimate
 
   const handleGenerate = async () => {
     setProgressLabel(null);
     const specId = await generate({
-      subsystems,
-      assemblies,
-      devices,
+      units,
+      equipment_modules,
+      control_modules,
       projectId,
       projectNumber,
       clientName,
@@ -106,14 +106,14 @@ export function RandomFdsDialog({
             <div className="flex items-center justify-between">
               <Label className="text-xs">Subsystems</Label>
               <span className="font-mono text-xs text-muted-foreground tabular-nums w-6 text-right">
-                {subsystems}
+                {units}
               </span>
             </div>
             <Slider
               min={1}
               max={8}
               step={1}
-              value={[subsystems]}
+              value={[units]}
               onValueChange={handleSubsystemsChange}
               disabled={loading}
             />
@@ -127,14 +127,14 @@ export function RandomFdsDialog({
             <div className="flex items-center justify-between">
               <Label className="text-xs">Assemblies</Label>
               <span className="font-mono text-xs text-muted-foreground tabular-nums w-6 text-right">
-                {assemblies}
+                {equipment_modules}
               </span>
             </div>
             <Slider
-              min={subsystems}
+              min={units}
               max={20}
               step={1}
-              value={[assemblies]}
+              value={[equipment_modules]}
               onValueChange={handleAssembliesChange}
               disabled={loading}
             />
@@ -148,19 +148,19 @@ export function RandomFdsDialog({
             <div className="flex items-center justify-between">
               <Label className="text-xs">Devices</Label>
               <span className="font-mono text-xs text-muted-foreground tabular-nums w-6 text-right">
-                {devices}
+                {control_modules}
               </span>
             </div>
             <Slider
-              min={assemblies}
+              min={equipment_modules}
               max={60}
               step={1}
-              value={[devices]}
+              value={[control_modules]}
               onValueChange={handleDevicesChange}
               disabled={loading}
             />
             <p className="text-[10px] text-muted-foreground">
-              Physical devices with IO (motors, valves, sensors)
+              Physical control_modules with IO (motors, valves, sensors)
             </p>
           </div>
 
@@ -168,9 +168,9 @@ export function RandomFdsDialog({
           <div className="rounded-md border border-border/50 bg-muted/30 p-3">
             <p className="text-xs text-muted-foreground">
               The agent will generate a random machine with{" "}
-              <span className="font-mono text-foreground">{subsystems}</span> subsystems,{" "}
-              <span className="font-mono text-foreground">{assemblies}</span> assemblies,{" "}
-              <span className="font-mono text-foreground">{devices}</span> devices, and ~
+              <span className="font-mono text-foreground">{units}</span> units,{" "}
+              <span className="font-mono text-foreground">{equipment_modules}</span> equipment_modules,{" "}
+              <span className="font-mono text-foreground">{control_modules}</span> control_modules, and ~
               <span className="font-mono text-foreground">{totalSignals}</span> IO signals.
             </p>
           </div>

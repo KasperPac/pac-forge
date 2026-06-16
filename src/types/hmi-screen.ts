@@ -728,9 +728,9 @@ export interface HmiScreenSpec {
   /** Navigation/template framework name */
   templateSuite?: string;
   /** High-level role in the generated HMI suite */
-  screenRole?: "template_shell" | "overview" | "device_faceplate" | "subsystem_checklist" | "device_checklist" | "alarm_summary" | "trend" | "popup" | "custom";
-  /** Optional subsystem association for checklist / overview screens */
-  subsystem?: string;
+  screenRole?: "template_shell" | "overview" | "device_faceplate" | "unit_checklist" | "device_checklist" | "alarm_summary" | "trend" | "popup" | "custom";
+  /** Optional unit association for checklist / overview screens */
+  unit?: string;
   /** Optional device type association for faceplate/detail screens */
   deviceType?: string;
   /** Named equipment shown or controlled on this screen */

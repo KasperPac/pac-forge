@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { DEVICE_TEMPLATES, type DeviceTemplate } from "../device-templates";
-import { RandomFdsDeviceClassSchema } from "../theme-schema";
+import { RandomFdsControlModuleClassSchema } from "../theme-schema";
 
 describe("device templates", () => {
-  it("covers every RandomFdsDeviceClass enum value", () => {
-    const classes = RandomFdsDeviceClassSchema.options;
+  it("covers every RandomFdsControlModuleClass enum value", () => {
+    const classes = RandomFdsControlModuleClassSchema.options;
     for (const cls of classes) {
       expect(DEVICE_TEMPLATES[cls], `template for ${cls}`).toBeDefined();
     }

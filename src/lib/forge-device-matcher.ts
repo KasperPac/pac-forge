@@ -1,30 +1,30 @@
 /**
  * forge-device-matcher.ts
- * Matches devices to FB library templates based on:
+ * Matches control_modules to FB library templates based on:
  *   1. Interface coverage — does the FB have the right Bool/analog params for this device's IO?
  *   2. Name affinity — secondary tiebreaker (category, tags, synonyms)
  *
- * Wave 5: `device_id` is the canonical lookup key. Name/tag matching is a
+ * Wave 5: `control_module_id` is the canonical lookup key. Name/tag matching is a
  * tiebreaker only — never the primary discriminator. If a caller has a
- * `device_id` from the spec contract, it must be preferred.
+ * `control_module_id` from the spec contract, it must be preferred.
  *
  * "exact" = interface fits well AND name is related → template is copied as-is, no AI
  * "probable" = interface fits OR name matches → AI uses template as reference/hint
  * "none" = no meaningful match → AI generates from scratch
  */
 
-import type { ForgeDeviceEntry, ForgeAssemblyEntry } from "@/types/forge";
+import type { ForgeControlModuleEntry, ForgeEquipmentModuleEntry } from "@/types/forge";
 import type { FbTemplate } from "@/types/fb-template";
 
 export interface DeviceFbMatch {
-  device: ForgeDeviceEntry;
+  device: ForgeControlModuleEntry;
   template: FbTemplate | null;
   confidence: "exact" | "probable" | "none";
   reason: string;
 }
 
 export interface AssemblyFbMatch {
-  assembly: ForgeAssemblyEntry;
+  equipment_module: ForgeEquipmentModuleEntry;
   template: FbTemplate | null;
   confidence: "exact" | "probable" | "none";
   reason: string;
@@ -77,7 +77,7 @@ function templateInterface(template: FbTemplate): FbInterface {
 }
 
 /** Count the device's IO signals by type */
-function deviceIoCounts(device: ForgeDeviceEntry): { boolCount: number; analogCount: number } {
+function deviceIoCounts(device: ForgeControlModuleEntry): { boolCount: number; analogCount: number } {
   const signals = device.io_signals ?? [];
   const boolCount = signals.filter(s => s.signal_type === "DI" || s.signal_type === "DQ").length;
   const analogCount = signals.filter(s => s.signal_type === "AI" || s.signal_type === "AQ").length;
@@ -88,7 +88,7 @@ function deviceIoCounts(device: ForgeDeviceEntry): { boolCount: number; analogCo
  * Score how well a template's interface covers a device's IO needs.
  * Returns 0–1: 1 = perfect fit, 0 = completely wrong.
  */
-function interfaceScore(device: ForgeDeviceEntry, iface: FbInterface): number {
+function interfaceScore(device: ForgeControlModuleEntry, iface: FbInterface): number {
   const { boolCount, analogCount } = deviceIoCounts(device);
   const templateBool = iface.boolInputs + iface.boolOutputs;
   const templateAnalog = iface.analogInputs + iface.analogOutputs;
@@ -104,7 +104,7 @@ function interfaceScore(device: ForgeDeviceEntry, iface: FbInterface): number {
     // Industrial FBs typically have many more Bool params than physical IO (HMI, status, enable,
     // feedback, error flags etc.). Allow up to 8× before penalising — tighter thresholds cause
     // feature-rich templates (E-Stop, motor) to score worse than simpler sensor templates for
-    // identical 1-DI devices, which produces wrong matches.
+    // identical 1-DI control_modules, which produces wrong matches.
     const ratio = templateBool / boolCount;
     if (ratio >= 1 && ratio <= 8) boolScore = 1.0;
     else if (ratio > 8) boolScore = Math.max(0.3, 1 - (ratio - 8) * 0.1); // soft penalty; floor at 0.3
@@ -267,7 +267,7 @@ function summaryAffinity(deviceType: string, template: FbTemplate): number {
   return matches.length / deviceWords.length;
 }
 
-export function scoreTemplate(device: ForgeDeviceEntry, template: FbTemplate): TemplateScore {
+export function scoreTemplate(device: ForgeControlModuleEntry, template: FbTemplate): TemplateScore {
   const iface = templateInterface(template);
   const iScore = interfaceScore(device, iface);
   const nScore = nameAffinity(device.device_type, template);
@@ -301,7 +301,7 @@ function confidenceFromScore(score: TemplateScore): "exact" | "probable" | "none
   return "none";
 }
 
-function reasonFor(score: TemplateScore, device: ForgeDeviceEntry, confidence: string): string {
+function reasonFor(score: TemplateScore, device: ForgeControlModuleEntry, confidence: string): string {
   const { boolCount } = deviceIoCounts(device);
   const iface = templateInterface(score.template);
   const templateBool = iface.boolInputs + iface.boolOutputs;
@@ -324,7 +324,7 @@ function reasonFor(score: TemplateScore, device: ForgeDeviceEntry, confidence: s
  * Used by the FB template selector to show compatible options.
  */
 export function rankTemplatesForDevice(
-  device: ForgeDeviceEntry,
+  device: ForgeControlModuleEntry,
   templates: FbTemplate[],
   favourites: Record<string, string> = {},
 ): TemplateScore[] {
@@ -345,11 +345,11 @@ export function rankTemplatesForDevice(
 }
 
 export function matchDevicesToTemplates(
-  devices: ForgeDeviceEntry[],
+  control_modules: ForgeControlModuleEntry[],
   templates: FbTemplate[],
   favourites: Record<string, string> = {},
 ): DeviceFbMatch[] {
-  return devices.map((device): DeviceFbMatch => {
+  return control_modules.map((device): DeviceFbMatch => {
     // --- Favourite check (highest priority — skip scoring entirely) ---
     const favouriteId = favourites[device.device_type];
     if (favouriteId) {
@@ -390,10 +390,10 @@ export function matchDevicesToTemplates(
 }
 
 export function applyMatchesToDevices(
-  devices: ForgeDeviceEntry[],
+  control_modules: ForgeControlModuleEntry[],
   matches: DeviceFbMatch[],
-): ForgeDeviceEntry[] {
-  return devices.map((device) => {
+): ForgeControlModuleEntry[] {
+  return control_modules.map((device) => {
     const match = matches.find((m) => m.device.id === device.id);
     if (!match) return device;
     return {
@@ -416,35 +416,35 @@ export interface MissingDeviceSuggestion {
 }
 
 // ---------------------------------------------------------------------------
-// Assembly matching — matches assemblies to is_assembly templates
+// Equipment Module matching — matches equipment_modules to is_equipment_module templates
 // ---------------------------------------------------------------------------
 
 export function matchAssembliesToTemplates(
-  assemblies: ForgeAssemblyEntry[],
+  equipment_modules: ForgeEquipmentModuleEntry[],
   templates: FbTemplate[],
   favourites: Record<string, string> = {},
 ): AssemblyFbMatch[] {
-  return assemblies.map((assembly): AssemblyFbMatch => {
-    const favouriteId = favourites[assembly.assembly_type];
+  return equipment_modules.map((equipment_module): AssemblyFbMatch => {
+    const favouriteId = favourites[equipment_module.equipment_module_type];
     if (favouriteId) {
       const template = templates.find((t) => t.id === favouriteId) ?? null;
       if (template) {
         return {
-          assembly,
+          equipment_module,
           template,
           confidence: "exact",
-          reason: `"${assembly.assembly_type}" matched via profile favourite: "${template.name}".`,
+          reason: `"${equipment_module.equipment_module_type}" matched via profile favourite: "${template.name}".`,
         };
       }
     }
 
     if (templates.length === 0) {
-      return { assembly, template: null, confidence: "none", reason: "No assembly templates in library." };
+      return { equipment_module, template: null, confidence: "none", reason: "No equipment_module templates in library." };
     }
 
     const scores = templates.map((t) => {
-      const nScore = nameAffinity(assembly.assembly_type, t);
-      const sScore = summaryAffinity(assembly.assembly_type, t);
+      const nScore = nameAffinity(equipment_module.equipment_module_type, t);
+      const sScore = summaryAffinity(equipment_module.equipment_module_type, t);
       const sourceBoost = t.source === "library" ? 0.08 : 0;
       const combined = Math.max(0, Math.min(1.0, 0.5 * nScore + 0.5 * sScore + sourceBoost));
       return { template: t, nScore, sScore, combined };
@@ -455,34 +455,34 @@ export function matchAssembliesToTemplates(
 
     if (best.combined >= 0.7 && best.nScore >= 0.3) {
       return {
-        assembly,
+        equipment_module,
         template: best.template,
         confidence: "exact",
-        reason: `"${assembly.assembly_type}" matches "${best.template.name}" — name ${Math.round(best.nScore * 100)}%, summary ${Math.round(best.sScore * 100)}%.`,
+        reason: `"${equipment_module.equipment_module_type}" matches "${best.template.name}" — name ${Math.round(best.nScore * 100)}%, summary ${Math.round(best.sScore * 100)}%.`,
       };
     }
     if (best.combined >= 0.5 && best.nScore >= 0.2) {
       return {
-        assembly,
+        equipment_module,
         template: best.template,
         confidence: "probable",
-        reason: `"${assembly.assembly_type}" partially matches "${best.template.name}" — score ${Math.round(best.combined * 100)}%.`,
+        reason: `"${equipment_module.equipment_module_type}" partially matches "${best.template.name}" — score ${Math.round(best.combined * 100)}%.`,
       };
     }
 
-    return { assembly, template: null, confidence: "none", reason: `No suitable template for "${assembly.assembly_type}". AI will generate from scratch.` };
+    return { equipment_module, template: null, confidence: "none", reason: `No suitable template for "${equipment_module.equipment_module_type}". AI will generate from scratch.` };
   });
 }
 
 export function applyMatchesToAssemblies(
-  assemblies: ForgeAssemblyEntry[],
+  equipment_modules: ForgeEquipmentModuleEntry[],
   matches: AssemblyFbMatch[],
-): ForgeAssemblyEntry[] {
-  return assemblies.map((assembly) => {
-    const match = matches.find((m) => m.assembly.id === assembly.id);
-    if (!match) return assembly;
+): ForgeEquipmentModuleEntry[] {
+  return equipment_modules.map((equipment_module) => {
+    const match = matches.find((m) => m.equipment_module.id === equipment_module.id);
+    if (!match) return equipment_module;
     return {
-      ...assembly,
+      ...equipment_module,
       fb_template_id: match.template?.id ?? null,
       fb_match_confidence: match.confidence,
     };
@@ -494,20 +494,20 @@ export function applyMatchesToAssemblies(
 // ---------------------------------------------------------------------------
 
 export function suggestMissingDevices(
-  devices: ForgeDeviceEntry[],
-  assemblies?: Array<{ device_ids: string[] }>,
+  control_modules: ForgeControlModuleEntry[],
+  equipment_modules?: Array<{ control_module_ids: string[] }>,
 ): MissingDeviceSuggestion[] {
   const suggestions: MissingDeviceSuggestion[] = [];
-  const typesLower = new Set(devices.map(d => (d.device_type ?? "").toLowerCase()));
+  const typesLower = new Set(control_modules.map(d => (d.device_type ?? "").toLowerCase()));
 
-  // Skip conveyor suggestions if assemblies already cover coordination
-  const assemblyDeviceIds = new Set((assemblies ?? []).flatMap(a => a.device_ids));
+  // Skip conveyor suggestions if equipment_modules already cover coordination
+  const equipment_moduleDeviceIds = new Set((equipment_modules ?? []).flatMap(a => a.control_module_ids));
   const hasConveyor = [...typesLower].some(t => t.includes("conveyor") || t.includes("belt"));
 
   if (!hasConveyor) {
-    const conveyorMotors = devices.filter(
+    const conveyorMotors = control_modules.filter(
       d =>
-        !assemblyDeviceIds.has(d.id) && // Skip devices already in an assembly
+        !equipment_moduleDeviceIds.has(d.id) && // Skip control_modules already in an equipment_module
         (d.device_type ?? "").toLowerCase().includes("motor") &&
         ((d.description ?? "").toLowerCase().includes("conveyor") ||
           (d.description ?? "").toLowerCase().includes("belt") ||

@@ -1,5 +1,5 @@
 /**
- * FDS Co-Author — Assembly sidebar with status badges and subsystem grouping.
+ * FDS Co-Author — Equipment Module sidebar with status badges and unit grouping.
  */
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -13,16 +13,16 @@ import {
   Boxes,
   Network,
 } from "lucide-react";
-import type { SubsystemConfig, FdsAssemblySession, FdsSessionStatus } from "@/types/spec-builder";
+import type { UnitConfig, OperationSession, FdsSessionStatus } from "@/types/spec-builder";
 import { cn } from "@/lib/utils";
 
 interface Props {
-  subsystems: SubsystemConfig[];
-  sessions: FdsAssemblySession[];
-  selectedAssemblyId: string | null;
+  units: UnitConfig[];
+  sessions: OperationSession[];
+  selectedEquipmentModuleId: string | null;
   selectedOrchestrationSubsystemId: string | null;
-  onSelectAssembly: (subsystemId: string, assemblyId: string) => void;
-  onSelectOrchestration: (subsystemId: string) => void;
+  onSelectEquipmentModule: (unitId: string, equipment_moduleId: string) => void;
+  onSelectOrchestration: (unitId: string) => void;
 }
 
 const STATUS_ICON: Record<FdsSessionStatus, typeof Circle> = {
@@ -40,17 +40,17 @@ const STATUS_COLOR: Record<FdsSessionStatus, string> = {
 };
 
 export function FdsAssemblySidebar({
-  subsystems,
+  units,
   sessions,
-  selectedAssemblyId,
+  selectedEquipmentModuleId,
   selectedOrchestrationSubsystemId,
-  onSelectAssembly,
+  onSelectEquipmentModule,
   onSelectOrchestration,
 }: Props) {
-  const activeSubsystems = subsystems.filter((s) => !s.excluded);
+  const activeUnits = units.filter((s) => !s.excluded);
 
   // Compute overall progress
-  const totalAssemblies = activeSubsystems.reduce((s, sub) => s + sub.assemblies.length, 0);
+  const totalAssemblies = activeUnits.reduce((s, sub) => s + sub.equipment_modules.length, 0);
   const completeSessions = sessions.filter((s) => s.status === "complete").length;
 
   return (
@@ -73,39 +73,39 @@ export function FdsAssemblySidebar({
         )}
       </div>
 
-      {/* Assembly tree */}
+      {/* Equipment Module tree */}
       <ScrollArea className="flex-1">
         <div className="p-1.5 space-y-3">
-          {activeSubsystems.map((sub) => {
-            const subSessions = sessions.filter((s) => s.subsystem_id === sub.subsystem_id);
-            const allComplete = sub.assemblies.length > 0 &&
-              sub.assemblies.every((a) =>
-                subSessions.find((s) => s.assembly_id === a.assembly_id)?.status === "complete"
+          {activeUnits.map((sub) => {
+            const subSessions = sessions.filter((s) => s.unit_id === sub.unit_id);
+            const allComplete = sub.equipment_modules.length > 0 &&
+              sub.equipment_modules.every((a) =>
+                subSessions.find((s) => s.equipment_module_id === a.equipment_module_id)?.status === "complete"
               );
 
             return (
-              <div key={sub.subsystem_id} className="space-y-0.5">
-                {/* Subsystem header */}
+              <div key={sub.unit_id} className="space-y-0.5">
+                {/* Unit header */}
                 <div className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold uppercase text-muted-foreground tracking-wide">
                   <Boxes className="h-3 w-3" />
-                  <span className="truncate flex-1">{sub.subsystem_name}</span>
+                  <span className="truncate flex-1">{sub.unit_name}</span>
                   <Badge variant="outline" className="text-[9px] h-3.5 px-1">
                     {sub.equipment_type}
                   </Badge>
                 </div>
 
                 {/* Assemblies */}
-                {sub.assemblies.map((asm) => {
-                  const session = subSessions.find((s) => s.assembly_id === asm.assembly_id);
+                {sub.equipment_modules.map((asm) => {
+                  const session = subSessions.find((s) => s.equipment_module_id === asm.equipment_module_id);
                   const status: FdsSessionStatus = session?.status ?? "not_started";
                   const Icon = STATUS_ICON[status];
-                  const isSelected = selectedAssemblyId === asm.assembly_id &&
+                  const isSelected = selectedEquipmentModuleId === asm.equipment_module_id &&
                     selectedOrchestrationSubsystemId === null;
 
                   return (
                     <button
-                      key={asm.assembly_id}
-                      onClick={() => onSelectAssembly(sub.subsystem_id, asm.assembly_id)}
+                      key={asm.equipment_module_id}
+                      onClick={() => onSelectEquipmentModule(sub.unit_id, asm.equipment_module_id)}
                       className={cn(
                         "w-full flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-left transition-colors",
                         isSelected
@@ -114,22 +114,22 @@ export function FdsAssemblySidebar({
                       )}
                     >
                       <Icon className={cn("h-3 w-3 shrink-0", STATUS_COLOR[status])} />
-                      <span className="truncate flex-1">{asm.assembly_name}</span>
+                      <span className="truncate flex-1">{asm.equipment_module_name}</span>
                       <span className="text-[10px] text-muted-foreground shrink-0">
-                        {asm.devices.length}D
+                        {asm.control_modules.length}D
                       </span>
                     </button>
                   );
                 })}
 
-                {/* Subsystem orchestration button (shown when >1 assembly) */}
-                {sub.assemblies.length > 1 && (
+                {/* Unit orchestration button (shown when >1 equipment_module) */}
+                {sub.equipment_modules.length > 1 && (
                   <>
                     <button
-                      onClick={() => onSelectOrchestration(sub.subsystem_id)}
+                      onClick={() => onSelectOrchestration(sub.unit_id)}
                       className={cn(
                         "w-full flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-left transition-colors",
-                        selectedOrchestrationSubsystemId === sub.subsystem_id
+                        selectedOrchestrationSubsystemId === sub.unit_id
                           ? "bg-accent text-accent-foreground"
                           : "hover:bg-accent/50"
                       )}
@@ -141,7 +141,7 @@ export function FdsAssemblySidebar({
                   </>
                 )}
 
-                {/* Separator between subsystems */}
+                {/* Separator between units */}
                 <Separator className="mt-1" />
               </div>
             );

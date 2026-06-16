@@ -11,9 +11,9 @@ interface PhaseRule {
 
 const PHASE_RULES: PhaseRule[] = [
   {
-    keywords: /how many|devices|motors?|valves?|sensors?|actuators?|list all|equipment/i,
+    keywords: /how many|control_modules|motors?|valves?|sensors?|actuators?|list all|equipment/i,
     replies: [
-      { label: "That covers all devices", text: "That covers all the devices in the system." },
+      { label: "That covers all control_modules", text: "That covers all the control_modules in the system." },
       { label: "There are also...", text: "There are also " },
     ],
   },
@@ -30,14 +30,14 @@ const PHASE_RULES: PhaseRule[] = [
     replies: [
       { label: "Start/stop with interlocks", text: "Standard start/stop with interlocks." },
       { label: "Include auto/manual", text: "Include auto/manual modes for each device." },
-      { label: "Add fault handling", text: "Add fault handling and alarms for all critical devices." },
+      { label: "Add fault handling", text: "Add fault handling and alarms for all critical control_modules." },
     ],
   },
   {
     keywords: /templates?|FB|function blocks?|library|match/i,
     replies: [
       { label: "Use suggested templates", text: "Use the suggested templates, they look good.", sendDirect: true },
-      { label: "All need new FBs", text: "All devices need new FBs, no existing templates fit." },
+      { label: "All need new FBs", text: "All control_modules need new FBs, no existing templates fit." },
       { label: "Mix of existing and new", text: "Mix of existing templates and new FBs where needed." },
     ],
   },
@@ -52,7 +52,7 @@ const PHASE_RULES: PhaseRule[] = [
     keywords: /sequence|process flow|coordinat|interaction/i,
     replies: [
       { label: "Sequential operation", text: "Sequential operation — one step at a time." },
-      { label: "Parallel with interlocks", text: "Parallel operation with interlocks between devices." },
+      { label: "Parallel with interlocks", text: "Parallel operation with interlocks between control_modules." },
       { label: "Batch-based sequencing", text: "Batch-based sequencing with recipe control." },
     ],
   },

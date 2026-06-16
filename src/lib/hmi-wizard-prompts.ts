@@ -3,7 +3,7 @@
  *
  * Two AI calls:
  *   1. Plan — user describes the screen, AI returns a structured JSON plan
- *      (title, nav pages, devices, controls, status fields).
+ *      (title, nav pages, control_modules, controls, status fields).
  *   2. Custom SVG — user asks for a custom graphic, AI returns a single
  *      Siemens-style dynamic SVG string that the runtime can animate.
  */
@@ -46,7 +46,7 @@ export interface HmiWizardPlan {
   useTemplateFrame: boolean;
   visibleNavLevels: HmiNavLevel[];
   navItems: string[];
-  devices: HmiWizardPlanDevice[];
+  control_modules: HmiWizardPlanDevice[];
   controls: HmiWizardPlanControl[];
   statusFields: HmiWizardPlanStatusField[];
   /** Optional notes the AI returns — design rationale, warnings, TODOs. */
@@ -92,7 +92,7 @@ ${frameSection}
 
 1. Follow the Siemens HMI Template Suite V6.0 look: flat, engineering-grade, minimal rounding, dense spacing.
 2. Use Siemens terminology: "machine state", "production", "startup", "paused", "shutdown", "stopped".
-3. Device symbols come from the Siemens Open Library V19. Match devices to these keyword groups when possible: ${faceplateKeywordHints.join(", ")}.
+3. Device symbols come from the Siemens Open Library V19. Match control_modules to these keyword groups when possible: ${faceplateKeywordHints.join(", ")}.
 4. Always include a current-state indicator when the user asks for a state machine or status display.
 5. Standard button variants:
    - START / RUN → "success"
@@ -112,7 +112,7 @@ Return EXACTLY one JSON object (no prose before or after, no \`\`\` fences). Sch
   "useTemplateFrame": true,
   "visibleNavLevels": ["main","sub"],        // subset of: "main","sub","third","tab"
   "navItems": ["Overview","Trends","Alarms"],// placeholder page labels
-  "devices": [
+  "control_modules": [
     {
       "id": "conv1",                          // short kebab/snake id
       "label": "Main Conveyor",
@@ -137,7 +137,7 @@ Return EXACTLY one JSON object (no prose before or after, no \`\`\` fences). Sch
 Rules:
 - Every field listed above is REQUIRED except "notes" and device "orientation".
 - Arrays may be empty but must be present.
-- "devices" should have at least one entry unless the user is explicitly asking for a dashboard-only screen.
+- "control_modules" should have at least one entry unless the user is explicitly asking for a dashboard-only screen.
 - "controls" must include start/stop when the user mentions state machines, control, or running equipment.
 - "statusFields" must include a state display when the user mentions a state machine.
 - Keep labels short (max 24 chars).
@@ -179,8 +179,8 @@ export function parseHmiWizardPlan(raw: string): HmiWizardPlan {
       ? (parsed.visibleNavLevels as string[]).filter(isNavLevel)
       : ["main", "sub"],
     navItems: Array.isArray(parsed.navItems) ? (parsed.navItems as string[]).map(String) : [],
-    devices: Array.isArray(parsed.devices)
-      ? (parsed.devices as Record<string, unknown>[]).map((d, i) => ({
+    control_modules: Array.isArray(parsed.control_modules)
+      ? (parsed.control_modules as Record<string, unknown>[]).map((d, i) => ({
           id: String(d.id ?? `dev_${i + 1}`),
           label: String(d.label ?? `Device ${i + 1}`),
           deviceType: String(d.deviceType ?? "generic"),

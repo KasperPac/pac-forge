@@ -5,7 +5,7 @@ import {
   buildInterfaceContractUserMessage,
 } from "@/lib/forge-prompts";
 import type { SpecAnalysis } from "@/types/forge";
-import type { InterfaceContractMap, AssemblyContract } from "@/types/forge-contract";
+import type { InterfaceContractMap, EquipmentModuleContract } from "@/types/forge-contract";
 
 /** Parse the AI response and extract InterfaceContractMap from JSON fences */
 function parseContractResponse(raw: string): InterfaceContractMap {
@@ -19,11 +19,11 @@ function parseContractResponse(raw: string): InterfaceContractMap {
   const contracts: InterfaceContractMap = {};
   for (const [key, val] of Object.entries(parsed)) {
     const entry = val as Record<string, unknown>;
-    if (!entry.assemblyId || !entry.assemblyTag) continue;
+    if (!entry.equipment_moduleId || !entry.equipment_moduleTag) continue;
 
-    const contract: AssemblyContract = {
-      assemblyId: String(entry.assemblyId),
-      assemblyTag: String(entry.assemblyTag),
+    const contract: EquipmentModuleContract = {
+      equipment_moduleId: String(entry.equipment_moduleId),
+      equipment_moduleTag: String(entry.equipment_moduleTag),
       exposed: Array.isArray(entry.exposed) ? entry.exposed.map(normalizeSignal) : [],
       consumed: Array.isArray(entry.consumed) ? entry.consumed.map(normalizeSignal) : [],
       stateDefinitions: Array.isArray(entry.stateDefinitions)

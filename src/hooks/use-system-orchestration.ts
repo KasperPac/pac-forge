@@ -1,7 +1,7 @@
 /**
  * System-level orchestration hooks (Wave A).
  *
- * Thin TanStack Query wrappers over the `fds_system_orchestrations` table.
+ * Thin TanStack Query wrappers over the `fds_system_procedures` table.
  * Writes go through a direct upsert here rather than `writeSpecContract`
  * so the builder can save mid-interview without touching the rest of the
  * contract. Wave C's UI owns the compose/save flow.
@@ -9,29 +9,29 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import {
-  SystemOrchestrationSchema,
-  type SystemOrchestration,
+  SystemProcedureSchema,
+  type SystemProcedure,
 } from "@/types/spec-contract-v2";
 
-export function useSystemOrchestration(specProjectId: string | undefined) {
+export function useSystemProcedure(specProjectId: string | undefined) {
   return useQuery({
     queryKey: ["system_orchestration", specProjectId],
-    queryFn: async (): Promise<SystemOrchestration | null> => {
+    queryFn: async (): Promise<SystemProcedure | null> => {
       if (!specProjectId) return null;
       const { data, error } = await supabase
-        .from("fds_system_orchestrations")
+        .from("fds_system_procedures")
         .select("*")
         .eq("spec_project_id", specProjectId)
         .maybeSingle();
       if (error) throw error;
       if (!data) return null;
-      return SystemOrchestrationSchema.parse(data);
+      return SystemProcedureSchema.parse(data);
     },
     enabled: !!specProjectId,
   });
 }
 
-export interface UpsertSystemOrchestrationInput {
+export interface UpsertSystemProcedureInput {
   spec_project_id: string;
   state_sequences?: unknown;
   conversation?: unknown[];
@@ -39,12 +39,12 @@ export interface UpsertSystemOrchestrationInput {
   token_usage?: unknown;
 }
 
-export function useUpsertSystemOrchestration() {
+export function useUpsertSystemProcedure() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: UpsertSystemOrchestrationInput) => {
+    mutationFn: async (payload: UpsertSystemProcedureInput) => {
       const { data, error } = await supabase
-        .from("fds_system_orchestrations")
+        .from("fds_system_procedures")
         .upsert(payload, { onConflict: "spec_project_id" })
         .select()
         .single();

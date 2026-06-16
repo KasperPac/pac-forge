@@ -9,7 +9,7 @@
  * - For each device: FB name, instance DB, all parameter wiring with traced paths
  * - Cross-device references (which device's output feeds which device's input)
  * - Physical IO addresses and descriptions for IO-connected wires
- * - Interlocks and dependencies between devices
+ * - Interlocks and dependencies between control_modules
  */
 
 import type { ProcessLinkageMatrix, LinkageDevice, FbWire, LinkageInterlock } from "@/types/forge-matrix";
@@ -51,10 +51,10 @@ function resolveIoEntry(connectedTo: string, lookup: IoLookup): ForgeIoEntry | n
 
 /** Build a map: "instanceDbName.paramName" → { deviceName, wire } for all output wires */
 function buildOutputMap(
-  devices: LinkageDevice[],
+  control_modules: LinkageDevice[],
 ): Map<string, { deviceName: string; deviceType: string; wire: FbWire }> {
   const map = new Map<string, { deviceName: string; deviceType: string; wire: FbWire }>();
-  for (const dev of devices) {
+  for (const dev of control_modules) {
     for (const wire of dev.wiring) {
       if (wire.direction === "out") {
         const key = `${dev.instanceDbName}.${wire.paramName}`.toLowerCase();
@@ -67,10 +67,10 @@ function buildOutputMap(
 
 /** Build a map: "instanceDbName.paramName" → deviceName for all input wires (to find output destinations) */
 function buildInputConsumerMap(
-  devices: LinkageDevice[],
+  control_modules: LinkageDevice[],
 ): Map<string, Array<{ deviceName: string; paramName: string }>> {
   const map = new Map<string, Array<{ deviceName: string; paramName: string }>>();
-  for (const dev of devices) {
+  for (const dev of control_modules) {
     for (const wire of dev.wiring) {
       if (wire.direction === "in" && wire.wireType === "fb") {
         // wire.connectedTo is like "InstSensor1.detected"
@@ -154,7 +154,7 @@ function formatOutputWire(
     }
   }
 
-  // Check if other devices consume this output
+  // Check if other control_modules consume this output
   const outKey = `${instanceDbName}.${param}`.toLowerCase();
   const consumers = inputConsumerMap.get(outKey);
   if (consumers && consumers.length > 0) {
@@ -182,7 +182,7 @@ function formatInterlocks(interlocks: LinkageInterlock[]): string {
  * Build a human-readable wiring context map from the linkage matrix and IO list.
  * Shows full signal paths with physical addresses, cross-device references, and interlocks.
  *
- * Returns empty string if no matrix or no devices.
+ * Returns empty string if no matrix or no control_modules.
  */
 export function buildWiringContext(
   matrix: ProcessLinkageMatrix | null | undefined,

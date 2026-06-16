@@ -3,13 +3,14 @@
  *
  * URL: /specs/:projectId/:specId/co-author
  */
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Layers, Loader2, MessageSquare } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FdsCoAuthor } from "@/components/spec-builder/fds-co-author";
+import { ProcessModelPanel } from "@/components/spec-builder/process-model-panel";
 import {
   useSpecProject,
   useInstrumentRegister,
@@ -17,22 +18,25 @@ import {
 import { useUnconfirmedLock } from "@/hooks/use-unconfirmed-lock";
 import { UnconfirmedLockBanner } from "@/components/spec-builder/migrate/unconfirmed-lock-banner";
 import {
-  migrateSubsystemConfig,
+  migrateUnitConfig,
   migrateOperatingStates,
 } from "@/types/spec-builder";
+
+type CoAuthorView = "fds" | "process-model";
 
 export default function SpecCoAuthorPage() {
   const { projectId, specId } = useParams<{ projectId: string; specId: string }>();
   const { isUnconfirmed, migrateHref } = useUnconfirmedLock(projectId ?? "", specId ?? "");
   const { data: rawSpec, isLoading } = useSpecProject(specId);
   const { data: register } = useInstrumentRegister(specId);
+  const [view, setView] = useState<CoAuthorView>("fds");
 
   const spec = useMemo(() => {
     if (!rawSpec) return null;
     return {
       ...rawSpec,
-      confirmed_subsystems: rawSpec.confirmed_subsystems?.length
-        ? migrateSubsystemConfig(rawSpec.confirmed_subsystems)
+      confirmed_units: rawSpec.confirmed_units?.length
+        ? migrateUnitConfig(rawSpec.confirmed_units)
         : [],
       confirmed_states: rawSpec.confirmed_states?.length
         ? migrateOperatingStates(rawSpec.confirmed_states)
@@ -94,6 +98,27 @@ export default function SpecCoAuthorPage() {
         </Button>
         <h1 className="text-sm font-semibold font-mono">{spec.doc_code}</h1>
         <span className="text-xs text-muted-foreground truncate">{spec.title}</span>
+        {/* View toggle */}
+        <div className="flex items-center gap-1 ml-4 bg-muted rounded-md p-0.5">
+          <Button
+            variant={view === "fds" ? "secondary" : "ghost"}
+            size="sm"
+            className="h-6 text-[10px] gap-1 px-2"
+            onClick={() => setView("fds")}
+          >
+            <MessageSquare className="h-3 w-3" />
+            FDS Co-Author
+          </Button>
+          <Button
+            variant={view === "process-model" ? "secondary" : "ghost"}
+            size="sm"
+            className="h-6 text-[10px] gap-1 px-2"
+            onClick={() => setView("process-model")}
+          >
+            <Layers className="h-3 w-3" />
+            Process Model
+          </Button>
+        </div>
         <Badge variant="outline" className="text-[10px] ml-auto">Phase 3 — Co-Author</Badge>
         <Badge variant="outline" className="text-[10px]">Rev {spec.revision}</Badge>
         {revisionLabel && (
@@ -105,7 +130,11 @@ export default function SpecCoAuthorPage() {
 
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        <FdsCoAuthor spec={spec} register={register} fullScreen />
+        {view === "fds" ? (
+          <FdsCoAuthor spec={spec} register={register} fullScreen />
+        ) : (
+          <ProcessModelPanel spec={spec} />
+        )}
       </div>
     </div>
   );

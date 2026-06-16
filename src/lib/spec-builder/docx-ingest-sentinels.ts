@@ -44,7 +44,7 @@ export function hasAppendixSentinel(rawText: string): boolean {
   return /pac-forge:appendix-v2/i.test(rawText);
 }
 
-/** Extract the assembly state sentinel payload from a caption.
+/** Extract the equipment_module state sentinel payload from a caption.
  *  Format: `Operating State: {name} (pac-forge:state:{id})`. */
 export function parseStateSentinel(
   caption: string,
@@ -56,11 +56,11 @@ export function parseStateSentinel(
   return { stateName: m[1].trim(), stateId: m[2] };
 }
 
-/** Extract an assembly sentinel from a caption. */
+/** Extract an equipment_module sentinel from a caption. */
 export function parseAssemblySentinel(
   caption: string,
-): { assemblyId: string } | null {
-  const m = new RegExp(`pac-forge:assembly:(${UUID_RE})`, "i").exec(caption);
+): { equipment_moduleId: string } | null {
+  const m = new RegExp(`pac-forge:equipment_module:(${UUID_RE})`, "i").exec(caption);
   if (!m) return null;
-  return { assemblyId: m[1] };
+  return { equipment_moduleId: m[1] };
 }

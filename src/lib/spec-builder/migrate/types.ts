@@ -1,7 +1,7 @@
 import type {
   OperatorMode,
   CompletionCriterion,
-  InterAssemblyInterlockEffect,
+  InterEquipmentModuleInterlockEffect,
 } from "@/types/spec-contract-v2";
 
 // ============================================================
@@ -44,11 +44,11 @@ export interface ProposedModes {
 
 export interface ProposedInterlock {
   interlock_id: string;
-  source_assembly: string;
-  target_assembly: string;
+  source_equipment_module: string;
+  target_equipment_module: string;
   original_prose_condition: string;           // legacy free-text source_condition
   original_prose_effect: string;              // legacy free-text effect
-  effect: InterAssemblyInterlockEffect;       // AI-classified, editable
+  effect: InterEquipmentModuleInterlockEffect;       // AI-classified, editable
   source_condition: CompletionCriterion;      // AI-classified, editable
   confidence: number;                         // 0..1
   reasoning: string;                          // short tooltip

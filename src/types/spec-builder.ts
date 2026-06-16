@@ -1,6 +1,47 @@
 // Spec Builder types — functional specification document generation
 import type { PermissiveCondition, SequentialStateV2 } from "./spec-contract-v2";
 
+// --- ISA-88 Process Model (§4.3) ---
+// Describes WHAT happens to the product (product-centric), not HOW equipment does it.
+// Links to the Procedural Control Model and Physical Model:
+//   Process Stage ↔ Unit Procedure ↔ Unit
+//   Process Operation ↔ Operation ↔ Equipment Module
+//   Process Action ↔ Phase ↔ Control Module action
+
+export interface ProcessAction {
+  action_id: string;
+  action_name: string;
+  description: string;
+  /** Optional link to the control module tag that executes this action */
+  control_module_tag?: string;
+}
+
+export interface ProcessOperation {
+  operation_id: string;
+  operation_name: string;
+  description: string;
+  /** Links to an equipment_module_id in UnitConfig.equipment_modules */
+  equipment_module_id: string;
+  actions: ProcessAction[];
+}
+
+export interface ProcessStage {
+  stage_id: string;
+  stage_name: string;
+  description: string;
+  /** Links to a unit_id in confirmed_units */
+  unit_id: string;
+  operations: ProcessOperation[];
+  /** Execution order within the process (1-based) */
+  order: number;
+}
+
+export interface ProcessModel {
+  process_name: string;
+  process_description: string;
+  stages: ProcessStage[];
+}
+
 // --- Spec Project ---
 
 export interface SpecProject {
@@ -22,7 +63,7 @@ export interface SpecProject {
   design_profile_id: string | null;
   system_description: string | null;
   // Wizard state
-  confirmed_subsystems: SubsystemConfig[];
+  confirmed_units: UnitConfig[];
   confirmed_states: OperatingState[];
   alarm_tiers: AlarmTier[];
   // V2 fields — scope & philosophy
@@ -34,6 +75,8 @@ export interface SpecProject {
   status: "draft" | "generating" | "review" | "complete";
   // FDS Engine Phase 1 — per-project migration gate (migration 088)
   confirmation_status: "unconfirmed" | "confirmed";
+  // ISA-88 Process Model (migration 091)
+  process_model: ProcessModel | null;
   created_at: string;
   updated_at: string;
 }
@@ -75,7 +118,7 @@ export interface SpecProjectUpdate {
   comms_protocol?: string;
   design_profile_id?: string;
   system_description?: string;
-  confirmed_subsystems?: SubsystemConfig[];
+  confirmed_units?: UnitConfig[];
   confirmed_states?: OperatingState[];
   alarm_tiers?: AlarmTier[];
   scope_exclusions?: string[];
@@ -83,6 +126,7 @@ export interface SpecProjectUpdate {
   fault_philosophy?: string;
   design_principles?: string[];
   status?: SpecProject["status"];
+  process_model?: ProcessModel | null;
 }
 
 // --- Instrument Register ---
@@ -93,18 +137,19 @@ export interface InstrumentTag {
   description: string;
   signal_type: string;
   io_address: string;
-  // Enriched by Haiku
-  device_class: DeviceClass;
+  // Enriched by AI / deterministic classification
+  control_module_class: ControlModuleClass;
   signal_direction: SignalDirection;
-  subsystem_prefix: string;
+  unit_prefix: string;
   is_safety: boolean;
-  // Explicit hierarchy columns (deterministic extraction)
-  device: string;
-  assembly: string;
-  subsystem: string;
+  // ISA-88 Physical Model hierarchy assignment (from column or AI-inferred)
+  process_cell: string;
+  unit: string;
+  equipment_module: string;
+  control_module: string;
 }
 
-export type DeviceClass =
+export type ControlModuleClass =
   | "valve"
   | "motor"
   | "sensor_level"
@@ -133,15 +178,15 @@ export interface InstrumentRegister {
   raw_filename: string | null;
   parsed_at: string;
   tags: InstrumentTag[];
-  subsystems: SubsystemSummary[];
+  units: UnitSummary[];
   parse_warnings: ParseWarning[];
   haiku_usage: TokenUsage;
   created_at: string;
 }
 
-export interface SubsystemSummary {
-  subsystem_id: string;
-  subsystem_name: string;
+export interface UnitSummary {
+  unit_id: string;
+  unit_name: string;
   equipment_type: EquipmentType;
   tag_count: number;
 }
@@ -170,8 +215,8 @@ export interface TokenUsage {
   total?: number;
 }
 
-// --- Machine Hierarchy (wizard) ---
-// System → Subsystem → Assembly → Device (each 1-to-many downstream)
+// --- Machine Hierarchy — ISA-88 §4.4 (wizard) ---
+// Process Cell → Unit → Equipment Module → Control Module (each 1-to-many downstream)
 
 export interface IoSignal {
   tag: string;
@@ -180,55 +225,55 @@ export interface IoSignal {
   description: string;
 }
 
-export interface DeviceConfig {
-  device_id: string;
-  device_name: string;
-  device_class: DeviceClass;
+export interface ControlModuleConfig {
+  control_module_id: string;
+  control_module_name: string;
+  control_module_class: ControlModuleClass;
   description: string;
   is_safety: boolean;
   io_signals: IoSignal[];
 }
 
-export interface AssemblyConfig {
-  assembly_id: string;
-  assembly_name: string;
+export interface EquipmentModuleConfig {
+  equipment_module_id: string;
+  equipment_module_name: string;
   description: string;
-  devices: DeviceConfig[];
+  control_modules: ControlModuleConfig[];
 }
 
-export interface SubsystemConfig {
-  subsystem_id: string;
-  subsystem_name: string;
+export interface UnitConfig {
+  unit_id: string;
+  unit_name: string;
   equipment_type: EquipmentType;
   description: string;
-  assemblies: AssemblyConfig[];
+  equipment_modules: EquipmentModuleConfig[];
   excluded: boolean;
 }
 
-/** Compute tag count for a subsystem by summing IO signals across all devices */
-export function getSubsystemTagCount(sub: SubsystemConfig): number {
-  return sub.assemblies.reduce(
-    (sum, a) => sum + a.devices.reduce((ds, d) => ds + d.io_signals.length, 0),
+/** Compute tag count for a unit by summing IO signals across all devices */
+export function getUnitTagCount(sub: UnitConfig): number {
+  return sub.equipment_modules.reduce(
+    (sum, a) => sum + a.control_modules.reduce((ds, d) => ds + d.io_signals.length, 0),
     0
   );
 }
 
-/** Compute total device count for a subsystem */
-export function getSubsystemDeviceCount(sub: SubsystemConfig): number {
-  return sub.assemblies.reduce((sum, a) => sum + a.devices.length, 0);
+/** Compute total control module count for a unit */
+export function getUnitControlModuleCount(sub: UnitConfig): number {
+  return sub.equipment_modules.reduce((sum, a) => sum + a.control_modules.length, 0);
 }
 
-/** Migrate legacy flat SubsystemConfig (no assemblies) to nested format */
-export function migrateSubsystemConfig(raw: unknown[]): SubsystemConfig[] {
+/** Migrate legacy flat UnitConfig (no assemblies) to nested format */
+export function migrateUnitConfig(raw: unknown[]): UnitConfig[] {
   return (raw as Record<string, unknown>[]).map((s) => {
-    if (Array.isArray(s.assemblies)) return s as unknown as SubsystemConfig;
+    if (Array.isArray(s.equipment_modules)) return s as unknown as UnitConfig;
     // Legacy flat format — wrap in single assembly with no devices
     return {
-      subsystem_id: String(s.subsystem_id ?? ""),
-      subsystem_name: String(s.subsystem_name ?? ""),
+      unit_id: String(s.unit_id ?? ""),
+      unit_name: String(s.unit_name ?? ""),
       equipment_type: (s.equipment_type as EquipmentType) ?? "Other",
       description: String(s.description ?? ""),
-      assemblies: [],
+      equipment_modules: [],
       excluded: Boolean(s.excluded),
     };
   });
@@ -295,7 +340,7 @@ export interface SpecSection {
   id: string;
   spec_project_id: string;
   section_type: SpecSectionType;
-  subsystem_id: string | null;
+  unit_id: string | null;
   state_name: string | null;
   content_json: Record<string, unknown>;
   content_markdown: string | null;
@@ -314,7 +359,7 @@ export type SpecSectionType =
   | "document_control"         // Section 0
   | "system_overview"          // Section 1
   | "control_philosophy"       // Section 2
-  | "functional_description"   // Section 3 (per subsystem × state)
+  | "functional_description"   // Section 3 (per unit × state)
   | "io_list"                  // Section 4
   | "alarm_specification"      // Section 5
   | "hmi_specification"        // Section 6
@@ -344,26 +389,31 @@ export interface SpecExport {
 // --- Column mapping for register parsing ---
 
 export interface ColumnMapping {
+  process_cell: number | null;
+  unit: number | null;
+  equipment_module: number | null;
+  control_module: number | null;
   tag: number | null;
   device_type: number | null;
   description: number | null;
   signal_type: number | null;
   io_address: number | null;
-  subsystem: number | null;
-  assembly: number | null;
-  device: number | null;
+  // Optional explicit safety-flag column (deterministic override of inferred is_safety)
   is_safety: number | null;
 }
 
 export const CANONICAL_COLUMN_NAMES: Record<keyof ColumnMapping, string[]> = {
+  process_cell: ["process cell", "process_cell", "cell", "line", "plant"],
+  unit: ["unit", "sub system", "system", "area", "group"],
+  equipment_module: ["equipment module", "equipment_module", "assembly name", "equipment", "equipment group", "machine", "station", "em"],
+  control_module: ["control module", "control_module", "device name", "device id", "cm", "instrument"],
   tag: ["tag", "tag number", "tag no", "tag no.", "instrument tag", "device tag", "tag_no"],
+  // NB: no bare "type"/"device" aliases here — they greedily steal the
+  // "Signal Type" / "Device Name" columns from signal_type / control_module.
   device_type: ["device type", "instrument type", "device_type", "device class"],
   description: ["description", "desc", "function", "instrument description"],
   signal_type: ["signal", "signal type", "io type", "signal_type"],
   io_address: ["address", "io address", "plc address", "%i", "%q", "io_address"],
-  subsystem: ["subsystem", "sub system", "area", "unit"],
-  assembly: ["assembly", "equipment", "equipment module", "group"],
-  device: ["device", "device id", "device name", "device_id"],
   is_safety: ["is_safety", "safety", "safety critical"],
 } as const;
 
@@ -388,8 +438,8 @@ export interface SystemOverviewContent {
 }
 
 export interface IoSummaryRow {
-  subsystem_id: string;
-  subsystem_name: string;
+  unit_id: string;
+  unit_name: string;
   di_count: number;
   do_count: number;
   ai_count: number;
@@ -404,11 +454,11 @@ export interface ControlPhilosophyContent {
   design_principles: string[];
 }
 
-/** Section 3 — Functional Description (per subsystem × state) */
+/** Section 3 — Functional Description (per unit × state) */
 export interface FunctionalDescriptionContent {
   pattern: StatePattern;
   // Pattern A (static) — device state table
-  device_states?: DeviceStateEntry[];
+  control_module_states?: ControlModuleStateEntry[];
   // Pattern B (sequential) — step table
   permissives?: string[];
   steps?: StepEntry[];
@@ -416,7 +466,7 @@ export interface FunctionalDescriptionContent {
   notes?: string;
 }
 
-export interface DeviceStateEntry {
+export interface ControlModuleStateEntry {
   tag: string;
   description: string;
   state: string; // e.g. "STOP", "DE-ENERGISED", "OPEN"
@@ -428,10 +478,10 @@ export interface StepEntry {
   completion_criteria: string;
 }
 
-/** Section 3 preamble — equipment description (per subsystem, no state) */
+/** Section 3 preamble — equipment description (per unit, no state) */
 export interface EquipmentDescriptionContent {
   prose: string;
-  device_table: Array<{ device: string; tag: string; description: string }>;
+  control_module_table: Array<{ control_module: string; tag: string; description: string }>;
 }
 
 /** Section 4 — I/O List */
@@ -497,15 +547,15 @@ export interface TestingFatContent {
 
 export type FdsSessionStatus = "not_started" | "static_confirmed" | "in_progress" | "complete";
 
-/** Per-assembly co-authoring session */
-export interface FdsAssemblySession {
+/** Per-equipment-module operation session */
+export interface OperationSession {
   id: string;
   spec_project_id: string;
-  subsystem_id: string;
-  assembly_id: string;
+  unit_id: string;
+  equipment_module_id: string;
   status: FdsSessionStatus;
-  // Static states: { [state_id]: DeviceStateEntry[] }
-  static_states: Record<string, DeviceStateEntry[]>;
+  // Static states: { [state_id]: ControlModuleStateEntry[] }
+  static_states: Record<string, ControlModuleStateEntry[]>;
   static_confirmed: boolean;
   // Sequential states: { [state_id]: SequentialStateData }
   sequential_states: Record<string, SequentialStateV2>;
@@ -535,13 +585,13 @@ export interface FdsConversationTurn {
   table_delta?: Partial<SequentialStateV2>;
 }
 
-/** Subsystem-level orchestration — how assemblies coordinate */
-export interface SubsystemOrchestration {
+/** Unit-level procedure — how equipment modules coordinate */
+export interface UnitProcedure {
   id: string;
   spec_project_id: string;
-  subsystem_id: string;
-  // Per sequential state: assembly ordering + inter-assembly interlocks
-  state_sequences: Record<string, SubsystemStateSequence>;
+  unit_id: string;
+  // Per sequential state: equipment module ordering + inter-equipment-module interlocks
+  state_sequences: Record<string, UnitProcedureSequence>;
   // Conversation for orchestration interview
   conversation: FdsConversationTurn[];
   validation_results: FdsValidationResult | null;
@@ -550,17 +600,17 @@ export interface SubsystemOrchestration {
   updated_at: string;
 }
 
-export interface SubsystemStateSequence {
-  assembly_order: string[];
+export interface UnitProcedureSequence {
+  equipment_module_order: string[];
   shared_permissives: string[];
-  inter_assembly_interlocks: InterAssemblyInterlock[];
+  inter_equipment_module_interlocks: InterEquipmentModuleInterlock[];
   notes: string | null;
 }
 
-export interface InterAssemblyInterlock {
-  source_assembly: string;
+export interface InterEquipmentModuleInterlock {
+  source_equipment_module: string;
   source_condition: string;
-  target_assembly: string;
+  target_equipment_module: string;
   effect: string;
 }
 
@@ -580,17 +630,18 @@ export interface FdsValidationIssue {
     | "circular_interlock"
     | "missing_failure_path"
     | "state_completeness"
-    | "cross_subsystem"
-    | "orchestration";
+    | "cross_unit"
+    | "orchestration"
+    | "isa88_compliance";
   message: string;
-  assembly_id?: string;
+  equipment_module_id?: string;
   state_id?: string;
   tag?: string;
 }
 
 // --- Equipment type inference from prefix ---
 
-export const SUBSYSTEM_PREFIX_MAP: Array<{ pattern: RegExp; type: EquipmentType }> = [
+export const UNIT_PREFIX_MAP: Array<{ pattern: RegExp; type: EquipmentType }> = [
   { pattern: /hopper|^TE/i, type: "Hopper" },
   { pattern: /^VZ|transporter/i, type: "Pneumatic Transporter" },
   { pattern: /^HX|dryer/i, type: "Dryer" },

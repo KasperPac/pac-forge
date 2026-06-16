@@ -16,7 +16,7 @@
 
 import type { HmiPanelConfig } from "@/types/hmi-panel";
 import type { FaceplateCatalogEntry } from "@/types/hmi-panel";
-import type { ForgeDeviceEntry, SpecAnalysis } from "@/types/forge";
+import type { ForgeControlModuleEntry, SpecAnalysis } from "@/types/forge";
 import {
   makeText,
   makeFaceplateContainer,
@@ -116,7 +116,7 @@ export interface OverviewScreenInput extends UnifiedScreenGeneratorOptions {
   /** Screen title shown in the header text of the generated content */
   title: string;
   /** Devices to render */
-  devices: ForgeDeviceEntry[];
+  control_modules: ForgeControlModuleEntry[];
   /** Faceplate catalog (produced by buildFaceplateCatalog) */
   catalog: FaceplateCatalogEntry[];
   /** Optional screen number for ActivateScreen() navigation */
@@ -165,10 +165,10 @@ export function generateUnifiedOverviewScreen(input: OverviewScreenInput): HmiUn
     }),
   );
 
-  // Build device bindings (skip devices without Open Library match)
+  // Build device bindings (skip control_modules without Open Library match)
   const catalogByType = new Map(input.catalog.map((c) => [c.deviceType, c]));
-  const deviceBindings: Array<{ device: ForgeDeviceEntry; binding: FaceplateTagBinding }> = [];
-  for (const device of input.devices) {
+  const deviceBindings: Array<{ device: ForgeControlModuleEntry; binding: FaceplateTagBinding }> = [];
+  for (const device of input.control_modules) {
     const entry = catalogByType.get(device.device_type);
     if (!entry) continue;
     const binding = buildDeviceFaceplateBinding(device, entry);
@@ -212,13 +212,13 @@ export function generateUnifiedOverviewScreen(input: OverviewScreenInput): HmiUn
 }
 
 // ---------------------------------------------------------------------------
-// 2. Subsystem screen — one screen per subsystem with its devices
+// 2. Unit screen — one screen per unit with its control_modules
 // ---------------------------------------------------------------------------
 
 export interface SubsystemScreenInput extends UnifiedScreenGeneratorOptions {
   screenName: string;
-  subsystemName: string;
-  devices: ForgeDeviceEntry[];
+  unitName: string;
+  control_modules: ForgeControlModuleEntry[];
   catalog: FaceplateCatalogEntry[];
   screenNumber?: number;
 }
@@ -226,7 +226,7 @@ export interface SubsystemScreenInput extends UnifiedScreenGeneratorOptions {
 export function generateUnifiedSubsystemScreen(input: SubsystemScreenInput): HmiUnifiedScreenPayload {
   return generateUnifiedOverviewScreen({
     ...input,
-    title: input.subsystemName,
+    title: input.unitName,
   });
 }
 
@@ -236,7 +236,7 @@ export function generateUnifiedSubsystemScreen(input: SubsystemScreenInput): Hmi
 
 export interface DeviceDetailScreenInput extends UnifiedScreenGeneratorOptions {
   screenName: string;
-  device: ForgeDeviceEntry;
+  device: ForgeControlModuleEntry;
   catalogEntry: FaceplateCatalogEntry;
   screenNumber?: number;
 }
@@ -318,10 +318,10 @@ export function generateUnifiedDeviceDetailScreen(
 // ---------------------------------------------------------------------------
 
 export interface GenerateScreenSuiteInput extends UnifiedScreenGeneratorOptions {
-  /** Forge spec analysis for subsystem grouping */
+  /** Forge spec analysis for unit grouping */
   specAnalysis: SpecAnalysis | null;
   /** Full device list */
-  devices: ForgeDeviceEntry[];
+  control_modules: ForgeControlModuleEntry[];
   /** Faceplate catalog from buildFaceplateCatalog */
   catalog: FaceplateCatalogEntry[];
   /** Project display name used for the top-level overview screen */
@@ -346,7 +346,7 @@ export function generateUnifiedScreenSuite(input: GenerateScreenSuiteInput): Gen
   const catalogByType = new Map(input.catalog.map((c) => [c.deviceType, c]));
   let nextScreenNumber = 10;
 
-  // 1. Plant overview (all devices)
+  // 1. Plant overview (all control_modules)
   screens.push(
     generateUnifiedOverviewScreen({
       ...input,
@@ -356,19 +356,19 @@ export function generateUnifiedScreenSuite(input: GenerateScreenSuiteInput): Gen
     }),
   );
 
-  // 2. Per-subsystem screens
-  const subsystems = input.specAnalysis?.subsystems ?? [];
-  for (const subsystem of subsystems) {
-    const subsystemDevices = input.devices.filter(
-      (d) => d.subsystem === subsystem.name,
+  // 2. Per-unit screens
+  const units = input.specAnalysis?.units ?? [];
+  for (const unit of units) {
+    const unitDevices = input.control_modules.filter(
+      (d) => d.unit === unit.name,
     );
-    if (subsystemDevices.length === 0) continue;
+    if (unitDevices.length === 0) continue;
     screens.push(
       generateUnifiedSubsystemScreen({
         ...input,
-        screenName: `pfSubsystem_${sanitizeName(subsystem.name)}`,
-        subsystemName: subsystem.name,
-        devices: subsystemDevices,
+        screenName: `pfSubsystem_${sanitizeName(unit.name)}`,
+        unitName: unit.name,
+        control_modules: unitDevices,
         screenNumber: nextScreenNumber++,
       }),
     );
@@ -376,7 +376,7 @@ export function generateUnifiedScreenSuite(input: GenerateScreenSuiteInput): Gen
 
   // 3. Per-device detail screens (optional — large plants may skip)
   if (input.includeDeviceDetails) {
-    for (const device of input.devices) {
+    for (const device of input.control_modules) {
       const entry = catalogByType.get(device.device_type);
       if (!entry) continue;
       screens.push(
@@ -393,7 +393,7 @@ export function generateUnifiedScreenSuite(input: GenerateScreenSuiteInput): Gen
 
   // 4. Collect unmatched device types for Phase 5-lite warnings
   const unmatchedSet = new Set<string>();
-  for (const device of input.devices) {
+  for (const device of input.control_modules) {
     const entry = catalogByType.get(device.device_type);
     if (!entry || entry.source === "algorithmic") {
       unmatchedSet.add(device.device_type);

@@ -11,7 +11,7 @@
 import type { HmiScreenSpec, HmiElement, HmiElementStyle } from "@/types/hmi-screen";
 import type { HmiPanelConfig } from "@/types/hmi-panel";
 import type { FaceplateCatalogEntry } from "@/types/hmi-panel";
-import type { ForgeDeviceEntry, ForgeIoEntry, SpecAnalysis } from "@/types/forge";
+import type { ForgeControlModuleEntry, ForgeIoEntry, SpecAnalysis } from "@/types/forge";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -339,19 +339,19 @@ export function generateFrameworkScreen(
 // ---------------------------------------------------------------------------
 
 /**
- * Generate the plant overview screen showing all subsystems
+ * Generate the plant overview screen showing all units
  * with device faceplate placeholders.
  */
 export function generateOverviewScreen(
   config: HmiPanelConfig,
   specAnalysis: SpecAnalysis,
-  devices: ForgeDeviceEntry[],
+  control_modules: ForgeControlModuleEntry[],
   catalog: FaceplateCatalogEntry[],
 ): HmiScreenSpec {
   const elements: HmiElement[] = [];
   const area = contentArea(config);
   const catalogMap = new Map(catalog.map((c) => [c.deviceType, c]));
-  const subsystems = specAnalysis.subsystems;
+  const units = specAnalysis.units;
 
   // Screen title
   elements.push(makeText(
@@ -360,17 +360,17 @@ export function generateOverviewScreen(
     { fontSize: 16, fontWeight: "bold", textColor: "#E0E0E0", textAlign: "center" },
   ));
 
-  // Divide area into subsystem zones
-  const zoneHeight = subsystems.length > 0
-    ? Math.floor((area.height - 40) / Math.min(subsystems.length, 4))
+  // Divide area into unit zones
+  const zoneHeight = units.length > 0
+    ? Math.floor((area.height - 40) / Math.min(units.length, 4))
     : area.height - 40;
   const zoneWidth = area.width;
 
-  subsystems.forEach((sub, si) => {
+  units.forEach((sub, si) => {
     const zoneY = area.y + 36 + si * zoneHeight;
     if (zoneY + 40 > area.y + area.height) return; // overflow guard
 
-    // Subsystem header bar
+    // Unit header bar
     elements.push(makeRect(
       nextId("ov_zone_bg"), area.x, zoneY, zoneWidth, SECTION_HEADER_HEIGHT, "#252540",
     ));
@@ -380,8 +380,8 @@ export function generateOverviewScreen(
       { fontSize: 13, fontWeight: "bold", textColor: "#CCCCFF" },
     ));
 
-    // Devices in this subsystem
-    const subDevices = devices.filter((d) => d.subsystem === sub.name);
+    // Devices in this unit
+    const subDevices = control_modules.filter((d) => d.unit === sub.name);
     const fpY = zoneY + SECTION_HEADER_HEIGHT + 4;
     const fpAreaHeight = zoneHeight - SECTION_HEADER_HEIGHT - 12;
     const fpWidth = 160;
@@ -435,7 +435,7 @@ export function generateOverviewScreen(
       }
     });
 
-    // Navigation button to subsystem checklist
+    // Navigation button to unit checklist
     elements.push(makeButton(
       nextId("ov_nav"),
       `${sub.name} Details`,
@@ -460,17 +460,17 @@ export function generateOverviewScreen(
 }
 
 // ---------------------------------------------------------------------------
-// 3. Subsystem Checklist Screen
+// 3. Unit Checklist Screen
 // ---------------------------------------------------------------------------
 
 /**
- * Generate a checklist screen for a single subsystem.
+ * Generate a checklist screen for a single unit.
  * Shows IO status, device run/fault indicators, and operator buttons.
  */
 export function generateSubsystemChecklist(
   config: HmiPanelConfig,
-  subsystem: { name: string; description: string },
-  devices: ForgeDeviceEntry[],
+  unit: { name: string; description: string },
+  control_modules: ForgeControlModuleEntry[],
   ioList: ForgeIoEntry[],
 ): HmiScreenSpec {
   const elements: HmiElement[] = [];
@@ -479,7 +479,7 @@ export function generateSubsystemChecklist(
 
   // Title
   elements.push(makeText(
-    nextId("cl_title"), `${subsystem.name} — Checklist`,
+    nextId("cl_title"), `${unit.name} — Checklist`,
     area.x, curY, area.width, 28,
     { fontSize: 15, fontWeight: "bold", textColor: "#E0E0E0" },
   ));
@@ -487,7 +487,7 @@ export function generateSubsystemChecklist(
 
   // IO Status section
   const subIo = ioList.filter((io) =>
-    devices.some((d) => d.io_signals.some((s) => s.tag_name === io.tag_name)),
+    control_modules.some((d) => d.io_signals.some((s) => s.tag_name === io.tag_name)),
   );
 
   if (subIo.length > 0) {
@@ -541,7 +541,7 @@ export function generateSubsystemChecklist(
   }
 
   // Device Status section
-  if (devices.length > 0) {
+  if (control_modules.length > 0) {
     elements.push(makeRect(
       nextId("cl_dev_bg"), area.x, curY, area.width, SECTION_HEADER_HEIGHT, "#253025",
     ));
@@ -552,10 +552,10 @@ export function generateSubsystemChecklist(
     ));
     curY += SECTION_HEADER_HEIGHT + 2;
 
-    const maxDevices = Math.min(devices.length, Math.floor((area.height - (curY - area.y) - 60) / ROW_HEIGHT));
+    const maxDevices = Math.min(control_modules.length, Math.floor((area.height - (curY - area.y) - 60) / ROW_HEIGHT));
 
     for (let i = 0; i < maxDevices; i++) {
-      const dev = devices[i];
+      const dev = control_modules[i];
       const rowY = curY + i * ROW_HEIGHT;
 
       elements.push(makeText(
@@ -605,13 +605,13 @@ export function generateSubsystemChecklist(
 
   return {
     id: nextId("screen"),
-    name: `CL_${sanitizeName(subsystem.name)}`,
+    name: `CL_${sanitizeName(unit.name)}`,
     width: config.screenWidth,
     height: config.screenHeight,
     backgroundColor: "#1E1E1E",
     elements,
-    screenRole: "subsystem_checklist",
-    subsystem: subsystem.name,
+    screenRole: "unit_checklist",
+    unit: unit.name,
     screenNumber: 0, // assigned by caller
   };
 }
@@ -627,7 +627,7 @@ export function generateSubsystemChecklist(
 export function generateDeviceChecklist(
   config: HmiPanelConfig,
   deviceType: string,
-  devices: ForgeDeviceEntry[],
+  control_modules: ForgeControlModuleEntry[],
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _catalogEntry: FaceplateCatalogEntry | undefined,
 ): HmiScreenSpec {
@@ -658,7 +658,7 @@ export function generateDeviceChecklist(
     { fontSize: 11, fontWeight: "bold", textColor: "#AACCFF" },
   ));
   elements.push(makeText(
-    nextId("dc_hdr_sub"), "Subsystem",
+    nextId("dc_hdr_sub"), "Unit",
     colSub, curY + 4, 170, 20,
     { fontSize: 11, fontWeight: "bold", textColor: "#AACCFF" },
   ));
@@ -676,12 +676,12 @@ export function generateDeviceChecklist(
 
   // Device rows
   const maxRows = Math.min(
-    devices.length,
+    control_modules.length,
     Math.floor((area.height - (curY - area.y) - 20) / ROW_HEIGHT),
   );
 
   for (let i = 0; i < maxRows; i++) {
-    const dev = devices[i];
+    const dev = control_modules[i];
     const rowY = curY + i * ROW_HEIGHT;
 
     // Alternating row background
@@ -698,7 +698,7 @@ export function generateDeviceChecklist(
     ));
 
     elements.push(makeText(
-      nextId("dc_sub"), dev.subsystem,
+      nextId("dc_sub"), dev.unit,
       colSub, rowY + 4, 170, 22,
       { fontSize: 11, textColor: "#AAAAAA" },
     ));
@@ -723,7 +723,7 @@ export function generateDeviceChecklist(
     elements,
     screenRole: "device_checklist",
     deviceType,
-    deviceNames: devices.map((d) => d.tag),
+    deviceNames: control_modules.map((d) => d.tag),
     screenNumber: 0, // assigned by caller
   };
 }
@@ -735,7 +735,7 @@ export function generateDeviceChecklist(
 export interface ScreenGeneratorInput {
   config: HmiPanelConfig;
   specAnalysis: SpecAnalysis;
-  devices: ForgeDeviceEntry[];
+  control_modules: ForgeControlModuleEntry[];
   ioList: ForgeIoEntry[];
   catalog: FaceplateCatalogEntry[];
   selectedCategories: string[];
@@ -748,7 +748,7 @@ export interface ScreenGeneratorInput {
 export function generateDeterministicScreens(
   input: ScreenGeneratorInput,
 ): HmiScreenSpec[] {
-  const { config, specAnalysis, devices, ioList, catalog, selectedCategories } = input;
+  const { config, specAnalysis, control_modules, ioList, catalog, selectedCategories } = input;
   resetIdCounter();
 
   const screens: HmiScreenSpec[] = [];
@@ -757,14 +757,14 @@ export function generateDeterministicScreens(
   // Collect screen names for navigation (framework needs to know them upfront)
   const screenNames: string[] = ["Overview"];
 
-  if (selectedCategories.includes("subsystem_checklist")) {
-    for (const sub of specAnalysis.subsystems) {
+  if (selectedCategories.includes("unit_checklist")) {
+    for (const sub of specAnalysis.units) {
       screenNames.push(`CL_${sanitizeName(sub.name)}`);
     }
   }
 
   if (selectedCategories.includes("device_checklist")) {
-    const deviceTypes = [...new Set(devices.map((d) => d.device_type))];
+    const deviceTypes = [...new Set(control_modules.map((d) => d.device_type))];
     for (const dt of deviceTypes) {
       screenNames.push(`DC_${sanitizeName(dt)}`);
     }
@@ -776,14 +776,14 @@ export function generateDeterministicScreens(
   screens.push(framework);
 
   // 2. Overview screen (always)
-  const overview = generateOverviewScreen(config, specAnalysis, devices, catalog);
+  const overview = generateOverviewScreen(config, specAnalysis, control_modules, catalog);
   overview.screenNumber = screenNum++;
   screens.push(overview);
 
-  // 3. Subsystem checklists
-  if (selectedCategories.includes("subsystem_checklist")) {
-    for (const sub of specAnalysis.subsystems) {
-      const subDevices = devices.filter((d) => d.subsystem === sub.name);
+  // 3. Unit checklists
+  if (selectedCategories.includes("unit_checklist")) {
+    for (const sub of specAnalysis.units) {
+      const subDevices = control_modules.filter((d) => d.unit === sub.name);
       const screen = generateSubsystemChecklist(config, sub, subDevices, ioList);
       screen.screenNumber = screenNum++;
       screens.push(screen);
@@ -792,9 +792,9 @@ export function generateDeterministicScreens(
 
   // 4. Device checklists
   if (selectedCategories.includes("device_checklist")) {
-    const deviceTypes = [...new Set(devices.map((d) => d.device_type))];
+    const deviceTypes = [...new Set(control_modules.map((d) => d.device_type))];
     for (const dt of deviceTypes) {
-      const typeDevices = devices.filter((d) => d.device_type === dt);
+      const typeDevices = control_modules.filter((d) => d.device_type === dt);
       const entry = catalog.find((c) => c.deviceType === dt);
       const screen = generateDeviceChecklist(config, dt, typeDevices, entry);
       screen.screenNumber = screenNum++;

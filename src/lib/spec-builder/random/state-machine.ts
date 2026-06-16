@@ -36,7 +36,7 @@ export const CANONICAL_STATES: OperatingStateV2[] = [
     packml_id: STATE_ID_STARTING,
     state_name: "Starting",
     display_name: "Starting",
-    description: "Sequential start-up of devices until the machine is ready to execute.",
+    description: "Sequential start-up of control_modules until the machine is ready to execute.",
     state_pattern: "sequential",
   },
   {
@@ -52,7 +52,7 @@ export const CANONICAL_STATES: OperatingStateV2[] = [
     packml_id: STATE_ID_STOPPING,
     state_name: "Stopping",
     display_name: "Stopping",
-    description: "Sequential shutdown of devices to a safe resting state.",
+    description: "Sequential shutdown of control_modules to a safe resting state.",
     state_pattern: "sequential",
   },
   {

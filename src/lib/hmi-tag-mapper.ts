@@ -1,5 +1,5 @@
 /**
- * HMI tag mapper — resolves Pac-Forge devices to WinCC Unified faceplate tag bindings.
+ * HMI tag mapper — resolves Pac-Forge control_modules to WinCC Unified faceplate tag bindings.
  *
  * Given a device (with its matched Open Library faceplate) this module produces the tag path
  * and field metadata that a Unified faceplate instance binds to. The actual per-field
@@ -15,7 +15,7 @@
 import type { UdtDefinition, UdtField } from "./open-library-udt-catalog";
 import { getUdtDefinition, getFieldsByDirection } from "./open-library-udt-catalog";
 import type { OpenLibraryFaceplate } from "./open-library-catalog";
-import type { ForgeDeviceEntry } from "@/types/forge";
+import type { ForgeControlModuleEntry } from "@/types/forge";
 import type { FaceplateCatalogEntry } from "@/types/hmi-panel";
 
 // ---------------------------------------------------------------------------
@@ -140,7 +140,7 @@ export function buildFaceplateTagBinding(
  * entries from the Phase 5-lite fallback path).
  */
 export function buildDeviceFaceplateBinding(
-  device: ForgeDeviceEntry,
+  device: ForgeControlModuleEntry,
   catalogEntry: FaceplateCatalogEntry,
 ): FaceplateTagBinding | null {
   const openLibraryFp: OpenLibraryFaceplate | null = catalogEntry.openLibraryFaceplate;
@@ -160,13 +160,13 @@ export function buildDeviceFaceplateBinding(
  * Devices without a matched UDT are skipped (they need Phase 5-lite manual overrides).
  */
 export function buildAllDeviceBindings(
-  devices: ForgeDeviceEntry[],
+  control_modules: ForgeControlModuleEntry[],
   catalog: FaceplateCatalogEntry[],
 ): FaceplateTagBinding[] {
   const catalogByDeviceType = new Map(catalog.map((c) => [c.deviceType, c]));
   const bindings: FaceplateTagBinding[] = [];
 
-  for (const device of devices) {
+  for (const device of control_modules) {
     const entry = catalogByDeviceType.get(device.device_type);
     if (!entry) continue;
     const binding = buildDeviceFaceplateBinding(device, entry);
@@ -177,7 +177,7 @@ export function buildAllDeviceBindings(
 }
 
 // ---------------------------------------------------------------------------
-// Coverage helpers — answer "which devices have UDT coverage?"
+// Coverage helpers — answer "which control_modules have UDT coverage?"
 // ---------------------------------------------------------------------------
 
 export interface DeviceCoverageReport {
@@ -188,11 +188,11 @@ export interface DeviceCoverageReport {
 }
 
 /**
- * Summarize how many devices in a forge session have Open Library faceplate + UDT coverage.
+ * Summarize how many control_modules in a forge session have Open Library faceplate + UDT coverage.
  * The `unmatched` list is what Phase 5-lite warns about.
  */
 export function computeDeviceCoverage(
-  devices: ForgeDeviceEntry[],
+  control_modules: ForgeControlModuleEntry[],
   catalog: FaceplateCatalogEntry[],
 ): DeviceCoverageReport {
   const catalogByDeviceType = new Map(catalog.map((c) => [c.deviceType, c]));
@@ -200,7 +200,7 @@ export function computeDeviceCoverage(
   let withUdt = 0;
   const unmatched: Array<{ deviceType: string; deviceName: string }> = [];
 
-  for (const device of devices) {
+  for (const device of control_modules) {
     const entry = catalogByDeviceType.get(device.device_type);
     if (entry?.source === "open-library") {
       withLibrary++;
@@ -213,7 +213,7 @@ export function computeDeviceCoverage(
   }
 
   return {
-    totalDevices: devices.length,
+    totalDevices: control_modules.length,
     withLibraryFaceplate: withLibrary,
     withUdtBinding: withUdt,
     unmatched,

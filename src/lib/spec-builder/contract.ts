@@ -1,8 +1,8 @@
 /**
  * Spec Contract accessor — the ONLY module allowed to read or write spec data
  * post-refactor. A future lint rule will forbid direct `supabase.from(...)` on
- * `spec_sections`, `spec_alarms`, `fds_assembly_sessions`,
- * `fds_subsystem_orchestrations`, or `spec_project_revisions` outside this file.
+ * `spec_sections`, `spec_alarms`, `fds_operation_sessions`,
+ * `fds_unit_procedures`, or `spec_project_revisions` outside this file.
  *
  * Reader API is shared by builder + forge. Writer API is builder-only — forge
  * must never import those. A runtime `assertBuilderContext()` hook is stubbed;
@@ -17,26 +17,27 @@ import { convertSignalDirection } from "@/lib/spec-builder/dialect";
 import {
   AlarmRowSchema,
   AlarmTierSchema,
-  AssemblyContractSchema,
+  EquipmentModuleContractSchema,
   HierarchySchema,
   IoListEntrySchema,
   OperatingStateV2Schema,
   SpecContractV2Schema,
   SpecSectionRowSchema,
   SpecSectionTypeSchema,
-  SubsystemStateSequenceSchema,
-  SystemOrchestrationSchema,
+  UnitProcedureSequenceSchema,
+  SystemProcedureSchema,
   OperatorModeSchema,
   ConfigParameterSchema,
   ProjectSectionTypeSchema,
   ProjectSectionContentSchema,
   ConfirmationStatusSchema,
+  ProcessModelSchema,
   type AlarmRow,
   type AlarmTier,
-  type AssemblyContract,
-  type AssemblyV2,
-  type DeviceStateEntry,
-  type DeviceV2,
+  type EquipmentModuleContract,
+  type EquipmentModuleV2,
+  type ControlModuleStateEntry,
+  type ControlModuleV2,
   type FaultRow,
   type FaultSeverity,
   type Hierarchy,
@@ -46,15 +47,16 @@ import {
   type SpecContractV2,
   type SpecSectionRow,
   type SpecSectionType,
-  type SubsystemStateSequence,
-  type SubsystemV2,
+  type UnitProcedureSequence,
+  type UnitV2,
   type IoSignalV2,
-  type SystemOrchestration,
+  type SystemProcedure,
   type OperatorMode,
   type ConfigParameter,
   type ProjectSectionType,
   type ProjectSectionContent,
   type ConfirmationStatus,
+  type ProcessModelV2,
 } from "@/types/spec-contract-v2";
 import { z } from "zod";
 
@@ -63,26 +65,26 @@ import { z } from "zod";
 // ============================================================
 
 export interface AssemblyStateView {
-  assembly_id: string;
-  subsystem_id: string;
+  equipment_module_id: string;
+  unit_id: string;
   state_id: string;
   state_pattern: "static" | "sequential";
-  static_states?: DeviceStateEntry[];
+  static_states?: ControlModuleStateEntry[];
   sequential_states?: SequentialStateV2;
 }
 
 /**
  * Typed patch for `writeSpecContract`. Full-subtree replace per top-level key.
- * Nested maps (`assemblies`, `orchestrations`) allow per-key replacement.
+ * Nested maps (`equipment_modules`, `unit_procedures`) allow per-key replacement.
  */
 export interface SpecContractPatch {
   hierarchy?: Hierarchy;
   alarms?: AlarmRow[];
   alarm_tiers?: AlarmTier[];
-  assemblies?: Record<string, AssemblyContract>;
+  equipment_modules?: Record<string, EquipmentModuleContract>;
   states?: OperatingStateV2[];
-  orchestrations?: Record<string, Record<string, SubsystemStateSequence>>;
-  system_orchestration?: SystemOrchestration;
+  unit_procedures?: Record<string, Record<string, UnitProcedureSequence>>;
+  system_orchestration?: SystemProcedure;
   io_list?: IoListEntry[];
   faults?: FaultRow[];
   sections?: Partial<Record<SpecSectionType, SpecSectionRow[]>>;
@@ -91,18 +93,19 @@ export interface SpecContractPatch {
   configuration_parameters?: ConfigParameter[];
   section_overrides?: Partial<Record<ProjectSectionType, ProjectSectionContent>>;
   confirmation_status?: ConfirmationStatus;
+  process_model?: ProcessModelV2 | null;
 }
 
 export const SpecContractPatchSchema = z.object({
   hierarchy: HierarchySchema.optional(),
   alarms: z.array(AlarmRowSchema).optional(),
   alarm_tiers: z.array(AlarmTierSchema).optional(),
-  assemblies: z.record(z.string(), AssemblyContractSchema).optional(),
+  equipment_modules: z.record(z.string(), EquipmentModuleContractSchema).optional(),
   states: z.array(OperatingStateV2Schema).optional(),
-  orchestrations: z
-    .record(z.string(), z.record(z.string(), SubsystemStateSequenceSchema))
+  unit_procedures: z
+    .record(z.string(), z.record(z.string(), UnitProcedureSequenceSchema))
     .optional(),
-  system_orchestration: SystemOrchestrationSchema.optional(),
+  system_orchestration: SystemProcedureSchema.optional(),
   io_list: z.array(IoListEntrySchema).optional(),
   faults: z
     .array(
@@ -111,7 +114,7 @@ export const SpecContractPatchSchema = z.object({
         description: z.string(),
         triggered_by_tag: z.string(),
         severity: z.enum(["warning", "fault"]),
-        affected_devices: z.array(z.string()),
+        affected_control_modules: z.array(z.string()),
         action_text: z.string(),
       }),
     )
@@ -126,6 +129,7 @@ export const SpecContractPatchSchema = z.object({
     .partialRecord(ProjectSectionTypeSchema, ProjectSectionContentSchema)
     .optional(),
   confirmation_status: ConfirmationStatusSchema.optional(),
+  process_model: ProcessModelSchema.nullable().optional(),
 });
 
 /**
@@ -192,29 +196,29 @@ async function fetchAssemblySessions(specProjectId: string): Promise<
   Record<string, unknown>[]
 > {
   const { data, error } = await supabase
-    .from("fds_assembly_sessions")
+    .from("fds_operation_sessions")
     .select("*")
     .eq("spec_project_id", specProjectId);
-  if (error) throw new Error(`loadSpecContract: assembly sessions fetch failed: ${error.message}`);
+  if (error) throw new Error(`loadSpecContract: equipment_module sessions fetch failed: ${error.message}`);
   return (data ?? []) as Record<string, unknown>[];
 }
 
-async function fetchSubsystemOrchestrations(specProjectId: string): Promise<
+async function fetchUnitProcedures(specProjectId: string): Promise<
   Record<string, unknown>[]
 > {
   const { data, error } = await supabase
-    .from("fds_subsystem_orchestrations")
+    .from("fds_unit_procedures")
     .select("*")
     .eq("spec_project_id", specProjectId);
-  if (error) throw new Error(`loadSpecContract: orchestrations fetch failed: ${error.message}`);
+  if (error) throw new Error(`loadSpecContract: unit_procedures fetch failed: ${error.message}`);
   return (data ?? []) as Record<string, unknown>[];
 }
 
-async function fetchSystemOrchestrationRow(
+async function fetchSystemProcedureRow(
   specProjectId: string,
 ): Promise<Record<string, unknown> | null> {
   const { data, error } = await supabase
-    .from("fds_system_orchestrations")
+    .from("fds_system_procedures")
     .select("*")
     .eq("spec_project_id", specProjectId)
     .maybeSingle();
@@ -229,21 +233,21 @@ async function fetchSystemOrchestrationRow(
  * Public — load the system orchestration row for a project, if any.
  * Returns null when no row exists yet.
  */
-export async function loadSystemOrchestration(
+export async function loadSystemProcedure(
   specProjectId: string,
-): Promise<SystemOrchestration | null> {
-  const row = await fetchSystemOrchestrationRow(specProjectId);
+): Promise<SystemProcedure | null> {
+  const row = await fetchSystemProcedureRow(specProjectId);
   if (!row) return null;
-  return SystemOrchestrationSchema.parse(row);
+  return SystemProcedureSchema.parse(row);
 }
 
 async function fetchAlarmRows(
   specProjectId: string,
-  opts?: { deviceId?: string; assemblyId?: string; tierId?: string },
+  opts?: { deviceId?: string; equipment_moduleId?: string; tierId?: string },
 ): Promise<Record<string, unknown>[]> {
   let q = supabase.from("spec_alarms").select("*").eq("spec_project_id", specProjectId);
-  if (opts?.deviceId) q = q.eq("device_id", opts.deviceId);
-  if (opts?.assemblyId) q = q.eq("assembly_id", opts.assemblyId);
+  if (opts?.deviceId) q = q.eq("control_module_id", opts.deviceId);
+  if (opts?.equipment_moduleId) q = q.eq("equipment_module_id", opts.equipment_moduleId);
   if (opts?.tierId) q = q.eq("tier_id", opts.tierId);
   const { data, error } = await q;
   if (error) throw new Error(`loadAlarms: fetch failed: ${error.message}`);
@@ -296,23 +300,23 @@ function resolveLegacyStateId(
 }
 
 /**
- * Longest-shared-prefix match (min 4 chars). Returns the device_id whose tag
+ * Longest-shared-prefix match (min 4 chars). Returns the control_module_id whose tag
  * shares the longest prefix with the alarm tag, restricted to a single
- * assembly. Below threshold → null.
+ * equipment_module. Below threshold → null.
  */
 function bestTagPrefixMatch(
   alarmTag: string,
-  devices: DeviceV2[],
+  control_modules: ControlModuleV2[],
 ): string | null {
   const MIN = 4;
   let bestId: string | null = null;
   let bestLen = 0;
-  for (const d of devices) {
+  for (const d of control_modules) {
     for (const sig of d.io_signals) {
       const shared = sharedPrefixLength(alarmTag, sig.tag);
       if (shared > bestLen && shared >= MIN) {
         bestLen = shared;
-        bestId = d.device_id;
+        bestId = d.control_module_id;
       }
     }
   }
@@ -327,18 +331,18 @@ function sharedPrefixLength(a: string, b: string): number {
 }
 
 /**
- * Build the hierarchy sub-tree from legacy `confirmed_subsystems` + ensure
+ * Build the hierarchy sub-tree from legacy `confirmed_units` + ensure
  * every IoSignal signal_type is canonical IEC.
  */
 function buildHierarchyFromLegacy(
   projectRow: Record<string, unknown>,
 ): Hierarchy {
-  const subs = (projectRow.confirmed_subsystems ?? []) as Record<string, unknown>[];
-  const subsystems: SubsystemV2[] = subs.map((s) => {
-    const assembliesRaw = (s.assemblies ?? []) as Record<string, unknown>[];
-    const assemblies: AssemblyV2[] = assembliesRaw.map((a) => {
-      const devicesRaw = (a.devices ?? []) as Record<string, unknown>[];
-      const devices: DeviceV2[] = devicesRaw.map((d) => {
+  const subs = (projectRow.confirmed_units ?? []) as Record<string, unknown>[];
+  const units: UnitV2[] = subs.map((s) => {
+    const equipment_modulesRaw = (s.equipment_modules ?? []) as Record<string, unknown>[];
+    const equipment_modules: EquipmentModuleV2[] = equipment_modulesRaw.map((a) => {
+      const control_modulesRaw = (a.control_modules ?? []) as Record<string, unknown>[];
+      const control_modules: ControlModuleV2[] = control_modulesRaw.map((d) => {
         const signalsRaw = (d.io_signals ?? []) as Record<string, unknown>[];
         const io_signals: IoSignalV2[] = signalsRaw.map((sig) => ({
           tag: String(sig.tag ?? ""),
@@ -351,55 +355,55 @@ function buildHierarchyFromLegacy(
             (sig.direction_overlay as IoSignalV2["direction_overlay"]) ?? undefined,
         }));
         return {
-          device_id: String(d.device_id ?? ""),
-          device_name: String(d.device_name ?? ""),
-          device_class: String(d.device_class ?? "other"),
+          control_module_id: String(d.control_module_id ?? ""),
+          control_module_name: String(d.control_module_name ?? ""),
+          control_module_class: String(d.control_module_class ?? "other"),
           is_safety: Boolean(d.is_safety),
           description: String(d.description ?? ""),
           io_signals,
-          network_config: (d.network_config as DeviceV2["network_config"]) ?? undefined,
+          network_config: (d.network_config as ControlModuleV2["network_config"]) ?? undefined,
         };
       });
       return {
-        assembly_id: String(a.assembly_id ?? ""),
-        assembly_name: String(a.assembly_name ?? ""),
+        equipment_module_id: String(a.equipment_module_id ?? ""),
+        equipment_module_name: String(a.equipment_module_name ?? ""),
         description: String(a.description ?? ""),
-        devices,
+        control_modules,
       };
     });
     return {
-      subsystem_id: String(s.subsystem_id ?? ""),
-      subsystem_name: String(s.subsystem_name ?? ""),
+      unit_id: String(s.unit_id ?? ""),
+      unit_name: String(s.unit_name ?? ""),
       equipment_type: String(s.equipment_type ?? "Other"),
       description: String(s.description ?? ""),
       excluded: Boolean(s.excluded),
-      assemblies,
+      equipment_modules,
     };
   });
-  return { subsystems };
+  return { units };
 }
 
 /**
- * Upgrade legacy per-assembly session rows into AssemblyContract entries,
- * keyed by assembly_id. Prefers `static_states_v2` (already keyed by
+ * Upgrade legacy per-equipment_module session rows into EquipmentModuleContract entries,
+ * keyed by equipment_module_id. Prefers `static_states_v2` (already keyed by
  * state_id); otherwise converts legacy `static_states` (keyed by state_name).
  */
-function upgradeAssemblyContracts(
-  assemblySessions: Record<string, unknown>[],
+function upgradeEquipmentModuleContracts(
+  equipment_moduleSessions: Record<string, unknown>[],
   ctx: UpgradeContext,
-): Record<string, AssemblyContract> {
-  const out: Record<string, AssemblyContract> = {};
-  for (const s of assemblySessions) {
-    const assembly_id = String(s.assembly_id ?? "");
-    const subsystem_id = String(s.subsystem_id ?? "");
-    if (!assembly_id) continue;
+): Record<string, EquipmentModuleContract> {
+  const out: Record<string, EquipmentModuleContract> = {};
+  for (const s of equipment_moduleSessions) {
+    const equipment_module_id = String(s.equipment_module_id ?? "");
+    const unit_id = String(s.unit_id ?? "");
+    if (!equipment_module_id) continue;
 
-    let staticStates: Record<string, DeviceStateEntry[]> = {};
+    let staticStates: Record<string, ControlModuleStateEntry[]> = {};
     if (s.static_states_v2 && typeof s.static_states_v2 === "object") {
-      staticStates = s.static_states_v2 as Record<string, DeviceStateEntry[]>;
+      staticStates = s.static_states_v2 as Record<string, ControlModuleStateEntry[]>;
     } else if (s.static_states && typeof s.static_states === "object") {
       // Legacy map was keyed by state_name — convert to state_id keys.
-      const legacy = s.static_states as Record<string, DeviceStateEntry[]>;
+      const legacy = s.static_states as Record<string, ControlModuleStateEntry[]>;
       for (const [key, value] of Object.entries(legacy)) {
         const mapped = resolveLegacyStateId(key, ctx) ?? key;
         staticStates[mapped] = value;
@@ -413,9 +417,9 @@ function upgradeAssemblyContracts(
       sequentialStates[mapped] = value as SequentialStateV2;
     }
 
-    out[assembly_id] = {
-      assembly_id,
-      subsystem_id,
+    out[equipment_module_id] = {
+      equipment_module_id,
+      unit_id,
       static_states: staticStates,
       sequential_states: sequentialStates,
     };
@@ -426,26 +430,26 @@ function upgradeAssemblyContracts(
 function upgradeOrchestrations(
   rows: Record<string, unknown>[],
   ctx: UpgradeContext,
-): Record<string, Record<string, SubsystemStateSequence>> {
-  const out: Record<string, Record<string, SubsystemStateSequence>> = {};
+): Record<string, Record<string, UnitProcedureSequence>> {
+  const out: Record<string, Record<string, UnitProcedureSequence>> = {};
   for (const row of rows) {
-    const subsystem_id = String(row.subsystem_id ?? "");
-    if (!subsystem_id) continue;
+    const unit_id = String(row.unit_id ?? "");
+    if (!unit_id) continue;
     const sequences = (row.state_sequences ?? {}) as Record<string, unknown>;
-    const mapped: Record<string, SubsystemStateSequence> = {};
+    const mapped: Record<string, UnitProcedureSequence> = {};
     for (const [key, value] of Object.entries(sequences)) {
       const stateId = resolveLegacyStateId(key, ctx) ?? key;
-      mapped[stateId] = value as SubsystemStateSequence;
+      mapped[stateId] = value as UnitProcedureSequence;
     }
-    out[subsystem_id] = mapped;
+    out[unit_id] = mapped;
   }
   return out;
 }
 
 /**
- * Upgrade spec_section rows: legacy rows use `state_name` + `subsystem_id`;
- * per-subsystem functional_description rows fan out into per-assembly copies.
- * Each fan-out carries `provenance: "fanout_from_subsystem"` so downstream
+ * Upgrade spec_section rows: legacy rows use `state_name` + `unit_id`;
+ * per-unit functional_description rows fan out into per-equipment_module copies.
+ * Each fan-out carries `provenance: "fanout_from_unit"` so downstream
  * consumers can track origin.
  */
 function upgradeSections(
@@ -456,7 +460,7 @@ function upgradeSections(
   const out: SpecSectionRow[] = [];
   for (const row of sectionRows) {
     const section_type = String(row.section_type ?? "") as SpecSectionType;
-    const hasAssemblyId = Boolean(row.assembly_id);
+    const hasAssemblyId = Boolean(row.equipment_module_id);
     const isFunctionalDesc = section_type === "functional_description";
     const stateId =
       (row.state_id as string | null | undefined) ??
@@ -466,14 +470,14 @@ function upgradeSections(
       id: String(row.id ?? ""),
       spec_project_id: String(row.spec_project_id ?? ""),
       section_type,
-      subsystem_id: (row.subsystem_id as string | null) ?? null,
-      assembly_id: (row.assembly_id as string | null) ?? null,
+      unit_id: (row.unit_id as string | null) ?? null,
+      equipment_module_id: (row.equipment_module_id as string | null) ?? null,
       state_id: stateId ?? null,
       state_pattern:
         (row.state_pattern as "static" | "sequential" | null) ?? null,
       granularity:
-        (row.granularity as "assembly_state" | "subsystem" | "project") ??
-        "assembly_state",
+        (row.granularity as "equipment_module_state" | "unit" | "project") ??
+        "equipment_module_state",
       content_json: (row.content_json as Record<string, unknown>) ?? {},
       content_markdown: (row.content_markdown as string | null) ?? null,
       model_used: (row.model_used as string | null) ?? null,
@@ -486,17 +490,17 @@ function upgradeSections(
       updated_at: String(row.updated_at ?? new Date(0).toISOString()),
     };
 
-    if (isFunctionalDesc && !hasAssemblyId && base.subsystem_id) {
-      const sub = hierarchy.subsystems.find((s) => s.subsystem_id === base.subsystem_id);
+    if (isFunctionalDesc && !hasAssemblyId && base.unit_id) {
+      const sub = hierarchy.units.find((s) => s.unit_id === base.unit_id);
       if (sub) {
-        for (const asm of sub.assemblies) {
+        for (const asm of sub.equipment_modules) {
           out.push({
             ...base,
-            assembly_id: asm.assembly_id,
-            granularity: "assembly_state",
+            equipment_module_id: asm.equipment_module_id,
+            granularity: "equipment_module_state",
             content_json: {
               ...base.content_json,
-              provenance: "fanout_from_subsystem",
+              provenance: "fanout_from_unit",
             },
           });
         }
@@ -514,26 +518,26 @@ function upgradeAlarms(
   hierarchy: Hierarchy,
 ): AlarmRow[] {
   return alarmRows.map((row) => {
-    const assemblyId = (row.assembly_id as string | null) ?? null;
-    let deviceId = (row.device_id as string | null) ?? null;
+    const equipment_moduleId = (row.equipment_module_id as string | null) ?? null;
+    let deviceId = (row.control_module_id as string | null) ?? null;
     const tag = String(row.tag ?? "");
     let linkProvenance: "explicit" | "auto" = deviceId ? "explicit" : "auto";
 
-    if (!deviceId && assemblyId) {
-      // Restrict candidate devices to the same assembly.
-      for (const sub of hierarchy.subsystems) {
-        const asm = sub.assemblies.find((a) => a.assembly_id === assemblyId);
+    if (!deviceId && equipment_moduleId) {
+      // Restrict candidate control_modules to the same equipment_module.
+      for (const sub of hierarchy.units) {
+        const asm = sub.equipment_modules.find((a) => a.equipment_module_id === equipment_moduleId);
         if (asm) {
-          deviceId = bestTagPrefixMatch(tag, asm.devices);
+          deviceId = bestTagPrefixMatch(tag, asm.control_modules);
           linkProvenance = "auto";
           break;
         }
       }
     } else if (!deviceId) {
-      // No assembly hint — search across all devices.
-      const all: DeviceV2[] = [];
-      for (const sub of hierarchy.subsystems) {
-        for (const asm of sub.assemblies) all.push(...asm.devices);
+      // No equipment_module hint — search across all control_modules.
+      const all: ControlModuleV2[] = [];
+      for (const sub of hierarchy.units) {
+        for (const asm of sub.equipment_modules) all.push(...asm.control_modules);
       }
       deviceId = bestTagPrefixMatch(tag, all);
       linkProvenance = "auto";
@@ -543,9 +547,9 @@ function upgradeAlarms(
     return {
       id: String(row.id ?? ""),
       tier_id: String(row.tier_id ?? ""),
-      device_id: deviceId,
-      assembly_id: assemblyId,
-      subsystem_id: (row.subsystem_id as string | null) ?? null,
+      control_module_id: deviceId,
+      equipment_module_id: equipment_moduleId,
+      unit_id: (row.unit_id as string | null) ?? null,
       tag,
       description: String(row.description ?? ""),
       action: String(row.action ?? ""),
@@ -565,20 +569,20 @@ function upgradeAlarms(
  */
 function deriveIoList(hierarchy: Hierarchy): IoListEntry[] {
   const out: IoListEntry[] = [];
-  for (const sub of hierarchy.subsystems) {
-    for (const asm of sub.assemblies) {
-      for (const dev of asm.devices) {
+  for (const sub of hierarchy.units) {
+    for (const asm of sub.equipment_modules) {
+      for (const dev of asm.control_modules) {
         for (const sig of dev.io_signals) {
           out.push({
             tag: sig.tag,
-            device_type: dev.device_class,
+            device_type: dev.control_module_class,
             description: sig.description,
             signal_type: convertSignalDirection(String(sig.signal_type)),
             io_address: sig.io_address,
             normal_state: "",
             failsafe_state: "",
-            assembly_id: asm.assembly_id,
-            device_id: dev.device_id,
+            equipment_module_id: asm.equipment_module_id,
+            control_module_id: dev.control_module_id,
           });
         }
       }
@@ -593,7 +597,7 @@ function deriveIoList(hierarchy: Hierarchy): IoListEntry[] {
  */
 function deriveFaults(
   alarms: AlarmRow[],
-  assemblies: Record<string, AssemblyContract>,
+  equipment_modules: Record<string, EquipmentModuleContract>,
 ): FaultRow[] {
   const byCode = new Map<string, FaultRow>();
 
@@ -608,14 +612,14 @@ function deriveFaults(
         triggered_by_tag: a.tag,
         severity:
           a.tier_id === "warning" ? "warning" : ("fault" as FaultSeverity),
-        affected_devices: a.device_id ? [a.device_id] : [],
+        affected_control_modules: a.control_module_id ? [a.control_module_id] : [],
         action_text: a.action,
       });
     }
   }
 
   // Pass 2: walk FaultRef references inside sequential state completion criteria.
-  for (const asm of Object.values(assemblies)) {
+  for (const asm of Object.values(equipment_modules)) {
     for (const seq of Object.values(asm.sequential_states)) {
       for (const step of seq.steps) {
         const onFails: { fault_code: string; severity: FaultSeverity }[] = [];
@@ -630,7 +634,7 @@ function deriveFaults(
               description: "",
               triggered_by_tag: "",
               severity: ref.severity,
-              affected_devices: [],
+              affected_control_modules: [],
               action_text: "",
             });
           }
@@ -645,7 +649,7 @@ function deriveFaults(
 }
 
 // ============================================================
-// Assembly: either live rows (v2) or legacy shim
+// Equipment Module: either live rows (v2) or legacy shim
 // ============================================================
 
 function toProjectHeader(projectRow: Record<string, unknown>): SpecContractV2["project"] {
@@ -677,7 +681,7 @@ function toAlarmTiers(projectRow: Record<string, unknown>): SpecContractV2["alar
 
 function indexSections(rows: SpecSectionRow[]): Record<string, SpecSectionRow[]> {
   // Contract schema keys sections by section_type; each key holds an array so
-  // per-(subsystem, state) `functional_description` rows can coexist. Arrays
+  // per-(unit, state) `functional_description` rows can coexist. Arrays
   // are sorted by updated_at ASC so the last element is the most recent.
   //
   // Pre-populate every SpecSectionType enum key with [] so SpecContractV2Schema
@@ -707,27 +711,27 @@ async function upgradeLegacyRow(
   projectRow: Record<string, unknown>,
 ): Promise<SpecContractV2> {
   const ctx = buildUpgradeContext(projectRow);
-  const [sectionRows, assemblySessions, orchestrationRows, alarmRows] =
+  const [sectionRows, equipment_moduleSessions, orchestrationRows, alarmRows] =
     await Promise.all([
       fetchSectionsRows(String(projectRow.id)),
       fetchAssemblySessions(String(projectRow.id)),
-      fetchSubsystemOrchestrations(String(projectRow.id)),
+      fetchUnitProcedures(String(projectRow.id)),
       fetchAlarmRows(String(projectRow.id)),
     ]);
 
   const hierarchy = buildHierarchyFromLegacy(projectRow);
-  const assemblies = upgradeAssemblyContracts(assemblySessions, ctx);
-  const orchestrations = upgradeOrchestrations(orchestrationRows, ctx);
+  const equipment_modules = upgradeEquipmentModuleContracts(equipment_moduleSessions, ctx);
+  const unit_procedures = upgradeOrchestrations(orchestrationRows, ctx);
   const upgradedSections = upgradeSections(sectionRows, hierarchy, ctx);
   const alarms = upgradeAlarms(alarmRows, hierarchy);
   const io_list = deriveIoList(hierarchy);
-  const faults = deriveFaults(alarms, assemblies);
-  const system_orchestration = await loadSystemOrchestration(
+  const faults = deriveFaults(alarms, equipment_modules);
+  const system_orchestration = await loadSystemProcedure(
     String(projectRow.id),
   );
 
   const contract: SpecContractV2 = {
-    schema_version: 2,
+    schema_version: 3,
     // Legacy upgrade path serves projects that have not gone through Phase 2
     // confirmation; mark unconfirmed (Task 10).
     confirmation_status: "unconfirmed",
@@ -735,9 +739,9 @@ async function upgradeLegacyRow(
     hierarchy,
     states: ctx.confirmedStates,
     alarm_tiers: toAlarmTiers(projectRow),
-    assemblies,
-    orchestrations,
-    system_orchestration,
+    equipment_modules,
+    unit_procedures,
+    system_procedure: system_orchestration,
     alarms,
     io_list,
     faults,
@@ -755,10 +759,10 @@ async function assembleLiveV2(
   projectRow: Record<string, unknown>,
 ): Promise<SpecContractV2> {
   // The live V2 data model is still being wired up in later waves. Until then,
-  // fall through to the same assembly path as the legacy shim — the shape is
+  // fall through to the same equipment_module path as the legacy shim — the shape is
   // identical; only the raw column choices differ. Any V2 writer that lands
   // before this fallback is replaced must produce rows that the same
-  // assembly/alarm/section loaders can consume.
+  // equipment_module/alarm/section loaders can consume.
   return upgradeLegacyRow(projectRow);
 }
 
@@ -853,20 +857,22 @@ export async function loadSpecContract(
         | Partial<Record<ProjectSectionType, ProjectSectionContent>>
         | null) ?? undefined,
     confirmation_status: confirmationStatus,
+    process_model:
+      (projectRow.process_model as ProcessModelV2 | null) ?? undefined,
   });
 }
 
 export async function loadAssemblyStates(
   specProjectId: string,
-  assemblyId: string,
+  equipment_moduleId: string,
   stateId?: string,
 ): Promise<AssemblyStateView | AssemblyStateView[]> {
   const contract = await loadSpecContract(specProjectId);
-  const asm = contract.assemblies[assemblyId];
+  const asm = contract.equipment_modules[equipment_moduleId];
   if (!asm) {
     return stateId ? ({
-      assembly_id: assemblyId,
-      subsystem_id: "",
+      equipment_module_id: equipment_moduleId,
+      unit_id: "",
       state_id: stateId,
       state_pattern: "static",
     } as AssemblyStateView) : [];
@@ -883,17 +889,17 @@ export async function loadAssemblyStates(
   const buildView = (sid: string): AssemblyStateView => {
     const meta = statesById.get(sid);
     const pattern: "static" | "sequential" = meta?.state_pattern ?? "static";
-    // static_states was widened in Task 8 to `DeviceStateEntry[] | StaticStateV2`.
-    // AssemblyStateView still expects `DeviceStateEntry[] | undefined`; unwrap.
+    // static_states was widened in Task 8 to `ControlModuleStateEntry[] | StaticStateV2`.
+    // EquipmentModuleStateView still expects `ControlModuleStateEntry[] | undefined`; unwrap.
     const rawStatic = asm.static_states[sid];
     const staticEntries = rawStatic
       ? Array.isArray(rawStatic)
         ? rawStatic
-        : rawStatic.devices
+        : rawStatic.control_modules
       : undefined;
     return {
-      assembly_id: asm.assembly_id,
-      subsystem_id: asm.subsystem_id,
+      equipment_module_id: asm.equipment_module_id,
+      unit_id: asm.unit_id,
       state_id: sid,
       state_pattern: pattern,
       static_states: staticEntries,
@@ -913,12 +919,12 @@ export async function loadAssemblyStates(
 export async function loadAlarms(opts: {
   specProjectId: string;
   deviceId?: string;
-  assemblyId?: string;
+  equipment_moduleId?: string;
   tierId?: string;
 }): Promise<AlarmRow[]> {
   const rows = await fetchAlarmRows(opts.specProjectId, {
     deviceId: opts.deviceId,
-    assemblyId: opts.assemblyId,
+    equipment_moduleId: opts.equipment_moduleId,
     tierId: opts.tierId,
   });
   // Alarms live in spec_alarms directly (no dialect, no shim needed on read).
@@ -926,9 +932,9 @@ export async function loadAlarms(opts: {
     AlarmRowSchema.parse({
       id: String(r.id ?? ""),
       tier_id: String(r.tier_id ?? ""),
-      device_id: (r.device_id as string | null) ?? null,
-      assembly_id: (r.assembly_id as string | null) ?? null,
-      subsystem_id: (r.subsystem_id as string | null) ?? null,
+      control_module_id: (r.control_module_id as string | null) ?? null,
+      equipment_module_id: (r.equipment_module_id as string | null) ?? null,
+      unit_id: (r.unit_id as string | null) ?? null,
       tag: String(r.tag ?? ""),
       description: String(r.description ?? ""),
       action: String(r.action ?? ""),
@@ -946,16 +952,16 @@ export async function loadHierarchy(specProjectId: string): Promise<Hierarchy> {
 
 export async function loadOrchestration(
   specProjectId: string,
-  subsystemId: string,
+  unitId: string,
   stateId?: string,
-): Promise<SubsystemStateSequence | Record<string, SubsystemStateSequence>> {
+): Promise<UnitProcedureSequence | Record<string, UnitProcedureSequence>> {
   const contract = await loadSpecContract(specProjectId);
-  const forSub = contract.orchestrations[subsystemId] ?? {};
+  const forSub = contract.unit_procedures[unitId] ?? {};
   if (stateId) {
     const seq = forSub[stateId];
     if (!seq) {
       throw new Error(
-        `loadOrchestration: no sequence for subsystem=${subsystemId} state=${stateId}`,
+        `loadOrchestration: no sequence for unit=${unitId} state=${stateId}`,
       );
     }
     return seq;
@@ -965,12 +971,12 @@ export async function loadOrchestration(
 
 export async function loadIoList(
   specProjectId: string,
-  opts?: { assemblyId?: string },
+  opts?: { equipment_moduleId?: string },
 ): Promise<IoListEntry[]> {
   const contract = await loadSpecContract(specProjectId);
   const list = contract.io_list;
-  if (opts?.assemblyId) {
-    return list.filter((e) => e.assembly_id === opts.assemblyId);
+  if (opts?.equipment_moduleId) {
+    return list.filter((e) => e.equipment_module_id === opts.equipment_moduleId);
   }
   return list;
 }
@@ -993,7 +999,7 @@ export async function loadOperatingStates(
 
 /**
  * Apply a typed patch to the live contract. Each top-level key replaces its
- * sub-tree in full. Nested maps (`assemblies`, `orchestrations`) replace
+ * sub-tree in full. Nested maps (`equipment_modules`, `unit_procedures`) replace
  * per-key. Patch is Zod-validated before any write occurs.
  *
  * Note: concrete persistence for non-alarm keys is deferred to later waves
@@ -1024,9 +1030,9 @@ export async function writeSpecContract(
         id: a.id || undefined,
         spec_project_id: specProjectId,
         tier_id: a.tier_id,
-        device_id: a.device_id,
-        assembly_id: a.assembly_id,
-        subsystem_id: a.subsystem_id,
+        control_module_id: a.control_module_id,
+        equipment_module_id: a.equipment_module_id,
+        unit_id: a.unit_id,
         tag: a.tag,
         description: a.description,
         action: a.action,
@@ -1042,7 +1048,7 @@ export async function writeSpecContract(
   // ---- hierarchy / states / alarm_tiers all live on spec_projects ----
   const projectUpdate: Record<string, unknown> = {};
   if (parsed.hierarchy) {
-    projectUpdate.confirmed_subsystems = parsed.hierarchy.subsystems;
+    projectUpdate.confirmed_units = parsed.hierarchy.units;
   }
   if (parsed.states) {
     projectUpdate.confirmed_states = parsed.states;
@@ -1062,6 +1068,9 @@ export async function writeSpecContract(
   if (parsed.confirmation_status !== undefined) {
     projectUpdate.confirmation_status = parsed.confirmation_status;
   }
+  if (parsed.process_model !== undefined) {
+    projectUpdate.process_model = parsed.process_model;
+  }
   if (Object.keys(projectUpdate).length > 0) {
     const { error: updErr } = await supabase
       .from("spec_projects")
@@ -1070,47 +1079,47 @@ export async function writeSpecContract(
     if (updErr) throw new Error(`writeSpecContract.project update: ${updErr.message}`);
   }
 
-  // ---- assemblies → fds_assembly_sessions (upsert per assembly) ----
-  if (parsed.assemblies) {
-    for (const asm of Object.values(parsed.assemblies)) {
+  // ---- equipment_modules → fds_operation_sessions (upsert per equipment_module) ----
+  if (parsed.equipment_modules) {
+    for (const asm of Object.values(parsed.equipment_modules)) {
       const row = {
         spec_project_id: specProjectId,
-        subsystem_id: asm.subsystem_id,
-        assembly_id: asm.assembly_id,
+        unit_id: asm.unit_id,
+        equipment_module_id: asm.equipment_module_id,
         status: "complete",
         static_confirmed: true,
         static_states_v2: asm.static_states,
         sequential_states: asm.sequential_states,
       };
       const { error } = await supabase
-        .from("fds_assembly_sessions")
-        .upsert(row, { onConflict: "spec_project_id,assembly_id" });
+        .from("fds_operation_sessions")
+        .upsert(row, { onConflict: "spec_project_id,equipment_module_id" });
       if (error)
         throw new Error(
-          `writeSpecContract.assemblies upsert (${asm.assembly_id}): ${error.message}`,
+          `writeSpecContract.equipment_modules upsert (${asm.equipment_module_id}): ${error.message}`,
         );
     }
   }
 
-  // ---- orchestrations → fds_subsystem_orchestrations (upsert per subsystem) ----
-  if (parsed.orchestrations) {
-    for (const [subsystemId, stateSequences] of Object.entries(parsed.orchestrations)) {
+  // ---- unit_procedures → fds_unit_procedures (upsert per unit) ----
+  if (parsed.unit_procedures) {
+    for (const [unitId, stateSequences] of Object.entries(parsed.unit_procedures)) {
       const row = {
         spec_project_id: specProjectId,
-        subsystem_id: subsystemId,
+        unit_id: unitId,
         state_sequences: stateSequences,
       };
       const { error } = await supabase
-        .from("fds_subsystem_orchestrations")
-        .upsert(row, { onConflict: "spec_project_id,subsystem_id" });
+        .from("fds_unit_procedures")
+        .upsert(row, { onConflict: "spec_project_id,unit_id" });
       if (error)
         throw new Error(
-          `writeSpecContract.orchestrations upsert (${subsystemId}): ${error.message}`,
+          `writeSpecContract.unit_procedures upsert (${unitId}): ${error.message}`,
         );
     }
   }
 
-  // ---- system_orchestration → fds_system_orchestrations (single row upsert) ----
+  // ---- system_orchestration → fds_system_procedures (single row upsert) ----
   if (parsed.system_orchestration) {
     const so = parsed.system_orchestration;
     const row: Record<string, unknown> = {
@@ -1123,7 +1132,7 @@ export async function writeSpecContract(
       row.validation_results = so.validation_results;
     }
     const { error } = await supabase
-      .from("fds_system_orchestrations")
+      .from("fds_system_procedures")
       .upsert(row, { onConflict: "spec_project_id" });
     if (error)
       throw new Error(
@@ -1148,8 +1157,8 @@ export async function writeSpecContract(
         // Omit id so Postgres generates a fresh uuid for the new row.
         spec_project_id: specProjectId,
         section_type: r.section_type,
-        subsystem_id: r.subsystem_id,
-        assembly_id: r.assembly_id,
+        unit_id: r.unit_id,
+        equipment_module_id: r.equipment_module_id,
         state_id: r.state_id,
         state_pattern: r.state_pattern,
         granularity: r.granularity,
@@ -1192,9 +1201,9 @@ export async function upsertAlarm(
     id: alarm.id || undefined,
     spec_project_id: specProjectId,
     tier_id: alarm.tier_id ?? "",
-    device_id: alarm.device_id ?? null,
-    assembly_id: alarm.assembly_id ?? null,
-    subsystem_id: alarm.subsystem_id ?? null,
+    control_module_id: alarm.control_module_id ?? null,
+    equipment_module_id: alarm.equipment_module_id ?? null,
+    unit_id: alarm.unit_id ?? null,
     tag: alarm.tag ?? "",
     description: alarm.description ?? "",
     action: alarm.action ?? "",
@@ -1212,12 +1221,12 @@ export async function upsertAlarm(
   return AlarmRowSchema.parse({
     id: String((data as Record<string, unknown>).id ?? ""),
     tier_id: String((data as Record<string, unknown>).tier_id ?? ""),
-    device_id:
-      ((data as Record<string, unknown>).device_id as string | null) ?? null,
-    assembly_id:
-      ((data as Record<string, unknown>).assembly_id as string | null) ?? null,
-    subsystem_id:
-      ((data as Record<string, unknown>).subsystem_id as string | null) ?? null,
+    control_module_id:
+      ((data as Record<string, unknown>).control_module_id as string | null) ?? null,
+    equipment_module_id:
+      ((data as Record<string, unknown>).equipment_module_id as string | null) ?? null,
+    unit_id:
+      ((data as Record<string, unknown>).unit_id as string | null) ?? null,
     tag: String((data as Record<string, unknown>).tag ?? ""),
     description: String((data as Record<string, unknown>).description ?? ""),
     action: String((data as Record<string, unknown>).action ?? ""),
@@ -1250,10 +1259,10 @@ type ParsedPatch = z.infer<typeof SpecContractPatchSchema>;
  *
  * Checks (wave A):
  *   1. Global IO tag uniqueness across the hierarchy.
- *   2. System-level interlocks reference subsystems only (not assemblies).
+ *   2. System-level interlocks reference units only (not equipment_modules).
  *   3. Cycle detection on hold/block_transition/disable system interlocks.
- *   4. Subsystem-level inter-assembly interlocks must stay within the
- *      same subsystem.
+ *   4. Unit-level inter-equipment_module interlocks must stay within the
+ *      same unit.
  *   5. SFC: no cross-branch transitions; sequence_model_version=2 requires
  *      step_id + transitions populated on non-terminal steps.
  */
@@ -1307,9 +1316,9 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
   }
 
   // FDS Engine Phase 1: override_kind content rules — inherit / suppressed
-  // rows must be empty (no permissives, steps, monitors, branches, devices).
-  if (patch.assemblies !== undefined) {
-    Object.entries(patch.assemblies).forEach(([assemblyId, contract]) => {
+  // rows must be empty (no permissives, steps, monitors, branches, control_modules).
+  if (patch.equipment_modules !== undefined) {
+    Object.entries(patch.equipment_modules).forEach(([equipment_moduleId, contract]) => {
       Object.entries(contract.sequential_states ?? {}).forEach(([stateKey, seq]) => {
         const kind = (seq as { override_kind?: string }).override_kind;
         if (kind === "inherit" || kind === "suppressed") {
@@ -1320,7 +1329,7 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
             (seq.branches && seq.branches.length > 0);
           if (hasContent) {
             issues.push(
-              `assemblies[${assemblyId}].sequential_states[${stateKey}]: ${kind} rows must be empty (no permissives/steps/monitors/branches)`,
+              `equipment_modules[${equipment_moduleId}].sequential_states[${stateKey}]: ${kind} rows must be empty (no permissives/steps/monitors/branches)`,
             );
           }
         }
@@ -1330,10 +1339,10 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
         if (Array.isArray(val)) return; // legacy shape, no override_kind
         const kind = (val as { override_kind?: string }).override_kind;
         if (kind === "inherit" || kind === "suppressed") {
-          const devices = (val as { devices?: unknown[] }).devices;
-          if (devices && devices.length > 0) {
+          const control_modules = (val as { control_modules?: unknown[] }).control_modules;
+          if (control_modules && control_modules.length > 0) {
             issues.push(
-              `assemblies[${assemblyId}].static_states[${stateKey}]: ${kind} rows must have empty devices`,
+              `equipment_modules[${equipment_moduleId}].static_states[${stateKey}]: ${kind} rows must have empty control_modules`,
             );
           }
         }
@@ -1345,11 +1354,11 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
   // configuration parameter. Within-patch only — cross-patch resolution
   // (when the parameter sits in the persisted contract but not in the patch)
   // is a follow-up wave.
-  if (patch.assemblies !== undefined) {
+  if (patch.equipment_modules !== undefined) {
     const knownParamIds = new Set(
       (patch.configuration_parameters ?? []).map((p) => p.parameter_id),
     );
-    Object.entries(patch.assemblies).forEach(([assemblyId, contract]) => {
+    Object.entries(patch.equipment_modules).forEach(([equipment_moduleId, contract]) => {
       Object.entries(contract.sequential_states ?? {}).forEach(([stateKey, seq]) => {
         (seq.steps ?? []).forEach((step, sIdx) => {
           const actions = (step as { actions?: Array<{ source?: { kind: string; parameter_id?: string } }> }).actions ?? [];
@@ -1358,7 +1367,7 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
               const pid = a.source.parameter_id;
               if (pid && !knownParamIds.has(pid)) {
                 issues.push(
-                  `assemblies[${assemblyId}].sequential_states[${stateKey}].steps[${sIdx}].actions[${aIdx}]: parameter_ref "${pid}" is not a known parameter`,
+                  `equipment_modules[${equipment_moduleId}].sequential_states[${stateKey}].steps[${sIdx}].actions[${aIdx}]: parameter_ref "${pid}" is not a known parameter`,
                 );
               }
             }
@@ -1371,13 +1380,13 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
   // 1. IO tag global uniqueness ------------------------------------------
   if (patch.hierarchy) {
     const seen = new Map<string, string>(); // tag -> first location
-    for (const sub of patch.hierarchy.subsystems) {
-      for (const asm of sub.assemblies) {
-        for (const dev of asm.devices) {
+    for (const sub of patch.hierarchy.units) {
+      for (const asm of sub.equipment_modules) {
+        for (const dev of asm.control_modules) {
           for (const sig of dev.io_signals) {
             const tag = sig.tag;
             if (!tag) continue;
-            const loc = `${sub.subsystem_id}/${asm.assembly_id}/${dev.device_id}`;
+            const loc = `${sub.unit_id}/${asm.equipment_module_id}/${dev.control_module_id}`;
             const prior = seen.get(tag);
             if (prior) {
               issues.push(
@@ -1392,14 +1401,14 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
     }
   }
 
-  // Resolve the set of subsystem IDs (for layering checks below).
-  const knownSubsystemIds = new Set<string>();
-  const subsystemByAssembly = new Map<string, string>(); // assembly_id -> subsystem_id
+  // Resolve the set of unit IDs (for layering checks below).
+  const knownUnitIds = new Set<string>();
+  const unitByEquipmentModule = new Map<string, string>(); // equipment_module_id -> unit_id
   if (patch.hierarchy) {
-    for (const sub of patch.hierarchy.subsystems) {
-      knownSubsystemIds.add(sub.subsystem_id);
-      for (const asm of sub.assemblies) {
-        subsystemByAssembly.set(asm.assembly_id, sub.subsystem_id);
+    for (const sub of patch.hierarchy.units) {
+      knownUnitIds.add(sub.unit_id);
+      for (const asm of sub.equipment_modules) {
+        unitByEquipmentModule.set(asm.equipment_module_id, sub.unit_id);
       }
     }
   }
@@ -1409,34 +1418,34 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
     for (const [stateId, seq] of Object.entries(
       patch.system_orchestration.state_sequences,
     )) {
-      // 2. Layering — IDs must resolve to subsystems in the hierarchy, if
+      // 2. Layering — IDs must resolve to units in the hierarchy, if
       //    the hierarchy is part of this patch. If hierarchy is not in the
       //    patch we cannot check resolution here; skip silently.
       if (patch.hierarchy) {
-        for (const sid of seq.subsystem_order) {
-          if (!knownSubsystemIds.has(sid)) {
+        for (const sid of seq.unit_order) {
+          if (!knownUnitIds.has(sid)) {
             issues.push(
-              `system_orchestration[${stateId}].subsystem_order references unknown subsystem "${sid}"`,
+              `system_orchestration[${stateId}].unit_order references unknown unit "${sid}"`,
             );
           }
         }
-        for (const il of seq.inter_subsystem_interlocks) {
-          if (subsystemByAssembly.has(il.source_subsystem_id)) {
+        for (const il of seq.inter_unit_interlocks) {
+          if (unitByEquipmentModule.has(il.source_unit_id)) {
             issues.push(
-              `system_orchestration[${stateId}] interlock ${il.interlock_id}: source "${il.source_subsystem_id}" looks like an assembly — lift it to the subsystem that owns it`,
+              `system_orchestration[${stateId}] interlock ${il.interlock_id}: source "${il.source_unit_id}" looks like an equipment_module — lift it to the unit that owns it`,
             );
-          } else if (!knownSubsystemIds.has(il.source_subsystem_id)) {
+          } else if (!knownUnitIds.has(il.source_unit_id)) {
             issues.push(
-              `system_orchestration[${stateId}] interlock ${il.interlock_id}: source_subsystem_id "${il.source_subsystem_id}" is not a known subsystem`,
+              `system_orchestration[${stateId}] interlock ${il.interlock_id}: source_unit_id "${il.source_unit_id}" is not a known unit`,
             );
           }
-          if (subsystemByAssembly.has(il.target_subsystem_id)) {
+          if (unitByEquipmentModule.has(il.target_unit_id)) {
             issues.push(
-              `system_orchestration[${stateId}] interlock ${il.interlock_id}: target "${il.target_subsystem_id}" looks like an assembly — lift it to the subsystem that owns it`,
+              `system_orchestration[${stateId}] interlock ${il.interlock_id}: target "${il.target_unit_id}" looks like an equipment_module — lift it to the unit that owns it`,
             );
-          } else if (!knownSubsystemIds.has(il.target_subsystem_id)) {
+          } else if (!knownUnitIds.has(il.target_unit_id)) {
             issues.push(
-              `system_orchestration[${stateId}] interlock ${il.interlock_id}: target_subsystem_id "${il.target_subsystem_id}" is not a known subsystem`,
+              `system_orchestration[${stateId}] interlock ${il.interlock_id}: target_unit_id "${il.target_unit_id}" is not a known unit`,
             );
           }
         }
@@ -1445,11 +1454,11 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
       // 3. Cycle detection on restrictive effects within a single state.
       const restrictive = new Set(["hold", "block_transition", "disable"]);
       const graph = new Map<string, Set<string>>();
-      for (const il of seq.inter_subsystem_interlocks) {
+      for (const il of seq.inter_unit_interlocks) {
         if (!restrictive.has(il.effect)) continue;
-        if (!graph.has(il.source_subsystem_id))
-          graph.set(il.source_subsystem_id, new Set());
-        graph.get(il.source_subsystem_id)!.add(il.target_subsystem_id);
+        if (!graph.has(il.source_unit_id))
+          graph.set(il.source_unit_id, new Set());
+        graph.get(il.source_unit_id)!.add(il.target_unit_id);
       }
       if (hasCycle(graph)) {
         issues.push(
@@ -1459,23 +1468,23 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
     }
   }
 
-  // 4. Subsystem-level inter-assembly interlocks: stay within subsystem ---
-  if (patch.orchestrations) {
-    for (const [subsystemId, byState] of Object.entries(patch.orchestrations)) {
+  // 4. Unit-level inter-equipment_module interlocks: stay within unit ---
+  if (patch.unit_procedures) {
+    for (const [unitId, byState] of Object.entries(patch.unit_procedures)) {
       for (const [stateId, seq] of Object.entries(byState)) {
-        for (const il of seq.inter_assembly_interlocks) {
-          const srcSub = subsystemByAssembly.get(il.source_assembly);
-          const tgtSub = subsystemByAssembly.get(il.target_assembly);
+        for (const il of seq.inter_equipment_module_interlocks) {
+          const srcSub = unitByEquipmentModule.get(il.source_equipment_module);
+          const tgtSub = unitByEquipmentModule.get(il.target_equipment_module);
           // If hierarchy is not in the patch we can only reject mismatches
           // we can see. Assemblies we cannot resolve are skipped silently.
-          if (srcSub && srcSub !== subsystemId) {
+          if (srcSub && srcSub !== unitId) {
             issues.push(
-              `orchestrations[${subsystemId}][${stateId}]: interlock source_assembly "${il.source_assembly}" belongs to subsystem "${srcSub}" — lift to system orchestration`,
+              `unit_procedures[${unitId}][${stateId}]: interlock source_equipment_module "${il.source_equipment_module}" belongs to unit "${srcSub}" — lift to system orchestration`,
             );
           }
-          if (tgtSub && tgtSub !== subsystemId) {
+          if (tgtSub && tgtSub !== unitId) {
             issues.push(
-              `orchestrations[${subsystemId}][${stateId}]: interlock target_assembly "${il.target_assembly}" belongs to subsystem "${tgtSub}" — lift to system orchestration`,
+              `unit_procedures[${unitId}][${stateId}]: interlock target_equipment_module "${il.target_equipment_module}" belongs to unit "${tgtSub}" — lift to system orchestration`,
             );
           }
         }
@@ -1484,8 +1493,8 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
   }
 
   // 5. SFC sequence-model checks ----------------------------------------
-  if (patch.assemblies) {
-    for (const asm of Object.values(patch.assemblies)) {
+  if (patch.equipment_modules) {
+    for (const asm of Object.values(patch.equipment_modules)) {
       for (const [stateId, seq] of Object.entries(asm.sequential_states)) {
         if (seq.sequence_model_version !== 2) continue;
         // Build step_id -> branch_id map
@@ -1493,7 +1502,7 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
         for (const s of seq.steps) {
           if (!s.step_id) {
             issues.push(
-              `assemblies[${asm.assembly_id}].sequential_states[${stateId}]: sequence_model_version=2 requires step_id on every step (offending step #${s.step})`,
+              `equipment_modules[${asm.equipment_module_id}].sequential_states[${stateId}]: sequence_model_version=2 requires step_id on every step (offending step #${s.step})`,
             );
             continue;
           }
@@ -1510,7 +1519,7 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
           const transitions = s.transitions ?? [];
           if (!isTerminal && transitions.length === 0) {
             issues.push(
-              `assemblies[${asm.assembly_id}].sequential_states[${stateId}]: step "${s.step_id || s.step}" has no transitions but is not terminal`,
+              `equipment_modules[${asm.equipment_module_id}].sequential_states[${stateId}]: step "${s.step_id || s.step}" has no transitions but is not terminal`,
             );
           }
           for (const tr of transitions) {
@@ -1521,7 +1530,7 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
               const targetBranch = branchByStep.get(targetId);
               if (!targetBranch) {
                 issues.push(
-                  `assemblies[${asm.assembly_id}].sequential_states[${stateId}]: transition ${tr.transition_id} targets unknown step "${targetId}"`,
+                  `equipment_modules[${asm.equipment_module_id}].sequential_states[${stateId}]: transition ${tr.transition_id} targets unknown step "${targetId}"`,
                 );
                 continue;
               }
@@ -1529,7 +1538,7 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
                 !isBranchTransitionLegal(sourceBranch, targetBranch, branchMeta)
               ) {
                 issues.push(
-                  `assemblies[${asm.assembly_id}].sequential_states[${stateId}]: transition ${tr.transition_id} crosses branches (${sourceBranch} -> ${targetBranch}). Cross-branch transitions are illegal; use a MonitorV2 with effect="fault" for pre-emption.`,
+                  `equipment_modules[${asm.equipment_module_id}].sequential_states[${stateId}]: transition ${tr.transition_id} crosses branches (${sourceBranch} -> ${targetBranch}). Cross-branch transitions are illegal; use a MonitorV2 with effect="fault" for pre-emption.`,
                 );
               }
             }

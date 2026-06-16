@@ -1,5 +1,5 @@
 /**
- * Inline form for creating/editing an InterSubsystemInterlock.
+ * Inline form for creating/editing an InterUnitInterlock.
  *
  * Wave B will replace the inline <Select> + <Textarea> combo with proper
  * SubsystemPicker + ExpressionBuilder picker components. Until then this
@@ -17,8 +17,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import type { SubsystemConfig, OperatingState } from "@/types/spec-builder";
-import type { InterSubsystemInterlock } from "@/types/spec-contract-v2";
+import type { UnitConfig, OperatingState } from "@/types/spec-builder";
+import type { InterUnitInterlock } from "@/types/spec-contract-v2";
 
 const EFFECT_OPTIONS = [
   { value: "hold", label: "hold — pause target" },
@@ -31,10 +31,10 @@ const EFFECT_OPTIONS = [
 type Effect = (typeof EFFECT_OPTIONS)[number]["value"];
 
 interface Props {
-  subsystems: SubsystemConfig[];
+  units: UnitConfig[];
   states: OperatingState[];
-  initial?: InterSubsystemInterlock;
-  onSubmit: (value: InterSubsystemInterlock) => void;
+  initial?: InterUnitInterlock;
+  onSubmit: (value: InterUnitInterlock) => void;
   onCancel: () => void;
 }
 
@@ -42,8 +42,8 @@ function genId(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 }
 
-export function SystemOrchestrationInterlockForm({
-  subsystems,
+export function SystemProcedureInterlockForm({
+  units,
   states,
   initial,
   onSubmit,
@@ -52,8 +52,8 @@ export function SystemOrchestrationInterlockForm({
   const [interlockId, setInterlockId] = useState(
     initial?.interlock_id ?? genId("IL"),
   );
-  const [sourceId, setSourceId] = useState(initial?.source_subsystem_id ?? "");
-  const [targetId, setTargetId] = useState(initial?.target_subsystem_id ?? "");
+  const [sourceId, setSourceId] = useState(initial?.source_unit_id ?? "");
+  const [targetId, setTargetId] = useState(initial?.target_unit_id ?? "");
   const [effect, setEffect] = useState<Effect>(
     (initial?.effect as Effect) ?? "hold",
   );
@@ -86,18 +86,18 @@ export function SystemOrchestrationInterlockForm({
     const referenced_tags = Array.from(
       condText.match(/[A-Z_][A-Z0-9_]{1,}/g) ?? [],
     );
-    const value: InterSubsystemInterlock = {
+    const value: InterUnitInterlock = {
       interlock_id: interlockId,
-      source_subsystem_id: sourceId,
+      source_unit_id: sourceId,
       source_condition: {
         kind: "expression",
         text: condText.trim(),
         referenced_tags,
       },
-      target_subsystem_id: targetId,
+      target_unit_id: targetId,
       effect,
       effect_target: requiresTargetState
-        ? { subsystem: targetId, state_id: effectTargetState }
+        ? { unit: targetId, state_id: effectTargetState }
         : undefined,
       prose: prose.trim(),
     };
@@ -116,31 +116,31 @@ export function SystemOrchestrationInterlockForm({
       </div>
       <div className="grid grid-cols-2 gap-2">
         <div className="grid gap-1">
-          <Label className="text-xs">Source subsystem</Label>
-          {/* FALLBACK: Wave B → SubsystemPicker */}
+          <Label className="text-xs">Source unit</Label>
+          {/* FALLBACK: Wave B → UnitPicker */}
           <Select value={sourceId} onValueChange={setSourceId}>
             <SelectTrigger className="text-xs">
               <SelectValue placeholder="Select..." />
             </SelectTrigger>
             <SelectContent>
-              {subsystems.map((s) => (
-                <SelectItem key={s.subsystem_id} value={s.subsystem_id}>
-                  {s.subsystem_name}
+              {units.map((s) => (
+                <SelectItem key={s.unit_id} value={s.unit_id}>
+                  {s.unit_name}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
         <div className="grid gap-1">
-          <Label className="text-xs">Target subsystem</Label>
+          <Label className="text-xs">Target unit</Label>
           <Select value={targetId} onValueChange={setTargetId}>
             <SelectTrigger className="text-xs">
               <SelectValue placeholder="Select..." />
             </SelectTrigger>
             <SelectContent>
-              {subsystems.map((s) => (
-                <SelectItem key={s.subsystem_id} value={s.subsystem_id}>
-                  {s.subsystem_name}
+              {units.map((s) => (
+                <SelectItem key={s.unit_id} value={s.unit_id}>
+                  {s.unit_name}
                 </SelectItem>
               ))}
             </SelectContent>
