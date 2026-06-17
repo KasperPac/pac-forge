@@ -97,9 +97,12 @@ export function SpecSkeletonWizard({ spec, register, onComplete }: Props) {
   // string-id state rows from older specs are upgraded on load via
   // packmlByName so the wizard never displays "Legacy" once an engineer
   // touches the spec.
-  const [states, setStates] = useState<OperatingStateV2[]>(() =>
-    upgradeLegacyStates((spec.confirmed_states ?? []) as unknown as OperatingStateV2[]),
-  );
+  const [states, setStates] = useState<OperatingStateV2[]>(() => {
+    const existing = upgradeLegacyStates((spec.confirmed_states ?? []) as unknown as OperatingStateV2[]);
+    // No spec yet → seed the standard PackML lifecycle states so the engineer
+    // prunes/adds rather than starting from a blank slate.
+    return existing.length > 0 ? existing : [...CANONICAL_STATES];
+  });
   const [inferring, setInferring] = useState(false);
 
   // Step 5 — Alarm tiers
