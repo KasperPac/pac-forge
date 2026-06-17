@@ -181,6 +181,8 @@ export interface InstrumentRegister {
   units: UnitSummary[];
   parse_warnings: ParseWarning[];
   haiku_usage: TokenUsage;
+  /** Provenance: 'upload' (engineer-supplied) or 'ingest' (synthesized from a .docx). */
+  source: "upload" | "ingest";
   created_at: string;
 }
 

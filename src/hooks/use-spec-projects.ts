@@ -162,16 +162,20 @@ export function useSaveInstrumentRegister() {
       units: unknown[];
       parse_warnings: unknown[];
       haiku_usage: unknown;
+      source?: "upload" | "ingest";
     }) => {
-      // Delete existing register for this project (replace on re-upload)
+      const source = input.source ?? "upload";
+      // Replace only a register of the SAME provenance, so a synthesized
+      // 'ingest' register never clobbers an uploaded one and vice-versa.
       await supabase
         .from("instrument_registers")
         .delete()
-        .eq("spec_project_id", input.spec_project_id);
+        .eq("spec_project_id", input.spec_project_id)
+        .eq("source", source);
 
       const { data, error } = await supabase
         .from("instrument_registers")
-        .insert(input)        // DB column is now `units` (migration 093)
+        .insert({ ...input, source })   // DB column is now `units` (migration 093)
         .select()
         .single();
       if (error) throw error;
