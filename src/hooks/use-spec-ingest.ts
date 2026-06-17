@@ -17,7 +17,7 @@
 import { useCallback, useState } from "react";
 import { create } from "zustand";
 import type { IngestResult, Warning } from "@/lib/spec-builder/docx-ingest";
-import type { SpecContractV2 } from "@/types/spec-contract-v2";
+import type { SpecContractV2, Hierarchy } from "@/types/spec-contract-v2";
 import { ingestDocx } from "@/lib/spec-builder/docx-ingest";
 import { useCreateDraftFromIngest } from "@/hooks/use-spec-revisions";
 import type { SourceSection } from "@/lib/spec-builder/source-section-select";
@@ -36,6 +36,8 @@ interface ParkedAiIngest {
   sourceSections: SourceSection[];
   sourceFilename: string;
   emRequirements: EmRequirement[];
+  /** True when the ingest seeded the hierarchy from the register (none existed). */
+  seededHierarchy: boolean;
 }
 
 interface IngestReviewState {
@@ -93,8 +95,11 @@ export function useSpecIngest(
       setProgressStage("parsing");
 
       try {
-        // Register-aware ingest: if the project already has an uploaded
-        // register, pass its tags so the model maps onto the real structure.
+        // Register-aware ingest. The register/hierarchy is the source of truth
+        // for structure + IO — the spec only layers behavior onto it.
+        //  - If the project already has a confirmed hierarchy, map onto THAT
+        //    (so bound requirements match the real module ids) and never touch it.
+        //  - Otherwise seed the hierarchy deterministically from the register.
         const { data: reg } = await supabase
           .from("instrument_registers")
           .select("tags")
@@ -103,7 +108,17 @@ export function useSpecIngest(
           .maybeSingle();
         const registerTags = (reg?.tags ?? []) as InstrumentTag[];
 
-        const result = await ingestDocx(file, registerTags);
+        const { data: proj } = await supabase
+          .from("spec_projects")
+          .select("confirmed_units")
+          .eq("id", specProjectId)
+          .maybeSingle();
+        const existing = proj?.confirmed_units as unknown[] | null | undefined;
+        const existingUnits = Array.isArray(existing) && existing.length > 0
+          ? (existing as Hierarchy["units"])
+          : null;
+
+        const result = await ingestDocx(file, registerTags, existingUnits);
         setLastResult(result);
 
         if (result.kind === "error") {
@@ -133,6 +148,7 @@ export function useSpecIngest(
           sourceSections: result.sourceSections,
           sourceFilename: result.sourceFilename,
           emRequirements: result.emRequirements,
+          seededHierarchy: result.seededHierarchy,
         });
         setProgressStage("awaiting_review");
         opts?.onReviewRequired?.();

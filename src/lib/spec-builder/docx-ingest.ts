@@ -25,6 +25,7 @@ import mammoth from "mammoth";
 import type {
   EquipmentModuleContract,
   SpecContractV2,
+  Hierarchy,
 } from "@/types/spec-contract-v2";
 import {
   hasHierarchySentinel,
@@ -72,6 +73,8 @@ export type IngestResult =
       sourceFilename: string;
       /** Per-EM requirements bound by equipment_module_id (register-aware path; [] otherwise). */
       emRequirements: EmRequirement[];
+      /** True when this ingest produced/seeded the hierarchy (no confirmed one existed). */
+      seededHierarchy: boolean;
     }
   | {
       kind: "error";
@@ -95,6 +98,7 @@ export interface ParsedDocxTable {
 export async function ingestDocx(
   file: File,
   registerTags: InstrumentTag[] = [],
+  existingUnits: Hierarchy["units"] | null = null,
 ): Promise<IngestResult> {
   try {
     const arrayBuffer = await file.arrayBuffer();
@@ -124,21 +128,27 @@ export async function ingestDocx(
         order_index: s.index,
       }));
       try {
-        if (registerTags.length > 0) {
-          // Register-aware: structure is built deterministically from the real
-          // register; the model only binds the .docx onto the fixed EM ids.
-          const hierarchy = registerToHierarchy(registerTags);
+        if (registerTags.length > 0 || existingUnits) {
+          // Register-aware: the hierarchy + IO are the register's, NOT the
+          // spec's. Map onto an existing confirmed hierarchy when present
+          // (so bound requirements match the real module ids); otherwise seed
+          // the hierarchy deterministically from the register. The model only
+          // binds the .docx onto the fixed EM ids — it never touches structure.
+          const hierarchy: Hierarchy = existingUnits
+            ? { units: existingUnits }
+            : registerToHierarchy(registerTags);
+          const seededHierarchy = !existingUnits;
           const { mapping, droppedIds } = await runRegisterMappingPass(hierarchy, rawText, abort.signal);
           const { contract, emRequirements } = assembleContractFromRegister(hierarchy, mapping, { title: file.name });
           const warnings: Warning[] = droppedIds.map((id) => ({
             path: "modules",
             message: `dropped unknown equipment_module_id: ${id}`,
           }));
-          return { kind: "ai", draft: contract, warnings, sourceSections, sourceFilename: file.name, emRequirements };
+          return { kind: "ai", draft: contract, warnings, sourceSections, sourceFilename: file.name, emRequirements, seededHierarchy };
         }
-        // No register — today's AI-builds-structure path (hardened with UUID minting).
+        // No register at all — today's AI-builds-structure path (hardened with UUID minting).
         const { draft, warnings } = await aiIngestDocx(file, abort.signal);
-        return { kind: "ai", draft, warnings, sourceSections, sourceFilename: file.name, emRequirements: [] };
+        return { kind: "ai", draft, warnings, sourceSections, sourceFilename: file.name, emRequirements: [], seededHierarchy: true };
       } catch (e) {
         return {
           kind: "error",

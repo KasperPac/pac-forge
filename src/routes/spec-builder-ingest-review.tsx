@@ -123,13 +123,15 @@ export default function SpecBuilderIngestReviewPage() {
       });
       const specProjectId = rev.spec_project_id;
 
-      // Gap 1 — hydrate the live spec_projects row so the wizard + co-author
-      // consume the ingested hierarchy/states/alarms instead of starting empty.
-      // (The 065 immutability trigger guards spec_project_revisions, not
-      // spec_projects.) Mirrors the skeleton wizard's persistence path.
+      // The register owns the hierarchy + IO. Only SEED confirmed_units when the
+      // project had none (register-derived, never from the .docx); if a hierarchy
+      // already exists, leave it untouched. The spec only contributes behavior
+      // (states / alarm tiers) and per-EM requirements.
       await updateSpec.mutateAsync({
         id: specProjectId,
-        confirmed_units: draft.hierarchy.units as unknown as SpecProjectUpdate["confirmed_units"],
+        ...(parked.seededHierarchy
+          ? { confirmed_units: draft.hierarchy.units as unknown as SpecProjectUpdate["confirmed_units"] }
+          : {}),
         confirmed_states: draft.states as unknown as SpecProjectUpdate["confirmed_states"],
         alarm_tiers: draft.alarm_tiers,
       });
