@@ -21,6 +21,9 @@ import type { SpecContractV2 } from "@/types/spec-contract-v2";
 import { ingestDocx } from "@/lib/spec-builder/docx-ingest";
 import { useCreateDraftFromIngest } from "@/hooks/use-spec-revisions";
 import type { SourceSection } from "@/lib/spec-builder/source-section-select";
+import type { EmRequirement } from "@/lib/spec-builder/assemble-register-contract";
+import type { InstrumentTag } from "@/types/spec-builder";
+import { supabase } from "@/lib/supabase";
 
 // ---------------------------------------------------------------------------
 // Parked AI result store — the ingest-review route reads from here
@@ -32,6 +35,7 @@ interface ParkedAiIngest {
   warnings: Warning[];
   sourceSections: SourceSection[];
   sourceFilename: string;
+  emRequirements: EmRequirement[];
 }
 
 interface IngestReviewState {
@@ -89,7 +93,17 @@ export function useSpecIngest(
       setProgressStage("parsing");
 
       try {
-        const result = await ingestDocx(file);
+        // Register-aware ingest: if the project already has an uploaded
+        // register, pass its tags so the model maps onto the real structure.
+        const { data: reg } = await supabase
+          .from("instrument_registers")
+          .select("tags")
+          .eq("spec_project_id", specProjectId)
+          .eq("source", "upload")
+          .maybeSingle();
+        const registerTags = (reg?.tags ?? []) as InstrumentTag[];
+
+        const result = await ingestDocx(file, registerTags);
         setLastResult(result);
 
         if (result.kind === "error") {
@@ -118,6 +132,7 @@ export function useSpecIngest(
           warnings: result.warnings,
           sourceSections: result.sourceSections,
           sourceFilename: result.sourceFilename,
+          emRequirements: result.emRequirements,
         });
         setProgressStage("awaiting_review");
         opts?.onReviewRequired?.();

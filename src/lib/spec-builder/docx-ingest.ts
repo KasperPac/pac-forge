@@ -43,6 +43,10 @@ import {
 import { aiIngestDocx } from "@/lib/spec-builder/ai-ingest";
 import { splitIntoSections } from "@/lib/document-sections";
 import type { SourceSection } from "@/lib/spec-builder/source-section-select";
+import type { InstrumentTag } from "@/types/spec-builder";
+import { registerToHierarchy } from "@/lib/spec-builder/register-to-hierarchy";
+import { runRegisterMappingPass } from "@/lib/spec-builder/register-mapping";
+import { assembleContractFromRegister, type EmRequirement } from "@/lib/spec-builder/assemble-register-contract";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -66,6 +70,8 @@ export type IngestResult =
       warnings: Warning[];
       sourceSections: SourceSection[];
       sourceFilename: string;
+      /** Per-EM requirements bound by equipment_module_id (register-aware path; [] otherwise). */
+      emRequirements: EmRequirement[];
     }
   | {
       kind: "error";
@@ -86,7 +92,10 @@ export interface ParsedDocxTable {
 // Dispatcher
 // ---------------------------------------------------------------------------
 
-export async function ingestDocx(file: File): Promise<IngestResult> {
+export async function ingestDocx(
+  file: File,
+  registerTags: InstrumentTag[] = [],
+): Promise<IngestResult> {
   try {
     const arrayBuffer = await file.arrayBuffer();
 
@@ -108,16 +117,28 @@ export async function ingestDocx(file: File): Promise<IngestResult> {
     if (!deterministic) {
       // AI path — extract text (already done) and hand off.
       const abort = new AbortController();
+      // Raw sections kept for reference/audit in both sub-paths.
+      const sourceSections: SourceSection[] = splitIntoSections(rawText).map((s) => ({
+        heading: s.heading,
+        body: s.content,
+        order_index: s.index,
+      }));
       try {
+        if (registerTags.length > 0) {
+          // Register-aware: structure is built deterministically from the real
+          // register; the model only binds the .docx onto the fixed EM ids.
+          const hierarchy = registerToHierarchy(registerTags);
+          const { mapping, droppedIds } = await runRegisterMappingPass(hierarchy, rawText, abort.signal);
+          const { contract, emRequirements } = assembleContractFromRegister(hierarchy, mapping, { title: file.name });
+          const warnings: Warning[] = droppedIds.map((id) => ({
+            path: "modules",
+            message: `dropped unknown equipment_module_id: ${id}`,
+          }));
+          return { kind: "ai", draft: contract, warnings, sourceSections, sourceFilename: file.name, emRequirements };
+        }
+        // No register — today's AI-builds-structure path (hardened with UUID minting).
         const { draft, warnings } = await aiIngestDocx(file, abort.signal);
-        // Capture the .docx as sections so the FDS co-author can reference the
-        // original customer spec (Gap 2). rawText was already extracted above.
-        const sourceSections: SourceSection[] = splitIntoSections(rawText).map((s) => ({
-          heading: s.heading,
-          body: s.content,
-          order_index: s.index,
-        }));
-        return { kind: "ai", draft, warnings, sourceSections, sourceFilename: file.name };
+        return { kind: "ai", draft, warnings, sourceSections, sourceFilename: file.name, emRequirements: [] };
       } catch (e) {
         return {
           kind: "error",
