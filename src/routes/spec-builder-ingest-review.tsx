@@ -57,6 +57,14 @@ export default function SpecBuilderIngestReviewPage() {
 
   const warnings = parked?.warnings ?? [];
 
+  // Register-aware ingest binds .docx requirements onto real EMs by id.
+  const emRequirements = parked?.emRequirements ?? [];
+  const emReqMap = useMemo(
+    () => new Map((parked?.emRequirements ?? []).map((r) => [r.equipment_module_id, r.requirements])),
+    [parked],
+  );
+  const isRegisterAware = emRequirements.length > 0;
+
   const unitCount = draft?.hierarchy.units.length ?? 0;
   const equipment_moduleCount = useMemo(
     () =>
@@ -241,6 +249,17 @@ export default function SpecBuilderIngestReviewPage() {
         </div>
       )}
 
+      {isRegisterAware && (
+        <div className="px-4 py-1.5 border-b bg-muted/40 text-xs text-muted-foreground flex items-center gap-3">
+          <Badge variant="outline" className="text-[10px]">Register-aware</Badge>
+          <span>{emRequirements.length} of {equipment_moduleCount} modules mapped from the document</span>
+          {equipment_moduleCount - emRequirements.length > 0 && (
+            <span>· {equipment_moduleCount - emRequirements.length} without document content</span>
+          )}
+          {warnings.length > 0 && <span>· {warnings.length} document area(s) dropped</span>}
+        </div>
+      )}
+
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-4">
           {draft.hierarchy.units.map((sub) => (
@@ -276,6 +295,11 @@ export default function SpecBuilderIngestReviewPage() {
                       }
                     />
                   </div>
+                  {isRegisterAware && (
+                    <p className="pl-4 text-[11px] text-muted-foreground line-clamp-2">
+                      {emReqMap.get(asy.equipment_module_id)?.slice(0, 200) ?? "— no document content mapped —"}
+                    </p>
+                  )}
                   {asy.control_modules.map((dev) => (
                     <div
                       key={dev.control_module_id}
