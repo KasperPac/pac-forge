@@ -18,9 +18,11 @@
 import { streamFromEdgeFunction } from "@/hooks/use-generation";
 import mammoth from "mammoth";
 import { convertSignalDirection } from "@/lib/spec-builder/dialect";
+import { mintHierarchyUuids } from "@/lib/spec-builder/mint-uuids";
 import {
   SpecContractV2Schema,
   type SpecContractV2,
+  type Hierarchy,
 } from "@/types/spec-contract-v2";
 import type { Warning } from "@/lib/spec-builder/docx-ingest";
 
@@ -206,6 +208,12 @@ ${specText}
   }
 
   const postProcessed = postProcess(parsed);
+
+  // Deterministically repair the two fields the model reliably gets wrong:
+  // mint UUIDs for any non-UUID unit/EM/CM id, and force the schema version.
+  // This kills the Invalid-UUID / schema_version validation warnings.
+  postProcessed.hierarchy = mintHierarchyUuids(postProcessed.hierarchy as Hierarchy);
+  (postProcessed as { schema_version: number }).schema_version = 3;
 
   // Wave D — remap temporary step IDs to real UUIDs + fix transition refs.
   const remapWarnings = remapSequenceStepIds(postProcessed);
