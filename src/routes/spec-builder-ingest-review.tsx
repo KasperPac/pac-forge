@@ -126,23 +126,34 @@ export default function SpecBuilderIngestReviewPage() {
         alarm_tiers: draft.alarm_tiers,
       });
 
-      // Gap 2 — persist the customer-spec sections for later prompt context.
-      if (parked.sourceSections.length > 0) {
-        try {
-          await supabase.from("spec_source_sections").delete().eq("spec_project_id", specProjectId);
-          const { error } = await supabase.from("spec_source_sections").insert(
-            parked.sourceSections.map((s, i) => ({
+      // Gap 2 — persist customer-spec context for the co-author prompt.
+      // Register-aware path: per-EM requirements bound by equipment_module_id.
+      // .docx-only path: raw sections with no EM binding (fallback).
+      try {
+        await supabase.from("spec_source_sections").delete().eq("spec_project_id", specProjectId);
+        const rows = parked.emRequirements.length > 0
+          ? parked.emRequirements.map((r, i) => ({
               spec_project_id: specProjectId,
               source_filename: parked.sourceFilename || "ingest.docx",
+              equipment_module_id: r.equipment_module_id,
+              heading: "",
+              body: r.requirements,
+              order_index: i,
+            }))
+          : parked.sourceSections.map((s, i) => ({
+              spec_project_id: specProjectId,
+              source_filename: parked.sourceFilename || "ingest.docx",
+              equipment_module_id: null,
               heading: s.heading,
               body: s.body,
               order_index: s.order_index ?? i,
-            })),
-          );
+            }));
+        if (rows.length > 0) {
+          const { error } = await supabase.from("spec_source_sections").insert(rows);
           if (error) throw error;
-        } catch (sectionErr) {
-          console.error("[ingest-review] source-section persist failed", sectionErr);
         }
+      } catch (sectionErr) {
+        console.error("[ingest-review] source-section persist failed", sectionErr);
       }
 
       // Gap 3 — synthesize an instrument register from the ingest when the
