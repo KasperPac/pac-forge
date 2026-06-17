@@ -3,7 +3,7 @@
  *
  * URL: /specs/:projectId/:specId/co-author
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { ArrowLeft, Layers, Loader2, MessageSquare } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,7 @@ import { ProcessModelPanel } from "@/components/spec-builder/process-model-panel
 import {
   useSpecProject,
   useInstrumentRegister,
+  useUpdateSpecProject,
 } from "@/hooks/use-spec-projects";
 import { useUnconfirmedLock } from "@/hooks/use-unconfirmed-lock";
 import { UnconfirmedLockBanner } from "@/components/spec-builder/migrate/unconfirmed-lock-banner";
@@ -21,6 +22,9 @@ import {
   migrateUnitConfig,
   migrateOperatingStates,
 } from "@/types/spec-builder";
+import type { UnitConfig, InstrumentTag, SpecProjectUpdate } from "@/types/spec-builder";
+import { mergeRegisterIntoHierarchy } from "@/lib/spec-builder/merge-register-hierarchy";
+import type { MergeReport } from "@/lib/spec-builder/merge-register-hierarchy";
 
 type CoAuthorView = "fds" | "process-model";
 
@@ -29,7 +33,9 @@ export default function SpecCoAuthorPage() {
   const { isUnconfirmed, migrateHref } = useUnconfirmedLock(projectId ?? "", specId ?? "");
   const { data: rawSpec, isLoading } = useSpecProject(specId);
   const { data: register } = useInstrumentRegister(specId);
+  const updateSpec = useUpdateSpecProject();
   const [view, setView] = useState<CoAuthorView>("fds");
+  const [mergeReport, setMergeReport] = useState<MergeReport | null>(null);
 
   const spec = useMemo(() => {
     if (!rawSpec) return null;
@@ -45,6 +51,26 @@ export default function SpecCoAuthorPage() {
       design_principles: rawSpec.design_principles ?? [],
     };
   }, [rawSpec]);
+
+  // When an uploaded register exists, merge its authoritative IO into the spec
+  // hierarchy at co-author entry (Workstream E). Deterministic + idempotent:
+  // persists only when the merge actually changes the hierarchy, so a re-run
+  // over already-merged IO produces identical units and does not write again.
+  useEffect(() => {
+    if (!specId || !register || register.source !== "upload") return;
+    if (!spec?.confirmed_units?.length) return;
+    const { units, report } = mergeRegisterIntoHierarchy(
+      spec.confirmed_units as UnitConfig[],
+      (register.tags ?? []) as InstrumentTag[],
+    );
+    setMergeReport(report);
+    if (JSON.stringify(units) !== JSON.stringify(spec.confirmed_units)) {
+      void updateSpec.mutateAsync({
+        id: specId,
+        confirmed_units: units as unknown as SpecProjectUpdate["confirmed_units"],
+      });
+    }
+  }, [register, spec, specId, updateSpec]);
 
   if (isLoading) {
     return (
@@ -83,6 +109,14 @@ export default function SpecCoAuthorPage() {
   return (
     <div className="flex h-full flex-col -m-4">
       {isUnconfirmed && <UnconfirmedLockBanner migrateHref={migrateHref} />}
+      {mergeReport && (mergeReport.matched > 0 || mergeReport.addedUnassigned > 0 || mergeReport.specModulesWithoutIo.length > 0) && (
+        <div className="border-b bg-muted/40 px-4 py-1.5 text-xs text-muted-foreground flex items-center gap-3">
+          <Badge variant="outline" className="text-[10px]">Register merge</Badge>
+          <span>{mergeReport.matched} IO mapped</span>
+          {mergeReport.addedUnassigned > 0 && <span>· {mergeReport.addedUnassigned} added as Unassigned</span>}
+          {mergeReport.specModulesWithoutIo.length > 0 && <span>· {mergeReport.specModulesWithoutIo.length} module(s) without IO</span>}
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center gap-3 border-b px-4 h-12 shrink-0">
         <Button
