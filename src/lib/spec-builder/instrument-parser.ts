@@ -424,7 +424,7 @@ export function groupSubsystems(tags: InstrumentTag[]): UnitSummary[] {
 // motor device instead of splitting off into its own control module.
 const SIGNAL_SUFFIXES = /[_.](?:CMD|FB|RUN|RUNNING|START|STOP|FWD|REV|OL|FAULT|TRIP|THERM|THERMISTOR|SPD|SPEED|HZ|FREQ|LSH|LSL|ZSH|ZSL|SP|PV|AO|AI|DI|DO|EN|ALARM|STATUS|STATE|ACK|RESET|OPN|CLS|OPEN|CLOSE|SET|RST)$/i;
 
-function extractDevicePrefix(tag: string, unit: string): string {
+export function extractDevicePrefix(tag: string, unit: string): string {
   // Strip unit prefix if tag starts with it (by name match)
   let rest = tag;
   if (unit && rest.toUpperCase().startsWith(unit.toUpperCase())) {
