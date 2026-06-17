@@ -13,6 +13,7 @@ import type {
   UnitConfig,
   EquipmentModuleConfig,
   ControlModuleConfig,
+  ControlModuleClass,
   IoSignal,
 } from "@/types/spec-builder";
 import { CANONICAL_COLUMN_NAMES, UNIT_PREFIX_MAP } from "@/types/spec-builder";
@@ -476,6 +477,34 @@ function suggestAssemblyName(descriptions: string[], fallback: string): string {
   return best?.[0] || fallback;
 }
 
+/**
+ * Generic ISA-88 device class for a control module, per the CM_{DeviceClass}_{Tag}
+ * naming convention (ai/ISA88_PHYSICAL_MODEL.md §5): the generic device type
+ * (Motor, Valve, Sensor, …), not the specific tag.
+ */
+function isa88DeviceClass(c: ControlModuleClass): string {
+  if (c === "motor") return "Motor";
+  if (c === "valve") return "Valve";
+  if (c.startsWith("sensor")) return "Sensor";
+  if (c === "transmitter") return "Transmitter";
+  if (c === "indicator") return "Indicator";
+  if (c === "push_button") return "PushButton";
+  if (c === "emergency_stop") return "EStop";
+  if (c === "filter") return "Filter";
+  if (c === "conveyor") return "Conveyor";
+  if (c === "hopper") return "Hopper";
+  if (c === "transporter") return "Transporter";
+  if (c === "dryer") return "Dryer";
+  if (c === "cooler") return "Cooler";
+  return "Device";
+}
+
+/** ISA-88 control-module block name: CM_{DeviceClass}_{Tag} (e.g. CM_Motor_CM1). */
+function isa88ControlModuleName(deviceClass: ControlModuleClass, tag: string): string {
+  const cleanTag = tag.replace(/[^A-Za-z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
+  return `CM_${isa88DeviceClass(deviceClass)}_${cleanTag}`;
+}
+
 export function buildHierarchyFromTags(tags: InstrumentTag[]): UnitConfig[] {
   // Step 1: Group by unit
   const subGroups = new Map<string, InstrumentTag[]>();
@@ -537,7 +566,7 @@ export function buildHierarchyFromTags(tags: InstrumentTag[]): UnitConfig[] {
         // description on the `description` field for human context.
         control_modules.push({
           control_module_id: devPrefix,
-          control_module_name: devPrefix,
+          control_module_name: isa88ControlModuleName(representative.control_module_class, devPrefix),
           control_module_class: representative.control_module_class,
           description: representative.description || "",
           is_safety: devTags.some((t) => t.is_safety),
