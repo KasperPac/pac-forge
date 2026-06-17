@@ -1002,10 +1002,10 @@ export async function loadOperatingStates(
  * sub-tree in full. Nested maps (`equipment_modules`, `unit_procedures`) replace
  * per-key. Patch is Zod-validated before any write occurs.
  *
- * Note: concrete persistence for non-alarm keys is deferred to later waves
- * — today this validates the shape and routes alarm writes through
- * `spec_alarms`. Other keys are accepted and ignored with a console warning
- * so builder scaffolding can light up without the writer migration landing.
+ * Persists hierarchy (`confirmed_units`), `confirmed_states`, `alarm_tiers`,
+ * `confirmed_modes`, `configuration_parameters`, `section_overrides`,
+ * `process_model`, and `confirmation_status` onto `spec_projects`, plus alarm
+ * rows via `spec_alarms` and equipment-module / unit / section upserts.
  */
 export async function writeSpecContract(
   specProjectId: string,
