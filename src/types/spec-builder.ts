@@ -643,14 +643,18 @@ export interface FdsValidationIssue {
 
 // --- Equipment type inference from prefix ---
 
+// Match only on descriptive words — NOT short tag-prefix codes. The old
+// project-specific prefixes (^TE/^VZ/^HX/^VK/^NZ/^CA/^GK) misfired on real unit
+// names (e.g. "^CA" classified "Carriage" as a Magnetic Filter). Anything not
+// recognised here falls back to "Other".
 export const UNIT_PREFIX_MAP: Array<{ pattern: RegExp; type: EquipmentType }> = [
-  { pattern: /hopper|^TE/i, type: "Hopper" },
-  { pattern: /^VZ|transporter/i, type: "Pneumatic Transporter" },
-  { pattern: /^HX|dryer/i, type: "Dryer" },
-  { pattern: /^VK|cooler/i, type: "Cooler" },
-  { pattern: /^NZ|unloading/i, type: "Unloading Station" },
-  { pattern: /^CA|magnetic.*filter/i, type: "Magnetic Filter" },
-  { pattern: /^GK|fan|blower/i, type: "Fan/Blower" },
+  { pattern: /hopper/i, type: "Hopper" },
+  { pattern: /transporter/i, type: "Pneumatic Transporter" },
+  { pattern: /dryer/i, type: "Dryer" },
+  { pattern: /cooler/i, type: "Cooler" },
+  { pattern: /unloading/i, type: "Unloading Station" },
+  { pattern: /magnetic.*filter/i, type: "Magnetic Filter" },
+  { pattern: /fan|blower/i, type: "Fan/Blower" },
   { pattern: /mill/i, type: "Milling" },
-  { pattern: /conv/i, type: "Conveyor" },
+  { pattern: /conv(?:ey)?/i, type: "Conveyor" },
 ];
