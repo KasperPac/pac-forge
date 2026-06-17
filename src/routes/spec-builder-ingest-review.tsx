@@ -188,16 +188,30 @@ export default function SpecBuilderIngestReviewPage() {
       }
 
       clearParked();
-      navigate(`/specs?projectId=${projectId}&specId=${specProjectId}`);
+      // The /specs list is keyed by the Pac project id, but this route's
+      // `projectId` param is actually the spec project id — resolve the real
+      // Pac project id so we land on the populated list, not an empty one.
+      const { data: proj } = await supabase
+        .from("spec_projects")
+        .select("project_id")
+        .eq("id", specProjectId)
+        .maybeSingle();
+      const pacProjectId = proj?.project_id ?? projectId;
+      navigate(`/specs?projectId=${pacProjectId}&specId=${specProjectId}`);
     } catch (e) {
       // Error surfaces via mutation state
       console.error("[ingest-review] commit failed", e);
     }
   };
 
-  const handleCancel = () => {
+  const handleCancel = async () => {
     clearParked();
-    navigate(`/specs?projectId=${projectId ?? ""}`);
+    const { data: proj } = await supabase
+      .from("spec_projects")
+      .select("project_id")
+      .eq("id", projectId ?? "")
+      .maybeSingle();
+    navigate(`/specs?projectId=${proj?.project_id ?? projectId ?? ""}`);
   };
 
   return (
