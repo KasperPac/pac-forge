@@ -20,6 +20,7 @@ import type { IngestResult, Warning } from "@/lib/spec-builder/docx-ingest";
 import type { SpecContractV2 } from "@/types/spec-contract-v2";
 import { ingestDocx } from "@/lib/spec-builder/docx-ingest";
 import { useCreateDraftFromIngest } from "@/hooks/use-spec-revisions";
+import type { SourceSection } from "@/lib/spec-builder/source-section-select";
 
 // ---------------------------------------------------------------------------
 // Parked AI result store — the ingest-review route reads from here
@@ -29,6 +30,8 @@ interface ParkedAiIngest {
   specProjectId: string;
   draft: SpecContractV2;
   warnings: Warning[];
+  sourceSections: SourceSection[];
+  sourceFilename: string;
 }
 
 interface IngestReviewState {
@@ -113,6 +116,8 @@ export function useSpecIngest(
           specProjectId,
           draft: result.draft,
           warnings: result.warnings,
+          sourceSections: result.sourceSections,
+          sourceFilename: result.sourceFilename,
         });
         setProgressStage("awaiting_review");
         opts?.onReviewRequired?.();

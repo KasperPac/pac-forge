@@ -41,6 +41,8 @@ import {
   applyCriteriaOverrides,
 } from "@/lib/spec-builder/docx-ingest-appendix";
 import { aiIngestDocx } from "@/lib/spec-builder/ai-ingest";
+import { splitIntoSections } from "@/lib/document-sections";
+import type { SourceSection } from "@/lib/spec-builder/source-section-select";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -62,6 +64,8 @@ export type IngestResult =
       kind: "ai";
       draft: SpecContractV2;
       warnings: Warning[];
+      sourceSections: SourceSection[];
+      sourceFilename: string;
     }
   | {
       kind: "error";
@@ -106,7 +110,14 @@ export async function ingestDocx(file: File): Promise<IngestResult> {
       const abort = new AbortController();
       try {
         const { draft, warnings } = await aiIngestDocx(file, abort.signal);
-        return { kind: "ai", draft, warnings };
+        // Capture the .docx as sections so the FDS co-author can reference the
+        // original customer spec (Gap 2). rawText was already extracted above.
+        const sourceSections: SourceSection[] = splitIntoSections(rawText).map((s) => ({
+          heading: s.heading,
+          body: s.content,
+          order_index: s.index,
+        }));
+        return { kind: "ai", draft, warnings, sourceSections, sourceFilename: file.name };
       } catch (e) {
         return {
           kind: "error",

@@ -17,6 +17,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { useIngestReviewStore } from "@/hooks/use-spec-ingest";
 import { useCreateDraftFromIngest } from "@/hooks/use-spec-revisions";
+import { useUpdateSpecProject, useSaveInstrumentRegister } from "@/hooks/use-spec-projects";
+import { synthesizeRegisterFromContract } from "@/lib/spec-builder/synthesize-register";
+import { supabase } from "@/lib/supabase";
+import type { SpecProjectUpdate } from "@/types/spec-builder";
 import type {
   EquipmentModuleV2,
   ControlModuleV2,
@@ -42,6 +46,8 @@ export default function SpecBuilderIngestReviewPage() {
   const parked = useIngestReviewStore((s) => s.parked);
   const clearParked = useIngestReviewStore((s) => s.clear);
   const createDraft = useCreateDraftFromIngest();
+  const updateSpec = useUpdateSpecProject();
+  const saveRegister = useSaveInstrumentRegister();
 
   const [draft, setDraft] = useState<SpecContractV2 | null>(null);
 
@@ -107,8 +113,63 @@ export default function SpecBuilderIngestReviewPage() {
         tree: draft as unknown as Record<string, unknown>,
         source: "foreign_ingest",
       });
+      const specProjectId = rev.spec_project_id;
+
+      // Gap 1 — hydrate the live spec_projects row so the wizard + co-author
+      // consume the ingested hierarchy/states/alarms instead of starting empty.
+      // (The 065 immutability trigger guards spec_project_revisions, not
+      // spec_projects.) Mirrors the skeleton wizard's persistence path.
+      await updateSpec.mutateAsync({
+        id: specProjectId,
+        confirmed_units: draft.hierarchy.units as unknown as SpecProjectUpdate["confirmed_units"],
+        confirmed_states: draft.states as unknown as SpecProjectUpdate["confirmed_states"],
+        alarm_tiers: draft.alarm_tiers,
+      });
+
+      // Gap 2 — persist the customer-spec sections for later prompt context.
+      if (parked.sourceSections.length > 0) {
+        try {
+          await supabase.from("spec_source_sections").delete().eq("spec_project_id", specProjectId);
+          const { error } = await supabase.from("spec_source_sections").insert(
+            parked.sourceSections.map((s, i) => ({
+              spec_project_id: specProjectId,
+              source_filename: parked.sourceFilename || "ingest.docx",
+              heading: s.heading,
+              body: s.body,
+              order_index: s.order_index ?? i,
+            })),
+          );
+          if (error) throw error;
+        } catch (sectionErr) {
+          console.error("[ingest-review] source-section persist failed", sectionErr);
+        }
+      }
+
+      // Gap 3 — synthesize an instrument register from the ingest when the
+      // project has no uploaded register, so the co-author gate passes.
+      try {
+        const { data: existing } = await supabase
+          .from("instrument_registers")
+          .select("id")
+          .eq("spec_project_id", specProjectId)
+          .eq("source", "upload")
+          .maybeSingle();
+        if (!existing) {
+          const { tags, units } = synthesizeRegisterFromContract(draft);
+          if (tags.length > 0) {
+            await saveRegister.mutateAsync({
+              spec_project_id: specProjectId,
+              raw_filename: "Synthesized from customer spec",
+              tags, units, parse_warnings: [], haiku_usage: {}, source: "ingest",
+            });
+          }
+        }
+      } catch (synthErr) {
+        console.error("[ingest-review] register synthesis failed", synthErr);
+      }
+
       clearParked();
-      navigate(`/specs?projectId=${projectId}&specId=${rev.spec_project_id}`);
+      navigate(`/specs?projectId=${projectId}&specId=${specProjectId}`);
     } catch (e) {
       // Error surfaces via mutation state
       console.error("[ingest-review] commit failed", e);
