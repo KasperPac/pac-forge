@@ -538,7 +538,10 @@ export function buildHierarchyFromTags(tags: InstrumentTag[]): UnitConfig[] {
       const allDescriptions = control_modules.map((d) => d.description).filter(Boolean);
       equipment_modules.push({
         equipment_module_id: asmPrefix,
-        equipment_module_name: suggestAssemblyName(allDescriptions, asmPrefix),
+        // When the register supplies an explicit equipment_module column, that
+        // value (asmPrefix) IS the authoritative name — only fall back to the
+        // description-derived suggestion when the EM was inferred from tags.
+        equipment_module_name: hasExplicitEquipmentModule ? asmPrefix : suggestAssemblyName(allDescriptions, asmPrefix),
         description: "",
         control_modules: control_modules.sort((a, b) => a.control_module_id.localeCompare(b.control_module_id)),
       });
