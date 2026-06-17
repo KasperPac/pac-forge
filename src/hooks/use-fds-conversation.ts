@@ -28,8 +28,7 @@ import type {
 import { ensureV2 } from "@/lib/spec-builder/sequence-legacy-shim";
 import { SpecContractPatchSchema, validateSpecContractPatch } from "@/lib/spec-builder/contract";
 import { buildValidationFailureTurn } from "@/lib/spec-builder/validation-failure-turn";
-import { useSourceSections } from "@/hooks/use-source-sections";
-import { selectRelevantSections } from "@/lib/spec-builder/source-section-select";
+import { useSourceSectionsForEm } from "@/hooks/use-source-sections";
 
 interface UseFdsConversationOptions {
   session: OperationSession;
@@ -60,8 +59,11 @@ export function useFdsConversation({
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  // Customer-spec sections captured at ingest, fed into the prompt per EM (Gap 2).
-  const { data: sourceSections = [] } = useSourceSections(session.spec_project_id);
+  // Customer-spec requirements bound to THIS equipment module at ingest (Gap 2).
+  const { data: emSections = [] } = useSourceSectionsForEm(
+    session.spec_project_id,
+    equipment_module.equipment_module_id,
+  );
 
   const sequentialStates = allStates.filter((s) => s.state_pattern === "sequential");
 
@@ -79,9 +81,9 @@ export function useFdsConversation({
       // Prompt builder now consumes SequentialStateV2 directly (Phase 3 Task 2).
       session.sequential_states,
       allStates,
-      selectRelevantSections(sourceSections, equipment_module),
+      emSections,
     );
-  }, [equipment_module, unit, allTags, session.static_states, session.sequential_states, allStates, sourceSections]);
+  }, [equipment_module, unit, allTags, session.static_states, session.sequential_states, allStates, emSections]);
 
   const buildMessages = useCallback(
     (extraUserMessage?: string) => {
