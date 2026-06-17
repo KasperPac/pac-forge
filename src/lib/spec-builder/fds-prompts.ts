@@ -40,6 +40,7 @@ import {
   INTERLOCK_EFFECTS_DOC,
   COMPLETION_CRITERION_DOC,
 } from "./system-orchestration-prompts";
+import type { SourceSection } from "./source-section-select";
 
 export function buildFdsInterviewSystemPrompt(
   equipment_module: EquipmentModuleConfig,
@@ -48,6 +49,7 @@ export function buildFdsInterviewSystemPrompt(
   staticStates: Record<string, ControlModuleStateEntry[]>,
   completedSequentialStates: Record<string, SequentialStateV2>,
   allStates: OperatingStateV2[],
+  sourceSections: SourceSection[] = [],
 ): string {
   // --- Data gathering (unchanged from original) ---
   const equipment_moduleTagNames = new Set<string>();
@@ -102,6 +104,16 @@ export function buildFdsInterviewSystemPrompt(
     .join("\n");
   const firstSequentialStateId = sequentialStatesList[0]?.state_id ?? "";
 
+  // Relevant customer-spec sections (selected by the caller). Rendered only when present.
+  const sourceContext = sourceSections.length === 0
+    ? ""
+    : `\n## Customer Specification Context\n` +
+      `Reference the original customer specification below. Treat it as the source\n` +
+      `of intent for process, sequence, fault, and interlock requirements.\n\n` +
+      sourceSections
+        .map((s) => `### ${s.heading || "(untitled)"}\n${s.body}`)
+        .join("\n\n") + "\n";
+
   // --- Revised prompt template ---
   return `You are a senior automation engineer co-authoring a functional specification with the project engineer for Equipment Module "${equipment_module.equipment_module_name}" (equipment_module_id: "${equipment_module.equipment_module_id}") within unit "${unit.unit_name}" (unit_id: "${unit.unit_id}", ${unit.equipment_type}).
 
@@ -110,7 +122,7 @@ Echo these back verbatim — never mutate or paraphrase.
 - equipment_module_id: ${equipment_module.equipment_module_id}
 - unit_id: ${unit.unit_id}
 - state_id: MUST be a number from the SEQUENTIAL STATES REMAINING list below (PackML 1..17 or a custom state >100). Never invent a state_id. Never use a name as the state_id.
-
+${sourceContext}
 # ASSEMBLY DEVICES
 ${deviceList}
 

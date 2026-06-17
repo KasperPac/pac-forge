@@ -38,6 +38,32 @@ describe("buildFdsInterviewSystemPrompt V2 snapshot", () => {
     expect(prompt).toContain("state_id is a NUMBER");
   });
 
+  it("renders a Customer Specification Context block when sections are passed", () => {
+    const prompt = buildFdsInterviewSystemPrompt(
+      catodoEquipmentModule.equipment_module as never,
+      catodoEquipmentModule.unit as never,
+      catodoEquipmentModule.tags as never,
+      catodoEquipmentModule.staticStates as never,
+      catodoEquipmentModule.completedSequentialStates as never,
+      catodoEquipmentModule.allStates as never,
+      [{ heading: "Conveyor CV01", body: "Runs forward on M1 command.", order_index: 1 }],
+    );
+    expect(prompt).toContain("## Customer Specification Context");
+    expect(prompt).toContain("Runs forward on M1 command.");
+  });
+
+  it("omits the Customer Specification Context block when no sections are passed", () => {
+    const prompt = buildFdsInterviewSystemPrompt(
+      catodoEquipmentModule.equipment_module as never,
+      catodoEquipmentModule.unit as never,
+      catodoEquipmentModule.tags as never,
+      catodoEquipmentModule.staticStates as never,
+      catodoEquipmentModule.completedSequentialStates as never,
+      catodoEquipmentModule.allStates as never,
+    );
+    expect(prompt).not.toContain("## Customer Specification Context");
+  });
+
   it("renders the SEQUENTIAL STATES REMAINING table with numeric ids", () => {
     const prompt = buildFdsInterviewSystemPrompt(
       catodoEquipmentModule.equipment_module as never,
