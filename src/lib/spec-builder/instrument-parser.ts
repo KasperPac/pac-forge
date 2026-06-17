@@ -492,22 +492,27 @@ export function buildHierarchyFromTags(tags: InstrumentTag[]): UnitConfig[] {
     const hasExplicitEquipmentModule = subTags.some((t) => t.equipment_module);
     const hasExplicitControlModule = subTags.some((t) => t.control_module);
 
-    // Step 2: Group tags into control_modules by device prefix or explicit control_module
-    const deviceGroups = new Map<string, InstrumentTag[]>();
+    // Step 2: Group tags into control_modules by device prefix or explicit
+    // control_module. When the register gives explicit equipment_module values,
+    // scope the device key by EM so identically-named devices in different EMs
+    // (e.g. "Brake" in "Carriage Brake" vs "Rotator Brake") don't collide.
+    const deviceGroups = new Map<string, { emKey: string; devPrefix: string; tags: InstrumentTag[] }>();
     for (const t of subTags) {
       const devPrefix = hasExplicitControlModule && t.control_module
         ? t.control_module
         : extractDevicePrefix(t.tag, subKey);
-      if (!deviceGroups.has(devPrefix)) deviceGroups.set(devPrefix, []);
-      deviceGroups.get(devPrefix)!.push(t);
+      const emKey = hasExplicitEquipmentModule ? (t.equipment_module || subKey) : "";
+      const key = `${emKey} ${devPrefix}`;
+      if (!deviceGroups.has(key)) deviceGroups.set(key, { emKey, devPrefix, tags: [] });
+      deviceGroups.get(key)!.tags.push(t);
     }
 
     // Step 3: Group control_modules into equipment_modules
     // If explicit equipment_module column is provided, use it; otherwise infer from tag prefix
     const equipment_moduleGroups = new Map<string, Map<string, InstrumentTag[]>>();
-    for (const [devPrefix, devTags] of deviceGroups) {
+    for (const { emKey, devPrefix, tags: devTags } of deviceGroups.values()) {
       const asmKey = hasExplicitEquipmentModule
-        ? (devTags[0].equipment_module || subKey)
+        ? (emKey || subKey)
         : extractAssemblyPrefix(devPrefix);
       if (!equipment_moduleGroups.has(asmKey)) equipment_moduleGroups.set(asmKey, new Map());
       equipment_moduleGroups.get(asmKey)!.set(devPrefix, devTags);

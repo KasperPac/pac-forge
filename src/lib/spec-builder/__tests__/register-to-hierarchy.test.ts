@@ -32,4 +32,18 @@ describe("registerToHierarchy", () => {
   it("returns an empty hierarchy for no tags", () => {
     expect(registerToHierarchy([]).units).toHaveLength(0);
   });
+
+  it("keeps same-prefix control modules in separate equipment modules", () => {
+    // Carriage_Brake_* and Rot_Brake_* both derive the prefix "Brake" — they
+    // must not collide across their distinct equipment modules.
+    const tags = [
+      tag("Carriage_Brake_Fault", "Carriage Brake"),
+      tag("Carriage_Brake_Open", "Carriage Brake"),
+      tag("Rot_Brake_Fault", "Rotator Brake"),
+      tag("Rot_Brake_Open", "Rotator Brake"),
+    ];
+    const h = registerToHierarchy(tags);
+    const emNames = h.units[0].equipment_modules.map((e) => e.equipment_module_name).sort();
+    expect(emNames).toEqual(["Carriage Brake", "Rotator Brake"]);
+  });
 });
