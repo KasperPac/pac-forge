@@ -35,7 +35,6 @@ export default function SpecCoAuthorPage() {
   const { data: register } = useInstrumentRegister(specId);
   const updateSpec = useUpdateSpecProject();
   const [view, setView] = useState<CoAuthorView>("fds");
-  const [mergeReport, setMergeReport] = useState<MergeReport | null>(null);
 
   const spec = useMemo(() => {
     if (!rawSpec) return null;
@@ -53,24 +52,28 @@ export default function SpecCoAuthorPage() {
   }, [rawSpec]);
 
   // When an uploaded register exists, merge its authoritative IO into the spec
-  // hierarchy at co-author entry (Workstream E). Deterministic + idempotent:
-  // persists only when the merge actually changes the hierarchy, so a re-run
-  // over already-merged IO produces identical units and does not write again.
-  useEffect(() => {
-    if (!specId || !register || register.source !== "upload") return;
-    if (!spec?.confirmed_units?.length) return;
-    const { units, report } = mergeRegisterIntoHierarchy(
+  // hierarchy at co-author entry (Workstream E). Derived (no setState); the
+  // report drives the banner and the persist effect below.
+  const mergeResult: { units: UnitConfig[]; report: MergeReport } | null = useMemo(() => {
+    if (!register || register.source !== "upload" || !spec?.confirmed_units?.length) return null;
+    return mergeRegisterIntoHierarchy(
       spec.confirmed_units as UnitConfig[],
       (register.tags ?? []) as InstrumentTag[],
     );
-    setMergeReport(report);
-    if (JSON.stringify(units) !== JSON.stringify(spec.confirmed_units)) {
+  }, [register, spec]);
+  const mergeReport = mergeResult?.report ?? null;
+
+  // Persist the merged hierarchy. Idempotent: a re-run over already-merged IO
+  // produces identical units, so the deep-compare guard prevents a write loop.
+  useEffect(() => {
+    if (!specId || !mergeResult || !spec?.confirmed_units) return;
+    if (JSON.stringify(mergeResult.units) !== JSON.stringify(spec.confirmed_units)) {
       void updateSpec.mutateAsync({
         id: specId,
-        confirmed_units: units as unknown as SpecProjectUpdate["confirmed_units"],
+        confirmed_units: mergeResult.units as unknown as SpecProjectUpdate["confirmed_units"],
       });
     }
-  }, [register, spec, specId, updateSpec]);
+  }, [mergeResult, spec, specId, updateSpec]);
 
   if (isLoading) {
     return (
