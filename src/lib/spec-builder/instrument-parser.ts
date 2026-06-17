@@ -530,9 +530,14 @@ export function buildHierarchyFromTags(tags: InstrumentTag[]): UnitConfig[] {
           description: t.description,
         }));
         const representative = devTags[0];
+        // ISA-88 §4.4.3.6: a Control Module is the single device. It is
+        // identified by its tag (e.g. CM1), per the CM_{DeviceClass}_{Tag}
+        // naming convention — NOT by one of its signal descriptions. The
+        // fault/therm/run signals are its IO. Keep the device's full
+        // description on the `description` field for human context.
         control_modules.push({
           control_module_id: devPrefix,
-          control_module_name: representative.description || devPrefix,
+          control_module_name: devPrefix,
           control_module_class: representative.control_module_class,
           description: representative.description || "",
           is_safety: devTags.some((t) => t.is_safety),
