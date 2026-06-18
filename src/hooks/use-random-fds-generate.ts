@@ -125,13 +125,11 @@ export function useRandomFdsGenerate() {
         // Mirror the projectFields onto the spec row so updateSpec invalidates the
         // wizard summary query keys the UI consumes. writeSpecContract already
         // persisted these JSONB columns; the cast bridges the V2 contract shapes
-        // (looser `equipment_type: string`, `state_id: string|number`) onto the
-        // legacy `UnitConfig` / `OperatingState` interfaces which is safe at
-        // the DB layer (JSONB) and the migrate*() helpers on read.
+        // (looser `equipment_type: string`) onto the legacy `UnitConfig`
+        // interface which is safe at the DB layer (JSONB).
         await updateSpec.mutateAsync({
           id: spec.id,
           confirmed_units: (result.patch.hierarchy?.units ?? []) as unknown as SpecProjectUpdate["confirmed_units"],
-          confirmed_states: (result.patch.states ?? []) as unknown as SpecProjectUpdate["confirmed_states"],
           alarm_tiers: result.patch.alarm_tiers ?? [],
         });
 
@@ -166,20 +164,8 @@ export function useRandomFdsGenerate() {
             .insert(result.equipment_moduleSessions);
           if (sesErr) throw new Error(`fds_operation_sessions insert: ${sesErr.message}`);
         }
-        if (result.unit_procedures.length > 0) {
-          await supabase
-            .from("fds_unit_procedures")
-            .delete()
-            .eq("spec_project_id", spec.id);
-          const { error: orchErr } = await supabase
-            .from("fds_unit_procedures")
-            .insert(result.unit_procedures);
-          if (orchErr) throw new Error(`fds_unit_procedures insert: ${orchErr.message}`);
-        }
-
         queryClient.invalidateQueries({ queryKey: ["spec_sections", spec.id] });
         queryClient.invalidateQueries({ queryKey: ["fds_operation_sessions", spec.id] });
-        queryClient.invalidateQueries({ queryKey: ["fds_unit_procedures", spec.id] });
         await queryClient.refetchQueries({
           queryKey: ["spec_projects", "by_project", params.projectId],
         });

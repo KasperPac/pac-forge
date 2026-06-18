@@ -1,5 +1,5 @@
 // Spec Builder types — functional specification document generation
-import type { PermissiveCondition, SequentialStateV2 } from "./spec-contract-v2";
+import type { PermissiveCondition, SequentialStateV2, OperatorMode, SafetyGateV2, EmStateV2, EmTransitionV2 } from "./spec-contract-v2";
 
 // --- ISA-88 Process Model (§4.3) ---
 // Describes WHAT happens to the product (product-centric), not HOW equipment does it.
@@ -64,7 +64,11 @@ export interface SpecProject {
   system_description: string | null;
   // Wizard state
   confirmed_units: UnitConfig[];
-  confirmed_states: OperatingState[];
+  // Machine-level layer (replaces the removed global states): per-machine
+  // operating modes + safety gates. States now live per-equipment-module
+  // (fds_operation_sessions.em_states).
+  confirmed_modes?: OperatorMode[];
+  safety_gates?: SafetyGateV2[];
   alarm_tiers: AlarmTier[];
   // V2 fields — scope & philosophy
   scope_exclusions: string[];
@@ -119,7 +123,8 @@ export interface SpecProjectUpdate {
   design_profile_id?: string;
   system_description?: string;
   confirmed_units?: UnitConfig[];
-  confirmed_states?: OperatingState[];
+  confirmed_modes?: OperatorMode[];
+  safety_gates?: SafetyGateV2[];
   alarm_tiers?: AlarmTier[];
   scope_exclusions?: string[];
   safety_classification?: string;
@@ -285,49 +290,16 @@ export function migrateUnitConfig(raw: unknown[]): UnitConfig[] {
 
 export type StatePattern = "static" | "sequential";
 
+/**
+ * A per-equipment-module operating state, projected to a flat display shape.
+ * Derived from the EM's OWN states (EmStateV2) — the legacy global
+ * operating-states layer (and its migrate*() helpers) was removed.
+ */
 export interface OperatingState {
   state_id: string;
   state_name: string;
   description: string;
   state_pattern: StatePattern;
-}
-
-/** Default pattern inference from state name */
-export function inferStatePattern(stateName: string): StatePattern {
-  const lower = stateName.toLowerCase();
-  if (
-    lower.includes("idle") ||
-    lower.includes("e-stop") ||
-    lower.includes("estop") ||
-    lower.includes("emergency") ||
-    lower.includes("completed") ||
-    lower.includes("stopped") ||
-    lower.includes("abort") ||
-    lower.includes("held")
-  ) {
-    return "static";
-  }
-  return "sequential";
-}
-
-/** Migrate legacy OperatingState (no state_pattern) */
-export function migrateOperatingState(raw: unknown): OperatingState {
-  const s = raw as Record<string, unknown>;
-  // V2 producers (random builder, post-Phase 3 prompts) set
-  // `display_name` instead of legacy `state_name`. Fall back to it so
-  // V1 viewers don't render empty labels for V2-shaped specs.
-  const name = String(s.state_name ?? s.display_name ?? "");
-  return {
-    state_id: String(s.state_id ?? ""),
-    state_name: name,
-    description: String(s.description ?? ""),
-    state_pattern: (s.state_pattern as StatePattern) ?? inferStatePattern(name),
-  };
-}
-
-/** Migrate an array of legacy OperatingStates */
-export function migrateOperatingStates(raw: unknown[]): OperatingState[] {
-  return raw.map(migrateOperatingState);
 }
 
 export interface AlarmTier {
@@ -561,6 +533,11 @@ export interface OperationSession {
   static_confirmed: boolean;
   // Sequential states: { [state_id]: SequentialStateData }
   sequential_states: Record<string, SequentialStateV2>;
+  // Hybrid per-EM state model (Task 5/9b) — the EM's OWN authored states +
+  // transitions. EM-local string slugs become the keys of static_states /
+  // sequential_states. Empty until Stage A authors them.
+  em_states?: EmStateV2[];
+  em_transitions?: EmTransitionV2[];
   // Conversation audit trail
   conversation: FdsConversationTurn[];
   // Duplicate tracking
@@ -585,35 +562,6 @@ export interface FdsConversationTurn {
   timestamp: string;
   state_context?: string;
   table_delta?: Partial<SequentialStateV2>;
-}
-
-/** Unit-level procedure — how equipment modules coordinate */
-export interface UnitProcedure {
-  id: string;
-  spec_project_id: string;
-  unit_id: string;
-  // Per sequential state: equipment module ordering + inter-equipment-module interlocks
-  state_sequences: Record<string, UnitProcedureSequence>;
-  // Conversation for orchestration interview
-  conversation: FdsConversationTurn[];
-  validation_results: FdsValidationResult | null;
-  token_usage: TokenUsage;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface UnitProcedureSequence {
-  equipment_module_order: string[];
-  shared_permissives: string[];
-  inter_equipment_module_interlocks: InterEquipmentModuleInterlock[];
-  notes: string | null;
-}
-
-export interface InterEquipmentModuleInterlock {
-  source_equipment_module: string;
-  source_condition: string;
-  target_equipment_module: string;
-  effect: string;
 }
 
 /** Validation result for logic checker */

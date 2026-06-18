@@ -191,14 +191,23 @@ export function usePickerIndex(
       }
     }
 
-    const states: IndexedState[] = contract.states.map((s) => ({
-      // OperatingStateV2.state_id was widened to string | number (Task 5); IndexedState still keys on string.
-      state_id: typeof s.state_id === "number" ? String(s.state_id) : s.state_id,
-      state_name: s.state_name ?? "",
-      state_pattern: s.state_pattern,
-      description: s.description,
-      searchKey: `${s.state_id} ${s.state_name} ${s.description}`.toLowerCase(),
-    }));
+    // States are authored per-EM (hybrid state model). Build a project-wide
+    // union (dedup by EM-local state_id) for the picker; there is no global
+    // operating-states layer anymore.
+    const stateById = new Map<string, IndexedState>();
+    for (const asm of Object.values(contract.equipment_modules)) {
+      for (const s of asm.states ?? []) {
+        if (stateById.has(s.state_id)) continue;
+        stateById.set(s.state_id, {
+          state_id: s.state_id,
+          state_name: s.name,
+          state_pattern: s.kind,
+          description: "",
+          searchKey: `${s.state_id} ${s.name}`.toLowerCase(),
+        });
+      }
+    }
+    const states: IndexedState[] = Array.from(stateById.values());
 
     const faults: IndexedFault[] = contract.faults.map((f) => ({
       fault_code: f.fault_code,

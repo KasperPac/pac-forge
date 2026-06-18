@@ -5,13 +5,11 @@
 import { supabase } from "@/lib/supabase";
 import type {
   UnitConfig,
-  OperatingState,
   OperationSession,
-  UnitProcedure,
   StepEntry,
   FunctionalDescriptionContent,
 } from "@/types/spec-builder";
-import type { PermissiveCondition } from "@/types/spec-contract-v2";
+import type { EmStateV2, PermissiveCondition } from "@/types/spec-contract-v2";
 
 function serializePermissive(p: PermissiveCondition): string {
   const val = p.value === true ? "TRUE" : p.value === false ? "FALSE" : String(p.value);
@@ -20,19 +18,18 @@ function serializePermissive(p: PermissiveCondition): string {
 
 /**
  * Compose all equipment_module sessions for a unit into spec_sections rows.
- * Handles equipment_module ordering via orchestration, merges device state tables,
- * and interleaves step tables with inter-equipment_module interlocks.
+ * Emits one functional_description row per (equipment_module, state) using each
+ * session's OWN states (hybrid per-EM state model). Each session declares its
+ * states in `em_states` (EmStateV2.kind = static | sequential); the per-state
+ * behaviour lives in that session's static_states / sequential_states maps,
+ * keyed by EM-local state_id. Inter-EM coordination is expressed as permissive
+ * guards on EM transitions — there is no separate unit-orchestration layer.
  */
 export async function composeFdsToSections(
   specProjectId: string,
   unit: UnitConfig,
   sessions: OperationSession[],
-  orchestration: UnitProcedure | null,
-  allStates: OperatingState[],
 ): Promise<void> {
-  const staticStates = allStates.filter((s) => s.state_pattern === "static");
-  const sequentialStates = allStates.filter((s) => s.state_pattern === "sequential");
-
   // Delete existing functional_description sections for this unit
   await supabase
     .from("spec_sections")
@@ -41,9 +38,11 @@ export async function composeFdsToSections(
     .eq("unit_id", unit.unit_id)
     .eq("section_type", "functional_description");
 
-  // --- Static states: emit one row per (equipment_module, state) to match V2 shape. ---
-  for (const state of staticStates) {
-    for (const session of sessions) {
+  for (const session of sessions) {
+    const emStates: EmStateV2[] = session.em_states ?? [];
+
+    // --- Static states: emit one row per (equipment_module, state). ---
+    for (const state of emStates.filter((s) => s.kind === "static")) {
       const entries = session.static_states[state.state_id] ?? [];
       if (entries.length === 0) continue;
 
@@ -56,7 +55,7 @@ export async function composeFdsToSections(
         spec_project_id: specProjectId,
         section_type: "functional_description",
         unit_id: unit.unit_id,
-        state_name: `${state.state_name} — ${session.equipment_module_id}`,
+        state_name: `${state.name} — ${session.equipment_module_id}`,
         content_json: content,
         content_markdown: null,
         model_used: "co-authored",
@@ -67,50 +66,14 @@ export async function composeFdsToSections(
         review_notes: null,
       });
     }
-  }
 
-  // --- Sequential states: interleave equipment_module steps with orchestration ---
-  for (const state of sequentialStates) {
-    const seq = orchestration?.state_sequences[state.state_id];
-
-    // Determine equipment_module order
-    const equipment_moduleOrder = seq?.equipment_module_order ??
-      sessions.map((s) => s.equipment_module_id);
-
-    // Build ordered session list
-    const orderedSessions = equipment_moduleOrder
-      .map((asmId) => sessions.find((s) => s.equipment_module_id === asmId))
-      .filter((s): s is OperationSession => s !== undefined);
-
-    // Build inter-equipment_module interlocks index (applied as extra permissives on
-    // the target equipment_module's per-equipment_module row).
-    const interlocksByTarget = new Map<string, string[]>();
-    for (const il of seq?.inter_equipment_module_interlocks ?? []) {
-      if (!interlocksByTarget.has(il.target_equipment_module)) {
-        interlocksByTarget.set(il.target_equipment_module, []);
-      }
-      interlocksByTarget.get(il.target_equipment_module)!.push(
-        `${il.source_condition} (${il.effect})`,
-      );
-    }
-
-    // V2: emit one row per (equipment_module, state). Each row carries just that
-    // equipment_module's permissives/steps/notes. Unit-level orchestration (order,
-    // shared permissives, inter-equipment_module interlocks) is written separately to
-    // `fds_unit_procedures` and composed at render time — it doesn't
-    // live inside the per-equipment_module functional_description rows.
-    for (const session of orderedSessions) {
+    // --- Sequential states: emit one row per (equipment_module, state) ---
+    // Each row carries just that equipment_module's own permissives/steps/notes.
+    for (const state of emStates.filter((s) => s.kind === "sequential")) {
       const data = session.sequential_states[state.state_id];
       if (!data) continue;
 
-      const perAssemblyPerms: string[] = [
-        ...(seq?.shared_permissives ?? []),
-        ...data.permissives.map(serializePermissive),
-      ];
-      const interlocks = interlocksByTarget.get(session.equipment_module_id) ?? [];
-      for (const il of interlocks) {
-        if (!perAssemblyPerms.includes(il)) perAssemblyPerms.push(il);
-      }
+      const perAssemblyPerms: string[] = data.permissives.map(serializePermissive);
 
       const content: FunctionalDescriptionContent = {
         pattern: "sequential",
@@ -126,7 +89,7 @@ export async function composeFdsToSections(
         spec_project_id: specProjectId,
         section_type: "functional_description",
         unit_id: unit.unit_id,
-        state_name: `${state.state_name} — ${session.equipment_module_id}`,
+        state_name: `${state.name} — ${session.equipment_module_id}`,
         content_json: content,
         content_markdown: null,
         model_used: "co-authored",

@@ -125,14 +125,13 @@ export default function SpecBuilderIngestReviewPage() {
 
       // The register owns the hierarchy + IO. Only SEED confirmed_units when the
       // project had none (register-derived, never from the .docx); if a hierarchy
-      // already exists, leave it untouched. The spec only contributes behavior
-      // (states / alarm tiers) and per-EM requirements.
+      // already exists, leave it untouched. The spec only contributes alarm tiers
+      // and per-EM requirements. Operating states are authored per-EM later.
       await updateSpec.mutateAsync({
         id: specProjectId,
         ...(parked.seededHierarchy
           ? { confirmed_units: draft.hierarchy.units as unknown as SpecProjectUpdate["confirmed_units"] }
           : {}),
-        confirmed_states: draft.states as unknown as SpecProjectUpdate["confirmed_states"],
         alarm_tiers: draft.alarm_tiers,
       });
 

@@ -18,7 +18,6 @@ import type {
   EquipmentModuleV2,
   ControlModuleV2,
   Hierarchy,
-  OperatingStateV2,
   SpecContractV2,
   SpecSectionRow,
   UnitV2,
@@ -60,13 +59,6 @@ export interface HierarchyDiff {
   }>;
 }
 
-export interface StateDiff {
-  kind: "added" | "removed" | "renamed" | "pattern_changed" | "description_changed";
-  state_id: string;
-  before?: Partial<OperatingStateV2>;
-  after?: Partial<OperatingStateV2>;
-}
-
 export interface AlarmDiff {
   kind:
     | "added"
@@ -103,7 +95,6 @@ export interface SectionDiff {
 
 export interface RevisionDiff {
   hierarchy: HierarchyDiff;
-  states: StateDiff[];
   alarms: AlarmDiff[];
   equipment_modules: AssemblyDiff[];
   sections: SectionDiff[];
@@ -207,50 +198,6 @@ function diffHierarchy(before: Hierarchy, after: Hierarchy): HierarchyDiff {
     }
   }
 
-  return out;
-}
-
-// ============================================================
-// States
-// ============================================================
-
-function diffStates(before: OperatingStateV2[], after: OperatingStateV2[]): StateDiff[] {
-  const out: StateDiff[] = [];
-  // OperatingStateV2.state_id was widened to string | number (Task 5); StateDiff
-  // still keys on string. Coerce at the boundary.
-  const sid = (s: OperatingStateV2): string =>
-    typeof s.state_id === "number" ? String(s.state_id) : s.state_id;
-  const beforeMap = new Map(before.map((s) => [sid(s), s]));
-  const afterMap = new Map(after.map((s) => [sid(s), s]));
-  for (const [id, s] of afterMap) {
-    if (!beforeMap.has(id)) out.push({ kind: "added", state_id: id, after: s });
-  }
-  for (const [id, s] of beforeMap) {
-    if (!afterMap.has(id)) out.push({ kind: "removed", state_id: id, before: s });
-  }
-  for (const [id, a] of afterMap) {
-    const b = beforeMap.get(id);
-    if (!b) continue;
-    if (b.state_name !== a.state_name) {
-      out.push({ kind: "renamed", state_id: id, before: { state_name: b.state_name }, after: { state_name: a.state_name } });
-    }
-    if (b.state_pattern !== a.state_pattern) {
-      out.push({
-        kind: "pattern_changed",
-        state_id: id,
-        before: { state_pattern: b.state_pattern },
-        after: { state_pattern: a.state_pattern },
-      });
-    }
-    if (b.description !== a.description) {
-      out.push({
-        kind: "description_changed",
-        state_id: id,
-        before: { description: b.description },
-        after: { description: a.description },
-      });
-    }
-  }
   return out;
 }
 
@@ -446,7 +393,6 @@ export function diffContracts(
 ): RevisionDiff {
   return {
     hierarchy: diffHierarchy(before.hierarchy, after.hierarchy),
-    states: diffStates(before.states, after.states),
     alarms: diffAlarms(before.alarms, after.alarms),
     equipment_modules: diffAssemblies(before.equipment_modules, after.equipment_modules),
     sections: diffSections(before.sections, after.sections),

@@ -12,15 +12,15 @@ import { CheckCircle2, RotateCcw } from "lucide-react";
 import { autoFillStaticStates } from "@/lib/spec-builder/fds-auto-fill";
 import type {
   EquipmentModuleConfig,
-  OperatingState,
   InstrumentTag,
   ControlModuleStateEntry,
 } from "@/types/spec-builder";
+import type { EmStateV2 } from "@/types/spec-contract-v2";
 import { cn } from "@/lib/utils";
 
 interface Props {
   equipment_module: EquipmentModuleConfig;
-  staticStates: OperatingState[];
+  staticStates: EmStateV2[];
   allTags: InstrumentTag[];
   currentStaticStates: Record<string, ControlModuleStateEntry[]>;
   onConfirm: (states: Record<string, ControlModuleStateEntry[]>) => void;
@@ -94,6 +94,14 @@ export function FdsStaticReview({
         </div>
       </div>
 
+      {staticStates.length === 0 && (
+        <p className="text-xs text-muted-foreground rounded-md border border-dashed p-3">
+          This module has no static states authored yet. Confirm to continue to the
+          state-machine interview, where you define this module's own states (including
+          static safe states) and their device tables.
+        </p>
+      )}
+
       {/* State tabs */}
       <div className="flex gap-1 border-b">
         {staticStates.map((state) => (
@@ -107,7 +115,7 @@ export function FdsStaticReview({
                 : "border-transparent text-muted-foreground hover:text-foreground"
             )}
           >
-            {state.state_name}
+            {state.name}
             <Badge variant="outline" className="ml-1.5 text-[9px] h-3.5 px-1">
               {(editableStates[state.state_id] ?? []).length}
             </Badge>

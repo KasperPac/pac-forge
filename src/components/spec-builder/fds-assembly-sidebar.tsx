@@ -9,9 +9,7 @@ import {
   Circle,
   MessageSquare,
   ShieldCheck,
-  ChevronRight,
   Boxes,
-  Network,
 } from "lucide-react";
 import type { UnitConfig, OperationSession, FdsSessionStatus } from "@/types/spec-builder";
 import { cn } from "@/lib/utils";
@@ -20,9 +18,7 @@ interface Props {
   units: UnitConfig[];
   sessions: OperationSession[];
   selectedEquipmentModuleId: string | null;
-  selectedOrchestrationSubsystemId: string | null;
   onSelectEquipmentModule: (unitId: string, equipment_moduleId: string) => void;
-  onSelectOrchestration: (unitId: string) => void;
 }
 
 const STATUS_ICON: Record<FdsSessionStatus, typeof Circle> = {
@@ -43,9 +39,7 @@ export function FdsAssemblySidebar({
   units,
   sessions,
   selectedEquipmentModuleId,
-  selectedOrchestrationSubsystemId,
   onSelectEquipmentModule,
-  onSelectOrchestration,
 }: Props) {
   const activeUnits = units.filter((s) => !s.excluded);
 
@@ -78,10 +72,6 @@ export function FdsAssemblySidebar({
         <div className="p-1.5 space-y-3">
           {activeUnits.map((sub) => {
             const subSessions = sessions.filter((s) => s.unit_id === sub.unit_id);
-            const allComplete = sub.equipment_modules.length > 0 &&
-              sub.equipment_modules.every((a) =>
-                subSessions.find((s) => s.equipment_module_id === a.equipment_module_id)?.status === "complete"
-              );
 
             return (
               <div key={sub.unit_id} className="space-y-0.5">
@@ -99,8 +89,7 @@ export function FdsAssemblySidebar({
                   const session = subSessions.find((s) => s.equipment_module_id === asm.equipment_module_id);
                   const status: FdsSessionStatus = session?.status ?? "not_started";
                   const Icon = STATUS_ICON[status];
-                  const isSelected = selectedEquipmentModuleId === asm.equipment_module_id &&
-                    selectedOrchestrationSubsystemId === null;
+                  const isSelected = selectedEquipmentModuleId === asm.equipment_module_id;
 
                   return (
                     <button
@@ -121,25 +110,6 @@ export function FdsAssemblySidebar({
                     </button>
                   );
                 })}
-
-                {/* Unit orchestration button (shown when >1 equipment_module) */}
-                {sub.equipment_modules.length > 1 && (
-                  <>
-                    <button
-                      onClick={() => onSelectOrchestration(sub.unit_id)}
-                      className={cn(
-                        "w-full flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-left transition-colors",
-                        selectedOrchestrationSubsystemId === sub.unit_id
-                          ? "bg-accent text-accent-foreground"
-                          : "hover:bg-accent/50"
-                      )}
-                    >
-                      <Network className={cn("h-3 w-3 shrink-0", allComplete ? "text-green-400" : "text-muted-foreground")} />
-                      <span className="truncate flex-1 italic">Orchestration</span>
-                      <ChevronRight className="h-3 w-3 text-muted-foreground" />
-                    </button>
-                  </>
-                )}
 
                 {/* Separator between units */}
                 <Separator className="mt-1" />

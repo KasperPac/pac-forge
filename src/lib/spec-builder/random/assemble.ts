@@ -4,24 +4,26 @@
  *   - SpecContractPatch (for writeSpecContract — validator-gated)
  *   - InstrumentRegister tags + summaries (for useSaveInstrumentRegister)
  *   - fds_operation_sessions rows (direct insert; V2-shaped)
- *   - fds_unit_procedures rows (direct insert; V2-shaped)
  *   - spec_sections rows for functional_description (direct insert)
  */
 import type {
   AlarmTier,
   EquipmentModuleContract,
   Hierarchy,
-  OperatingStateV2,
-  UnitProcedureSequence,
+  SafetyGateV2,
   UnitV2,
   IoSignalV2,
 } from "@/types/spec-contract-v2";
 import type { SpecContractPatch } from "@/lib/spec-builder/contract";
-import { CANONICAL_STATES, SEQUENTIAL_STATE_IDS, STATE_ID_IDLE, STATE_ID_COMPLETE, STATE_ID_E_STOP } from "./state-machine";
+import {
+  EM_LOCAL_SEQUENTIAL_IDS,
+  EM_LOCAL_IDLE,
+  EM_LOCAL_COMPLETE,
+  EM_LOCAL_ESTOP,
+} from "./state-machine";
 import { computeSubsystemBases, createIoAllocator, type IoSignalKind } from "./io-allocator";
 import { DEVICE_TEMPLATES } from "./device-templates";
 import { buildEquipmentModuleContracts, type ResolvedAssembly, type ResolvedDevice, type ResolvedIoSignal } from "./sequence-builder";
-import { buildOrchestrations } from "./orchestration-builder";
 import { renderSequentialContentJson, renderStaticContentJson } from "./section-renderer";
 import type { RandomFdsTheme } from "./theme-schema";
 
@@ -60,16 +62,9 @@ export interface AssemblySessionRow {
   static_confirmed: true;
   static_states_v2: Record<string, unknown>;
   sequential_states: Record<string, unknown>;
+  em_states: unknown[];
+  em_transitions: unknown[];
   conversation: unknown[];
-}
-
-export interface OrchestrationRow {
-  spec_project_id: string;
-  unit_id: string;
-  state_sequences: Record<string, UnitProcedureSequence>;
-  conversation: unknown[];
-  validation_results: null;
-  token_usage: { input: 0; output: 0 };
 }
 
 export interface FunctionalDescriptionRow {
@@ -88,7 +83,6 @@ export interface AssembleResult {
   patch: SpecContractPatch;
   instrumentRegister: InstrumentRegisterPayload;
   equipment_moduleSessions: AssemblySessionRow[];
-  unit_procedures: OrchestrationRow[];
   functionalDescriptionRows: FunctionalDescriptionRow[];
   /** Cosmetic surface for the create-spec call. */
   projectFields: {
@@ -226,8 +220,26 @@ function buildHierarchy(resolved: ResolvedHierarchy): Hierarchy {
   return { units };
 }
 
-function buildStates(): OperatingStateV2[] {
-  return CANONICAL_STATES;
+function buildSafetyGates(resolved: ResolvedHierarchy): SafetyGateV2[] {
+  const safetyTags: string[] = [];
+  for (const sub of resolved.units)
+    for (const asm of sub.equipment_modules)
+      for (const dev of asm.control_modules)
+        if (dev.is_safety)
+          for (const sig of dev.io_signals) safetyTags.push(sig.tag);
+  const seen = new Set<string>();
+  const gates: SafetyGateV2[] = [];
+  for (const tag of safetyTags) {
+    if (seen.has(tag)) continue;
+    seen.add(tag);
+    gates.push({
+      gate_id: `gate_${tag.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`,
+      name: tag,
+      condition: [{ tag, operator: "=", value: false }],
+      scope: "all",
+    });
+  }
+  return gates;
 }
 
 function buildAlarmTiers(): AlarmTier[] {
@@ -286,29 +298,14 @@ export function assembleRandomFds(theme: RandomFdsTheme, opts: AssembleOptions):
   const resolved = resolveHierarchy(theme);
   const flatAssemblies: ResolvedAssembly[] = resolved.units.flatMap((s) => s.equipment_modules);
   const equipment_modules = buildEquipmentModuleContracts(flatAssemblies);
-  const unit_proceduresMap = buildOrchestrations(
-    resolved.units.map((s) => ({
-      unit_id: s.unit_id,
-      equipment_modules: s.equipment_modules.map((a) => ({
-        equipment_module_id: a.equipment_module_id,
-        // Pick the first device's run-feedback tag (if any) as the interlock source.
-        // If the equipment_module has no DI/DO control_modules with FB_RUN, fall back to the first IO tag.
-        first_device_run_tag:
-          a.control_modules[0]?.io_signals.find((s) => s.suffix === "FB_RUN")?.tag ??
-          a.control_modules[0]?.io_signals[0]?.tag ??
-          `PLACEHOLDER_${a.equipment_module_id.slice(0, 8)}`,
-      })),
-    })),
-  );
 
   const patch: SpecContractPatch = {
     hierarchy: buildHierarchy(resolved),
-    states: buildStates(),
     alarm_tiers: buildAlarmTiers(),
     alarms: buildAlarms(resolved),
     modes: [{ mode_id: "auto", name: "Auto", description: "Single default mode", is_default: true }],
+    safety_gates: buildSafetyGates(resolved),
     equipment_modules,
-    unit_procedures: unit_proceduresMap,
     confirmation_status: "confirmed",
   };
 
@@ -357,23 +354,11 @@ export function assembleRandomFds(theme: RandomFdsTheme, opts: AssembleOptions):
         static_confirmed: true,
         static_states_v2: ctr.static_states,
         sequential_states: ctr.sequential_states,
+        em_states: ctr.states,
+        em_transitions: ctr.transitions,
         conversation: [],
       });
     }
-  }
-
-  // Unit orchestration rows (only multi-equipment_module units)
-  const unit_procedures: OrchestrationRow[] = [];
-  for (const sub of resolved.units) {
-    if (sub.equipment_modules.length <= 1) continue;
-    unit_procedures.push({
-      spec_project_id: opts.projectId,
-      unit_id: sub.unit_id,
-      state_sequences: unit_proceduresMap[sub.unit_id],
-      conversation: [],
-      validation_results: null,
-      token_usage: { input: 0, output: 0 },
-    });
   }
 
   // functional_description spec_sections rows (one per equipment_module per state)
@@ -381,32 +366,32 @@ export function assembleRandomFds(theme: RandomFdsTheme, opts: AssembleOptions):
   for (const sub of resolved.units) {
     for (const asm of sub.equipment_modules) {
       const ctr = equipment_modules[asm.equipment_module_id];
-      for (const stateId of SEQUENTIAL_STATE_IDS) {
+      for (const stateId of EM_LOCAL_SEQUENTIAL_IDS) {
         functionalDescriptionRows.push({
           spec_project_id: opts.projectId,
           section_type: "functional_description",
           unit_id: sub.unit_id,
           equipment_module_id: asm.equipment_module_id,
-          state_id: String(stateId),
+          state_id: stateId,
           state_pattern: "sequential",
           granularity: "equipment_module_state",
           content_json: renderSequentialContentJson(
-            ctr.sequential_states[String(stateId)],
+            ctr.sequential_states[stateId],
           ) as unknown as Record<string, unknown>,
           approved: true,
         });
       }
-      for (const stateId of [STATE_ID_IDLE, STATE_ID_COMPLETE, STATE_ID_E_STOP]) {
+      for (const stateId of [EM_LOCAL_IDLE, EM_LOCAL_COMPLETE, EM_LOCAL_ESTOP]) {
         functionalDescriptionRows.push({
           spec_project_id: opts.projectId,
           section_type: "functional_description",
           unit_id: sub.unit_id,
           equipment_module_id: asm.equipment_module_id,
-          state_id: String(stateId),
+          state_id: stateId,
           state_pattern: "static",
           granularity: "equipment_module_state",
           content_json: renderStaticContentJson(
-            ctr.static_states[String(stateId)],
+            ctr.static_states[stateId],
           ) as unknown as Record<string, unknown>,
           approved: true,
         });
@@ -418,7 +403,6 @@ export function assembleRandomFds(theme: RandomFdsTheme, opts: AssembleOptions):
     patch,
     instrumentRegister: { tags, units: subSummaries },
     equipment_moduleSessions,
-    unit_procedures,
     functionalDescriptionRows,
     projectFields: {
       title: theme.title,

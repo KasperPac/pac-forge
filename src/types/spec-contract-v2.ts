@@ -30,9 +30,6 @@
  *   TBD guards/permissives.
  * - `IoSignalV2Schema` gained `tier` — `"wired"` (instrument register) vs
  *   `"fb_instance"` (resolved once a device's FB template is assigned).
- * - `SystemProcedureSchema` — top-level, project-scoped, one row per
- *   spec. Mirrors the per-unit layer but operates on unit IDs
- *   only. Unit-level interlocks remain scoped inside a unit.
  */
 import { z } from "zod";
 
@@ -92,7 +89,6 @@ export type ProjectSectionContent = z.infer<typeof ProjectSectionContentSchema>;
 // ============================================================
 
 export const UuidSchema = z.string().uuid();
-export const StateIdSchema = z.string().min(1); // e.g. "ST03"
 
 export const SignalTypeSchema = z.enum(["DI", "DO", "AI", "AO", "internal"]);
 export type SignalType = z.infer<typeof SignalTypeSchema>;
@@ -304,24 +300,11 @@ export type Hierarchy = z.infer<typeof HierarchySchema>;
 // Operating states + alarm tiers
 // ============================================================
 
+// `state_pattern` scopes a per-(EM, state) section row and the EM-local state
+// machine (see EmStateKindSchema). The legacy GLOBAL operating-states layer
+// (OperatingStateV2) was removed once states moved per-equipment-module.
 export const StatePatternSchema = z.enum(["static", "sequential"]);
 export type StatePattern = z.infer<typeof StatePatternSchema>;
-
-// state_id accepts either legacy string (shim window) or numeric (PackML 1..17
-// or custom_states > 100). New fields are optional; existing rows still validate.
-export const OperatingStateV2Schema = z.object({
-  state_id: z.union([StateIdSchema, z.number().int().positive()]),
-  // Legacy field — kept during shim window.
-  state_name: z.string().optional(),
-  // New display field (preferred post-confirmation).
-  display_name: z.string().optional(),
-  description: z.string(),
-  state_pattern: StatePatternSchema,
-  // New PackML fields (optional during shim window).
-  packml_id: z.number().int().min(1).max(17).optional(),
-  custom_name: z.string().optional(),
-});
-export type OperatingStateV2 = z.infer<typeof OperatingStateV2Schema>;
 
 export const AlarmTierSchema = z.object({
   tier_id: z.string(),
@@ -673,11 +656,79 @@ export const StaticStateV2Schema = z.object({
 });
 export type StaticStateV2 = z.infer<typeof StaticStateV2Schema>;
 
+// ============================================================
+// Per-Equipment-Module state machine (hybrid state model)
+// EM-local states + transitions. state_id here is an EM-local
+// string slug (e.g. "driving_fwd"). This is the ONLY operating-state
+// layer — the legacy global states array was removed.
+// ============================================================
+
+// Mirrors StatePatternSchema's values but kept separate: this scopes the
+// EM-local state machine, while StatePattern scopes a section row.
+export const EmStateKindSchema = z.enum(["static", "sequential"]);
+export type EmStateKind = z.infer<typeof EmStateKindSchema>;
+
+export const EmStateV2Schema = z.object({
+  state_id: z.string().min(1),
+  name: z.string().min(1),
+  kind: EmStateKindSchema,
+  // Machine modes this state is valid in. Empty = allowed in all modes.
+  allowed_modes: z.array(z.string()).default([]),
+  // Exactly one state per EM should be marked the safe state (validated
+  // in validateEmStateMachine — see em-state-machine.ts).
+  is_safe_state: z.boolean().default(false),
+});
+export type EmStateV2 = z.infer<typeof EmStateV2Schema>;
+
+// Trigger: a command (operator/HMI/tag condition goes true → manual) or
+// the completion of the `from` sequential state (automatic). Command
+// triggers reuse PermissiveCondition as the expression type.
+export const EmTriggerSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("command"), expr: PermissiveConditionSchema }),
+  z.object({ kind: z.literal("completion") }),
+]);
+export type EmTrigger = z.infer<typeof EmTriggerSchema>;
+
+export const EmTransitionV2Schema = z.object({
+  transition_id: z.string().min(1),
+  from_state_id: z.string().min(1),
+  to_state_id: z.string().min(1),
+  trigger: EmTriggerSchema,
+  // AND-ed permissive guard; may reference other EMs' tags for inter-EM
+  // interlocks. Empty = no guard. Reuses PermissiveCondition.
+  guard: z.array(PermissiveConditionSchema).default([]),
+});
+export type EmTransitionV2 = z.infer<typeof EmTransitionV2Schema>;
+
+// ============================================================
+// Machine-level safety gate. condition is OR-of-faults: the gate is
+// VIOLATED (forces scoped EMs to their is_safe_state) when ANY listed
+// condition evaluates true. effect is implied (force to safe).
+// ============================================================
+
+export const SafetyGateScopeSchema = z.union([
+  z.literal("all"),
+  z.array(z.string()), // equipment_module_id[]
+]);
+export type SafetyGateScope = z.infer<typeof SafetyGateScopeSchema>;
+
+export const SafetyGateV2Schema = z.object({
+  gate_id: z.string().min(1),
+  name: z.string().min(1),
+  condition: z.array(PermissiveConditionSchema).min(1),
+  scope: SafetyGateScopeSchema,
+});
+export type SafetyGateV2 = z.infer<typeof SafetyGateV2Schema>;
+
 export const EquipmentModuleContractSchema = z.object({
   equipment_module_id: UuidSchema,
   unit_id: UuidSchema,
-  // Keyed by state_id. Legacy rows are bare ControlModuleStateEntry arrays;
-  // post-confirmation rows use the StaticStateV2 container with override_kind.
+  // The EM's OWN state machine (hybrid state model).
+  states: z.array(EmStateV2Schema).default([]),
+  transitions: z.array(EmTransitionV2Schema).default([]),
+  // Per-state behavior. Keyed by EM-LOCAL state_id (EmStateV2.state_id),
+  // NOT a global state id. Legacy rows are bare ControlModuleStateEntry
+  // arrays; post-confirmation rows use the StaticStateV2 container.
   static_states: z.record(
     z.string(),
     z.union([z.array(ControlModuleStateEntrySchema), StaticStateV2Schema]),
@@ -685,62 +736,6 @@ export const EquipmentModuleContractSchema = z.object({
   sequential_states: z.record(z.string(), SequentialStateV2Schema),
 });
 export type EquipmentModuleContract = z.infer<typeof EquipmentModuleContractSchema>;
-
-// ============================================================
-// Unit procedure (how equipment modules coordinate inside a state)
-// ============================================================
-
-// Closed-set effect enum mirrors InterUnitInterlock at the system layer.
-export const InterEquipmentModuleInterlockEffectSchema = z.enum([
-  "hold",
-  "block_transition",
-  "trigger",
-  "enable",
-  "disable",
-]);
-export type InterEquipmentModuleInterlockEffect = z.infer<
-  typeof InterEquipmentModuleInterlockEffectSchema
->;
-
-export const InterEquipmentModuleInterlockSchema = z.object({
-  interlock_id: z.string().min(1),
-  source_equipment_module: z.string().min(1),
-  source_condition: CompletionCriterionSchema,
-  target_equipment_module: z.string().min(1),
-  effect: InterEquipmentModuleInterlockEffectSchema,
-  effect_target: z
-    .object({
-      equipment_module: z.string().min(1),
-      state_id: z.union([z.string(), z.number().int()]),
-    })
-    .optional(),
-  prose: z.string(),
-});
-export type InterEquipmentModuleInterlock = z.infer<typeof InterEquipmentModuleInterlockSchema>;
-
-/**
- * Shared permissive — structured condition shared across orchestration
- * scopes. Used by both `UnitProcedureSequence` (assemblies coordinating
- * inside a unit state) and `SystemStateSequence` (subsystems
- * coordinating inside a system state). Declared here so the unit-
- * level schema below can reference it; `SystemStateSequenceSchema`
- * further down re-uses the same shape.
- */
-export const SharedPermissiveSchema = z.object({
-  permissive_id: z.string(),
-  condition: CompletionCriterionSchema,
-  source_unit: z.string().optional(),
-  prose: z.string(),
-});
-export type SharedPermissive = z.infer<typeof SharedPermissiveSchema>;
-
-export const UnitProcedureSequenceSchema = z.object({
-  equipment_module_order: z.array(z.string()), // equipment_module_ids
-  shared_permissives: z.array(SharedPermissiveSchema),
-  inter_equipment_module_interlocks: z.array(InterEquipmentModuleInterlockSchema),
-  notes: z.string().nullable(),
-});
-export type UnitProcedureSequence = z.infer<typeof UnitProcedureSequenceSchema>;
 
 // ============================================================
 // Alarms / IO list / faults / sections
@@ -827,10 +822,7 @@ export const SpecProjectHeaderSchema = z.object({
 export type SpecProjectHeader = z.infer<typeof SpecProjectHeaderSchema>;
 
 // ============================================================
-// System-level procedure (cross-unit coordination)
-// One row per spec_project (persisted in fds_system_orchestrations).
-// Interlocks here operate on UNIT ids only — equipment-module-scope
-// interlocks belong inside UnitProcedureSequence.
+// Co-author conversation turn
 // ============================================================
 
 /**
@@ -844,51 +836,6 @@ export const FdsConversationTurnSchema = z.object({
   state_context: z.string().optional(),
 });
 export type FdsConversationTurn = z.infer<typeof FdsConversationTurnSchema>;
-
-export const InterUnitInterlockSchema = z.object({
-  interlock_id: z.string(),
-  source_unit_id: z.string(),
-  source_condition: CompletionCriterionSchema,
-  target_unit_id: z.string(),
-  effect: z.enum([
-    "hold",
-    "block_transition",
-    "trigger",
-    "enable",
-    "disable",
-  ]),
-  effect_target: z
-    .object({ unit: z.string(), state_id: z.string() })
-    .optional(),
-  prose: z.string(),
-});
-export type InterUnitInterlock = z.infer<
-  typeof InterUnitInterlockSchema
->;
-
-export const SystemStateSequenceSchema = z.object({
-  unit_order: z.array(z.string()),
-  shared_permissives: z.array(SharedPermissiveSchema).default([]),
-  inter_unit_interlocks: z
-    .array(InterUnitInterlockSchema)
-    .default([]),
-  notes: z.string().nullable().default(null),
-});
-export type SystemStateSequence = z.infer<typeof SystemStateSequenceSchema>;
-
-export const SystemProcedureSchema = z.object({
-  id: z.string(),
-  spec_project_id: z.string(),
-  state_sequences: z
-    .record(z.string(), SystemStateSequenceSchema)
-    .default({}),
-  conversation: z.array(FdsConversationTurnSchema).default([]),
-  validation_results: z.unknown().optional(),
-  token_usage: z.record(z.string(), z.unknown()).default({}),
-  created_at: z.string().optional(),
-  updated_at: z.string().optional(),
-});
-export type SystemProcedure = z.infer<typeof SystemProcedureSchema>;
 
 // ============================================================
 // Top-level contract
@@ -939,18 +886,12 @@ export const SpecContractV2Schema = z.object({
   schema_version: z.literal(3),
   project: SpecProjectHeaderSchema,
   hierarchy: HierarchySchema,
-  states: z.array(OperatingStateV2Schema),
   alarm_tiers: z.array(AlarmTierSchema),
   // Keyed by equipment_module_id
   equipment_modules: z.record(z.string(), EquipmentModuleContractSchema),
-  // orchestrations[subsystem_id][state_id] -> UnitProcedureSequence
-  unit_procedures: z.record(
-    z.string(),
-    z.record(z.string(), UnitProcedureSequenceSchema),
-  ),
-  // New: project-wide cross-unit layer. Optional + nullable — absent
-  // until Wave C's UI persists the first row.
-  system_procedure: SystemProcedureSchema.nullable().optional(),
+  // Machine-level safety gates (hybrid state model). Optional during the
+  // additive wave; defaults to [].
+  safety_gates: z.array(SafetyGateV2Schema).default([]),
   alarms: z.array(AlarmRowSchema),
   io_list: z.array(IoListEntrySchema),
   faults: z.array(FaultRowSchema),

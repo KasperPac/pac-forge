@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { streamFromEdgeFunction } from "@/hooks/use-generation";
 import {
-  OperatingStateV2Schema,
   FaultRowSchema,
   ProcessModelSchema,
 } from "@/types/spec-contract-v2";
@@ -11,8 +10,9 @@ import type { Hierarchy } from "@/types/spec-contract-v2";
  * Response from the register-aware mapping pass. Structure (units/EMs/CMs/IO) is
  * NOT here — it is built deterministically from the register. The model only
  * binds requirements onto fixed EM ids and extracts machine-level behavior.
- * States/faults/process_model are parsed leniently: a malformed secondary field
- * falls back to empty rather than failing the whole mapping.
+ * Faults/process_model are parsed leniently: a malformed secondary field
+ * falls back to empty rather than failing the whole mapping. (Operating states
+ * are authored per-EM in the co-author, not extracted here.)
  */
 const MappingResponseSchema = z.object({
   unit_name: z.string().optional(),
@@ -24,7 +24,6 @@ const MappingResponseSchema = z.object({
       }),
     )
     .default([]),
-  states: z.array(OperatingStateV2Schema).default([]).catch([]),
   faults: z.array(FaultRowSchema).default([]).catch([]),
   process_model: ProcessModelSchema.nullable().default(null).catch(null),
 });
@@ -75,8 +74,8 @@ export function buildMappingPrompt(hierarchy: Hierarchy, docText: string): { sys
 RULES:
 - The equipment modules and their ids below are FIXED. You MUST NOT invent modules, control modules, tags, or ids.
 - For each equipment_module_id, extract the requirements from the document relevant to THAT module. Use the control-module names and tag codes (CM=contactor/motor, VSD=variable speed drive, BR=brake resistor, SR=safety relay, MS=maintenance switch, M#=motor) to decide what belongs where.
-- Also extract machine-level operating states, faults, and (if present) a process_model, plus a suggested unit_name.
-- Return ONLY JSON: { "unit_name": string, "modules": [{ "equipment_module_id": <one of the ids above>, "source_requirements": string }], "states": [...], "faults": [...], "process_model": null | {...} }.`;
+- Also extract machine-level faults and (if present) a process_model, plus a suggested unit_name. Operating states are authored per equipment module later, so do NOT return a states list.
+- Return ONLY JSON: { "unit_name": string, "modules": [{ "equipment_module_id": <one of the ids above>, "source_requirements": string }], "faults": [...], "process_model": null | {...} }.`;
 
   const user = `FIXED EQUIPMENT HIERARCHY:\n${emList}\n\n--- FUNCTIONAL SPECIFICATION ---\n${docText}\n--- END ---`;
   return { system, user };

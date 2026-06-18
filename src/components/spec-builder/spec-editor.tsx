@@ -34,7 +34,6 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useUpdateSpecSection } from "@/hooks/use-spec-projects";
 import type { SpecSection, SpecProject, FunctionalDescriptionContent, ControlModuleStateEntry, StepEntry } from "@/types/spec-builder";
-import { migrateOperatingStates } from "@/types/spec-builder";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -59,9 +58,10 @@ function buildTree(sections: SpecSection[], spec: SpecProject): TreeGroup[] {
   const groups: TreeGroup[] = [];
   const unitName = (id: string | null) =>
     spec.confirmed_units.find((s) => s.unit_id === id)?.unit_name ?? id ?? "?";
-  const states = migrateOperatingStates(spec.confirmed_states);
-  const stateName = (id: string | null) =>
-    states.find((s) => s.state_id === id)?.state_name ?? id ?? "?";
+  // Per-(EM, state) functional_description rows carry their own human label in
+  // `state_name` (compose writes "<state> — <em>"). No global state list to
+  // resolve against anymore — render the row's label directly.
+  const stateName = (id: string | null) => id ?? "?";
 
   const hasV2 = sections.some((s) =>
     s.section_type === "document_control" ||

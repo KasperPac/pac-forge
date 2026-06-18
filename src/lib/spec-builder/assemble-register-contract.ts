@@ -9,9 +9,9 @@ export interface EmRequirement {
 /**
  * Combine the deterministic register hierarchy with the model mapping into a
  * SpecContractV2 draft. Structure is never altered by the model — only
- * unit_name, states, faults, process_model come from the mapping. Per-EM
- * requirements are returned separately for storage in spec_source_sections
- * (keyed by equipment_module_id).
+ * unit_name, faults, process_model come from the mapping. Per-EM requirements
+ * are returned separately for storage in spec_source_sections (keyed by
+ * equipment_module_id). Operating states are authored per-EM later.
  */
 export function assembleContractFromRegister(
   hierarchy: Hierarchy,
@@ -40,7 +40,6 @@ export function assembleContractFromRegister(
       scope_exclusions: [],
     },
     hierarchy: { units },
-    states: mapping.states,
     alarm_tiers: [],
     faults: mapping.faults,
     process_model: mapping.process_model,

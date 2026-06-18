@@ -1,11 +1,10 @@
 /**
- * TanStack Query hooks for FDS equipment_module sessions and unit unit_procedures.
+ * TanStack Query hooks for FDS equipment_module sessions.
  */
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type {
   OperationSession,
-  UnitProcedure,
   ControlModuleStateEntry,
   FdsConversationTurn,
   FdsValidationResult,
@@ -38,12 +37,6 @@ const fdsSessionsKey = (specProjectId: string) =>
 
 const fdsSessionKey = (id: string) =>
   ["fds_operation_sessions", "single", id] as const;
-
-const fdsOrchestrationKey = (specProjectId: string, unitId: string) =>
-  ["fds_unit_procedures", specProjectId, unitId] as const;
-
-const fdsOrchestrationsKey = (specProjectId: string) =>
-  ["fds_unit_procedures", specProjectId] as const;
 
 // ---------------------------------------------------------------------------
 // Equipment Module Sessions — Queries
@@ -366,6 +359,10 @@ export function useDuplicateFdsSession() {
             static_states: remappedStatic,
             static_confirmed: true,
             sequential_states: remappedSequential,
+            // Carry the source EM's authored state machine (hybrid model).
+            // EM-local slugs are reused as-is; only tag references are remapped.
+            em_states: source.em_states ?? [],
+            em_transitions: source.em_transitions ?? [],
             conversation: [{
               role: "system",
               content: `Duplicated from equipment_module ${source.equipment_module_id} with tag remapping.`,
@@ -389,77 +386,6 @@ export function useDuplicateFdsSession() {
 }
 
 // ---------------------------------------------------------------------------
-// Unit Orchestrations
-// ---------------------------------------------------------------------------
-
-export function useFdsOrchestration(specProjectId: string | undefined, unitId: string | undefined) {
-  return useQuery({
-    queryKey: fdsOrchestrationKey(specProjectId ?? "", unitId ?? ""),
-    queryFn: async () => {
-      if (!specProjectId || !unitId) return null;
-      const { data, error } = await supabase
-        .from("fds_unit_procedures")
-        .select("*")
-        .eq("spec_project_id", specProjectId)
-        .eq("unit_id", unitId)
-        .maybeSingle();
-      if (error) throw error;
-      return data as UnitProcedure | null;
-    },
-    enabled: !!specProjectId && !!unitId,
-  });
-}
-
-export function useFdsOrchestrationsForProject(specProjectId: string | undefined) {
-  return useQuery({
-    queryKey: fdsOrchestrationsKey(specProjectId ?? ""),
-    queryFn: async () => {
-      if (!specProjectId) return [];
-      const { data, error } = await supabase
-        .from("fds_unit_procedures")
-        .select("*")
-        .eq("spec_project_id", specProjectId);
-      if (error) throw error;
-      return data as UnitProcedure[];
-    },
-    enabled: !!specProjectId,
-  });
-}
-
-export function useUpsertFdsOrchestration() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: {
-      spec_project_id: string;
-      unit_id: string;
-      state_sequences: UnitProcedure["state_sequences"];
-      conversation?: FdsConversationTurn[];
-    }) => {
-      const { data, error } = await supabase
-        .from("fds_unit_procedures")
-        .upsert({
-          spec_project_id: input.spec_project_id,
-          unit_id: input.unit_id,
-          state_sequences: input.state_sequences,
-          conversation: input.conversation ?? [],
-        }, { onConflict: "spec_project_id,unit_id" })
-        .select()
-        .single();
-      if (error) throw error;
-      return data as UnitProcedure;
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({
-        queryKey: fdsOrchestrationKey(data.spec_project_id, data.unit_id),
-      });
-      queryClient.invalidateQueries({
-        queryKey: fdsOrchestrationsKey(data.spec_project_id),
-      });
-    },
-  });
-}
-
-// ---------------------------------------------------------------------------
 // Compose — merge equipment_module data into spec_sections
 // ---------------------------------------------------------------------------
 
@@ -470,16 +396,12 @@ export function useComposeFds() {
       spec_project_id: string;
       unit: import("@/types/spec-builder").UnitConfig;
       sessions: OperationSession[];
-      orchestration: import("@/types/spec-builder").UnitProcedure | null;
-      allStates: import("@/types/spec-builder").OperatingState[];
     }) => {
       const { composeFdsToSections } = await import("@/lib/spec-builder/fds-compose");
       await composeFdsToSections(
         input.spec_project_id,
         input.unit,
         input.sessions,
-        input.orchestration,
-        input.allStates,
       );
     },
     onSuccess: (_, input) => {
