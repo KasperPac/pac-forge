@@ -33,14 +33,9 @@ import type {
   ProcessModel,
 } from "@/types/spec-builder";
 import type {
-  OperatingStateV2,
   SequentialStateV2,
   EmStateV2,
 } from "@/types/spec-contract-v2";
-import {
-  INTERLOCK_EFFECTS_DOC,
-  COMPLETION_CRITERION_DOC,
-} from "./system-orchestration-prompts";
 import type { SourceSection } from "./source-section-select";
 
 export function buildFdsInterviewSystemPrompt(
@@ -455,110 +450,6 @@ Outputs: ${outputs}
 Inputs: ${inputs}
 
 Ask about the "${firstSequentialState.state_name}" state first. Be specific — reference the actual device names and ask how they operate in sequence. Keep it to 2-3 sentences ending with a clear question.`;
-}
-
-// ---------------------------------------------------------------------------
-// Unit orchestration interview
-// ---------------------------------------------------------------------------
-
-export function buildFdsOrchestrationSystemPrompt(
-  unit: UnitConfig,
-  equipment_moduleSummaries: Array<{
-    equipment_module_name: string;
-    equipment_module_id: string;
-    sequential_states: Record<string, SequentialStateV2>;
-  }>,
-  sequentialStates: OperatingStateV2[],
-): string {
-  const equipment_moduleSummaryText = equipment_moduleSummaries.map((a) => {
-    const stateText = Object.entries(a.sequential_states)
-      .map(([stateId, data]) => {
-        const matched = sequentialStates.find((s) => String(s.state_id) === stateId);
-        const stateName = matched?.display_name ?? matched?.state_name ?? stateId;
-        return `    ${stateName}: ${data.steps.length} step(s), ${data.permissives.length} permissive(s)`;
-      }).join("\n");
-    return `  ${a.equipment_module_name} (${a.equipment_module_id}):\n${stateText}`;
-  }).join("\n");
-
-  const sequentialStatesTable = sequentialStates
-    .map((s) => `  - ${s.state_id}  (${s.display_name ?? s.state_name ?? String(s.state_id)})${s.description ? ` — ${s.description}` : ""}`)
-    .join("\n");
-
-  const firstSequentialStateId = sequentialStates[0]?.state_id ?? 6;
-
-  return `You are a senior automation engineer defining how equipment_modules coordinate within unit "${unit.unit_name}" (${unit.equipment_type}).
-
-Individual equipment_module behaviors are already defined. Now you need to define:
-1. The ORDER in which equipment_modules execute for each sequential state
-2. SHARED PERMISSIVES that gate the entire unit (not just one equipment_module)
-3. INTER-EQUIPMENT-MODULE INTERLOCKS — conditions where one equipment_module's state affects another
-
-ASSEMBLIES IN THIS SUBSYSTEM:
-${equipment_moduleSummaryText}
-
-SEQUENTIAL STATES (state_id is a number — emit it verbatim):
-${sequentialStatesTable}
-
-Ask the engineer about:
-- Execution order: Do equipment_modules start simultaneously, sequentially, or in groups?
-- Dependencies: Must equipment_module A reach a certain state before equipment_module B can start?
-- Shared conditions: Are there unit-wide permissives beyond individual equipment_module permissives?
-
-${INTERLOCK_EFFECTS_DOC}
-
-SHARED PERMISSIVE SHAPE:
-Each shared_permissive is a structured object:
-{
-  "permissive_id": "<stable slug, e.g. SP_ESTOP_OK>",
-  "condition": <CompletionCriterion — see below>,
-  "source_unit": "<optional unit_id that owns the signal>",
-  "prose": "<one-line natural language>"
-}
-
-${COMPLETION_CRITERION_DOC}
-
-RESPONSE FORMAT:
-When you propose orchestration for a state, include a fenced JSON block at the END of your message. The state_id is a NUMBER from the SEQUENTIAL STATES list above. equipment_module_order, source_equipment_module, and target_equipment_module must be equipment_module_ids from this unit.
-
-\`\`\`json
-{
-  "state_id": ${firstSequentialStateId},
-  "equipment_module_order": ["00000000-0000-4000-8000-...asm1", "00000000-0000-4000-8000-...asm2"],
-  "shared_permissives": [
-    {
-      "permissive_id": "SP_ESTOP_OK",
-      "condition": { "kind": "tag_equals", "tag": "SYS_ESTOP01", "value": true },
-      "prose": "Emergency stop circuit healthy"
-    }
-  ],
-  "inter_equipment_module_interlocks": [
-    {
-      "interlock_id": "IL_LFT01_LIMIT_TO_CV01_START",
-      "source_equipment_module": "00000000-0000-4000-8000-...asm1",
-      "source_condition": { "kind": "tag_equals", "tag": "LFT01_ZSL01", "value": true },
-      "target_equipment_module": "00000000-0000-4000-8000-...asm2",
-      "effect": "enable",
-      "effect_target": { "equipment_module": "00000000-0000-4000-8000-...asm2", "state_id": 3 },
-      "prose": "CV01 may begin Starting once LFT01 reaches its lower limit"
-    }
-  ],
-  "notes": null
-}
-\`\`\`
-
-Required fields per interlock: interlock_id (stable slug), source_equipment_module, source_condition (CompletionCriterion), target_equipment_module, effect (from the closed set above), prose (one-line natural language for DOCX rendering). effect_target is REQUIRED when effect is "block_transition" or "trigger"; optional otherwise.
-
-Only include a JSON block when you have a concrete update to persist. When asking clarifying questions, omit it. Keep prose concise — the engineer is a peer.`;
-}
-
-export function buildFdsOrchestrationOpeningMessage(
-  unit: UnitConfig,
-  equipment_moduleNames: string[],
-  firstSequentialState: OperatingState,
-): string {
-  return `Generate the opening message for unit orchestration. Unit "${unit.unit_name}" has ${equipment_moduleNames.length} equipment_modules: ${equipment_moduleNames.join(", ")}.
-
-Ask about the "${firstSequentialState.state_name}" state: in what order do the equipment_modules execute, and are there dependencies between them? Be specific and concise.`;
 }
 
 // ---------------------------------------------------------------------------

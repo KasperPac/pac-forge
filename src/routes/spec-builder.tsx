@@ -565,22 +565,7 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
         <PhaseStub number={3} title="FDS Authoring" locked lockedReason="Complete the Skeleton Wizard first" />
       )}
 
-      {/* Phase 4 — System Orchestration (before compose — orchestration data feeds into sections) */}
-      <Separator />
-      {hasWizardData ? (
-        <PhaseLaunchCard
-          number={4}
-          title="System Orchestration"
-          description="Define cross-unit interlocks, shared permissives and startup order."
-          status={spec.confirmed_units.length > 1 ? `${spec.confirmed_units.length} units` : "No units yet"}
-          ctaLabel="Open Orchestration"
-          to={`/specs/${projectIdForNav}/${spec.id}/system-orchestration`}
-        />
-      ) : (
-        <PhaseStub number={4} title="System Orchestration" locked lockedReason="Complete the Skeleton Wizard first" />
-      )}
-
-      {/* Phase 5 — Structured Spec Editor (unlocked after sections composed) */}
+      {/* Phase 4 — Structured Spec Editor (unlocked after sections composed) */}
       <Separator />
       {allSessionsComplete && hasWizardData && (
         <>
@@ -603,7 +588,7 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
       )}
       {hasSections ? (
         <PhaseLaunchCard
-          number={5}
+          number={4}
           title="Structured Spec Editor"
           description="Review and edit each section. Approve before export."
           status={computeEditorStatus(sections)}
@@ -612,14 +597,14 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
           to={`/specs/${projectIdForNav}/${spec.id}/editor`}
         />
       ) : (
-        <PhaseStub number={5} title="Structured Spec Editor" locked={!hasSections} lockedReason="Complete FDS authoring then Generate Spec Sections" />
+        <PhaseStub number={4} title="Structured Spec Editor" locked={!hasSections} lockedReason="Complete FDS authoring then Generate Spec Sections" />
       )}
 
-      {/* Phase 6 — DOCX Export */}
+      {/* Phase 5 — DOCX Export */}
       <Separator />
       {hasSections ? (
         <PhaseLaunchCard
-          number={6}
+          number={5}
           title="DOCX Export"
           description="Render the spec to Word. Optionally upload to Dropbox."
           status={computeExportStatus(exports)}
@@ -628,7 +613,7 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
           to={`/specs/${projectIdForNav}/${spec.id}/export`}
         />
       ) : (
-        <PhaseStub number={6} title="DOCX Export" locked lockedReason="Complete FDS authoring first" />
+        <PhaseStub number={5} title="DOCX Export" locked lockedReason="Complete FDS authoring first" />
       )}
     </div>
   );

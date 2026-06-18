@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildFdsInterviewSystemPrompt, buildFdsOrchestrationSystemPrompt, extractJsonFromResponse } from "../fds-prompts";
+import { buildFdsInterviewSystemPrompt, extractJsonFromResponse } from "../fds-prompts";
 import { ensureV2 } from "../sequence-legacy-shim";
 import { validateSpecContractPatch } from "../contract";
 import catodoEquipmentModule from "./__fixtures__/catodo-equipment_module.json";
-import catodoUnit from "./__fixtures__/catodo-unit.json";
 import goldenEquipmentModule from "./__fixtures__/golden-ai-emission-equipment_module.json";
 import goldenOrch from "./__fixtures__/golden-ai-emission-orchestration.json";
 import type { UnitProcedureSequence, EmStateV2 } from "@/types/spec-contract-v2";
@@ -126,40 +125,6 @@ describe("golden AI emission — per-equipment_module", () => {
       expect(issues).toEqual([]);
     },
   );
-});
-
-describe("buildFdsOrchestrationSystemPrompt V2 snapshot", () => {
-  it("produces stable output for the catodo unit", () => {
-    const prompt = buildFdsOrchestrationSystemPrompt(
-      catodoUnit.unit as never,
-      catodoUnit.equipment_moduleSummaries as never,
-      catodoUnit.sequentialStates as never,
-    );
-    expect(prompt).toMatchSnapshot();
-  });
-
-  it("inlines the shared closed-effect documentation", () => {
-    const prompt = buildFdsOrchestrationSystemPrompt(
-      catodoUnit.unit as never,
-      catodoUnit.equipment_moduleSummaries as never,
-      catodoUnit.sequentialStates as never,
-    );
-    for (const effect of ["hold", "block_transition", "trigger", "enable", "disable"]) {
-      expect(prompt).toContain(`"${effect}"`);
-    }
-  });
-
-  it("renders the V2 RESPONSE FORMAT example", () => {
-    const prompt = buildFdsOrchestrationSystemPrompt(
-      catodoUnit.unit as never,
-      catodoUnit.equipment_moduleSummaries as never,
-      catodoUnit.sequentialStates as never,
-    );
-    expect(prompt).toContain('"interlock_id"');
-    expect(prompt).toContain('"effect_target"');
-    expect(prompt).toContain('"prose"');
-    expect(prompt).toContain('"kind": "tag_equals"');
-  });
 });
 
 describe("golden AI emission — per-unit orchestration", () => {

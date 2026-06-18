@@ -26,7 +26,6 @@ import {
   SpecSectionRowSchema,
   SpecSectionTypeSchema,
   UnitProcedureSequenceSchema,
-  SystemProcedureSchema,
   OperatorModeSchema,
   ConfigParameterSchema,
   ProjectSectionTypeSchema,
@@ -52,7 +51,6 @@ import {
   type UnitProcedureSequence,
   type UnitV2,
   type IoSignalV2,
-  type SystemProcedure,
   type OperatorMode,
   type ConfigParameter,
   type ProjectSectionType,
@@ -88,7 +86,6 @@ export interface SpecContractPatch {
   states?: OperatingStateV2[];
   unit_procedures?: Record<string, Record<string, UnitProcedureSequence>>;
   safety_gates?: SafetyGateV2[];
-  system_orchestration?: SystemProcedure;
   io_list?: IoListEntry[];
   faults?: FaultRow[];
   sections?: Partial<Record<SpecSectionType, SpecSectionRow[]>>;
@@ -110,7 +107,6 @@ export const SpecContractPatchSchema = z.object({
     .record(z.string(), z.record(z.string(), UnitProcedureSequenceSchema))
     .optional(),
   safety_gates: z.array(SafetyGateV2Schema).optional(),
-  system_orchestration: SystemProcedureSchema.optional(),
   io_list: z.array(IoListEntrySchema).optional(),
   faults: z
     .array(
@@ -217,33 +213,6 @@ async function fetchUnitProcedures(specProjectId: string): Promise<
     .eq("spec_project_id", specProjectId);
   if (error) throw new Error(`loadSpecContract: unit_procedures fetch failed: ${error.message}`);
   return (data ?? []) as Record<string, unknown>[];
-}
-
-async function fetchSystemProcedureRow(
-  specProjectId: string,
-): Promise<Record<string, unknown> | null> {
-  const { data, error } = await supabase
-    .from("fds_system_procedures")
-    .select("*")
-    .eq("spec_project_id", specProjectId)
-    .maybeSingle();
-  if (error)
-    throw new Error(
-      `loadSpecContract: system orchestration fetch failed: ${error.message}`,
-    );
-  return (data as Record<string, unknown> | null) ?? null;
-}
-
-/**
- * Public — load the system orchestration row for a project, if any.
- * Returns null when no row exists yet.
- */
-export async function loadSystemProcedure(
-  specProjectId: string,
-): Promise<SystemProcedure | null> {
-  const row = await fetchSystemProcedureRow(specProjectId);
-  if (!row) return null;
-  return SystemProcedureSchema.parse(row);
 }
 
 async function fetchAlarmRows(
@@ -735,9 +704,6 @@ async function upgradeLegacyRow(
   const alarms = upgradeAlarms(alarmRows, hierarchy);
   const io_list = deriveIoList(hierarchy);
   const faults = deriveFaults(alarms, equipment_modules);
-  const system_orchestration = await loadSystemProcedure(
-    String(projectRow.id),
-  );
 
   const contract: SpecContractV2 = {
     schema_version: 3,
@@ -753,7 +719,6 @@ async function upgradeLegacyRow(
       ? (projectRow.safety_gates as SpecContractV2["safety_gates"])
       : [],
     unit_procedures,
-    system_procedure: system_orchestration,
     alarms,
     io_list,
     faults,
@@ -1136,27 +1101,6 @@ export async function writeSpecContract(
     }
   }
 
-  // ---- system_orchestration → fds_system_procedures (single row upsert) ----
-  if (parsed.system_orchestration) {
-    const so = parsed.system_orchestration;
-    const row: Record<string, unknown> = {
-      spec_project_id: specProjectId,
-      state_sequences: so.state_sequences,
-      conversation: so.conversation,
-      token_usage: so.token_usage,
-    };
-    if (so.validation_results !== undefined) {
-      row.validation_results = so.validation_results;
-    }
-    const { error } = await supabase
-      .from("fds_system_procedures")
-      .upsert(row, { onConflict: "spec_project_id" });
-    if (error)
-      throw new Error(
-        `writeSpecContract.system_orchestration upsert: ${error.message}`,
-      );
-  }
-
   // ---- sections → spec_sections (delete + reinsert per section_type) ----
   if (parsed.sections) {
     for (const [sectionType, rows] of Object.entries(parsed.sections)) {
@@ -1453,69 +1397,12 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
     }
   }
 
-  // Resolve the set of unit IDs (for layering checks below).
-  const knownUnitIds = new Set<string>();
+  // Resolve equipment_module → unit mapping (for layering checks below).
   const unitByEquipmentModule = new Map<string, string>(); // equipment_module_id -> unit_id
   if (patch.hierarchy) {
     for (const sub of patch.hierarchy.units) {
-      knownUnitIds.add(sub.unit_id);
       for (const asm of sub.equipment_modules) {
         unitByEquipmentModule.set(asm.equipment_module_id, sub.unit_id);
-      }
-    }
-  }
-
-  // 2 + 3. System orchestration layering + cycle detection ---------------
-  if (patch.system_orchestration) {
-    for (const [stateId, seq] of Object.entries(
-      patch.system_orchestration.state_sequences,
-    )) {
-      // 2. Layering — IDs must resolve to units in the hierarchy, if
-      //    the hierarchy is part of this patch. If hierarchy is not in the
-      //    patch we cannot check resolution here; skip silently.
-      if (patch.hierarchy) {
-        for (const sid of seq.unit_order) {
-          if (!knownUnitIds.has(sid)) {
-            issues.push(
-              `system_orchestration[${stateId}].unit_order references unknown unit "${sid}"`,
-            );
-          }
-        }
-        for (const il of seq.inter_unit_interlocks) {
-          if (unitByEquipmentModule.has(il.source_unit_id)) {
-            issues.push(
-              `system_orchestration[${stateId}] interlock ${il.interlock_id}: source "${il.source_unit_id}" looks like an equipment_module — lift it to the unit that owns it`,
-            );
-          } else if (!knownUnitIds.has(il.source_unit_id)) {
-            issues.push(
-              `system_orchestration[${stateId}] interlock ${il.interlock_id}: source_unit_id "${il.source_unit_id}" is not a known unit`,
-            );
-          }
-          if (unitByEquipmentModule.has(il.target_unit_id)) {
-            issues.push(
-              `system_orchestration[${stateId}] interlock ${il.interlock_id}: target "${il.target_unit_id}" looks like an equipment_module — lift it to the unit that owns it`,
-            );
-          } else if (!knownUnitIds.has(il.target_unit_id)) {
-            issues.push(
-              `system_orchestration[${stateId}] interlock ${il.interlock_id}: target_unit_id "${il.target_unit_id}" is not a known unit`,
-            );
-          }
-        }
-      }
-
-      // 3. Cycle detection on restrictive effects within a single state.
-      const restrictive = new Set(["hold", "block_transition", "disable"]);
-      const graph = new Map<string, Set<string>>();
-      for (const il of seq.inter_unit_interlocks) {
-        if (!restrictive.has(il.effect)) continue;
-        if (!graph.has(il.source_unit_id))
-          graph.set(il.source_unit_id, new Set());
-        graph.get(il.source_unit_id)!.add(il.target_unit_id);
-      }
-      if (hasCycle(graph)) {
-        issues.push(
-          `system_orchestration[${stateId}] contains a cycle across restrictive interlocks (hold/block_transition/disable). Break the cycle or reclassify one edge as trigger/enable.`,
-        );
       }
     }
   }
@@ -1630,27 +1517,5 @@ function isBranchTransitionLegal(
   if (source?.parent_branch_id === targetBranch) return true;
   // Moving from a parent into a declared child branch — allowed (fork).
   if (target?.parent_branch_id === sourceBranch) return true;
-  return false;
-}
-
-function hasCycle(graph: Map<string, Set<string>>): boolean {
-  const WHITE = 0;
-  const GRAY = 1;
-  const BLACK = 2;
-  const color = new Map<string, number>();
-  for (const k of graph.keys()) color.set(k, WHITE);
-  const dfs = (node: string): boolean => {
-    color.set(node, GRAY);
-    for (const nxt of graph.get(node) ?? []) {
-      const c = color.get(nxt) ?? WHITE;
-      if (c === GRAY) return true;
-      if (c === WHITE && dfs(nxt)) return true;
-    }
-    color.set(node, BLACK);
-    return false;
-  };
-  for (const k of graph.keys()) {
-    if ((color.get(k) ?? WHITE) === WHITE && dfs(k)) return true;
-  }
   return false;
 }

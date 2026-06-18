@@ -30,9 +30,6 @@
  *   TBD guards/permissives.
  * - `IoSignalV2Schema` gained `tier` — `"wired"` (instrument register) vs
  *   `"fb_instance"` (resolved once a device's FB template is assigned).
- * - `SystemProcedureSchema` — top-level, project-scoped, one row per
- *   spec. Mirrors the per-unit layer but operates on unit IDs
- *   only. Unit-level interlocks remain scoped inside a unit.
  */
 import { z } from "zod";
 
@@ -759,7 +756,7 @@ export type EquipmentModuleContract = z.infer<typeof EquipmentModuleContractSche
 // Unit procedure (how equipment modules coordinate inside a state)
 // ============================================================
 
-// Closed-set effect enum mirrors InterUnitInterlock at the system layer.
+// Closed-set effect enum for inter-equipment-module interlocks.
 export const InterEquipmentModuleInterlockEffectSchema = z.enum([
   "hold",
   "block_transition",
@@ -788,12 +785,9 @@ export const InterEquipmentModuleInterlockSchema = z.object({
 export type InterEquipmentModuleInterlock = z.infer<typeof InterEquipmentModuleInterlockSchema>;
 
 /**
- * Shared permissive — structured condition shared across orchestration
- * scopes. Used by both `UnitProcedureSequence` (assemblies coordinating
- * inside a unit state) and `SystemStateSequence` (subsystems
- * coordinating inside a system state). Declared here so the unit-
- * level schema below can reference it; `SystemStateSequenceSchema`
- * further down re-uses the same shape.
+ * Shared permissive — structured condition shared across an orchestration
+ * scope. Used by `UnitProcedureSequence` (equipment modules coordinating
+ * inside a unit state).
  */
 export const SharedPermissiveSchema = z.object({
   permissive_id: z.string(),
@@ -896,10 +890,7 @@ export const SpecProjectHeaderSchema = z.object({
 export type SpecProjectHeader = z.infer<typeof SpecProjectHeaderSchema>;
 
 // ============================================================
-// System-level procedure (cross-unit coordination)
-// One row per spec_project (persisted in fds_system_orchestrations).
-// Interlocks here operate on UNIT ids only — equipment-module-scope
-// interlocks belong inside UnitProcedureSequence.
+// Co-author conversation turn
 // ============================================================
 
 /**
@@ -913,51 +904,6 @@ export const FdsConversationTurnSchema = z.object({
   state_context: z.string().optional(),
 });
 export type FdsConversationTurn = z.infer<typeof FdsConversationTurnSchema>;
-
-export const InterUnitInterlockSchema = z.object({
-  interlock_id: z.string(),
-  source_unit_id: z.string(),
-  source_condition: CompletionCriterionSchema,
-  target_unit_id: z.string(),
-  effect: z.enum([
-    "hold",
-    "block_transition",
-    "trigger",
-    "enable",
-    "disable",
-  ]),
-  effect_target: z
-    .object({ unit: z.string(), state_id: z.string() })
-    .optional(),
-  prose: z.string(),
-});
-export type InterUnitInterlock = z.infer<
-  typeof InterUnitInterlockSchema
->;
-
-export const SystemStateSequenceSchema = z.object({
-  unit_order: z.array(z.string()),
-  shared_permissives: z.array(SharedPermissiveSchema).default([]),
-  inter_unit_interlocks: z
-    .array(InterUnitInterlockSchema)
-    .default([]),
-  notes: z.string().nullable().default(null),
-});
-export type SystemStateSequence = z.infer<typeof SystemStateSequenceSchema>;
-
-export const SystemProcedureSchema = z.object({
-  id: z.string(),
-  spec_project_id: z.string(),
-  state_sequences: z
-    .record(z.string(), SystemStateSequenceSchema)
-    .default({}),
-  conversation: z.array(FdsConversationTurnSchema).default([]),
-  validation_results: z.unknown().optional(),
-  token_usage: z.record(z.string(), z.unknown()).default({}),
-  created_at: z.string().optional(),
-  updated_at: z.string().optional(),
-});
-export type SystemProcedure = z.infer<typeof SystemProcedureSchema>;
 
 // ============================================================
 // Top-level contract
@@ -1020,9 +966,6 @@ export const SpecContractV2Schema = z.object({
     z.string(),
     z.record(z.string(), UnitProcedureSequenceSchema),
   ),
-  // New: project-wide cross-unit layer. Optional + nullable — absent
-  // until Wave C's UI persists the first row.
-  system_procedure: SystemProcedureSchema.nullable().optional(),
   alarms: z.array(AlarmRowSchema),
   io_list: z.array(IoListEntrySchema),
   faults: z.array(FaultRowSchema),
