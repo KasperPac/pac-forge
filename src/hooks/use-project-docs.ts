@@ -60,10 +60,12 @@ export function useDocFolderListing(
 }
 
 async function fileToBase64(file: File): Promise<string> {
-  const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const CHUNK = 0x8000; // 32 KB — keep String.fromCharCode arg count bounded
   let binary = "";
-  const bytes = new Uint8Array(buf);
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
   return btoa(binary);
 }
 
