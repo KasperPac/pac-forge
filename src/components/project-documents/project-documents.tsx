@@ -1,22 +1,31 @@
 import { useMemo, useState } from "react";
-import { Folder, FileText, ChevronRight } from "lucide-react";
+import { Folder, FileText, ChevronRight, Upload } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { useUiStore } from "@/stores/ui-store";
 import type { Project } from "@/types/project";
 import {
   classifyDoc,
   folderCodeFromName,
   isVendorFolderName,
+  nextSequence,
+  suggestAssignName,
   type DocState,
 } from "@/lib/doc-control";
 import {
   docFolderApiPath,
   useDocFolderListing,
+  useMoveDocFile,
+  useUploadDocFile,
   DOC_FOLDER_NAME,
   type DropboxEntry,
 } from "@/hooks/use-project-docs";
-import { useDocOverrides } from "@/hooks/use-doc-overrides";
+import { useDocOverrides, useAddDocOverride } from "@/hooks/use-doc-overrides";
+import { useOpenLocalFile } from "@/hooks/use-open-local-file";
+import { toast } from "@/hooks/use-toast";
 import { DocStatusBadge } from "./doc-status-badge";
+import { ResolveDocDialog, type ResolveContext } from "./resolve-doc-dialog";
+import { UploadDocDialog, type UploadResult } from "./upload-doc-dialog";
 
 export default function ProjectDocuments({ project }: { project: Project }) {
   const dropboxRoot = useUiStore((s) => s.dropboxRoot);
@@ -67,6 +76,107 @@ export default function ProjectDocuments({ project }: { project: Project }) {
     { conforming: 0, non_conforming: 0, needs_review: 0, customer_supplied: 0 } as Record<DocState, number>,
   );
 
+  const openLocal = useOpenLocalFile();
+  const moveDoc = useMoveDocFile();
+  const uploadDoc = useUploadDocFile();
+  const addOverride = useAddDocOverride();
+
+  const [resolveCtx, setResolveCtx] = useState<ResolveContext | null>(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
+
+  const apiFolderPath = subPath ? `${docRoot}/${subPath}` : docRoot;
+  const fileNames = files.map((f) => f.name);
+
+  // Local absolute path = dropboxRoot + dropbox_folder_path tail + subPath + name.
+  function localPathFor(entry: DropboxEntry): string {
+    // entry.path is the Dropbox display path; convert to a local OS path.
+    const tail = entry.path.replace(/\//g, "\\");
+    return `${dropboxRoot}${tail}`;
+  }
+
+  async function handleOpen(entry: DropboxEntry) {
+    try {
+      await openLocal.mutateAsync(localPathFor(entry));
+    } catch {
+      await navigator.clipboard.writeText(localPathFor(entry)).catch(() => {});
+      toast({
+        title: "Couldn't open locally",
+        description: "Bridge unavailable — the file path was copied to your clipboard.",
+      });
+    }
+  }
+
+  async function handleFix(entry: DropboxEntry, suggestedName: string) {
+    const from = `${apiFolderPath}/${entry.name}`;
+    const to = `${apiFolderPath}/${suggestedName}`;
+    await moveDoc.mutateAsync({ fromPath: from, toPath: to });
+    toast({ title: "Renamed", description: suggestedName });
+  }
+
+  function openResolve(entry: DropboxEntry) {
+    if (!subfolderCode) {
+      toast({
+        title: "Move into a numbered sub-folder first",
+        description: "Documents directly under 51 DOC can't be auto-numbered.",
+      });
+      return;
+    }
+    const seq = nextSequence(fileNames, docFolderCode, subfolderCode);
+    setResolveCtx({
+      filename: entry.name,
+      fromPath: `${apiFolderPath}/${entry.name}`,
+      apiFolderPath: apiFolderPath!,
+      suggestedName: suggestAssignName(entry.name, {
+        projectNumber: project.project_number ?? "",
+        folderCode: docFolderCode,
+        subfolderCode,
+        seq,
+      }),
+      relPath: relPath(entry),
+    });
+  }
+
+  async function handleAssignNumber(ctx: ResolveContext) {
+    await moveDoc.mutateAsync({
+      fromPath: ctx.fromPath,
+      toPath: `${ctx.apiFolderPath}/${ctx.suggestedName}`,
+    });
+    setResolveCtx(null);
+    toast({ title: "Number assigned", description: ctx.suggestedName });
+  }
+
+  async function handleMarkCustomer(ctx: ResolveContext, note: string) {
+    await addOverride.mutateAsync({ projectId: project.id, relPath: ctx.relPath, note });
+    setResolveCtx(null);
+    toast({ title: "Marked customer-supplied" });
+  }
+
+  function computeNumberedName(file: File): string {
+    if (!subfolderCode) return file.name;
+    const seq = nextSequence(fileNames, docFolderCode, subfolderCode);
+    return suggestAssignName(file.name, {
+      projectNumber: project.project_number ?? "",
+      folderCode: docFolderCode,
+      subfolderCode,
+      seq,
+    });
+  }
+
+  async function handleUpload(r: UploadResult) {
+    if (!apiFolderPath) return;
+    await uploadDoc.mutateAsync({ apiFolderPath, filename: r.filename, file: r.file });
+    if (r.markCustomer) {
+      await addOverride.mutateAsync({
+        projectId: project.id,
+        relPath: subPath
+          ? `${DOC_FOLDER_NAME}/${subPath}/${r.filename}`
+          : `${DOC_FOLDER_NAME}/${r.filename}`,
+      });
+    }
+    setUploadOpen(false);
+    toast({ title: "Uploaded", description: r.filename });
+  }
+
   if (!project.dropbox_folder_path) {
     return (
       <Card className="p-4">
@@ -93,22 +203,27 @@ export default function ProjectDocuments({ project }: { project: Project }) {
 
   return (
     <Card className="p-4 space-y-3">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-1 font-mono text-xs text-muted-foreground">
-        <button className="hover:text-foreground" onClick={() => setSubPath("")}>
-          {DOC_FOLDER_NAME}
-        </button>
-        {breadcrumb.map((seg, i) => (
-          <span key={i} className="flex items-center gap-1">
-            <ChevronRight className="h-3 w-3" />
-            <button
-              className="hover:text-foreground"
-              onClick={() => setSubPath(breadcrumb.slice(0, i + 1).join("/"))}
-            >
-              {seg}
-            </button>
-          </span>
-        ))}
+      {/* Breadcrumb + Upload button */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1 font-mono text-xs text-muted-foreground">
+          <button className="hover:text-foreground" onClick={() => setSubPath("")}>
+            {DOC_FOLDER_NAME}
+          </button>
+          {breadcrumb.map((seg, i) => (
+            <span key={i} className="flex items-center gap-1">
+              <ChevronRight className="h-3 w-3" />
+              <button
+                className="hover:text-foreground"
+                onClick={() => setSubPath(breadcrumb.slice(0, i + 1).join("/"))}
+              >
+                {seg}
+              </button>
+            </span>
+          ))}
+        </div>
+        <Button size="sm" variant="outline" onClick={() => setUploadOpen(true)}>
+          <Upload className="mr-1 h-3.5 w-3.5" /> Upload
+        </Button>
       </div>
 
       {/* Conformance summary */}
@@ -149,13 +264,48 @@ export default function ProjectDocuments({ project }: { project: Project }) {
             <span className="truncate font-mono text-xs text-foreground">{entry.name}</span>
             <DocStatusBadge state={result.state} />
           </div>
-          {/* Actions wired in Task 8 */}
+          <div className="flex items-center gap-1">
+            <Button size="sm" variant="ghost" onClick={() => handleOpen(entry)}>
+              Open
+            </Button>
+            {result.state === "non_conforming" && result.suggestedName && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-pac-blue-700"
+                onClick={() => handleFix(entry, result.suggestedName!)}
+              >
+                Fix
+              </Button>
+            )}
+            {result.state === "needs_review" && (
+              <Button size="sm" variant="ghost" onClick={() => openResolve(entry)}>
+                Resolve
+              </Button>
+            )}
+          </div>
         </div>
       ))}
 
       {!isLoading && folders.length === 0 && files.length === 0 && (
         <p className="font-mono text-sm text-muted-foreground">This folder is empty.</p>
       )}
+
+      <ResolveDocDialog
+        ctx={resolveCtx}
+        open={!!resolveCtx}
+        onOpenChange={(o) => !o && setResolveCtx(null)}
+        onAssignNumber={handleAssignNumber}
+        onMarkCustomer={handleMarkCustomer}
+        busy={moveDoc.isPending || addOverride.isPending}
+      />
+      <UploadDocDialog
+        open={uploadOpen}
+        onOpenChange={setUploadOpen}
+        computeNumberedName={computeNumberedName}
+        onConfirm={handleUpload}
+        busy={uploadDoc.isPending}
+      />
     </Card>
   );
 }
