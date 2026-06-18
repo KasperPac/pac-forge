@@ -598,35 +598,6 @@ export interface FdsConversationTurn {
   table_delta?: Partial<SequentialStateV2>;
 }
 
-/** Unit-level procedure — how equipment modules coordinate */
-export interface UnitProcedure {
-  id: string;
-  spec_project_id: string;
-  unit_id: string;
-  // Per sequential state: equipment module ordering + inter-equipment-module interlocks
-  state_sequences: Record<string, UnitProcedureSequence>;
-  // Conversation for orchestration interview
-  conversation: FdsConversationTurn[];
-  validation_results: FdsValidationResult | null;
-  token_usage: TokenUsage;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface UnitProcedureSequence {
-  equipment_module_order: string[];
-  shared_permissives: string[];
-  inter_equipment_module_interlocks: InterEquipmentModuleInterlock[];
-  notes: string | null;
-}
-
-export interface InterEquipmentModuleInterlock {
-  source_equipment_module: string;
-  source_condition: string;
-  target_equipment_module: string;
-  effect: string;
-}
-
 /** Validation result for logic checker */
 export interface FdsValidationResult {
   passed: boolean;

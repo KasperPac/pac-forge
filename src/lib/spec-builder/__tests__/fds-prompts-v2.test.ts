@@ -4,8 +4,7 @@ import { ensureV2 } from "../sequence-legacy-shim";
 import { validateSpecContractPatch } from "../contract";
 import catodoEquipmentModule from "./__fixtures__/catodo-equipment_module.json";
 import goldenEquipmentModule from "./__fixtures__/golden-ai-emission-equipment_module.json";
-import goldenOrch from "./__fixtures__/golden-ai-emission-orchestration.json";
-import type { UnitProcedureSequence, EmStateV2 } from "@/types/spec-contract-v2";
+import type { EmStateV2 } from "@/types/spec-contract-v2";
 
 // Task 9 — the interview prompt is now keyed by the EM's OWN states (EmStateV2,
 // EM-local string slugs). Convert the fixture's global OperatingStateV2[] into
@@ -120,35 +119,6 @@ describe("golden AI emission — per-equipment_module", () => {
             sequential_states: { [String(expectedStateId)]: v2 },
           } as never,
         } as never,
-      });
-
-      expect(issues).toEqual([]);
-    },
-  );
-});
-
-describe("golden AI emission — per-unit orchestration", () => {
-  const SUB_ID = "00000000-0000-4000-8000-000000000b01";
-
-  it.each(goldenOrch.responses)(
-    "response '$name' parses + validates",
-    ({ rawText, expectedStateId }) => {
-      const extracted = extractJsonFromResponse(rawText) as unknown as Record<string, unknown> | null;
-      expect(extracted).not.toBeNull();
-      expect(extracted).toMatchObject({ state_id: expectedStateId });
-
-      // Build the unit-orchestration patch the wizard would assemble.
-      const sequence: UnitProcedureSequence = {
-        equipment_module_order: extracted!.equipment_module_order as string[],
-        shared_permissives: (extracted!.shared_permissives ?? []) as never,
-        inter_equipment_module_interlocks: (extracted!.inter_equipment_module_interlocks ?? []) as never,
-        notes: (extracted!.notes ?? null) as string | null,
-      };
-
-      const issues = validateSpecContractPatch({
-        unit_procedures: {
-          [SUB_ID]: { [String(expectedStateId)]: sequence } as never,
-        },
       });
 
       expect(issues).toEqual([]);

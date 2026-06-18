@@ -92,7 +92,8 @@ describe("assembleRandomFds — patch passes validator", () => {
     const theme = makeTheme(2, 4, 12);
     const result = assembleRandomFds(theme, { projectId: "00000000-0000-0000-0000-000000000001" });
     expect(result.patch.states).toBeUndefined();
-    expect(result.patch.unit_procedures).toBeUndefined();
+    // unit_procedures was removed from the contract entirely (hybrid model).
+    expect("unit_procedures" in result.patch).toBe(false);
     expect("unit_procedures" in result).toBe(false);
   });
 

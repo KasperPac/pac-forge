@@ -31,7 +31,7 @@ import type {
 } from "@/types/spec-builder";
 import { migrateOperatingStates } from "@/types/spec-builder";
 import { composeFdsToSections } from "./fds-compose";
-import type { OperationSession, UnitProcedure } from "@/types/spec-builder";
+import type { OperationSession } from "@/types/spec-builder";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -412,19 +412,10 @@ export async function generateSpec(
         .eq("status", "complete");
 
       if (coAuthoredSessions && coAuthoredSessions.length > 0) {
-        // Fetch orchestration if exists
-        const { data: orchData } = await supabase
-          .from("fds_unit_procedures")
-          .select("*")
-          .eq("spec_project_id", spec.id)
-          .eq("unit_id", sub.unit_id)
-          .maybeSingle();
-
         try {
           await composeFdsToSections(
             spec.id, sub,
             coAuthoredSessions as OperationSession[],
-            orchData as UnitProcedure | null,
             states,
           );
           // Still generate equipment preamble via AI (prose + device table)

@@ -753,59 +753,6 @@ export const EquipmentModuleContractSchema = z.object({
 export type EquipmentModuleContract = z.infer<typeof EquipmentModuleContractSchema>;
 
 // ============================================================
-// Unit procedure (how equipment modules coordinate inside a state)
-// ============================================================
-
-// Closed-set effect enum for inter-equipment-module interlocks.
-export const InterEquipmentModuleInterlockEffectSchema = z.enum([
-  "hold",
-  "block_transition",
-  "trigger",
-  "enable",
-  "disable",
-]);
-export type InterEquipmentModuleInterlockEffect = z.infer<
-  typeof InterEquipmentModuleInterlockEffectSchema
->;
-
-export const InterEquipmentModuleInterlockSchema = z.object({
-  interlock_id: z.string().min(1),
-  source_equipment_module: z.string().min(1),
-  source_condition: CompletionCriterionSchema,
-  target_equipment_module: z.string().min(1),
-  effect: InterEquipmentModuleInterlockEffectSchema,
-  effect_target: z
-    .object({
-      equipment_module: z.string().min(1),
-      state_id: z.union([z.string(), z.number().int()]),
-    })
-    .optional(),
-  prose: z.string(),
-});
-export type InterEquipmentModuleInterlock = z.infer<typeof InterEquipmentModuleInterlockSchema>;
-
-/**
- * Shared permissive — structured condition shared across an orchestration
- * scope. Used by `UnitProcedureSequence` (equipment modules coordinating
- * inside a unit state).
- */
-export const SharedPermissiveSchema = z.object({
-  permissive_id: z.string(),
-  condition: CompletionCriterionSchema,
-  source_unit: z.string().optional(),
-  prose: z.string(),
-});
-export type SharedPermissive = z.infer<typeof SharedPermissiveSchema>;
-
-export const UnitProcedureSequenceSchema = z.object({
-  equipment_module_order: z.array(z.string()), // equipment_module_ids
-  shared_permissives: z.array(SharedPermissiveSchema),
-  inter_equipment_module_interlocks: z.array(InterEquipmentModuleInterlockSchema),
-  notes: z.string().nullable(),
-});
-export type UnitProcedureSequence = z.infer<typeof UnitProcedureSequenceSchema>;
-
-// ============================================================
 // Alarms / IO list / faults / sections
 // ============================================================
 
@@ -961,11 +908,6 @@ export const SpecContractV2Schema = z.object({
   // Machine-level safety gates (hybrid state model). Optional during the
   // additive wave; defaults to [].
   safety_gates: z.array(SafetyGateV2Schema).default([]),
-  // orchestrations[subsystem_id][state_id] -> UnitProcedureSequence
-  unit_procedures: z.record(
-    z.string(),
-    z.record(z.string(), UnitProcedureSequenceSchema),
-  ),
   alarms: z.array(AlarmRowSchema),
   io_list: z.array(IoListEntrySchema),
   faults: z.array(FaultRowSchema),

@@ -98,7 +98,6 @@ function minimalContract() {
     states: [],
     alarm_tiers: [],
     equipment_modules: {},
-    unit_procedures: {},
     alarms: [],
     io_list: [],
     faults: [],

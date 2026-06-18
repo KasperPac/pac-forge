@@ -66,7 +66,7 @@ import { InstrumentRegisterUpload } from "@/components/spec-builder/instrument-r
 import { SpecSkeletonWizard } from "@/components/spec-builder/spec-skeleton-wizard";
 import { useNextSpecDocCode } from "@/hooks/use-spec-doc-number";
 import { useSpecSections, useSpecExports } from "@/hooks/use-spec-projects";
-import { useFdsSessionsForProject, useFdsOrchestrationsForProject, useComposeFds } from "@/hooks/use-fds-session";
+import { useFdsSessionsForProject, useComposeFds } from "@/hooks/use-fds-session";
 import {
   computeCoAuthorStatus,
   computeEditorStatus,
@@ -444,7 +444,6 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
   const { data: sections } = useSpecSections(spec.id);
   const { data: exports } = useSpecExports(spec.id);
   const { data: fdsSessions } = useFdsSessionsForProject(spec.id);
-  const { data: unit_procedures } = useFdsOrchestrationsForProject(spec.id);
   const composeFds = useComposeFds();
   const hasRegister = !!register && (register.tags?.length ?? 0) > 0;
   const hasWizardData = spec.confirmed_units.length > 0 && spec.confirmed_states.length > 0;
@@ -461,8 +460,7 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
   const handleCompose = async () => {
     for (const unit of spec.confirmed_units) {
       const sessions = (fdsSessions ?? []).filter((s) => s.unit_id === unit.unit_id);
-      const orchestration = (unit_procedures ?? []).find((o) => o.unit_id === unit.unit_id) ?? null;
-      await composeFds.mutateAsync({ spec_project_id: spec.id, unit, sessions, orchestration, allStates: states });
+      await composeFds.mutateAsync({ spec_project_id: spec.id, unit, sessions, allStates: states });
     }
   };
 

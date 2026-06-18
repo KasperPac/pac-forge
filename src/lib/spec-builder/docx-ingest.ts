@@ -224,7 +224,6 @@ export async function ingestDocx(
       alarm_tiers: [],
       equipment_modules,
       safety_gates: [],
-      unit_procedures: {},
       alarms,
       io_list: [],
       faults: [],

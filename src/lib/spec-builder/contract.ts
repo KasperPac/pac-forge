@@ -2,7 +2,7 @@
  * Spec Contract accessor — the ONLY module allowed to read or write spec data
  * post-refactor. A future lint rule will forbid direct `supabase.from(...)` on
  * `spec_sections`, `spec_alarms`, `fds_operation_sessions`,
- * `fds_unit_procedures`, or `spec_project_revisions` outside this file.
+ * or `spec_project_revisions` outside this file.
  *
  * Reader API is shared by builder + forge. Writer API is builder-only — forge
  * must never import those. A runtime `assertBuilderContext()` hook is stubbed;
@@ -25,7 +25,6 @@ import {
   SpecContractV2Schema,
   SpecSectionRowSchema,
   SpecSectionTypeSchema,
-  UnitProcedureSequenceSchema,
   OperatorModeSchema,
   ConfigParameterSchema,
   ProjectSectionTypeSchema,
@@ -48,7 +47,6 @@ import {
   type SpecContractV2,
   type SpecSectionRow,
   type SpecSectionType,
-  type UnitProcedureSequence,
   type UnitV2,
   type IoSignalV2,
   type OperatorMode,
@@ -76,7 +74,7 @@ export interface AssemblyStateView {
 
 /**
  * Typed patch for `writeSpecContract`. Full-subtree replace per top-level key.
- * Nested maps (`equipment_modules`, `unit_procedures`) allow per-key replacement.
+ * Nested maps (`equipment_modules`) allow per-key replacement.
  */
 export interface SpecContractPatch {
   hierarchy?: Hierarchy;
@@ -84,7 +82,6 @@ export interface SpecContractPatch {
   alarm_tiers?: AlarmTier[];
   equipment_modules?: Record<string, EquipmentModuleContract>;
   states?: OperatingStateV2[];
-  unit_procedures?: Record<string, Record<string, UnitProcedureSequence>>;
   safety_gates?: SafetyGateV2[];
   io_list?: IoListEntry[];
   faults?: FaultRow[];
@@ -103,9 +100,6 @@ export const SpecContractPatchSchema = z.object({
   alarm_tiers: z.array(AlarmTierSchema).optional(),
   equipment_modules: z.record(z.string(), EquipmentModuleContractSchema).optional(),
   states: z.array(OperatingStateV2Schema).optional(),
-  unit_procedures: z
-    .record(z.string(), z.record(z.string(), UnitProcedureSequenceSchema))
-    .optional(),
   safety_gates: z.array(SafetyGateV2Schema).optional(),
   io_list: z.array(IoListEntrySchema).optional(),
   faults: z
@@ -201,17 +195,6 @@ async function fetchAssemblySessions(specProjectId: string): Promise<
     .select("*")
     .eq("spec_project_id", specProjectId);
   if (error) throw new Error(`loadSpecContract: equipment_module sessions fetch failed: ${error.message}`);
-  return (data ?? []) as Record<string, unknown>[];
-}
-
-async function fetchUnitProcedures(specProjectId: string): Promise<
-  Record<string, unknown>[]
-> {
-  const { data, error } = await supabase
-    .from("fds_unit_procedures")
-    .select("*")
-    .eq("spec_project_id", specProjectId);
-  if (error) throw new Error(`loadSpecContract: unit_procedures fetch failed: ${error.message}`);
   return (data ?? []) as Record<string, unknown>[];
 }
 
@@ -401,25 +384,6 @@ function upgradeEquipmentModuleContracts(
       static_states: staticStates,
       sequential_states: sequentialStates,
     };
-  }
-  return out;
-}
-
-function upgradeOrchestrations(
-  rows: Record<string, unknown>[],
-  ctx: UpgradeContext,
-): Record<string, Record<string, UnitProcedureSequence>> {
-  const out: Record<string, Record<string, UnitProcedureSequence>> = {};
-  for (const row of rows) {
-    const unit_id = String(row.unit_id ?? "");
-    if (!unit_id) continue;
-    const sequences = (row.state_sequences ?? {}) as Record<string, unknown>;
-    const mapped: Record<string, UnitProcedureSequence> = {};
-    for (const [key, value] of Object.entries(sequences)) {
-      const stateId = resolveLegacyStateId(key, ctx) ?? key;
-      mapped[stateId] = value as UnitProcedureSequence;
-    }
-    out[unit_id] = mapped;
   }
   return out;
 }
@@ -689,17 +653,15 @@ async function upgradeLegacyRow(
   projectRow: Record<string, unknown>,
 ): Promise<SpecContractV2> {
   const ctx = buildUpgradeContext(projectRow);
-  const [sectionRows, equipment_moduleSessions, orchestrationRows, alarmRows] =
+  const [sectionRows, equipment_moduleSessions, alarmRows] =
     await Promise.all([
       fetchSectionsRows(String(projectRow.id)),
       fetchAssemblySessions(String(projectRow.id)),
-      fetchUnitProcedures(String(projectRow.id)),
       fetchAlarmRows(String(projectRow.id)),
     ]);
 
   const hierarchy = buildHierarchyFromLegacy(projectRow);
   const equipment_modules = upgradeEquipmentModuleContracts(equipment_moduleSessions, ctx);
-  const unit_procedures = upgradeOrchestrations(orchestrationRows, ctx);
   const upgradedSections = upgradeSections(sectionRows, hierarchy, ctx);
   const alarms = upgradeAlarms(alarmRows, hierarchy);
   const io_list = deriveIoList(hierarchy);
@@ -718,7 +680,6 @@ async function upgradeLegacyRow(
     safety_gates: Array.isArray(projectRow.safety_gates)
       ? (projectRow.safety_gates as SpecContractV2["safety_gates"])
       : [],
-    unit_procedures,
     alarms,
     io_list,
     faults,
@@ -927,25 +888,6 @@ export async function loadHierarchy(specProjectId: string): Promise<Hierarchy> {
   return contract.hierarchy;
 }
 
-export async function loadOrchestration(
-  specProjectId: string,
-  unitId: string,
-  stateId?: string,
-): Promise<UnitProcedureSequence | Record<string, UnitProcedureSequence>> {
-  const contract = await loadSpecContract(specProjectId);
-  const forSub = contract.unit_procedures[unitId] ?? {};
-  if (stateId) {
-    const seq = forSub[stateId];
-    if (!seq) {
-      throw new Error(
-        `loadOrchestration: no sequence for unit=${unitId} state=${stateId}`,
-      );
-    }
-    return seq;
-  }
-  return forSub;
-}
-
 export async function loadIoList(
   specProjectId: string,
   opts?: { equipment_moduleId?: string },
@@ -976,13 +918,13 @@ export async function loadOperatingStates(
 
 /**
  * Apply a typed patch to the live contract. Each top-level key replaces its
- * sub-tree in full. Nested maps (`equipment_modules`, `unit_procedures`) replace
- * per-key. Patch is Zod-validated before any write occurs.
+ * sub-tree in full. Nested maps (`equipment_modules`) replace per-key. Patch is
+ * Zod-validated before any write occurs.
  *
  * Persists hierarchy (`confirmed_units`), `confirmed_states`, `alarm_tiers`,
  * `confirmed_modes`, `configuration_parameters`, `section_overrides`,
  * `process_model`, and `confirmation_status` onto `spec_projects`, plus alarm
- * rows via `spec_alarms` and equipment-module / unit / section upserts.
+ * rows via `spec_alarms` and equipment-module / section upserts.
  */
 export async function writeSpecContract(
   specProjectId: string,
@@ -1079,24 +1021,6 @@ export async function writeSpecContract(
       if (error)
         throw new Error(
           `writeSpecContract.equipment_modules upsert (${asm.equipment_module_id}): ${error.message}`,
-        );
-    }
-  }
-
-  // ---- unit_procedures → fds_unit_procedures (upsert per unit) ----
-  if (parsed.unit_procedures) {
-    for (const [unitId, stateSequences] of Object.entries(parsed.unit_procedures)) {
-      const row = {
-        spec_project_id: specProjectId,
-        unit_id: unitId,
-        state_sequences: stateSequences,
-      };
-      const { error } = await supabase
-        .from("fds_unit_procedures")
-        .upsert(row, { onConflict: "spec_project_id,unit_id" });
-      if (error)
-        throw new Error(
-          `writeSpecContract.unit_procedures upsert (${unitId}): ${error.message}`,
         );
     }
   }
@@ -1220,10 +1144,6 @@ type ParsedPatch = z.infer<typeof SpecContractPatchSchema>;
  *
  * Checks (wave A):
  *   1. Global IO tag uniqueness across the hierarchy.
- *   2. System-level interlocks reference units only (not equipment_modules).
- *   3. Cycle detection on hold/block_transition/disable system interlocks.
- *   4. Unit-level inter-equipment_module interlocks must stay within the
- *      same unit.
  *   5. SFC: no cross-branch transitions; sequence_model_version=2 requires
  *      step_id + transitions populated on non-terminal steps.
  */
@@ -1391,40 +1311,6 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
             } else {
               seen.set(tag, loc);
             }
-          }
-        }
-      }
-    }
-  }
-
-  // Resolve equipment_module → unit mapping (for layering checks below).
-  const unitByEquipmentModule = new Map<string, string>(); // equipment_module_id -> unit_id
-  if (patch.hierarchy) {
-    for (const sub of patch.hierarchy.units) {
-      for (const asm of sub.equipment_modules) {
-        unitByEquipmentModule.set(asm.equipment_module_id, sub.unit_id);
-      }
-    }
-  }
-
-  // 4. Unit-level inter-equipment_module interlocks: stay within unit ---
-  if (patch.unit_procedures) {
-    for (const [unitId, byState] of Object.entries(patch.unit_procedures)) {
-      for (const [stateId, seq] of Object.entries(byState)) {
-        for (const il of seq.inter_equipment_module_interlocks) {
-          const srcSub = unitByEquipmentModule.get(il.source_equipment_module);
-          const tgtSub = unitByEquipmentModule.get(il.target_equipment_module);
-          // If hierarchy is not in the patch we can only reject mismatches
-          // we can see. Assemblies we cannot resolve are skipped silently.
-          if (srcSub && srcSub !== unitId) {
-            issues.push(
-              `unit_procedures[${unitId}][${stateId}]: interlock source_equipment_module "${il.source_equipment_module}" belongs to unit "${srcSub}" — lift to system orchestration`,
-            );
-          }
-          if (tgtSub && tgtSub !== unitId) {
-            issues.push(
-              `unit_procedures[${unitId}][${stateId}]: interlock target_equipment_module "${il.target_equipment_module}" belongs to unit "${tgtSub}" — lift to system orchestration`,
-            );
           }
         }
       }
