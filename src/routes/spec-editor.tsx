@@ -23,7 +23,7 @@ import { UnconfirmedLockBanner } from "@/components/spec-builder/unconfirmed-loc
 
 export default function SpecEditorRoute() {
   const { projectId, specId } = useParams<{ projectId: string; specId: string }>();
-  const { isUnconfirmed, migrateHref } = useUnconfirmedLock(projectId ?? "", specId ?? "");
+  const { isUnconfirmed } = useUnconfirmedLock(projectId ?? "", specId ?? "");
   const { data: rawSpec, isLoading } = useSpecProject(specId);
   const { data: sections } = useSpecSections(specId);
 
@@ -73,7 +73,7 @@ export default function SpecEditorRoute() {
 
   return (
     <div className="flex h-full flex-col -m-4">
-      {isUnconfirmed && <UnconfirmedLockBanner migrateHref={migrateHref} />}
+      {isUnconfirmed && <UnconfirmedLockBanner />}
       <div className="flex items-center gap-3 border-b px-4 h-12 shrink-0">
         <Button
           asChild

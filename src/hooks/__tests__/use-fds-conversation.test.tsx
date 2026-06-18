@@ -26,16 +26,29 @@ vi.mock("@/hooks/use-generation", () => ({
   streamFromEdgeFunction: (...args: unknown[]) => streamMock(...args),
 }));
 
+// Source-section lookup is irrelevant to these tests — stub it.
+vi.mock("@/hooks/use-source-sections", () => ({
+  useSourceSectionsForEm: () => ({ data: [] }),
+}));
+
 // --- Imports under test ------------------------------------------
 
 import { useFdsConversation } from "../use-fds-conversation";
-import type { OperatingStateV2 } from "@/types/spec-contract-v2";
+import type { EmStateV2, OperatorMode } from "@/types/spec-contract-v2";
 
 // --- Fixtures ----------------------------------------------------
 
 const ASSEMBLY_ID = "00000000-0000-4000-8000-000000000a01";
 const SUBSYSTEM_ID = "00000000-0000-4000-8000-000000000b01";
 const SESSION_ID = "00000000-0000-4000-8000-000000000s01";
+
+// EM-local slug used as the sequential state id keyed by Stage B.
+const EXECUTE_SLUG = "auto_cycle";
+
+const baseEmStates: EmStateV2[] = [
+  { state_id: "stopped", name: "Stopped", kind: "static", allowed_modes: [], is_safe_state: true },
+  { state_id: EXECUTE_SLUG, name: "Auto Cycle", kind: "sequential", allowed_modes: [], is_safe_state: false },
+];
 
 const baseSession = {
   id: SESSION_ID,
@@ -45,6 +58,8 @@ const baseSession = {
   status: "static_confirmed",
   static_states: {},
   sequential_states: {},
+  em_states: baseEmStates,
+  em_transitions: [],
   conversation: [],
 } as never;
 
@@ -76,8 +91,8 @@ const baseTags = [
   { tag: "LFT01_M01_FB", description: "Pump fb", signal_direction: "DI" },
 ] as never;
 
-const baseStates: OperatingStateV2[] = [
-  { state_id: 6, packml_id: 6, display_name: "Execute", description: "Running", state_pattern: "sequential" },
+const baseModes: OperatorMode[] = [
+  { mode_id: "auto", name: "Auto", is_default: true },
 ];
 
 function wrap(ui: ReactNode) {
@@ -87,19 +102,19 @@ function wrap(ui: ReactNode) {
 
 // --- Tests -------------------------------------------------------
 
-describe("useFdsConversation validator gate", () => {
+describe("useFdsConversation Stage B validator gate", () => {
   beforeEach(() => {
     updateCalls.length = 0;
     streamMock.mockReset();
   });
 
-  it("merges a valid V2 emission and does NOT post a failure turn", async () => {
-    const validResponse = `Here's Execute:
+  it("merges a valid V2 emission keyed by the EM-local slug and posts no failure turn", async () => {
+    const validResponse = `Here's Auto Cycle:
 
 \`\`\`json
 [
   {
-    "state_id": 6,
+    "state_id": "${EXECUTE_SLUG}",
     "override_kind": "override",
     "permissives": [],
     "steps": [
@@ -141,19 +156,22 @@ describe("useFdsConversation validator gate", () => {
           equipment_module: baseEquipmentModule,
           unit: baseUnit,
           allTags: baseTags,
-          allStates: baseStates,
+          modes: baseModes,
         }),
       { wrapper: ({ children }) => wrap(children) },
     );
 
+    // EM already has authored states → Stage B.
+    expect(result.current.stage).toBe("behavior");
+
     await act(async () => {
-      await result.current.sendMessage("Tell me Execute");
+      await result.current.sendMessage("Tell me Auto Cycle");
     });
 
-    // Last update should include the new sequential_states row.
+    // Last update should include the new sequential_states row keyed by slug.
     const final = updateCalls[updateCalls.length - 1];
     expect(final.payload.sequential_states).toBeDefined();
-    expect((final.payload.sequential_states as Record<string, unknown>)["6"]).toBeDefined();
+    expect((final.payload.sequential_states as Record<string, unknown>)[EXECUTE_SLUG]).toBeDefined();
 
     // No system-role turn in any persisted conversation snapshot.
     const conversations = updateCalls
@@ -165,15 +183,13 @@ describe("useFdsConversation validator gate", () => {
 
   it("rejects an invalid V2 emission and posts a system-role failure turn", async () => {
     // Invalid: override_kind="inherit" must have empty permissives/steps/
-    // monitors/branches. This row claims to inherit but supplies a step,
-    // which the override_kind content-rule validator rejects with
-    // "inherit rows must be empty".
-    const invalidResponse = `Here's a broken Execute:
+    // monitors/branches. This row claims to inherit but supplies a step.
+    const invalidResponse = `Here's a broken Auto Cycle:
 
 \`\`\`json
 [
   {
-    "state_id": 6,
+    "state_id": "${EXECUTE_SLUG}",
     "override_kind": "inherit",
     "permissives": [],
     "steps": [
@@ -201,7 +217,7 @@ describe("useFdsConversation validator gate", () => {
           equipment_module: baseEquipmentModule,
           unit: baseUnit,
           allTags: baseTags,
-          allStates: baseStates,
+          modes: baseModes,
         }),
       { wrapper: ({ children }) => wrap(children) },
     );
@@ -215,6 +231,116 @@ describe("useFdsConversation validator gate", () => {
     expect(final.payload.sequential_states).toBeUndefined();
 
     // System-role turn appended to the conversation.
+    const conv = final.payload.conversation as Array<{ role: string; content: string }>;
+    const sysTurn = conv.find((t) => t.role === "system");
+    expect(sysTurn).toBeDefined();
+    expect(sysTurn!.content).toMatch(/rejected/i);
+  });
+});
+
+describe("useFdsConversation Stage A state-machine authoring", () => {
+  beforeEach(() => {
+    updateCalls.length = 0;
+    streamMock.mockReset();
+  });
+
+  const stageASession = { ...baseSession, em_states: [], em_transitions: [] } as never;
+
+  it("starts in the state_machine stage when the EM has no authored states", () => {
+    const { result } = renderHook(
+      () =>
+        useFdsConversation({
+          session: stageASession,
+          equipment_module: baseEquipmentModule,
+          unit: baseUnit,
+          allTags: baseTags,
+          modes: baseModes,
+        }),
+      { wrapper: ({ children }) => wrap(children) },
+    );
+    expect(result.current.stage).toBe("state_machine");
+  });
+
+  it("persists a valid {states,transitions} proposal to em_states / em_transitions", async () => {
+    const proposal = `Proposed machine:
+
+\`\`\`json
+{
+  "states": [
+    { "state_id": "stopped", "name": "Stopped", "kind": "static", "allowed_modes": [], "is_safe_state": true },
+    { "state_id": "auto_cycle", "name": "Auto Cycle", "kind": "sequential", "allowed_modes": ["auto"], "is_safe_state": false }
+  ],
+  "transitions": [
+    { "transition_id": "t1", "from_state_id": "stopped", "to_state_id": "auto_cycle", "trigger": { "kind": "command", "expr": { "tag": "LFT01_START", "operator": "=", "value": true } }, "guard": [] }
+  ]
+}
+\`\`\``;
+
+    streamMock.mockImplementation(async (_body, _signal, onChunk) => {
+      onChunk(proposal);
+    });
+
+    const { result } = renderHook(
+      () =>
+        useFdsConversation({
+          session: stageASession,
+          equipment_module: baseEquipmentModule,
+          unit: baseUnit,
+          allTags: baseTags,
+          modes: baseModes,
+        }),
+      { wrapper: ({ children }) => wrap(children) },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage("Here are the states");
+    });
+
+    const final = updateCalls[updateCalls.length - 1];
+    expect(final.payload.em_states).toBeDefined();
+    expect((final.payload.em_states as EmStateV2[]).length).toBe(2);
+    expect(final.payload.em_transitions).toBeDefined();
+    // No failure turn for a valid proposal.
+    const conv = final.payload.conversation as Array<{ role: string }>;
+    expect(conv.some((t) => t.role === "system")).toBe(false);
+  });
+
+  it("rejects a proposal with no safe state and posts a failure turn", async () => {
+    const badProposal = `Proposed machine:
+
+\`\`\`json
+{
+  "states": [
+    { "state_id": "stopped", "name": "Stopped", "kind": "static", "allowed_modes": [], "is_safe_state": false },
+    { "state_id": "auto_cycle", "name": "Auto Cycle", "kind": "sequential", "allowed_modes": [], "is_safe_state": false }
+  ],
+  "transitions": []
+}
+\`\`\``;
+
+    streamMock.mockImplementation(async (_body, _signal, onChunk) => {
+      onChunk(badProposal);
+    });
+
+    const { result } = renderHook(
+      () =>
+        useFdsConversation({
+          session: stageASession,
+          equipment_module: baseEquipmentModule,
+          unit: baseUnit,
+          allTags: baseTags,
+          modes: baseModes,
+        }),
+      { wrapper: ({ children }) => wrap(children) },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage("Here are the states");
+    });
+
+    const final = updateCalls[updateCalls.length - 1];
+    // Invalid machine not persisted.
+    expect(final.payload.em_states).toBeUndefined();
     const conv = final.payload.conversation as Array<{ role: string; content: string }>;
     const sysTurn = conv.find((t) => t.role === "system");
     expect(sysTurn).toBeDefined();

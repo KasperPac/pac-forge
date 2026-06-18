@@ -38,7 +38,6 @@ describe("useUnconfirmedLock", () => {
     );
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.isUnconfirmed).toBe(true);
-    expect(result.current.migrateHref).toBe("/specs/proj-1/unconfirmed-id/migrate");
   });
 
   it("returns isUnconfirmed=false for confirmed projects", async () => {

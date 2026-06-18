@@ -1,12 +1,6 @@
-import { Link } from "react-router";
 import { AlertTriangle } from "lucide-react";
-import { Button } from "@/components/ui/button";
 
-interface Props {
-  migrateHref: string;
-}
-
-export function UnconfirmedLockBanner({ migrateHref }: Props) {
+export function UnconfirmedLockBanner() {
   return (
     <div
       role="alert"
@@ -14,11 +8,9 @@ export function UnconfirmedLockBanner({ migrateHref }: Props) {
     >
       <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
       <p className="text-sm flex-1">
-        This project is on the <strong>V1 schema</strong>. Edits are disabled until you migrate to V2.
+        This project is <strong>unconfirmed</strong>. Edits are disabled until the
+        spec is confirmed.
       </p>
-      <Button asChild size="sm" variant="default">
-        <Link to={migrateHref}>Migrate to V2</Link>
-      </Button>
     </div>
   );
 }

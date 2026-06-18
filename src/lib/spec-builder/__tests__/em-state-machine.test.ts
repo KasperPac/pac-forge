@@ -3,6 +3,7 @@ import {
   resolveAllowedStates,
   resolveForcedSafeStates,
   validateEmStateMachine,
+  parseStateMachineProposal,
 } from "@/lib/spec-builder/em-state-machine";
 import type {
   EquipmentModuleContract,
@@ -133,5 +134,65 @@ describe("validateEmStateMachine", () => {
 
   it("does not require a safe state when the EM has no states (skeleton not authored)", () => {
     expect(validateEmStateMachine(em("empty"))).toEqual([]);
+  });
+});
+
+describe("parseStateMachineProposal", () => {
+  const VALID = `Here is the proposed machine.
+
+\`\`\`json
+{
+  "states": [
+    { "state_id": "stopped", "name": "Stopped", "kind": "static", "allowed_modes": [], "is_safe_state": true },
+    { "state_id": "auto_cycle", "name": "Auto Cycle", "kind": "sequential", "allowed_modes": ["auto"], "is_safe_state": false }
+  ],
+  "transitions": [
+    { "transition_id": "t1", "from_state_id": "stopped", "to_state_id": "auto_cycle", "trigger": { "kind": "completion" }, "guard": [] }
+  ]
+}
+\`\`\``;
+
+  it("extracts states + transitions from a fenced json block", () => {
+    const out = parseStateMachineProposal(VALID);
+    expect(out).not.toBeNull();
+    expect(out!.states.map((s) => s.state_id)).toEqual(["stopped", "auto_cycle"]);
+    expect(out!.transitions.length).toBe(1);
+  });
+
+  it("applies schema defaults (allowed_modes, is_safe_state, guard)", () => {
+    const minimal = `\`\`\`json
+{
+  "states": [
+    { "state_id": "s1", "name": "S1", "kind": "static" }
+  ]
+}
+\`\`\``;
+    const out = parseStateMachineProposal(minimal);
+    expect(out).not.toBeNull();
+    expect(out!.states[0].allowed_modes).toEqual([]);
+    expect(out!.states[0].is_safe_state).toBe(false);
+    expect(out!.transitions).toEqual([]);
+  });
+
+  it("returns null when there is no json block (still gathering)", () => {
+    expect(parseStateMachineProposal("Let me ask you a question first.")).toBeNull();
+  });
+
+  it("returns null for an empty states array", () => {
+    const empty = `\`\`\`json
+{ "states": [], "transitions": [] }
+\`\`\``;
+    expect(parseStateMachineProposal(empty)).toBeNull();
+  });
+
+  it("returns null for a structurally invalid proposal", () => {
+    const bad = `\`\`\`json
+{ "states": [ { "state_id": "s1", "kind": "bogus" } ] }
+\`\`\``;
+    expect(parseStateMachineProposal(bad)).toBeNull();
+  });
+
+  it("returns null for malformed json", () => {
+    expect(parseStateMachineProposal("```json\n{ not valid }\n```")).toBeNull();
   });
 });

@@ -24,6 +24,7 @@ import {
   RotateCcw,
   ChevronLeft,
   ChevronRight,
+  Layers,
 } from "lucide-react";
 import { FdsAssemblySidebar } from "./fds-assembly-sidebar";
 import { FdsStaticReview } from "./fds-static-review";
@@ -51,7 +52,7 @@ import type {
   OperationSession,
 } from "@/types/spec-builder";
 import { migrateOperatingStates } from "@/types/spec-builder";
-import type { OperatingStateV2, SequentialStateV2 } from "@/types/spec-contract-v2";
+import type { SequentialStateV2, OperatorMode, EmStateV2 } from "@/types/spec-contract-v2";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -72,7 +73,8 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
 
   const states = useMemo(() => migrateOperatingStates(spec.confirmed_states), [spec.confirmed_states]);
   const staticStates = useMemo(() => states.filter((s) => s.state_pattern === "static"), [states]);
-  const sequentialStates = useMemo(() => states.filter((s) => s.state_pattern === "sequential"), [states]);
+  // Project-level machine modes — Stage A gates the EM's states by these.
+  const modes = useMemo<OperatorMode[]>(() => spec.confirmed_modes ?? [], [spec.confirmed_modes]);
 
   // Selection state
   const [selectedUnitId, setSelectedSubsystemId] = useState<string | null>(null);
@@ -287,17 +289,14 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
                 />
               </div>
             ) : (
-              // Stage 2 — Conversation + live tables
+              // Stage 2 — Conversation + live tables (hybrid per-EM state model).
+              // No global states passed: the EM authors and uses its OWN states.
               <ConversationStage
                 session={activeSession}
                 equipment_module={activeEquipmentModule}
                 unit={activeUnit!}
                 allTags={register.tags}
-                // migrateOperatingStates still returns the legacy V1 shape; bridge
-                // to V2 here until that helper is migrated. The fields ConversationStage
-                // uses (state_id, state_name, state_pattern) overlap structurally.
-                allStates={states as unknown as OperatingStateV2[]}
-                sequentialStates={sequentialStates}
+                modes={modes}
                 onUpdateSequentialState={handleUpdateSequentialState}
               />
             )}
@@ -352,24 +351,36 @@ function ConversationStage({
   equipment_module,
   unit,
   allTags,
-  allStates,
-  sequentialStates,
+  modes,
   onUpdateSequentialState,
 }: {
   session: OperationSession;
   equipment_module: EquipmentModuleConfig;
   unit: UnitConfig;
   allTags: InstrumentTag[];
-  allStates: OperatingStateV2[];
-  sequentialStates: OperatingState[];
+  modes: OperatorMode[];
   onUpdateSequentialState: (stateId: string, data: SequentialStateV2) => void;
 }) {
   const [chatInput, setChatInput] = useState("");
   const [chatCollapsed, setChatCollapsed] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const { sendMessage, startInterview, streamingText, isStreaming, error } =
-    useFdsConversation({ session, equipment_module, unit, allTags, allStates });
+  const { stage, emStates, sendMessage, startInterview, streamingText, isStreaming, error } =
+    useFdsConversation({ session, equipment_module, unit, allTags, modes });
+
+  // Stage B walks the EM's OWN sequential states. Adapt them to the
+  // {state_id, state_name} shape FdsTablePane consumes (EmStateV2.name → state_name).
+  const tableStates = useMemo<OperatingState[]>(
+    () =>
+      emStates
+        .filter((s) => s.kind === "sequential")
+        .map((s) => ({
+          state_id: s.state_id,
+          state_name: s.name,
+          state_pattern: "sequential",
+        }) as unknown as OperatingState),
+    [emStates],
+  );
 
   // Auto-scroll to bottom when messages change or streaming
   useEffect(() => {
@@ -400,7 +411,20 @@ function ConversationStage({
       <div className="w-[400px] border-r flex flex-col shrink-0">
         {/* Chat header with collapse button */}
         <div className="flex items-center justify-between px-2.5 py-1.5 border-b shrink-0">
-          <span className="text-[10px] uppercase font-semibold tracking-wide text-muted-foreground">AI Interview</span>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="text-[10px] uppercase font-semibold tracking-wide text-muted-foreground">AI Interview</span>
+            <Badge
+              variant="outline"
+              className="text-[9px] h-3.5 px-1 shrink-0"
+              title={
+                stage === "state_machine"
+                  ? "Stage A — define this module's states + transitions"
+                  : "Stage B — define per-state behaviour"
+              }
+            >
+              {stage === "state_machine" ? "Stage A · States" : "Stage B · Behaviour"}
+            </Badge>
+          </div>
           <button
             onClick={() => setChatCollapsed(true)}
             className="text-muted-foreground hover:text-foreground transition-colors"
@@ -417,8 +441,20 @@ function ConversationStage({
                 <div className="text-center space-y-3 text-muted-foreground">
                   <MessageSquare className="h-8 w-8 mx-auto opacity-30" />
                   <p className="text-xs">
-                    Describe how {equipment_module.equipment_module_name} operates,<br />
-                    or let the AI interview you.
+                    {stage === "state_machine" ? (
+                      <>
+                        Define the states {equipment_module.equipment_module_name} can be in
+                        <br />
+                        (e.g. stopped, manually driving, auto cycle, faulted),
+                        <br />
+                        or let the AI interview you.
+                      </>
+                    ) : (
+                      <>
+                        Describe how {equipment_module.equipment_module_name} operates,<br />
+                        or let the AI interview you.
+                      </>
+                    )}
                   </p>
                   <Button
                     size="sm"
@@ -427,7 +463,7 @@ function ConversationStage({
                     disabled={isStreaming}
                   >
                     <Sparkles className="h-3 w-3 mr-1.5" />
-                    Start AI Interview
+                    {stage === "state_machine" ? "Define states with AI" : "Start AI Interview"}
                   </Button>
                 </div>
               </div>
@@ -517,15 +553,77 @@ function ConversationStage({
       </div>
       )}
 
-      {/* Table pane */}
+      {/* Right pane — Stage A: state-machine summary; Stage B: behaviour table */}
       <div className="flex-1 min-w-0">
-        <FdsTablePane
-          sequentialStates={sequentialStates}
-          stateData={session.sequential_states as unknown as Record<string, SequentialStateV2>}
-          onUpdateState={onUpdateSequentialState}
-          allTags={allTags}
-        />
+        {stage === "state_machine" ? (
+          <EmStateMachinePane emStates={emStates} />
+        ) : (
+          <FdsTablePane
+            sequentialStates={tableStates}
+            stateData={session.sequential_states as unknown as Record<string, SequentialStateV2>}
+            onUpdateState={onUpdateSequentialState}
+            allTags={allTags}
+          />
+        )}
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Stage-A right pane — read-only summary of the EM's authored states.
+// The conversational interview persists em_states; this surfaces them so the
+// engineer can see the machine taking shape before behaviour authoring.
+// ---------------------------------------------------------------------------
+
+function EmStateMachinePane({ emStates }: { emStates: EmStateV2[] }) {
+  if (emStates.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center p-6 text-center">
+        <div className="max-w-xs space-y-2 text-muted-foreground">
+          <Layers className="h-7 w-7 mx-auto opacity-30" />
+          <p className="text-xs font-medium">No states defined yet</p>
+          <p className="text-[11px]">
+            Use the interview to author this module's own states (kind, allowed
+            modes, safe state) and transitions. Per-state behaviour comes next.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <ScrollArea className="h-full">
+      <div className="p-4 space-y-2">
+        <h4 className="text-[10px] uppercase font-semibold tracking-wide text-muted-foreground">
+          Module States ({emStates.length})
+        </h4>
+        <div className="space-y-1.5">
+          {emStates.map((s) => (
+            <div
+              key={s.state_id}
+              className="flex items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 bg-muted/20"
+            >
+              <div className="min-w-0">
+                <div className="text-xs font-medium truncate">{s.name}</div>
+                <div className="text-[10px] font-mono text-muted-foreground truncate">
+                  {s.state_id}
+                </div>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <Badge variant="outline" className="text-[9px] h-4 px-1">
+                  {s.kind}
+                </Badge>
+                {s.is_safe_state && (
+                  <Badge className="text-[9px] h-4 px-1 bg-green-500/20 text-green-500 border-green-500/30">
+                    safe
+                  </Badge>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </ScrollArea>
   );
 }

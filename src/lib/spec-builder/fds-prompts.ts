@@ -29,7 +29,6 @@ import type {
   UnitConfig,
   InstrumentTag,
   ControlModuleStateEntry,
-  OperatingState,
   ProcessModel,
 } from "@/types/spec-builder";
 import type {
@@ -424,7 +423,10 @@ If you have no table update to propose (still gathering info), do not include a 
 export function buildFdsOpeningMessage(
   equipment_module: EquipmentModuleConfig,
   tags: InstrumentTag[],
-  firstSequentialState: OperatingState,
+  // Hybrid state model: Stage B walks the EM's OWN sequential states. Only the
+  // display name of the first sequential state is needed to seed the opening
+  // question, so accept the bare name rather than a full state object.
+  firstSequentialStateName: string,
 ): string {
   const equipment_moduleTagNames = new Set<string>();
   for (const dev of equipment_module.control_modules) {
@@ -449,7 +451,7 @@ export function buildFdsOpeningMessage(
 Outputs: ${outputs}
 Inputs: ${inputs}
 
-Ask about the "${firstSequentialState.state_name}" state first. Be specific — reference the actual device names and ask how they operate in sequence. Keep it to 2-3 sentences ending with a clear question.`;
+Ask about the "${firstSequentialStateName}" state first. Be specific — reference the actual device names and ask how they operate in sequence. Keep it to 2-3 sentences ending with a clear question.`;
 }
 
 // ---------------------------------------------------------------------------

@@ -366,6 +366,10 @@ export function useDuplicateFdsSession() {
             static_states: remappedStatic,
             static_confirmed: true,
             sequential_states: remappedSequential,
+            // Carry the source EM's authored state machine (hybrid model).
+            // EM-local slugs are reused as-is; only tag references are remapped.
+            em_states: source.em_states ?? [],
+            em_transitions: source.em_transitions ?? [],
             conversation: [{
               role: "system",
               content: `Duplicated from equipment_module ${source.equipment_module_id} with tag remapping.`,

@@ -9,11 +9,17 @@
  *
  * No React, no IO. Deterministic and auditable (rules > AI).
  */
+import {
+  EmStateV2Schema,
+  EmTransitionV2Schema,
+} from "@/types/spec-contract-v2";
 import type {
   EquipmentModuleContract,
   EmStateV2,
+  EmTransitionV2,
   SafetyGateV2,
 } from "@/types/spec-contract-v2";
+import { z } from "zod";
 
 /** States valid in the given machine mode. Empty allowed_modes = all modes. */
 export function resolveAllowedStates(
@@ -89,4 +95,47 @@ export function validateEmStateMachine(em: EquipmentModuleContract): string[] {
   }
 
   return issues;
+}
+
+// ============================================================
+// Stage-A proposal parsing (co-author state-machine interview)
+// ============================================================
+
+const StateMachineProposalSchema = z.object({
+  states: z.array(EmStateV2Schema),
+  transitions: z.array(EmTransitionV2Schema).default([]),
+});
+
+export interface StateMachineProposal {
+  states: EmStateV2[];
+  transitions: EmTransitionV2[];
+}
+
+/**
+ * Extract the Stage-A `{ states, transitions }` proposal from an AI response.
+ * Reads the first fenced ```json block, parses it, and validates the shape
+ * with the Zod schemas (applying defaults like allowed_modes=[],
+ * is_safe_state=false, guard=[]). Returns null when there is no parseable,
+ * schema-valid proposal block — callers treat that as "still gathering info".
+ *
+ * Pure + deterministic; no React, no IO.
+ */
+export function parseStateMachineProposal(
+  text: string,
+): StateMachineProposal | null {
+  const match = text.match(/```json\s*\n?([\s\S]*?)\n?\s*```/);
+  if (!match) return null;
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(match[1]);
+  } catch {
+    return null;
+  }
+
+  const parsed = StateMachineProposalSchema.safeParse(raw);
+  if (!parsed.success) return null;
+  if (parsed.data.states.length === 0) return null;
+
+  return { states: parsed.data.states, transitions: parsed.data.transitions };
 }

@@ -26,7 +26,7 @@ type CoAuthorView = "fds" | "process-model";
 
 export default function SpecCoAuthorPage() {
   const { projectId, specId } = useParams<{ projectId: string; specId: string }>();
-  const { isUnconfirmed, migrateHref } = useUnconfirmedLock(projectId ?? "", specId ?? "");
+  const { isUnconfirmed } = useUnconfirmedLock(projectId ?? "", specId ?? "");
   const { data: rawSpec, isLoading } = useSpecProject(specId);
   const { data: register } = useInstrumentRegister(specId);
   const [view, setView] = useState<CoAuthorView>("fds");
@@ -82,7 +82,7 @@ export default function SpecCoAuthorPage() {
 
   return (
     <div className="flex h-full flex-col -m-4">
-      {isUnconfirmed && <UnconfirmedLockBanner migrateHref={migrateHref} />}
+      {isUnconfirmed && <UnconfirmedLockBanner />}
       {/* Header */}
       <div className="flex items-center gap-3 border-b px-4 h-12 shrink-0">
         <Button
