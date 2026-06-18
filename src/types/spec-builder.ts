@@ -1,5 +1,5 @@
 // Spec Builder types — functional specification document generation
-import type { PermissiveCondition, SequentialStateV2 } from "./spec-contract-v2";
+import type { PermissiveCondition, SequentialStateV2, OperatorMode, SafetyGateV2 } from "./spec-contract-v2";
 
 // --- ISA-88 Process Model (§4.3) ---
 // Describes WHAT happens to the product (product-centric), not HOW equipment does it.
@@ -65,6 +65,10 @@ export interface SpecProject {
   // Wizard state
   confirmed_units: UnitConfig[];
   confirmed_states: OperatingState[];
+  // Machine-level layer (replaces global states): per-machine operating
+  // modes + safety gates. States now live per-equipment-module.
+  confirmed_modes?: OperatorMode[];
+  safety_gates?: SafetyGateV2[];
   alarm_tiers: AlarmTier[];
   // V2 fields — scope & philosophy
   scope_exclusions: string[];
@@ -120,6 +124,8 @@ export interface SpecProjectUpdate {
   system_description?: string;
   confirmed_units?: UnitConfig[];
   confirmed_states?: OperatingState[];
+  confirmed_modes?: OperatorMode[];
+  safety_gates?: SafetyGateV2[];
   alarm_tiers?: AlarmTier[];
   scope_exclusions?: string[];
   safety_classification?: string;
