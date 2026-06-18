@@ -492,6 +492,38 @@ async function handleUploadFile(
   }, 200);
 }
 
+async function handleMoveFile(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  body: Record<string, unknown>
+): Promise<Response> {
+  const fromPath = body.from_path as string;
+  const toPath = body.to_path as string;
+  if (!fromPath || !toPath) {
+    return jsonResponse({ error: "from_path and to_path required" }, 400);
+  }
+
+  const { token, rootNamespaceId, error: tokenErr } = await getValidToken(supabase, userId);
+  if (tokenErr) return jsonResponse({ error: tokenErr }, 401);
+
+  const result = await dropboxApi(
+    token,
+    "/files/move_v2",
+    { from_path: fromPath, to_path: toPath, autorename: false },
+    rootNamespaceId
+  );
+
+  if (!result.ok) {
+    return jsonResponse({ error: result.error ?? "Failed to move file" }, 500);
+  }
+
+  const meta = result.data?.metadata as Record<string, unknown> | undefined;
+  return jsonResponse(
+    { moved: true, path: meta?.path_display ?? toPath },
+    200
+  );
+}
+
 async function handleSuggestProjectNumber(
   supabase: ReturnType<typeof createClient>,
   userId: string,
@@ -649,6 +681,8 @@ Deno.serve(async (req) => {
         return await handleCreateFolderPath(supabase, user.id, body);
       case "upload-file":
         return await handleUploadFile(supabase, user.id, body);
+      case "move-file":
+        return await handleMoveFile(supabase, user.id, body);
       case "suggest-project-number":
         return await handleSuggestProjectNumber(supabase, user.id, body);
       default:
