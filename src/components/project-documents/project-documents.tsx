@@ -109,8 +109,16 @@ export default function ProjectDocuments({ project }: { project: Project }) {
   async function handleFix(entry: DropboxEntry, suggestedName: string) {
     const from = `${apiFolderPath}/${entry.name}`;
     const to = `${apiFolderPath}/${suggestedName}`;
-    await moveDoc.mutateAsync({ fromPath: from, toPath: to });
-    toast({ title: "Renamed", description: suggestedName });
+    try {
+      await moveDoc.mutateAsync({ fromPath: from, toPath: to });
+      toast({ title: "Renamed", description: suggestedName });
+    } catch (e) {
+      toast({
+        title: "Rename failed",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "destructive",
+      });
+    }
   }
 
   function openResolve(entry: DropboxEntry) {
@@ -137,18 +145,34 @@ export default function ProjectDocuments({ project }: { project: Project }) {
   }
 
   async function handleAssignNumber(ctx: ResolveContext) {
-    await moveDoc.mutateAsync({
-      fromPath: ctx.fromPath,
-      toPath: `${ctx.apiFolderPath}/${ctx.suggestedName}`,
-    });
-    setResolveCtx(null);
-    toast({ title: "Number assigned", description: ctx.suggestedName });
+    try {
+      await moveDoc.mutateAsync({
+        fromPath: ctx.fromPath,
+        toPath: `${ctx.apiFolderPath}/${ctx.suggestedName}`,
+      });
+      setResolveCtx(null);
+      toast({ title: "Number assigned", description: ctx.suggestedName });
+    } catch (e) {
+      toast({
+        title: "Rename failed",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "destructive",
+      });
+    }
   }
 
   async function handleMarkCustomer(ctx: ResolveContext, note: string) {
-    await addOverride.mutateAsync({ projectId: project.id, relPath: ctx.relPath, note });
-    setResolveCtx(null);
-    toast({ title: "Marked customer-supplied" });
+    try {
+      await addOverride.mutateAsync({ projectId: project.id, relPath: ctx.relPath, note });
+      setResolveCtx(null);
+      toast({ title: "Marked customer-supplied" });
+    } catch (e) {
+      toast({
+        title: "Mark failed",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "destructive",
+      });
+    }
   }
 
   function computeNumberedName(file: File): string {
@@ -164,17 +188,25 @@ export default function ProjectDocuments({ project }: { project: Project }) {
 
   async function handleUpload(r: UploadResult) {
     if (!apiFolderPath) return;
-    await uploadDoc.mutateAsync({ apiFolderPath, filename: r.filename, file: r.file });
-    if (r.markCustomer) {
-      await addOverride.mutateAsync({
-        projectId: project.id,
-        relPath: subPath
-          ? `${DOC_FOLDER_NAME}/${subPath}/${r.filename}`
-          : `${DOC_FOLDER_NAME}/${r.filename}`,
+    try {
+      await uploadDoc.mutateAsync({ apiFolderPath, filename: r.filename, file: r.file });
+      if (r.markCustomer) {
+        await addOverride.mutateAsync({
+          projectId: project.id,
+          relPath: subPath
+            ? `${DOC_FOLDER_NAME}/${subPath}/${r.filename}`
+            : `${DOC_FOLDER_NAME}/${r.filename}`,
+        });
+      }
+      setUploadOpen(false);
+      toast({ title: "Uploaded", description: r.filename });
+    } catch (e) {
+      toast({
+        title: "Upload failed",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "destructive",
       });
     }
-    setUploadOpen(false);
-    toast({ title: "Uploaded", description: r.filename });
   }
 
   if (!project.dropbox_folder_path) {

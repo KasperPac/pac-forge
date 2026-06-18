@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -28,7 +28,6 @@ export function UploadDocDialog({
   onConfirm: (r: UploadResult) => void;
   busy: boolean;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
 
   const numberedName = file ? computeNumberedName(file) : "";
@@ -41,7 +40,6 @@ export function UploadDocDialog({
         </DialogHeader>
         <div className="space-y-3 font-mono text-xs">
           <input
-            ref={inputRef}
             type="file"
             className="block w-full text-xs"
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
