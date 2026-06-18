@@ -680,6 +680,9 @@ export type StaticStateV2 = z.infer<typeof StaticStateV2Schema>;
 // numeric PackML ids used by OperatingStateV2.
 // ============================================================
 
+// Mirrors StatePatternSchema's values but kept separate: this scopes the
+// EM-local state machine (hybrid model), distinct from the global
+// OperatingStateV2.state_pattern. The two layers may diverge later.
 export const EmStateKindSchema = z.enum(["static", "sequential"]);
 export type EmStateKind = z.infer<typeof EmStateKindSchema>;
 
