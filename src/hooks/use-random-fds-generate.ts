@@ -166,20 +166,8 @@ export function useRandomFdsGenerate() {
             .insert(result.equipment_moduleSessions);
           if (sesErr) throw new Error(`fds_operation_sessions insert: ${sesErr.message}`);
         }
-        if (result.unit_procedures.length > 0) {
-          await supabase
-            .from("fds_unit_procedures")
-            .delete()
-            .eq("spec_project_id", spec.id);
-          const { error: orchErr } = await supabase
-            .from("fds_unit_procedures")
-            .insert(result.unit_procedures);
-          if (orchErr) throw new Error(`fds_unit_procedures insert: ${orchErr.message}`);
-        }
-
         queryClient.invalidateQueries({ queryKey: ["spec_sections", spec.id] });
         queryClient.invalidateQueries({ queryKey: ["fds_operation_sessions", spec.id] });
-        queryClient.invalidateQueries({ queryKey: ["fds_unit_procedures", spec.id] });
         await queryClient.refetchQueries({
           queryKey: ["spec_projects", "by_project", params.projectId],
         });

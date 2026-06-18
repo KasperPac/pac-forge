@@ -2,6 +2,12 @@
 import { describe, expect, it } from "vitest";
 import { EquipmentModuleContractSchema, PhaseStepSchema } from "@/types/spec-contract-v2";
 import { buildEquipmentModuleContracts, type ResolvedAssembly, type ResolvedDevice } from "../sequence-builder";
+import {
+  EM_LOCAL_STARTING,
+  EM_LOCAL_IDLE,
+  EM_LOCAL_COMPLETE,
+  EM_LOCAL_ESTOP,
+} from "../state-machine";
 
 function dev(id: string, name: string, deviceClass: string, prefix: string): ResolvedDevice {
   return {
@@ -37,7 +43,7 @@ describe("buildEquipmentModuleContracts", () => {
 
   it("STARTING sequence contains a step that targets the motor's FB_RUN tag with tag_equals=true", () => {
     const out = buildEquipmentModuleContracts(inputs);
-    const starting = out[aId].sequential_states["3"]; // STATE_ID_STARTING
+    const starting = out[aId].sequential_states[EM_LOCAL_STARTING]; // STATE_ID_STARTING
     expect(starting).toBeDefined();
     expect(starting.steps.length).toBeGreaterThan(0);
     const step = starting.steps[0];
@@ -52,7 +58,7 @@ describe("buildEquipmentModuleContracts", () => {
 
   it("every step has both v1 and v2 fields populated", () => {
     const out = buildEquipmentModuleContracts(inputs);
-    const starting = out[aId].sequential_states["3"];
+    const starting = out[aId].sequential_states[EM_LOCAL_STARTING];
     for (const step of starting.steps) {
       expect(step.step).toBeTypeOf("number");
       expect(step.action).toBeTypeOf("string");
@@ -73,7 +79,7 @@ describe("buildEquipmentModuleContracts", () => {
       ]),
     ];
     const out = buildEquipmentModuleContracts(twoDevices);
-    const steps = out[aId].sequential_states["3"].steps;
+    const steps = out[aId].sequential_states[EM_LOCAL_STARTING].steps;
     expect(steps.length).toBeGreaterThanOrEqual(2);
     const first = steps[0];
     expect(first.transitions).toHaveLength(1);
@@ -85,14 +91,14 @@ describe("buildEquipmentModuleContracts", () => {
 
   it("the last step in a sequence has no transitions", () => {
     const out = buildEquipmentModuleContracts(inputs);
-    const steps = out[aId].sequential_states["3"].steps;
+    const steps = out[aId].sequential_states[EM_LOCAL_STARTING].steps;
     const last = steps[steps.length - 1];
     expect(last.transitions ?? []).toHaveLength(0);
   });
 
   it("static states IDLE / COMPLETE / E_STOP exist with empty control_modules arrays (StaticStateV2 shape)", () => {
     const out = buildEquipmentModuleContracts(inputs);
-    for (const k of ["4", "17", "9"]) {
+    for (const k of [EM_LOCAL_IDLE, EM_LOCAL_COMPLETE, EM_LOCAL_ESTOP]) {
       const s = out[aId].static_states[k];
       expect(s).toBeDefined();
       // StaticStateV2 shape, not bare ControlModuleStateEntry[]
