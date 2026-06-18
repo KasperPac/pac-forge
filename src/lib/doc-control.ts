@@ -103,7 +103,7 @@ function suggestFixName(
   parsed: ParsedDocNumber,
   correct: { projectNumber: string; folderCode: string; subfolderCode: string },
 ): string {
-  const seq = parsed.seq.padStart(3, "0");
+  const seq = parsed.seq.slice(-3).padStart(3, "0");
   const correctToken = `${correct.projectNumber}-${correct.folderCode}${correct.subfolderCode}${seq}`;
   return originalName.replace(DOC_NUMBER_RE, correctToken);
 }

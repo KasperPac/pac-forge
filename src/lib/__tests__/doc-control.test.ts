@@ -124,6 +124,20 @@ describe("classifyDoc", () => {
     });
     expect(r.state).toBe("conforming");
   });
+
+  it("normalizes 4-digit sequence to 3 digits in suggested fix", () => {
+    const r = classifyDoc({
+      filename: "ABC-1000-50010010 1.0.docx",
+      docFolderCode: "60",
+      subfolderCode: "01",
+      projectNumber: "ABC-1000",
+      isVendorFolder: false,
+      hasOverride: false,
+    });
+    expect(r.state).toBe("non_conforming");
+    expect(r.suggestedName).toMatch(/ABC-1000-6001010\b/);
+    expect(r.suggestedName).not.toContain("60010010");
+  });
 });
 
 describe("nextSequence", () => {
