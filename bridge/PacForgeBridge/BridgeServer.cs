@@ -103,6 +103,13 @@ namespace PacForgeBridge
                     return;
                 }
 
+                // Route: POST /fs/open-file
+                if (method == "POST" && path == "/fs/open-file")
+                {
+                    await HandleOpenFile(req, res);
+                    return;
+                }
+
                 // Route: GET /tia/status
                 if (method == "GET" && path == "/tia/status")
                 {
@@ -526,6 +533,40 @@ namespace PacForgeBridge
                     FilePath = "",
                     FileName = "",
                 });
+            }
+        }
+
+        private async Task HandleOpenFile(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            string body = await ReadBody(req);
+            var request = Json.Deserialize<OpenFileRequest>(body);
+            string filePath = request?.Path;
+
+            if (string.IsNullOrEmpty(filePath))
+            {
+                await WriteJson(res, 400, new { success = false, message = "path is required" });
+                return;
+            }
+
+            // Guard: only open files that actually exist on disk.
+            if (!System.IO.File.Exists(filePath))
+            {
+                await WriteJson(res, 404, new { success = false, message = "File not found: " + filePath });
+                return;
+            }
+
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo(filePath)
+                {
+                    UseShellExecute = true,
+                };
+                System.Diagnostics.Process.Start(psi);
+                await WriteJson(res, 200, new { success = true });
+            }
+            catch (Exception ex)
+            {
+                await WriteJson(res, 500, new { success = false, message = ex.Message });
             }
         }
 

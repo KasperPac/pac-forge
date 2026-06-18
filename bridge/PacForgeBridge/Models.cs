@@ -694,6 +694,11 @@ namespace PacForgeBridge
         public string FileName { get; set; }
     }
 
+    public class OpenFileRequest
+    {
+        public string Path { get; set; }
+    }
+
     // ============================================================
     // Directory listing (local filesystem)
     // ============================================================
