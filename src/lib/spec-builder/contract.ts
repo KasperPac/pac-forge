@@ -21,6 +21,7 @@ import {
   HierarchySchema,
   IoListEntrySchema,
   OperatingStateV2Schema,
+  SafetyGateV2Schema,
   SpecContractV2Schema,
   SpecSectionRowSchema,
   SpecSectionTypeSchema,
@@ -35,6 +36,7 @@ import {
   type AlarmRow,
   type AlarmTier,
   type EquipmentModuleContract,
+  type SafetyGateV2,
   type EquipmentModuleV2,
   type ControlModuleStateEntry,
   type ControlModuleV2,
@@ -58,6 +60,7 @@ import {
   type ConfirmationStatus,
   type ProcessModelV2,
 } from "@/types/spec-contract-v2";
+import { validateEmStateMachine } from "@/lib/spec-builder/em-state-machine";
 import { z } from "zod";
 
 // ============================================================
@@ -84,6 +87,7 @@ export interface SpecContractPatch {
   equipment_modules?: Record<string, EquipmentModuleContract>;
   states?: OperatingStateV2[];
   unit_procedures?: Record<string, Record<string, UnitProcedureSequence>>;
+  safety_gates?: SafetyGateV2[];
   system_orchestration?: SystemProcedure;
   io_list?: IoListEntry[];
   faults?: FaultRow[];
@@ -105,6 +109,7 @@ export const SpecContractPatchSchema = z.object({
   unit_procedures: z
     .record(z.string(), z.record(z.string(), UnitProcedureSequenceSchema))
     .optional(),
+  safety_gates: z.array(SafetyGateV2Schema).optional(),
   system_orchestration: SystemProcedureSchema.optional(),
   io_list: z.array(IoListEntrySchema).optional(),
   faults: z
@@ -1351,6 +1356,41 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
         }
       });
     });
+  }
+
+  // Hybrid state model: per-EM state-machine invariants.
+  // Only run when the EM contract carries the hybrid state fields (states/transitions).
+  // EMs authored before Task 1 (no states field) are treated as skeletons and skipped.
+  if (patch.equipment_modules !== undefined) {
+    for (const contract of Object.values(patch.equipment_modules)) {
+      if (!Array.isArray((contract as EquipmentModuleContract).states)) continue;
+      issues.push(...validateEmStateMachine(contract as EquipmentModuleContract));
+    }
+  }
+
+  // Hybrid state model: safety gates must scope to known equipment modules.
+  if (patch.safety_gates !== undefined) {
+    const knownEmIds = new Set<string>();
+    if (patch.hierarchy) {
+      for (const sub of patch.hierarchy.units) {
+        for (const asm of sub.equipment_modules) knownEmIds.add(asm.equipment_module_id);
+      }
+    }
+    const gateIds = patch.safety_gates.map((g) => g.gate_id);
+    const dupGateIds = gateIds.filter((id, i) => gateIds.indexOf(id) !== i);
+    for (const id of new Set(dupGateIds)) {
+      issues.push(`duplicate safety gate gate_id "${id}"`);
+    }
+    if (patch.hierarchy) {
+      for (const g of patch.safety_gates) {
+        if (g.scope === "all") continue;
+        for (const emId of g.scope) {
+          if (!knownEmIds.has(emId)) {
+            issues.push(`safety gate ${g.gate_id} scopes unknown equipment_module "${emId}"`);
+          }
+        }
+      }
+    }
   }
 
   // FDS Engine Phase 1: parameter_ref expressions must reference a known
