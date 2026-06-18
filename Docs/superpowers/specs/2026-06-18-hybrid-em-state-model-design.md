@@ -173,7 +173,62 @@ No data migration of content — only V2 test specs exist.
 
 ---
 
-## 6. Open items deferred to the plan
+## 6. Implementer context (cold-start grounding)
+
+A fresh session has only this spec + the codebase + `ai/ISA88_PHYSICAL_MODEL.md`. Everything needed:
+
+### Repo / deploy state
+- Work on `master` (the just-merged register-aware ingest feature is the base, commit `de56b4d` at
+  authoring time). `master` is **local-only — 55 commits ahead of `origin/master`, unpushed**. Don't
+  assume CI/remote; don't push without the user asking (pushing triggers a Vercel deploy).
+- Supabase project: **Pac-Forge-v2, id `fsxfdkjjkbkzjntjxiyi`**. App env is in `.env.local` (gitignored;
+  copy it into any worktree). Apply DB migrations via the Supabase MCP `apply_migration`, then **name the
+  repo migration file to match the timestamp version it records** (recent migration history is
+  timestamp-based, not numeric — mismatched names make `supabase db push` try to re-apply).
+- `npm run dev` runs Vite (`scripts/dev.mjs`); the .NET bridge runs separately on :5103. Kill stray
+  `node` before restarting to avoid multiple stale Vite servers (it bit us — old servers serve old code).
+
+### Builds on the register-aware ingest (already merged)
+- Per-EM **spec requirements** are already captured: `spec_source_sections` rows are keyed by
+  `equipment_module_id` (migration `20260617032807`), populated by the register-aware ingest, and the
+  co-author already fetches them via `useSourceSectionsForEm` (`src/hooks/use-source-sections.ts`). The
+  EM-state-machine interview should use these as context — don't rebuild them.
+- The hierarchy + IO are the **register's** (the spec never creates/changes structure). `confirmed_units`
+  holds the register-derived hierarchy. This design only touches the **state/mode** layer.
+
+### Key files (current state model → what to change)
+- `src/types/spec-contract-v2.ts` — `OperatingStateV2Schema`, `EquipmentModuleContractSchema`
+  (`static_states`/`sequential_states`), `UnitProcedureSequenceSchema`, `OperatorModeSchema`,
+  `PermissiveCondition`, `SequentialStateV2Schema`, and `SpecContractV2Schema` (`states`,
+  `unit_procedures`, `modes`). **This is where the schema changes land.**
+- `src/lib/spec-builder/contract.ts` — `loadSpecContract` / `writeSpecContract` (reads/writes
+  `confirmed_states`, `unit_procedures`, `modes`); `validateSpecContractPatch` (mode default rule).
+- `src/components/spec-builder/spec-skeleton-wizard.tsx` — the steps array + `StepOperatingModes`
+  (currently edits the **global states**; `states` `useState` now seeds `CANONICAL_STATES`). This step is
+  replaced by Machine-Modes + Safety-Gates.
+- `src/lib/spec-builder/fds-prompts.ts` `buildFdsInterviewSystemPrompt` — the per-EM co-author interview
+  (today keyed by global states). `src/hooks/use-fds-conversation.ts` drives it.
+- `src/lib/spec-builder/migrate/propose-modes.ts` — existing mode seeding (Auto + hints); reuse/extend.
+- `src/lib/spec-builder/random/state-machine.ts` — `CANONICAL_STATES` (6 pragmatic states); the migrate
+  flow's `packml-canonical.ts` has the full 17 if a PackML template is wanted.
+- **`unit_procedures` removal blast radius:** `fds_system_orchestrations` table,
+  `src/components/spec-builder/system-orchestration-*`, `src/hooks/use-fds-system-orchestration-conversation.ts`,
+  `src/lib/spec-builder/system-orchestration-prompts.ts`, and the `_build_contract_snapshot` RPC. The plan
+  must enumerate and handle every consumer before deleting.
+
+### Validation target (the completion bar)
+- **Segment Wagon (Herrenknecht)** — a manually-operated tunnel transport machine. Files in
+  `Docs/Functional Specs/Herrenknecht/`: the functional-description `.docx` and the filled
+  `pac-register-template` IO register (real units: Carriage / Rotator / Safety / Indicators; the
+  generated `Segment-Wagon-IO-Register.csv` is junk — ignore it).
+- The Carriage and Rotator are driven independently via separate pendants. **Done means** a Segment Wagon
+  spec where the Carriage EM and Rotator EM hold **independent states simultaneously** (the thing the old
+  global model couldn't do), with a safety gate (E-Stop → all EMs to safe) and machine modes.
+- To get a clean test run, reset a spec project's derived data via SQL (clear
+  `confirmed_units`/`confirmed_states`/`safety_gates`/sections/revisions, null revision pointers, delete
+  `source='ingest'` registers; keep the `source='upload'` register).
+
+## 7. Open items deferred to the plan
 
 - Exact shape of the `trigger.expr` / `condition` expression type — reuse `PermissiveCondition` /
   existing condition schema vs a thin new expression type; pin in the plan.
