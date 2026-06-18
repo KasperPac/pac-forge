@@ -425,8 +425,10 @@ function upgradeEquipmentModuleContracts(
     out[equipment_module_id] = {
       equipment_module_id,
       unit_id,
-      states: [],
-      transitions: [],
+      states: Array.isArray(s.em_states) ? (s.em_states as EquipmentModuleContract["states"]) : [],
+      transitions: Array.isArray(s.em_transitions)
+        ? (s.em_transitions as EquipmentModuleContract["transitions"])
+        : [],
       static_states: staticStates,
       sequential_states: sequentialStates,
     };
@@ -747,7 +749,9 @@ async function upgradeLegacyRow(
     states: ctx.confirmedStates,
     alarm_tiers: toAlarmTiers(projectRow),
     equipment_modules,
-    safety_gates: [],
+    safety_gates: Array.isArray(projectRow.safety_gates)
+      ? (projectRow.safety_gates as SpecContractV2["safety_gates"])
+      : [],
     unit_procedures,
     system_procedure: system_orchestration,
     alarms,
@@ -1079,6 +1083,9 @@ export async function writeSpecContract(
   if (parsed.process_model !== undefined) {
     projectUpdate.process_model = parsed.process_model;
   }
+  if (parsed.safety_gates !== undefined) {
+    projectUpdate.safety_gates = parsed.safety_gates;
+  }
   if (Object.keys(projectUpdate).length > 0) {
     const { error: updErr } = await supabase
       .from("spec_projects")
@@ -1098,6 +1105,8 @@ export async function writeSpecContract(
         static_confirmed: true,
         static_states_v2: asm.static_states,
         sequential_states: asm.sequential_states,
+        em_states: asm.states,
+        em_transitions: asm.transitions,
       };
       const { error } = await supabase
         .from("fds_operation_sessions")
