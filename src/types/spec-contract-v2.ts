@@ -673,11 +673,77 @@ export const StaticStateV2Schema = z.object({
 });
 export type StaticStateV2 = z.infer<typeof StaticStateV2Schema>;
 
+// ============================================================
+// Per-Equipment-Module state machine (hybrid state model)
+// EM-local states + transitions. state_id here is an EM-local
+// string slug (e.g. "driving_fwd"), distinct from the global
+// numeric PackML ids used by OperatingStateV2.
+// ============================================================
+
+export const EmStateKindSchema = z.enum(["static", "sequential"]);
+export type EmStateKind = z.infer<typeof EmStateKindSchema>;
+
+export const EmStateV2Schema = z.object({
+  state_id: z.string().min(1),
+  name: z.string().min(1),
+  kind: EmStateKindSchema,
+  // Machine modes this state is valid in. Empty = allowed in all modes.
+  allowed_modes: z.array(z.string()).default([]),
+  // Exactly one state per EM should be marked the safe state (validated
+  // in validateEmStateMachine — see em-state-machine.ts).
+  is_safe_state: z.boolean().default(false),
+});
+export type EmStateV2 = z.infer<typeof EmStateV2Schema>;
+
+// Trigger: a command (operator/HMI/tag condition goes true → manual) or
+// the completion of the `from` sequential state (automatic). Command
+// triggers reuse PermissiveCondition as the expression type.
+export const EmTriggerSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("command"), expr: PermissiveConditionSchema }),
+  z.object({ kind: z.literal("completion") }),
+]);
+export type EmTrigger = z.infer<typeof EmTriggerSchema>;
+
+export const EmTransitionV2Schema = z.object({
+  transition_id: z.string().min(1),
+  from_state_id: z.string().min(1),
+  to_state_id: z.string().min(1),
+  trigger: EmTriggerSchema,
+  // AND-ed permissive guard; may reference other EMs' tags for inter-EM
+  // interlocks. Empty = no guard. Reuses PermissiveCondition.
+  guard: z.array(PermissiveConditionSchema).default([]),
+});
+export type EmTransitionV2 = z.infer<typeof EmTransitionV2Schema>;
+
+// ============================================================
+// Machine-level safety gate. condition is OR-of-faults: the gate is
+// VIOLATED (forces scoped EMs to their is_safe_state) when ANY listed
+// condition evaluates true. effect is implied (force to safe).
+// ============================================================
+
+export const SafetyGateScopeSchema = z.union([
+  z.literal("all"),
+  z.array(z.string()), // equipment_module_id[]
+]);
+export type SafetyGateScope = z.infer<typeof SafetyGateScopeSchema>;
+
+export const SafetyGateV2Schema = z.object({
+  gate_id: z.string().min(1),
+  name: z.string().min(1),
+  condition: z.array(PermissiveConditionSchema).min(1),
+  scope: SafetyGateScopeSchema,
+});
+export type SafetyGateV2 = z.infer<typeof SafetyGateV2Schema>;
+
 export const EquipmentModuleContractSchema = z.object({
   equipment_module_id: UuidSchema,
   unit_id: UuidSchema,
-  // Keyed by state_id. Legacy rows are bare ControlModuleStateEntry arrays;
-  // post-confirmation rows use the StaticStateV2 container with override_kind.
+  // The EM's OWN state machine (hybrid state model).
+  states: z.array(EmStateV2Schema).default([]),
+  transitions: z.array(EmTransitionV2Schema).default([]),
+  // Per-state behavior. Keyed by EM-LOCAL state_id (EmStateV2.state_id),
+  // NOT a global state id. Legacy rows are bare ControlModuleStateEntry
+  // arrays; post-confirmation rows use the StaticStateV2 container.
   static_states: z.record(
     z.string(),
     z.union([z.array(ControlModuleStateEntrySchema), StaticStateV2Schema]),
@@ -943,6 +1009,9 @@ export const SpecContractV2Schema = z.object({
   alarm_tiers: z.array(AlarmTierSchema),
   // Keyed by equipment_module_id
   equipment_modules: z.record(z.string(), EquipmentModuleContractSchema),
+  // Machine-level safety gates (hybrid state model). Optional during the
+  // additive wave; defaults to [].
+  safety_gates: z.array(SafetyGateV2Schema).default([]),
   // orchestrations[subsystem_id][state_id] -> UnitProcedureSequence
   unit_procedures: z.record(
     z.string(),

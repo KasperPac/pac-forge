@@ -184,6 +184,8 @@ export function buildEquipmentModuleContracts(
     const contract: EquipmentModuleContract = {
       equipment_module_id: asm.equipment_module_id,
       unit_id: asm.unit_id,
+      states: [],
+      transitions: [],
       static_states: {
         [String(STATE_ID_IDLE)]: emptyStatic(),
         [String(STATE_ID_COMPLETE)]: emptyStatic(),

@@ -420,6 +420,8 @@ function upgradeEquipmentModuleContracts(
     out[equipment_module_id] = {
       equipment_module_id,
       unit_id,
+      states: [],
+      transitions: [],
       static_states: staticStates,
       sequential_states: sequentialStates,
     };
@@ -740,6 +742,7 @@ async function upgradeLegacyRow(
     states: ctx.confirmedStates,
     alarm_tiers: toAlarmTiers(projectRow),
     equipment_modules,
+    safety_gates: [],
     unit_procedures,
     system_procedure: system_orchestration,
     alarms,

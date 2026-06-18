@@ -307,7 +307,7 @@ describe("SpecContractV2Schema new top-level fields", () => {
   //   system_orchestration nullable, scope_exclusions on header, etc.
   function baseContract() {
     return {
-      schema_version: 2,
+      schema_version: 3,
       project: {
         id: "00000000-0000-0000-0000-000000000000",
         doc_code: "PAC-EFD-001",
