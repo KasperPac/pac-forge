@@ -2,7 +2,7 @@
  * Hook for the FDS co-author AI conversation.
  * Manages streaming interview with JSON extraction for live table updates.
  */
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { streamFromEdgeFunction } from "@/hooks/use-generation";
@@ -24,6 +24,7 @@ import type {
   OperatingStateV2,
   PermissiveCondition,
   SequentialStateV2,
+  EmStateV2,
 } from "@/types/spec-contract-v2";
 import { ensureV2 } from "@/lib/spec-builder/sequence-legacy-shim";
 import { SpecContractPatchSchema, validateSpecContractPatch } from "@/lib/spec-builder/contract";
@@ -74,16 +75,40 @@ export function useFdsConversation({
     return `${name} (state_id ${stateId})`;
   };
 
+  // Task 9 — the per-EM behavior interview is now keyed by the EM's OWN states
+  // (EmStateV2, EM-local string slugs) rather than the global PackML state list.
+  //
+  // CONCERN (Stage-A wiring): this hook does not yet load the persisted
+  // EquipmentModuleContract.states authored in Stage A (Task 8); neither
+  // OperationSession nor EquipmentModuleConfig carries EmStateV2[]. To keep the
+  // build green and the prompt correctly typed/keyed by string slugs, we adapt
+  // the global OperatingStateV2[] into EmStateV2[] here, preserving the existing
+  // String(state_id) keys so session.static_states / sequential_states (which are
+  // keyed by those same ids) still resolve. Once the EM's authored states are
+  // threaded into this hook (and the session maps re-keyed to EM-local slugs),
+  // replace this adapter with the real EquipmentModuleContract.states.
+  const emStates = useMemo<EmStateV2[]>(
+    () =>
+      allStates.map((s) => ({
+        state_id: String(s.state_id),
+        name: s.display_name ?? s.state_name ?? s.custom_name ?? String(s.state_id),
+        kind: s.state_pattern === "sequential" ? "sequential" : "static",
+        allowed_modes: [],
+        is_safe_state: false,
+      })),
+    [allStates],
+  );
+
   const buildSystemPrompt = useCallback(() => {
     return buildFdsInterviewSystemPrompt(
       equipment_module, unit, allTags,
       session.static_states,
       // Prompt builder now consumes SequentialStateV2 directly (Phase 3 Task 2).
       session.sequential_states,
-      allStates,
+      emStates,
       emSections,
     );
-  }, [equipment_module, unit, allTags, session.static_states, session.sequential_states, allStates, emSections]);
+  }, [equipment_module, unit, allTags, session.static_states, session.sequential_states, emStates, emSections]);
 
   const buildMessages = useCallback(
     (extraUserMessage?: string) => {

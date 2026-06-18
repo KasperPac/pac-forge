@@ -6,7 +6,23 @@ import catodoEquipmentModule from "./__fixtures__/catodo-equipment_module.json";
 import catodoUnit from "./__fixtures__/catodo-unit.json";
 import goldenEquipmentModule from "./__fixtures__/golden-ai-emission-equipment_module.json";
 import goldenOrch from "./__fixtures__/golden-ai-emission-orchestration.json";
-import type { UnitProcedureSequence } from "@/types/spec-contract-v2";
+import type { UnitProcedureSequence, EmStateV2 } from "@/types/spec-contract-v2";
+
+// Task 9 — the interview prompt is now keyed by the EM's OWN states (EmStateV2,
+// EM-local string slugs). Convert the fixture's global OperatingStateV2[] into
+// equivalent EM-local states. The slug mirrors the existing numeric id so the
+// staticStates/completedSequentialStates fixture keys still resolve.
+const catodoEmStates: EmStateV2[] = (catodoEquipmentModule.allStates as Array<{
+  state_id: number;
+  display_name: string;
+  state_pattern: string;
+}>).map((s) => ({
+  state_id: String(s.state_id),
+  name: s.display_name,
+  kind: s.state_pattern === "sequential" ? "sequential" : "static",
+  allowed_modes: [],
+  is_safe_state: s.state_pattern === "static",
+}));
 
 describe("buildFdsInterviewSystemPrompt V2 snapshot", () => {
   it("produces stable output for the catodo lift equipment_module", () => {
@@ -16,7 +32,7 @@ describe("buildFdsInterviewSystemPrompt V2 snapshot", () => {
       catodoEquipmentModule.tags as never,
       catodoEquipmentModule.staticStates as never,
       catodoEquipmentModule.completedSequentialStates as never,
-      catodoEquipmentModule.allStates as never,
+      catodoEmStates as never,
     );
     expect(prompt).toMatchSnapshot();
   });
@@ -28,14 +44,14 @@ describe("buildFdsInterviewSystemPrompt V2 snapshot", () => {
       catodoEquipmentModule.tags as never,
       catodoEquipmentModule.staticStates as never,
       catodoEquipmentModule.completedSequentialStates as never,
-      catodoEquipmentModule.allStates as never,
+      catodoEmStates as never,
     );
     expect(prompt).toContain('"override_kind": "override"');
     expect(prompt).toContain('"kind": "tag_equals"');
     expect(prompt).toContain('"kind": "tag_compare"');
     expect(prompt).toContain('"target_step_id"');
     expect(prompt).toContain('"kind": "single"');
-    expect(prompt).toContain("state_id is a NUMBER");
+    expect(prompt).toContain("EM-LOCAL string slug");
   });
 
   it("renders a Customer Specification Context block when sections are passed", () => {
@@ -45,7 +61,7 @@ describe("buildFdsInterviewSystemPrompt V2 snapshot", () => {
       catodoEquipmentModule.tags as never,
       catodoEquipmentModule.staticStates as never,
       catodoEquipmentModule.completedSequentialStates as never,
-      catodoEquipmentModule.allStates as never,
+      catodoEmStates as never,
       [{ heading: "Conveyor CV01", body: "Runs forward on M1 command.", order_index: 1 }],
     );
     expect(prompt).toContain("## Customer Specification Context");
@@ -59,19 +75,19 @@ describe("buildFdsInterviewSystemPrompt V2 snapshot", () => {
       catodoEquipmentModule.tags as never,
       catodoEquipmentModule.staticStates as never,
       catodoEquipmentModule.completedSequentialStates as never,
-      catodoEquipmentModule.allStates as never,
+      catodoEmStates as never,
     );
     expect(prompt).not.toContain("## Customer Specification Context");
   });
 
-  it("renders the SEQUENTIAL STATES REMAINING table with numeric ids", () => {
+  it("renders the SEQUENTIAL STATES REMAINING table with EM-local state ids", () => {
     const prompt = buildFdsInterviewSystemPrompt(
       catodoEquipmentModule.equipment_module as never,
       catodoEquipmentModule.unit as never,
       catodoEquipmentModule.tags as never,
       catodoEquipmentModule.staticStates as never,
       catodoEquipmentModule.completedSequentialStates as never,
-      catodoEquipmentModule.allStates as never,
+      catodoEmStates as never,
     );
     // Both sequential states from the fixture must appear with their numeric ids.
     expect(prompt).toMatch(/- 6 +\(Execute\)/);
