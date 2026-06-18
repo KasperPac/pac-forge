@@ -40,7 +40,6 @@ const SpecBuilderIngestReviewPage = lazy(() => import("@/routes/spec-builder-ing
 const SpecCoAuthorPage = lazy(() => import("@/routes/spec-co-author"));
 const SpecEditorRoute = lazy(() => import("@/routes/spec-editor"));
 const SpecExportPage = lazy(() => import("@/routes/spec-export"));
-const SpecMigratePage = lazy(() => import("@/routes/spec-migrate"));
 const DashboardPage = lazy(() => import("@/routes/dashboard"));
 const PacAuditPage = lazy(() => import("@/routes/pac-audit"));
 const PacAuditWorkspacePage = lazy(() => import("@/routes/pac-audit-workspace"));
@@ -103,7 +102,6 @@ const router = createBrowserRouter([
           { path: "specs/ingest-review", element: <LazyRoute><SpecBuilderIngestReviewPage /></LazyRoute> },
           { path: "specs/:projectId/:specId/co-author", element: <LazyRoute><SpecCoAuthorPage /></LazyRoute> },
           { path: "specs/:projectId/:specId/editor", element: <LazyRoute><SpecEditorRoute /></LazyRoute> },
-          { path: "specs/:projectId/:specId/migrate", element: <LazyRoute><SpecMigratePage /></LazyRoute> },
           { path: "specs/:projectId/:specId/export", element: <LazyRoute><SpecExportPage /></LazyRoute> },
           { path: "profiles", element: <LazyRoute><ProfilesPage /></LazyRoute> },
           { path: "profiles/:id", element: <LazyRoute><ProfileDetailPage /></LazyRoute> },

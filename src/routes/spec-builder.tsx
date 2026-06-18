@@ -368,7 +368,6 @@ function SpecListItem({
   const cfg = STATUS_CONFIG[spec.status];
   const StatusIcon = cfg.icon;
   const deleteSpec = useDeleteSpecProject();
-  const isUnconfirmed = spec.confirmation_status === "unconfirmed";
 
   return (
     <div
@@ -386,21 +385,6 @@ function SpecListItem({
           <p className="font-mono text-xs font-medium truncate">
             {spec.doc_code}
           </p>
-          {isUnconfirmed && spec.project_id && (
-            <Badge
-              variant="outline"
-              className="border-amber-300 text-amber-900 text-[10px] px-1 py-0 shrink-0"
-            >
-              V1 —{" "}
-              <Link
-                to={`/specs/${spec.project_id}/${spec.id}/migrate`}
-                className="underline ml-1"
-                onClick={(e) => e.stopPropagation()}
-              >
-                migrate
-              </Link>
-            </Badge>
-          )}
         </div>
         <p className="text-xs text-muted-foreground truncate">{spec.title}</p>
       </div>

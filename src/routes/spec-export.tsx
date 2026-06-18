@@ -25,7 +25,7 @@ import {
 import { useSpecExport } from "@/hooks/use-spec-export";
 import { useProject } from "@/hooks/use-projects";
 import { useUnconfirmedLock } from "@/hooks/use-unconfirmed-lock";
-import { UnconfirmedLockBanner } from "@/components/spec-builder/migrate/unconfirmed-lock-banner";
+import { UnconfirmedLockBanner } from "@/components/spec-builder/unconfirmed-lock-banner";
 import {
   migrateUnitConfig,
   migrateOperatingStates,
