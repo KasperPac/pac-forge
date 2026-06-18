@@ -5,12 +5,11 @@
 import { supabase } from "@/lib/supabase";
 import type {
   UnitConfig,
-  OperatingState,
   OperationSession,
   StepEntry,
   FunctionalDescriptionContent,
 } from "@/types/spec-builder";
-import type { PermissiveCondition } from "@/types/spec-contract-v2";
+import type { EmStateV2, PermissiveCondition } from "@/types/spec-contract-v2";
 
 function serializePermissive(p: PermissiveCondition): string {
   const val = p.value === true ? "TRUE" : p.value === false ? "FALSE" : String(p.value);
@@ -20,19 +19,17 @@ function serializePermissive(p: PermissiveCondition): string {
 /**
  * Compose all equipment_module sessions for a unit into spec_sections rows.
  * Emits one functional_description row per (equipment_module, state) using each
- * session's own permissives/steps. Inter-EM coordination is expressed as
- * permissive guards on EM transitions in the hybrid state model — there is no
- * separate unit-orchestration layer to merge here.
+ * session's OWN states (hybrid per-EM state model). Each session declares its
+ * states in `em_states` (EmStateV2.kind = static | sequential); the per-state
+ * behaviour lives in that session's static_states / sequential_states maps,
+ * keyed by EM-local state_id. Inter-EM coordination is expressed as permissive
+ * guards on EM transitions — there is no separate unit-orchestration layer.
  */
 export async function composeFdsToSections(
   specProjectId: string,
   unit: UnitConfig,
   sessions: OperationSession[],
-  allStates: OperatingState[],
 ): Promise<void> {
-  const staticStates = allStates.filter((s) => s.state_pattern === "static");
-  const sequentialStates = allStates.filter((s) => s.state_pattern === "sequential");
-
   // Delete existing functional_description sections for this unit
   await supabase
     .from("spec_sections")
@@ -41,9 +38,11 @@ export async function composeFdsToSections(
     .eq("unit_id", unit.unit_id)
     .eq("section_type", "functional_description");
 
-  // --- Static states: emit one row per (equipment_module, state) to match V2 shape. ---
-  for (const state of staticStates) {
-    for (const session of sessions) {
+  for (const session of sessions) {
+    const emStates: EmStateV2[] = session.em_states ?? [];
+
+    // --- Static states: emit one row per (equipment_module, state). ---
+    for (const state of emStates.filter((s) => s.kind === "static")) {
       const entries = session.static_states[state.state_id] ?? [];
       if (entries.length === 0) continue;
 
@@ -56,7 +55,7 @@ export async function composeFdsToSections(
         spec_project_id: specProjectId,
         section_type: "functional_description",
         unit_id: unit.unit_id,
-        state_name: `${state.state_name} — ${session.equipment_module_id}`,
+        state_name: `${state.name} — ${session.equipment_module_id}`,
         content_json: content,
         content_markdown: null,
         model_used: "co-authored",
@@ -67,14 +66,10 @@ export async function composeFdsToSections(
         review_notes: null,
       });
     }
-  }
 
-  // --- Sequential states: emit one row per (equipment_module, state) ---
-  // Each row carries just that equipment_module's own permissives/steps/notes.
-  // Inter-EM coordination is expressed as permissive guards on EM transitions
-  // (hybrid state model) — not merged in here.
-  for (const state of sequentialStates) {
-    for (const session of sessions) {
+    // --- Sequential states: emit one row per (equipment_module, state) ---
+    // Each row carries just that equipment_module's own permissives/steps/notes.
+    for (const state of emStates.filter((s) => s.kind === "sequential")) {
       const data = session.sequential_states[state.state_id];
       if (!data) continue;
 
@@ -94,7 +89,7 @@ export async function composeFdsToSections(
         spec_project_id: specProjectId,
         section_type: "functional_description",
         unit_id: unit.unit_id,
-        state_name: `${state.state_name} — ${session.equipment_module_id}`,
+        state_name: `${state.name} — ${session.equipment_module_id}`,
         content_json: content,
         content_markdown: null,
         model_used: "co-authored",

@@ -220,7 +220,6 @@ export async function ingestDocx(
         scope_exclusions: [],
       },
       hierarchy: hierarchyResult.hierarchy,
-      states: [],
       alarm_tiers: [],
       equipment_modules,
       safety_gates: [],

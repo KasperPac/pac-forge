@@ -29,7 +29,8 @@ export interface EquipmentModuleBrief {
   /** Device IDs belonging to this equipment_module */
   deviceIds: string[];
 
-  /** Operating states from spec_projects.confirmed_states */
+  /** This EM's OWN operating states (hybrid state model), derived from
+   *  fds_operation_sessions.em_states. */
   operatingStates: OperatingState[];
 
   /** Static state device tables — what every output does in IDLE, E-STOP, etc.

@@ -17,10 +17,7 @@ import {
 } from "@/hooks/use-spec-projects";
 import { useUnconfirmedLock } from "@/hooks/use-unconfirmed-lock";
 import { UnconfirmedLockBanner } from "@/components/spec-builder/unconfirmed-lock-banner";
-import {
-  migrateUnitConfig,
-  migrateOperatingStates,
-} from "@/types/spec-builder";
+import { migrateUnitConfig } from "@/types/spec-builder";
 
 type CoAuthorView = "fds" | "process-model";
 
@@ -37,9 +34,6 @@ export default function SpecCoAuthorPage() {
       ...rawSpec,
       confirmed_units: rawSpec.confirmed_units?.length
         ? migrateUnitConfig(rawSpec.confirmed_units)
-        : [],
-      confirmed_states: rawSpec.confirmed_states?.length
-        ? migrateOperatingStates(rawSpec.confirmed_states)
         : [],
       scope_exclusions: rawSpec.scope_exclusions ?? [],
       design_principles: rawSpec.design_principles ?? [],

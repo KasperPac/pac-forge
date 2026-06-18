@@ -89,7 +89,6 @@ export type ProjectSectionContent = z.infer<typeof ProjectSectionContentSchema>;
 // ============================================================
 
 export const UuidSchema = z.string().uuid();
-export const StateIdSchema = z.string().min(1); // e.g. "ST03"
 
 export const SignalTypeSchema = z.enum(["DI", "DO", "AI", "AO", "internal"]);
 export type SignalType = z.infer<typeof SignalTypeSchema>;
@@ -301,24 +300,11 @@ export type Hierarchy = z.infer<typeof HierarchySchema>;
 // Operating states + alarm tiers
 // ============================================================
 
+// `state_pattern` scopes a per-(EM, state) section row and the EM-local state
+// machine (see EmStateKindSchema). The legacy GLOBAL operating-states layer
+// (OperatingStateV2) was removed once states moved per-equipment-module.
 export const StatePatternSchema = z.enum(["static", "sequential"]);
 export type StatePattern = z.infer<typeof StatePatternSchema>;
-
-// state_id accepts either legacy string (shim window) or numeric (PackML 1..17
-// or custom_states > 100). New fields are optional; existing rows still validate.
-export const OperatingStateV2Schema = z.object({
-  state_id: z.union([StateIdSchema, z.number().int().positive()]),
-  // Legacy field — kept during shim window.
-  state_name: z.string().optional(),
-  // New display field (preferred post-confirmation).
-  display_name: z.string().optional(),
-  description: z.string(),
-  state_pattern: StatePatternSchema,
-  // New PackML fields (optional during shim window).
-  packml_id: z.number().int().min(1).max(17).optional(),
-  custom_name: z.string().optional(),
-});
-export type OperatingStateV2 = z.infer<typeof OperatingStateV2Schema>;
 
 export const AlarmTierSchema = z.object({
   tier_id: z.string(),
@@ -673,13 +659,12 @@ export type StaticStateV2 = z.infer<typeof StaticStateV2Schema>;
 // ============================================================
 // Per-Equipment-Module state machine (hybrid state model)
 // EM-local states + transitions. state_id here is an EM-local
-// string slug (e.g. "driving_fwd"), distinct from the global
-// numeric PackML ids used by OperatingStateV2.
+// string slug (e.g. "driving_fwd"). This is the ONLY operating-state
+// layer — the legacy global states array was removed.
 // ============================================================
 
 // Mirrors StatePatternSchema's values but kept separate: this scopes the
-// EM-local state machine (hybrid model), distinct from the global
-// OperatingStateV2.state_pattern. The two layers may diverge later.
+// EM-local state machine, while StatePattern scopes a section row.
 export const EmStateKindSchema = z.enum(["static", "sequential"]);
 export type EmStateKind = z.infer<typeof EmStateKindSchema>;
 
@@ -901,7 +886,6 @@ export const SpecContractV2Schema = z.object({
   schema_version: z.literal(3),
   project: SpecProjectHeaderSchema,
   hierarchy: HierarchySchema,
-  states: z.array(OperatingStateV2Schema),
   alarm_tiers: z.array(AlarmTierSchema),
   // Keyed by equipment_module_id
   equipment_modules: z.record(z.string(), EquipmentModuleContractSchema),

@@ -48,13 +48,22 @@ export function useForgeFdsHandoff(
       };
     }
 
-    // Operating states — contract already stores them in V2 shape.
-    const operatingStates = contract.states.map((s) => ({
-      state_id: s.state_id,
-      state_name: s.state_name,
-      description: s.description,
-      state_pattern: s.state_pattern,
-    })) as OperatingState[];
+    // Operating states are authored per-EM (hybrid state model). Build a
+    // project-wide union (dedup by EM-local state_id) for any top-level
+    // consumer; each brief gets its OWN EM states below.
+    const unionStates = new Map<string, OperatingState>();
+    for (const asm of Object.values(contract.equipment_modules)) {
+      for (const s of asm.states ?? []) {
+        if (unionStates.has(s.state_id)) continue;
+        unionStates.set(s.state_id, {
+          state_id: s.state_id,
+          state_name: s.name,
+          description: "",
+          state_pattern: s.kind,
+        });
+      }
+    }
+    const operatingStates: OperatingState[] = Array.from(unionStates.values());
 
     // Build entries + briefs from the hierarchy. Keys are equipment_module_id.
     const briefs: EquipmentModuleBriefMap = {};
@@ -64,6 +73,14 @@ export function useForgeFdsHandoff(
       if (sub.excluded) continue;
       for (const asm of sub.equipment_modules) {
         const asmContract = contract.equipment_modules[asm.equipment_module_id];
+
+        // This EM's OWN states (hybrid state model).
+        const emOperatingStates: OperatingState[] = (asmContract?.states ?? []).map((s) => ({
+          state_id: s.state_id,
+          state_name: s.name,
+          description: "",
+          state_pattern: s.kind,
+        }));
 
         // Alarms attached to this equipment_module OR to any of its control_modules.
         const deviceIdSet = new Set(asm.control_modules.map((d) => d.control_module_id));
@@ -89,7 +106,7 @@ export function useForgeFdsHandoff(
           equipment_moduleType: sub.equipment_type,
           unitName: sub.unit_name,
           deviceIds: asm.control_modules.map((d) => d.control_module_id),
-          operatingStates,
+          operatingStates: emOperatingStates,
           // static_states was widened in Task 8 to `ControlModuleStateEntry[] | StaticStateV2`.
           // The handoff brief expects the legacy `ControlModuleStateEntry[]` shape; unwrap.
           staticStates: asmContract?.static_states

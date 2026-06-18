@@ -43,7 +43,6 @@ import type {
   TestingFatContent,
   IoSummaryRow,
 } from "@/types/spec-builder";
-import { migrateOperatingStates } from "@/types/spec-builder";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -504,8 +503,6 @@ function renderFunctionalDescriptions(
   const children: (Paragraph | Table)[] = [];
   children.push(heading("3. Functional Descriptions", HeadingLevel.HEADING_1));
 
-  const states = migrateOperatingStates(spec.confirmed_states);
-
   equipmentSections.forEach((eq, idx) => {
     const unitName =
       spec.confirmed_units.find((s) => s.unit_id === eq.unit_id)?.unit_name ??
@@ -540,7 +537,8 @@ function renderFunctionalDescriptions(
     // Functional description per state
     const subFuncDescs = funcDescSections.filter((s) => s.unit_id === eq.unit_id);
     subFuncDescs.forEach((fd, sIdx) => {
-      const stateName = states.find((s) => s.state_id === fd.state_name)?.state_name ?? fd.state_name ?? "";
+      // Per-(EM, state) rows carry their own human label in `state_name`.
+      const stateName = fd.state_name ?? "";
       const fdContent = fd.content_json as unknown as FunctionalDescriptionContent;
 
       children.push(heading(`3.${idx + 1}.${sIdx + 1} ${stateName}`, HeadingLevel.HEADING_3));
@@ -870,9 +868,7 @@ function renderLegacyEquipmentGroup(
     if (subStates.length > 0) {
       children.push(p("Operating States:", { bold: true }));
       subStates.forEach((state, sIdx) => {
-        const stateName =
-          spec.confirmed_states.find((s) => s.state_id === state.state_name)?.state_name ??
-          state.state_name ?? "";
+        const stateName = state.state_name ?? "";
         const sc = state.content_json as { state_narrative?: string };
         children.push(heading(`${startIdx}.${idx + 1}.${sIdx + 1} ${stateName}`, HeadingLevel.HEADING_3));
         children.push(p(sc.state_narrative ?? ""));

@@ -435,7 +435,6 @@ function postProcess(raw: unknown): Record<string, unknown> {
       scope_exclusions: [],
     },
     hierarchy: { units: normalisedSubs },
-    states: Array.isArray(obj.states) ? obj.states : [],
     alarm_tiers: Array.isArray(obj.alarm_tiers) ? obj.alarm_tiers : [],
     equipment_modules:
       obj.equipment_modules && typeof obj.equipment_modules === "object" ? obj.equipment_modules : {},

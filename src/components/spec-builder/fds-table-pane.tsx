@@ -25,7 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Trash2, ChevronUp, ChevronDown, Pencil } from "lucide-react";
-import type { OperatingState, InstrumentTag } from "@/types/spec-builder";
+import type { InstrumentTag } from "@/types/spec-builder";
 import type {
   SequentialStateV2,
   CompletionCriterion,
@@ -596,8 +596,15 @@ function permissivesToConditions(perms: StructuredPermissive[]): PermissiveCondi
 // Props
 // ---------------------------------------------------------------------------
 
+/** Minimal state shape the behaviour table needs: an id and a display label.
+ *  Sourced from the EM's OWN sequential states (EmStateV2) in the hybrid model. */
+export interface TablePaneState {
+  state_id: string;
+  state_name: string;
+}
+
 interface Props {
-  sequentialStates: OperatingState[];
+  sequentialStates: TablePaneState[];
   stateData: Record<string, SequentialStateV2>;
   onUpdateState: (stateId: string, data: SequentialStateV2) => void;
   specProjectId?: string;

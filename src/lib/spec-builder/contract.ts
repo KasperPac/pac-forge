@@ -20,7 +20,6 @@ import {
   EquipmentModuleContractSchema,
   HierarchySchema,
   IoListEntrySchema,
-  OperatingStateV2Schema,
   SafetyGateV2Schema,
   SpecContractV2Schema,
   SpecSectionRowSchema,
@@ -42,7 +41,6 @@ import {
   type FaultSeverity,
   type Hierarchy,
   type IoListEntry,
-  type OperatingStateV2,
   type SequentialStateV2,
   type SpecContractV2,
   type SpecSectionRow,
@@ -81,7 +79,6 @@ export interface SpecContractPatch {
   alarms?: AlarmRow[];
   alarm_tiers?: AlarmTier[];
   equipment_modules?: Record<string, EquipmentModuleContract>;
-  states?: OperatingStateV2[];
   safety_gates?: SafetyGateV2[];
   io_list?: IoListEntry[];
   faults?: FaultRow[];
@@ -99,7 +96,6 @@ export const SpecContractPatchSchema = z.object({
   alarms: z.array(AlarmRowSchema).optional(),
   alarm_tiers: z.array(AlarmTierSchema).optional(),
   equipment_modules: z.record(z.string(), EquipmentModuleContractSchema).optional(),
-  states: z.array(OperatingStateV2Schema).optional(),
   safety_gates: z.array(SafetyGateV2Schema).optional(),
   io_list: z.array(IoListEntrySchema).optional(),
   faults: z
@@ -217,31 +213,23 @@ async function fetchAlarmRows(
 // ============================================================
 
 interface UpgradeContext {
-  confirmedStates: OperatingStateV2[];
   /** Map of lowercased state_name → state_id, for legacy state_name matching. */
   stateNameToId: Map<string, string>;
 }
 
+// The legacy global `confirmed_states` JSONB column may still exist on old
+// project rows. It is NO LONGER an operating-state source — states live
+// per-EM now — but the legacy shim still uses its state_name → state_id pairs
+// to resolve legacy section / static-state map keys during upgrade.
 function buildUpgradeContext(projectRow: Record<string, unknown>): UpgradeContext {
   const rawStates = (projectRow.confirmed_states ?? []) as Record<string, unknown>[];
-  const confirmedStates: OperatingStateV2[] = rawStates.map((s) => ({
-    state_id: String(s.state_id ?? ""),
-    state_name: String(s.state_name ?? ""),
-    description: String(s.description ?? ""),
-    state_pattern: ((s.state_pattern as string) === "sequential"
-      ? "sequential"
-      : "static") as "static" | "sequential",
-  }));
   const stateNameToId = new Map<string, string>();
-  for (const s of confirmedStates) {
-    if (s.state_name)
-      stateNameToId.set(
-        s.state_name.toLowerCase(),
-        // OperatingStateV2.state_id widened to string | number (Task 5).
-        typeof s.state_id === "number" ? String(s.state_id) : s.state_id,
-      );
+  for (const s of rawStates) {
+    const stateName = String(s.state_name ?? "");
+    const stateId = String(s.state_id ?? "");
+    if (stateName && stateId) stateNameToId.set(stateName.toLowerCase(), stateId);
   }
-  return { confirmedStates, stateNameToId };
+  return { stateNameToId };
 }
 
 /** Resolve a legacy state_name to a canonical state_id. Fallback: verbatim. */
@@ -674,7 +662,6 @@ async function upgradeLegacyRow(
     confirmation_status: "unconfirmed",
     project: toProjectHeader(projectRow),
     hierarchy,
-    states: ctx.confirmedStates,
     alarm_tiers: toAlarmTiers(projectRow),
     equipment_modules,
     safety_gates: Array.isArray(projectRow.safety_gates)
@@ -816,17 +803,13 @@ export async function loadAssemblyStates(
     } as AssemblyStateView) : [];
   }
 
-  const statesById = new Map<string, OperatingStateV2>();
-  for (const s of contract.states)
-    // OperatingStateV2.state_id widened to string | number (Task 5).
-    statesById.set(
-      typeof s.state_id === "number" ? String(s.state_id) : s.state_id,
-      s,
-    );
+  // state_pattern comes from the EM's OWN state machine (hybrid state model),
+  // keyed by EM-local state_id (EmStateV2.kind), not a global state list.
+  const kindById = new Map<string, "static" | "sequential">();
+  for (const s of asm.states ?? []) kindById.set(s.state_id, s.kind);
 
   const buildView = (sid: string): AssemblyStateView => {
-    const meta = statesById.get(sid);
-    const pattern: "static" | "sequential" = meta?.state_pattern ?? "static";
+    const pattern: "static" | "sequential" = kindById.get(sid) ?? "static";
     // static_states was widened in Task 8 to `ControlModuleStateEntry[] | StaticStateV2`.
     // EquipmentModuleStateView still expects `ControlModuleStateEntry[] | undefined`; unwrap.
     const rawStatic = asm.static_states[sid];
@@ -905,13 +888,6 @@ export async function loadFaults(specProjectId: string): Promise<FaultRow[]> {
   return contract.faults;
 }
 
-export async function loadOperatingStates(
-  specProjectId: string,
-): Promise<OperatingStateV2[]> {
-  const contract = await loadSpecContract(specProjectId);
-  return contract.states;
-}
-
 // ============================================================
 // Public writer API — builder only
 // ============================================================
@@ -921,7 +897,7 @@ export async function loadOperatingStates(
  * sub-tree in full. Nested maps (`equipment_modules`) replace per-key. Patch is
  * Zod-validated before any write occurs.
  *
- * Persists hierarchy (`confirmed_units`), `confirmed_states`, `alarm_tiers`,
+ * Persists hierarchy (`confirmed_units`), `alarm_tiers`,
  * `confirmed_modes`, `configuration_parameters`, `section_overrides`,
  * `process_model`, and `confirmation_status` onto `spec_projects`, plus alarm
  * rows via `spec_alarms` and equipment-module / section upserts.
@@ -964,13 +940,10 @@ export async function writeSpecContract(
     }
   }
 
-  // ---- hierarchy / states / alarm_tiers all live on spec_projects ----
+  // ---- hierarchy / alarm_tiers / modes etc. all live on spec_projects ----
   const projectUpdate: Record<string, unknown> = {};
   if (parsed.hierarchy) {
     projectUpdate.confirmed_units = parsed.hierarchy.units;
-  }
-  if (parsed.states) {
-    projectUpdate.confirmed_states = parsed.states;
   }
   if (parsed.alarm_tiers) {
     projectUpdate.alarm_tiers = parsed.alarm_tiers;
@@ -1165,35 +1138,6 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
         `modes patch must include exactly one default mode; found ${defaults.length}`,
       );
     }
-  }
-
-  // FDS Engine Phase 1: PackML state ID range invariants
-  if (patch.states !== undefined) {
-    patch.states.forEach((s, idx) => {
-      const sid = s.state_id;
-      if (typeof sid === "number") {
-        // Numeric IDs: 1..17 = PackML; >100 = custom_states; everything else invalid.
-        if (sid >= 1 && sid <= 17) {
-          if (s.packml_id === undefined) {
-            issues.push(`states[${idx}]: numeric state_id ${sid} requires packml_id`);
-          } else if (s.packml_id !== sid) {
-            issues.push(
-              `states[${idx}]: packml_id (${s.packml_id}) must equal state_id (${sid})`,
-            );
-          }
-        } else if (sid > 100) {
-          if (!s.custom_name) {
-            issues.push(`states[${idx}]: custom state_id ${sid} requires custom_name`);
-          }
-        } else {
-          issues.push(
-            `states[${idx}]: state_id ${sid} is invalid; must be 1..17 (PackML) or > 100 (custom)`,
-          );
-        }
-      }
-      // Legacy string state_ids are accepted as-is during the shim window;
-      // post-confirmation projects should not contain them.
-    });
   }
 
   // FDS Engine Phase 1: override_kind content rules — inherit / suppressed

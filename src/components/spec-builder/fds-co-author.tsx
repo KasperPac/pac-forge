@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import { FdsAssemblySidebar } from "./fds-assembly-sidebar";
 import { FdsStaticReview } from "./fds-static-review";
-import { FdsTablePane } from "./fds-table-pane";
+import { FdsTablePane, type TablePaneState } from "./fds-table-pane";
 import { FdsDuplicateDialog } from "./fds-duplicate-dialog";
 import {
   useFdsSessionsForProject,
@@ -45,13 +45,11 @@ import type {
   SpecProject,
   InstrumentRegister,
   InstrumentTag,
-  OperatingState,
   ControlModuleStateEntry,
   EquipmentModuleConfig,
   UnitConfig,
   OperationSession,
 } from "@/types/spec-builder";
-import { migrateOperatingStates } from "@/types/spec-builder";
 import type { SequentialStateV2, OperatorMode, EmStateV2 } from "@/types/spec-contract-v2";
 import { cn } from "@/lib/utils";
 
@@ -71,8 +69,6 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
   const deleteSession = useDeleteFdsSession();
   const saveValidation = useSaveValidationResults();
 
-  const states = useMemo(() => migrateOperatingStates(spec.confirmed_states), [spec.confirmed_states]);
-  const staticStates = useMemo(() => states.filter((s) => s.state_pattern === "static"), [states]);
   // Project-level machine modes — Stage A gates the EM's states by these.
   const modes = useMemo<OperatorMode[]>(() => spec.confirmed_modes ?? [], [spec.confirmed_modes]);
 
@@ -87,6 +83,17 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
   const activeEquipmentModule = activeUnit?.equipment_modules.find((a) => a.equipment_module_id === selectedEquipmentModuleId);
   const activeSession = sessions.find(
     (s) => s.unit_id === selectedUnitId && s.equipment_module_id === selectedEquipmentModuleId,
+  );
+
+  // The active EM's OWN states (hybrid state model). Static review + completion
+  // validation use these, not a global state list.
+  const activeEmStates = useMemo<EmStateV2[]>(
+    () => activeSession?.em_states ?? [],
+    [activeSession?.em_states],
+  );
+  const activeStaticStates = useMemo(
+    () => activeEmStates.filter((s) => s.kind === "static"),
+    [activeEmStates],
   );
 
   // Select an equipment_module — ensure session exists
@@ -146,7 +153,7 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
       activeEquipmentModule,
       activeSession.static_states,
       activeSession.sequential_states,
-      states,
+      activeEmStates,
       register.tags,
     );
     await saveValidation.mutateAsync({ id: activeSession.id, results: result });
@@ -154,7 +161,7 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
     if (result.passed) {
       await completeSession.mutateAsync(activeSession.id);
     }
-  }, [activeSession, activeEquipmentModule, states, register.tags, saveValidation, completeSession]);
+  }, [activeSession, activeEquipmentModule, activeEmStates, register.tags, saveValidation, completeSession]);
 
   // Validation issues for current session
   const validationIssues = activeSession?.validation_results?.issues ?? [];
@@ -280,7 +287,7 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
               <div className="flex-1 overflow-auto p-4">
                 <FdsStaticReview
                   equipment_module={activeEquipmentModule}
-                  staticStates={staticStates}
+                  staticStates={activeStaticStates}
                   allTags={register.tags}
                   currentStaticStates={activeSession.static_states}
                   onConfirm={handleConfirmStatic}
@@ -370,15 +377,14 @@ function ConversationStage({
 
   // Stage B walks the EM's OWN sequential states. Adapt them to the
   // {state_id, state_name} shape FdsTablePane consumes (EmStateV2.name → state_name).
-  const tableStates = useMemo<OperatingState[]>(
+  const tableStates = useMemo<TablePaneState[]>(
     () =>
       emStates
         .filter((s) => s.kind === "sequential")
         .map((s) => ({
           state_id: s.state_id,
           state_name: s.name,
-          state_pattern: "sequential",
-        }) as unknown as OperatingState),
+        })),
     [emStates],
   );
 

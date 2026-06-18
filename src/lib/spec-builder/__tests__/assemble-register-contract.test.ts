@@ -16,7 +16,7 @@ const hierarchy = {
 const mapping: MappingResponse = {
   unit_name: "Segment Wagon",
   modules: [{ equipment_module_id: "em1", source_requirements: "Driven by 4 Demag wheels..." }],
-  states: [], faults: [], process_model: null,
+  faults: [], process_model: null,
 };
 
 describe("assembleContractFromRegister", () => {

@@ -5,24 +5,28 @@
 import type {
   EquipmentModuleConfig,
   UnitConfig,
-  OperatingState,
   InstrumentTag,
   ControlModuleStateEntry,
   FdsValidationResult,
   FdsValidationIssue,
   ProcessModel,
 } from "@/types/spec-builder";
-import type { SequentialStateV2 } from "@/types/spec-contract-v2";
+import type { EmStateV2, SequentialStateV2 } from "@/types/spec-contract-v2";
 
 // ---------------------------------------------------------------------------
 // Equipment-module-level validation
 // ---------------------------------------------------------------------------
 
+/**
+ * Validate one equipment module against its OWN authored states (hybrid state
+ * model). `emStates` are this EM's states (EmStateV2.kind = static | sequential);
+ * static/sequential behaviour is keyed by the EM-local state_id.
+ */
 export function validateEquipmentModule(
   equipment_module: EquipmentModuleConfig,
   staticStates: Record<string, ControlModuleStateEntry[]>,
   sequentialStates: Record<string, SequentialStateV2>,
-  allStates: OperatingState[],
+  emStates: EmStateV2[],
   allTags: InstrumentTag[],
 ): FdsValidationResult {
   const issues: FdsValidationIssue[] = [];
@@ -39,8 +43,8 @@ export function validateEquipmentModule(
   const outputTags = equipment_moduleTags.filter((t) => t.signal_direction === "DO" || t.signal_direction === "AO");
   const allTagNames = new Set(allTags.map((t) => t.tag));
 
-  const staticStateIds = allStates.filter((s) => s.state_pattern === "static");
-  const sequentialStateIds = allStates.filter((s) => s.state_pattern === "sequential");
+  const staticStateIds = emStates.filter((s) => s.kind === "static");
+  const sequentialStateIds = emStates.filter((s) => s.kind === "sequential");
 
   // --- Check 1: Tag coverage in static states ---
   for (const state of staticStateIds) {
@@ -52,7 +56,7 @@ export function validateEquipmentModule(
         issues.push({
           severity: "error",
           category: "tag_coverage",
-          message: `Output tag ${tag.tag} missing from ${state.state_name} device state table`,
+          message: `Output tag ${tag.tag} missing from ${state.name} device state table`,
           equipment_module_id: equipment_module.equipment_module_id,
           state_id: state.state_id,
           tag: tag.tag,
@@ -68,7 +72,7 @@ export function validateEquipmentModule(
       issues.push({
         severity: "error",
         category: "state_completeness",
-        message: `No steps defined for ${state.state_name}`,
+        message: `No steps defined for ${state.name}`,
         equipment_module_id: equipment_module.equipment_module_id,
         state_id: state.state_id,
       });

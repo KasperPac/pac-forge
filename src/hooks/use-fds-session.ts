@@ -396,14 +396,12 @@ export function useComposeFds() {
       spec_project_id: string;
       unit: import("@/types/spec-builder").UnitConfig;
       sessions: OperationSession[];
-      allStates: import("@/types/spec-builder").OperatingState[];
     }) => {
       const { composeFdsToSections } = await import("@/lib/spec-builder/fds-compose");
       await composeFdsToSections(
         input.spec_project_id,
         input.unit,
         input.sessions,
-        input.allStates,
       );
     },
     onSuccess: (_, input) => {

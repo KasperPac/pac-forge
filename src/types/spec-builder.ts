@@ -64,9 +64,9 @@ export interface SpecProject {
   system_description: string | null;
   // Wizard state
   confirmed_units: UnitConfig[];
-  confirmed_states: OperatingState[];
-  // Machine-level layer (replaces global states): per-machine operating
-  // modes + safety gates. States now live per-equipment-module.
+  // Machine-level layer (replaces the removed global states): per-machine
+  // operating modes + safety gates. States now live per-equipment-module
+  // (fds_operation_sessions.em_states).
   confirmed_modes?: OperatorMode[];
   safety_gates?: SafetyGateV2[];
   alarm_tiers: AlarmTier[];
@@ -123,7 +123,6 @@ export interface SpecProjectUpdate {
   design_profile_id?: string;
   system_description?: string;
   confirmed_units?: UnitConfig[];
-  confirmed_states?: OperatingState[];
   confirmed_modes?: OperatorMode[];
   safety_gates?: SafetyGateV2[];
   alarm_tiers?: AlarmTier[];
@@ -291,49 +290,16 @@ export function migrateUnitConfig(raw: unknown[]): UnitConfig[] {
 
 export type StatePattern = "static" | "sequential";
 
+/**
+ * A per-equipment-module operating state, projected to a flat display shape.
+ * Derived from the EM's OWN states (EmStateV2) — the legacy global
+ * operating-states layer (and its migrate*() helpers) was removed.
+ */
 export interface OperatingState {
   state_id: string;
   state_name: string;
   description: string;
   state_pattern: StatePattern;
-}
-
-/** Default pattern inference from state name */
-export function inferStatePattern(stateName: string): StatePattern {
-  const lower = stateName.toLowerCase();
-  if (
-    lower.includes("idle") ||
-    lower.includes("e-stop") ||
-    lower.includes("estop") ||
-    lower.includes("emergency") ||
-    lower.includes("completed") ||
-    lower.includes("stopped") ||
-    lower.includes("abort") ||
-    lower.includes("held")
-  ) {
-    return "static";
-  }
-  return "sequential";
-}
-
-/** Migrate legacy OperatingState (no state_pattern) */
-export function migrateOperatingState(raw: unknown): OperatingState {
-  const s = raw as Record<string, unknown>;
-  // V2 producers (random builder, post-Phase 3 prompts) set
-  // `display_name` instead of legacy `state_name`. Fall back to it so
-  // V1 viewers don't render empty labels for V2-shaped specs.
-  const name = String(s.state_name ?? s.display_name ?? "");
-  return {
-    state_id: String(s.state_id ?? ""),
-    state_name: name,
-    description: String(s.description ?? ""),
-    state_pattern: (s.state_pattern as StatePattern) ?? inferStatePattern(name),
-  };
-}
-
-/** Migrate an array of legacy OperatingStates */
-export function migrateOperatingStates(raw: unknown[]): OperatingState[] {
-  return raw.map(migrateOperatingState);
 }
 
 export interface AlarmTier {

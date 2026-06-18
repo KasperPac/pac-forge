@@ -4,18 +4,19 @@
  */
 import type {
   EquipmentModuleConfig,
-  OperatingState,
   InstrumentTag,
   ControlModuleStateEntry,
 } from "@/types/spec-builder";
+import type { EmStateV2 } from "@/types/spec-contract-v2";
 
 /**
- * Auto-fill device state tables for all static states for a given equipment_module.
- * Returns { [state_id]: ControlModuleStateEntry[] } with every DO/AO tag listed.
+ * Auto-fill device state tables for this EM's OWN static states (hybrid state
+ * model). Returns { [em_local_state_id]: ControlModuleStateEntry[] } with every
+ * DO/AO tag listed.
  */
 export function autoFillStaticStates(
   equipment_module: EquipmentModuleConfig,
-  staticStates: OperatingState[],
+  staticStates: EmStateV2[],
   allTags: InstrumentTag[],
 ): Record<string, ControlModuleStateEntry[]> {
   // Collect all tag names for this equipment_module
@@ -48,8 +49,8 @@ export function autoFillStaticStates(
  * Infer the safe state for a given output tag in a given static state.
  * Uses device type and signal direction to determine the appropriate value.
  */
-function inferSafeState(tag: InstrumentTag, state: OperatingState): string {
-  const isEstop = /e-?stop|emergency/i.test(state.state_name);
+function inferSafeState(tag: InstrumentTag, state: EmStateV2): string {
+  const isEstop = state.is_safe_state || /e-?stop|emergency/i.test(state.name);
 
   if (tag.signal_direction === "AO") {
     return "0";

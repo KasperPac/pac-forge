@@ -28,10 +28,33 @@ import type {
   UnitConfig,
   TokenUsage,
   IoSummaryRow,
+  OperatingState,
 } from "@/types/spec-builder";
-import { migrateOperatingStates } from "@/types/spec-builder";
 import { composeFdsToSections } from "./fds-compose";
 import type { OperationSession } from "@/types/spec-builder";
+
+/**
+ * Derive the project-wide operating-state list from the per-EM session states
+ * (hybrid state model). The legacy global `spec.confirmed_states` array no
+ * longer exists — each EM owns its states in `em_states`. We union them
+ * (dedup by EM-local state_id) so the AI generation prompts still have a
+ * machine-level state list to drive Section 2/3/8.
+ */
+function deriveOperatingStates(sessions: OperationSession[]): OperatingState[] {
+  const byId = new Map<string, OperatingState>();
+  for (const session of sessions) {
+    for (const s of session.em_states ?? []) {
+      if (byId.has(s.state_id)) continue;
+      byId.set(s.state_id, {
+        state_id: s.state_id,
+        state_name: s.name,
+        description: "",
+        state_pattern: s.kind,
+      });
+    }
+  }
+  return Array.from(byId.values());
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -265,7 +288,13 @@ export async function generateSpec(
   const errors: string[] = [];
   const sections: SpecSection[] = [];
   const activeUnits = spec.confirmed_units.filter((s) => !s.excluded);
-  const states = migrateOperatingStates(spec.confirmed_states);
+  // Hybrid state model: states are authored per-EM. Union the session states
+  // up front so the AI prompts (Section 2/3/8) have a machine-level list.
+  const { data: allSessionRows } = await supabase
+    .from("fds_operation_sessions")
+    .select("*")
+    .eq("spec_project_id", spec.id);
+  const states = deriveOperatingStates((allSessionRows ?? []) as OperationSession[]);
   const staticStates = states.filter((s) => s.state_pattern === "static");
   const sequentialStates = states.filter((s) => s.state_pattern === "sequential");
   const hasHmi = !!(spec.hmi_type && spec.hmi_type !== "None");
@@ -416,7 +445,6 @@ export async function generateSpec(
           await composeFdsToSections(
             spec.id, sub,
             coAuthoredSessions as OperationSession[],
-            states,
           );
           // Still generate equipment preamble via AI (prose + device table)
           const eqPrompt = buildEquipmentDescriptionPrompt(sub, tags);

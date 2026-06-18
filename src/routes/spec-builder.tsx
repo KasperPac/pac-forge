@@ -73,7 +73,7 @@ import {
   computeExportStatus,
 } from "@/components/spec-builder/spec-phase-status";
 import type { SpecProject } from "@/types/spec-builder";
-import { migrateUnitConfig, migrateOperatingStates } from "@/types/spec-builder";
+import { migrateUnitConfig } from "@/types/spec-builder";
 import { RandomFdsDialog } from "@/components/spec-builder/random-fds-dialog";
 import { cn } from "@/lib/utils";
 
@@ -433,9 +433,6 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
     confirmed_units: rawSpec.confirmed_units?.length
       ? migrateUnitConfig(rawSpec.confirmed_units)
       : [],
-    confirmed_states: rawSpec.confirmed_states?.length
-      ? migrateOperatingStates(rawSpec.confirmed_states)
-      : [],
     scope_exclusions: rawSpec.scope_exclusions ?? [],
     design_principles: rawSpec.design_principles ?? [],
   }), [rawSpec]);
@@ -446,11 +443,10 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
   const { data: fdsSessions } = useFdsSessionsForProject(spec.id);
   const composeFds = useComposeFds();
   const hasRegister = !!register && (register.tags?.length ?? 0) > 0;
-  const hasWizardData = spec.confirmed_units.length > 0 && spec.confirmed_states.length > 0;
+  const hasWizardData = spec.confirmed_units.length > 0;
   const hasSections = (sections?.length ?? 0) > 0;
   const allApproved = hasSections && (sections ?? []).every((s) => s.approved);
   const hasExports = (exports?.length ?? 0) > 0;
-  const states = useMemo(() => migrateOperatingStates(spec.confirmed_states), [spec.confirmed_states]);
 
   // All equipment_modules complete when every session across all units is "complete"
   const totalAssemblies = spec.confirmed_units.reduce((n, s) => n + (s.equipment_modules?.length ?? 0), 0);
@@ -460,7 +456,7 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
   const handleCompose = async () => {
     for (const unit of spec.confirmed_units) {
       const sessions = (fdsSessions ?? []).filter((s) => s.unit_id === unit.unit_id);
-      await composeFds.mutateAsync({ spec_project_id: spec.id, unit, sessions, allStates: states });
+      await composeFds.mutateAsync({ spec_project_id: spec.id, unit, sessions });
     }
   };
 
