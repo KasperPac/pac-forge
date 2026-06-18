@@ -4,7 +4,7 @@
     {
       "id": 5,
       "subject": "Task 5: Copy logo assets and update render.ts",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Copy logo images into renderer templates dir and update render.ts to read them as base64 data URIs, register cover partial.\n\n**Files:**\n- Copy: `public/PacTechnologies.jpg` → `services/pdf-renderer/src/templates/PacTechnologies.jpg`\n- Copy: `public/PacTechnologiesEdit_Blue_NoText._Transparent.png` → `services/pdf-renderer/src/templates/PacTechnologiesEdit_Blue_NoText._Transparent.png`\n- Modify: `services/pdf-renderer/src/render.ts`\n\n**Acceptance Criteria:**\n- [ ] Both image files exist in src/templates/\n- [ ] npm run build succeeds and both appear in dist/templates/\n- [ ] renderSnapshotToHtml context includes _logoFull and _logoMark as data: URIs\n- [ ] cover partial registered in getTemplate()\n- [ ] npm test passes\n\n**Verify:** `cd services/pdf-renderer && npm test`\n\n```json:metadata\n{\"files\": [\"services/pdf-renderer/src/templates/PacTechnologies.jpg\", \"services/pdf-renderer/src/templates/PacTechnologiesEdit_Blue_NoText._Transparent.png\", \"services/pdf-renderer/src/render.ts\"], \"verifyCommand\": \"cd services/pdf-renderer && npm test\", \"acceptanceCriteria\": [\"Both logo files in src/templates/\", \"npm run build copies them to dist/templates/\", \"render.ts passes _logoFull and _logoMark data URIs to template\", \"cover partial registered\", \"all tests pass\"]}\n```"
     },
     {

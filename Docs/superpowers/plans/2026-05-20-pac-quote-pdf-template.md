@@ -40,24 +40,24 @@
 - Modify: `services/pdf-renderer/src/render.ts`
 
 **Acceptance Criteria:**
-- [ ] Both image files exist in `src/templates/`
-- [ ] `npm run build` in `services/pdf-renderer/` succeeds and both files appear in `dist/templates/`
-- [ ] `renderSnapshotToHtml` template context includes `_logoFull` and `_logoMark` as `data:` URIs
-- [ ] `cover` partial is registered in `getTemplate()`
-- [ ] `npm test` in `services/pdf-renderer/` passes (all existing tests still green)
+- [x] Both image files exist in `src/templates/`
+- [x] `npm run build` in `services/pdf-renderer/` succeeds and both files appear in `dist/templates/`
+- [x] `renderSnapshotToHtml` template context includes `_logoFull` and `_logoMark` as `data:` URIs
+- [x] `cover` partial is registered in `getTemplate()`
+- [x] `npm test` in `services/pdf-renderer/` passes (all existing tests still green)
 
 **Verify:** `cd services/pdf-renderer && npm test` → all tests pass
 
 **Steps:**
 
-- [ ] **Step 1: Copy the logo files**
+- [x] **Step 1: Copy the logo files**
 
 ```bash
 cp public/PacTechnologies.jpg services/pdf-renderer/src/templates/PacTechnologies.jpg
 cp "public/PacTechnologiesEdit_Blue_NoText._Transparent.png" "services/pdf-renderer/src/templates/PacTechnologiesEdit_Blue_NoText._Transparent.png"
 ```
 
-- [ ] **Step 2: Verify build copies them to dist**
+- [x] **Step 2: Verify build copies them to dist**
 
 ```bash
 cd services/pdf-renderer && npm run build
@@ -66,7 +66,7 @@ ls dist/templates/Pac*
 
 Expected output: both filenames listed.
 
-- [ ] **Step 3: Update `render.ts`**
+- [x] **Step 3: Update `render.ts`**
 
 Replace the `cachedAssets` declaration, `getAssets()` function, `getTemplate()` function, and `renderSnapshotToHtml()` function with the following. Everything else in the file stays unchanged.
 
@@ -148,7 +148,7 @@ export async function renderSnapshotToHtml(snapshot: unknown): Promise<string> {
 
 Note: `_cover.html` doesn't exist yet — the test suite will fail until Task 2 creates it. That's expected at this step.
 
-- [ ] **Step 4: Run typecheck**
+- [x] **Step 4: Run typecheck**
 
 ```bash
 cd services/pdf-renderer && npm run typecheck
@@ -156,7 +156,7 @@ cd services/pdf-renderer && npm run typecheck
 
 Expected: no errors.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add services/pdf-renderer/src/templates/PacTechnologies.jpg \
