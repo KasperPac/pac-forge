@@ -4,6 +4,7 @@ import {
   resolveForcedSafeStates,
   validateEmStateMachine,
   parseStateMachineProposal,
+  isLikelyTruncatedProposal,
 } from "@/lib/spec-builder/em-state-machine";
 import type {
   EquipmentModuleContract,
@@ -194,5 +195,135 @@ describe("parseStateMachineProposal", () => {
 
   it("returns null for malformed json", () => {
     expect(parseStateMachineProposal("```json\n{ not valid }\n```")).toBeNull();
+  });
+});
+
+/**
+ * Generic robustness: a complete state machine for a complex EM can exceed the
+ * streaming token budget and arrive TRUNCATED — the AI opened a ```json fence
+ * but the closing fence (and tail of the JSON) never streamed. The parser then
+ * returns null, which the persist path treats as "still gathering", silently
+ * losing the whole machine with NO error shown. `isLikelyTruncatedProposal`
+ * distinguishes that failure (fence opened but unparseable) from a legitimate
+ * prose-only refine turn (no fence at all), so the UI can surface it loudly.
+ */
+describe("isLikelyTruncatedProposal", () => {
+  it("is true when a json fence opened but never parsed (truncation)", () => {
+    const truncated =
+      "Here is the machine.\n\n```json\n" +
+      '{ "states": [ { "state_id": "stopped", "name": "Stopped", "kind": "static"';
+    // No closing fence, JSON cut mid-object.
+    expect(parseStateMachineProposal(truncated)).toBeNull();
+    expect(isLikelyTruncatedProposal(truncated)).toBe(true);
+  });
+
+  it("is true when a fenced block parsed but was schema-invalid", () => {
+    const invalid = "```json\n" + '{ "states": [ { "state_id": "s1", "kind": "bogus" } ] }\n```';
+    expect(parseStateMachineProposal(invalid)).toBeNull();
+    expect(isLikelyTruncatedProposal(invalid)).toBe(true);
+  });
+
+  it("is false for a prose-only refine turn with no fence (still gathering)", () => {
+    expect(isLikelyTruncatedProposal("Which state is the safe state?")).toBe(false);
+  });
+
+  it("is false when the proposal is complete and parseable", () => {
+    const ok =
+      "```json\n" +
+      '{ "states": [ { "state_id": "s1", "name": "S1", "kind": "static", "is_safe_state": true } ], "transitions": [] }\n```';
+    expect(parseStateMachineProposal(ok)).not.toBeNull();
+    expect(isLikelyTruncatedProposal(ok)).toBe(false);
+  });
+});
+
+/**
+ * Regression: the per-EM trigger model (EmTriggerSchema) only allows a command
+ * trigger's `expr` to be a SINGLE condition. But the universal "any fault ->
+ * Faulted" pattern needs an OR of many fault tags. AI authors emit
+ * `expr: [c1..cN], trigger_logic: "OR"`, which fails schema validation, so the
+ * ENTIRE proposal was silently rejected and NO states persisted (Stage A looked
+ * like it never happened). The parser must deterministically expand an
+ * OR-array trigger into N single-condition transitions (one per condition,
+ * sharing from/to/guard, unique transition_ids) so persistence never silently
+ * fails for ANY machine.
+ */
+describe("parseStateMachineProposal — OR-trigger expansion (regression)", () => {
+  const OR_TRIGGER = `\`\`\`json
+{
+  "states": [
+    { "state_id": "driving", "name": "Driving", "kind": "static", "allowed_modes": [], "is_safe_state": false },
+    { "state_id": "faulted", "name": "Faulted", "kind": "static", "allowed_modes": [], "is_safe_state": true }
+  ],
+  "transitions": [
+    {
+      "transition_id": "driving_to_faulted",
+      "from_state_id": "driving",
+      "to_state_id": "faulted",
+      "trigger": {
+        "kind": "command",
+        "expr": [
+          { "tag": "CM1_Fault", "operator": "=", "value": true },
+          { "tag": "CM2_Fault", "operator": "=", "value": true },
+          { "tag": "VSD1_CB_Trip", "operator": "=", "value": true }
+        ],
+        "trigger_logic": "OR"
+      },
+      "guard": []
+    }
+  ]
+}
+\`\`\``;
+
+  it("expands an array `expr` (OR list) into one single-condition transition per term", () => {
+    const out = parseStateMachineProposal(OR_TRIGGER);
+    expect(out).not.toBeNull();
+    expect(out!.states.length).toBe(2);
+    // 3 OR terms -> 3 single-condition transitions
+    expect(out!.transitions.length).toBe(3);
+    for (const t of out!.transitions) {
+      expect(t.from_state_id).toBe("driving");
+      expect(t.to_state_id).toBe("faulted");
+      expect(t.trigger.kind).toBe("command");
+      // each expanded trigger holds exactly ONE condition (schema-valid)
+      if (t.trigger.kind === "command") {
+        expect(Array.isArray(t.trigger.expr)).toBe(false);
+        expect(typeof t.trigger.expr.tag).toBe("string");
+      }
+    }
+    // unique transition_ids, all derived from the original
+    const ids = out!.transitions.map((t) => t.transition_id);
+    expect(new Set(ids).size).toBe(3);
+    expect(ids.every((id) => id.startsWith("driving_to_faulted"))).toBe(true);
+    // covers every original tag
+    const tags = out!.transitions.map((t) =>
+      t.trigger.kind === "command" ? t.trigger.expr.tag : "",
+    );
+    expect(tags.sort()).toEqual(["CM1_Fault", "CM2_Fault", "VSD1_CB_Trip"]);
+  });
+
+  it("preserves normal single-condition + completion transitions alongside an expanded OR", () => {
+    const mixed = `\`\`\`json
+{
+  "states": [
+    { "state_id": "stopped", "name": "Stopped", "kind": "static", "allowed_modes": [], "is_safe_state": true },
+    { "state_id": "driving", "name": "Driving", "kind": "static", "allowed_modes": [], "is_safe_state": false }
+  ],
+  "transitions": [
+    { "transition_id": "stopped_to_driving", "from_state_id": "stopped", "to_state_id": "driving",
+      "trigger": { "kind": "command", "expr": { "tag": "Fwd", "operator": "=", "value": true } }, "guard": [] },
+    { "transition_id": "driving_to_stopped", "from_state_id": "driving", "to_state_id": "stopped",
+      "trigger": { "kind": "command",
+        "expr": [ { "tag": "F1", "operator": "=", "value": true }, { "tag": "F2", "operator": "=", "value": true } ] },
+      "guard": [] }
+  ]
+}
+\`\`\``;
+    const out = parseStateMachineProposal(mixed);
+    expect(out).not.toBeNull();
+    // 1 normal + 2 expanded = 3
+    expect(out!.transitions.length).toBe(3);
+    const single = out!.transitions.find((t) => t.transition_id === "stopped_to_driving");
+    expect(single).toBeTruthy();
+    expect(single!.trigger.kind === "command" && single!.trigger.expr.tag).toBe("Fwd");
   });
 });

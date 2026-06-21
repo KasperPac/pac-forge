@@ -112,6 +112,58 @@ export interface StateMachineProposal {
 }
 
 /**
+ * Deterministic safety net for the per-EM trigger model.
+ *
+ * A command trigger's `expr` is, by contract, a SINGLE condition
+ * (`EmTriggerSchema`). But the universal "any of N faults → Faulted" pattern is
+ * an OR of many tags, which AI authors naturally emit as
+ * `expr: [c1..cN], trigger_logic: "OR"`. That array fails schema validation, so
+ * historically the ENTIRE proposal was rejected and NO states persisted (silent
+ * Stage-A data loss for any non-trivial machine).
+ *
+ * To make persistence robust for EVERY machine, expand any transition whose
+ * command `expr` is an array into one single-condition transition per term —
+ * sharing from/to/guard, with unique transition_ids derived from the original.
+ * The OR is preserved as parallel transitions (each a valid single condition).
+ * Single-condition transitions and non-command triggers pass through untouched.
+ *
+ * Operates on the raw JSON BEFORE schema validation, because the array shape is
+ * itself schema-invalid.
+ */
+function expandOrTriggers(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const obj = raw as Record<string, unknown>;
+  if (!Array.isArray(obj.transitions)) return raw;
+
+  const expanded: unknown[] = [];
+  for (const t of obj.transitions) {
+    if (!t || typeof t !== "object") {
+      expanded.push(t);
+      continue;
+    }
+    const tr = t as Record<string, unknown>;
+    const trigger = tr.trigger as Record<string, unknown> | undefined;
+    const expr = trigger?.expr;
+
+    if (trigger && trigger.kind === "command" && Array.isArray(expr)) {
+      const baseId =
+        typeof tr.transition_id === "string" ? tr.transition_id : "transition";
+      expr.forEach((cond, i) => {
+        expanded.push({
+          ...tr,
+          transition_id: expr.length === 1 ? baseId : `${baseId}_or${i}`,
+          trigger: { kind: "command", expr: cond },
+        });
+      });
+    } else {
+      expanded.push(t);
+    }
+  }
+
+  return { ...obj, transitions: expanded };
+}
+
+/**
  * Extract the Stage-A `{ states, transitions }` proposal from an AI response.
  * Reads the first fenced ```json block, parses it, and validates the shape
  * with the Zod schemas (applying defaults like allowed_modes=[],
@@ -133,9 +185,33 @@ export function parseStateMachineProposal(
     return null;
   }
 
+  raw = expandOrTriggers(raw);
+
   const parsed = StateMachineProposalSchema.safeParse(raw);
   if (!parsed.success) return null;
   if (parsed.data.states.length === 0) return null;
 
   return { states: parsed.data.states, transitions: parsed.data.transitions };
+}
+
+/**
+ * Distinguish a FAILED state-machine proposal from a legitimate prose-only
+ * refine turn. A complete machine for a complex EM can exceed the streaming
+ * token budget and arrive TRUNCATED: the AI opened a ```json fence but the
+ * closing fence (and JSON tail) never streamed, so `parseStateMachineProposal`
+ * returns null. The persist path otherwise treats null as "still gathering" and
+ * silently drops the whole machine with no error shown.
+ *
+ * Returns true when the text shows an opened ```json fence yet yields no
+ * parseable, schema-valid proposal (truncated OR malformed OR schema-invalid) —
+ * the caller should surface that loudly instead of persisting prose silently.
+ * Returns false for a turn with no json fence at all (the AI is genuinely still
+ * interviewing) and for a complete, parseable proposal.
+ *
+ * Pure + deterministic; no React, no IO.
+ */
+export function isLikelyTruncatedProposal(text: string): boolean {
+  const hasJsonFence = /```json/.test(text);
+  if (!hasJsonFence) return false;
+  return parseStateMachineProposal(text) === null;
 }

@@ -131,6 +131,7 @@ export interface SpecProjectUpdate {
   fault_philosophy?: string;
   design_principles?: string[];
   status?: SpecProject["status"];
+  confirmation_status?: SpecProject["confirmation_status"];
   process_model?: ProcessModel | null;
 }
 

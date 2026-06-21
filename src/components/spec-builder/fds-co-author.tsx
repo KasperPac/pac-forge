@@ -41,6 +41,10 @@ import {
 } from "@/hooks/use-fds-session";
 import { useFdsConversation } from "@/hooks/use-fds-conversation";
 import { validateEquipmentModule } from "@/lib/spec-builder/fds-logic-checker";
+import {
+  resolveCoAuthorPhase,
+  isStaticReviewSatisfied,
+} from "@/lib/spec-builder/fds-co-author-phase";
 import type {
   SpecProject,
   InstrumentRegister,
@@ -95,6 +99,20 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
     () => activeEmStates.filter((s) => s.kind === "static"),
     [activeEmStates],
   );
+
+  // Stage ordering (hybrid per-EM model): define states (A) → confirm the
+  // auto-filled static device tables → behaviour (B). The static review only
+  // appears once static states exist, so its device tables are never empty.
+  const phase = activeSession
+    ? resolveCoAuthorPhase({
+        emStates: activeEmStates,
+        staticConfirmed: activeSession.static_confirmed,
+      })
+    : "define_states";
+  const canComplete =
+    !!activeSession &&
+    activeEmStates.length > 0 &&
+    isStaticReviewSatisfied(activeEmStates, activeSession.static_confirmed);
 
   // Select an equipment_module — ensure session exists
   const handleSelectEquipmentModule = useCallback(
@@ -268,7 +286,7 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
                   <Button
                     size="sm"
                     onClick={handleComplete}
-                    disabled={!activeSession.static_confirmed || completeSession.isPending}
+                    disabled={!canComplete || completeSession.isPending}
                   >
                     {completeSession.isPending ? (
                       <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
@@ -281,9 +299,10 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
               </div>
             </div>
 
-            {/* Stage content */}
-            {!activeSession.static_confirmed ? (
-              // Stage 1 — Static state review
+            {/* Stage content — define states (A) → static review → behaviour (B).
+                The static review now runs AFTER Stage A, so its auto-filled
+                device tables are built from the EM's actual static states. */}
+            {phase === "static_review" ? (
               <div className="flex-1 overflow-auto p-4">
                 <FdsStaticReview
                   equipment_module={activeEquipmentModule}
@@ -296,8 +315,8 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
                 />
               </div>
             ) : (
-              // Stage 2 — Conversation + live tables (hybrid per-EM state model).
-              // No global states passed: the EM authors and uses its OWN states.
+              // Stage A (no states yet) or Stage B (behaviour) — both use the
+              // conversation. The EM authors and uses its OWN states.
               <ConversationStage
                 session={activeSession}
                 equipment_module={activeEquipmentModule}

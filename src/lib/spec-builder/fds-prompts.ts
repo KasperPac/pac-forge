@@ -99,7 +99,8 @@ export function buildFdsInterviewSystemPrompt(
   const firstSequentialStateId = sequentialStatesList[0]?.state_id ?? "";
 
   // Relevant customer-spec sections (selected by the caller). Rendered only when present.
-  const sourceContext = sourceSections.length === 0
+  const grounded = sourceSections.length > 0;
+  const sourceContext = !grounded
     ? ""
     : `\n## Customer Specification Context\n` +
       `Reference the original customer specification below. Treat it as the source\n` +
@@ -107,6 +108,32 @@ export function buildFdsInterviewSystemPrompt(
       sourceSections
         .map((s) => `### ${s.heading || "(untitled)"}\n${s.body}`)
         .join("\n\n") + "\n";
+
+  // Ground-then-refine: with bound customer-spec requirements, the model drafts
+  // the sequence from the spec FIRST, then refines, rather than interrogating the
+  // engineer field by field. With no bound context it runs the strict cold
+  // interview below unchanged.
+  const groundingProtocol = !grounded
+    ? ""
+    : `# PHASE 1 — GROUND (your first reply for each sequential state)
+The Customer Specification Context above describes what this state must do. Before interrogating, DRAFT the state from the spec:
+- Propose the permissives and the ordered steps you infer for the current sequential state, citing the spec text behind each step.
+- For any required field the spec does not state (completion tag, timeout, fault code, severity), fill it from DEVICE CLASS DEFAULTS and tag it "(assumption — confirm)" in your prose. Never silently omit a required field and never invent a tag name.
+- Present the draft in prose, then emit the JSON block for the state (the schema below). End with a short bullet list of the specific points you need the engineer to confirm.
+
+# PHASE 2 — REFINE (subsequent replies)
+Ask ONE focused confirming/refining question per turn, anchored to your draft. Only ask about fields the spec left open or that the engineer flagged — do NOT re-interrogate fields the spec already answered. Re-emit the updated JSON whenever an answer changes the state.
+
+---
+
+`;
+
+  // The completeness gate differs by mode: cold interview forbids emitting JSON
+  // until the engineer has stated every field; grounded mode permits an
+  // assumption-filled draft (every assumption tagged) so PHASE 1 can propose.
+  const completenessRule = grounded
+    ? `**Never emit a JSON update with a required field left blank or a tag name you invented.** In PHASE 1 you MAY fill gaps from the customer spec or DEVICE CLASS DEFAULTS, but every such gap-fill MUST be tagged "(assumption — confirm)" in your prose. In PHASE 2, prefer the engineer's stated values over your assumptions.`
+    : `**You MUST NOT emit a JSON table update until every field above is either stated by the engineer or directly implied by a prior answer in this conversation.** If even one field is missing, ask about it first.`;
 
   // --- Revised prompt template ---
   return `You are a senior automation engineer co-authoring a functional specification with the project engineer for Equipment Module "${equipment_module.equipment_module_name}" (equipment_module_id: "${equipment_module.equipment_module_id}") within unit "${unit.unit_name}" (unit_id: "${unit.unit_id}", ${unit.equipment_type}).
@@ -148,7 +175,7 @@ ${sequentialStatesTable || "  (none)"}
 
 ---
 
-# INTERVIEW PROTOCOL
+${groundingProtocol}# INTERVIEW PROTOCOL
 
 You are running a deterministic interview, not a free-form chat. For each sequential state, gather information in this fixed order:
 
@@ -164,7 +191,7 @@ You are running a deterministic interview, not a free-form chat. For each sequen
    h. Whether the step branches; if yes, the condition that selects each branch
 3. **Confirmation** — read the full state back to the engineer in prose before emitting a JSON block.
 
-**You MUST NOT emit a JSON table update until every field above is either stated by the engineer or directly implied by a prior answer in this conversation.** If even one field is missing, ask about it first.
+${completenessRule}
 
 ## Questioning rules
 - Ask about ONE missing field per turn. Do not batch questions.
@@ -427,6 +454,7 @@ export function buildFdsOpeningMessage(
   // display name of the first sequential state is needed to seed the opening
   // question, so accept the bare name rather than a full state object.
   firstSequentialStateName: string,
+  sourceSections: SourceSection[] = [],
 ): string {
   const equipment_moduleTagNames = new Set<string>();
   for (const dev of equipment_module.control_modules) {
@@ -445,6 +473,15 @@ export function buildFdsOpeningMessage(
     .filter((t) => t.signal_direction === "DI" || t.signal_direction === "AI")
     .map((t) => `${t.tag} (${t.description})`)
     .join(", ");
+
+  if (sourceSections.length > 0) {
+    return `Generate the opening message for the equipment_module interview. The equipment_module is "${equipment_module.equipment_module_name}" (${equipment_module.description || "no description"}).
+
+Outputs: ${outputs}
+Inputs: ${inputs}
+
+The customer specification context is in your system prompt. Execute PHASE 1 (GROUND) for the "${firstSequentialStateName}" state: read the spec, then PROPOSE your draft permissives and ordered steps for that state — citing the spec and tagging any gaps you filled from device-class defaults as assumptions — and end with the JSON block plus the points you need confirmed. Lead with your proposal; do NOT ask a cold question.`;
+  }
 
   return `Generate the opening message for the equipment_module interview. The equipment_module is "${equipment_module.equipment_module_name}" (${equipment_module.description || "no description"}).
 

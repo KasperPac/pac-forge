@@ -33,6 +33,7 @@ import { migrateUnitConfig, getUnitControlModuleCount } from "@/types/spec-build
 import type { OperatorMode, SafetyGateV2 } from "@/types/spec-contract-v2";
 import { seedDefaultModes, suggestSafetyGates } from "@/lib/spec-builder/wizard-machine-layer";
 import { buildHierarchyFromTags } from "@/lib/spec-builder/instrument-parser";
+import { mintUnitConfigUuids } from "@/lib/spec-builder/mint-uuids";
 import { MachineHierarchyTable } from "./machine-hierarchy-table";
 import { cn } from "@/lib/utils";
 
@@ -80,12 +81,16 @@ export function SpecSkeletonWizard({ spec, register, onComplete }: Props) {
     comms_protocol: spec.comms_protocol ?? "",
   });
 
-  // Step 3 — Machine hierarchy (seeded from register tags)
+  // Step 3 — Machine hierarchy (seeded from register tags).
+  // Mint UUIDs for every unit/EM/CM id so `confirmed_units` is uuid-keyed:
+  // foreign-spec requirement binding writes uuid-typed `spec_source_sections`
+  // rows keyed by equipment_module_id. Idempotent — existing UUIDs are kept,
+  // so legacy name-id projects are healed on first re-open.
   const [units, setSubsystems] = useState<UnitConfig[]>(() => {
-    if (spec.confirmed_units?.length) {
-      return migrateUnitConfig(spec.confirmed_units);
-    }
-    return buildHierarchyFromTags(register.tags);
+    const seed = spec.confirmed_units?.length
+      ? migrateUnitConfig(spec.confirmed_units)
+      : buildHierarchyFromTags(register.tags);
+    return mintUnitConfigUuids(seed);
   });
   const [inferringHierarchy, setInferringHierarchy] = useState(false);
 
@@ -131,7 +136,8 @@ export function SpecSkeletonWizard({ spec, register, onComplete }: Props) {
       setStep((s) => s + 1);
       return;
     }
-    // Step 7 — confirm: save everything and mark ready
+    // Step 7 — confirm: save everything, mark ready, and flip the project to
+    // "confirmed" so the unconfirmed lock clears and downstream phases unlock.
     await updateSpec.mutateAsync({
       id: spec.id,
       ...meta,
@@ -140,6 +146,7 @@ export function SpecSkeletonWizard({ spec, register, onComplete }: Props) {
       confirmed_modes: modes,
       safety_gates: safetyGates,
       alarm_tiers: alarmTiers,
+      confirmation_status: "confirmed",
     });
     onComplete();
   }, [step, spec.id, meta, control, units, modes, safetyGates, alarmTiers, updateSpec, onComplete]);
@@ -207,10 +214,12 @@ Return ONLY a JSON array matching this TypeScript interface:
       );
 
       const parsed = JSON.parse(result.content) as UnitConfig[];
-      setSubsystems(parsed);
+      // The model returns name-based ids; mint UUIDs before they reach state /
+      // confirmed_units so requirement binding stays uuid-keyed.
+      setSubsystems(mintUnitConfigUuids(parsed));
     } catch {
       // Fallback to deterministic hierarchy builder
-      setSubsystems(buildHierarchyFromTags(register.tags));
+      setSubsystems(mintUnitConfigUuids(buildHierarchyFromTags(register.tags)));
     } finally {
       setInferringHierarchy(false);
     }

@@ -224,6 +224,130 @@ function needsUpgrade(state: SequentialStateV2): boolean {
   return !isV2Step(state.steps[0]);
 }
 
+/** Pick the transition that drives the happy path (legacy completion source). */
+function pickDefaultTransition(
+  transitions: TransitionV2[] | undefined,
+): TransitionV2 | undefined {
+  if (!Array.isArray(transitions) || transitions.length === 0) return undefined;
+  return transitions.find((t) => t.is_default) ?? transitions[0];
+}
+
+/** A criterion's on_fail (only some criterion kinds carry one). */
+function criterionFaultRef(c: CompletionCriterion): FaultRef | undefined {
+  return "on_fail" in c ? c.on_fail : undefined;
+}
+
+/**
+ * The fault a transition raises: its own `on_fail`, else the first guard
+ * criterion that declares one. The model commonly nests on_fail inside the
+ * guard rather than on the transition itself.
+ */
+function transitionFaultRef(t: TransitionV2 | undefined): FaultRef | undefined {
+  if (!t) return undefined;
+  if (t.on_fail) return t.on_fail;
+  if (Array.isArray(t.guard)) {
+    for (const c of t.guard) {
+      const f = criterionFaultRef(c);
+      if (f) return f;
+    }
+  }
+  return undefined;
+}
+
+/** First action's prose (every ActionV2 variant carries `prose`). */
+function actionToProse(action: ActionV2 | undefined): string {
+  if (!action) return "";
+  if (typeof action.prose === "string" && action.prose.length > 0) return action.prose;
+  if (action.kind === "manual_prose" && action.text) return action.text;
+  return "";
+}
+
+/** Human-readable rendering of a completion criterion (legacy *_text field). */
+function criterionToText(c: CompletionCriterion): string {
+  switch (c.kind) {
+    case "tag_equals":
+      return `${c.tag} = ${c.value}`;
+    case "tag_compare":
+      return `${c.tag} ${c.op} ${c.value}`;
+    case "expression":
+      return c.text;
+    case "manual_ack":
+      return c.prompt;
+    case "placeholder":
+      return c.prompt;
+  }
+}
+
+function criteriaToText(criteria: CompletionCriterion[]): string {
+  return criteria.map(criterionToText).filter(Boolean).join(" AND ");
+}
+
+/** Step number from a v2 step: trailing digits of step_id, else 1-based index. */
+function deriveStepNumber(step: PhaseStep, idx: number): number {
+  if (typeof step.step === "number" && Number.isInteger(step.step) && step.step > 0) {
+    return step.step;
+  }
+  const m = typeof step.step_id === "string" ? step.step_id.match(/(\d+)\s*$/) : null;
+  if (m) {
+    const n = parseInt(m[1], 10);
+    if (Number.isInteger(n) && n > 0) return n;
+  }
+  return idx + 1;
+}
+
+/**
+ * Back-fill the required legacy v1 fields on an already-v2 step.
+ *
+ * The Stage-B FDS prompt instructs the model to emit the full SFC shape
+ * (step_id + actions[] + transitions[]) with NO legacy fields, but
+ * PhaseStepSchema still REQUIRES step / action / completion_criteria /
+ * completion_criteria_text (the DOCX exporter reads them). `ensureV2` only
+ * synthesises those while UPGRADING a v1 step; it skips an already-v2 step via
+ * `isV2Step`. Without this back-fill, every model-authored sequential state
+ * fails validation for every project. Derivation is deterministic and additive:
+ *   - step                     ← trailing digits of step_id, else 1-based index
+ *   - action                   ← first action's prose, else step name
+ *   - completion_criteria      ← the default transition's guard
+ *   - completion_criteria_text ← prose for that guard
+ *   - on_fail                  ← the default transition's on_fail (if present)
+ */
+function backfillLegacyFields(step: PhaseStep, idx: number): PhaseStep {
+  const hasAll =
+    typeof step.step === "number" &&
+    typeof step.action === "string" &&
+    Array.isArray(step.completion_criteria) &&
+    typeof step.completion_criteria_text === "string";
+  if (hasAll) return step;
+
+  const def = pickDefaultTransition(step.transitions);
+  const completion_criteria: CompletionCriterion[] = Array.isArray(step.completion_criteria)
+    ? step.completion_criteria
+    : Array.isArray(def?.guard)
+    ? def.guard
+    : [];
+  const stepNum = deriveStepNumber(step, idx);
+  const firstAction = Array.isArray(step.actions) ? step.actions[0] : undefined;
+  const action =
+    typeof step.action === "string" && step.action.length > 0
+      ? step.action
+      : actionToProse(firstAction) || step.name || `Step ${stepNum}`;
+  const completion_criteria_text =
+    typeof step.completion_criteria_text === "string" &&
+    step.completion_criteria_text.length > 0
+      ? step.completion_criteria_text
+      : criteriaToText(completion_criteria);
+  const on_fail = step.on_fail ?? transitionFaultRef(def);
+
+  return {
+    ...step,
+    step: stepNum,
+    action,
+    completion_criteria,
+    completion_criteria_text,
+    ...(on_fail ? { on_fail } : {}),
+  };
+}
+
 /**
  * Upgrade a v1 SequentialState in place-safe (returns a new object).
  * Pass `stateId` so synthetic IDs are stable across re-invocations.
@@ -233,10 +357,16 @@ export function ensureV2(
   stateId = "inline",
 ): SequentialStateV2 {
   if (!needsUpgrade(state)) {
-    // Still migrate permissives in case they're legacy strings in an otherwise v2 state.
+    // Already v2-shaped. Two additive clean-ups still apply:
+    //  - legacy permissive strings → structured PermissiveCondition[]
+    //  - back-fill the required legacy step fields the SFC-only prompt omits
     const migratedPerms = migratePermissives(state.permissives);
-    if (migratedPerms === state.permissives) return state;
-    return { ...state, permissives: migratedPerms };
+    const steps = Array.isArray(state.steps) ? state.steps : [];
+    const backfilledSteps = steps.map(backfillLegacyFields);
+    const permsChanged = migratedPerms !== state.permissives;
+    const stepsChanged = backfilledSteps.some((s, i) => s !== steps[i]);
+    if (!permsChanged && !stepsChanged) return state;
+    return { ...state, permissives: migratedPerms, steps: backfilledSteps };
   }
 
   const legacySteps = Array.isArray(state.steps) ? state.steps : [];

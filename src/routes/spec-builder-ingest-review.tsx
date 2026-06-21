@@ -50,6 +50,7 @@ export default function SpecBuilderIngestReviewPage() {
   const saveRegister = useSaveInstrumentRegister();
 
   const [draft, setDraft] = useState<SpecContractV2 | null>(null);
+  const [commitError, setCommitError] = useState<string | null>(null);
 
   useEffect(() => {
     if (parked?.draft) setDraft(parked.draft);
@@ -115,6 +116,7 @@ export default function SpecBuilderIngestReviewPage() {
 
   const handleCommit = async () => {
     if (!projectId || !draft || !parked) return;
+    setCommitError(null);
     try {
       const rev = await createDraft.mutateAsync({
         specProjectId: projectId,
@@ -138,31 +140,30 @@ export default function SpecBuilderIngestReviewPage() {
       // Gap 2 — persist customer-spec context for the co-author prompt.
       // Register-aware path: per-EM requirements bound by equipment_module_id.
       // .docx-only path: raw sections with no EM binding (fallback).
-      try {
-        await supabase.from("spec_source_sections").delete().eq("spec_project_id", specProjectId);
-        const rows = parked.emRequirements.length > 0
-          ? parked.emRequirements.map((r, i) => ({
-              spec_project_id: specProjectId,
-              source_filename: parked.sourceFilename || "ingest.docx",
-              equipment_module_id: r.equipment_module_id,
-              heading: "",
-              body: r.requirements,
-              order_index: i,
-            }))
-          : parked.sourceSections.map((s, i) => ({
-              spec_project_id: specProjectId,
-              source_filename: parked.sourceFilename || "ingest.docx",
-              equipment_module_id: null,
-              heading: s.heading,
-              body: s.body,
-              order_index: s.order_index ?? i,
-            }));
-        if (rows.length > 0) {
-          const { error } = await supabase.from("spec_source_sections").insert(rows);
-          if (error) throw error;
-        }
-      } catch (sectionErr) {
-        console.error("[ingest-review] source-section persist failed", sectionErr);
+      // NOT swallowed: a failed bind (e.g. non-uuid equipment_module_id) must
+      // surface rather than masquerade as a successful commit — the co-author
+      // would otherwise silently lose all spec context.
+      await supabase.from("spec_source_sections").delete().eq("spec_project_id", specProjectId);
+      const rows = parked.emRequirements.length > 0
+        ? parked.emRequirements.map((r, i) => ({
+            spec_project_id: specProjectId,
+            source_filename: parked.sourceFilename || "ingest.docx",
+            equipment_module_id: r.equipment_module_id,
+            heading: "",
+            body: r.requirements,
+            order_index: i,
+          }))
+        : parked.sourceSections.map((s, i) => ({
+            spec_project_id: specProjectId,
+            source_filename: parked.sourceFilename || "ingest.docx",
+            equipment_module_id: null,
+            heading: s.heading,
+            body: s.body,
+            order_index: s.order_index ?? i,
+          }));
+      if (rows.length > 0) {
+        const { error } = await supabase.from("spec_source_sections").insert(rows);
+        if (error) throw error;
       }
 
       // Gap 3 — synthesize an instrument register from the ingest when the
@@ -200,8 +201,9 @@ export default function SpecBuilderIngestReviewPage() {
       const pacProjectId = proj?.project_id ?? projectId;
       navigate(`/specs?projectId=${pacProjectId}&specId=${specProjectId}`);
     } catch (e) {
-      // Error surfaces via mutation state
+      const msg = e instanceof Error ? e.message : String(e);
       console.error("[ingest-review] commit failed", e);
+      setCommitError(msg);
     }
   };
 
@@ -241,6 +243,16 @@ export default function SpecBuilderIngestReviewPage() {
           </Button>
         </div>
       </div>
+
+      {commitError && (
+        <div className="p-3 border-b bg-red-500/5">
+          <div className="flex items-center gap-2 text-red-600 text-sm">
+            <AlertTriangle className="h-4 w-4" />
+            <span className="font-medium">Commit failed</span>
+          </div>
+          <p className="mt-1 text-xs font-mono text-muted-foreground break-all">{commitError}</p>
+        </div>
+      )}
 
       {warnings.length > 0 && (
         <div className="p-3 border-b bg-amber-500/5">

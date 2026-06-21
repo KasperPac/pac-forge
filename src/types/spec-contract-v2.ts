@@ -333,13 +333,27 @@ export const FaultRefSchema = z.object({
 });
 export type FaultRef = z.infer<typeof FaultRefSchema>;
 
+/**
+ * Optional field that also tolerates an explicit `null`.
+ *
+ * AI authors routinely emit `"on_fail": null` (and similar) for "no value" on
+ * optional fields; a plain `.optional()` accepts only omitted/`undefined` and
+ * rejects explicit `null`, which poisons validation for every project. This
+ * coerces `null` → `undefined` BEFORE the inner schema runs, so incoming null
+ * is accepted while the parsed output stays clean (`T | undefined`, never
+ * null) — no downstream consumer or type changes. Generic across all EMs.
+ */
+function nullableOptional<T extends z.ZodTypeAny>(inner: T) {
+  return z.preprocess((v) => (v === null ? undefined : v), inner.optional());
+}
+
 // Completion criteria — discriminated union on `kind`
 const TagEqualsSchema = z.object({
   kind: z.literal("tag_equals"),
   tag: z.string(),
   value: z.union([z.string(), z.number(), z.boolean()]),
-  within_ms: z.number().int().nonnegative().optional(),
-  on_fail: FaultRefSchema.optional(),
+  within_ms: nullableOptional(z.number().int().nonnegative()),
+  on_fail: nullableOptional(FaultRefSchema),
 });
 
 const TagCompareSchema = z.object({
@@ -347,16 +361,16 @@ const TagCompareSchema = z.object({
   tag: z.string(),
   op: z.enum(["<", "<=", ">", ">=", "=="]),
   value: z.number(),
-  within_ms: z.number().int().nonnegative().optional(),
-  on_fail: FaultRefSchema.optional(),
+  within_ms: nullableOptional(z.number().int().nonnegative()),
+  on_fail: nullableOptional(FaultRefSchema),
 });
 
 const ExpressionCriterionSchema = z.object({
   kind: z.literal("expression"),
   text: z.string(),
   referenced_tags: z.array(z.string()),
-  within_ms: z.number().int().nonnegative().optional(),
-  on_fail: FaultRefSchema.optional(),
+  within_ms: nullableOptional(z.number().int().nonnegative()),
+  on_fail: nullableOptional(FaultRefSchema),
 });
 
 const ManualAckSchema = z.object({
@@ -528,7 +542,7 @@ export const MonitorV2Schema = z.object({
   monitor_id: z.string(),
   condition: CompletionCriterionSchema,
   effect: z.enum(["alarm", "fault", "hold", "branch_to"]),
-  fault_ref: FaultRefSchema.optional(),
+  fault_ref: nullableOptional(FaultRefSchema),
   target_step_id: z.string().optional(),
   auto_clear: z.boolean(),
   priority: z.number().int(),
@@ -549,7 +563,7 @@ const TransitionSingleSchema = z.object({
   guard: z.array(CompletionCriterionSchema),
   priority: z.number().int(),
   is_default: z.boolean(),
-  on_fail: FaultRefSchema.optional(),
+  on_fail: nullableOptional(FaultRefSchema),
   notes: z.string().nullable(),
 });
 const TransitionParallelSchema = z.object({
@@ -559,7 +573,7 @@ const TransitionParallelSchema = z.object({
   guard: z.array(CompletionCriterionSchema),
   priority: z.number().int(),
   is_default: z.boolean(),
-  on_fail: FaultRefSchema.optional(),
+  on_fail: nullableOptional(FaultRefSchema),
   notes: z.string().nullable(),
 });
 export const TransitionV2Schema = z.discriminatedUnion("kind", [
@@ -600,14 +614,14 @@ export const PhaseStepSchema = z.object({
   monitors: z.array(MonitorV2Schema).optional(),
   transitions: z.array(TransitionV2Schema).optional(),
   timeout_ms: z.number().optional(),
-  on_timeout: FaultRefSchema.optional(),
+  on_timeout: nullableOptional(FaultRefSchema),
 
   // Legacy (v1) — preserved during the shim window
   step: z.number().int().positive(),
   action: z.string(),
   completion_criteria: z.array(CompletionCriterionSchema),
   completion_criteria_text: z.string(),
-  on_fail: FaultRefSchema.optional(),
+  on_fail: nullableOptional(FaultRefSchema),
 });
 export type PhaseStep = z.infer<typeof PhaseStepSchema>;
 

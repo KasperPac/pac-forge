@@ -33,6 +33,7 @@ import {
 } from "@/lib/spec-builder/em-state-machine-prompts";
 import {
   parseStateMachineProposal,
+  isLikelyTruncatedProposal,
   validateEmStateMachine,
 } from "@/lib/spec-builder/em-state-machine";
 import type {
@@ -138,7 +139,16 @@ export function useFdsConversation({
       const msgs: Array<{ role: string; content: string }> = [];
       for (const turn of session.conversation) {
         if (turn.role === "user" || turn.role === "assistant") {
-          msgs.push({ role: turn.role, content: turn.content });
+          // The Anthropic API rejects any message with empty content. Assistant
+          // turns whose prose was stripped to "" (JSON-only responses, where
+          // stripJsonFromResponse returns an empty string) would otherwise poison
+          // every subsequent call. Substitute a neutral placeholder so a JSON-only
+          // turn never breaks conversation replay for any EM/project.
+          const content =
+            turn.content && turn.content.trim().length > 0
+              ? turn.content
+              : "(Proposed a sequence/state update.)";
+          msgs.push({ role: turn.role, content });
         }
       }
       if (extraUserMessage) {
@@ -278,10 +288,26 @@ export function useFdsConversation({
       };
 
       if (!proposal) {
-        // Still gathering — just persist the prose turn.
+        // The AI either is still interviewing (no json fence) OR tried to emit a
+        // machine that failed to parse (truncated past the token budget, malformed,
+        // or schema-invalid). The latter must NOT be persisted as silent prose —
+        // that drops the whole machine with no error shown. Surface it loudly so
+        // the engineer can ask the AI to re-emit (a more compact machine if large).
+        const extraTurns: FdsConversationTurn[] = [];
+        if (isLikelyTruncatedProposal(fullText)) {
+          extraTurns.push(
+            buildValidationFailureTurn({
+              stateLabel: `${equipment_module.equipment_module_name} state machine`,
+              issues: [
+                "The AI started a JSON state-machine block but it could not be parsed — it was likely truncated (too large for one response), malformed, or schema-invalid. Nothing was persisted.",
+                "Ask the AI to re-emit the COMPLETE machine as a single JSON block (split into fewer states/leaner guards if it is large).",
+              ],
+            }),
+          );
+        }
         await supabase
           .from("fds_operation_sessions")
-          .update({ conversation: [...conversationWithUser, assistantTurn] })
+          .update({ conversation: [...conversationWithUser, assistantTurn, ...extraTurns] })
           .eq("id", session.id);
         queryClient.invalidateQueries({ queryKey: ["fds_operation_sessions"] });
         return;
@@ -362,6 +388,12 @@ export function useFdsConversation({
           model: "claude-sonnet-4-6",
         };
 
+        // A complete state machine for a complex EM (many states + a fault fan-in
+        // of one transition per fault tag) is a single structured JSON emission
+        // that easily exceeds the 8192 interview budget. Truncation there silently
+        // drops the whole machine, so give the state-machine stage the full ceiling
+        // (the generate Edge Function caps at 32768). Interview turns stay lean.
+        const maxTokens = stage === "state_machine" ? 32768 : 8192;
         let fullText = "";
         await streamFromEdgeFunction(
           { system_prompt: systemPrompt, messages, stream: true },
@@ -370,7 +402,7 @@ export function useFdsConversation({
             fullText += chunk;
             setStreamingText(fullText);
           },
-          8192,
+          maxTokens,
           plMeta,
         );
 
@@ -448,11 +480,12 @@ export function useFdsConversation({
         : buildSystemPrompt();
 
       const openingPrompt = isStageA
-        ? buildEmStateMachineOpeningMessage(equipment_module)
+        ? buildEmStateMachineOpeningMessage(equipment_module, emSections)
         : buildFdsOpeningMessage(
             equipment_module,
             allTags,
             sequentialStates[0]?.name ?? "the first sequential state",
+            emSections,
           );
 
       const plMeta: PromptLayerMeta = {

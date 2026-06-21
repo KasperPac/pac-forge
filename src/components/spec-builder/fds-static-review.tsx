@@ -94,14 +94,6 @@ export function FdsStaticReview({
         </div>
       </div>
 
-      {staticStates.length === 0 && (
-        <p className="text-xs text-muted-foreground rounded-md border border-dashed p-3">
-          This module has no static states authored yet. Confirm to continue to the
-          state-machine interview, where you define this module's own states (including
-          static safe states) and their device tables.
-        </p>
-      )}
-
       {/* State tabs */}
       <div className="flex gap-1 border-b">
         {staticStates.map((state) => (

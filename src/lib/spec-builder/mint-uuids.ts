@@ -1,4 +1,5 @@
 import type { Hierarchy } from "@/types/spec-contract-v2";
+import type { UnitConfig } from "@/types/spec-builder";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -27,4 +28,25 @@ export function mintHierarchyUuids(hierarchy: Hierarchy): Hierarchy {
       })),
     })),
   };
+}
+
+/**
+ * Same minting over the wizard's `UnitConfig[]` shape (the hierarchy form that
+ * flows into `spec_projects.confirmed_units`). Idempotent: preserves valid
+ * UUIDs, names, IO, and all other fields. Keeps `confirmed_units` ids UUID-typed
+ * so foreign-spec requirement binding (uuid-typed `spec_source_sections`) works.
+ */
+export function mintUnitConfigUuids(units: UnitConfig[]): UnitConfig[] {
+  return units.map((u) => ({
+    ...u,
+    unit_id: mint(u.unit_id),
+    equipment_modules: u.equipment_modules.map((em) => ({
+      ...em,
+      equipment_module_id: mint(em.equipment_module_id),
+      control_modules: em.control_modules.map((cm) => ({
+        ...cm,
+        control_module_id: mint(cm.control_module_id),
+      })),
+    })),
+  }));
 }
