@@ -41,6 +41,45 @@ function outgoingTransitions(
 }
 
 /**
+ * Build a deterministic unit-level operation narrative ("process flow") from the
+ * unit's EMs and their start-state command transitions. This is the layer that
+ * ties the equipment modules together in operator terms — e.g. which command
+ * runs a drive — that the per-EM state tables alone do not convey. Stored as an
+ * `equipment_description` row (the existing per-unit lead-in slot) so it renders
+ * at the top of the unit's functional-description section. Hand-editable
+ * afterwards in the structured editor.
+ */
+function buildUnitOperationProse(unit: UnitConfig, sessions: OperationSession[]): string {
+  const emNameById: Record<string, string> = Object.fromEntries(
+    unit.equipment_modules.map((e) => [e.equipment_module_id, e.equipment_module_name]),
+  );
+  const lines: string[] = [];
+  const emNames = sessions.map((s) => emNameById[s.equipment_module_id] ?? s.equipment_module_id);
+  if (emNames.length) {
+    lines.push(`The ${unit.unit_name} unit comprises: ${emNames.join(", ")}.`);
+  }
+  for (const session of sessions) {
+    const emName = emNameById[session.equipment_module_id] ?? session.equipment_module_id;
+    const states = session.em_states ?? [];
+    if (!states.length) continue;
+    const nameById: Record<string, string> = Object.fromEntries(states.map((s) => [s.state_id, s.name]));
+    const safe = states.find((s) => s.is_safe_state) ?? states[0];
+    const starts = (session.em_transitions ?? []).filter(
+      (t) => t.from_state_id === safe.state_id && t.trigger.kind === "command",
+    );
+    if (!starts.length) continue;
+    const ops = starts.map((t) => {
+      const target = nameById[t.to_state_id] ?? t.to_state_id;
+      const trigger = t.trigger.kind === "command" ? serializePermissive(t.trigger.expr) : "completion";
+      const guards = (t.guard ?? []).map(serializePermissive);
+      return `command ${trigger} to move it to ${target}${guards.length ? ` (provided ${guards.join(", ")})` : ""}`;
+    });
+    lines.push(`${emName} is normally in ${safe.name}; ${ops.join("; ")}.`);
+  }
+  return lines.join("\n\n");
+}
+
+/**
  * Compose all equipment_module sessions for a unit into spec_sections rows.
  * Emits one functional_description row per (equipment_module, state) using each
  * session's OWN states (hybrid per-EM state model). Each session declares its
@@ -54,13 +93,35 @@ export async function composeFdsToSections(
   unit: UnitConfig,
   sessions: OperationSession[],
 ): Promise<void> {
-  // Delete existing functional_description sections for this unit
+  // Delete existing functional_description + equipment_description sections for
+  // this unit (both are regenerated below).
   await supabase
     .from("spec_sections")
     .delete()
     .eq("spec_project_id", specProjectId)
     .eq("unit_id", unit.unit_id)
-    .eq("section_type", "functional_description");
+    .in("section_type", ["functional_description", "equipment_description"]);
+
+  // Unit-level operation narrative ("process flow") — ties the EMs together in
+  // operator terms. Rendered as the lead-in to the unit's functional-description
+  // section. Skipped when there is nothing to say (no command-driven EMs).
+  const operationProse = buildUnitOperationProse(unit, sessions);
+  if (operationProse.trim()) {
+    await supabase.from("spec_sections").insert({
+      spec_project_id: specProjectId,
+      section_type: "equipment_description",
+      unit_id: unit.unit_id,
+      granularity: "subsystem",
+      content_json: { prose: operationProse, control_module_table: [] },
+      content_markdown: null,
+      model_used: "co-authored",
+      generation_prompt: null,
+      token_usage: {},
+      approved: false,
+      reviewed_by: null,
+      review_notes: null,
+    });
+  }
 
   // One functional_description row per (equipment_module, EM-local state). The
   // V2 editor + DOCX exporter key on equipment_module_id / state_id / state_pattern,
