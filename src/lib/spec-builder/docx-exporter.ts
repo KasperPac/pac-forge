@@ -19,7 +19,7 @@ import {
 } from "docx";
 import type { SpecProject, SpecSection } from "@/types/spec-builder";
 import type { Hierarchy, SpecContractV2 } from "@/types/spec-contract-v2";
-import { groupUnitStatesByEm, buildEmOperationView } from "./operating-sequence";
+import { groupUnitStatesByEm, buildEmOperationView, permissiveParts } from "./operating-sequence";
 import {
   buildHierarchyTable,
   buildHierarchyTableCaption,
@@ -595,16 +595,25 @@ function renderFunctionalDescriptions(
       const view = buildEmOperationView(states);
 
       // EM-level permissives — the conditions that must hold throughout (shown
-      // once instead of repeated on every transition).
+      // once as a table instead of repeated on every transition).
       if (view.permissives.length) {
         children.push(p("Permissives (must hold throughout; loss → safe state):", { bold: true }));
-        for (const perm of view.permissives) {
-          children.push(new Paragraph({
-            children: [new TextRun({ text: `•  ${perm}`, size: 20, font: FONT })],
-            spacing: { after: 40 },
-            indent: { left: 360 },
-          }));
-        }
+        children.push(new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          borders: TABLE_BORDERS,
+          rows: [
+            headerRow(["Permissive (tag)", "Required"]),
+            ...view.permissives.map((perm) => {
+              const { tag, requirement } = permissiveParts(perm);
+              return new TableRow({
+                children: [
+                  tableCell(tag, { bold: true, width: 60 }),
+                  tableCell(requirement, { width: 40 }),
+                ],
+              });
+            }),
+          ],
+        }));
         children.push(spacer());
       }
 

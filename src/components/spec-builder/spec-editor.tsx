@@ -34,7 +34,7 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useUpdateSpecSection } from "@/hooks/use-spec-projects";
 import type { SpecSection, SpecProject, FunctionalDescriptionContent, ControlModuleStateEntry, StepEntry, TransitionEntry } from "@/types/spec-builder";
-import { groupUnitStatesByEm, buildEmOperationView } from "@/lib/spec-builder/operating-sequence";
+import { groupUnitStatesByEm, buildEmOperationView, permissiveParts } from "@/lib/spec-builder/operating-sequence";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -521,13 +521,35 @@ function EquipmentEditor({ content, set, unitId, spec, sections }: EditorProps &
         return (
           <div key={g.emId} className="space-y-1.5">
             <label className="text-xs font-semibold">{g.emName} — Steps &amp; Actions</label>
-            <div className="rounded-md border bg-muted/30 px-2.5 py-1.5 text-[11px]">
-              <span className="font-semibold">Permissives</span>
-              <span className="text-muted-foreground"> (must hold throughout; loss → safe state): </span>
+            <div className="space-y-1">
+              <div className="text-[11px]">
+                <span className="font-semibold">Permissives</span>
+                <span className="text-muted-foreground"> (must hold throughout; loss → safe state)</span>
+              </div>
               {view.permissives.length > 0 ? (
-                <span className="font-mono">{view.permissives.join(", ")}</span>
+                <div className="border rounded-md overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted/50">
+                      <tr>
+                        <th className="p-2 text-left font-mono font-normal w-2/3">Permissive (tag)</th>
+                        <th className="p-2 text-left font-mono font-normal">Required</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {view.permissives.map((perm, i) => {
+                        const { tag, requirement } = permissiveParts(perm);
+                        return (
+                          <tr key={i} className="border-t">
+                            <td className="p-2 font-mono font-medium">{tag}</td>
+                            <td className="p-2 font-mono">{requirement}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               ) : (
-                <span className="italic text-muted-foreground">none defined on this equipment module</span>
+                <div className="text-[11px] italic text-muted-foreground">none defined on this equipment module</div>
               )}
             </div>
             <div className="border rounded-md overflow-hidden">

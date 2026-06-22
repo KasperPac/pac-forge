@@ -48,6 +48,14 @@ function tagOf(condition: string): string {
   return condition.trim().split(/\s+/)[0] ?? condition;
 }
 
+/** Split a serialized condition into its tag and the required test, for tabular display. */
+export function permissiveParts(condition: string): { tag: string; requirement: string } {
+  const trimmed = condition.trim();
+  const idx = trimmed.indexOf(" ");
+  if (idx < 0) return { tag: trimmed, requirement: "" };
+  return { tag: trimmed.slice(0, idx), requirement: trimmed.slice(idx + 1).trim() };
+}
+
 /**
  * Build the cleaned operating-sequence view for one EM (its ordered state rows).
  * Pure + deterministic so the editor and the DOCX render identically.
