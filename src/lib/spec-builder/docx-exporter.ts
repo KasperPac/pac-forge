@@ -640,10 +640,11 @@ function renderFunctionalDescriptions(
           }));
           children.push(spacer());
         }
+      }
 
-        if (fdContent.notes) {
-          children.push(p(`Note: ${fdContent.notes}`, { size: 20, color: "666666" }));
-        }
+      // Notes — applies to both static and sequential states.
+      if (fdContent.notes) {
+        children.push(p(`Note: ${fdContent.notes}`, { size: 20, color: "666666" }));
       }
 
       // Operation logic — transitions out of this state (both patterns). This is
@@ -753,6 +754,28 @@ function renderAlarmSpecification(section: SpecSection): (Paragraph | Table)[] {
             tableCell(c.cause, { width: 30 }),
             tableCell(c.cause_tag, { width: 15 }),
             ...c.effects.map((e) => tableCell(e ? "✓" : "—", { width: Math.floor(55 / effectHeaders.length) })),
+          ],
+        })),
+      ],
+    }));
+    children.push(spacer());
+  }
+
+  // Interlocks (process / coordination)
+  if (c.interlocks?.length) {
+    const matrixCount = c.cause_effect_matrix?.causes?.length ? 1 : 0;
+    children.push(heading(`5.${tiers.length + 1 + matrixCount} Interlocks`, HeadingLevel.HEADING_2));
+    children.push(new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      borders: TABLE_BORDERS,
+      rows: [
+        headerRow(["Interlock", "Cause", "Effect", "Value"]),
+        ...c.interlocks.map((il) => new TableRow({
+          children: [
+            tableCell(il.interlock, { bold: true, width: 22 }),
+            tableCell(il.cause, { width: 33 }),
+            tableCell(il.effect, { width: 33 }),
+            tableCell(il.value, { width: 12 }),
           ],
         })),
       ],

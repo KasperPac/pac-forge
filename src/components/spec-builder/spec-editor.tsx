@@ -810,6 +810,9 @@ function FunctionalDescriptionEditor({ content, set }: EditorProps) {
           </table>
         </div>
         <Button size="sm" variant="outline" onClick={() => set({ control_module_states: [...deviceStates, { tag: "", description: "", state: "" }] })}><Plus className="h-3 w-3 mr-1" /> Add Row</Button>
+        <Field label="Notes">
+          <Textarea rows={2} value={(fdContent.notes as string) ?? ""} onChange={(e) => set({ notes: e.target.value })} />
+        </Field>
         <TransitionsView transitions={fdContent.transitions} />
       </div>
     );
@@ -946,6 +949,33 @@ function AlarmSpecEditor({ content, set }: EditorProps) {
                     {(c.effects as boolean[] ?? []).map((eff, j) => (
                       <td key={j} className="p-2 text-center text-xs">{eff ? "✓" : "—"}</td>
                     ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Field>
+      )}
+      {/* Interlocks (process / coordination) — read-only */}
+      {Boolean((content.interlocks as Array<Record<string, unknown>>)?.length) && (
+        <Field label="Interlocks (process / coordination)">
+          <div className="border rounded-md overflow-hidden">
+            <table className="w-full text-xs">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="p-2 text-left font-mono font-normal">Interlock</th>
+                  <th className="p-2 text-left font-mono font-normal">Cause</th>
+                  <th className="p-2 text-left font-mono font-normal">Effect</th>
+                  <th className="p-2 text-left font-mono font-normal">Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(content.interlocks as Array<Record<string, unknown>> ?? []).map((il, i) => (
+                  <tr key={i} className="border-t align-top">
+                    <td className="p-2 text-xs font-medium">{String(il.interlock)}</td>
+                    <td className="p-2 text-xs">{String(il.cause)}</td>
+                    <td className="p-2 text-xs">{String(il.effect)}</td>
+                    <td className="p-2 text-xs font-mono">{String(il.value)}</td>
                   </tr>
                 ))}
               </tbody>

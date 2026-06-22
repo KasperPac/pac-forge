@@ -510,6 +510,24 @@ export interface AlarmSpecificationContent {
     }>;
   }>;
   cause_effect_matrix: CauseEffectMatrix;
+  /**
+   * Process / coordination interlocks (cf. reference FDS §4.4) — the conditions
+   * that gate or limit operation across equipment, e.g. speed limiting based on
+   * another module's position. Distinct from alarms: an interlock constrains
+   * normal operation rather than annunciating a fault. Optional.
+   */
+  interlocks?: InterlockEntry[];
+}
+
+export interface InterlockEntry {
+  /** Short name of the interlock. */
+  interlock: string;
+  /** Condition that activates it (plain language, may name tags). */
+  cause: string;
+  /** What it does to operation when active. */
+  effect: string;
+  /** Setpoint / threshold / tolerance, or "—". */
+  value: string;
 }
 
 export interface CauseEffectMatrix {
