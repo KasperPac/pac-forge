@@ -512,6 +512,25 @@ function renderControlPhilosophy(section: SpecSection): (Paragraph | Table)[] {
   return children;
 }
 
+/** A step's "Action" column: the device outputs held in a static state, or a
+ *  pointer to the sub-sequence for a sequential state. */
+function summarizeAction(fd: FunctionalDescriptionContent): string[] {
+  if (fd.pattern === "sequential") return ["Sequenced — see steps below"];
+  const ds = fd.control_module_states ?? [];
+  if (!ds.length) return ["—"];
+  return ds.map((d) => `${d.tag}: ${d.state}`);
+}
+
+/** A step's "Advance when" column: each outgoing transition as
+ *  "<trigger> → <target> (if <permissives>)". */
+function summarizeAdvance(fd: FunctionalDescriptionContent): string[] {
+  const trs = fd.transitions ?? [];
+  if (!trs.length) return ["—"];
+  return trs.map(
+    (t) => `${t.trigger} → ${t.to_state}${t.permissives.length ? `  (if ${t.permissives.join("; ")})` : ""}`,
+  );
+}
+
 function renderFunctionalDescriptions(
   equipmentSections: SpecSection[],
   funcDescSections: SpecSection[],
@@ -577,97 +596,92 @@ function renderFunctionalDescriptions(
       }
     }
 
-    // Functional description per state
+    // Group this unit's state rows by equipment module, then render ONE
+    // "Steps & Actions" operating-sequence table per EM. Each state is a step
+    // (Action = the outputs it holds, or a pointer to its sub-sequence; Advance
+    // when = its outgoing transitions with permissive guards). This is the
+    // operator-readable "how it runs" view; sequential states still get their
+    // detailed step table below. Grouping by EM also fixes the previous flat
+    // listing where states from different EMs were indistinguishable.
     const subFuncDescs = funcDescSections.filter((s) => s.unit_id === unitId);
-    subFuncDescs.forEach((fd, sIdx) => {
-      // Per-(EM, state) rows carry their own human label in `state_name`.
-      const stateName = fd.state_name ?? "";
-      const fdContent = fd.content_json as unknown as FunctionalDescriptionContent;
+    const unitCfg = spec.confirmed_units.find((u) => u.unit_id === unitId);
+    const emNameById: Record<string, string> = {};
+    for (const e of unitCfg?.equipment_modules ?? []) emNameById[e.equipment_module_id] = e.equipment_module_name;
 
-      children.push(heading(`3.${idx + 1}.${sIdx + 1} ${stateName}`, HeadingLevel.HEADING_3));
+    const emOrder: string[] = [];
+    const byEm: Record<string, SpecSection[]> = {};
+    for (const fd of subFuncDescs) {
+      const emId =
+        (fd.content_json as { equipment_module_id?: string })?.equipment_module_id ??
+        (fd as { equipment_module_id?: string }).equipment_module_id ??
+        "_";
+      if (!byEm[emId]) { byEm[emId] = []; emOrder.push(emId); }
+      byEm[emId].push(fd);
+    }
 
-      if (fdContent.pattern === "static") {
-        // Pattern A — Device State Table
-        if (fdContent.control_module_states?.length) {
-          children.push(new Table({
-            width: { size: 100, type: WidthType.PERCENTAGE },
-            borders: TABLE_BORDERS,
-            rows: [
-              headerRow(["Tag", "Description", "State"]),
-              ...fdContent.control_module_states.map((ds) => {
-                // Color-code: STOP/DE-ENERGISED/OFF/FALSE/CLOSED = red, others = green
-                const isOff = /stop|de-energi|off|false|closed|0/i.test(ds.state);
-                return new TableRow({
+    emOrder.forEach((emId, emIdx) => {
+      const emName = emNameById[emId] ?? "Equipment Module";
+      const states = byEm[emId];
+      children.push(heading(`3.${idx + 1}.${emIdx + 1} ${emName}`, HeadingLevel.HEADING_3));
+
+      // Operating sequence (Steps & Actions)
+      children.push(p("Operating Sequence (Steps & Actions):", { bold: true }));
+      children.push(new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        borders: TABLE_BORDERS,
+        rows: [
+          headerRow(["Step", "State", "Action", "Advance when"]),
+          ...states.map((fd, i) => {
+            const c = fd.content_json as unknown as FunctionalDescriptionContent;
+            return new TableRow({
+              children: [
+                tableCell(String((i + 1) * 10), { bold: true, width: 8 }),
+                tableCell(fd.state_name ?? "", { bold: true, width: 18 }),
+                multiLineCell(summarizeAction(c), { width: 37 }),
+                multiLineCell(summarizeAdvance(c), { width: 37 }),
+              ],
+            });
+          }),
+        ],
+      }));
+      children.push(spacer());
+
+      // Detail beneath the table: sequential sub-sequences + any per-state notes.
+      states.forEach((fd) => {
+        const c = fd.content_json as unknown as FunctionalDescriptionContent;
+        if (c.pattern === "sequential" && (c.permissives?.length || c.steps?.length)) {
+          children.push(p(`${fd.state_name ?? ""} — sequence:`, { bold: true }));
+          if (c.permissives?.length) {
+            for (const perm of c.permissives) {
+              children.push(new Paragraph({
+                children: [new TextRun({ text: `•  ${perm}`, size: 20, font: FONT })],
+                spacing: { after: 60 },
+                indent: { left: 360 },
+              }));
+            }
+          }
+          if (c.steps?.length) {
+            children.push(new Table({
+              width: { size: 100, type: WidthType.PERCENTAGE },
+              borders: TABLE_BORDERS,
+              rows: [
+                headerRow(["Step", "Action", "Completion Criteria"]),
+                ...c.steps.map((step) => new TableRow({
                   children: [
-                    tableCell(ds.tag, { bold: true, width: 25 }),
-                    tableCell(ds.description, { width: 45 }),
-                    tableCell(ds.state, { bold: true, width: 30, color: isOff ? "CC0000" : "008800" }),
+                    tableCell(String(step.step), { bold: true, width: 8 }),
+                    tableCell(step.action, { width: 42 }),
+                    tableCell(step.completion_criteria, { width: 50 }),
                   ],
-                });
-              }),
-            ],
-          }));
-          children.push(spacer());
-        }
-      } else {
-        // Pattern B — Step Table
-        if (fdContent.permissives?.length) {
-          children.push(p("Permissives:", { bold: true }));
-          for (const perm of fdContent.permissives) {
-            children.push(new Paragraph({
-              children: [new TextRun({ text: `•  ${perm}`, size: 20, font: FONT })],
-              spacing: { after: 60 },
-              indent: { left: 360 },
+                })),
+              ],
             }));
           }
           children.push(spacer());
         }
-
-        if (fdContent.steps?.length) {
-          children.push(new Table({
-            width: { size: 100, type: WidthType.PERCENTAGE },
-            borders: TABLE_BORDERS,
-            rows: [
-              headerRow(["Step", "Action", "Completion Criteria"]),
-              ...fdContent.steps.map((step) => new TableRow({
-                children: [
-                  tableCell(String(step.step), { bold: true, width: 8 }),
-                  tableCell(step.action, { width: 42 }),
-                  tableCell(step.completion_criteria, { width: 50 }),
-                ],
-              })),
-            ],
-          }));
-          children.push(spacer());
+        if (c.notes) {
+          children.push(p(`Note — ${fd.state_name ?? ""}: ${c.notes}`, { size: 20, color: "666666" }));
         }
-      }
-
-      // Notes — applies to both static and sequential states.
-      if (fdContent.notes) {
-        children.push(p(`Note: ${fdContent.notes}`, { size: 20, color: "666666" }));
-      }
-
-      // Operation logic — transitions out of this state (both patterns). This is
-      // where the command/condition that moves the EM (e.g. a pendant button or a
-      // limit switch) and its permissive guards are documented.
-      if (fdContent.transitions?.length) {
-        children.push(p("Transitions:", { bold: true }));
-        children.push(new Table({
-          width: { size: 100, type: WidthType.PERCENTAGE },
-          borders: TABLE_BORDERS,
-          rows: [
-            headerRow(["When (trigger)", "Permissives", "Go to state"]),
-            ...fdContent.transitions.map((tr) => new TableRow({
-              children: [
-                tableCell(tr.trigger, { width: 32 }),
-                multiLineCell(tr.permissives, { width: 48 }),
-                tableCell(tr.to_state, { bold: true, width: 20 }),
-              ],
-            })),
-          ],
-        }));
-        children.push(spacer());
-      }
+      });
     });
   });
 
