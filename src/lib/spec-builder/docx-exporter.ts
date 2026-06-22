@@ -19,6 +19,7 @@ import {
 } from "docx";
 import type { SpecProject, SpecSection } from "@/types/spec-builder";
 import type { Hierarchy, SpecContractV2 } from "@/types/spec-contract-v2";
+import { summarizeAction, summarizeAdvance, groupUnitStatesByEm } from "./operating-sequence";
 import {
   buildHierarchyTable,
   buildHierarchyTableCaption,
@@ -512,25 +513,6 @@ function renderControlPhilosophy(section: SpecSection): (Paragraph | Table)[] {
   return children;
 }
 
-/** A step's "Action" column: the device outputs held in a static state, or a
- *  pointer to the sub-sequence for a sequential state. */
-function summarizeAction(fd: FunctionalDescriptionContent): string[] {
-  if (fd.pattern === "sequential") return ["Sequenced — see steps below"];
-  const ds = fd.control_module_states ?? [];
-  if (!ds.length) return ["—"];
-  return ds.map((d) => `${d.tag}: ${d.state}`);
-}
-
-/** A step's "Advance when" column: each outgoing transition as
- *  "<trigger> → <target> (if <permissives>)". */
-function summarizeAdvance(fd: FunctionalDescriptionContent): string[] {
-  const trs = fd.transitions ?? [];
-  if (!trs.length) return ["—"];
-  return trs.map(
-    (t) => `${t.trigger} → ${t.to_state}${t.permissives.length ? `  (if ${t.permissives.join("; ")})` : ""}`,
-  );
-}
-
 function renderFunctionalDescriptions(
   equipmentSections: SpecSection[],
   funcDescSections: SpecSection[],
@@ -605,23 +587,9 @@ function renderFunctionalDescriptions(
     // listing where states from different EMs were indistinguishable.
     const subFuncDescs = funcDescSections.filter((s) => s.unit_id === unitId);
     const unitCfg = spec.confirmed_units.find((u) => u.unit_id === unitId);
-    const emNameById: Record<string, string> = {};
-    for (const e of unitCfg?.equipment_modules ?? []) emNameById[e.equipment_module_id] = e.equipment_module_name;
+    const emGroups = groupUnitStatesByEm(subFuncDescs, unitCfg);
 
-    const emOrder: string[] = [];
-    const byEm: Record<string, SpecSection[]> = {};
-    for (const fd of subFuncDescs) {
-      const emId =
-        (fd.content_json as { equipment_module_id?: string })?.equipment_module_id ??
-        (fd as { equipment_module_id?: string }).equipment_module_id ??
-        "_";
-      if (!byEm[emId]) { byEm[emId] = []; emOrder.push(emId); }
-      byEm[emId].push(fd);
-    }
-
-    emOrder.forEach((emId, emIdx) => {
-      const emName = emNameById[emId] ?? "Equipment Module";
-      const states = byEm[emId];
+    emGroups.forEach(({ emName, states }, emIdx) => {
       children.push(heading(`3.${idx + 1}.${emIdx + 1} ${emName}`, HeadingLevel.HEADING_3));
 
       // Operating sequence (Steps & Actions)

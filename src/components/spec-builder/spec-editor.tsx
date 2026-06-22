@@ -34,6 +34,7 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useUpdateSpecSection } from "@/hooks/use-spec-projects";
 import type { SpecSection, SpecProject, FunctionalDescriptionContent, ControlModuleStateEntry, StepEntry, TransitionEntry } from "@/types/spec-builder";
+import { summarizeAction, summarizeAdvance, groupUnitStatesByEm } from "@/lib/spec-builder/operating-sequence";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -323,7 +324,7 @@ export function SpecEditor({
         {/* Editor pane */}
         <div className="flex-1 overflow-auto">
           {selected ? (
-            <SectionEditor section={selected} />
+            <SectionEditor section={selected} spec={spec} sections={sections} />
           ) : (
             <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
               No section selected
@@ -339,7 +340,7 @@ export function SpecEditor({
 // Section editor dispatcher
 // ---------------------------------------------------------------------------
 
-function SectionEditor({ section }: { section: SpecSection }) {
+function SectionEditor({ section, spec, sections }: { section: SpecSection; spec: SpecProject; sections: SpecSection[] }) {
   // Keep a local working copy per section — reset when section.id changes.
   const [content, setContent] = useState<Record<string, unknown>>(section.content_json);
   const [dirty, setDirty] = useState(false);
@@ -415,7 +416,7 @@ function SectionEditor({ section }: { section: SpecSection }) {
       {section.section_type === "testing_fat" && <TestingFatEditor content={content} set={set} />}
       {/* V1 legacy editors */}
       {section.section_type === "introduction" && <IntroductionEditor content={content} set={set} />}
-      {section.section_type === "equipment_description" && <EquipmentEditor content={content} set={set} />}
+      {section.section_type === "equipment_description" && <EquipmentEditor content={content} set={set} unitId={section.unit_id ?? null} spec={spec} sections={sections} />}
       {section.section_type === "functional_state" && <StateEditor content={content} set={set} />}
       {section.section_type === "alarm_table" && <AlarmEditor content={content} set={set} />}
       {section.section_type === "settings_table" && <SettingsEditor content={content} set={set} />}
@@ -484,8 +485,14 @@ interface DeviceRow {
   description: string;
 }
 
-function EquipmentEditor({ content, set }: EditorProps) {
+function EquipmentEditor({ content, set, unitId, spec, sections }: EditorProps & { unitId: string | null; spec: SpecProject; sections: SpecSection[] }) {
   const table = (content.control_module_table as DeviceRow[]) ?? [];
+
+  // Read-only operating-sequence view per EM in this unit — the same Steps &
+  // Actions tables the DOCX renders, so the operation is visible in the editor.
+  const unitCfg = spec.confirmed_units.find((u) => u.unit_id === unitId);
+  const funcDescs = sections.filter((s) => s.section_type === "functional_description" && s.unit_id === unitId);
+  const emGroups = groupUnitStatesByEm(funcDescs, unitCfg);
 
   const updateRow = (i: number, patch: Partial<DeviceRow>) => {
     const next = table.map((r, idx) => (idx === i ? { ...r, ...patch } : r));
@@ -500,13 +507,49 @@ function EquipmentEditor({ content, set }: EditorProps) {
 
   return (
     <div className="space-y-4">
-      <Field label="Prose Description">
+      <Field label="Process Flow / Operation (prose)">
         <Textarea
-          rows={5}
+          rows={6}
           value={(content.prose as string) ?? ""}
           onChange={(e) => set({ prose: e.target.value })}
         />
       </Field>
+
+      {/* Operating sequence per EM — read-only (derived from each EM's states + transitions) */}
+      {emGroups.map((g) => (
+        <div key={g.emId} className="space-y-1.5">
+          <label className="text-xs font-semibold">{g.emName} — Steps &amp; Actions</label>
+          <div className="border rounded-md overflow-hidden">
+            <table className="w-full text-xs">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="p-2 text-left font-mono font-normal w-12">Step</th>
+                  <th className="p-2 text-left font-mono font-normal w-1/5">State</th>
+                  <th className="p-2 text-left font-mono font-normal">Action</th>
+                  <th className="p-2 text-left font-mono font-normal">Advance when</th>
+                </tr>
+              </thead>
+              <tbody>
+                {g.states.map((fd, i) => {
+                  const c = fd.content_json as unknown as FunctionalDescriptionContent;
+                  return (
+                    <tr key={fd.id} className="border-t align-top">
+                      <td className="p-2 font-mono font-bold">{(i + 1) * 10}</td>
+                      <td className="p-2 font-medium">{fd.state_name ?? ""}</td>
+                      <td className="p-2 font-mono">{summarizeAction(c).map((l, j) => <div key={j}>{l}</div>)}</td>
+                      <td className="p-2 font-mono">{summarizeAdvance(c).map((l, j) => <div key={j}>{l}</div>)}</td>
+                    </tr>
+                  );
+                })}
+                {g.states.length === 0 && (
+                  <tr><td colSpan={4} className="p-4 text-center text-muted-foreground">No states defined for this equipment module.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
+
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
           <label className="text-xs font-semibold">Device Table</label>
