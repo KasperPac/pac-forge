@@ -33,7 +33,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useUpdateSpecSection } from "@/hooks/use-spec-projects";
-import type { SpecSection, SpecProject, FunctionalDescriptionContent, ControlModuleStateEntry, StepEntry } from "@/types/spec-builder";
+import type { SpecSection, SpecProject, FunctionalDescriptionContent, ControlModuleStateEntry, StepEntry, TransitionEntry } from "@/types/spec-builder";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -731,6 +731,43 @@ function ControlPhilosophyEditor({ content, set }: EditorProps) {
   );
 }
 
+/**
+ * Read-only view of a state's outgoing transitions — the operation logic
+ * (what command/condition moves the EM, the permissive guards, the target).
+ * Derived from the EM's authored transitions, so it is not edited here.
+ */
+function TransitionsView({ transitions }: { transitions?: TransitionEntry[] }) {
+  if (!transitions?.length) return null;
+  return (
+    <Field label="Transitions (operation logic)">
+      <div className="border rounded-md overflow-hidden">
+        <table className="w-full text-xs">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="p-2 text-left font-mono font-normal w-1/3">When (trigger)</th>
+              <th className="p-2 text-left font-mono font-normal">Permissives</th>
+              <th className="p-2 text-left font-mono font-normal w-1/5">Go to state</th>
+            </tr>
+          </thead>
+          <tbody>
+            {transitions.map((tr, i) => (
+              <tr key={i} className="border-t align-top">
+                <td className="p-2 font-mono">{tr.trigger}</td>
+                <td className="p-2 font-mono">
+                  {tr.permissives.length
+                    ? tr.permissives.map((perm, j) => <div key={j}>{perm}</div>)
+                    : <span className="text-muted-foreground">—</span>}
+                </td>
+                <td className="p-2 font-mono font-bold">{tr.to_state}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Field>
+  );
+}
+
 function FunctionalDescriptionEditor({ content, set }: EditorProps) {
   const fdContent = content as unknown as FunctionalDescriptionContent;
 
@@ -770,6 +807,7 @@ function FunctionalDescriptionEditor({ content, set }: EditorProps) {
           </table>
         </div>
         <Button size="sm" variant="outline" onClick={() => set({ control_module_states: [...deviceStates, { tag: "", description: "", state: "" }] })}><Plus className="h-3 w-3 mr-1" /> Add Row</Button>
+        <TransitionsView transitions={fdContent.transitions} />
       </div>
     );
   }
@@ -833,6 +871,7 @@ function FunctionalDescriptionEditor({ content, set }: EditorProps) {
           <Textarea rows={2} value={(fdContent.notes as string) ?? ""} onChange={(e) => set({ notes: e.target.value })} />
         </Field>
       )}
+      <TransitionsView transitions={fdContent.transitions} />
     </div>
   );
 }

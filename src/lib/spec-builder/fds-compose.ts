@@ -8,12 +8,36 @@ import type {
   OperationSession,
   StepEntry,
   FunctionalDescriptionContent,
+  TransitionEntry,
 } from "@/types/spec-builder";
-import type { EmStateV2, PermissiveCondition } from "@/types/spec-contract-v2";
+import type { EmStateV2, EmTransitionV2, PermissiveCondition } from "@/types/spec-contract-v2";
 
 function serializePermissive(p: PermissiveCondition): string {
   const val = p.value === true ? "TRUE" : p.value === false ? "FALSE" : String(p.value);
   return `${p.tag} ${p.operator} ${val}`;
+}
+
+/**
+ * Build the operation-logic rows for one state: every transition leaving that
+ * state, with its trigger (command condition or completion), target state name,
+ * and permissive guards. This is the cross-EM coordination + operation narrative
+ * the FDS needs ("pressing FWD drives the carriage", "the limit stops it").
+ */
+function outgoingTransitions(
+  stateId: string,
+  transitions: EmTransitionV2[],
+  stateNameById: Record<string, string>,
+): TransitionEntry[] {
+  return transitions
+    .filter((t) => t.from_state_id === stateId)
+    .map((t) => ({
+      trigger:
+        t.trigger.kind === "command"
+          ? serializePermissive(t.trigger.expr)
+          : "On completion",
+      to_state: stateNameById[t.to_state_id] ?? t.to_state_id,
+      permissives: (t.guard ?? []).map(serializePermissive),
+    }));
 }
 
 /**
@@ -74,6 +98,11 @@ export async function composeFdsToSections(
 
   for (const session of sessions) {
     const emStates: EmStateV2[] = session.em_states ?? [];
+    const transitions: EmTransitionV2[] = session.em_transitions ?? [];
+    // EM-local state_id → human name, for naming transition targets.
+    const stateNameById: Record<string, string> = Object.fromEntries(
+      emStates.map((s) => [s.state_id, s.name]),
+    );
 
     // --- Static states: one row per (equipment_module, state). Emitted even
     // when the device table is empty (input-only modules) so every state is
@@ -83,6 +112,7 @@ export async function composeFdsToSections(
       await insertRow(session, state, {
         pattern: "static",
         control_module_states: entries,
+        transitions: outgoingTransitions(state.state_id, transitions, stateNameById),
       });
     }
 
@@ -99,6 +129,7 @@ export async function composeFdsToSections(
         // field via completion_criteria_text during the SFC v2 migration.
         steps: data.steps as unknown as StepEntry[],
         notes: data.notes ?? undefined,
+        transitions: outgoingTransitions(state.state_id, transitions, stateNameById),
       });
     }
   }

@@ -439,6 +439,22 @@ export interface FunctionalDescriptionContent {
   steps?: StepEntry[];
   // Both patterns
   notes?: string;
+  // Outgoing transitions from this state — the operation logic (what command
+  // or condition moves the EM out of this state, the resulting state, and the
+  // permissive guards that must hold). This is where "pressing FWD drives the
+  // carriage" and "the limit stops the motor" are documented. Derived from the
+  // EM's authored em_transitions; empty/omitted when the state has none.
+  transitions?: TransitionEntry[];
+}
+
+/** A single outgoing transition rendered in the functional description. */
+export interface TransitionEntry {
+  /** Serialized trigger: a command condition (e.g. "CMD_DRIVE_FWD = TRUE") or "On completion". */
+  trigger: string;
+  /** Human name of the target state. */
+  to_state: string;
+  /** AND-ed permissive guard conditions that must hold for the transition. */
+  permissives: string[];
 }
 
 export interface ControlModuleStateEntry {

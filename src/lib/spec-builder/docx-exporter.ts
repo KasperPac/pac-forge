@@ -91,6 +91,17 @@ function tableCell(text: string, opts: { bold?: boolean; width?: number; color?:
   });
 }
 
+/** Table cell with one paragraph per line (Word ignores "\n" inside a TextRun). */
+function multiLineCell(lines: string[], opts: { width?: number } = {}): TableCell {
+  const rendered = lines.length ? lines : ["—"];
+  return new TableCell({
+    width: opts.width ? { size: opts.width, type: WidthType.PERCENTAGE } : undefined,
+    children: rendered.map(
+      (line) => new Paragraph({ children: [new TextRun({ text: line, size: 20, font: FONT })] }),
+    ),
+  });
+}
+
 function headerRow(cells: string[]): TableRow {
   return new TableRow({
     tableHeader: true,
@@ -627,6 +638,28 @@ function renderFunctionalDescriptions(
         if (fdContent.notes) {
           children.push(p(`Note: ${fdContent.notes}`, { size: 20, color: "666666" }));
         }
+      }
+
+      // Operation logic — transitions out of this state (both patterns). This is
+      // where the command/condition that moves the EM (e.g. a pendant button or a
+      // limit switch) and its permissive guards are documented.
+      if (fdContent.transitions?.length) {
+        children.push(p("Transitions:", { bold: true }));
+        children.push(new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          borders: TABLE_BORDERS,
+          rows: [
+            headerRow(["When (trigger)", "Permissives", "Go to state"]),
+            ...fdContent.transitions.map((tr) => new TableRow({
+              children: [
+                tableCell(tr.trigger, { width: 32 }),
+                multiLineCell(tr.permissives, { width: 48 }),
+                tableCell(tr.to_state, { bold: true, width: 20 }),
+              ],
+            })),
+          ],
+        }));
+        children.push(spacer());
       }
     });
   });
