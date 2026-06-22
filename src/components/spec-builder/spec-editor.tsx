@@ -661,6 +661,9 @@ function DocumentControlEditor({ content, set }: EditorProps) {
 function SystemOverviewEditor({ content, set }: EditorProps) {
   return (
     <div className="space-y-4">
+      <Field label="Brief Functioning Description">
+        <Textarea rows={5} value={(content.brief_functioning_description as string) ?? ""} onChange={(e) => set({ brief_functioning_description: e.target.value })} />
+      </Field>
       <Field label="Hardware Description">
         <Textarea rows={4} value={(content.hardware_description as string) ?? ""} onChange={(e) => set({ hardware_description: e.target.value })} />
       </Field>

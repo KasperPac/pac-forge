@@ -406,6 +406,13 @@ export interface DocControlContent {
 
 /** Section 1 — System Overview */
 export interface SystemOverviewContent {
+  /**
+   * Process-flow / theory-of-operation overview: how the machine works as a
+   * whole — what the operator does, how the equipment modules act together to
+   * move the product through the process. Rendered as section 1.1. Optional so
+   * existing specs without it still export.
+   */
+  brief_functioning_description?: string;
   hardware_description: string;
   io_summary: IoSummaryRow[];
   scope_exclusions: string;

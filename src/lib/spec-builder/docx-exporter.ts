@@ -241,12 +241,18 @@ function renderSystemOverview(section: SpecSection): (Paragraph | Table)[] {
 
   children.push(heading("1. System Overview", HeadingLevel.HEADING_1));
 
+  // Brief functioning description — process flow / theory of operation
+  if (c.brief_functioning_description) {
+    children.push(heading("1.1 Brief Functioning Description", HeadingLevel.HEADING_2));
+    children.push(...prose(c.brief_functioning_description));
+  }
+
   // Hardware description
-  children.push(heading("1.1 Hardware Configuration", HeadingLevel.HEADING_2));
+  children.push(heading("1.2 Hardware Configuration", HeadingLevel.HEADING_2));
   children.push(...prose(c.hardware_description ?? ""));
 
   // IO summary table
-  children.push(heading("1.2 I/O Summary", HeadingLevel.HEADING_2));
+  children.push(heading("1.3 I/O Summary", HeadingLevel.HEADING_2));
   if (c.io_summary?.length) {
     const totals = c.io_summary.reduce(
       (acc, r) => ({ di: acc.di + r.di_count, do: acc.do + r.do_count, ai: acc.ai + r.ai_count, ao: acc.ao + r.ao_count }),
@@ -283,11 +289,11 @@ function renderSystemOverview(section: SpecSection): (Paragraph | Table)[] {
   }
 
   // Scope exclusions
-  children.push(heading("1.3 Scope Exclusions", HeadingLevel.HEADING_2));
+  children.push(heading("1.4 Scope Exclusions", HeadingLevel.HEADING_2));
   children.push(...prose(c.scope_exclusions ?? ""));
 
   // Safety classification
-  children.push(heading("1.4 Safety Classification", HeadingLevel.HEADING_2));
+  children.push(heading("1.5 Safety Classification", HeadingLevel.HEADING_2));
   children.push(...prose(c.safety_classification ?? ""));
 
   // Machine Hierarchy — deterministic tree: Unit → Equipment Module → Device
@@ -313,7 +319,7 @@ function renderSystemOverview(section: SpecSection): (Paragraph | Table)[] {
     }>;
   }> }).machine_hierarchy;
   if (hierarchy?.length) {
-    children.push(heading("1.5 Machine Hierarchy", HeadingLevel.HEADING_2));
+    children.push(heading("1.6 Machine Hierarchy", HeadingLevel.HEADING_2));
     children.push(...prose(
       "The machine is decomposed into units (functional stations), each comprising coordinated equipment_modules of physical control_modules. Every device exposes one or more IO signals to the PLC.",
     ));
@@ -362,7 +368,7 @@ function renderSystemOverview(section: SpecSection): (Paragraph | Table)[] {
 
     // ---- Section 1.6 — Canonical Machine Hierarchy (structured table) ----
     const canonicalHierarchy = hierarchyToContractShape(hierarchy);
-    children.push(heading("1.6 Canonical Machine Hierarchy", HeadingLevel.HEADING_2));
+    children.push(heading("1.7 Canonical Machine Hierarchy", HeadingLevel.HEADING_2));
     children.push(buildHierarchyTableCaption());
     children.push(buildHierarchyTable(canonicalHierarchy));
     children.push(spacer());
@@ -370,7 +376,7 @@ function renderSystemOverview(section: SpecSection): (Paragraph | Table)[] {
     // ---- Section 1.7 — Network Device Configuration (conditional) ----
     const networkTable = buildNetworkDeviceTable(canonicalHierarchy);
     if (networkTable) {
-      children.push(heading("1.7 Network Device Configuration", HeadingLevel.HEADING_2));
+      children.push(heading("1.8 Network Device Configuration", HeadingLevel.HEADING_2));
       children.push(buildNetworkTableCaption());
       children.push(networkTable);
       children.push(spacer());
