@@ -56,7 +56,10 @@ export async function composeFdsToSections(
       equipment_module_id: session.equipment_module_id,
       state_id: state.state_id,
       state_pattern: state.kind,
-      granularity: "equipment_module_state",
+      // NB: granularity is omitted so it takes the column default ('assembly_state').
+      // The spec_sections_granularity_check constraint only permits the legacy
+      // values on this DB; the editor/exporter key on equipment_module_id +
+      // state_id, not granularity, so the legacy default is harmless here.
       state_name: state.name,
       content_json: contentWithEm,
       content_markdown: null,
