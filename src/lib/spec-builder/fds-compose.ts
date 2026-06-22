@@ -38,66 +38,64 @@ export async function composeFdsToSections(
     .eq("unit_id", unit.unit_id)
     .eq("section_type", "functional_description");
 
+  // One functional_description row per (equipment_module, EM-local state). The
+  // V2 editor + DOCX exporter key on equipment_module_id / state_id / state_pattern,
+  // and the editor reads the EM id from content_json — so all of those must be
+  // populated, not just unit_id (the old shape only set unit_id + a combined
+  // state_name string, which left every row orphaned in the editor tree).
+  const insertRow = async (
+    session: OperationSession,
+    state: EmStateV2,
+    content: FunctionalDescriptionContent,
+  ) => {
+    const contentWithEm = { ...content, equipment_module_id: session.equipment_module_id };
+    await supabase.from("spec_sections").insert({
+      spec_project_id: specProjectId,
+      section_type: "functional_description",
+      unit_id: unit.unit_id,
+      equipment_module_id: session.equipment_module_id,
+      state_id: state.state_id,
+      state_pattern: state.kind,
+      granularity: "equipment_module_state",
+      state_name: state.name,
+      content_json: contentWithEm,
+      content_markdown: null,
+      model_used: "co-authored",
+      generation_prompt: null,
+      token_usage: {},
+      approved: false,
+      reviewed_by: null,
+      review_notes: null,
+    });
+  };
+
   for (const session of sessions) {
     const emStates: EmStateV2[] = session.em_states ?? [];
 
-    // --- Static states: emit one row per (equipment_module, state). ---
+    // --- Static states: one row per (equipment_module, state). Emitted even
+    // when the device table is empty (input-only modules) so every state is
+    // documented. ---
     for (const state of emStates.filter((s) => s.kind === "static")) {
       const entries = session.static_states[state.state_id] ?? [];
-      if (entries.length === 0) continue;
-
-      const content: FunctionalDescriptionContent = {
+      await insertRow(session, state, {
         pattern: "static",
         control_module_states: entries,
-      };
-
-      await supabase.from("spec_sections").insert({
-        spec_project_id: specProjectId,
-        section_type: "functional_description",
-        unit_id: unit.unit_id,
-        state_name: `${state.name} — ${session.equipment_module_id}`,
-        content_json: content,
-        content_markdown: null,
-        model_used: "co-authored",
-        generation_prompt: null,
-        token_usage: {},
-        approved: false,
-        reviewed_by: null,
-        review_notes: null,
       });
     }
 
-    // --- Sequential states: emit one row per (equipment_module, state) ---
-    // Each row carries just that equipment_module's own permissives/steps/notes.
+    // --- Sequential states: one row per (equipment_module, state), carrying
+    // that module's own permissives/steps/notes. ---
     for (const state of emStates.filter((s) => s.kind === "sequential")) {
       const data = session.sequential_states[state.state_id];
       if (!data) continue;
-
-      const perAssemblyPerms: string[] = data.permissives.map(serializePermissive);
-
-      const content: FunctionalDescriptionContent = {
+      await insertRow(session, state, {
         pattern: "sequential",
-        permissives: perAssemblyPerms,
+        permissives: data.permissives.map(serializePermissive),
         // Shim cast: legacy StepEntry expects completion_criteria:string while
         // PhaseStep carries CompletionCriterion[]. DOCX renderer reads the legacy
         // field via completion_criteria_text during the SFC v2 migration.
         steps: data.steps as unknown as StepEntry[],
         notes: data.notes ?? undefined,
-      };
-
-      await supabase.from("spec_sections").insert({
-        spec_project_id: specProjectId,
-        section_type: "functional_description",
-        unit_id: unit.unit_id,
-        state_name: `${state.name} — ${session.equipment_module_id}`,
-        content_json: content,
-        content_markdown: null,
-        model_used: "co-authored",
-        generation_prompt: null,
-        token_usage: {},
-        approved: false,
-        reviewed_by: null,
-        review_notes: null,
       });
     }
   }

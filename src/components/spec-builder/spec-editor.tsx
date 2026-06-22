@@ -105,17 +105,30 @@ function buildTree(sections: SpecSection[], spec: SpecProject): TreeGroup[] {
     };
     if (equipment.length > 0 || funcDescs.length > 0) {
       const funcNodes: TreeNode[] = [];
-      for (const eq of equipment) {
-        funcNodes.push({
-          id: eq.id,
-          label: `${unitName(eq.unit_id)} — Equipment`,
-          icon: Boxes,
-          section: eq,
-          approved: eq.approved,
-        });
+      // Group by unit across BOTH equipment_description and functional_description
+      // rows. Func descriptions must render even when no equipment_description
+      // sections exist (compose only emits functional_description) — otherwise
+      // the per-(EM, state) rows are orphaned and the tree looks empty.
+      const unitIds = Array.from(
+        new Set([
+          ...equipment.map((e) => e.unit_id),
+          ...funcDescs.map((f) => f.unit_id),
+        ]),
+      );
+      for (const unitId of unitIds) {
+        const eq = equipment.find((e) => e.unit_id === unitId);
+        if (eq) {
+          funcNodes.push({
+            id: eq.id,
+            label: `${unitName(eq.unit_id)} — Equipment`,
+            icon: Boxes,
+            section: eq,
+            approved: eq.approved,
+          });
+        }
         // Add functional descriptions for this unit — sort by (state, equipment_module name)
         const subFuncs = funcDescs
-          .filter((fd) => fd.unit_id === eq.unit_id)
+          .filter((fd) => fd.unit_id === unitId)
           .slice()
           .sort((a, b) => {
             const stateA = stateName(a.state_name);
