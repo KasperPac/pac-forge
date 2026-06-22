@@ -1,9 +1,16 @@
 /**
  * Operating-sequence ("Steps & Actions") view helpers, shared by the DOCX
  * exporter and the structured editor so both present an EM's operation the same
- * way. Each EM state is a step: its Action is the outputs it holds (static) or a
- * pointer to its sub-sequence (sequential); its "Advance when" is the outgoing
- * transitions with their permissive guards.
+ * way.
+ *
+ * The raw per-state transitions are too noisy to read directly: every command
+ * transition repeats the same fault/health guards, and there is one fault→safe
+ * transition per fault tag. So we hoist the guards that are common to the EM's
+ * operational transitions into a single EM-level **permissives** list (shown
+ * once), strip them from each row, and collapse the per-fault "→ safe state"
+ * fan-in into a single "Loss of any permissive → <state>" line. What remains in
+ * each step's "Advance when" is just the real operation: the command/limit that
+ * moves it, plus any guard unique to that transition.
  */
 import type { FunctionalDescriptionContent, SpecSection, UnitConfig } from "@/types/spec-builder";
 
@@ -15,13 +22,76 @@ export function summarizeAction(fd: FunctionalDescriptionContent): string[] {
   return ds.map((d) => `${d.tag}: ${d.state}`);
 }
 
-/** The "Advance when" column: each transition as "<trigger> → <target> (if <permissives>)". */
-export function summarizeAdvance(fd: FunctionalDescriptionContent): string[] {
-  const trs = fd.transitions ?? [];
-  if (!trs.length) return ["—"];
-  return trs.map(
-    (t) => `${t.trigger} → ${t.to_state}${t.permissives.length ? `  (if ${t.permissives.join("; ")})` : ""}`,
-  );
+export interface EmStepView {
+  step: number;
+  stateName: string;
+  action: string[];
+  advance: string[];
+}
+
+export interface EmOperationView {
+  /** Guards common to the EM's operational transitions — the "must hold" list, shown once. */
+  permissives: string[];
+  steps: EmStepView[];
+}
+
+/** First whitespace-delimited token of a serialized condition ("CM1_Fault = FALSE" → "CM1_Fault"). */
+function tagOf(condition: string): string {
+  return condition.trim().split(/\s+/)[0] ?? condition;
+}
+
+/**
+ * Build the cleaned operating-sequence view for one EM (its ordered state rows).
+ * Pure + deterministic so the editor and the DOCX render identically.
+ */
+export function buildEmOperationView(states: SpecSection[]): EmOperationView {
+  const contents = states.map((s) => s.content_json as unknown as FunctionalDescriptionContent);
+
+  // Common permissives = intersection of the permissive lists across every
+  // transition that carries guards (i.e. the operational ones). Empty-guard
+  // transitions (fault trips, button-release) are ignored here.
+  const guardLists: string[][] = [];
+  for (const c of contents) for (const t of c.transitions ?? []) if (t.permissives.length) guardLists.push(t.permissives);
+  const common = guardLists.length
+    ? guardLists[0].filter((p) => guardLists.every((list) => list.includes(p)))
+    : [];
+  const commonSet = new Set(common);
+  const commonTags = new Set(common.map(tagOf));
+
+  const steps: EmStepView[] = states.map((s, i) => {
+    const c = contents[i];
+    const trs = c.transitions ?? [];
+
+    // A "permissive trip" is an unguarded transition whose trigger is one of the
+    // common-permissive tags going true (e.g. CM1_Fault = TRUE → Faulted).
+    const isTrip = (t: { trigger: string; permissives: string[] }) =>
+      t.permissives.length === 0 && commonTags.has(tagOf(t.trigger));
+
+    const trips = trs.filter(isTrip);
+    const operational = trs.filter((t) => !isTrip(t));
+
+    const advance: string[] = [];
+    for (const t of operational) {
+      const extra = t.permissives.filter((p) => !commonSet.has(p));
+      advance.push(`${t.trigger} → ${t.to_state}${extra.length ? `  (if ${extra.join("; ")})` : ""}`);
+    }
+    // Collapse trips: ≥2 to the same target → one "loss of a permissive" line;
+    // a lone trip is shown explicitly.
+    const tripsByTarget: Record<string, string[]> = {};
+    for (const t of trips) (tripsByTarget[t.to_state] ??= []).push(t.trigger);
+    for (const [target, triggers] of Object.entries(tripsByTarget)) {
+      advance.push(triggers.length >= 2 ? `Loss of any permissive → ${target}` : `${triggers[0]} → ${target}`);
+    }
+
+    return {
+      step: (i + 1) * 10,
+      stateName: s.state_name ?? "",
+      action: summarizeAction(c),
+      advance: advance.length ? advance : ["—"],
+    };
+  });
+
+  return { permissives: common, steps };
 }
 
 export interface EmStepGroup {

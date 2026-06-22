@@ -19,7 +19,7 @@ import {
 } from "docx";
 import type { SpecProject, SpecSection } from "@/types/spec-builder";
 import type { Hierarchy, SpecContractV2 } from "@/types/spec-contract-v2";
-import { summarizeAction, summarizeAdvance, groupUnitStatesByEm } from "./operating-sequence";
+import { groupUnitStatesByEm, buildEmOperationView } from "./operating-sequence";
 import {
   buildHierarchyTable,
   buildHierarchyTableCaption,
@@ -592,6 +592,22 @@ function renderFunctionalDescriptions(
     emGroups.forEach(({ emName, states }, emIdx) => {
       children.push(heading(`3.${idx + 1}.${emIdx + 1} ${emName}`, HeadingLevel.HEADING_3));
 
+      const view = buildEmOperationView(states);
+
+      // EM-level permissives — the conditions that must hold throughout (shown
+      // once instead of repeated on every transition).
+      if (view.permissives.length) {
+        children.push(p("Permissives (must hold throughout; loss → safe state):", { bold: true }));
+        for (const perm of view.permissives) {
+          children.push(new Paragraph({
+            children: [new TextRun({ text: `•  ${perm}`, size: 20, font: FONT })],
+            spacing: { after: 40 },
+            indent: { left: 360 },
+          }));
+        }
+        children.push(spacer());
+      }
+
       // Operating sequence (Steps & Actions)
       children.push(p("Operating Sequence (Steps & Actions):", { bold: true }));
       children.push(new Table({
@@ -599,17 +615,14 @@ function renderFunctionalDescriptions(
         borders: TABLE_BORDERS,
         rows: [
           headerRow(["Step", "State", "Action", "Advance when"]),
-          ...states.map((fd, i) => {
-            const c = fd.content_json as unknown as FunctionalDescriptionContent;
-            return new TableRow({
-              children: [
-                tableCell(String((i + 1) * 10), { bold: true, width: 8 }),
-                tableCell(fd.state_name ?? "", { bold: true, width: 18 }),
-                multiLineCell(summarizeAction(c), { width: 37 }),
-                multiLineCell(summarizeAdvance(c), { width: 37 }),
-              ],
-            });
-          }),
+          ...view.steps.map((st) => new TableRow({
+            children: [
+              tableCell(String(st.step), { bold: true, width: 8 }),
+              tableCell(st.stateName, { bold: true, width: 18 }),
+              multiLineCell(st.action, { width: 37 }),
+              multiLineCell(st.advance, { width: 37 }),
+            ],
+          })),
         ],
       }));
       children.push(spacer());

@@ -34,7 +34,7 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useUpdateSpecSection } from "@/hooks/use-spec-projects";
 import type { SpecSection, SpecProject, FunctionalDescriptionContent, ControlModuleStateEntry, StepEntry, TransitionEntry } from "@/types/spec-builder";
-import { summarizeAction, summarizeAdvance, groupUnitStatesByEm } from "@/lib/spec-builder/operating-sequence";
+import { groupUnitStatesByEm, buildEmOperationView } from "@/lib/spec-builder/operating-sequence";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -516,39 +516,45 @@ function EquipmentEditor({ content, set, unitId, spec, sections }: EditorProps &
       </Field>
 
       {/* Operating sequence per EM — read-only (derived from each EM's states + transitions) */}
-      {emGroups.map((g) => (
-        <div key={g.emId} className="space-y-1.5">
-          <label className="text-xs font-semibold">{g.emName} — Steps &amp; Actions</label>
-          <div className="border rounded-md overflow-hidden">
-            <table className="w-full text-xs">
-              <thead className="bg-muted/50">
-                <tr>
-                  <th className="p-2 text-left font-mono font-normal w-12">Step</th>
-                  <th className="p-2 text-left font-mono font-normal w-1/5">State</th>
-                  <th className="p-2 text-left font-mono font-normal">Action</th>
-                  <th className="p-2 text-left font-mono font-normal">Advance when</th>
-                </tr>
-              </thead>
-              <tbody>
-                {g.states.map((fd, i) => {
-                  const c = fd.content_json as unknown as FunctionalDescriptionContent;
-                  return (
-                    <tr key={fd.id} className="border-t align-top">
-                      <td className="p-2 font-mono font-bold">{(i + 1) * 10}</td>
-                      <td className="p-2 font-medium">{fd.state_name ?? ""}</td>
-                      <td className="p-2 font-mono">{summarizeAction(c).map((l, j) => <div key={j}>{l}</div>)}</td>
-                      <td className="p-2 font-mono">{summarizeAdvance(c).map((l, j) => <div key={j}>{l}</div>)}</td>
+      {emGroups.map((g) => {
+        const view = buildEmOperationView(g.states);
+        return (
+          <div key={g.emId} className="space-y-1.5">
+            <label className="text-xs font-semibold">{g.emName} — Steps &amp; Actions</label>
+            {view.permissives.length > 0 && (
+              <div className="text-[11px] text-muted-foreground">
+                <span className="font-semibold">Permissives (must hold throughout; loss → safe state):</span>{" "}
+                <span className="font-mono">{view.permissives.join(", ")}</span>
+              </div>
+            )}
+            <div className="border rounded-md overflow-hidden">
+              <table className="w-full text-xs">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="p-2 text-left font-mono font-normal w-12">Step</th>
+                    <th className="p-2 text-left font-mono font-normal w-1/5">State</th>
+                    <th className="p-2 text-left font-mono font-normal">Action</th>
+                    <th className="p-2 text-left font-mono font-normal">Advance when</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {view.steps.map((st) => (
+                    <tr key={st.step} className="border-t align-top">
+                      <td className="p-2 font-mono font-bold">{st.step}</td>
+                      <td className="p-2 font-medium">{st.stateName}</td>
+                      <td className="p-2 font-mono">{st.action.map((l, j) => <div key={j}>{l}</div>)}</td>
+                      <td className="p-2 font-mono">{st.advance.map((l, j) => <div key={j}>{l}</div>)}</td>
                     </tr>
-                  );
-                })}
-                {g.states.length === 0 && (
-                  <tr><td colSpan={4} className="p-4 text-center text-muted-foreground">No states defined for this equipment module.</td></tr>
-                )}
-              </tbody>
-            </table>
+                  ))}
+                  {view.steps.length === 0 && (
+                    <tr><td colSpan={4} className="p-4 text-center text-muted-foreground">No states defined for this equipment module.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
 
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
