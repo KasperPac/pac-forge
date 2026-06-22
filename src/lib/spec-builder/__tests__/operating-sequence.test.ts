@@ -35,6 +35,15 @@ describe("buildEmOperationView", () => {
         { trigger: "VSD1_CB_Trip = TRUE", to_state: "Faulted", permissives: [] },
       ],
     }),
+    fd("Driving Reverse", {
+      pattern: "static",
+      control_module_states: [{ tag: "CM1_Run", description: "m1", state: "RUN" }],
+      transitions: [
+        { trigger: "CMD_DRIVE_REV = FALSE", to_state: "Stopped", permissives: [] },
+        { trigger: "CM1_Fault = TRUE", to_state: "Faulted", permissives: [] },
+        { trigger: "VSD1_CB_Trip = TRUE", to_state: "Faulted", permissives: [] },
+      ],
+    }),
     fd("Faulted", {
       pattern: "static",
       control_module_states: [],
@@ -50,27 +59,28 @@ describe("buildEmOperationView", () => {
     expect(view.permissives).toEqual(faultGuards);
   });
 
-  it("strips common permissives from each transition, keeping only transition-specific guards", () => {
+  it("strips common permissives from each transition, keeping only transition-specific guards, and points at the target step", () => {
     const stopped = view.steps[0];
-    expect(stopped.advance).toContain("CMD_DRIVE_FWD = TRUE → Driving Forward  (if LS_FWD_LIMIT = FALSE)");
-    expect(stopped.advance).toContain("CMD_DRIVE_REV = TRUE → Driving Reverse  (if LS_REV_LIMIT = FALSE)");
+    expect(stopped.advance).toContainEqual({ condition: "CMD_DRIVE_FWD = TRUE  (if LS_FWD_LIMIT = FALSE)", nextStep: "20" });
+    expect(stopped.advance).toContainEqual({ condition: "CMD_DRIVE_REV = TRUE  (if LS_REV_LIMIT = FALSE)", nextStep: "30" });
   });
 
-  it("collapses the per-fault fan-in to a single 'loss of any permissive' line", () => {
+  it("collapses the per-fault fan-in to a single 'loss of any permissive' line → the Faulted step", () => {
     const stopped = view.steps[0];
-    expect(stopped.advance).toContain("Loss of any permissive → Faulted");
+    // Faulted is the 4th state → step 40.
+    expect(stopped.advance).toContainEqual({ condition: "Loss of any permissive", nextStep: "40" });
     // No individual fault-trip rows survive.
-    expect(stopped.advance.some((l) => l.startsWith("CM1_Fault = TRUE"))).toBe(false);
-    expect(stopped.advance.filter((l) => l.includes("→ Faulted"))).toHaveLength(1);
+    expect(stopped.advance.some((a) => a.condition.startsWith("CM1_Fault = TRUE"))).toBe(false);
+    expect(stopped.advance.filter((a) => a.nextStep === "40")).toHaveLength(1);
   });
 
   it("renders a reset transition cleanly once its guards equal the permissives", () => {
-    const faulted = view.steps[2];
-    expect(faulted.advance).toEqual(["CMD_FAULT_RESET = TRUE → Stopped"]);
+    const faulted = view.steps[3];
+    expect(faulted.advance).toEqual([{ condition: "CMD_FAULT_RESET = TRUE", nextStep: "10" }]);
   });
 
-  it("numbers steps 10, 20, 30 … and carries the action summary", () => {
-    expect(view.steps.map((s) => s.step)).toEqual([10, 20, 30]);
+  it("numbers steps 10, 20, 30, 40 … and carries the action summary", () => {
+    expect(view.steps.map((s) => s.step)).toEqual([10, 20, 30, 40]);
     expect(view.steps[0].action).toEqual(["CM1_Run: STOP"]);
   });
 });

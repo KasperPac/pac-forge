@@ -614,13 +614,14 @@ function renderFunctionalDescriptions(
         width: { size: 100, type: WidthType.PERCENTAGE },
         borders: TABLE_BORDERS,
         rows: [
-          headerRow(["Step", "State", "Action", "Advance when"]),
+          headerRow(["Step", "State", "Action", "Condition", "Next step"]),
           ...view.steps.map((st) => new TableRow({
             children: [
-              tableCell(String(st.step), { bold: true, width: 8 }),
-              tableCell(st.stateName, { bold: true, width: 18 }),
-              multiLineCell(st.action, { width: 37 }),
-              multiLineCell(st.advance, { width: 37 }),
+              tableCell(String(st.step), { bold: true, width: 7 }),
+              tableCell(st.stateName, { bold: true, width: 17 }),
+              multiLineCell(st.action, { width: 30 }),
+              multiLineCell(st.advance.length ? st.advance.map((a) => a.condition) : ["—"], { width: 34 }),
+              multiLineCell(st.advance.length ? st.advance.map((a) => a.nextStep) : ["—"], { width: 12 }),
             ],
           })),
         ],

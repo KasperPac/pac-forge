@@ -22,11 +22,19 @@ export function summarizeAction(fd: FunctionalDescriptionContent): string[] {
   return ds.map((d) => `${d.tag}: ${d.state}`);
 }
 
+/** One transition out of a step: the input condition and the step it goes to. */
+export interface AdvanceRow {
+  /** The triggering condition — an input tag test, plus any transition-specific guard. */
+  condition: string;
+  /** The target step number (e.g. "20"), or the state name if it can't be resolved to a step. */
+  nextStep: string;
+}
+
 export interface EmStepView {
   step: number;
   stateName: string;
   action: string[];
-  advance: string[];
+  advance: AdvanceRow[];
 }
 
 export interface EmOperationView {
@@ -58,6 +66,14 @@ export function buildEmOperationView(states: SpecSection[]): EmOperationView {
   const commonSet = new Set(common);
   const commonTags = new Set(common.map(tagOf));
 
+  // Map each state name to its step number so transitions reference the step.
+  const stepByState: Record<string, number> = {};
+  states.forEach((s, i) => { stepByState[s.state_name ?? ""] = (i + 1) * 10; });
+  const stepLabel = (stateName: string): string => {
+    const n = stepByState[stateName];
+    return n != null ? String(n) : stateName;
+  };
+
   const steps: EmStepView[] = states.map((s, i) => {
     const c = contents[i];
     const trs = c.transitions ?? [];
@@ -70,24 +86,30 @@ export function buildEmOperationView(states: SpecSection[]): EmOperationView {
     const trips = trs.filter(isTrip);
     const operational = trs.filter((t) => !isTrip(t));
 
-    const advance: string[] = [];
+    const advance: AdvanceRow[] = [];
     for (const t of operational) {
       const extra = t.permissives.filter((p) => !commonSet.has(p));
-      advance.push(`${t.trigger} → ${t.to_state}${extra.length ? `  (if ${extra.join("; ")})` : ""}`);
+      advance.push({
+        condition: `${t.trigger}${extra.length ? `  (if ${extra.join("; ")})` : ""}`,
+        nextStep: stepLabel(t.to_state),
+      });
     }
     // Collapse trips: ≥2 to the same target → one "loss of a permissive" line;
     // a lone trip is shown explicitly.
     const tripsByTarget: Record<string, string[]> = {};
     for (const t of trips) (tripsByTarget[t.to_state] ??= []).push(t.trigger);
     for (const [target, triggers] of Object.entries(tripsByTarget)) {
-      advance.push(triggers.length >= 2 ? `Loss of any permissive → ${target}` : `${triggers[0]} → ${target}`);
+      advance.push({
+        condition: triggers.length >= 2 ? "Loss of any permissive" : triggers[0],
+        nextStep: stepLabel(target),
+      });
     }
 
     return {
       step: (i + 1) * 10,
       stateName: s.state_name ?? "",
       action: summarizeAction(c),
-      advance: advance.length ? advance : ["—"],
+      advance,
     };
   });
 

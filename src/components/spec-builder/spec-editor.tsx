@@ -521,20 +521,24 @@ function EquipmentEditor({ content, set, unitId, spec, sections }: EditorProps &
         return (
           <div key={g.emId} className="space-y-1.5">
             <label className="text-xs font-semibold">{g.emName} — Steps &amp; Actions</label>
-            {view.permissives.length > 0 && (
-              <div className="text-[11px] text-muted-foreground">
-                <span className="font-semibold">Permissives (must hold throughout; loss → safe state):</span>{" "}
+            <div className="rounded-md border bg-muted/30 px-2.5 py-1.5 text-[11px]">
+              <span className="font-semibold">Permissives</span>
+              <span className="text-muted-foreground"> (must hold throughout; loss → safe state): </span>
+              {view.permissives.length > 0 ? (
                 <span className="font-mono">{view.permissives.join(", ")}</span>
-              </div>
-            )}
+              ) : (
+                <span className="italic text-muted-foreground">none defined on this equipment module</span>
+              )}
+            </div>
             <div className="border rounded-md overflow-hidden">
               <table className="w-full text-xs">
                 <thead className="bg-muted/50">
                   <tr>
                     <th className="p-2 text-left font-mono font-normal w-12">Step</th>
-                    <th className="p-2 text-left font-mono font-normal w-1/5">State</th>
+                    <th className="p-2 text-left font-mono font-normal w-1/6">State</th>
                     <th className="p-2 text-left font-mono font-normal">Action</th>
-                    <th className="p-2 text-left font-mono font-normal">Advance when</th>
+                    <th className="p-2 text-left font-mono font-normal">Condition</th>
+                    <th className="p-2 text-left font-mono font-normal w-16">Next step</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -543,11 +547,16 @@ function EquipmentEditor({ content, set, unitId, spec, sections }: EditorProps &
                       <td className="p-2 font-mono font-bold">{st.step}</td>
                       <td className="p-2 font-medium">{st.stateName}</td>
                       <td className="p-2 font-mono">{st.action.map((l, j) => <div key={j}>{l}</div>)}</td>
-                      <td className="p-2 font-mono">{st.advance.map((l, j) => <div key={j}>{l}</div>)}</td>
+                      <td className="p-2 font-mono">
+                        {st.advance.length ? st.advance.map((a, j) => <div key={j}>{a.condition}</div>) : <span className="text-muted-foreground">—</span>}
+                      </td>
+                      <td className="p-2 font-mono font-bold">
+                        {st.advance.length ? st.advance.map((a, j) => <div key={j}>{a.nextStep}</div>) : <span className="text-muted-foreground">—</span>}
+                      </td>
                     </tr>
                   ))}
                   {view.steps.length === 0 && (
-                    <tr><td colSpan={4} className="p-4 text-center text-muted-foreground">No states defined for this equipment module.</td></tr>
+                    <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">No states defined for this equipment module.</td></tr>
                   )}
                 </tbody>
               </table>
