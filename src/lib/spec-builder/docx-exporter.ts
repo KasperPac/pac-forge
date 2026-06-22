@@ -503,39 +503,65 @@ function renderFunctionalDescriptions(
   const children: (Paragraph | Table)[] = [];
   children.push(heading("3. Functional Descriptions", HeadingLevel.HEADING_1));
 
-  equipmentSections.forEach((eq, idx) => {
+  // Group by unit. The per-EM state model emits functional_description rows
+  // directly under their unit with NO equipment_description parent, so the unit
+  // list is the union of unit_ids from both section lists (ordered by
+  // confirmed_units). Iterating equipmentSections alone would drop every per-EM
+  // description on a spec that has no equipment_description sections.
+  const seenUnits = new Set<string>();
+  const unitIds: string[] = [];
+  for (const id of spec.confirmed_units.map((u) => u.unit_id)) {
+    if (
+      equipmentSections.some((e) => e.unit_id === id) ||
+      funcDescSections.some((f) => f.unit_id === id)
+    ) {
+      unitIds.push(id);
+      seenUnits.add(id);
+    }
+  }
+  // Defensive: include any unit_ids not present in confirmed_units order.
+  for (const s of [...equipmentSections, ...funcDescSections]) {
+    if (s.unit_id && !seenUnits.has(s.unit_id)) {
+      unitIds.push(s.unit_id);
+      seenUnits.add(s.unit_id);
+    }
+  }
+
+  unitIds.forEach((unitId, idx) => {
     const unitName =
-      spec.confirmed_units.find((s) => s.unit_id === eq.unit_id)?.unit_name ??
-      eq.unit_id ?? "Unknown";
+      spec.confirmed_units.find((s) => s.unit_id === unitId)?.unit_name ??
+      unitId ?? "Unknown";
 
-    const eqContent = eq.content_json as unknown as EquipmentDescriptionContent;
-
-    // Unit heading + equipment prose
+    // Unit heading
     children.push(heading(`3.${idx + 1} ${unitName}`, HeadingLevel.HEADING_2));
-    if (eqContent.prose) children.push(...prose(eqContent.prose));
 
-    // Device instrumentation table
-    if (eqContent.control_module_table?.length) {
-      children.push(p("Control Device Instrumentation:", { bold: true }));
-      children.push(new Table({
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        borders: TABLE_BORDERS,
-        rows: [
-          headerRow(["Device", "Tag", "Description"]),
-          ...eqContent.control_module_table.map((row) => new TableRow({
-            children: [
-              tableCell(row.control_module, { width: 30 }),
-              tableCell(row.tag, { width: 20 }),
-              tableCell(row.description, { width: 50 }),
-            ],
-          })),
-        ],
-      }));
-      children.push(spacer());
+    // Optional equipment prose + instrumentation table (when present)
+    const eq = equipmentSections.find((e) => e.unit_id === unitId);
+    if (eq) {
+      const eqContent = eq.content_json as unknown as EquipmentDescriptionContent;
+      if (eqContent.prose) children.push(...prose(eqContent.prose));
+      if (eqContent.control_module_table?.length) {
+        children.push(p("Control Device Instrumentation:", { bold: true }));
+        children.push(new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          borders: TABLE_BORDERS,
+          rows: [
+            headerRow(["Device", "Tag", "Description"]),
+            ...eqContent.control_module_table.map((row) => new TableRow({
+              children: [
+                tableCell(row.control_module, { width: 30 }),
+                tableCell(row.tag, { width: 20 }),
+                tableCell(row.description, { width: 50 }),
+              ],
+            })),
+          ],
+        }));
+        children.push(spacer());
+      }
     }
 
     // Functional description per state
-    const subFuncDescs = funcDescSections.filter((s) => s.unit_id === eq.unit_id);
+    const subFuncDescs = funcDescSections.filter((s) => s.unit_id === unitId);
     subFuncDescs.forEach((fd, sIdx) => {
       // Per-(EM, state) rows carry their own human label in `state_name`.
       const stateName = fd.state_name ?? "";
@@ -603,13 +629,6 @@ function renderFunctionalDescriptions(
         }
       }
     });
-
-    // Legacy: functional_state sections (V1 backward compat)
-    const legacyStates = funcDescSections.length === 0
-      ? [] // handled above
-      : [];
-    // (Legacy states handled separately in renderLegacyEquipmentGroup)
-    void legacyStates;
   });
 
   return children;
@@ -1021,7 +1040,7 @@ export async function buildSpecDocx(
     // Section 3 — Functional Descriptions
     const equipment = sections.filter((s) => s.section_type === "equipment_description");
     const funcDescs = sections.filter((s) => s.section_type === "functional_description");
-    if (equipment.length > 0) {
+    if (equipment.length > 0 || funcDescs.length > 0) {
       children.push(...renderFunctionalDescriptions(equipment, funcDescs, spec));
     }
 
