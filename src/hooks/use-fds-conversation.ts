@@ -502,7 +502,11 @@ export function useFdsConversation({
           fullText += chunk;
           setStreamingText(fullText);
         },
-        4096,
+        // Stage A's opening generates the full state machine (states +
+        // transitions with real per-fault guards) — that easily exceeds a
+        // small budget and silently truncates the JSON. Give it the full cap
+        // (edge fn caps at 32768). Stage B's opening is a short question.
+        isStageA ? 32768 : 4096,
         plMeta,
       );
 
