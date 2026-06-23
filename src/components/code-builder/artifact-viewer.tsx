@@ -37,11 +37,13 @@ export function ArtifactViewer({
 
   return (
     <div className="flex h-full flex-col" data-testid="artifact-viewer">
-      <div className="flex gap-1 border-b px-2 py-1.5">
+      <div role="tablist" className="flex gap-1 border-b px-2 py-1.5">
         {TABS.filter((t) => t.show).map((t) => (
           <button
             key={t.id}
             type="button"
+            role="tab"
+            aria-selected={tab === t.id}
             onClick={() => setTab(t.id)}
             className={cn("rounded px-2 py-0.5 text-[10px]", tab === t.id ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground")}
           >
@@ -61,8 +63,8 @@ export function ArtifactViewer({
           />
         )}
         {tab === "flow" && <div className="h-full overflow-auto"><FbFlowRenderer diagrams={diagrams} /></div>}
-        {tab === "udt" && <pre className="h-full overflow-auto p-3 text-[11px] font-mono">{udt?.generated_content}</pre>}
-        {tab === "instdb" && <pre className="h-full overflow-auto p-3 text-[11px] font-mono">{instDb?.generated_content}</pre>}
+        {tab === "udt" && <pre className="h-full overflow-auto p-3 text-[11px] font-mono">{udt ? (udt.edited_content ?? udt.generated_content) : ""}</pre>}
+        {tab === "instdb" && <pre className="h-full overflow-auto p-3 text-[11px] font-mono">{instDb ? (instDb.edited_content ?? instDb.generated_content) : ""}</pre>}
       </div>
     </div>
   );

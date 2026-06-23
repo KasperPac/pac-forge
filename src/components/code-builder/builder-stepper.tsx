@@ -26,7 +26,7 @@ export function BuilderStepper({ active }: { active: BuilderStep }) {
             title={s.enabled ? undefined : "Coming next"}
             aria-disabled={!s.enabled}
           >
-            {s.id === "device" && <Check className="h-3 w-3" />}
+            {s.id === active && <Check className="h-3 w-3" />}
             {i + 1} {s.label}
           </span>
         </div>

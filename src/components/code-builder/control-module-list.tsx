@@ -20,7 +20,7 @@ function pillForGroup(group: CodeBuilderArtifactView[]): Pill {
 }
 
 const PILL_STYLE: Record<Pill, string> = {
-  matched: "bg-emerald-100 text-emerald-700",
+  matched: "bg-blue-100 text-blue-700",
   approved: "bg-emerald-100 text-emerald-700",
   stub: "bg-orange-100 text-orange-700",
   pending: "bg-muted text-muted-foreground",
@@ -61,6 +61,7 @@ export function ControlModuleList({
         <button
           key={rep.artifact_name}
           type="button"
+          aria-current={selected === rep.artifact_name ? "true" : undefined}
           onClick={() => onSelect(rep.artifact_name)}
           className={cn(
             "flex items-center gap-2 px-3 py-2 text-left text-[11px] hover:bg-accent",
