@@ -5,7 +5,7 @@
  */
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
-import { ArrowLeft, Code2, Layers, Loader2, MessageSquare } from "lucide-react";
+import { ArrowLeft, Hammer, Layers, Loader2, MessageSquare } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -18,10 +18,6 @@ import {
 import { useUnconfirmedLock } from "@/hooks/use-unconfirmed-lock";
 import { UnconfirmedLockBanner } from "@/components/spec-builder/unconfirmed-lock-banner";
 import { migrateUnitConfig } from "@/types/spec-builder";
-import { useSpecCodegen } from "@/hooks/use-spec-codegen";
-import { buildManifest } from "@/lib/manifest-builder";
-import { downloadExportBundle } from "@/lib/tia-export";
-import { supabase } from "@/lib/supabase";
 
 type CoAuthorView = "fds" | "process-model";
 
@@ -31,8 +27,6 @@ export default function SpecCoAuthorPage() {
   const { data: rawSpec, isLoading } = useSpecProject(specId);
   const { data: register } = useInstrumentRegister(specId);
   const [view, setView] = useState<CoAuthorView>("fds");
-  const { generate, running: codegenRunning } = useSpecCodegen();
-
   const spec = useMemo(() => {
     if (!rawSpec) return null;
     return {
@@ -55,28 +49,6 @@ export default function SpecCoAuthorPage() {
 
   if (!projectId || !specId || !spec) {
     return <SpecNotFound projectId={projectId} specId={specId} />;
-  }
-
-  async function handleGenerate() {
-    if (!specId || !spec) return;
-    try {
-      const { result, artifacts } = await generate(specId);
-      const { data: { user } } = await supabase.auth.getUser();
-      const { manifest } = buildManifest(artifacts, {
-        projectId: specId,
-        tiaVersion: "V18",
-        cpuType: spec.plc_model ?? "CPU 1516",
-        userId: user?.id ?? "",
-        sessionId: specId,
-      });
-      await downloadExportBundle(artifacts, manifest, spec.doc_code);
-      if (result.stubs.controlModules.length > 0 || result.stubs.equipmentModules.length > 0) {
-        // TODO: surface stub summary in a toast when a toast utility is available
-        console.warn("[useSpecCodegen] Stub summary:", result.stubs);
-      }
-    } catch (e) {
-      console.error("[useSpecCodegen] Generation failed:", e);
-    }
   }
 
   if (!register) {
@@ -147,21 +119,31 @@ export default function SpecCoAuthorPage() {
             Approved
           </Badge>
         )}
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-7 text-[11px] gap-1.5 px-2.5"
-          disabled={spec.confirmation_status !== "confirmed" || codegenRunning}
-          onClick={() => { void handleGenerate(); }}
-          title={spec.confirmation_status !== "confirmed" ? "Confirm the spec before generating SCL" : "Generate SCL and download as .zip"}
-        >
-          {codegenRunning ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Code2 className="h-3.5 w-3.5" />
-          )}
-          {codegenRunning ? "Generating…" : "Generate SCL"}
-        </Button>
+        {spec.confirmation_status === "confirmed" ? (
+          <Button
+            asChild
+            size="sm"
+            variant="outline"
+            className="h-7 text-[11px] gap-1.5 px-2.5"
+            title="Open the Code Builder to compile and review SCL"
+          >
+            <Link to={`/specs/${projectId}/${specId}/code-builder`}>
+              <Hammer className="h-3.5 w-3.5" />
+              Open Code Builder
+            </Link>
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-[11px] gap-1.5 px-2.5"
+            disabled
+            title="Confirm the spec before opening the Code Builder"
+          >
+            <Hammer className="h-3.5 w-3.5" />
+            Open Code Builder
+          </Button>
+        )}
       </div>
 
       {/* Content */}
