@@ -47,16 +47,34 @@ function sclType(sig: IoSignalV2): string {
 }
 
 /** Build the call: a header line, input params read from their address, then
- *  output copies (instance output -> physical address). */
+ *  output copies (instance output -> physical address). The instance parameter
+ *  is the instance DB name — used to qualify output reads in OB1 context. */
 function wiringLines(instance: string, io: IoSignalV2[]): string[] {
   const params = io
     .filter((s) => INPUTS.has(s.signal_type))
     .map((s) => `      ${s.tag} := "${s.io_address}"`);
   const lines = [`   "${instance}"(`, params.join(",\n"), `   );`];
   for (const s of io) {
-    if (!INPUTS.has(s.signal_type)) lines.push(`   "${s.io_address}" := #inst.${s.tag};`);
+    if (!INPUTS.has(s.signal_type)) lines.push(`   "${s.io_address}" := "${instance}".${s.tag};`);
   }
   return lines;
+}
+
+/** Build an instance DB artifact for the given FB block name. */
+function instanceDb(instanceName: string, blockName: string): CodegenArtifact {
+  return {
+    name: instanceName, type: "DB", filename: `${instanceName}.db`,
+    content: [
+      `DATA_BLOCK "${instanceName}"`,
+      `{ S7_Optimized_Access := 'TRUE' }`,
+      `VERSION : 0.1`,
+      `"${blockName}"`,
+      `BEGIN`,
+      `END_DATA_BLOCK`,
+      ``,
+    ].join("\n"),
+    dependencies: [blockName], folder: FOLDER,
+  };
 }
 
 /** Emit a stub FB with the device's IO as a typed interface and an empty body. */
@@ -86,27 +104,16 @@ function instantiate(
   const t = pickTemplate(name, deviceClass, isEm, templates);
   if (!t) {
     const fb = stubFb(prefix, name, io);
+    const instanceName = `${fb.name}_DB`;
     return {
-      artifacts: [fb],
-      callLines: wiringLines(`${fb.name}_DB`, io),
+      artifacts: [fb, instanceDb(instanceName, fb.name)],
+      callLines: wiringLines(instanceName, io),
       stub: { id, name, reason: `no ${isEm ? "EM" : "CM"} template matched "${deviceClass}"` },
     };
   }
   const block = templateBlockName(t);
   const instance = `${block}_${sclIdent(name)}_DB`;
-  const db: CodegenArtifact = {
-    name: instance, type: "DB", filename: `${instance}.db`,
-    content: [
-      `DATA_BLOCK "${instance}"`,
-      `{ S7_Optimized_Access := 'TRUE' }`,
-      `VERSION : 0.1`,
-      `"${block}"`,
-      `BEGIN`,
-      `END_DATA_BLOCK`,
-      ``,
-    ].join("\n"),
-    dependencies: [block], folder: FOLDER,
-  };
+  const db = instanceDb(instance, block);
   return { artifacts: [db], callLines: wiringLines(instance, io), stub: null };
 }
 

@@ -44,7 +44,7 @@ describe("instantiateControlModule", () => {
     expect(r.artifacts.some((a) => a.type === "DB")).toBe(true);
     expect(r.callLines.join("\n")).toContain("(");
     expect(r.callLines.join("\n")).toContain('M01_Fault := "I0.0"');
-    expect(r.callLines.join("\n")).toContain('"Q0.0" := #inst.M01_Run');
+    expect(r.callLines.join("\n")).toContain('"Q0.0" := "CM_Motor_M01_DB".M01_Run');
   });
   it("emits a stub FB with typed interface when unmatched", () => {
     const r = instantiateControlModule(motorCm, []);
@@ -53,5 +53,11 @@ describe("instantiateControlModule", () => {
     expect(fb?.name).toBe("CM_M01");
     expect(fb?.content).toContain("M01_Fault : Bool;");   // DI input
     expect(fb?.content).toContain("M01_Run : Bool;");     // DO output
+    // C2: stub must also emit its instance DB
+    const db = r.artifacts.find((a) => a.type === "DB");
+    expect(db?.name).toBe("CM_M01_DB");
+    expect(db?.content).toContain('"CM_M01"');             // instantiates the stub FB
+    expect(db?.dependencies).toContain("CM_M01");
+    expect(r.callLines.join("\n")).toContain('"CM_M01_DB"('); // call targets the real DB
   });
 });
