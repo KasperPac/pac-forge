@@ -1,0 +1,49 @@
+import { describe, it, expect } from "vitest";
+import { reconcileArtifacts } from "../code-builder-reconcile";
+import type { CodegenArtifact } from "@/lib/spec-builder/codegen";
+import type { CodeBuilderArtifactRow } from "@/types/code-builder";
+
+const artifact = (over: Partial<CodegenArtifact>): CodegenArtifact => ({
+  name: "CM_Motor_M01_DB", type: "DB", filename: "CM_Motor_M01_DB.db",
+  content: "DATA_BLOCK v1", dependencies: ["CM_Motor"], folder: "Program blocks",
+  layer: "device", ownerId: "cm-1", ownerName: "M01", ...over,
+});
+
+const row = (over: Partial<CodeBuilderArtifactRow>): CodeBuilderArtifactRow => ({
+  id: "r1", spec_id: "s1", revision: 2, artifact_name: "CM_Motor_M01_DB",
+  layer: "device", owner_id: "cm-1", type: "DB", filename: "CM_Motor_M01_DB.db",
+  folder: "Program blocks", dependencies: ["CM_Motor"],
+  generated_content: "DATA_BLOCK v1", edited_content: null, status: "pending",
+  approved_by: null, approved_at: null, updated_at: "", ...over,
+});
+
+describe("reconcileArtifacts", () => {
+  it("creates a pending view for a brand-new artifact", () => {
+    const [v] = reconcileArtifacts({ specId: "s1", revision: 2, compiled: [artifact({})], existing: [] });
+    expect(v.status).toBe("pending");
+    expect(v.edited_content).toBeNull();
+    expect(v.drift).toBe(false);
+    expect(v.owner_name).toBe("M01");
+  });
+
+  it("preserves an approval and flags drift when the recompile differs", () => {
+    const existing = [row({ status: "approved", generated_content: "DATA_BLOCK v0" })];
+    const [v] = reconcileArtifacts({ specId: "s1", revision: 2, compiled: [artifact({ content: "DATA_BLOCK v1" })], existing });
+    expect(v.status).toBe("approved");
+    expect(v.generated_content).toBe("DATA_BLOCK v1");
+    expect(v.drift).toBe(true);
+  });
+
+  it("preserves an edit and flags drift when the recompile differs", () => {
+    const existing = [row({ edited_content: "DATA_BLOCK edited", generated_content: "DATA_BLOCK v0" })];
+    const [v] = reconcileArtifacts({ specId: "s1", revision: 2, compiled: [artifact({ content: "DATA_BLOCK v1" })], existing });
+    expect(v.edited_content).toBe("DATA_BLOCK edited");
+    expect(v.drift).toBe(true);
+  });
+
+  it("does not flag drift when an approved artifact is unchanged", () => {
+    const existing = [row({ status: "approved", generated_content: "DATA_BLOCK v1" })];
+    const [v] = reconcileArtifacts({ specId: "s1", revision: 2, compiled: [artifact({ content: "DATA_BLOCK v1" })], existing });
+    expect(v.drift).toBe(false);
+  });
+});
