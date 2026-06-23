@@ -21,5 +21,5 @@ export function writeUdt(seq: SaSequence): CodegenArtifact {
     `END_TYPE`,
     ``,
   ].join("\n");
-  return { name, type: "UDT", filename: `${name}.udt`, content, dependencies: [], folder: FOLDER };
+  return { name, type: "UDT", filename: `${name}.udt`, content, dependencies: [], folder: FOLDER, layer: "unit", ownerId: seq.unitId, ownerName: seq.unitName };
 }

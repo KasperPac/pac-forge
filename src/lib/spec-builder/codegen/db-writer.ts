@@ -18,5 +18,5 @@ export function writeSequenceDb(seq: SaSequence): CodegenArtifact {
     `END_DATA_BLOCK`,
     ``,
   ].join("\n");
-  return { name, type: "DB", filename: `${name}.db`, content, dependencies: [udt], folder: FOLDER };
+  return { name, type: "DB", filename: `${name}.db`, content, dependencies: [udt], folder: FOLDER, layer: "unit", ownerId: seq.unitId, ownerName: seq.unitName };
 }

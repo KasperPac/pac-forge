@@ -75,4 +75,18 @@ describe("compileContract", () => {
     const names = res.artifacts.map((a) => a.name);
     expect(new Set(names).size).toBe(names.length);
   });
+
+  it("tags artifacts by layer and filters device-layer artifacts", async () => {
+    const { filterByLayer } = await import("../layer-filter");
+    const result = compileContract(fixture(), []);
+    // Every artifact carries a layer.
+    expect(result.artifacts.every((a) => typeof a.layer === "string")).toBe(true);
+    // Unit S/A artifacts are tagged "unit"; OB1 is "ob1".
+    expect(result.artifacts.find((a) => a.type === "OB")?.layer).toBe("ob1");
+    expect(result.artifacts.find((a) => a.type === "UDT")?.layer).toBe("unit");
+    // Device filter returns only device-layer artifacts (CM FBs + instance DBs).
+    const device = filterByLayer(result.artifacts, "device");
+    expect(device.length).toBeGreaterThan(0);
+    expect(device.every((a) => a.layer === "device")).toBe(true);
+  });
 });

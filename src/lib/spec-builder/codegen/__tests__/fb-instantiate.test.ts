@@ -45,6 +45,10 @@ describe("instantiateControlModule", () => {
     expect(r.callLines.join("\n")).toContain("(");
     expect(r.callLines.join("\n")).toContain('M01_Fault := "I0.0"');
     expect(r.callLines.join("\n")).toContain('"Q0.0" := "CM_Motor_M01_DB".M01_Run');
+    const db = r.artifacts.find((a) => a.type === "DB");
+    expect(db?.layer).toBe("device");
+    expect(db?.ownerId).toBe("a1b2c3d4-e5f6-7890-abcd-ef1234567890");
+    expect(db?.ownerName).toBe("M01");
   });
   it("emits a stub FB with typed interface when unmatched", () => {
     const r = instantiateControlModule(motorCm, []);
@@ -59,5 +63,8 @@ describe("instantiateControlModule", () => {
     expect(db?.content).toContain('"CM_M01"');             // instantiates the stub FB
     expect(db?.dependencies).toContain("CM_M01");
     expect(r.callLines.join("\n")).toContain('"CM_M01_DB"('); // call targets the real DB
+    expect(fb?.layer).toBe("device");
+    expect(fb?.ownerName).toBe("M01");
+    expect(db?.layer).toBe("device");
   });
 });

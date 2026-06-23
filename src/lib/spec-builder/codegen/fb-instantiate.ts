@@ -1,7 +1,7 @@
 // src/lib/spec-builder/codegen/fb-instantiate.ts
 import type { ControlModuleV2, EquipmentModuleV2, IoSignalV2 } from "@/types/spec-contract-v2";
 import type { FbTemplate } from "@/types/fb-template";
-import type { CodegenArtifact } from "./types";
+import type { CodegenArtifact, CodegenLayer } from "./types";
 import { sclIdent } from "./sa-builder";
 
 const FOLDER = "Program blocks";
@@ -73,7 +73,7 @@ function instanceDb(instanceName: string, blockName: string): CodegenArtifact {
       `END_DATA_BLOCK`,
       ``,
     ].join("\n"),
-    dependencies: [blockName], folder: FOLDER,
+    dependencies: [blockName], folder: FOLDER, layer: "device",
   };
 }
 
@@ -93,20 +93,21 @@ function stubFb(prefix: string, name: string, io: IoSignalV2[]): CodegenArtifact
     `END_FUNCTION_BLOCK`,
     ``,
   ].join("\n");
-  return { name: fbName, type: "FB", filename: `${fbName}.scl`, content, dependencies: [], folder: FOLDER };
+  return { name: fbName, type: "FB", filename: `${fbName}.scl`, content, dependencies: [], folder: FOLDER, layer: "device" };
 }
 
 /** Shared instantiation for CM and EM. */
 function instantiate(
   prefix: string, id: string, name: string, deviceClass: string, isEm: boolean,
-  io: IoSignalV2[], templates: FbTemplate[],
+  io: IoSignalV2[], templates: FbTemplate[], layer: CodegenLayer,
 ): InstantiateResult {
+  const tag = (a: CodegenArtifact): CodegenArtifact => ({ ...a, layer, ownerId: id, ownerName: name });
   const t = pickTemplate(name, deviceClass, isEm, templates);
   if (!t) {
     const fb = stubFb(prefix, name, io);
     const instanceName = `${fb.name}_DB`;
     return {
-      artifacts: [fb, instanceDb(instanceName, fb.name)],
+      artifacts: [fb, instanceDb(instanceName, fb.name)].map(tag),
       callLines: wiringLines(instanceName, io),
       stub: { id, name, reason: `no ${isEm ? "EM" : "CM"} template matched "${deviceClass}"` },
     };
@@ -114,17 +115,17 @@ function instantiate(
   const block = templateBlockName(t);
   const instance = `${block}_${sclIdent(name)}_DB`;
   const db = instanceDb(instance, block);
-  return { artifacts: [db], callLines: wiringLines(instance, io), stub: null };
+  return { artifacts: [db].map(tag), callLines: wiringLines(instance, io), stub: null };
 }
 
 /** Instantiate one Control Module (basic-control FB). */
 export function instantiateControlModule(cm: ControlModuleV2, templates: FbTemplate[]): InstantiateResult {
-  return instantiate("CM", cm.control_module_id, cm.control_module_name, cm.control_module_class, false, cm.io_signals, templates);
+  return instantiate("CM", cm.control_module_id, cm.control_module_name, cm.control_module_class, false, cm.io_signals, templates, "device");
 }
 
 /** Instantiate one Equipment Module (procedural-control FB). EM-level IO is the
  *  union of its control modules' signals. */
 export function instantiateEquipmentModule(em: EquipmentModuleV2, templates: FbTemplate[]): InstantiateResult {
   const io = em.control_modules.flatMap((c) => c.io_signals);
-  return instantiate("EM", em.equipment_module_id, em.equipment_module_name, em.equipment_module_name, true, io, templates);
+  return instantiate("EM", em.equipment_module_id, em.equipment_module_name, em.equipment_module_name, true, io, templates, "em");
 }

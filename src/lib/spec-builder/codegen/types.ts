@@ -1,6 +1,10 @@
 /** Artifact kinds this compiler emits. */
 export type CodegenArtifactType = "UDT" | "FB" | "FC" | "DB" | "OB";
 
+/** Which Phase-4 layer produced an artifact. Lets the Code Builder shell
+ *  surface one layer at a time. */
+export type CodegenLayer = "device" | "em" | "unit" | "ob1";
+
 /** A generated SCL source unit, shaped for the TIA export plumbing. */
 export interface CodegenArtifact {
   name: string;
@@ -9,6 +13,9 @@ export interface CodegenArtifact {
   content: string;
   dependencies: string[];
   folder: string;
+  layer: CodegenLayer;
+  ownerId?: string;
+  ownerName?: string;
 }
 
 /** An edge that activates a step: source step index + the SCL advance condition. */

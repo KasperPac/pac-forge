@@ -26,5 +26,5 @@ export function writeOb1(deviceCallLines: string[], units: UnitCallRef[]): Codeg
     `END_ORGANIZATION_BLOCK`,
     ``,
   ].join("\n");
-  return { name: "Main", type: "OB", filename: "Main.ob", content, dependencies: deps, folder: FOLDER };
+  return { name: "Main", type: "OB", filename: "Main.ob", content, dependencies: deps, folder: FOLDER, layer: "ob1" };
 }

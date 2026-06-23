@@ -52,5 +52,5 @@ export function writeSequenceFc(seq: SaSequence): CodegenArtifact {
     `END_FUNCTION`,
     ``,
   ].join("\n");
-  return { name, type: "FC", filename: `${name}.scl`, content, dependencies: [udt], folder: FOLDER };
+  return { name, type: "FC", filename: `${name}.scl`, content, dependencies: [udt], folder: FOLDER, layer: "unit", ownerId: seq.unitId, ownerName: seq.unitName };
 }
