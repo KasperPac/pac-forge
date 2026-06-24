@@ -126,6 +126,20 @@ Per EM, two seams:
 ### 4.4 Supersession of the flattened per-Unit sequence
 In `compile-contract.ts`, when EM FBs own sequencing (always, in C), **do not emit** the per-Unit `writeUdt/writeSequenceDb/writeSequenceFc` artifacts. Replace with a minimal "Unit calls its enabled EMs" stub at the `"unit"` layer (placeholder for D's real coordinator). `sa-builder.ts` and its helpers stay in the tree (D may reuse parts) but are no longer wired into the compile path. This is a net behaviour change guarded by the EM-layer tests.
 
+### 4.5 UI (reviewed via visual companion 2026-06-24)
+
+The Code Builder shell from A+B (`code-builder.tsx`: header + `BuilderStepper` + 3-pane `list | ArtifactViewer | ArtifactPanel`) is reused. The EM layer adds three things, all confirmed against a wireframe:
+
+1. **Clickable stepper = layer switch.** `BuilderStepper` steps become buttons. Selecting `Device` or `EM` sets an `active` layer state in `code-builder.tsx`; the left list and the persisted/compiled layer follow it. `Unit`/`Export` stay disabled until D/F. (Replaces today's hardcoded `active="device"`.) The selected layer is the single source for `filterByLayer`.
+
+2. **EM list grouped by Unit.** A list (parameterise `control-module-list.tsx` by layer, or a sibling `equipment-module-list.tsx`) shows one row **per EM**, grouped under its Unit, with `generated` / `matched` pills plus the existing `drift` / `approved` badges. One row per EM — not one per artifact.
+
+3. **EM viewer = State Diagram default + artifact tabs.** The viewer tabs become the EM's own artifacts: **State Diagram** (default) · Code · State UDT · Cmd DB · Map FC · Inst DB. "Related" artifacts continue to group by `owner_id` (today's mechanism) so all five surface under one EM row.
+   - **State Diagram** is a *new dedicated renderer* (`em-state-diagram.tsx`) drawing nodes = states (safe/home styled distinctly) and edges = guarded transitions, sourced from the **EM contract** (`states` + `transitions`), not from parsing SCL. Linear SFC states show a step count; the generic `FbFlowRenderer`/`parseFbFlow` is *not* reused for the state view.
+   - **Right panel** additionally surfaces the EM's **coordination inputs** (the unwired `ilk_*` / `mode` / `enable` pins) and its dependency artifacts (State UDT, Cmd DB, Map FC), so the D hand-off is visible.
+
+Approve/Edit/Save in `ArtifactPanel` are unchanged and act on the currently-selected tab's artifact (per-artifact approval, as today).
+
 ---
 
 ## 5. File structure
@@ -134,14 +148,16 @@ In `compile-contract.ts`, when EM FBs own sequencing (always, in C), **do not em
 - `src/lib/spec-builder/codegen/em-builder.ts` — pure: EM contract → `EmSequence` IR (states ordered, static commands, linear SFC steps, transition advances, coordination-tag set, sensor-input set).
 - `src/lib/spec-builder/codegen/em-writer.ts` — pure: `EmSequence` → artifacts (`EM_<Name>` FB, `EM_<Name>_State` UDT, `<EM>_CMD` interface DB, `MAP_<EM>` FC).
 - `src/lib/spec-builder/codegen/__tests__/em-builder.test.ts`, `em-writer.test.ts`, plus a `compile-contract` EM-layer case.
-- `src/components/code-builder/equipment-module-list.tsx` — EM list (or parameterise `control-module-list.tsx` by layer).
+- `src/components/code-builder/equipment-module-list.tsx` — EM list grouped by Unit (or parameterise `control-module-list.tsx` by layer).
+- `src/components/code-builder/em-state-diagram.tsx` — dedicated state-machine renderer (nodes = states, edges = guarded transitions) from the EM contract.
 
 **Modified**
 - `codegen/types.ts` — add `EmSequence` / `EmSeqState` / `EmSeqStep` IR types.
 - `codegen/fb-instantiate.ts` — matched EM → `interface_contract` wiring (+ heuristic fallback); unmatched EM → delegate to `em-builder`/`em-writer`.
 - `codegen/compile-contract.ts` — call the EM path; supersede the flattened unit sequence with a coordination stub.
-- `src/components/code-builder/builder-stepper.tsx` — enable the `em` step.
-- `src/routes/code-builder.tsx` — layer switch (device | em) driving list + viewer + persisted layer.
+- `src/components/code-builder/builder-stepper.tsx` — steps clickable; `onSelect(layer)` + `active` prop.
+- `src/components/code-builder/artifact-viewer.tsx` — add State Diagram / State UDT / Cmd DB / Map FC tabs for EM artifacts.
+- `src/routes/code-builder.tsx` — `active` layer state; clickable stepper drives list + viewer + the layer passed to the hook.
 - `src/hooks/use-code-builder.ts` — compile + reconcile + persist the `"em"` layer (table already has the `layer` column).
 
 ---
@@ -160,8 +176,9 @@ In `compile-contract.ts`, when EM FBs own sequencing (always, in C), **do not em
 - `em-writer.test.ts` — FB compiles structurally (VAR sections, CASE dispatch, advances), state UDT constants, `<EM>_CMD` DB members, `MAP_<EM>` direct-link FC.
 - `fb-instantiate` — matched EM with `interface_contract` wires by role; null-contract matched EM falls back + warns.
 - `compile-contract` — EM layer emits FB+UDT+CMD+MAP per EM; flattened unit sequence no longer present; `filterByLayer(..., "em")` returns exactly the EM artifacts.
+- UI: `code-builder.test.tsx` — stepper switches device↔em layer; EM list shows one row per EM grouped by Unit; viewer renders State Diagram tab + the 5 artifact tabs; `em-state-diagram` renders nodes/edges from a contract fixture.
 - All generic — no machine-specific names; verified mentally against conveyor / lift-table / stamping shapes per CLAUDE.md.
-- `verifyCommand`: `npx vitest run src/lib/spec-builder/codegen && npx tsc -b`.
+- `verifyCommand`: `npx vitest run src/lib/spec-builder/codegen src/routes/__tests__/code-builder.test.tsx && npx tsc -b`.
 
 ---
 
