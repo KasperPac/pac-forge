@@ -61,16 +61,15 @@ describe("buildEmOperationView", () => {
 
   it("strips common permissives from each transition, keeping only transition-specific guards, and points at the target step", () => {
     const stopped = view.steps[0];
-    expect(stopped.advance).toContainEqual({ condition: "CMD_DRIVE_FWD = TRUE  (if LS_FWD_LIMIT = FALSE)", nextStep: "20" });
-    expect(stopped.advance).toContainEqual({ condition: "CMD_DRIVE_REV = TRUE  (if LS_REV_LIMIT = FALSE)", nextStep: "30" });
+    expect(stopped.advance).toContainEqual({ condition: "CMD_DRIVE_FWD = TRUE AND LS_FWD_LIMIT = FALSE", nextStep: "20" });
+    expect(stopped.advance).toContainEqual({ condition: "CMD_DRIVE_REV = TRUE AND LS_REV_LIMIT = FALSE", nextStep: "30" });
   });
 
-  it("collapses the per-fault fan-in to a single 'loss of any permissive' line → the Faulted step", () => {
+  it("collapses the per-fault fan-in to a single boolean OR line → the Faulted step", () => {
     const stopped = view.steps[0];
     // Faulted is the 4th state → step 40.
-    expect(stopped.advance).toContainEqual({ condition: "Loss of any permissive", nextStep: "40" });
-    // No individual fault-trip rows survive.
-    expect(stopped.advance.some((a) => a.condition.startsWith("CM1_Fault = TRUE"))).toBe(false);
+    expect(stopped.advance).toContainEqual({ condition: "CM1_Fault = TRUE OR VSD1_CB_Trip = TRUE", nextStep: "40" });
+    // The two fault trips are merged into one OR row, not two.
     expect(stopped.advance.filter((a) => a.nextStep === "40")).toHaveLength(1);
   });
 

@@ -98,17 +98,17 @@ export function buildEmOperationView(states: SpecSection[]): EmOperationView {
     for (const t of operational) {
       const extra = t.permissives.filter((p) => !commonSet.has(p));
       advance.push({
-        condition: `${t.trigger}${extra.length ? `  (if ${extra.join("; ")})` : ""}`,
+        condition: `${t.trigger}${extra.length ? ` AND ${extra.join(" AND ")}` : ""}`,
         nextStep: stepLabel(t.to_state),
       });
     }
-    // Collapse trips: ≥2 to the same target → one "loss of a permissive" line;
-    // a lone trip is shown explicitly.
+    // Collapse trips to the same target into one boolean OR of their trigger
+    // conditions (machine-readable, no prose); a lone trip is shown as-is.
     const tripsByTarget: Record<string, string[]> = {};
     for (const t of trips) (tripsByTarget[t.to_state] ??= []).push(t.trigger);
     for (const [target, triggers] of Object.entries(tripsByTarget)) {
       advance.push({
-        condition: triggers.length >= 2 ? "Loss of any permissive" : triggers[0],
+        condition: triggers.join(" OR "),
         nextStep: stepLabel(target),
       });
     }

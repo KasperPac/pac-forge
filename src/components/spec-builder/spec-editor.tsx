@@ -564,19 +564,22 @@ function EquipmentEditor({ content, set, unitId, spec, sections }: EditorProps &
                   </tr>
                 </thead>
                 <tbody>
-                  {view.steps.map((st) => (
-                    <tr key={st.step} className="border-t align-top">
-                      <td className="p-2 font-mono font-bold">{st.step}</td>
-                      <td className="p-2 font-medium">{st.stateName}</td>
-                      <td className="p-2 font-mono">{st.action.map((l, j) => <div key={j}>{l}</div>)}</td>
-                      <td className="p-2 font-mono">
-                        {st.advance.length ? st.advance.map((a, j) => <div key={j}>{a.condition}</div>) : <span className="text-muted-foreground">—</span>}
-                      </td>
-                      <td className="p-2 font-mono font-bold">
-                        {st.advance.length ? st.advance.map((a, j) => <div key={j}>{a.nextStep}</div>) : <span className="text-muted-foreground">—</span>}
-                      </td>
-                    </tr>
-                  ))}
+                  {view.steps.flatMap((st) => {
+                    const adv = st.advance.length ? st.advance : [{ condition: "—", nextStep: "—" }];
+                    return adv.map((a, ri) => (
+                      <tr key={`${st.step}-${ri}`} className={`align-top ${ri === 0 ? "border-t" : ""}`}>
+                        {ri === 0 && (
+                          <>
+                            <td className="p-2 font-mono font-bold" rowSpan={adv.length}>{st.step}</td>
+                            <td className="p-2 font-medium" rowSpan={adv.length}>{st.stateName}</td>
+                            <td className="p-2 font-mono" rowSpan={adv.length}>{st.action.map((l, j) => <div key={j}>{l}</div>)}</td>
+                          </>
+                        )}
+                        <td className="p-2 font-mono">{a.condition}</td>
+                        <td className="p-2 font-mono font-bold">{a.nextStep}</td>
+                      </tr>
+                    ));
+                  })}
                   {view.steps.length === 0 && (
                     <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">No states defined for this equipment module.</td></tr>
                   )}

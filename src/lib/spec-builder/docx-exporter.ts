@@ -16,6 +16,7 @@ import {
   AlignmentType,
   WidthType,
   BorderStyle,
+  VerticalAlign,
 } from "docx";
 import type { SpecProject, SpecSection } from "@/types/spec-builder";
 import type { Hierarchy, SpecContractV2 } from "@/types/spec-contract-v2";
@@ -81,9 +82,11 @@ function heading(text: string, level: typeof HeadingLevel[keyof typeof HeadingLe
   });
 }
 
-function tableCell(text: string, opts: { bold?: boolean; width?: number; color?: string } = {}): TableCell {
+function tableCell(text: string, opts: { bold?: boolean; width?: number; color?: string; rowSpan?: number } = {}): TableCell {
   return new TableCell({
     width: opts.width ? { size: opts.width, type: WidthType.PERCENTAGE } : undefined,
+    rowSpan: opts.rowSpan,
+    verticalAlign: opts.rowSpan ? VerticalAlign.CENTER : undefined,
     children: [
       new Paragraph({
         children: [new TextRun({ text: text ?? "", bold: opts.bold, size: 20, font: FONT, color: opts.color })],
@@ -93,10 +96,12 @@ function tableCell(text: string, opts: { bold?: boolean; width?: number; color?:
 }
 
 /** Table cell with one paragraph per line (Word ignores "\n" inside a TextRun). */
-function multiLineCell(lines: string[], opts: { width?: number } = {}): TableCell {
+function multiLineCell(lines: string[], opts: { width?: number; rowSpan?: number } = {}): TableCell {
   const rendered = lines.length ? lines : ["—"];
   return new TableCell({
     width: opts.width ? { size: opts.width, type: WidthType.PERCENTAGE } : undefined,
+    rowSpan: opts.rowSpan,
+    verticalAlign: opts.rowSpan ? VerticalAlign.CENTER : undefined,
     children: rendered.map(
       (line) => new Paragraph({ children: [new TextRun({ text: line, size: 20, font: FONT })] }),
     ),
@@ -624,15 +629,24 @@ function renderFunctionalDescriptions(
         borders: TABLE_BORDERS,
         rows: [
           headerRow(["Step", "State", "Action", "Condition", "Next step"]),
-          ...view.steps.map((st) => new TableRow({
-            children: [
-              tableCell(String(st.step), { bold: true, width: 7 }),
-              tableCell(st.stateName, { bold: true, width: 17 }),
-              multiLineCell(st.action, { width: 30 }),
-              multiLineCell(st.advance.length ? st.advance.map((a) => a.condition) : ["—"], { width: 34 }),
-              multiLineCell(st.advance.length ? st.advance.map((a) => a.nextStep) : ["—"], { width: 12 }),
-            ],
-          })),
+          // One row per transition so each Condition lines up with its own Next
+          // step; Step/State/Action are merged down the transitions of a step.
+          ...view.steps.flatMap((st) => {
+            const adv = st.advance.length ? st.advance : [{ condition: "—", nextStep: "—" }];
+            return adv.map((a, ri) => new TableRow({
+              children: [
+                ...(ri === 0
+                  ? [
+                      tableCell(String(st.step), { bold: true, width: 7, rowSpan: adv.length }),
+                      tableCell(st.stateName, { bold: true, width: 17, rowSpan: adv.length }),
+                      multiLineCell(st.action, { width: 30, rowSpan: adv.length }),
+                    ]
+                  : []),
+                tableCell(a.condition, { width: 34 }),
+                tableCell(a.nextStep, { width: 12 }),
+              ],
+            }));
+          }),
         ],
       }));
       children.push(spacer());
