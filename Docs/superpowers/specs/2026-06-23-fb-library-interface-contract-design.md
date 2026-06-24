@@ -72,10 +72,14 @@ lets the Code Builder resolve every logical tag to a concrete source — determi
 3. **Storage = JSONB column** `interface_contract` on `fb_templates`, versioned with the
    existing template-version snapshots (no new child table — the contract is one cohesive
    object per template).
-4. **B-carve.** This spec defines the **contract shape** (the shared dependency) and the
-   Code Builder amendments to consume it. **Per-instance FB binding** and the `fb_instance`
-   feedback loop are carved into a new sub-project, **Phase 3.5 — Device FB Binding**, with
-   its own spec → plan → build cycle.
+4. **Authoring-only scope; all consumption deferred.** This spec defines the **contract shape**
+   (the shared dependency), its shared parser, AI extraction, storage, and the FB Library
+   authoring UI. **All Code Builder consumption** — pin-by-pin wiring, image-DB binding, and the
+   `fb_instance` feedback loop — is carved into a new sub-project, **Phase 3.5 — Device FB
+   Binding**, with its own spec → plan → build cycle. Rationale: a library FB has *generic* pin
+   names (`Run`, `Fault`) while a device has *specific* tags (`M01_Run`); mapping generic pins ↔
+   specific device signals **is** per-instance binding, so the builder cannot correctly consume
+   the contract until Phase 3.5 exists. `fb-instantiate.ts` is left untouched here.
 5. **Generic across machine types** (CLAUDE.md non-negotiable). Roles and binding sources are
    abstract; no device-specific names anywhere in the taxonomy or logic.
 
@@ -133,9 +137,12 @@ front). `exposed` marks the outputs that become `fb_instance` tags the FDS can r
 
 New `src/lib/spec-builder/fb-interface.ts`:
 
-- `parseFbInterface(scl: string): Pick<FbInterfacePin, "name" | "scl_type" | "direction" | "description">[]`
-  — single source of pin extraction (VAR_INPUT / VAR_OUTPUT / VAR_IN_OUT, name + type +
-  inline comment + direction).
+- `parseFbInterface(scl: string): ParsedSclVar[]` — single source of var extraction. Returns a
+  **superset** of all sections (`input` / `output` / `inout` / `static` / `temp`) so the flow
+  diagram (which traces static/temp intermediates) does not regress. Each `ParsedSclVar` carries
+  `name` + `scl_type` + `section` + `description`.
+- `interfacePins(vars)` derives the contract-relevant pins (input/output/inout only, mapped to
+  `direction`).
 - The three existing call sites are refactored to consume this:
   - `fb-library.tsx` `VariableTable` renders from it (plus the editable semantic columns).
   - `forge-device-matcher.ts` derives its Bool/analog counts from it.
@@ -160,46 +167,50 @@ No behavioural change to matching or the flow diagram — only the parse is unif
 - New editable columns: **Role** (`FbPinRole` dropdown) · **Binding** (`FbBindingSource`
   dropdown) · **Expose** (checkbox).
 - A "needs review" badge shows while `reviewed === false`; saving the grid sets
-  `reviewed: true`. Persists through `useUpdateFbTemplate` (which already snapshots versions).
+  `reviewed: true`. Persists through a dedicated lightweight mutation that raw-updates the
+  `interface_contract` column (mirrors how `ai_summary` is saved), not the version-snapshot
+  path — contract version history is YAGNI for now.
 
 ### 5. Persistence
 
 - New JSONB column `fb_templates.interface_contract` (nullable). Migration adds the column;
-  `FbTemplate` type gains `interface_contract: FbInterfaceContract | null`.
-- The contract travels in the existing version snapshots (`fb_template_versions`) so history /
-  revert keep it in sync with the SCL it describes.
+  `FbTemplate` type gains `interface_contract: FbInterfaceContract | null`. The field is added
+  to the `FbTemplateCreate` Omit list — it is managed by the dedicated save/AI mutations, not
+  the create/update form (same treatment as `ai_summary`).
+- Saved via a dedicated raw-column mutation (see §4); contract version history is deferred (YAGNI).
 - RLS unchanged (inherits `fb_templates` policies).
 
-### 6. Code Builder consumption (amends sub-project B)
+### 6. Code Builder consumption — deferred to Phase 3.5 (NOT in this spec)
 
-`fb-instantiate.ts` is amended to consume the contract instead of tag-name coincidence:
+`fb-instantiate.ts` is **not touched** by this work. It keeps its current tag-name-coincidence
+wiring, so the existing Code Builder golden tests stay green and nothing regresses.
 
-- When a template has a `reviewed` contract, `wiringLines` maps **by pin**, using each pin's
-  `role` / `default_binding` to choose the source:
-  - `sensor_in` / `io_input` → Input image-DB member derived from the matched device IO signal.
-  - `actuator_out` / `io_output` → Output image-DB member.
-  - `cmd` / `mode` / `hmi`, `interlock`, `param`, `em` → the corresponding interface member.
-  - `fb_output` (cross-FB) and the `fb_instance` feedback loop → **deferred to Phase 3.5**;
-    until then such pins are left unbound and reported as a builder warning (never silently
-    wrong).
-- **No raw `%I`/`%Q`** is emitted by the device layer.
-- When a template has **no** `reviewed` contract (legacy / unreviewed), the builder falls
-  back to the **current behaviour** (tag-name-coincidence wiring for a matched template, stub
-  FB when nothing matched) so nothing regresses.
+The reason consumption is deferred (not partially landed now): a library FB exposes *generic*
+pins (`Run`, `Fault`, `Speed`) whereas a device carries *specific* tags (`M01_Run`,
+`M01_Fault`). Choosing which device signal feeds which generic pin — and which image-DB member
+or upstream FB output each pin binds to — is exactly the per-instance binding problem. Without
+the Phase 3.5 binding model there is no deterministic, generic way to map them, so any builder
+change now would either hardcode assumptions or emit warnings for every pin. The contract this
+spec produces is the **input** Phase 3.5 consumes; building the consumer belongs with the
+binding model that gives it meaning.
 
-This requires the **Input/Output image-DB member interface** to exist as binding targets.
-Pull that interface **forward** from sub-project E into this work (member references only;
-physical rack/slot/card **addressing** stays deferred to E). The image-DB members are derived
-from the CMs' `wired`-tier `io_signals`.
+The Input/Output image-DB member interface (binding targets) is likewise pulled forward **into
+Phase 3.5**, alongside the per-instance binding that needs it.
 
 ### 7. Program integration — Phase 3.5 (carved out, not designed here)
 
-New sub-project **Phase 3.5 — Device FB Binding** (its own spec later):
+New sub-project **Phase 3.5 — Device FB Binding** (its own spec later). It owns **everything
+that consumes the contract**:
 
 - Assigns a specific library FB to each CM/EM, persisting via the existing
   `fds_operation_sessions` fields (`fb_template_id`, `instance_params`, `instance_overrides`,
   `tag_remap`).
-- Lets a reviewer override per-pin bindings (including `fb_output` cross-FB wiring).
+- Maps each generic FB pin to a concrete device IO signal / image-DB member / upstream FB
+  output, and lets a reviewer override per-pin bindings (including `fb_output` cross-FB wiring).
+- Pulls the Input/Output image-DB member interface forward (binding targets, member references
+  only; physical rack/slot/card addressing stays in sub-project E).
+- Amends `fb-instantiate.ts` to wire **by pin** from the binding (no raw `%I`/`%Q` in the
+  device layer), with the legacy tag-coincidence path as the fallback for unbound CMs.
 - Emits the FB's `exposed` outputs back into the FDS as `fb_instance`-tier `io_signals` with
   stable symbolic tags, so sequence authoring can reference them.
 - Sits in the workflow **between structural FDS and sequence authoring**:
@@ -216,10 +227,12 @@ New sub-project **Phase 3.5 — Device FB Binding** (its own spec later):
 
 ## Out of scope (this spec)
 
+- **All Code Builder consumption of the contract** — `fb-instantiate.ts` is untouched here
+  (Phase 3.5).
 - The per-instance FB binding UI, override workflow, and `fb_instance` feedback loop (Phase 3.5).
-- Cross-FB (`fb_output`) wiring in the Code Builder (Phase 3.5 supplies the binding).
-- Physical rack/slot/card layout and IO **addressing** (sub-project E) — only image-DB
-  member references are pulled forward.
+- Pin-by-pin wiring and cross-FB (`fb_output`) wiring in the Code Builder (Phase 3.5).
+- The Input/Output image-DB member interface — pulled forward into Phase 3.5, not here.
+- Physical rack/slot/card layout and IO **addressing** (sub-project E).
 - EM state-machine FBs (C), Unit/coordination (D), Export/compile (F).
 
 ---
@@ -227,12 +240,11 @@ New sub-project **Phase 3.5 — Device FB Binding** (its own spec later):
 ## Testing
 
 - **Vitest (parser):** `parseFbInterface` extracts name/type/direction/comment across
-  VAR_INPUT/OUTPUT/IN_OUT; the three refactored call sites produce identical results to today.
-- **Vitest (contract consumption):** given a `reviewed` contract, `fb-instantiate` wires
-  `sensor_in`/`actuator_out` pins to image-DB members and emits **no** `%I`/`%Q`; `fb_output`
-  pins produce a warning, not wrong code; a template with no contract falls back to the stub path.
-- **Vitest (persistence):** `interface_contract` round-trips through create/update and is
-  captured in a version snapshot.
+  VAR_INPUT/OUTPUT/IN_OUT plus static/temp; the three refactored call sites produce identical
+  results to today (no regression in matching counts or the flow diagram).
+- **Vitest (AI merge):** `buildContractFromAi` merges the SCL-authoritative pin list with the
+  AI-annotated semantic layer, ignoring AI-invented pins and defaulting missing annotations.
+- **Vitest (persistence):** `interface_contract` round-trips through the save mutation.
 - **Component smoke:** the editable interface grid renders, edits set `reviewed: true`, and
   persists.
 
