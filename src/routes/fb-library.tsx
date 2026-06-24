@@ -80,6 +80,7 @@ import { parseFbInterface } from "@/lib/spec-builder/fb-interface";
 import { useUiStore } from "@/stores/ui-store";
 import { useFbLibraryImport } from "@/hooks/use-fb-library-import";
 import { useFbDocImport } from "@/hooks/use-fb-doc-import";
+import { FbInterfaceGrid } from "@/components/fb-library/fb-interface-grid";
 import type {
   FbTemplate,
   FbTemplateCreate,
@@ -1432,7 +1433,7 @@ function TemplateCard({
           )}
 
           {/* Variable table — parsed from SCL interface */}
-          <VariableTable blocks={blocks} />
+          <FbInterfaceGrid template={template} />
 
           {/* Tags + metadata */}
           <div className="flex flex-wrap gap-1">
