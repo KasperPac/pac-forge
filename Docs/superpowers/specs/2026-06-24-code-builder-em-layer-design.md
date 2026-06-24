@@ -142,6 +142,58 @@ Approve/Edit/Save in `ArtifactPanel` are unchanged and act on the currently-sele
 
 ---
 
+## 4.6 FB lifecycle (decided 2026-06-24)
+
+The plumbing above produces an FB; this section governs **how** that FB is generated, how it reads, how it is revised, how it is reused, and how it is gated. Four decisions, all generic across machine types (CLAUDE.md).
+
+### 4.6.1 Generation — Hybrid: deterministic skeleton + AI fill
+
+The EM FB is built in two stages with a clean seam:
+
+1. **Deterministic skeleton** (`em-builder` → `em-writer`, pure, no AI): the entire interface (VAR_INPUT/OUTPUT/STATIC), the `CASE state OF` dispatch, the state constants, the transition `advance` guards (via `serializeAdvance`), and the static-state command assignments (via `isActiveCommand`). This is fully reproducible from the contract and is the audit backbone — re-running it on an unchanged contract yields byte-identical output.
+
+2. **AI fill, confined to marked regions** (`use-em-generate` → Edge Function): inside each **sequential (SFC) step body** only, between explicit region markers, the AI fills the procedural action logic the contract cannot express deterministically (ramp profiles, timed dwell sequencing, conditional actuator choreography). The AI never touches the interface, the CASE frame, the guards, or the state constants — those are skeleton-owned.
+
+   ```scl
+   // === STEP 2: Accelerate (AI-FILL:EM_Carriage_Drive:step2) ===
+   //   contract action: "ramp drive to target speed, hold brake released"
+   //   <ai-fill>
+   "M01".cmd_run := TRUE;
+   "M01".speed_sp := #ramp_out;
+   //   </ai-fill>
+   // === END STEP 2 ===
+   ```
+
+   - Region markers are stable and machine-derived (EM id + step id) so a re-fill replaces exactly its own region and nothing else — drift detection (4.6.2) diffs per-region.
+   - If AI is unavailable or returns nothing, the region stays as a deterministic stub (the contract action prose as a comment + a `// TODO` no-op) — the FB still compiles. AI fill is an **enhancement over** a always-valid skeleton, never a hard dependency.
+   - The fill prompt is a **new generic builder** (`em-fill-prompt.ts`) — machine-agnostic, contract-driven, no project-specific names. It is covered by the `*-prompt*.ts` pipeline-auditor hook.
+
+### 4.6.2 Revision — Drift detection + per-FB version log
+
+- **Drift** (already in the shell as a `drift` pill) is computed per-region: skeleton-vs-persisted and AI-region-vs-persisted, so an edited step shows drift without the whole FB being flagged.
+- **Version log**: every Approve (or explicit "Save version") snapshots the FB artifact set (FB + State UDT + Cmd DB + Map FC) into a per-EM history with author, timestamp, and a short note. Reuses the existing `FbTemplateVersion` shape conceptually but stored against the code-builder artifact (new `code_builder_versions` rows, jsonb payload, keyed by `owner_id` + layer). The viewer gets a **History** affordance: list versions, diff against current (reuse `diff-engine.ts`), restore.
+- Restore writes the chosen snapshot back as the working artifact (a new version entry, never destructive).
+
+### 4.6.3 Categorisation — Promote to library (core path)
+
+A reviewed, approved EM FB can be **promoted to the FB Library** so future specs match it instead of regenerating:
+
+- New **"Promote to Library"** action in `ArtifactPanel` (enabled only when the EM is `approved` and review-passed).
+- Builds an `FbTemplate` with `is_equipment_module = true`, `source = "custom"`, a user-chosen `device_category` + `tags`, the SCL blocks, and an **auto-derived `interface_contract`**: run `parseFbInterface` → `interfacePins` on the FB, then infer each pin's `role` from naming convention (`cmd_*`→cmd, `ilk_*`→interlock, `fb_*`→sensor_in, `mode`→mode, `cmd_<act>` out→actuator_out, `state`/`done`/`fault`→status) and `default_binding.source` (em/io_input/io_output). `reviewed` starts `false` until a human confirms the derived contract in the existing FB Library editor.
+- Once promoted, `pickTemplate` (4.2) will score and match it for the same EM class in future specs — closing the loop from generated → library → matched.
+- Categorisation metadata (`device_category`, `tags`, `library_name`) is chosen at promote time via a small dialog; nothing is invented from the spec.
+
+### 4.6.4 Quality gates — Safety analyzer + standards review (in-builder, no TIA compile)
+
+Before an EM FB can be approved or promoted, it passes two in-builder gates (TIA compile stays in F):
+
+- **Safety analyzer** — reuse `safety-analyzer.ts`'s rule-based checks against the generated FB; surfaced as a gate panel with pass/warn/fail per rule. Fails block Approve; warns are acknowledgeable.
+- **Standards review** — an AI review pass reusing the existing **Standards Reviewer** agent (`review-prompt-builder.ts` / `review-response-parser.ts`) scoped to a single EM FB. Findings render in the right panel; the EM shows a `review` badge (pass / findings). Reuses the Pac-ST review machinery — no new review engine.
+
+Both gates run on demand and on Approve; results persist with the artifact so the badge survives reload.
+
+---
+
 ## 5. File structure
 
 **New**
@@ -150,6 +202,13 @@ Approve/Edit/Save in `ArtifactPanel` are unchanged and act on the currently-sele
 - `src/lib/spec-builder/codegen/__tests__/em-builder.test.ts`, `em-writer.test.ts`, plus a `compile-contract` EM-layer case.
 - `src/components/code-builder/equipment-module-list.tsx` — EM list grouped by Unit (or parameterise `control-module-list.tsx` by layer).
 - `src/components/code-builder/em-state-diagram.tsx` — dedicated state-machine renderer (nodes = states, edges = guarded transitions) from the EM contract.
+- `src/lib/spec-builder/em-fill-prompt.ts` — generic, contract-driven AI-fill prompt for SFC step bodies (covered by the `*-prompt*.ts` pipeline-auditor hook).
+- `src/hooks/use-em-generate.ts` — orchestrates skeleton → AI fill of marked regions via the `generate` Edge Function; always falls back to the deterministic stub.
+- `src/lib/spec-builder/codegen/em-fill-regions.ts` — pure: parse/replace `<ai-fill>` regions by stable marker id; per-region drift diff.
+- `src/components/code-builder/fb-quality-gates.tsx` — safety-analyzer + standards-review gate panel (pass/warn/fail badges).
+- `src/components/code-builder/fb-version-history.tsx` — version list + diff (via `diff-engine.ts`) + restore.
+- `src/components/code-builder/promote-to-library-dialog.tsx` — category/tags picker; builds `FbTemplate` with auto-derived `interface_contract`.
+- `supabase/migrations/0xx_code_builder_versions.sql` — `code_builder_versions` (id, owner_id, layer, payload jsonb, note, author, created_at).
 
 **Modified**
 - `codegen/types.ts` — add `EmSequence` / `EmSeqState` / `EmSeqStep` IR types.
@@ -177,8 +236,13 @@ Approve/Edit/Save in `ArtifactPanel` are unchanged and act on the currently-sele
 - `fb-instantiate` — matched EM with `interface_contract` wires by role; null-contract matched EM falls back + warns.
 - `compile-contract` — EM layer emits FB+UDT+CMD+MAP per EM; flattened unit sequence no longer present; `filterByLayer(..., "em")` returns exactly the EM artifacts.
 - UI: `code-builder.test.tsx` — stepper switches device↔em layer; EM list shows one row per EM grouped by Unit; viewer renders State Diagram tab + the 5 artifact tabs; `em-state-diagram` renders nodes/edges from a contract fixture.
+- `em-fill-regions.test.ts` — marker parse/replace is exact (a re-fill replaces only its own region), per-region drift diff, missing-AI fallback leaves a compiling stub.
+- `em-fill-prompt.test.ts` — prompt is generic (no machine-specific tokens), includes only the contract action + interface context for the target step.
+- Promote-to-library — `interface_contract` auto-derivation: role inference from naming convention and `default_binding.source` mapping, over conveyor / lift-table / stamping pin shapes.
+- Quality gates — safety-analyzer surfaces fails on a known-bad FB fixture; standards-review parse maps findings to badges.
+- Version log — snapshot → diff → restore round-trips without data loss; restore creates a new (non-destructive) version.
 - All generic — no machine-specific names; verified mentally against conveyor / lift-table / stamping shapes per CLAUDE.md.
-- `verifyCommand`: `npx vitest run src/lib/spec-builder/codegen src/routes/__tests__/code-builder.test.tsx && npx tsc -b`.
+- `verifyCommand`: `npx vitest run src/lib/spec-builder src/routes/__tests__/code-builder.test.tsx && npx tsc -b`.
 
 ---
 
@@ -187,3 +251,22 @@ Approve/Edit/Save in `ArtifactPanel` are unchanged and act on the currently-sele
 - **`interface_contract` may be `null`** on real templates → heuristic fallback prevents regression.
 - **Linear-collapse of parallel** must warn loudly so authored parallelism isn't silently lost.
 - Reuses `orderStates`, `serializeAdvance/Guard/Condition`, `sclIdent`, `isActiveCommand`, `staticEntries` — no new condition/identifier logic invented.
+
+---
+
+## 9. Decomposition (approved 2026-06-24)
+
+C is larger than one plan. It splits into four sequenced, independently-testable sub-plans. Each gets its own `writing-plans` pass.
+
+| Plan | Scope | Depends on |
+|------|-------|-----------|
+| **C1 — Generation core** | `em-builder` + `em-writer` deterministic skeleton, hybrid AI-fill regions (`em-fill-regions`, `em-fill-prompt`, `use-em-generate`), matched-FB `interface_contract` wiring, `MAP_<EM>` + `<EM>_CMD` DB seam, supersede the flattened per-Unit sequence in `compile-contract`. | — |
+| **C2 — EM-layer UI** | clickable `BuilderStepper` layer switch, `equipment-module-list`, `em-state-diagram`, the State Diagram + 5 artifact tabs in `artifact-viewer`, `active`-layer wiring in `code-builder.tsx`. | C1 (artifacts to render) |
+| **C3 — Quality + versioning** | `fb-quality-gates` (safety-analyzer + Standards Reviewer), per-region drift, `code_builder_versions` migration, `fb-version-history` (diff + restore). | C1, C2 |
+| **C4 — Promote to library** | `promote-to-library-dialog`, `interface_contract` auto-derivation (`parseFbInterface`/`interfacePins` + role inference), categorisation metadata, `pickTemplate` generated→library→matched loop. | C1, C3 |
+
+**Build order:** C1 → C2 → C3 → C4. C1 is the foundation (no UI dependency); C2 renders C1's artifacts; C3/C4 act on approved FBs.
+
+### "Look" confirmations (2026-06-24)
+- **AI-fill scope:** AI fills **SFC step bodies only**. Interface, CASE frame, transition guards, and state constants are skeleton-owned and reproducible. (Confirmed.)
+- **Naming convention is the contract:** `cmd_* / ilk_* / fb_* / cmd_<act>(out) / state·step·done·fault` — locked, and drives promote-time role inference for `interface_contract`. (Confirmed.)
