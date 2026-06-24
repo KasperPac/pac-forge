@@ -4,65 +4,65 @@
     {
       "id": 1,
       "subject": "Task 1: Condition serializer",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** PermissiveCondition[] / EmTrigger → machine-language SCL boolean string (AND/OR/NOT, no prose).\n\n**Files:**\n- Create: `src/lib/spec-builder/codegen/serialize-condition.ts`\n- Test: `src/lib/spec-builder/codegen/__tests__/serialize-condition.test.ts`\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/codegen/serialize-condition.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/codegen/__tests__/serialize-condition.test.ts\", \"acceptanceCriteria\": [\"operator mapping\", \"P_TRIG/N_TRIG\", \"serializeGuard AND/TRUE\", \"serializeAdvance\"]}\n```"
     },
     {
       "id": 2,
       "subject": "Task 2: Step ordering",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [1],
       "description": "**Goal:** Walk EmTransitionV2[] from the safe/home state → ordered EmStateV2[] (BFS, cycle-safe, unreachable appended).\n\n**Files:**\n- Create: `src/lib/spec-builder/codegen/step-order.ts`\n- Test: `src/lib/spec-builder/codegen/__tests__/step-order.test.ts`\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/codegen/step-order.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/codegen/__tests__/step-order.test.ts\", \"acceptanceCriteria\": [\"BFS from safe state\", \"cycle-safe\", \"unreachable appended\", \"empty handling\"]}\n```"
     },
     {
       "id": 3,
       "subject": "Task 3: S/A sequence IR + builder",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [1, 2],
       "description": "**Goal:** Internal IR types + buildUnitSequence: EquipmentModuleContract[] (one Unit) → SaSequence IR.\n\n**Files:**\n- Create: `src/lib/spec-builder/codegen/types.ts`\n- Create: `src/lib/spec-builder/codegen/sa-builder.ts`\n- Test: `src/lib/spec-builder/codegen/__tests__/sa-builder.test.ts`\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/codegen/types.ts\", \"src/lib/spec-builder/codegen/sa-builder.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/codegen/__tests__/sa-builder.test.ts\", \"acceptanceCriteria\": [\"sclIdent\", \"isActiveCommand\", \"two-pass build\", \"cross-EM warning\", \"action wiring\"]}\n```"
     },
     {
       "id": 4,
       "subject": "Task 4: UDT + sequence DB writers",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [3],
       "description": "**Goal:** SaSequence → UDT_<unit> SCL + DB_<unit> instance DB seeding home steps.\n\n**Files:**\n- Create: `src/lib/spec-builder/codegen/udt-writer.ts`\n- Create: `src/lib/spec-builder/codegen/db-writer.ts`\n- Test: `src/lib/spec-builder/codegen/__tests__/udt-db-writer.test.ts`\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/codegen/udt-writer.ts\", \"src/lib/spec-builder/codegen/db-writer.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/codegen/__tests__/udt-db-writer.test.ts\", \"acceptanceCriteria\": [\"UDT arrays + control bits\", \"DB seeds home steps\", \"artifact folders/deps\"]}\n```"
     },
     {
       "id": 5,
       "subject": "Task 5: Sequence FC writer",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [3],
       "description": "**Goal:** SaSequence → UC_<unit> FC SCL with 3 network groups.\n\n**Files:**\n- Create: `src/lib/spec-builder/codegen/fc-writer.ts`\n- Test: `src/lib/spec-builder/codegen/__tests__/fc-writer.test.ts`\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/codegen/fc-writer.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/codegen/__tests__/fc-writer.test.ts\", \"acceptanceCriteria\": [\"seal-in stepLine\", \"action mirror\", \"output wiring aggregation\", \"FC structure\"]}\n```"
     },
     {
       "id": 6,
       "subject": "Task 6: FB instantiation, IO wiring + stubs",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [3],
       "description": "**Goal:** ControlModule/EM → matched library FB call + IO wiring, or stub FB when no match.\n\n**Files:**\n- Create: `src/lib/spec-builder/codegen/fb-instantiate.ts`\n- Test: `src/lib/spec-builder/codegen/__tests__/fb-instantiate.test.ts`\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/codegen/fb-instantiate.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/codegen/__tests__/fb-instantiate.test.ts\", \"acceptanceCriteria\": [\"pickTemplate scoring\", \"matched wiring\", \"stub fallback + report\", \"CM/EM prefixes\"]}\n```"
     },
     {
       "id": 7,
       "subject": "Task 7: OB1 writer",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [3],
       "description": "**Goal:** Emit OB1 call tree — device FB calls then UC_ sequencer calls per unit.\n\n**Files:**\n- Create: `src/lib/spec-builder/codegen/ob1-writer.ts`\n- Test: `src/lib/spec-builder/codegen/__tests__/ob1-writer.test.ts`\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/codegen/ob1-writer.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/codegen/__tests__/ob1-writer.test.ts\", \"acceptanceCriteria\": [\"OB1 Main\", \"call order devices then UC\", \"dependencies\"]}\n```"
     },
     {
       "id": 8,
       "subject": "Task 8: Top-level compile orchestrator",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [1, 2, 3, 4, 5, 6, 7],
       "description": "**Goal:** SpecContractV2 → CodegenResult; orchestrate everything, dedup artifacts, collect stubs/warnings. Plus index.ts barrel.\n\n**Files:**\n- Create: `src/lib/spec-builder/codegen/compile-contract.ts`\n- Create: `src/lib/spec-builder/codegen/index.ts`\n- Test: `src/lib/spec-builder/codegen/__tests__/compile-contract.test.ts`\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/codegen/compile-contract.ts\", \"src/lib/spec-builder/codegen/index.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/codegen/__tests__/compile-contract.test.ts\", \"acceptanceCriteria\": [\"unit walk + EM resolve\", \"artifact assembly\", \"dedup + single OB1\", \"golden test\"]}\n```"
     },
     {
       "id": 9,
       "subject": "Task 9: Hook + UI trigger",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [8],
       "description": "**Goal:** use-spec-codegen hook + UI button gated on confirmed status, downloads TIA bundle.\n\n**Files:**\n- Create: `src/hooks/use-spec-codegen.ts`\n- Modify: co-author/spec page to add the generate button\n\n```json:metadata\n{\"files\": [\"src/hooks/use-spec-codegen.ts\"], \"verifyCommand\": \"npx tsc -b\", \"acceptanceCriteria\": [\"toExportArtifacts mapping\", \"hook wiring\", \"confirmed gate\", \"verify real export fn name\"]}\n```"
     }
   ],
-  "lastUpdated": "2026-06-23T00:00:00Z"
+  "lastUpdated": "2026-06-23T13:30:00Z"
 }

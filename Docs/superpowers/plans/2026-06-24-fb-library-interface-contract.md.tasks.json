@@ -4,37 +4,37 @@
     {
       "id": 1,
       "subject": "Task 1: Contract types + shared SCL parser",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** One contract type module and one shared parser that extracts every VAR section from SCL, with a derived helper for the contract-relevant pins.\n\n**Files:**\n- Create: src/types/fb-interface.ts\n- Create: src/lib/spec-builder/fb-interface.ts\n- Create: src/lib/spec-builder/__tests__/fb-interface.test.ts\n- Modify: src/types/index.ts\n\n```json:metadata\n{\"files\":[\"src/types/fb-interface.ts\",\"src/lib/spec-builder/fb-interface.ts\",\"src/lib/spec-builder/__tests__/fb-interface.test.ts\",\"src/types/index.ts\"],\"verifyCommand\":\"npx vitest run src/lib/spec-builder/__tests__/fb-interface.test.ts && npx tsc -b\",\"acceptanceCriteria\":[\"contract types + const arrays exported and re-exported from barrel\",\"parseFbInterface returns superset of all 5 sections\",\"interfacePins filters to input/output/inout\"]}\n```"
     },
     {
       "id": 2,
       "subject": "Task 2: Refactor 3 parsers onto parseFbInterface",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [1],
       "description": "**Goal:** Route fb-library parseVarsFromScl, forge-device-matcher parseInterface, and fb-flow-diagram parseVarSections through the shared parser with ZERO behavioural change. forge-device-matcher.ts matches the pipeline-auditor glob.\n\n**Files:**\n- Modify: src/routes/fb-library.tsx (parseVarsFromScl ~1497)\n- Modify: src/lib/forge-device-matcher.ts (parseInterface ~46)\n- Modify: src/lib/fb-flow-diagram.ts (parseVarSections ~105)\n\n```json:metadata\n{\"files\":[\"src/routes/fb-library.tsx\",\"src/lib/forge-device-matcher.ts\",\"src/lib/fb-flow-diagram.ts\"],\"verifyCommand\":\"npx vitest run && npx tsc -b\",\"acceptanceCriteria\":[\"3 call sites delegate to parseFbInterface\",\"no regression in matcher counts or flow diagram\",\"pipeline-auditor PASS\"]}\n```"
     },
     {
       "id": 3,
       "subject": "Task 3: Migration + FbTemplate.interface_contract field",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [1],
       "description": "**Goal:** Add nullable JSONB column and surface it on FbTemplate without leaking into the create/update form.\n\n**Files:**\n- Create: supabase/migrations/20260624000000_fb_template_interface_contract.sql\n- Modify: src/types/fb-template.ts\n\n```json:metadata\n{\"files\":[\"supabase/migrations/20260624000000_fb_template_interface_contract.sql\",\"src/types/fb-template.ts\"],\"verifyCommand\":\"npx tsc -b\",\"acceptanceCriteria\":[\"migration adds nullable JSONB column\",\"FbTemplate typed\",\"field in Create Omit list\"]}\n```"
     },
     {
       "id": 4,
       "subject": "Task 4: AI extraction hook + merge",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [1, 3],
       "description": "**Goal:** Generate semantic layer with AI, merge onto SCL-authoritative pin list via pure unit-tested function, persist with reviewed:false.\n\n**Files:**\n- Create: src/hooks/use-generate-fb-interface.ts\n- Create: src/hooks/__tests__/use-generate-fb-interface.test.ts\n\n```json:metadata\n{\"files\":[\"src/hooks/use-generate-fb-interface.ts\",\"src/hooks/__tests__/use-generate-fb-interface.test.ts\"],\"verifyCommand\":\"npx vitest run src/hooks/__tests__/use-generate-fb-interface.test.ts && npx tsc -b\",\"acceptanceCriteria\":[\"pure buildContractFromAi merge, SCL authoritative\",\"hook persists + invalidates\",\"prompt generic across machine types\"]}\n```"
     },
     {
       "id": 5,
       "subject": "Task 5: Editable interface grid + reviewed gate",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [1, 3, 4],
       "description": "**Goal:** Surface the contract in FB Library as an editable grid (Role/Binding dropdowns + Expose), needs-review badge, Generate button, Save that sets reviewed:true.\n\n**Files:**\n- Create: src/components/fb-library/fb-interface-grid.tsx\n- Create: src/components/fb-library/__tests__/fb-interface-grid.test.tsx\n- Create: src/hooks/use-save-fb-interface.ts\n- Modify: src/routes/fb-library.tsx (~1434)\n\n```json:metadata\n{\"files\":[\"src/components/fb-library/fb-interface-grid.tsx\",\"src/components/fb-library/__tests__/fb-interface-grid.test.tsx\",\"src/hooks/use-save-fb-interface.ts\",\"src/routes/fb-library.tsx\"],\"verifyCommand\":\"npx vitest run src/components/fb-library/__tests__/fb-interface-grid.test.tsx && npx tsc -b\",\"acceptanceCriteria\":[\"editable grid with role/binding/expose\",\"needs-review badge + reviewed gate on save\",\"seeds from parser when no contract\"]}\n```"
     }
   ],
-  "lastUpdated": "2026-06-24"
+  "lastUpdated": "2026-06-24T00:45:00Z"
 }
