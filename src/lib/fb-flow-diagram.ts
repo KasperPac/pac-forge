@@ -2,6 +2,8 @@
 // Parses SCL Function Block code and generates signal flow diagram data.
 // Focuses on patterns that appear in standard motor/conveyor FBs.
 
+import { parseFbInterface } from "@/lib/spec-builder/fb-interface";
+
 export interface FbFlowDiagram {
   title: string;
   columns: FbFlowColumn[];
@@ -104,33 +106,15 @@ interface FaultLatch {
 
 function parseVarSections(scl: string): VarDecl[] {
   const decls: VarDecl[] = [];
-
-  // Match VAR_INPUT, VAR_OUTPUT, VAR (static), VAR_TEMP blocks
-  const sectionRe =
-    /\b(VAR_INPUT|VAR_OUTPUT|VAR_TEMP|VAR)\b([\s\S]*?)END_VAR/g;
-  let sm: RegExpExecArray | null;
-
-  while ((sm = sectionRe.exec(scl)) !== null) {
-    const rawKind = sm[1];
-    const body = sm[2];
-
+  for (const v of parseFbInterface(scl)) {
+    if (v.section === "inout") continue; // flow diagram never traced inout
     const kind: VarKind =
-      rawKind === "VAR_INPUT"
-        ? "input"
-        : rawKind === "VAR_OUTPUT"
-          ? "output"
-          : rawKind === "VAR_TEMP"
-            ? "temp"
-            : "static";
-
-    // Each declaration line: name : type ; (optional AT/RETAIN/comment)
-    const lineRe = /^\s*(\w+)\s*:\s*([\w.]+)/gm;
-    let lm: RegExpExecArray | null;
-    while ((lm = lineRe.exec(body)) !== null) {
-      decls.push({ name: lm[1], type: lm[2], kind });
-    }
+      v.section === "input" ? "input"
+      : v.section === "output" ? "output"
+      : v.section === "temp" ? "temp"
+      : "static";
+    decls.push({ name: v.name, type: v.scl_type, kind });
   }
-
   return decls;
 }
 

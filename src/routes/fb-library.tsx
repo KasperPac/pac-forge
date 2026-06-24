@@ -76,6 +76,7 @@ import { splitSclBlocks } from "@/lib/scl-block-parser";
 import { callNonStreaming } from "@/hooks/use-generation";
 import { DEFAULT_BRIDGE_CONFIG } from "@/lib/tia-bridge-contract";
 import { registerSclLanguage, SCL_LANGUAGE_ID } from "@/lib/monaco-scl";
+import { parseFbInterface } from "@/lib/spec-builder/fb-interface";
 import { useUiStore } from "@/stores/ui-store";
 import { useFbLibraryImport } from "@/hooks/use-fb-library-import";
 import { useFbDocImport } from "@/hooks/use-fb-doc-import";
@@ -1494,41 +1495,17 @@ interface ParsedVar {
   comment: string;
 }
 
+const SECTION_LABEL: Record<string, string> = {
+  input: "INPUT", output: "OUTPUT", inout: "IN OUT", static: "STATIC", temp: "TEMP",
+};
+
 function parseVarsFromScl(scl: string): ParsedVar[] {
-  const vars: ParsedVar[] = [];
-  const blockRe = /VAR_(INPUT|OUTPUT|IN_OUT|TEMP)\b([\s\S]*?)END_VAR/gi;
-  let block: RegExpExecArray | null;
-  while ((block = blockRe.exec(scl)) !== null) {
-    const section = block[1].replace("_", " ");
-    const body = block[2];
-    const declRe = /^\s+(\w+)\s*:\s*([^;]+);?\s*(?:\/\/\s*(.*))?$/gm;
-    let decl: RegExpExecArray | null;
-    while ((decl = declRe.exec(body)) !== null) {
-      vars.push({
-        name: decl[1],
-        type: decl[2].trim(),
-        section,
-        comment: decl[3]?.trim() ?? "",
-      });
-    }
-  }
-  // Also parse plain VAR section (static vars)
-  const staticRe = /\bVAR\b(?!\s*_)([\s\S]*?)END_VAR/gi;
-  let staticBlock: RegExpExecArray | null;
-  while ((staticBlock = staticRe.exec(scl)) !== null) {
-    const body = staticBlock[1];
-    const declRe = /^\s+(\w+)\s*:\s*([^;]+);?\s*(?:\/\/\s*(.*))?$/gm;
-    let decl: RegExpExecArray | null;
-    while ((decl = declRe.exec(body)) !== null) {
-      vars.push({
-        name: decl[1],
-        type: decl[2].trim(),
-        section: "STATIC",
-        comment: decl[3]?.trim() ?? "",
-      });
-    }
-  }
-  return vars;
+  return parseFbInterface(scl).map((v) => ({
+    name: v.name,
+    type: v.scl_type,
+    section: SECTION_LABEL[v.section] ?? v.section.toUpperCase(),
+    comment: v.description,
+  }));
 }
 
 const SECTION_COLORS: Record<string, string> = {

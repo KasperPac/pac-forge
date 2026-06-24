@@ -15,6 +15,7 @@
 
 import type { ForgeControlModuleEntry, ForgeEquipmentModuleEntry } from "@/types/forge";
 import type { FbTemplate } from "@/types/fb-template";
+import { parseFbInterface } from "@/lib/spec-builder/fb-interface";
 
 export interface DeviceFbMatch {
   device: ForgeControlModuleEntry;
@@ -45,25 +46,13 @@ const ANALOG_TYPES = /\b(int|dint|word|dword|real|lreal|uint|udint)\b/i;
 
 function parseInterface(scl: string): FbInterface {
   let boolInputs = 0, boolOutputs = 0, analogInputs = 0, analogOutputs = 0;
-
-  // Match each VAR_INPUT / VAR_OUTPUT block
-  const blockRe = /VAR_(INPUT|OUTPUT)\b([\s\S]*?)END_VAR/gi;
-  let block: RegExpExecArray | null;
-  while ((block = blockRe.exec(scl)) !== null) {
-    const section = block[1].toUpperCase(); // INPUT or OUTPUT
-    const body = block[2];
-    // Each declaration line: "  name : Type := default; // comment"
-    const declRe = /^\s+\w+\s*:\s*(\w+)/gm;
-    let decl: RegExpExecArray | null;
-    while ((decl = declRe.exec(body)) !== null) {
-      const type = decl[1].toLowerCase();
-      if (type === "bool") {
-        if (section === "INPUT") boolInputs++;
-        else boolOutputs++;
-      } else if (ANALOG_TYPES.test(type)) {
-        if (section === "INPUT") analogInputs++;
-        else analogOutputs++;
-      }
+  for (const v of parseFbInterface(scl)) {
+    if (v.section !== "input" && v.section !== "output") continue;
+    const type = v.scl_type.toLowerCase();
+    if (type === "bool") {
+      if (v.section === "input") boolInputs++; else boolOutputs++;
+    } else if (ANALOG_TYPES.test(type)) {
+      if (v.section === "input") analogInputs++; else analogOutputs++;
     }
   }
   return { boolInputs, boolOutputs, analogInputs, analogOutputs };
