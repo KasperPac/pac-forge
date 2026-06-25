@@ -1,6 +1,7 @@
 // src/lib/spec-builder/codegen/fb-instantiate.ts
 import type { ControlModuleV2, EquipmentModuleV2, IoSignalV2 } from "@/types/spec-contract-v2";
 import type { FbTemplate } from "@/types/fb-template";
+import type { FbInterfacePin } from "@/types/fb-interface";
 import type { CodegenArtifact, CodegenLayer } from "./types";
 import { sclIdent } from "./sa-builder";
 
@@ -12,6 +13,7 @@ export interface InstantiateResult {
   artifacts: CodegenArtifact[];
   callLines: string[];
   stub: { id: string; name: string; reason: string } | null;
+  warnings: string[];
 }
 
 /** Score-pick the best library FB for a device. Category/class match dominates,
@@ -58,6 +60,52 @@ function wiringLines(instance: string, io: IoSignalV2[]): string[] {
     if (!INPUTS.has(s.signal_type)) lines.push(`   "${s.io_address}" := "${instance}".${s.tag};`);
   }
   return lines;
+}
+
+/** Wire an instance call by interface_contract role: sensor_in pins read input
+ *  addresses, actuator_out pins write output addresses. Positional pairing in
+ *  signal order; surplus signals or pins each raise a warning. */
+function contractWiringLines(
+  instance: string, pins: FbInterfacePin[], io: IoSignalV2[],
+): { lines: string[]; warnings: string[] } {
+  const warnings: string[] = [];
+  const inputs = io.filter((s) => INPUTS.has(s.signal_type));
+  const outputs = io.filter((s) => !INPUTS.has(s.signal_type));
+  const sensorPins = pins.filter((p) => p.role === "sensor_in");
+  const actuatorPins = pins.filter((p) => p.role === "actuator_out");
+
+  const params: string[] = [];
+  sensorPins.forEach((p, i) => {
+    const sig = inputs[i];
+    if (sig) params.push(`      ${p.name} := "${sig.io_address}"`);
+    else warnings.push(`${instance}: no input signal for sensor pin "${p.name}"`);
+  });
+  const lines = [`   "${instance}"(`, params.join(",\n"), `   );`];
+  actuatorPins.forEach((p, i) => {
+    const sig = outputs[i];
+    if (sig) lines.push(`   "${sig.io_address}" := "${instance}".${p.name};`);
+    else warnings.push(`${instance}: no output signal for actuator pin "${p.name}"`);
+  });
+  if (inputs.length > sensorPins.length)
+    warnings.push(`${instance}: ${inputs.length - sensorPins.length} input signal(s) unmapped by contract`);
+  if (outputs.length > actuatorPins.length)
+    warnings.push(`${instance}: ${outputs.length - actuatorPins.length} output signal(s) unmapped by contract`);
+  return { lines, warnings };
+}
+
+/** Choose contract wiring when the template carries a reviewed contract, else
+ *  fall back to tag wiring (warning if a contract exists but is unreviewed). */
+function buildWiring(
+  instance: string, t: FbTemplate, io: IoSignalV2[],
+): { lines: string[]; warnings: string[] } {
+  const contract = t.interface_contract;
+  if (contract && contract.reviewed && contract.pins.length) {
+    return contractWiringLines(instance, contract.pins, io);
+  }
+  const warnings = contract && !contract.reviewed
+    ? [`${instance}: interface_contract not reviewed; wired by tag name.`]
+    : [];
+  return { lines: wiringLines(instance, io), warnings };
 }
 
 /** Build an instance DB artifact for the given FB block name. */
@@ -110,12 +158,14 @@ function instantiate(
       artifacts: [fb, instanceDb(instanceName, fb.name)].map(tag),
       callLines: wiringLines(instanceName, io),
       stub: { id, name, reason: `no ${isEm ? "EM" : "CM"} template matched "${deviceClass}"` },
+      warnings: [],
     };
   }
   const block = templateBlockName(t);
   const instance = `${block}_${sclIdent(name)}_DB`;
   const db = instanceDb(instance, block);
-  return { artifacts: [db].map(tag), callLines: wiringLines(instance, io), stub: null };
+  const w = buildWiring(instance, t, io);
+  return { artifacts: [db].map(tag), callLines: w.lines, stub: null, warnings: w.warnings };
 }
 
 /** Instantiate one Control Module (basic-control FB). */

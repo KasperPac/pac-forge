@@ -26,7 +26,7 @@ export function sclIdent(name: string): string {
 }
 
 /** Static-state rows are either a bare entry array (legacy) or a StaticStateV2. */
-function staticEntries(
+export function staticEntries(
   value: ControlModuleStateEntry[] | StaticStateV2 | undefined,
 ): ControlModuleStateEntry[] {
   if (!value) return [];
