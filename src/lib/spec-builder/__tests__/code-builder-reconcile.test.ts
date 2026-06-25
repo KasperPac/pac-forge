@@ -46,4 +46,34 @@ describe("reconcileArtifacts", () => {
     const [v] = reconcileArtifacts({ specId: "s1", revision: 2, compiled: [artifact({ content: "DATA_BLOCK v1" })], existing });
     expect(v.drift).toBe(false);
   });
+
+  it("defaults regionDrift to empty for a new artifact", () => {
+    const [v] = reconcileArtifacts({ specId: "s1", revision: 2, compiled: [artifact({})], existing: [] });
+    expect(v.regionDrift).toEqual([]);
+  });
+
+  it("lists AI-fill regions that changed between the reviewed and recompiled FB", () => {
+    const oldFb = [
+      "FUNCTION_BLOCK EM_X",
+      "// <ai-fill EM_X:running.1>",
+      '"M01".cmd_run := TRUE;',
+      "// </ai-fill EM_X:running.1>",
+      "// <ai-fill EM_X:running.2>",
+      "// TODO (AI-fill): hold",
+      "// </ai-fill EM_X:running.2>",
+      "END_FUNCTION_BLOCK",
+    ].join("\n");
+    const newFb = oldFb.replace('"M01".cmd_run := TRUE;', '"M01".cmd_run := FALSE;');
+    const existing = [row({
+      artifact_name: "EM_X", type: "FB", layer: "em",
+      status: "approved", generated_content: oldFb,
+    })];
+    const [v] = reconcileArtifacts({
+      specId: "s1", revision: 2,
+      compiled: [artifact({ name: "EM_X", type: "FB", layer: "em", content: newFb })],
+      existing,
+    });
+    expect(v.drift).toBe(true);
+    expect(v.regionDrift).toEqual(["EM_X:running.1"]);
+  });
 });

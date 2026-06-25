@@ -35,6 +35,8 @@ export interface CodeBuilderArtifactView {
   status: "pending" | "approved";
   /** True when this artifact was edited/approved AND the FDS recompile differs. */
   drift: boolean;
+  /** AI-fill region ids whose body changed on recompile (subset of `drift`). */
+  regionDrift: string[];
 }
 
 /** The upsert payload written back to Supabase (no id; conflict on the unique key). */

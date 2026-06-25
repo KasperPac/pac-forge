@@ -2,6 +2,7 @@ import type { CodegenArtifact } from "@/lib/spec-builder/codegen";
 import type {
   CodeBuilderArtifactRow, CodeBuilderArtifactView, CodeBuilderArtifactUpsert,
 } from "@/types/code-builder";
+import { regionDrift as computeRegionDrift } from "@/lib/spec-builder/codegen/em-fill-regions";
 
 export interface ReconcileInput {
   specId: string;
@@ -25,6 +26,7 @@ export function reconcileArtifacts(input: ReconcileInput): CodeBuilderArtifactVi
     const prior = byName.get(a.name);
     const reviewed = !!prior && (prior.status === "approved" || prior.edited_content !== null);
     const drift = !!prior && reviewed && prior.generated_content !== a.content;
+    const regionDrift = drift ? computeRegionDrift(prior!.generated_content, a.content) : [];
     return {
       artifact_name: a.name,
       layer: a.layer,
@@ -38,6 +40,7 @@ export function reconcileArtifacts(input: ReconcileInput): CodeBuilderArtifactVi
       edited_content: prior?.edited_content ?? null,
       status: prior?.status ?? "pending",
       drift,
+      regionDrift,
     };
   });
 }
