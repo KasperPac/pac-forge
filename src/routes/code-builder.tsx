@@ -14,11 +14,13 @@ import { BuilderStepper } from "@/components/code-builder/builder-stepper";
 import { ControlModuleList } from "@/components/code-builder/control-module-list";
 import { ArtifactViewer } from "@/components/code-builder/artifact-viewer";
 import { ArtifactPanel } from "@/components/code-builder/artifact-panel";
+import type { CodegenLayer } from "@/lib/spec-builder/codegen";
 
 export default function CodeBuilderPage() {
   const { projectId, specId } = useParams<{ projectId: string; specId: string }>();
   const { data: spec } = useSpecProject(specId);
-  const { artifacts, approve, saveEdit } = useCodeBuilder(specId);
+  const [activeLayer, setActiveLayer] = useState<CodegenLayer>("device");
+  const { artifacts, approve, saveEdit, unitGroups = [], emById = {} } = useCodeBuilder(specId, activeLayer);
   const [selected, setSelected] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<string>("");
@@ -32,6 +34,7 @@ export default function CodeBuilderPage() {
     () => (current ? views.filter((v) => v.owner_id && v.owner_id === current.owner_id) : []),
     [views, current],
   );
+  const emInfo = current?.owner_id ? emById[current.owner_id] : undefined;
 
   if (spec && spec.confirmation_status !== "confirmed") {
     return (
@@ -61,7 +64,16 @@ export default function CodeBuilderPage() {
         </Button>
         <h1 className="font-mono text-sm font-semibold">{spec?.doc_code}</h1>
         <div className="ml-4">
-          <BuilderStepper active="device" />
+          <BuilderStepper
+            active={activeLayer === "em" ? "em" : "device"}
+            onSelect={(step) => {
+              if (step === "device" || step === "em") {
+                setActiveLayer(step);
+                setSelected(null);
+                setEditing(false);
+              }
+            }}
+          />
         </div>
         <Badge variant="outline" className="ml-auto text-[10px]">
           Phase 4 — Code Builder
@@ -72,6 +84,8 @@ export default function CodeBuilderPage() {
         <div className="min-h-0 overflow-auto border-r">
           <ControlModuleList
             artifacts={views}
+            layer={activeLayer}
+            unitGroups={unitGroups}
             selected={selected}
             onSelect={(n) => {
               setSelected(n);
@@ -85,6 +99,8 @@ export default function CodeBuilderPage() {
             related={related}
             editable={editing}
             onContentChange={setDraft}
+            states={emInfo?.states}
+            transitions={emInfo?.transitions}
           />
         </div>
         <div className="min-h-0 overflow-auto">
