@@ -1,4 +1,5 @@
 import type { CodegenLayer } from "@/lib/spec-builder/codegen";
+import type { ReviewFinding } from "@/lib/forge-review-parser";
 
 /** A persisted row in code_builder_artifacts. */
 export interface CodeBuilderArtifactRow {
@@ -17,6 +18,9 @@ export interface CodeBuilderArtifactRow {
   status: "pending" | "approved";
   approved_by: string | null;
   approved_at: string | null;
+  acknowledged_warnings: string[];
+  review_status: "pass" | "findings" | null;
+  review_findings: ReviewFinding[];
   updated_at: string;
 }
 
@@ -37,6 +41,9 @@ export interface CodeBuilderArtifactView {
   drift: boolean;
   /** AI-fill region ids whose body changed on recompile (subset of `drift`). */
   regionDrift: string[];
+  acknowledged_warnings: string[];
+  review_status: "pass" | "findings" | null;
+  review_findings: ReviewFinding[];
 }
 
 /** The upsert payload written back to Supabase (no id; conflict on the unique key). */
@@ -51,4 +58,17 @@ export interface CodeBuilderArtifactUpsert {
   folder: string;
   dependencies: string[];
   generated_content: string;
+}
+
+/** A snapshot row in code_builder_versions. */
+export interface CodeBuilderVersionRow {
+  id: string;
+  spec_id: string;
+  revision: number;
+  owner_id: string;
+  layer: CodegenLayer;
+  payload: { artifacts: { artifact_name: string; content: string }[] };
+  note: string;
+  author: string | null;
+  created_at: string;
 }

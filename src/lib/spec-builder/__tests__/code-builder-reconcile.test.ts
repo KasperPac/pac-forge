@@ -14,7 +14,7 @@ const row = (over: Partial<CodeBuilderArtifactRow>): CodeBuilderArtifactRow => (
   layer: "device", owner_id: "cm-1", type: "DB", filename: "CM_Motor_M01_DB.db",
   folder: "Program blocks", dependencies: ["CM_Motor"],
   generated_content: "DATA_BLOCK v1", edited_content: null, status: "pending",
-  approved_by: null, approved_at: null, updated_at: "", ...over,
+  approved_by: null, approved_at: null, acknowledged_warnings: [], review_status: null, review_findings: [], updated_at: "", ...over,
 });
 
 describe("reconcileArtifacts", () => {
@@ -75,5 +75,24 @@ describe("reconcileArtifacts", () => {
     });
     expect(v.drift).toBe(true);
     expect(v.regionDrift).toEqual(["EM_X:running.1"]);
+  });
+
+  it("carries persisted gate/review state from the prior row", () => {
+    const existing = [row({
+      acknowledged_warnings: ["MISSING_INTERLOCK:12"],
+      review_status: "findings",
+      review_findings: [{ severity: "WARNING", artifactName: "CM_Motor_M01_DB", message: "x" }],
+    })];
+    const [v] = reconcileArtifacts({ specId: "s1", revision: 2, compiled: [artifact({})], existing });
+    expect(v.acknowledged_warnings).toEqual(["MISSING_INTERLOCK:12"]);
+    expect(v.review_status).toBe("findings");
+    expect(v.review_findings).toHaveLength(1);
+  });
+
+  it("defaults persisted gate/review state when there is no prior row", () => {
+    const [v] = reconcileArtifacts({ specId: "s1", revision: 2, compiled: [artifact({})], existing: [] });
+    expect(v.acknowledged_warnings).toEqual([]);
+    expect(v.review_status).toBeNull();
+    expect(v.review_findings).toEqual([]);
   });
 });

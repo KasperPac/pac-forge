@@ -41,6 +41,9 @@ export function reconcileArtifacts(input: ReconcileInput): CodeBuilderArtifactVi
       status: prior?.status ?? "pending",
       drift,
       regionDrift,
+      acknowledged_warnings: prior?.acknowledged_warnings ?? [],
+      review_status: prior?.review_status ?? null,
+      review_findings: prior?.review_findings ?? [],
     };
   });
 }
