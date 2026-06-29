@@ -5,26 +5,28 @@
 import type {
   EquipmentModuleConfig,
   UnitConfig,
-  OperatingState,
   InstrumentTag,
   ControlModuleStateEntry,
   FdsValidationResult,
   FdsValidationIssue,
-  UnitProcedure,
-  OperationSession,
   ProcessModel,
 } from "@/types/spec-builder";
-import type { SequentialStateV2 } from "@/types/spec-contract-v2";
+import type { EmStateV2, SequentialStateV2 } from "@/types/spec-contract-v2";
 
 // ---------------------------------------------------------------------------
 // Equipment-module-level validation
 // ---------------------------------------------------------------------------
 
+/**
+ * Validate one equipment module against its OWN authored states (hybrid state
+ * model). `emStates` are this EM's states (EmStateV2.kind = static | sequential);
+ * static/sequential behaviour is keyed by the EM-local state_id.
+ */
 export function validateEquipmentModule(
   equipment_module: EquipmentModuleConfig,
   staticStates: Record<string, ControlModuleStateEntry[]>,
   sequentialStates: Record<string, SequentialStateV2>,
-  allStates: OperatingState[],
+  emStates: EmStateV2[],
   allTags: InstrumentTag[],
 ): FdsValidationResult {
   const issues: FdsValidationIssue[] = [];
@@ -41,8 +43,8 @@ export function validateEquipmentModule(
   const outputTags = equipment_moduleTags.filter((t) => t.signal_direction === "DO" || t.signal_direction === "AO");
   const allTagNames = new Set(allTags.map((t) => t.tag));
 
-  const staticStateIds = allStates.filter((s) => s.state_pattern === "static");
-  const sequentialStateIds = allStates.filter((s) => s.state_pattern === "sequential");
+  const staticStateIds = emStates.filter((s) => s.kind === "static");
+  const sequentialStateIds = emStates.filter((s) => s.kind === "sequential");
 
   // --- Check 1: Tag coverage in static states ---
   for (const state of staticStateIds) {
@@ -54,7 +56,7 @@ export function validateEquipmentModule(
         issues.push({
           severity: "error",
           category: "tag_coverage",
-          message: `Output tag ${tag.tag} missing from ${state.state_name} device state table`,
+          message: `Output tag ${tag.tag} missing from ${state.name} device state table`,
           equipment_module_id: equipment_module.equipment_module_id,
           state_id: state.state_id,
           tag: tag.tag,
@@ -70,7 +72,7 @@ export function validateEquipmentModule(
       issues.push({
         severity: "error",
         category: "state_completeness",
-        message: `No steps defined for ${state.state_name}`,
+        message: `No steps defined for ${state.name}`,
         equipment_module_id: equipment_module.equipment_module_id,
         state_id: state.state_id,
       });
@@ -154,103 +156,6 @@ export function validateEquipmentModule(
 }
 
 // ---------------------------------------------------------------------------
-// Unit-level validation (cross-equipment_module)
-// ---------------------------------------------------------------------------
-
-export function validateUnit(
-  unit: UnitConfig,
-  sessions: OperationSession[],
-  orchestration: UnitProcedure | null,
-  allStates: OperatingState[],
-  allTags: InstrumentTag[],
-): FdsValidationResult {
-  const issues: FdsValidationIssue[] = [];
-  const sequentialStates = allStates.filter((s) => s.state_pattern === "sequential");
-
-  // Run equipment-module-level validation for each session
-  for (const session of sessions) {
-    const equipment_module = unit.equipment_modules.find((a) => a.equipment_module_id === session.equipment_module_id);
-    if (!equipment_module) continue;
-
-    const equipment_moduleResult = validateEquipmentModule(
-      equipment_module,
-      session.static_states,
-      session.sequential_states,
-      allStates,
-      allTags,
-    );
-    issues.push(...equipment_moduleResult.issues);
-  }
-
-  // --- Check: Orchestration exists ---
-  if (unit.equipment_modules.length > 1 && !orchestration) {
-    issues.push({
-      severity: "warning",
-      category: "orchestration",
-      message: `Unit "${unit.unit_name}" has ${unit.equipment_modules.length} equipment_modules but no orchestration defined`,
-    });
-  }
-
-  if (orchestration) {
-    const equipment_moduleIds = new Set(unit.equipment_modules.map((a) => a.equipment_module_id));
-
-    for (const state of sequentialStates) {
-      const seq = orchestration.state_sequences[state.state_id];
-      if (!seq) {
-        issues.push({
-          severity: "warning",
-          category: "orchestration",
-          message: `No orchestration order defined for ${state.state_name}`,
-          state_id: state.state_id,
-        });
-        continue;
-      }
-
-      // Check equipment_module order references valid equipment_modules
-      for (const asmId of seq.equipment_module_order) {
-        if (!equipment_moduleIds.has(asmId)) {
-          issues.push({
-            severity: "error",
-            category: "orchestration",
-            message: `Equipment Module order references unknown equipment_module "${asmId}" in ${state.state_name}`,
-            state_id: state.state_id,
-            equipment_module_id: asmId,
-          });
-        }
-      }
-
-      // Check all equipment_modules are in the order
-      for (const asmId of equipment_moduleIds) {
-        if (!seq.equipment_module_order.includes(asmId)) {
-          issues.push({
-            severity: "warning",
-            category: "orchestration",
-            message: `Equipment Module "${asmId}" not included in ${state.state_name} execution order`,
-            state_id: state.state_id,
-            equipment_module_id: asmId,
-          });
-        }
-      }
-
-      // --- Check: Circular interlocks ---
-      const circularIssues = detectCircularInterlocks(seq.inter_equipment_module_interlocks);
-      issues.push(...circularIssues.map((msg) => ({
-        severity: "error" as const,
-        category: "circular_interlock" as const,
-        message: msg,
-        state_id: state.state_id,
-      })));
-    }
-  }
-
-  return {
-    passed: issues.filter((i) => i.severity === "error").length === 0,
-    checked_at: new Date().toISOString(),
-    issues,
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -281,50 +186,6 @@ function hasFailurePath(text: string): boolean {
     /on\s+failure/i.test(text) ||
     /if\s+not\s+confirmed/i.test(text) ||
     /timeout.*transition/i.test(text);
-}
-
-/** Detect circular interlocks via DFS cycle detection */
-function detectCircularInterlocks(
-  interlocks: Array<{ source_equipment_module: string; target_equipment_module: string }>,
-): string[] {
-  // Build adjacency list: target depends on source
-  const deps = new Map<string, Set<string>>();
-  for (const il of interlocks) {
-    if (!deps.has(il.target_equipment_module)) deps.set(il.target_equipment_module, new Set());
-    deps.get(il.target_equipment_module)!.add(il.source_equipment_module);
-  }
-
-  const issues: string[] = [];
-  const visited = new Set<string>();
-  const inStack = new Set<string>();
-
-  function dfs(node: string, path: string[]): boolean {
-    if (inStack.has(node)) {
-      const cycleStart = path.indexOf(node);
-      const cycle = [...path.slice(cycleStart), node];
-      issues.push(`Circular interlock: ${cycle.join(" → ")}`);
-      return true;
-    }
-    if (visited.has(node)) return false;
-
-    visited.add(node);
-    inStack.add(node);
-
-    for (const dep of deps.get(node) ?? []) {
-      dfs(dep, [...path, node]);
-    }
-
-    inStack.delete(node);
-    return false;
-  }
-
-  for (const node of deps.keys()) {
-    if (!visited.has(node)) {
-      dfs(node, []);
-    }
-  }
-
-  return issues;
 }
 
 // ---------------------------------------------------------------------------

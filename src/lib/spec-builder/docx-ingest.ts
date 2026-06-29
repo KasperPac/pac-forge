@@ -192,6 +192,8 @@ export async function ingestDocx(
         equipment_modules[asy.equipment_module_id] = {
           equipment_module_id: asy.equipment_module_id,
           unit_id: sub.unit_id,
+          states: [],
+          transitions: [],
           static_states: stateResult.staticByEquipmentModule[asy.equipment_module_id] ?? {},
           sequential_states: sequentialStates[asy.equipment_module_id] ?? {},
         };
@@ -218,10 +220,9 @@ export async function ingestDocx(
         scope_exclusions: [],
       },
       hierarchy: hierarchyResult.hierarchy,
-      states: [],
       alarm_tiers: [],
       equipment_modules,
-      unit_procedures: {},
+      safety_gates: [],
       alarms,
       io_list: [],
       faults: [],

@@ -18,13 +18,17 @@ import type { IoSignalKind } from "./io-allocator";
 import type { RandomFdsControlModuleClass } from "./theme-schema";
 import { DEVICE_TEMPLATES, type StateKey } from "./device-templates";
 import {
-  STATE_ID_IDLE,
   STATE_ID_STARTING,
   STATE_ID_EXECUTE,
   STATE_ID_STOPPING,
-  STATE_ID_COMPLETE,
-  STATE_ID_E_STOP,
+  EM_LOCAL_IDLE,
+  EM_LOCAL_STARTING,
+  EM_LOCAL_EXECUTE,
+  EM_LOCAL_STOPPING,
+  EM_LOCAL_COMPLETE,
+  EM_LOCAL_ESTOP,
 } from "./state-machine";
+import { buildEmCanonicalStateMachine } from "./em-state-machine-builder";
 
 export interface ResolvedIoSignal {
   tag: string;
@@ -181,18 +185,21 @@ export function buildEquipmentModuleContracts(
 ): Record<string, EquipmentModuleContract> {
   const out: Record<string, EquipmentModuleContract> = {};
   for (const asm of equipment_modules) {
+    const machine = buildEmCanonicalStateMachine();
     const contract: EquipmentModuleContract = {
       equipment_module_id: asm.equipment_module_id,
       unit_id: asm.unit_id,
+      states: machine.states,
+      transitions: machine.transitions,
       static_states: {
-        [String(STATE_ID_IDLE)]: emptyStatic(),
-        [String(STATE_ID_COMPLETE)]: emptyStatic(),
-        [String(STATE_ID_E_STOP)]: emptyStatic(),
+        [EM_LOCAL_IDLE]: emptyStatic(),
+        [EM_LOCAL_COMPLETE]: emptyStatic(),
+        [EM_LOCAL_ESTOP]: emptyStatic(),
       },
       sequential_states: {
-        [String(STATE_ID_STARTING)]: buildSequentialState(asm, "STARTING"),
-        [String(STATE_ID_EXECUTE)]: buildSequentialState(asm, "EXECUTE"),
-        [String(STATE_ID_STOPPING)]: buildSequentialState(asm, "STOPPING"),
+        [EM_LOCAL_STARTING]: buildSequentialState(asm, "STARTING"),
+        [EM_LOCAL_EXECUTE]: buildSequentialState(asm, "EXECUTE"),
+        [EM_LOCAL_STOPPING]: buildSequentialState(asm, "STOPPING"),
       },
     };
     // Belt-and-braces — fail loudly here, not at insert time.

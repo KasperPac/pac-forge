@@ -119,12 +119,6 @@ interface SpecContractV2 {
       notes: string | null;
     }>;
   }>;
-  unit_procedures: Record<string, Record<string, {
-    equipment_module_order: string[];
-    shared_permissives: string[];
-    inter_equipment_module_interlocks: Array<{ source_equipment_module: string; source_condition: string; target_equipment_module: string; effect: string }>;
-    notes: string | null;
-  }>>;
   alarms: Array<{
     id: string;
     tier_id: string;
@@ -441,14 +435,9 @@ function postProcess(raw: unknown): Record<string, unknown> {
       scope_exclusions: [],
     },
     hierarchy: { units: normalisedSubs },
-    states: Array.isArray(obj.states) ? obj.states : [],
     alarm_tiers: Array.isArray(obj.alarm_tiers) ? obj.alarm_tiers : [],
     equipment_modules:
       obj.equipment_modules && typeof obj.equipment_modules === "object" ? obj.equipment_modules : {},
-    unit_procedures:
-      obj.unit_procedures && typeof obj.unit_procedures === "object"
-        ? obj.unit_procedures
-        : {},
     alarms: Array.isArray(obj.alarms) ? obj.alarms : [],
     io_list: Array.isArray(obj.io_list) ? obj.io_list : [],
     faults: Array.isArray(obj.faults) ? obj.faults : [],

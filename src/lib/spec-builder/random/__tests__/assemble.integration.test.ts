@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SpecContractPatchSchema, validateSpecContractPatch } from "@/lib/spec-builder/contract";
+import { validateEmStateMachine } from "@/lib/spec-builder/em-state-machine";
 import { assembleRandomFds } from "../assemble";
 import type { RandomFdsTheme } from "../theme-schema";
 
@@ -87,10 +88,63 @@ describe("assembleRandomFds — patch passes validator", () => {
     }
   });
 
-  it("produces one orchestration row per multi-equipment_module unit", () => {
-    const theme = makeTheme(2, 4, 12); // 2 equipment_modules per unit ⇒ both eligible
+  it("emits no global states array or unit_procedures on the patch (hybrid model)", () => {
+    const theme = makeTheme(2, 4, 12);
     const result = assembleRandomFds(theme, { projectId: "00000000-0000-0000-0000-000000000001" });
-    expect(result.unit_procedures).toHaveLength(2);
+    expect(result.patch.states).toBeUndefined();
+    // unit_procedures was removed from the contract entirely (hybrid model).
+    expect("unit_procedures" in result.patch).toBe(false);
+    expect("unit_procedures" in result).toBe(false);
+  });
+
+  it("emits machine-level safety_gates on the patch", () => {
+    // Theme with a safety control_module → its IO tags become safety gates.
+    const theme: RandomFdsTheme = {
+      title: "Safety Theme",
+      system_description: "x",
+      plc_model: "S7-1500",
+      hmi_type: "TP1200",
+      fault_philosophy: "x",
+      design_principles: ["x"],
+      machine_theme: "x",
+      safety_classification: null,
+      units: [
+        {
+          unit_name: "SS1",
+          equipment_type: "Conveyor",
+          description: "",
+          equipment_modules: [
+            {
+              equipment_module_name: "ASM1",
+              description: "",
+              control_modules: [
+                { control_module_name: "M1", control_module_class: "motor", description: "", is_safety: false },
+                { control_module_name: "ES1", control_module_class: "emergency_stop", description: "", is_safety: true },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const result = assembleRandomFds(theme, { projectId: "00000000-0000-0000-0000-000000000001" });
+    expect(result.patch.safety_gates).toBeDefined();
+    expect(result.patch.safety_gates!.length).toBeGreaterThan(0);
+    for (const g of result.patch.safety_gates!) {
+      expect(g.scope).toBe("all");
+      expect(g.condition.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("attaches a per-EM state machine to every equipment module contract", () => {
+    const theme = makeTheme(2, 4, 12);
+    const result = assembleRandomFds(theme, { projectId: "00000000-0000-0000-0000-000000000001" });
+    const ems = Object.values(result.patch.equipment_modules ?? {});
+    expect(ems).toHaveLength(4);
+    for (const ctr of ems) {
+      expect(ctr.states.length).toBeGreaterThan(0);
+      expect(ctr.transitions.length).toBeGreaterThan(0);
+      expect(validateEmStateMachine(ctr)).toEqual([]);
+    }
   });
 
   it("produces functional_description section rows for every (equipment_module, state) pair", () => {

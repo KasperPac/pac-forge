@@ -5,7 +5,7 @@
  */
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
-import { ArrowLeft, Layers, Loader2, MessageSquare } from "lucide-react";
+import { ArrowLeft, Hammer, Layers, Loader2, MessageSquare } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -16,30 +16,23 @@ import {
   useInstrumentRegister,
 } from "@/hooks/use-spec-projects";
 import { useUnconfirmedLock } from "@/hooks/use-unconfirmed-lock";
-import { UnconfirmedLockBanner } from "@/components/spec-builder/migrate/unconfirmed-lock-banner";
-import {
-  migrateUnitConfig,
-  migrateOperatingStates,
-} from "@/types/spec-builder";
+import { UnconfirmedLockBanner } from "@/components/spec-builder/unconfirmed-lock-banner";
+import { migrateUnitConfig } from "@/types/spec-builder";
 
 type CoAuthorView = "fds" | "process-model";
 
 export default function SpecCoAuthorPage() {
   const { projectId, specId } = useParams<{ projectId: string; specId: string }>();
-  const { isUnconfirmed, migrateHref } = useUnconfirmedLock(projectId ?? "", specId ?? "");
+  const { isUnconfirmed } = useUnconfirmedLock(projectId ?? "", specId ?? "");
   const { data: rawSpec, isLoading } = useSpecProject(specId);
   const { data: register } = useInstrumentRegister(specId);
   const [view, setView] = useState<CoAuthorView>("fds");
-
   const spec = useMemo(() => {
     if (!rawSpec) return null;
     return {
       ...rawSpec,
       confirmed_units: rawSpec.confirmed_units?.length
         ? migrateUnitConfig(rawSpec.confirmed_units)
-        : [],
-      confirmed_states: rawSpec.confirmed_states?.length
-        ? migrateOperatingStates(rawSpec.confirmed_states)
         : [],
       scope_exclusions: rawSpec.scope_exclusions ?? [],
       design_principles: rawSpec.design_principles ?? [],
@@ -82,7 +75,7 @@ export default function SpecCoAuthorPage() {
 
   return (
     <div className="flex h-full flex-col -m-4">
-      {isUnconfirmed && <UnconfirmedLockBanner migrateHref={migrateHref} />}
+      {isUnconfirmed && <UnconfirmedLockBanner />}
       {/* Header */}
       <div className="flex items-center gap-3 border-b px-4 h-12 shrink-0">
         <Button
@@ -125,6 +118,31 @@ export default function SpecCoAuthorPage() {
           <Badge variant="secondary" className="text-[10px]" title={revisionLabel}>
             Approved
           </Badge>
+        )}
+        {spec.confirmation_status === "confirmed" ? (
+          <Button
+            asChild
+            size="sm"
+            variant="outline"
+            className="h-7 text-[11px] gap-1.5 px-2.5"
+            title="Open the Code Builder to compile and review SCL"
+          >
+            <Link to={`/specs/${projectId}/${specId}/code-builder`}>
+              <Hammer className="h-3.5 w-3.5" />
+              Open Code Builder
+            </Link>
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-[11px] gap-1.5 px-2.5"
+            disabled
+            title="Confirm the spec before opening the Code Builder"
+          >
+            <Hammer className="h-3.5 w-3.5" />
+            Open Code Builder
+          </Button>
         )}
       </div>
 

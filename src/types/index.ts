@@ -8,6 +8,7 @@ export * from "./pattern";
 export * from "./snapshot";
 export * from "./tia";
 export * from "./fb-template";
+export * from "./fb-interface";
 export * from "./design-profile";
 export * from "./agent-knowledge";
 export * from "./prompt-section";

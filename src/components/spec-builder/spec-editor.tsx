@@ -33,8 +33,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useUpdateSpecSection } from "@/hooks/use-spec-projects";
-import type { SpecSection, SpecProject, FunctionalDescriptionContent, ControlModuleStateEntry, StepEntry } from "@/types/spec-builder";
-import { migrateOperatingStates } from "@/types/spec-builder";
+import type { SpecSection, SpecProject, FunctionalDescriptionContent, ControlModuleStateEntry, StepEntry, TransitionEntry } from "@/types/spec-builder";
+import { groupUnitStatesByEm, buildEmOperationView, permissiveParts } from "@/lib/spec-builder/operating-sequence";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -59,9 +59,10 @@ function buildTree(sections: SpecSection[], spec: SpecProject): TreeGroup[] {
   const groups: TreeGroup[] = [];
   const unitName = (id: string | null) =>
     spec.confirmed_units.find((s) => s.unit_id === id)?.unit_name ?? id ?? "?";
-  const states = migrateOperatingStates(spec.confirmed_states);
-  const stateName = (id: string | null) =>
-    states.find((s) => s.state_id === id)?.state_name ?? id ?? "?";
+  // Per-(EM, state) functional_description rows carry their own human label in
+  // `state_name` (compose writes "<state> — <em>"). No global state list to
+  // resolve against anymore — render the row's label directly.
+  const stateName = (id: string | null) => id ?? "?";
 
   const hasV2 = sections.some((s) =>
     s.section_type === "document_control" ||
@@ -105,17 +106,30 @@ function buildTree(sections: SpecSection[], spec: SpecProject): TreeGroup[] {
     };
     if (equipment.length > 0 || funcDescs.length > 0) {
       const funcNodes: TreeNode[] = [];
-      for (const eq of equipment) {
-        funcNodes.push({
-          id: eq.id,
-          label: `${unitName(eq.unit_id)} — Equipment`,
-          icon: Boxes,
-          section: eq,
-          approved: eq.approved,
-        });
+      // Group by unit across BOTH equipment_description and functional_description
+      // rows. Func descriptions must render even when no equipment_description
+      // sections exist (compose only emits functional_description) — otherwise
+      // the per-(EM, state) rows are orphaned and the tree looks empty.
+      const unitIds = Array.from(
+        new Set([
+          ...equipment.map((e) => e.unit_id),
+          ...funcDescs.map((f) => f.unit_id),
+        ]),
+      );
+      for (const unitId of unitIds) {
+        const eq = equipment.find((e) => e.unit_id === unitId);
+        if (eq) {
+          funcNodes.push({
+            id: eq.id,
+            label: `${unitName(eq.unit_id)} — Equipment`,
+            icon: Boxes,
+            section: eq,
+            approved: eq.approved,
+          });
+        }
         // Add functional descriptions for this unit — sort by (state, equipment_module name)
         const subFuncs = funcDescs
-          .filter((fd) => fd.unit_id === eq.unit_id)
+          .filter((fd) => fd.unit_id === unitId)
           .slice()
           .sort((a, b) => {
             const stateA = stateName(a.state_name);
@@ -310,7 +324,7 @@ export function SpecEditor({
         {/* Editor pane */}
         <div className="flex-1 overflow-auto">
           {selected ? (
-            <SectionEditor section={selected} />
+            <SectionEditor section={selected} spec={spec} sections={sections} />
           ) : (
             <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
               No section selected
@@ -326,7 +340,7 @@ export function SpecEditor({
 // Section editor dispatcher
 // ---------------------------------------------------------------------------
 
-function SectionEditor({ section }: { section: SpecSection }) {
+function SectionEditor({ section, spec, sections }: { section: SpecSection; spec: SpecProject; sections: SpecSection[] }) {
   // Keep a local working copy per section — reset when section.id changes.
   const [content, setContent] = useState<Record<string, unknown>>(section.content_json);
   const [dirty, setDirty] = useState(false);
@@ -402,7 +416,7 @@ function SectionEditor({ section }: { section: SpecSection }) {
       {section.section_type === "testing_fat" && <TestingFatEditor content={content} set={set} />}
       {/* V1 legacy editors */}
       {section.section_type === "introduction" && <IntroductionEditor content={content} set={set} />}
-      {section.section_type === "equipment_description" && <EquipmentEditor content={content} set={set} />}
+      {section.section_type === "equipment_description" && <EquipmentEditor content={content} set={set} unitId={section.unit_id ?? null} spec={spec} sections={sections} />}
       {section.section_type === "functional_state" && <StateEditor content={content} set={set} />}
       {section.section_type === "alarm_table" && <AlarmEditor content={content} set={set} />}
       {section.section_type === "settings_table" && <SettingsEditor content={content} set={set} />}
@@ -471,8 +485,14 @@ interface DeviceRow {
   description: string;
 }
 
-function EquipmentEditor({ content, set }: EditorProps) {
+function EquipmentEditor({ content, set, unitId, spec, sections }: EditorProps & { unitId: string | null; spec: SpecProject; sections: SpecSection[] }) {
   const table = (content.control_module_table as DeviceRow[]) ?? [];
+
+  // Read-only operating-sequence view per EM in this unit — the same Steps &
+  // Actions tables the DOCX renders, so the operation is visible in the editor.
+  const unitCfg = spec.confirmed_units.find((u) => u.unit_id === unitId);
+  const funcDescs = sections.filter((s) => s.section_type === "functional_description" && s.unit_id === unitId);
+  const emGroups = groupUnitStatesByEm(funcDescs, unitCfg);
 
   const updateRow = (i: number, patch: Partial<DeviceRow>) => {
     const next = table.map((r, idx) => (idx === i ? { ...r, ...patch } : r));
@@ -487,13 +507,89 @@ function EquipmentEditor({ content, set }: EditorProps) {
 
   return (
     <div className="space-y-4">
-      <Field label="Prose Description">
+      <Field label="Process Flow / Operation (prose)">
         <Textarea
-          rows={5}
+          rows={6}
           value={(content.prose as string) ?? ""}
           onChange={(e) => set({ prose: e.target.value })}
         />
       </Field>
+
+      {/* Operating sequence per EM — read-only (derived from each EM's states + transitions) */}
+      {emGroups.map((g) => {
+        const view = buildEmOperationView(g.states);
+        return (
+          <div key={g.emId} className="space-y-1.5">
+            <label className="text-xs font-semibold">{g.emName} — Steps &amp; Actions</label>
+            <div className="space-y-1">
+              <div className="text-[11px]">
+                <span className="font-semibold">Permissives</span>
+                <span className="text-muted-foreground"> (must hold throughout; loss → safe state)</span>
+              </div>
+              {view.permissives.length > 0 ? (
+                <div className="border rounded-md overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted/50">
+                      <tr>
+                        <th className="p-2 text-left font-mono font-normal w-2/3">Permissive (tag)</th>
+                        <th className="p-2 text-left font-mono font-normal">Required</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {view.permissives.map((perm, i) => {
+                        const { tag, requirement } = permissiveParts(perm);
+                        return (
+                          <tr key={i} className="border-t">
+                            <td className="p-2 font-mono font-medium">{tag}</td>
+                            <td className="p-2 font-mono">{requirement}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-[11px] italic text-muted-foreground">none defined on this equipment module</div>
+              )}
+            </div>
+            <div className="border rounded-md overflow-hidden">
+              <table className="w-full text-xs">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="p-2 text-left font-mono font-normal w-12">Step</th>
+                    <th className="p-2 text-left font-mono font-normal w-1/6">State</th>
+                    <th className="p-2 text-left font-mono font-normal">Action</th>
+                    <th className="p-2 text-left font-mono font-normal">Condition</th>
+                    <th className="p-2 text-left font-mono font-normal w-16">Next step</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {view.steps.flatMap((st) => {
+                    const adv = st.advance.length ? st.advance : [{ condition: "—", nextStep: "—" }];
+                    return adv.map((a, ri) => (
+                      <tr key={`${st.step}-${ri}`} className={`align-top ${ri === 0 ? "border-t" : ""}`}>
+                        {ri === 0 && (
+                          <>
+                            <td className="p-2 font-mono font-bold" rowSpan={adv.length}>{st.step}</td>
+                            <td className="p-2 font-medium" rowSpan={adv.length}>{st.stateName}</td>
+                            <td className="p-2 font-mono" rowSpan={adv.length}>{st.action.map((l, j) => <div key={j}>{l}</div>)}</td>
+                          </>
+                        )}
+                        <td className="p-2 font-mono">{a.condition}</td>
+                        <td className="p-2 font-mono font-bold">{a.nextStep}</td>
+                      </tr>
+                    ));
+                  })}
+                  {view.steps.length === 0 && (
+                    <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">No states defined for this equipment module.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })}
+
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
           <label className="text-xs font-semibold">Device Table</label>
@@ -648,6 +744,9 @@ function DocumentControlEditor({ content, set }: EditorProps) {
 function SystemOverviewEditor({ content, set }: EditorProps) {
   return (
     <div className="space-y-4">
+      <Field label="Brief Functioning Description">
+        <Textarea rows={5} value={(content.brief_functioning_description as string) ?? ""} onChange={(e) => set({ brief_functioning_description: e.target.value })} />
+      </Field>
       <Field label="Hardware Description">
         <Textarea rows={4} value={(content.hardware_description as string) ?? ""} onChange={(e) => set({ hardware_description: e.target.value })} />
       </Field>
@@ -718,6 +817,43 @@ function ControlPhilosophyEditor({ content, set }: EditorProps) {
   );
 }
 
+/**
+ * Read-only view of a state's outgoing transitions — the operation logic
+ * (what command/condition moves the EM, the permissive guards, the target).
+ * Derived from the EM's authored transitions, so it is not edited here.
+ */
+function TransitionsView({ transitions }: { transitions?: TransitionEntry[] }) {
+  if (!transitions?.length) return null;
+  return (
+    <Field label="Transitions (operation logic)">
+      <div className="border rounded-md overflow-hidden">
+        <table className="w-full text-xs">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="p-2 text-left font-mono font-normal w-1/3">When (trigger)</th>
+              <th className="p-2 text-left font-mono font-normal">Permissives</th>
+              <th className="p-2 text-left font-mono font-normal w-1/5">Go to state</th>
+            </tr>
+          </thead>
+          <tbody>
+            {transitions.map((tr, i) => (
+              <tr key={i} className="border-t align-top">
+                <td className="p-2 font-mono">{tr.trigger}</td>
+                <td className="p-2 font-mono">
+                  {tr.permissives.length
+                    ? tr.permissives.map((perm, j) => <div key={j}>{perm}</div>)
+                    : <span className="text-muted-foreground">—</span>}
+                </td>
+                <td className="p-2 font-mono font-bold">{tr.to_state}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Field>
+  );
+}
+
 function FunctionalDescriptionEditor({ content, set }: EditorProps) {
   const fdContent = content as unknown as FunctionalDescriptionContent;
 
@@ -757,6 +893,10 @@ function FunctionalDescriptionEditor({ content, set }: EditorProps) {
           </table>
         </div>
         <Button size="sm" variant="outline" onClick={() => set({ control_module_states: [...deviceStates, { tag: "", description: "", state: "" }] })}><Plus className="h-3 w-3 mr-1" /> Add Row</Button>
+        <Field label="Notes">
+          <Textarea rows={2} value={(fdContent.notes as string) ?? ""} onChange={(e) => set({ notes: e.target.value })} />
+        </Field>
+        <TransitionsView transitions={fdContent.transitions} />
       </div>
     );
   }
@@ -820,6 +960,7 @@ function FunctionalDescriptionEditor({ content, set }: EditorProps) {
           <Textarea rows={2} value={(fdContent.notes as string) ?? ""} onChange={(e) => set({ notes: e.target.value })} />
         </Field>
       )}
+      <TransitionsView transitions={fdContent.transitions} />
     </div>
   );
 }
@@ -891,6 +1032,33 @@ function AlarmSpecEditor({ content, set }: EditorProps) {
                     {(c.effects as boolean[] ?? []).map((eff, j) => (
                       <td key={j} className="p-2 text-center text-xs">{eff ? "✓" : "—"}</td>
                     ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Field>
+      )}
+      {/* Interlocks (process / coordination) — read-only */}
+      {Boolean((content.interlocks as Array<Record<string, unknown>>)?.length) && (
+        <Field label="Interlocks (process / coordination)">
+          <div className="border rounded-md overflow-hidden">
+            <table className="w-full text-xs">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="p-2 text-left font-mono font-normal">Interlock</th>
+                  <th className="p-2 text-left font-mono font-normal">Cause</th>
+                  <th className="p-2 text-left font-mono font-normal">Effect</th>
+                  <th className="p-2 text-left font-mono font-normal">Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(content.interlocks as Array<Record<string, unknown>> ?? []).map((il, i) => (
+                  <tr key={i} className="border-t align-top">
+                    <td className="p-2 text-xs font-medium">{String(il.interlock)}</td>
+                    <td className="p-2 text-xs">{String(il.cause)}</td>
+                    <td className="p-2 text-xs">{String(il.effect)}</td>
+                    <td className="p-2 text-xs font-mono">{String(il.value)}</td>
                   </tr>
                 ))}
               </tbody>

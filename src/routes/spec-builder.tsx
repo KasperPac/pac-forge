@@ -66,14 +66,14 @@ import { InstrumentRegisterUpload } from "@/components/spec-builder/instrument-r
 import { SpecSkeletonWizard } from "@/components/spec-builder/spec-skeleton-wizard";
 import { useNextSpecDocCode } from "@/hooks/use-spec-doc-number";
 import { useSpecSections, useSpecExports } from "@/hooks/use-spec-projects";
-import { useFdsSessionsForProject, useFdsOrchestrationsForProject, useComposeFds } from "@/hooks/use-fds-session";
+import { useFdsSessionsForProject, useComposeFds } from "@/hooks/use-fds-session";
 import {
   computeCoAuthorStatus,
   computeEditorStatus,
   computeExportStatus,
 } from "@/components/spec-builder/spec-phase-status";
 import type { SpecProject } from "@/types/spec-builder";
-import { migrateUnitConfig, migrateOperatingStates } from "@/types/spec-builder";
+import { migrateUnitConfig } from "@/types/spec-builder";
 import { RandomFdsDialog } from "@/components/spec-builder/random-fds-dialog";
 import { cn } from "@/lib/utils";
 
@@ -368,7 +368,6 @@ function SpecListItem({
   const cfg = STATUS_CONFIG[spec.status];
   const StatusIcon = cfg.icon;
   const deleteSpec = useDeleteSpecProject();
-  const isUnconfirmed = spec.confirmation_status === "unconfirmed";
 
   return (
     <div
@@ -386,21 +385,6 @@ function SpecListItem({
           <p className="font-mono text-xs font-medium truncate">
             {spec.doc_code}
           </p>
-          {isUnconfirmed && spec.project_id && (
-            <Badge
-              variant="outline"
-              className="border-amber-300 text-amber-900 text-[10px] px-1 py-0 shrink-0"
-            >
-              V1 —{" "}
-              <Link
-                to={`/specs/${spec.project_id}/${spec.id}/migrate`}
-                className="underline ml-1"
-                onClick={(e) => e.stopPropagation()}
-              >
-                migrate
-              </Link>
-            </Badge>
-          )}
         </div>
         <p className="text-xs text-muted-foreground truncate">{spec.title}</p>
       </div>
@@ -449,9 +433,6 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
     confirmed_units: rawSpec.confirmed_units?.length
       ? migrateUnitConfig(rawSpec.confirmed_units)
       : [],
-    confirmed_states: rawSpec.confirmed_states?.length
-      ? migrateOperatingStates(rawSpec.confirmed_states)
-      : [],
     scope_exclusions: rawSpec.scope_exclusions ?? [],
     design_principles: rawSpec.design_principles ?? [],
   }), [rawSpec]);
@@ -460,14 +441,12 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
   const { data: sections } = useSpecSections(spec.id);
   const { data: exports } = useSpecExports(spec.id);
   const { data: fdsSessions } = useFdsSessionsForProject(spec.id);
-  const { data: unit_procedures } = useFdsOrchestrationsForProject(spec.id);
   const composeFds = useComposeFds();
   const hasRegister = !!register && (register.tags?.length ?? 0) > 0;
-  const hasWizardData = spec.confirmed_units.length > 0 && spec.confirmed_states.length > 0;
+  const hasWizardData = spec.confirmed_units.length > 0;
   const hasSections = (sections?.length ?? 0) > 0;
   const allApproved = hasSections && (sections ?? []).every((s) => s.approved);
   const hasExports = (exports?.length ?? 0) > 0;
-  const states = useMemo(() => migrateOperatingStates(spec.confirmed_states), [spec.confirmed_states]);
 
   // All equipment_modules complete when every session across all units is "complete"
   const totalAssemblies = spec.confirmed_units.reduce((n, s) => n + (s.equipment_modules?.length ?? 0), 0);
@@ -477,8 +456,7 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
   const handleCompose = async () => {
     for (const unit of spec.confirmed_units) {
       const sessions = (fdsSessions ?? []).filter((s) => s.unit_id === unit.unit_id);
-      const orchestration = (unit_procedures ?? []).find((o) => o.unit_id === unit.unit_id) ?? null;
-      await composeFds.mutateAsync({ spec_project_id: spec.id, unit, sessions, orchestration, allStates: states });
+      await composeFds.mutateAsync({ spec_project_id: spec.id, unit, sessions });
     }
   };
 
@@ -565,22 +543,7 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
         <PhaseStub number={3} title="FDS Authoring" locked lockedReason="Complete the Skeleton Wizard first" />
       )}
 
-      {/* Phase 4 — System Orchestration (before compose — orchestration data feeds into sections) */}
-      <Separator />
-      {hasWizardData ? (
-        <PhaseLaunchCard
-          number={4}
-          title="System Orchestration"
-          description="Define cross-unit interlocks, shared permissives and startup order."
-          status={spec.confirmed_units.length > 1 ? `${spec.confirmed_units.length} units` : "No units yet"}
-          ctaLabel="Open Orchestration"
-          to={`/specs/${projectIdForNav}/${spec.id}/system-orchestration`}
-        />
-      ) : (
-        <PhaseStub number={4} title="System Orchestration" locked lockedReason="Complete the Skeleton Wizard first" />
-      )}
-
-      {/* Phase 5 — Structured Spec Editor (unlocked after sections composed) */}
+      {/* Phase 4 — Structured Spec Editor (unlocked after sections composed) */}
       <Separator />
       {allSessionsComplete && hasWizardData && (
         <>
@@ -603,7 +566,7 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
       )}
       {hasSections ? (
         <PhaseLaunchCard
-          number={5}
+          number={4}
           title="Structured Spec Editor"
           description="Review and edit each section. Approve before export."
           status={computeEditorStatus(sections)}
@@ -612,14 +575,14 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
           to={`/specs/${projectIdForNav}/${spec.id}/editor`}
         />
       ) : (
-        <PhaseStub number={5} title="Structured Spec Editor" locked={!hasSections} lockedReason="Complete FDS authoring then Generate Spec Sections" />
+        <PhaseStub number={4} title="Structured Spec Editor" locked={!hasSections} lockedReason="Complete FDS authoring then Generate Spec Sections" />
       )}
 
-      {/* Phase 6 — DOCX Export */}
+      {/* Phase 5 — DOCX Export */}
       <Separator />
       {hasSections ? (
         <PhaseLaunchCard
-          number={6}
+          number={5}
           title="DOCX Export"
           description="Render the spec to Word. Optionally upload to Dropbox."
           status={computeExportStatus(exports)}
@@ -628,7 +591,7 @@ function SpecDetail({ spec: rawSpec }: { spec: SpecProject }) {
           to={`/specs/${projectIdForNav}/${spec.id}/export`}
         />
       ) : (
-        <PhaseStub number={6} title="DOCX Export" locked lockedReason="Complete FDS authoring first" />
+        <PhaseStub number={5} title="DOCX Export" locked lockedReason="Complete FDS authoring first" />
       )}
     </div>
   );

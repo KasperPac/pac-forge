@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What Is This
 
-Pac-Forge is an internal productivity web app (React + Vite + TypeScript) for industrial automation engineers at Pac Technologies. The primary module is **Pac-ST** — PLC code generation with Claude AI and Siemens TIA Portal integration. Pac-FD and Pac-IO are future modules; do not scaffold them unless asked.
+Pac-Forge ("Forja") is an internal productivity web app (React 19 + Vite + TypeScript) for industrial automation engineers at Pac Technologies. It spans the full delivery lifecycle: quoting, functional spec authoring, PLC code generation with Claude AI, HMI generation, and Siemens TIA Portal integration.
+
+The center of gravity is the **Spec Builder → Forge Wizard → Code Builder** pipeline that turns a functional design spec (FDS) into ISA-88/PackML-structured PLC code. **Pac-ST** is the original chat-driven codegen workspace and still ships, but is no longer the only or primary entry point. See the Modules section below for the full surface.
 
 ## Commands
 
@@ -13,9 +15,11 @@ npm run dev       # Start Vite dev server with HMR
 npm run build     # TypeScript check + Vite production build (tsc -b && vite build)
 npm run lint      # ESLint across the project
 npm run preview   # Preview production build locally
+npm test          # Run vitest (watch mode)
+npm run test:coverage  # Run vitest once with coverage
 ```
 
-No test runner is configured yet.
+`npm run dev` runs `node scripts/dev.mjs` (wraps Vite with HMR). Vitest IS configured — there are 70+ test files (`src/**/__tests__/*.test.ts`). Run a single suite with `npx vitest run <path>`. `npx tsc -b` is the fast typecheck without bundling.
 
 ### .NET TIA Bridge
 
@@ -38,124 +42,95 @@ npx supabase functions deploy cleanup-expired # Deploy expired lease cleanup
 npx supabase secrets set ANTHROPIC_API_KEY=sk-ant-...  # Set Claude API key (cloud)
 ```
 
+Edge functions (`supabase/functions/`): `generate` (Claude proxy), `renew-lease`, `cleanup-expired`, `dropbox`, `extract-pdf`, `github-proxy`, `monday-dashboard`, `quote-render-pdf`. Migrations directory holds 90+ migrations; the remote DB has at times been updated out-of-band via the SQL editor, so `db push` can report history drift — investigate before running `migration repair`.
+
+## Modules
+
+Pac-Forge has grown well beyond Pac-ST. The major modules:
+
+- **Spec Builder / FDS** (`/specs/...`, `components/spec-builder/`, `lib/spec-builder/`) — AI co-author that produces an ISA-88/PackML Functional Design Spec. Stage A defines per-EM state machines; Stage B defines per-state behavior. Outputs the machine hierarchy the wizard consumes, plus DOCX export. **This is the primary authoring surface.**
+- **Forge Wizard** (`components/forge/`, `use-forge-*.ts`, `forge-prompts.ts`) — 15-step project wizard that turns the FDS into a control-module matrix, operating sequences, device FBs, assembly FBs, OB1, HMI, and PLC-SIM tests.
+- **Code Builder** (`components/code-builder/`, `use-code-builder.ts`, `use-spec-codegen.ts`) — Phase 4 deterministic FDS→SCL compiler (non-AI).
+- **Quote Builder** (`components/quote-builder/`, `quote-builder-store.ts`) — quoting with PDF render via the `quote-render-pdf` edge function.
+- **Variations** — change/variation tracking on projects.
+- **HMI Builder/Editor** (`components/hmi/`, `use-hmi-wizard.ts`) — HMI screen/faceplate generation.
+- **Pac-Audit** (`components/audit/`, `audit-store.ts`) — code/spec auditing.
+- **Pac-ST** (`pac-st.tsx`, `components/pac-st/`) — original 3-pane chat codegen workspace (legacy but live).
+- **Pac-LAD** (`pac-lad.tsx`, `components/lad-editor/`) — visual ladder logic editor (see Pac-LAD section).
+- **FB Library / FB Builder** (`fb-library.tsx`, `components/fb-library/`) — company-standard FB templates + interface contracts.
+- **Config & Training** — Clients, Profiles, Test Templates, Library Import, Instructions, Agents, Knowledge, Reference Library, Patterns, Prompts.
+- **TIA Console** (`tia-console.tsx`) — .NET bridge status, demo generate, compile-fix.
+
 ## Architecture
 
 ### Project Layout
+
+The tree below is a high-level map, not exhaustive — `src/hooks/` has 130+ hooks, `src/lib/spec-builder/` has 100+ modules. Use Glob/Grep to find specifics.
 
 ```
 src/
   main.tsx                    # Entry point, renders <App /> in StrictMode
   App.tsx                     # Router setup: react-router with AuthGuard + DashboardLayout
-  index.css                   # Tailwind directives + dark-mode base styles + CSS variables
   app/
-    DashboardLayout.tsx       # Shell: Sidebar (w-64) + TopBar (h-14) + scrollable main area
-  routes/                     # Page components (one per route)
-    login.tsx                 # Supabase auth (email/password)
-    projects.tsx              # Project list with create dialog
-    project-detail.tsx        # Single project view with IO list editor
-    pac-st.tsx                # Main 3-pane workspace (chat + generated + approved)
-    agents.tsx                # Agent pool status display
-    agent-profile.tsx         # Individual agent detail page with learnings
-    knowledge.tsx             # Centralized knowledge upload + PM distribution
-    profiles.tsx              # Design profile management
-    fb-library.tsx            # FB template library (company-standard FBs)
-    patterns.tsx              # Correction pattern review/approval admin
-    prompt-editor.tsx         # Editable system prompt sections per agent role
-    reference-library.tsx     # Reference doc upload + section browsing with topic tags
-    tia-console.tsx           # TIA bridge status + demo generate + compile-fix
-  components/
-    pac-st/                   # Pac-ST workspace sub-components
-    tia-console/              # compile-fix-chat, tia-manual-fix-panel, learned-corrections-log
+    DashboardLayout.tsx       # Shell: grouped Sidebar + TopBar + scrollable main area
+  routes/                     # ~40 page components (one per route) — see Routing below
+  components/                 # Feature-grouped UI
+    spec-builder/             # FDS co-author + structured spec editor
+    forge/                    # 15-step project wizard panels
+    code-builder/             # Phase 4 code builder shell
+    quote-builder/            # Quoting UI
+    hmi/                      # HMI editor/builder
+    audit/                    # Pac-Audit UI
+    pac-st/, tia-console/     # Legacy chat workspace + TIA console
+    fb-library/, lad-editor/  # FB authoring + ladder editor
     ui/                       # shadcn/ui primitives
     auth-guard.tsx            # Route protection via Supabase session
-    session-start-dialog.tsx  # PM-centric session creation with pipeline step toggles
-  hooks/                      # TanStack Query hooks (all server state)
-    use-generation.ts         # Shared helpers: streamFromEdgeFunction(), callNonStreaming(), processRawResponse(), getAuthToken()
-    use-pipeline-generate.ts  # Multi-agent pipeline orchestration (PM → Generator → Reviewers → Pattern Librarian)
-    use-process-generate.ts   # Process code generation from functional description documents
-    use-demo-pipeline.ts      # TIA Console demo generation via full multi-agent pipeline
+  hooks/                      # 130+ TanStack Query hooks (all server state + AI calls)
+    use-generation.ts         # SHARED helpers: streamFromEdgeFunction(), callNonStreaming(), processRawResponse(), getAuthToken()
+    use-fds-conversation.ts   # Spec Builder FDS co-author (Stage A state machine + Stage B behavior)
+    use-forge-*.ts            # ~15 Forge wizard generation hooks (spec analysis, matrix, sequences, device SCL, FB assembly, HMI, ...)
+    use-pipeline-generate.ts  # Pac-ST multi-agent pipeline orchestration
+    use-spec-codegen.ts       # Deterministic (non-AI) FDS → SCL compile
     use-compile-fix.ts        # Compile error → AI fix generation
-    use-reimport-compile.ts   # Re-import fixed code + recompile via bridge
-    use-export-from-tia.ts    # Export current sources from TIA Portal via bridge
-    use-pattern-librarian-analysis.ts  # AI-powered correction analysis (with regex fallback)
-    use-knowledge-distribute.ts  # Knowledge upload → PM analysis → agent distribution
-    use-knowledge-conflicts.ts   # Knowledge conflict detection across sources
-    use-knowledge-priority.ts    # Knowledge priority override management
-    use-design-profiles.ts    # Design profile CRUD
-    use-fb-templates.ts       # FB template library CRUD
-    use-agent-knowledge.ts    # Per-agent knowledge document management
-    use-patterns.ts           # Correction pattern CRUD + approval workflow
-    use-prompt-sections.ts    # Editable prompt section CRUD + version management
-    use-reference-library.ts  # Reference library doc + section CRUD
-    use-tia-jobs.ts           # TIA job submission + polling + bridge status
-    use-tia-bridge-ws.ts      # WebSocket connection to .NET bridge
-    use-agent-reservation.ts  # Lease-based agent locking with auto-renewal
-    use-lease-check.ts        # Agent lease validation checks
-    use-keyboard-shortcuts.ts # Keyboard shortcut management
-    use-sessions.ts, use-conversation.ts, use-snapshots.ts
-    use-projects.ts, use-agents.ts, use-auth.ts, use-audit-log.ts
+    ...                       # quotes, variations, clients, knowledge, patterns, leases, etc.
   lib/                        # Pure logic libraries (no React)
-    prompt-builder.ts         # System prompts: project context + patterns + FB templates + design profiles + knowledge
-    prompt-defaults.ts        # Hardcoded prompt defaults + resolveSection() fallback (DB → shared → code)
-    process-prompt-builder.ts # System prompt for process code generation path
-    compile-fix-prompt.ts     # System prompt for compile-fix generation path
-    pattern-librarian-prompt.ts  # System prompt for Pattern Librarian AI analysis
-    review-prompt-builder.ts  # System prompt for Standards Review agent
-    rewrite-prompt-builder.ts # System prompt for Rewrite agent (review fix flow)
-    review-response-parser.ts # Parse Standards Review agent response
-    pm-prompt-builder.ts      # System prompts for PM orchestration (plan + summary)
-    pipeline.ts               # Pipeline step config, agent type checks, step ordering
+    spec-builder/             # FDS engine: state machines, sequences, SCL codegen, DOCX export, prompts (100+ files)
+    forge-*.ts, forge-prompts.ts  # Forge wizard logic + 50+ prompt builders
+    prompt-builder.ts, prompt-defaults.ts  # Pac-ST system prompts + resolveSection() fallback
+    pipeline.ts               # Pac-ST pipeline step config + ordering
     artifact-parser.ts        # Parses ```scl fenced blocks from Claude responses
-    manifest-builder.ts       # Topological sort (Kahn's algorithm) for TIA import ordering
-    safety-analyzer.ts        # 6 rule-based safety checks on generated PLC code
-    diff-engine.ts            # LCS-based line-level diff (normalizes \r\n line endings)
-    correction-classifier.ts  # Regex-based diff → correction type classification (fallback for AI)
-    conflict-detector.ts      # Deterministic conflict detection across prescriptive knowledge sources
-    knowledge-priority.ts     # Knowledge source priority hierarchy + override resolution
-    reference-lookup.ts       # Two-pass AI reference retrieval (extract topics → FTS + tag search)
-    document-sections.ts      # Document splitting/sectioning for knowledge distribution
-    document-extractor.ts     # Client-side .docx/.pdf text extraction (mammoth + pdfjs-dist)
-    tia-export.ts             # JSZip bundle generator for TIA Portal import
-    tia-bridge-contract.ts    # TypeScript API contract types for .NET TIA Openness bridge
-    simatic-xml-builder.ts    # SimaticML XML generation for TIA import
-    compile-fix-parser.ts     # Parse TIA compile errors from bridge output
-    demo-programs.ts          # Demo program definitions for TIA Console quick start
-    io-address-validator.ts   # IO address validation logic
-    io-csv-parser.ts          # CSV parsing for IO lists
-    agent-profiles.ts         # Agent specialization configuration (identity, skills, color)
-    platform-rules.ts         # Load platform rules from markdown
-    suggested-prompts.ts      # Pre-suggested prompts for chat
-    monaco-scl.ts             # Monaco Editor SCL language definition (Monarch tokenizer)
+    safety-analyzer.ts        # Rule-based safety checks on generated PLC code
+    diff-engine.ts            # LCS line-level diff (normalizes \r\n)
+    reference-lookup.ts       # Two-pass AI reference retrieval (topics → FTS + tag search)
+    tia-bridge-contract.ts    # API contract types for .NET TIA Openness bridge
+    simatic-xml-builder.ts, lad-xml-builder.ts  # SimaticML XML generation for TIA import
+    monaco-scl.ts             # Monaco SCL language definition
     supabase.ts               # Supabase client singleton
     utils.ts                  # cn() helper (clsx + tailwind-merge)
-  stores/                     # Zustand stores (UI-only state)
-    pac-st-store.ts           # Generated/approved artifacts, active tabs, pipeline steps
-    tia-console-store.ts      # TIA Console state (pipeline steps, compile results, compile-fix messages)
-    session-store.ts, ui-store.ts
-  types/                      # TypeScript type definitions (one file per domain)
-  providers/
-    query-provider.tsx        # TanStack Query client setup
+  stores/                     # Zustand stores (UI-only state): forge, quote-builder, process-builder,
+                              #   migrate, agent-chat, audit, flags, pac-st, tia-console, session, ui
+  types/                      # TypeScript type definitions (one file per domain, 45+ files)
+  providers/                  # query-provider.tsx (TanStack Query client)
 supabase/
-  migrations/                 # DB schema migrations (003–007+)
-  functions/
-    generate/                 # Claude API proxy Edge Function (streaming + non-streaming)
-    renew-lease/              # Agent lease renewal
-    cleanup-expired/          # Expired lease cleanup
-ai/
-  PLATFORM_RULES_SIEMENS_TIA.md  # PLC generation rules (injected into Claude prompts)
-  SCL_LANGUAGE_REFERENCE.md      # SCL syntax & built-in function reference
-  TIA_MANIFEST_SCHEMA.md         # tia_manifest.json schema
-Docs/
-  PAC_ST_MASTER_SPEC.md          # Full Pac-ST specification
-  AGENT_POOL_ARCHITECTURE.md     # Agent reservation system design
-  TIA_OPENNESS_INTEGRATION.md    # TIA Portal bridge integration spec
-  agent-flow.mmd                 # Mermaid diagram of agent pipeline + data flows
-UI_STYLE_GUIDE.md                # Visual design rules
+  migrations/                 # 90+ DB schema migrations
+  functions/                  # 8 edge functions (generate, renew-lease, cleanup-expired, dropbox,
+                              #   extract-pdf, github-proxy, monday-dashboard, quote-render-pdf)
+ai/                           # PLATFORM_RULES_SIEMENS_TIA.md, SCL_LANGUAGE_REFERENCE.md, TIA_MANIFEST_SCHEMA.md
+bridge/PacForgeBridge/        # .NET Framework 4.8 TIA Openness bridge
+Docs/                         # Specs, architecture docs, Functional Specs/ (example projects), superpowers/plans/
+UI_STYLE_GUIDE.md             # Visual design rules
 ```
 
 ### Routing
 
-React Router v7 (`react-router`) with `createBrowserRouter`. All authenticated routes are children of `AuthGuard` → `DashboardLayout`. Sidebar nav (in order): Projects, Agents, Knowledge, Reference Library, Pac-ST, Patterns, Profiles, FB Library, Prompts, TIA Console.
+React Router v7 (`react-router`) with `createBrowserRouter`. All authenticated routes are children of `AuthGuard` → `DashboardLayout`. The sidebar groups routes into four sections (defined in `src/app/DashboardLayout.tsx`):
+
+- **Main**: Dashboard, Projects, Quotes, Variations, T&Cs, Project Wizard (Forge), Pac-Audit, Spec Builder, HMI Editor
+- **Configuration**: Clients, Profiles, FB Library, Test Templates, Library Import, Instructions, Agents
+- **Training**: Knowledge, Reference Library, Patterns, Prompts
+- **System**: TIA Console
+
+Some routes (project detail, spec co-author, FB builder, Pac-ST, Pac-LAD, agent profile) are reached by navigation/deep-link rather than a top-level sidebar item. `DashboardLayout.tsx` is the source of truth for the live nav.
 
 ### State Management
 
@@ -171,9 +146,9 @@ Supabase (hosted Postgres + Edge Functions + Auth + RLS). No custom backend serv
 - **Agent leases**: 30-minute leases with auto-renewal every 10 minutes via `useAutoRenewLeases`
 - **All mutations** go through TanStack Query `useMutation` with `queryClient.invalidateQueries`
 
-### Multi-Agent Pipeline (Pac-ST Main Path)
+### Multi-Agent Pipeline (Pac-ST Path)
 
-The main code generation path (`usePipelineGenerate`) orchestrates multiple agents in sequence:
+The Pac-ST code generation path (`usePipelineGenerate`) orchestrates multiple agents in sequence:
 
 1. **Project Manager** — Plans the generation approach (`buildPlanPrompt()`)
 2. **Code Architect** — Generates SCL code (`buildPrompt()`)
@@ -185,20 +160,24 @@ The main code generation path (`usePipelineGenerate`) orchestrates multiple agen
 
 Steps 3–6 are toggleable via the session start dialog. The pipeline config lives in `src/lib/pipeline.ts`.
 
-### Four Generation Paths (CRITICAL)
+### AI Generation Paths (CRITICAL)
 
-There are 4 separate AI code-generation paths, each with its own hook and system prompt builder. When adding rules, patterns, or context to "all generation prompts", **all four must be updated**:
+There are now **30+ distinct AI generation paths**, each a hook + system-prompt builder pair, all calling the single `generate` edge function. There is NO single chokepoint for prompt content — when you add a rule/pattern/context that must apply to "all generation," you have to update every relevant builder. The Knowledge/Pattern systems below are the closest thing to a shared injection point, but not every path uses them. **When changing generation behavior, search broadly** (`Grep` for the builder family) rather than assuming the old "four paths."
 
-| Path | Hook | Prompt Builder | Entry Point |
-|------|------|---------------|-------------|
-| Pac-ST pipeline | `use-pipeline-generate.ts` | `buildPrompt()` in `prompt-builder.ts` | `pac-st.tsx` |
-| Process code | `use-process-generate.ts` | `buildProcessPrompt()` in `process-prompt-builder.ts` | `pac-st.tsx` (Process tab) |
-| TIA Console demo | `use-demo-pipeline.ts` | Full pipeline: `buildPlanPrompt` → `buildPrompt` → `buildReviewPrompt` → `buildPatternLibrarianPrompt` → `buildSummaryPrompt` | `tia-console.tsx` |
-| Compile fix | `use-compile-fix.ts` | `buildCompileFixSystemPrompt()` in `compile-fix-prompt.ts` | `compile-fix-chat.tsx` |
+Path families (representative, not exhaustive):
 
-The TIA Console demo path uses the **full multi-agent pipeline** (same as Pac-ST), not a standalone system prompt. It reuses all prompt builders.
+| Family | Hook(s) | Prompt Builder(s) | Notes |
+|--------|---------|-------------------|-------|
+| **Spec Builder FDS** | `use-fds-conversation.ts` | `em-state-machine-prompts.ts` (Stage A), `fds-prompts.ts` (Stage B) | Co-author flow; the current center of gravity |
+| **Forge wizard** | `use-forge-*.ts` (~15) | `forge-prompts.ts` (50+ builders) | spec analysis, matrix, sequences, device SCL, FB assembly, OB1, interface contract, HMI, device-match, PLC-SIM tests |
+| **Pac-ST pipeline** | `use-pipeline-generate.ts` | `buildPrompt()` (`prompt-builder.ts`) + PM/review/pattern builders | Original multi-agent path |
+| **Process code** | `use-process-generate.ts`, `use-process-pipeline.ts` | `process-prompt-builder.ts`, `process-stage-prompts.ts` | |
+| **Compile fix** | `use-compile-fix.ts` | `buildCompileFixSystemPrompt()` (`compile-fix-prompt.ts`) | |
+| **FB / LAD / Migrate / Audit / HMI / Agent chat** | `use-fb-*`, `use-lad-generate`, `use-migrate-pipeline`, `use-hmi-wizard`, `use-agent-chat`, ... | various | |
 
-**Shared helpers** in `use-generation.ts`: `streamFromEdgeFunction()` (SSE reading), `callNonStreaming()` (non-streaming Edge Function call), `processRawResponse()` (parse → safety → manifest → save), `getAuthToken()`. Streaming paths use `streamFromEdgeFunction`; pipeline paths use `callNonStreaming`.
+**Deterministic (non-AI) codegen**: `use-spec-codegen.ts` + `src/lib/spec-builder/compile-contract.ts`, and `use-code-builder.ts` — these compile the FDS to SCL without an LLM. Prefer these where output must be auditable.
+
+**Shared helpers** in `use-generation.ts`: `streamFromEdgeFunction()` (SSE reading), `callNonStreaming()` (non-streaming Edge Function call), `processRawResponse()` (parse → safety → manifest → save), `getAuthToken()`. Streaming paths use `streamFromEdgeFunction`; pipeline/wizard paths use `callNonStreaming`.
 
 ### Three Knowledge/Learning Systems
 
@@ -295,13 +274,21 @@ LAD (Ladder Logic) editor at `/pac-lad` → `src/routes/pac-lad.tsx`. Key files:
 
 ## MUST READ Before Domain Work
 
+Always:
 1. `UI_STYLE_GUIDE.md`
-2. `Docs/PAC_ST_MASTER_SPEC.md`
-3. `Docs/AGENT_POOL_ARCHITECTURE.md`
-4. `Docs/TIA_OPENNESS_INTEGRATION.md`
-5. `ai/PLATFORM_RULES_SIEMENS_TIA.md`
-6. `ai/SCL_LANGUAGE_REFERENCE.md`
-7. `ai/TIA_MANIFEST_SCHEMA.md`
+2. `ai/PLATFORM_RULES_SIEMENS_TIA.md`
+3. `ai/SCL_LANGUAGE_REFERENCE.md`
+4. `ai/TIA_MANIFEST_SCHEMA.md`
+
+For Spec Builder / Forge / Code Builder work (the primary pipeline):
+5. `Docs/superpowers/specs/2026-05-25-fds-engine-design.md` — FDS engine design
+6. `Docs/superpowers/specs/2026-06-18-hybrid-em-state-model-design.md` + `Docs/HANDOVER-HYBRID-EM-STATE-MODEL.md` — per-EM Stage A/B state model
+7. `Docs/superpowers/specs/2026-06-03-machine-hierarchy-design.md` — ISA-88 hierarchy
+8. `Docs/forge-plan/MASTER_PLAN.md`, `Docs/forge-plan/ASSEMBLY_ARCHITECTURE.md` — Forge wizard architecture
+9. `Docs/FDS_FORGE_ALIGNMENT.md` — how the FDS feeds the wizard
+
+For TIA bridge / Pac-ST / agents:
+10. `Docs/TIA_OPENNESS_INTEGRATION.md`, `Docs/PAC_ST_MASTER_SPEC.md`, `Docs/AGENT_POOL_ARCHITECTURE.md`
 
 ## Tech Constraints (Non-negotiable)
 
@@ -372,26 +359,30 @@ The functional specs in `Docs/Functional Specs/` are **example projects only**. 
 - When testing with one spec, mentally verify the fix would also work for a completely different machine type
 - Training data, correction patterns, and learned behaviors are reused across all future projects — anything project-specific will pollute other generations
 
-## Post-Task Hooks
+## Post-Task Self-Check (Pipeline / Prompt changes)
+
+> NOTE: Earlier versions of this file referenced a `.claude/agents/pipeline-auditor.md` agent. **That file has never existed in this repo.** Until it is actually authored, perform the self-check below manually instead.
 
 After every code change that touches files matching these patterns:
 - `src/hooks/use-forge-*.ts`
-- `src/hooks/use-pipeline-*.ts`  
-- `src/lib/*-prompt*.ts`
+- `src/hooks/use-pipeline-*.ts`
+- `src/lib/*-prompt*.ts` and `src/lib/spec-builder/*-prompt*.ts`
 - `src/lib/forge-*.ts`
 - `src/lib/pipeline.ts`
 
-Automatically run: Read `.claude/agents/pipeline-auditor.md` and execute the audit 
-against the current codebase. Report findings. Block if FAIL.
+Run this checklist before considering the task done:
+1. **Generic check** — re-read "All Changes Must Be Generic" above. Confirm no project-specific device names, sequences, or fault conditions leaked into prompts/logic. Mentally test the change against a different machine type.
+2. **Typecheck** — `npx tsc -b` must pass clean.
+3. **Tests** — run the relevant `npx vitest run <path>` suite(s); add a regression test for any bug fixed.
 
 ## Monday Integration
 
 **DISABLED until further notice.** Do NOT create, update, or sync Monday tasks for any work. Skip step 1 of the previous mandatory flow — no Monday task is required before code changes. Use plan/task tracking files (`tasks.json` next to plans, native TaskCreate) and git commits as the audit trail instead.
 
 When the user is ready to re-enable Monday, restore the workflow from git history (`git log -p -- CLAUDE.md`). Reference docs: `CLAUDE.monday.md`, `scripts/task_create.py`, `scripts/task_update.py`. Monday MCP: `https://mcp.monday.com/mcp`. Board ID: `5092432355`. Status column: `status_cdbba809`.
+
 ## Pipeline Integrity (MANDATORY)
 
-After completing ANY task that modifies hooks, prompt builders, or pipeline logic, 
-run the pipeline auditor agent at `.claude/agents/pipeline-auditor.md`.
+After completing ANY task that modifies hooks, prompt builders, or pipeline logic, run the **Post-Task Self-Check** above (generic check + `npx tsc -b` + relevant vitest suites). Do NOT proceed to the next task if typecheck or tests fail, or if any change is not generic across machine types. Fix violations first.
 
-Do NOT proceed to the next task if the audit fails. Fix violations first.
+(The previously-referenced `.claude/agents/pipeline-auditor.md` does not exist — use the manual self-check until it is authored.)

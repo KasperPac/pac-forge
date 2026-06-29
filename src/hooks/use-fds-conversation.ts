@@ -1,8 +1,22 @@
 /**
  * Hook for the FDS co-author AI conversation.
  * Manages streaming interview with JSON extraction for live table updates.
+ *
+ * Hybrid per-EM state model (Task 9b) — two stages, keyed by the EM's OWN
+ * authored states (EmStateV2, EM-local string slugs), NOT the global PackML
+ * state list:
+ *
+ *   Stage A (state machine): when the session has no `em_states` yet, run the
+ *     state-machine interview (buildEmStateMachineInterviewPrompt). Extract the
+ *     `{ states, transitions }` proposal, validate it, and persist to the
+ *     session's `em_states` / `em_transitions`.
+ *
+ *   Stage B (behavior): once `em_states` exist, run the per-state behavior
+ *     interview (buildFdsInterviewSystemPrompt) keyed by the `sequential`-kind
+ *     EM states, persisting per-state behavior to `sequential_states` keyed by
+ *     the EM-local state_id slug.
  */
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { streamFromEdgeFunction } from "@/hooks/use-generation";
@@ -13,6 +27,15 @@ import {
   extractJsonFromResponse,
   stripJsonFromResponse,
 } from "@/lib/spec-builder/fds-prompts";
+import {
+  buildEmStateMachineInterviewPrompt,
+  buildEmStateMachineOpeningMessage,
+} from "@/lib/spec-builder/em-state-machine-prompts";
+import {
+  parseStateMachineProposal,
+  isLikelyTruncatedProposal,
+  validateEmStateMachine,
+} from "@/lib/spec-builder/em-state-machine";
 import type {
   EquipmentModuleConfig,
   UnitConfig,
@@ -21,24 +44,33 @@ import type {
   FdsConversationTurn,
 } from "@/types/spec-builder";
 import type {
-  OperatingStateV2,
   PermissiveCondition,
   SequentialStateV2,
+  EmStateV2,
+  OperatorMode,
 } from "@/types/spec-contract-v2";
 import { ensureV2 } from "@/lib/spec-builder/sequence-legacy-shim";
 import { SpecContractPatchSchema, validateSpecContractPatch } from "@/lib/spec-builder/contract";
 import { buildValidationFailureTurn } from "@/lib/spec-builder/validation-failure-turn";
 import { useSourceSectionsForEm } from "@/hooks/use-source-sections";
 
+/** Which stage of the co-author interview is active for this EM. */
+export type FdsConversationStage = "state_machine" | "behavior";
+
 interface UseFdsConversationOptions {
   session: OperationSession;
   equipment_module: EquipmentModuleConfig;
   unit: UnitConfig;
   allTags: InstrumentTag[];
-  allStates: OperatingStateV2[];
+  /** Project-level machine modes — states are gated by these (Stage A). */
+  modes: OperatorMode[];
 }
 
 interface UseFdsConversationReturn {
+  /** "state_machine" until the EM has authored states; then "behavior". */
+  stage: FdsConversationStage;
+  /** The EM's authored states (empty until Stage A persists them). */
+  emStates: EmStateV2[];
   sendMessage: (text: string) => Promise<void>;
   startInterview: () => Promise<void>;
   streamingText: string;
@@ -51,7 +83,7 @@ export function useFdsConversation({
   equipment_module,
   unit,
   allTags,
-  allStates,
+  modes,
 }: UseFdsConversationOptions): UseFdsConversationReturn {
   const queryClient = useQueryClient();
   const [streamingText, setStreamingText] = useState("");
@@ -65,14 +97,31 @@ export function useFdsConversation({
     equipment_module.equipment_module_id,
   );
 
-  const sequentialStates = allStates.filter((s) => s.state_pattern === "sequential");
+  // Hybrid state model (Task 9b): source the EM's OWN authored states from the
+  // session (persisted by Stage A / the contract reader). No global allStates.
+  const emStates = useMemo<EmStateV2[]>(
+    () => session.em_states ?? [],
+    [session.em_states],
+  );
 
-  const stateLabelFor = (stateId: string): string => {
-    const matched = allStates.find((s) => String(s.state_id) === stateId);
-    if (!matched) return `state_id ${stateId}`;
-    const name = matched.display_name ?? matched.state_name ?? matched.custom_name ?? stateId;
-    return `${name} (state_id ${stateId})`;
-  };
+  // Stage A until the EM has authored its states; Stage B afterwards.
+  const stage: FdsConversationStage =
+    emStates.length === 0 ? "state_machine" : "behavior";
+
+  // Stage B walks the EM's OWN sequential-kind states.
+  const sequentialStates = useMemo<EmStateV2[]>(
+    () => emStates.filter((s) => s.kind === "sequential"),
+    [emStates],
+  );
+
+  const stateLabelFor = useCallback(
+    (stateId: string): string => {
+      const matched = emStates.find((s) => s.state_id === stateId);
+      if (!matched) return `state_id ${stateId}`;
+      return `${matched.name} (state_id ${stateId})`;
+    },
+    [emStates],
+  );
 
   const buildSystemPrompt = useCallback(() => {
     return buildFdsInterviewSystemPrompt(
@@ -80,17 +129,26 @@ export function useFdsConversation({
       session.static_states,
       // Prompt builder now consumes SequentialStateV2 directly (Phase 3 Task 2).
       session.sequential_states,
-      allStates,
+      emStates,
       emSections,
     );
-  }, [equipment_module, unit, allTags, session.static_states, session.sequential_states, allStates, emSections]);
+  }, [equipment_module, unit, allTags, session.static_states, session.sequential_states, emStates, emSections]);
 
   const buildMessages = useCallback(
     (extraUserMessage?: string) => {
       const msgs: Array<{ role: string; content: string }> = [];
       for (const turn of session.conversation) {
         if (turn.role === "user" || turn.role === "assistant") {
-          msgs.push({ role: turn.role, content: turn.content });
+          // The Anthropic API rejects any message with empty content. Assistant
+          // turns whose prose was stripped to "" (JSON-only responses, where
+          // stripJsonFromResponse returns an empty string) would otherwise poison
+          // every subsequent call. Substitute a neutral placeholder so a JSON-only
+          // turn never breaks conversation replay for any EM/project.
+          const content =
+            turn.content && turn.content.trim().length > 0
+              ? turn.content
+              : "(Proposed a sequence/state update.)";
+          msgs.push({ role: turn.role, content });
         }
       }
       if (extraUserMessage) {
@@ -127,16 +185,15 @@ export function useFdsConversation({
 
   const resolveStateId = useCallback(
     (rawId: string | undefined): string | undefined => {
-      const firstId =
-        sequentialStates[0]?.state_id !== undefined ? String(sequentialStates[0].state_id) : undefined;
+      const firstId = sequentialStates[0]?.state_id;
       if (!rawId) return firstId;
-      if (sequentialStates.some((s) => String(s.state_id) === rawId)) return rawId;
+      if (sequentialStates.some((s) => s.state_id === rawId)) return rawId;
       const byName = sequentialStates.find(
         (s) =>
-          (s.state_name?.toLowerCase() === rawId.toLowerCase()) ||
-          String(s.state_id).toLowerCase() === rawId.toLowerCase(),
+          s.name.toLowerCase() === rawId.toLowerCase() ||
+          s.state_id.toLowerCase() === rawId.toLowerCase(),
       );
-      return byName?.state_id !== undefined ? String(byName.state_id) : firstId;
+      return byName?.state_id ?? firstId;
     },
     [sequentialStates],
   );
@@ -210,7 +267,88 @@ export function useFdsConversation({
 
       return { updates, failures };
     },
-    [resolveStateId, session.sequential_states, session.static_states, equipment_module.equipment_module_id, unit.unit_id, allStates],
+    [resolveStateId, session.sequential_states, session.static_states, equipment_module.equipment_module_id, unit.unit_id, stateLabelFor],
+  );
+
+  // -------------------------------------------------------------------------
+  // Stage A — state-machine interview: persist the proposed {states,transitions}
+  // to the session's em_states / em_transitions after validation.
+  // -------------------------------------------------------------------------
+  const handleStateMachineResponse = useCallback(
+    async (
+      fullText: string,
+      conversationWithUser: FdsConversationTurn[],
+    ) => {
+      const proposal = parseStateMachineProposal(fullText);
+      const proseContent = stripJsonFromResponse(fullText);
+      const assistantTurn: FdsConversationTurn = {
+        role: "assistant",
+        content: proseContent,
+        timestamp: new Date().toISOString(),
+      };
+
+      if (!proposal) {
+        // The AI either is still interviewing (no json fence) OR tried to emit a
+        // machine that failed to parse (truncated past the token budget, malformed,
+        // or schema-invalid). The latter must NOT be persisted as silent prose —
+        // that drops the whole machine with no error shown. Surface it loudly so
+        // the engineer can ask the AI to re-emit (a more compact machine if large).
+        const extraTurns: FdsConversationTurn[] = [];
+        if (isLikelyTruncatedProposal(fullText)) {
+          extraTurns.push(
+            buildValidationFailureTurn({
+              stateLabel: `${equipment_module.equipment_module_name} state machine`,
+              issues: [
+                "The AI started a JSON state-machine block but it could not be parsed — it was likely truncated (too large for one response), malformed, or schema-invalid. Nothing was persisted.",
+                "Ask the AI to re-emit the COMPLETE machine as a single JSON block (split into fewer states/leaner guards if it is large).",
+              ],
+            }),
+          );
+        }
+        await supabase
+          .from("fds_operation_sessions")
+          .update({ conversation: [...conversationWithUser, assistantTurn, ...extraTurns] })
+          .eq("id", session.id);
+        queryClient.invalidateQueries({ queryKey: ["fds_operation_sessions"] });
+        return;
+      }
+
+      // Validate the proposed machine before persisting. Reuse the structural
+      // validator with empty behavior maps (states/transitions only matter here).
+      const issues = validateEmStateMachine({
+        equipment_module_id: equipment_module.equipment_module_id,
+        unit_id: unit.unit_id,
+        states: proposal.states,
+        transitions: proposal.transitions,
+        static_states: {},
+        sequential_states: {},
+      });
+
+      if (issues.length > 0) {
+        const failureTurn = buildValidationFailureTurn({
+          stateLabel: `${equipment_module.equipment_module_name} state machine`,
+          issues,
+        });
+        await supabase
+          .from("fds_operation_sessions")
+          .update({ conversation: [...conversationWithUser, assistantTurn, failureTurn] })
+          .eq("id", session.id);
+        queryClient.invalidateQueries({ queryKey: ["fds_operation_sessions"] });
+        return;
+      }
+
+      // Valid — persist the EM's authored state machine.
+      await supabase
+        .from("fds_operation_sessions")
+        .update({
+          conversation: [...conversationWithUser, assistantTurn],
+          em_states: proposal.states,
+          em_transitions: proposal.transitions,
+        })
+        .eq("id", session.id);
+      queryClient.invalidateQueries({ queryKey: ["fds_operation_sessions"] });
+    },
+    [session.id, equipment_module.equipment_module_id, equipment_module.equipment_module_name, unit.unit_id, queryClient],
   );
 
   const sendMessage = useCallback(
@@ -237,16 +375,25 @@ export function useFdsConversation({
           .update({ conversation: conversationWithUser })
           .eq("id", session.id);
 
-        // Stream AI response
-        const systemPrompt = buildSystemPrompt();
+        // Stage-appropriate system prompt.
+        const systemPrompt =
+          stage === "state_machine"
+            ? buildEmStateMachineInterviewPrompt(equipment_module, unit, modes, emSections)
+            : buildSystemPrompt();
         const messages = buildMessages(text.trim());
 
         const plMeta: PromptLayerMeta = {
-          prompt_name: "fds_interview",
+          prompt_name: stage === "state_machine" ? "fds_state_machine" : "fds_interview",
           agent_role: "fds_co_author",
           model: "claude-sonnet-4-6",
         };
 
+        // A complete state machine for a complex EM (many states + a fault fan-in
+        // of one transition per fault tag) is a single structured JSON emission
+        // that easily exceeds the 8192 interview budget. Truncation there silently
+        // drops the whole machine, so give the state-machine stage the full ceiling
+        // (the generate Edge Function caps at 32768). Interview turns stay lean.
+        const maxTokens = stage === "state_machine" ? 32768 : 8192;
         let fullText = "";
         await streamFromEdgeFunction(
           { system_prompt: systemPrompt, messages, stream: true },
@@ -255,11 +402,16 @@ export function useFdsConversation({
             fullText += chunk;
             setStreamingText(fullText);
           },
-          8192,
+          maxTokens,
           plMeta,
         );
 
-        // Extract JSON (may contain multiple states), validate, then persist
+        if (stage === "state_machine") {
+          await handleStateMachineResponse(fullText, conversationWithUser);
+          return;
+        }
+
+        // Stage B — extract JSON (may contain multiple states), validate, persist.
         const { updates: tableUpdates, failures } = processAiResponse(fullText);
         const proseContent = stripJsonFromResponse(fullText);
 
@@ -304,7 +456,12 @@ export function useFdsConversation({
         setStreamingText("");
       }
     },
-    [isStreaming, buildSystemPrompt, buildMessages, persistTurn, processAiResponse],
+    [
+      isStreaming, stage, buildSystemPrompt, buildMessages, processAiResponse,
+      handleStateMachineResponse, equipment_module, unit, modes, emSections,
+      session.id, session.conversation, session.sequential_states, session.status,
+      queryClient,
+    ],
   );
 
   const startInterview = useCallback(async () => {
@@ -316,20 +473,23 @@ export function useFdsConversation({
     abortRef.current = new AbortController();
 
     try {
-      const firstState = sequentialStates[0];
-      if (!firstState) throw new Error("No sequential states defined");
+      const isStageA = stage === "state_machine";
 
-      const systemPrompt = buildSystemPrompt();
-      // buildFdsOpeningMessage still accepts the legacy OperatingState; bridge
-      // until Task 10 narrows it. Only `state_name` is read inside.
-      const openingPrompt = buildFdsOpeningMessage(
-        equipment_module,
-        allTags,
-        firstState as unknown as import("@/types/spec-builder").OperatingState,
-      );
+      const systemPrompt = isStageA
+        ? buildEmStateMachineInterviewPrompt(equipment_module, unit, modes, emSections)
+        : buildSystemPrompt();
+
+      const openingPrompt = isStageA
+        ? buildEmStateMachineOpeningMessage(equipment_module, emSections)
+        : buildFdsOpeningMessage(
+            equipment_module,
+            allTags,
+            sequentialStates[0]?.name ?? "the first sequential state",
+            emSections,
+          );
 
       const plMeta: PromptLayerMeta = {
-        prompt_name: "fds_interview_opening",
+        prompt_name: isStageA ? "fds_state_machine_opening" : "fds_interview_opening",
         agent_role: "fds_co_author",
         model: "claude-sonnet-4-6",
       };
@@ -342,9 +502,20 @@ export function useFdsConversation({
           fullText += chunk;
           setStreamingText(fullText);
         },
-        4096,
+        // Stage A's opening generates the full state machine (states +
+        // transitions with real per-fault guards) — that easily exceeds a
+        // small budget and silently truncates the JSON. Give it the full cap
+        // (edge fn caps at 32768). Stage B's opening is a short question.
+        isStageA ? 32768 : 4096,
         plMeta,
       );
+
+      if (isStageA) {
+        // The opening message is conversational (a question); persist as-is.
+        // A proposal block, if present, is still handled here.
+        await handleStateMachineResponse(fullText, [...session.conversation]);
+        return;
+      }
 
       const proseContent = stripJsonFromResponse(fullText);
       const assistantTurn: FdsConversationTurn = {
@@ -360,7 +531,11 @@ export function useFdsConversation({
       setIsStreaming(false);
       setStreamingText("");
     }
-  }, [isStreaming, buildSystemPrompt, equipment_module, allTags, sequentialStates, persistTurn]);
+  }, [
+    isStreaming, stage, buildSystemPrompt, equipment_module, unit, modes,
+    emSections, allTags, sequentialStates, handleStateMachineResponse,
+    session.conversation, persistTurn,
+  ]);
 
-  return { sendMessage, startInterview, streamingText, isStreaming, error };
+  return { stage, emStates, sendMessage, startInterview, streamingText, isStreaming, error };
 }

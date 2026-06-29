@@ -16,9 +16,11 @@ import {
   AlignmentType,
   WidthType,
   BorderStyle,
+  VerticalAlign,
 } from "docx";
 import type { SpecProject, SpecSection } from "@/types/spec-builder";
 import type { Hierarchy, SpecContractV2 } from "@/types/spec-contract-v2";
+import { groupUnitStatesByEm, buildEmOperationView, permissiveParts } from "./operating-sequence";
 import {
   buildHierarchyTable,
   buildHierarchyTableCaption,
@@ -43,7 +45,6 @@ import type {
   TestingFatContent,
   IoSummaryRow,
 } from "@/types/spec-builder";
-import { migrateOperatingStates } from "@/types/spec-builder";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -81,14 +82,29 @@ function heading(text: string, level: typeof HeadingLevel[keyof typeof HeadingLe
   });
 }
 
-function tableCell(text: string, opts: { bold?: boolean; width?: number; color?: string } = {}): TableCell {
+function tableCell(text: string, opts: { bold?: boolean; width?: number; color?: string; rowSpan?: number } = {}): TableCell {
   return new TableCell({
     width: opts.width ? { size: opts.width, type: WidthType.PERCENTAGE } : undefined,
+    rowSpan: opts.rowSpan,
+    verticalAlign: opts.rowSpan ? VerticalAlign.CENTER : undefined,
     children: [
       new Paragraph({
         children: [new TextRun({ text: text ?? "", bold: opts.bold, size: 20, font: FONT, color: opts.color })],
       }),
     ],
+  });
+}
+
+/** Table cell with one paragraph per line (Word ignores "\n" inside a TextRun). */
+function multiLineCell(lines: string[], opts: { width?: number; rowSpan?: number } = {}): TableCell {
+  const rendered = lines.length ? lines : ["—"];
+  return new TableCell({
+    width: opts.width ? { size: opts.width, type: WidthType.PERCENTAGE } : undefined,
+    rowSpan: opts.rowSpan,
+    verticalAlign: opts.rowSpan ? VerticalAlign.CENTER : undefined,
+    children: rendered.map(
+      (line) => new Paragraph({ children: [new TextRun({ text: line, size: 20, font: FONT })] }),
+    ),
   });
 }
 
@@ -231,12 +247,18 @@ function renderSystemOverview(section: SpecSection): (Paragraph | Table)[] {
 
   children.push(heading("1. System Overview", HeadingLevel.HEADING_1));
 
+  // Brief functioning description — process flow / theory of operation
+  if (c.brief_functioning_description) {
+    children.push(heading("1.1 Brief Functioning Description", HeadingLevel.HEADING_2));
+    children.push(...prose(c.brief_functioning_description));
+  }
+
   // Hardware description
-  children.push(heading("1.1 Hardware Configuration", HeadingLevel.HEADING_2));
+  children.push(heading("1.2 Hardware Configuration", HeadingLevel.HEADING_2));
   children.push(...prose(c.hardware_description ?? ""));
 
   // IO summary table
-  children.push(heading("1.2 I/O Summary", HeadingLevel.HEADING_2));
+  children.push(heading("1.3 I/O Summary", HeadingLevel.HEADING_2));
   if (c.io_summary?.length) {
     const totals = c.io_summary.reduce(
       (acc, r) => ({ di: acc.di + r.di_count, do: acc.do + r.do_count, ai: acc.ai + r.ai_count, ao: acc.ao + r.ao_count }),
@@ -273,11 +295,11 @@ function renderSystemOverview(section: SpecSection): (Paragraph | Table)[] {
   }
 
   // Scope exclusions
-  children.push(heading("1.3 Scope Exclusions", HeadingLevel.HEADING_2));
+  children.push(heading("1.4 Scope Exclusions", HeadingLevel.HEADING_2));
   children.push(...prose(c.scope_exclusions ?? ""));
 
   // Safety classification
-  children.push(heading("1.4 Safety Classification", HeadingLevel.HEADING_2));
+  children.push(heading("1.5 Safety Classification", HeadingLevel.HEADING_2));
   children.push(...prose(c.safety_classification ?? ""));
 
   // Machine Hierarchy — deterministic tree: Unit → Equipment Module → Device
@@ -303,7 +325,7 @@ function renderSystemOverview(section: SpecSection): (Paragraph | Table)[] {
     }>;
   }> }).machine_hierarchy;
   if (hierarchy?.length) {
-    children.push(heading("1.5 Machine Hierarchy", HeadingLevel.HEADING_2));
+    children.push(heading("1.6 Machine Hierarchy", HeadingLevel.HEADING_2));
     children.push(...prose(
       "The machine is decomposed into units (functional stations), each comprising coordinated equipment_modules of physical control_modules. Every device exposes one or more IO signals to the PLC.",
     ));
@@ -352,7 +374,7 @@ function renderSystemOverview(section: SpecSection): (Paragraph | Table)[] {
 
     // ---- Section 1.6 — Canonical Machine Hierarchy (structured table) ----
     const canonicalHierarchy = hierarchyToContractShape(hierarchy);
-    children.push(heading("1.6 Canonical Machine Hierarchy", HeadingLevel.HEADING_2));
+    children.push(heading("1.7 Canonical Machine Hierarchy", HeadingLevel.HEADING_2));
     children.push(buildHierarchyTableCaption());
     children.push(buildHierarchyTable(canonicalHierarchy));
     children.push(spacer());
@@ -360,7 +382,7 @@ function renderSystemOverview(section: SpecSection): (Paragraph | Table)[] {
     // ---- Section 1.7 — Network Device Configuration (conditional) ----
     const networkTable = buildNetworkDeviceTable(canonicalHierarchy);
     if (networkTable) {
-      children.push(heading("1.7 Network Device Configuration", HeadingLevel.HEADING_2));
+      children.push(heading("1.8 Network Device Configuration", HeadingLevel.HEADING_2));
       children.push(buildNetworkTableCaption());
       children.push(networkTable);
       children.push(spacer());
@@ -504,114 +526,168 @@ function renderFunctionalDescriptions(
   const children: (Paragraph | Table)[] = [];
   children.push(heading("3. Functional Descriptions", HeadingLevel.HEADING_1));
 
-  const states = migrateOperatingStates(spec.confirmed_states);
+  // Group by unit. The per-EM state model emits functional_description rows
+  // directly under their unit with NO equipment_description parent, so the unit
+  // list is the union of unit_ids from both section lists (ordered by
+  // confirmed_units). Iterating equipmentSections alone would drop every per-EM
+  // description on a spec that has no equipment_description sections.
+  const seenUnits = new Set<string>();
+  const unitIds: string[] = [];
+  for (const id of spec.confirmed_units.map((u) => u.unit_id)) {
+    if (
+      equipmentSections.some((e) => e.unit_id === id) ||
+      funcDescSections.some((f) => f.unit_id === id)
+    ) {
+      unitIds.push(id);
+      seenUnits.add(id);
+    }
+  }
+  // Defensive: include any unit_ids not present in confirmed_units order.
+  for (const s of [...equipmentSections, ...funcDescSections]) {
+    if (s.unit_id && !seenUnits.has(s.unit_id)) {
+      unitIds.push(s.unit_id);
+      seenUnits.add(s.unit_id);
+    }
+  }
 
-  equipmentSections.forEach((eq, idx) => {
+  unitIds.forEach((unitId, idx) => {
     const unitName =
-      spec.confirmed_units.find((s) => s.unit_id === eq.unit_id)?.unit_name ??
-      eq.unit_id ?? "Unknown";
+      spec.confirmed_units.find((s) => s.unit_id === unitId)?.unit_name ??
+      unitId ?? "Unknown";
 
-    const eqContent = eq.content_json as unknown as EquipmentDescriptionContent;
-
-    // Unit heading + equipment prose
+    // Unit heading
     children.push(heading(`3.${idx + 1} ${unitName}`, HeadingLevel.HEADING_2));
-    if (eqContent.prose) children.push(...prose(eqContent.prose));
 
-    // Device instrumentation table
-    if (eqContent.control_module_table?.length) {
-      children.push(p("Control Device Instrumentation:", { bold: true }));
+    // Optional equipment prose + instrumentation table (when present)
+    const eq = equipmentSections.find((e) => e.unit_id === unitId);
+    if (eq) {
+      const eqContent = eq.content_json as unknown as EquipmentDescriptionContent;
+      if (eqContent.prose) children.push(...prose(eqContent.prose));
+      if (eqContent.control_module_table?.length) {
+        children.push(p("Control Device Instrumentation:", { bold: true }));
+        children.push(new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          borders: TABLE_BORDERS,
+          rows: [
+            headerRow(["Device", "Tag", "Description"]),
+            ...eqContent.control_module_table.map((row) => new TableRow({
+              children: [
+                tableCell(row.control_module, { width: 30 }),
+                tableCell(row.tag, { width: 20 }),
+                tableCell(row.description, { width: 50 }),
+              ],
+            })),
+          ],
+        }));
+        children.push(spacer());
+      }
+    }
+
+    // Group this unit's state rows by equipment module, then render ONE
+    // "Steps & Actions" operating-sequence table per EM. Each state is a step
+    // (Action = the outputs it holds, or a pointer to its sub-sequence; Advance
+    // when = its outgoing transitions with permissive guards). This is the
+    // operator-readable "how it runs" view; sequential states still get their
+    // detailed step table below. Grouping by EM also fixes the previous flat
+    // listing where states from different EMs were indistinguishable.
+    const subFuncDescs = funcDescSections.filter((s) => s.unit_id === unitId);
+    const unitCfg = spec.confirmed_units.find((u) => u.unit_id === unitId);
+    const emGroups = groupUnitStatesByEm(subFuncDescs, unitCfg);
+
+    emGroups.forEach(({ emName, states }, emIdx) => {
+      children.push(heading(`3.${idx + 1}.${emIdx + 1} ${emName}`, HeadingLevel.HEADING_3));
+
+      const view = buildEmOperationView(states);
+
+      // EM-level permissives — the conditions that must hold throughout (shown
+      // once as a table instead of repeated on every transition).
+      if (view.permissives.length) {
+        children.push(p("Permissives (must hold throughout; loss → safe state):", { bold: true }));
+        children.push(new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          borders: TABLE_BORDERS,
+          rows: [
+            headerRow(["Permissive (tag)", "Required"]),
+            ...view.permissives.map((perm) => {
+              const { tag, requirement } = permissiveParts(perm);
+              return new TableRow({
+                children: [
+                  tableCell(tag, { bold: true, width: 60 }),
+                  tableCell(requirement, { width: 40 }),
+                ],
+              });
+            }),
+          ],
+        }));
+        children.push(spacer());
+      }
+
+      // Operating sequence (Steps & Actions)
+      children.push(p("Operating Sequence (Steps & Actions):", { bold: true }));
       children.push(new Table({
         width: { size: 100, type: WidthType.PERCENTAGE },
         borders: TABLE_BORDERS,
         rows: [
-          headerRow(["Device", "Tag", "Description"]),
-          ...eqContent.control_module_table.map((row) => new TableRow({
-            children: [
-              tableCell(row.control_module, { width: 30 }),
-              tableCell(row.tag, { width: 20 }),
-              tableCell(row.description, { width: 50 }),
-            ],
-          })),
+          headerRow(["Step", "State", "Action", "Condition", "Next step"]),
+          // One row per transition so each Condition lines up with its own Next
+          // step; Step/State/Action are merged down the transitions of a step.
+          ...view.steps.flatMap((st) => {
+            const adv = st.advance.length ? st.advance : [{ condition: "—", nextStep: "—" }];
+            return adv.map((a, ri) => new TableRow({
+              children: [
+                ...(ri === 0
+                  ? [
+                      tableCell(String(st.step), { bold: true, width: 7, rowSpan: adv.length }),
+                      tableCell(st.stateName, { bold: true, width: 17, rowSpan: adv.length }),
+                      multiLineCell(st.action, { width: 30, rowSpan: adv.length }),
+                    ]
+                  : []),
+                tableCell(a.condition, { width: 34 }),
+                tableCell(a.nextStep, { width: 12 }),
+              ],
+            }));
+          }),
         ],
       }));
       children.push(spacer());
-    }
 
-    // Functional description per state
-    const subFuncDescs = funcDescSections.filter((s) => s.unit_id === eq.unit_id);
-    subFuncDescs.forEach((fd, sIdx) => {
-      const stateName = states.find((s) => s.state_id === fd.state_name)?.state_name ?? fd.state_name ?? "";
-      const fdContent = fd.content_json as unknown as FunctionalDescriptionContent;
-
-      children.push(heading(`3.${idx + 1}.${sIdx + 1} ${stateName}`, HeadingLevel.HEADING_3));
-
-      if (fdContent.pattern === "static") {
-        // Pattern A — Device State Table
-        if (fdContent.control_module_states?.length) {
-          children.push(new Table({
-            width: { size: 100, type: WidthType.PERCENTAGE },
-            borders: TABLE_BORDERS,
-            rows: [
-              headerRow(["Tag", "Description", "State"]),
-              ...fdContent.control_module_states.map((ds) => {
-                // Color-code: STOP/DE-ENERGISED/OFF/FALSE/CLOSED = red, others = green
-                const isOff = /stop|de-energi|off|false|closed|0/i.test(ds.state);
-                return new TableRow({
+      // Detail beneath the table: sequential sub-sequences + any per-state notes.
+      states.forEach((fd) => {
+        const c = fd.content_json as unknown as FunctionalDescriptionContent;
+        if (c.pattern === "sequential" && (c.permissives?.length || c.steps?.length)) {
+          children.push(p(`${fd.state_name ?? ""} — sequence:`, { bold: true }));
+          if (c.permissives?.length) {
+            for (const perm of c.permissives) {
+              children.push(new Paragraph({
+                children: [new TextRun({ text: `•  ${perm}`, size: 20, font: FONT })],
+                spacing: { after: 60 },
+                indent: { left: 360 },
+              }));
+            }
+          }
+          if (c.steps?.length) {
+            children.push(new Table({
+              width: { size: 100, type: WidthType.PERCENTAGE },
+              borders: TABLE_BORDERS,
+              rows: [
+                headerRow(["Step", "Action", "Completion Criteria"]),
+                ...c.steps.map((step) => new TableRow({
                   children: [
-                    tableCell(ds.tag, { bold: true, width: 25 }),
-                    tableCell(ds.description, { width: 45 }),
-                    tableCell(ds.state, { bold: true, width: 30, color: isOff ? "CC0000" : "008800" }),
+                    tableCell(String(step.step), { bold: true, width: 8 }),
+                    tableCell(step.action, { width: 42 }),
+                    tableCell(step.completion_criteria, { width: 50 }),
                   ],
-                });
-              }),
-            ],
-          }));
-          children.push(spacer());
-        }
-      } else {
-        // Pattern B — Step Table
-        if (fdContent.permissives?.length) {
-          children.push(p("Permissives:", { bold: true }));
-          for (const perm of fdContent.permissives) {
-            children.push(new Paragraph({
-              children: [new TextRun({ text: `•  ${perm}`, size: 20, font: FONT })],
-              spacing: { after: 60 },
-              indent: { left: 360 },
+                })),
+              ],
             }));
           }
           children.push(spacer());
         }
-
-        if (fdContent.steps?.length) {
-          children.push(new Table({
-            width: { size: 100, type: WidthType.PERCENTAGE },
-            borders: TABLE_BORDERS,
-            rows: [
-              headerRow(["Step", "Action", "Completion Criteria"]),
-              ...fdContent.steps.map((step) => new TableRow({
-                children: [
-                  tableCell(String(step.step), { bold: true, width: 8 }),
-                  tableCell(step.action, { width: 42 }),
-                  tableCell(step.completion_criteria, { width: 50 }),
-                ],
-              })),
-            ],
-          }));
-          children.push(spacer());
+        if (c.notes) {
+          children.push(p(`Note — ${fd.state_name ?? ""}: ${c.notes}`, { size: 20, color: "666666" }));
         }
-
-        if (fdContent.notes) {
-          children.push(p(`Note: ${fdContent.notes}`, { size: 20, color: "666666" }));
-        }
-      }
+      });
     });
-
-    // Legacy: functional_state sections (V1 backward compat)
-    const legacyStates = funcDescSections.length === 0
-      ? [] // handled above
-      : [];
-    // (Legacy states handled separately in renderLegacyEquipmentGroup)
-    void legacyStates;
   });
 
   return children;
@@ -697,6 +773,28 @@ function renderAlarmSpecification(section: SpecSection): (Paragraph | Table)[] {
             tableCell(c.cause, { width: 30 }),
             tableCell(c.cause_tag, { width: 15 }),
             ...c.effects.map((e) => tableCell(e ? "✓" : "—", { width: Math.floor(55 / effectHeaders.length) })),
+          ],
+        })),
+      ],
+    }));
+    children.push(spacer());
+  }
+
+  // Interlocks (process / coordination)
+  if (c.interlocks?.length) {
+    const matrixCount = c.cause_effect_matrix?.causes?.length ? 1 : 0;
+    children.push(heading(`5.${tiers.length + 1 + matrixCount} Interlocks`, HeadingLevel.HEADING_2));
+    children.push(new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      borders: TABLE_BORDERS,
+      rows: [
+        headerRow(["Interlock", "Cause", "Effect", "Value"]),
+        ...c.interlocks.map((il) => new TableRow({
+          children: [
+            tableCell(il.interlock, { bold: true, width: 22 }),
+            tableCell(il.cause, { width: 33 }),
+            tableCell(il.effect, { width: 33 }),
+            tableCell(il.value, { width: 12 }),
           ],
         })),
       ],
@@ -870,9 +968,7 @@ function renderLegacyEquipmentGroup(
     if (subStates.length > 0) {
       children.push(p("Operating States:", { bold: true }));
       subStates.forEach((state, sIdx) => {
-        const stateName =
-          spec.confirmed_states.find((s) => s.state_id === state.state_name)?.state_name ??
-          state.state_name ?? "";
+        const stateName = state.state_name ?? "";
         const sc = state.content_json as { state_narrative?: string };
         children.push(heading(`${startIdx}.${idx + 1}.${sIdx + 1} ${stateName}`, HeadingLevel.HEADING_3));
         children.push(p(sc.state_narrative ?? ""));
@@ -1025,7 +1121,7 @@ export async function buildSpecDocx(
     // Section 3 — Functional Descriptions
     const equipment = sections.filter((s) => s.section_type === "equipment_description");
     const funcDescs = sections.filter((s) => s.section_type === "functional_description");
-    if (equipment.length > 0) {
+    if (equipment.length > 0 || funcDescs.length > 0) {
       children.push(...renderFunctionalDescriptions(equipment, funcDescs, spec));
     }
 

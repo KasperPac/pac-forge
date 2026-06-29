@@ -1,3 +1,5 @@
+import type { FbInterfaceContract } from "@/types/fb-interface";
+
 export const FB_BLOCK_TYPES = {
   FB: "FB",
   FC: "FC",
@@ -60,6 +62,8 @@ export interface FbTemplate {
   documentation: string | null;
   /** HMI faceplate type name from the library (e.g. "udtHMI_MotorControl") — used by HMI screen generators */
   hmi_faceplate_type: string | null;
+  /** Structured interface contract (role-tagged pins). Null until authored. */
+  interface_contract: FbInterfaceContract | null;
   created_by: string | null;
   updated_at: string;
   created_at: string;
@@ -67,7 +71,7 @@ export interface FbTemplate {
   profile_ids?: string[];
 }
 
-export type FbTemplateCreate = Omit<FbTemplate, "id" | "created_at" | "updated_at" | "created_by" | "blocks" | "profile_ids" | "version" | "ai_summary" | "diagram_chart" | "diagram_generated_at" | "flow_diagram_json" | "flow_diagram_generated_at" | "source" | "library_name" | "is_enabled" | "is_equipment_module" | "documentation" | "hmi_faceplate_type"> & {
+export type FbTemplateCreate = Omit<FbTemplate, "id" | "created_at" | "updated_at" | "created_by" | "blocks" | "profile_ids" | "version" | "ai_summary" | "interface_contract" | "diagram_chart" | "diagram_generated_at" | "flow_diagram_json" | "flow_diagram_generated_at" | "source" | "library_name" | "is_enabled" | "is_equipment_module" | "documentation" | "hmi_faceplate_type"> & {
   blocks: Array<{ block_name: string; block_type: FbBlockType; scl_code: string; sort_order: number; block_xml?: string | null; programming_language?: FbBlockLanguage }>;
   profile_ids?: string[];
   source?: FbTemplateSource;

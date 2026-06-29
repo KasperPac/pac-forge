@@ -29,17 +29,12 @@ import type {
   UnitConfig,
   InstrumentTag,
   ControlModuleStateEntry,
-  OperatingState,
   ProcessModel,
 } from "@/types/spec-builder";
 import type {
-  OperatingStateV2,
   SequentialStateV2,
+  EmStateV2,
 } from "@/types/spec-contract-v2";
-import {
-  INTERLOCK_EFFECTS_DOC,
-  COMPLETION_CRITERION_DOC,
-} from "./system-orchestration-prompts";
 import type { SourceSection } from "./source-section-select";
 
 export function buildFdsInterviewSystemPrompt(
@@ -48,7 +43,7 @@ export function buildFdsInterviewSystemPrompt(
   tags: InstrumentTag[],
   staticStates: Record<string, ControlModuleStateEntry[]>,
   completedSequentialStates: Record<string, SequentialStateV2>,
-  allStates: OperatingStateV2[],
+  emStates: EmStateV2[],
   sourceSections: SourceSection[] = [],
 ): string {
   // --- Data gathering (unchanged from original) ---
@@ -75,14 +70,13 @@ export function buildFdsInterviewSystemPrompt(
     .map((t) => `  - ${t.tag}: ${t.description} (${t.signal_direction})`)
     .join("\n");
 
-  function stateLabel(s: OperatingStateV2): string {
-    // Phase 1 widened OperatingStateV2; prefer display_name, then state_name, then custom_name.
-    return s.display_name ?? s.state_name ?? s.custom_name ?? String(s.state_id);
+  function stateLabel(s: EmStateV2): string {
+    return s.name || s.state_id;
   }
 
   const staticStatesText = Object.entries(staticStates)
     .map(([stateId, entries]) => {
-      const match = allStates.find((s) => String(s.state_id) === stateId);
+      const match = emStates.find((s) => s.state_id === stateId);
       const stateName = match ? stateLabel(match) : stateId;
       const rows = entries.map((e) => `    ${e.tag} must hold value: ${e.state}`).join("\n");
       return `  ${stateName}:\n${rows}`;
@@ -90,7 +84,7 @@ export function buildFdsInterviewSystemPrompt(
 
   const completedText = Object.entries(completedSequentialStates)
     .map(([stateId, data]) => {
-      const match = allStates.find((s) => String(s.state_id) === stateId);
+      const match = emStates.find((s) => s.state_id === stateId);
       const stateName = match ? stateLabel(match) : stateId;
       // SequentialStateV2 permissives are structured; render their tag for the summary.
       const perms = data.permissives.map((p) => `    - ${p.tag} ${p.operator} ${String(p.value)}`).join("\n");
@@ -98,14 +92,15 @@ export function buildFdsInterviewSystemPrompt(
       return `  ${stateName}:\n    Permissives:\n${perms || "    (none)"}\n    Steps: ${stepCount} V2 step(s)`;
     }).join("\n");
 
-  const sequentialStatesList = allStates.filter((s) => s.state_pattern === "sequential");
+  const sequentialStatesList = emStates.filter((s) => s.kind === "sequential");
   const sequentialStatesTable = sequentialStatesList
-    .map((s) => `  - ${s.state_id}  (${stateLabel(s)})${s.description ? ` — ${s.description}` : ""}`)
+    .map((s) => `  - ${s.state_id}  (${stateLabel(s)})`)
     .join("\n");
   const firstSequentialStateId = sequentialStatesList[0]?.state_id ?? "";
 
   // Relevant customer-spec sections (selected by the caller). Rendered only when present.
-  const sourceContext = sourceSections.length === 0
+  const grounded = sourceSections.length > 0;
+  const sourceContext = !grounded
     ? ""
     : `\n## Customer Specification Context\n` +
       `Reference the original customer specification below. Treat it as the source\n` +
@@ -114,6 +109,32 @@ export function buildFdsInterviewSystemPrompt(
         .map((s) => `### ${s.heading || "(untitled)"}\n${s.body}`)
         .join("\n\n") + "\n";
 
+  // Ground-then-refine: with bound customer-spec requirements, the model drafts
+  // the sequence from the spec FIRST, then refines, rather than interrogating the
+  // engineer field by field. With no bound context it runs the strict cold
+  // interview below unchanged.
+  const groundingProtocol = !grounded
+    ? ""
+    : `# PHASE 1 — GROUND (your first reply for each sequential state)
+The Customer Specification Context above describes what this state must do. Before interrogating, DRAFT the state from the spec:
+- Propose the permissives and the ordered steps you infer for the current sequential state, citing the spec text behind each step.
+- For any required field the spec does not state (completion tag, timeout, fault code, severity), fill it from DEVICE CLASS DEFAULTS and tag it "(assumption — confirm)" in your prose. Never silently omit a required field and never invent a tag name.
+- Present the draft in prose, then emit the JSON block for the state (the schema below). End with a short bullet list of the specific points you need the engineer to confirm.
+
+# PHASE 2 — REFINE (subsequent replies)
+Ask ONE focused confirming/refining question per turn, anchored to your draft. Only ask about fields the spec left open or that the engineer flagged — do NOT re-interrogate fields the spec already answered. Re-emit the updated JSON whenever an answer changes the state.
+
+---
+
+`;
+
+  // The completeness gate differs by mode: cold interview forbids emitting JSON
+  // until the engineer has stated every field; grounded mode permits an
+  // assumption-filled draft (every assumption tagged) so PHASE 1 can propose.
+  const completenessRule = grounded
+    ? `**Never emit a JSON update with a required field left blank or a tag name you invented.** In PHASE 1 you MAY fill gaps from the customer spec or DEVICE CLASS DEFAULTS, but every such gap-fill MUST be tagged "(assumption — confirm)" in your prose. In PHASE 2, prefer the engineer's stated values over your assumptions.`
+    : `**You MUST NOT emit a JSON table update until every field above is either stated by the engineer or directly implied by a prior answer in this conversation.** If even one field is missing, ask about it first.`;
+
   // --- Revised prompt template ---
   return `You are a senior automation engineer co-authoring a functional specification with the project engineer for Equipment Module "${equipment_module.equipment_module_name}" (equipment_module_id: "${equipment_module.equipment_module_id}") within unit "${unit.unit_name}" (unit_id: "${unit.unit_id}", ${unit.equipment_type}).
 
@@ -121,7 +142,7 @@ export function buildFdsInterviewSystemPrompt(
 Echo these back verbatim — never mutate or paraphrase.
 - equipment_module_id: ${equipment_module.equipment_module_id}
 - unit_id: ${unit.unit_id}
-- state_id: MUST be a number from the SEQUENTIAL STATES REMAINING list below (PackML 1..17 or a custom state >100). Never invent a state_id. Never use a name as the state_id.
+- state_id: MUST be one of the EM-LOCAL state ids from the SEQUENTIAL STATES REMAINING list below (a string slug, e.g. "auto_cycle"). Never invent a state_id. Never use a state's display name as the state_id.
 ${sourceContext}
 # ASSEMBLY DEVICES
 ${deviceList}
@@ -148,13 +169,13 @@ ${staticStatesText || "  (none confirmed yet)"}
 # ALREADY COMPLETED SEQUENTIAL STATES
 ${completedText || "  (none yet)"}
 
-# SEQUENTIAL STATES REMAINING (state_id is a number — emit it verbatim):
+# SEQUENTIAL STATES REMAINING (state_id is an EM-local string slug — emit it verbatim):
 
 ${sequentialStatesTable || "  (none)"}
 
 ---
 
-# INTERVIEW PROTOCOL
+${groundingProtocol}# INTERVIEW PROTOCOL
 
 You are running a deterministic interview, not a free-form chat. For each sequential state, gather information in this fixed order:
 
@@ -170,7 +191,7 @@ You are running a deterministic interview, not a free-form chat. For each sequen
    h. Whether the step branches; if yes, the condition that selects each branch
 3. **Confirmation** — read the full state back to the engineer in prose before emitting a JSON block.
 
-**You MUST NOT emit a JSON table update until every field above is either stated by the engineer or directly implied by a prior answer in this conversation.** If even one field is missing, ask about it first.
+${completenessRule}
 
 ## Questioning rules
 - Ask about ONE missing field per turn. Do not batch questions.
@@ -235,7 +256,7 @@ Each state object must conform to this V2 shape:
 \`\`\`json
 [
   {
-    "state_id": ${firstSequentialStateId || 6},
+    "state_id": ${JSON.stringify(firstSequentialStateId || "auto_cycle")},
     "override_kind": "override",
     "permissives": [
       { "tag": "SYS_ESTOP01", "operator": "=", "value": true },
@@ -398,7 +419,7 @@ This example demonstrates: a linear step (step_10), a branching step (step_20 �
 
 Each \`transition\` has \`transition_id\`, \`kind: "single"\`, \`target_step_id: string\` (use \`""\` for terminal), \`guard: CompletionCriterion[]\`, \`priority: int\`, \`is_default: bool\`, optional \`on_fail: { fault_code, severity }\`, and \`notes: string | null\`.
 
-State_id ${firstSequentialStateId || 6} above is illustrative — emit whichever state_id the engineer is currently authoring (must come from SEQUENTIAL STATES REMAINING).
+State_id ${JSON.stringify(firstSequentialStateId || "auto_cycle")} above is illustrative — emit whichever state_id the engineer is currently authoring (must come from SEQUENTIAL STATES REMAINING).
 
 ---
 
@@ -411,7 +432,7 @@ State_id ${firstSequentialStateId || 6} above is illustrative — emit whichever
 - ❌ Omitting \`within_ms\` or \`on_fail\` on a guard because the engineer "didn't mention them" — ASK before emitting.
 - ❌ Inventing tag names that don't appear in OUTPUT TAGS or INPUT TAGS.
 - ❌ Emitting a JSON block while any required field is still missing.
-- ❌ Using a state name or string as \`state_id\` — state_id is a NUMBER from SEQUENTIAL STATES REMAINING.
+- ❌ Using a state's display name as \`state_id\` — state_id is the EM-LOCAL string slug from SEQUENTIAL STATES REMAINING.
 - ❌ Paraphrasing tag names in conversation ("the level sensor" instead of "LFT01_LT01").
 - ❌ Asking more than one question per turn.
 - ❌ Adding a step that violates a CONFIRMED STATIC STATE invariant without first flagging the conflict.
@@ -429,7 +450,11 @@ If you have no table update to propose (still gathering info), do not include a 
 export function buildFdsOpeningMessage(
   equipment_module: EquipmentModuleConfig,
   tags: InstrumentTag[],
-  firstSequentialState: OperatingState,
+  // Hybrid state model: Stage B walks the EM's OWN sequential states. Only the
+  // display name of the first sequential state is needed to seed the opening
+  // question, so accept the bare name rather than a full state object.
+  firstSequentialStateName: string,
+  sourceSections: SourceSection[] = [],
 ): string {
   const equipment_moduleTagNames = new Set<string>();
   for (const dev of equipment_module.control_modules) {
@@ -449,116 +474,21 @@ export function buildFdsOpeningMessage(
     .map((t) => `${t.tag} (${t.description})`)
     .join(", ");
 
+  if (sourceSections.length > 0) {
+    return `Generate the opening message for the equipment_module interview. The equipment_module is "${equipment_module.equipment_module_name}" (${equipment_module.description || "no description"}).
+
+Outputs: ${outputs}
+Inputs: ${inputs}
+
+The customer specification context is in your system prompt. Execute PHASE 1 (GROUND) for the "${firstSequentialStateName}" state: read the spec, then PROPOSE your draft permissives and ordered steps for that state — citing the spec and tagging any gaps you filled from device-class defaults as assumptions — and end with the JSON block plus the points you need confirmed. Lead with your proposal; do NOT ask a cold question.`;
+  }
+
   return `Generate the opening message for the equipment_module interview. The equipment_module is "${equipment_module.equipment_module_name}" (${equipment_module.description || "no description"}).
 
 Outputs: ${outputs}
 Inputs: ${inputs}
 
-Ask about the "${firstSequentialState.state_name}" state first. Be specific — reference the actual device names and ask how they operate in sequence. Keep it to 2-3 sentences ending with a clear question.`;
-}
-
-// ---------------------------------------------------------------------------
-// Unit orchestration interview
-// ---------------------------------------------------------------------------
-
-export function buildFdsOrchestrationSystemPrompt(
-  unit: UnitConfig,
-  equipment_moduleSummaries: Array<{
-    equipment_module_name: string;
-    equipment_module_id: string;
-    sequential_states: Record<string, SequentialStateV2>;
-  }>,
-  sequentialStates: OperatingStateV2[],
-): string {
-  const equipment_moduleSummaryText = equipment_moduleSummaries.map((a) => {
-    const stateText = Object.entries(a.sequential_states)
-      .map(([stateId, data]) => {
-        const matched = sequentialStates.find((s) => String(s.state_id) === stateId);
-        const stateName = matched?.display_name ?? matched?.state_name ?? stateId;
-        return `    ${stateName}: ${data.steps.length} step(s), ${data.permissives.length} permissive(s)`;
-      }).join("\n");
-    return `  ${a.equipment_module_name} (${a.equipment_module_id}):\n${stateText}`;
-  }).join("\n");
-
-  const sequentialStatesTable = sequentialStates
-    .map((s) => `  - ${s.state_id}  (${s.display_name ?? s.state_name ?? String(s.state_id)})${s.description ? ` — ${s.description}` : ""}`)
-    .join("\n");
-
-  const firstSequentialStateId = sequentialStates[0]?.state_id ?? 6;
-
-  return `You are a senior automation engineer defining how equipment_modules coordinate within unit "${unit.unit_name}" (${unit.equipment_type}).
-
-Individual equipment_module behaviors are already defined. Now you need to define:
-1. The ORDER in which equipment_modules execute for each sequential state
-2. SHARED PERMISSIVES that gate the entire unit (not just one equipment_module)
-3. INTER-EQUIPMENT-MODULE INTERLOCKS — conditions where one equipment_module's state affects another
-
-ASSEMBLIES IN THIS SUBSYSTEM:
-${equipment_moduleSummaryText}
-
-SEQUENTIAL STATES (state_id is a number — emit it verbatim):
-${sequentialStatesTable}
-
-Ask the engineer about:
-- Execution order: Do equipment_modules start simultaneously, sequentially, or in groups?
-- Dependencies: Must equipment_module A reach a certain state before equipment_module B can start?
-- Shared conditions: Are there unit-wide permissives beyond individual equipment_module permissives?
-
-${INTERLOCK_EFFECTS_DOC}
-
-SHARED PERMISSIVE SHAPE:
-Each shared_permissive is a structured object:
-{
-  "permissive_id": "<stable slug, e.g. SP_ESTOP_OK>",
-  "condition": <CompletionCriterion — see below>,
-  "source_unit": "<optional unit_id that owns the signal>",
-  "prose": "<one-line natural language>"
-}
-
-${COMPLETION_CRITERION_DOC}
-
-RESPONSE FORMAT:
-When you propose orchestration for a state, include a fenced JSON block at the END of your message. The state_id is a NUMBER from the SEQUENTIAL STATES list above. equipment_module_order, source_equipment_module, and target_equipment_module must be equipment_module_ids from this unit.
-
-\`\`\`json
-{
-  "state_id": ${firstSequentialStateId},
-  "equipment_module_order": ["00000000-0000-4000-8000-...asm1", "00000000-0000-4000-8000-...asm2"],
-  "shared_permissives": [
-    {
-      "permissive_id": "SP_ESTOP_OK",
-      "condition": { "kind": "tag_equals", "tag": "SYS_ESTOP01", "value": true },
-      "prose": "Emergency stop circuit healthy"
-    }
-  ],
-  "inter_equipment_module_interlocks": [
-    {
-      "interlock_id": "IL_LFT01_LIMIT_TO_CV01_START",
-      "source_equipment_module": "00000000-0000-4000-8000-...asm1",
-      "source_condition": { "kind": "tag_equals", "tag": "LFT01_ZSL01", "value": true },
-      "target_equipment_module": "00000000-0000-4000-8000-...asm2",
-      "effect": "enable",
-      "effect_target": { "equipment_module": "00000000-0000-4000-8000-...asm2", "state_id": 3 },
-      "prose": "CV01 may begin Starting once LFT01 reaches its lower limit"
-    }
-  ],
-  "notes": null
-}
-\`\`\`
-
-Required fields per interlock: interlock_id (stable slug), source_equipment_module, source_condition (CompletionCriterion), target_equipment_module, effect (from the closed set above), prose (one-line natural language for DOCX rendering). effect_target is REQUIRED when effect is "block_transition" or "trigger"; optional otherwise.
-
-Only include a JSON block when you have a concrete update to persist. When asking clarifying questions, omit it. Keep prose concise — the engineer is a peer.`;
-}
-
-export function buildFdsOrchestrationOpeningMessage(
-  unit: UnitConfig,
-  equipment_moduleNames: string[],
-  firstSequentialState: OperatingState,
-): string {
-  return `Generate the opening message for unit orchestration. Unit "${unit.unit_name}" has ${equipment_moduleNames.length} equipment_modules: ${equipment_moduleNames.join(", ")}.
-
-Ask about the "${firstSequentialState.state_name}" state: in what order do the equipment_modules execute, and are there dependencies between them? Be specific and concise.`;
+Ask about the "${firstSequentialStateName}" state first. Be specific — reference the actual device names and ask how they operate in sequence. Keep it to 2-3 sentences ending with a clear question.`;
 }
 
 // ---------------------------------------------------------------------------

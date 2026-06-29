@@ -339,7 +339,7 @@ export function ForgeInterfaceContract({
   onComplete,
   onBriefsComplete,
 }: ForgeInterfaceContractProps) {
-  const { briefs: fdsBriefs, operatingStates, loading: fdsLoading, isFdsLinked } = useForgeFdsHandoff(session.spec_project_id);
+  const { briefs: fdsBriefs, loading: fdsLoading, isFdsLinked } = useForgeFdsHandoff(session.spec_project_id);
 
   // Standalone mode (no FDS): AI contract generation
   const { generateContracts, loading: contractLoading, error: contractError } = useForgeContractGenerate();
@@ -550,7 +550,7 @@ export function ForgeInterfaceContract({
             {selectedBrief ? (
               <FdsBriefEditor
                 brief={selectedBrief}
-                operatingStates={operatingStates}
+                operatingStates={selectedBrief.operatingStates}
                 onAnnotate={(annotations) => updateBrief(selectedBrief.equipment_moduleId, { annotations, approved: false })}
                 onToggleApprove={() => updateBrief(selectedBrief.equipment_moduleId, { approved: !selectedBrief.approved })}
               />

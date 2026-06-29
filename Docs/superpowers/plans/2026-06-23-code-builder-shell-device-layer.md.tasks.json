@@ -1,0 +1,47 @@
+{
+  "planPath": "docs/superpowers/plans/2026-06-23-code-builder-shell-device-layer.md",
+  "tasks": [
+    {
+      "id": 15,
+      "subject": "Task 1: Engine provenance + layer filter",
+      "status": "completed",
+      "description": "**Goal:** Every emitted CodegenArtifact carries layer + ownerId/ownerName; filterByLayer() returns exactly Device-layer artifacts.\n\n```json:metadata\n{\"files\":[\"src/lib/spec-builder/codegen/types.ts\",\"src/lib/spec-builder/codegen/fb-instantiate.ts\",\"src/lib/spec-builder/codegen/udt-writer.ts\",\"src/lib/spec-builder/codegen/db-writer.ts\",\"src/lib/spec-builder/codegen/fc-writer.ts\",\"src/lib/spec-builder/codegen/ob1-writer.ts\",\"src/lib/spec-builder/codegen/layer-filter.ts\",\"src/lib/spec-builder/codegen/index.ts\",\"src/lib/spec-builder/codegen/__tests__/fb-instantiate.test.ts\",\"src/lib/spec-builder/codegen/__tests__/compile-contract.test.ts\"],\"verifyCommand\":\"npx vitest run src/lib/spec-builder/codegen && npx tsc -b\",\"acceptanceCriteria\":[\"CodegenArtifact has required layer + optional ownerId/ownerName\",\"CM=device, EM=em, UDT/DB/FC=unit, OB1=ob1\",\"filterByLayer device returns exactly CM FBs/instance DBs\"]}\n```"
+    },
+    {
+      "id": 16,
+      "subject": "Task 2: code_builder_artifacts persistence table",
+      "status": "completed",
+      "blockedBy": [15],
+      "description": "**Goal:** Supabase table persisting generated content + edits/approvals keyed by (spec_id, revision, artifact_name); RLS scoped to owning spec project.\n\n```json:metadata\n{\"files\":[\"supabase/migrations/20260623000000_code_builder_artifacts.sql\"],\"verifyCommand\":\"manual SQL review vs 061_fds_co_author.sql pattern\",\"acceptanceCriteria\":[\"All columns from design spec\",\"UNIQUE (spec_id, revision, artifact_name)\",\"RLS FOR ALL via spec_projects.created_by = auth.uid()\",\"moddatetime trigger + index\"]}\n```"
+    },
+    {
+      "id": 17,
+      "subject": "Task 3: Reconcile core + use-code-builder hook",
+      "status": "completed",
+      "blockedBy": [15, 16],
+      "description": "**Goal:** Pure reconcileArtifacts() (preserve edits/approvals, flag drift) + TanStack Query hook (compile-on-open, upsert, approve/saveEdit).\n\n```json:metadata\n{\"files\":[\"src/types/code-builder.ts\",\"src/lib/spec-builder/code-builder-reconcile.ts\",\"src/lib/spec-builder/__tests__/code-builder-reconcile.test.ts\",\"src/hooks/use-code-builder.ts\"],\"verifyCommand\":\"npx vitest run src/lib/spec-builder/__tests__/code-builder-reconcile.test.ts && npx tsc -b\",\"acceptanceCriteria\":[\"new artifact -> pending/null/drift=false\",\"approved/edited differing recompile -> keeps status/edit, refreshes generated, drift=true\",\"approved unchanged -> drift=false\",\"hook upserts + approve/saveEdit invalidate\"]}\n```"
+    },
+    {
+      "id": 18,
+      "subject": "Task 4: Device workspace UI components",
+      "status": "completed",
+      "blockedBy": [17],
+      "description": "**Goal:** Stepper + control-module list + artifact viewer (Code/Flow/UDT/Inst DB reusing parseFbFlow + FbFlowRenderer + Monaco) + approve/edit panel.\n\n```json:metadata\n{\"files\":[\"src/components/code-builder/builder-stepper.tsx\",\"src/components/code-builder/control-module-list.tsx\",\"src/components/code-builder/artifact-viewer.tsx\",\"src/components/code-builder/artifact-panel.tsx\"],\"verifyCommand\":\"npx tsc -b\",\"acceptanceCriteria\":[\"stepper Device active + rest disabled\",\"list pills + drift badge\",\"viewer Code read-only unless editable; Flow=FbFlowRenderer; UDT/Inst DB tabs\",\"panel Approve/Edit/Save wired\"]}\n```"
+    },
+    {
+      "id": 19,
+      "subject": "Task 5: Code Builder route + registration + gate",
+      "status": "completed",
+      "blockedBy": [18],
+      "description": "**Goal:** Full-screen /specs/:projectId/:specId/code-builder page gating on confirmed, wiring 3-pane workspace to useCodeBuilder, registered in App.tsx. Smoke test confirmed vs locked.\n\n```json:metadata\n{\"files\":[\"src/routes/code-builder.tsx\",\"src/routes/__tests__/code-builder.test.tsx\",\"src/App.tsx\"],\"verifyCommand\":\"npx vitest run src/routes/__tests__/code-builder.test.tsx && npx tsc -b\",\"acceptanceCriteria\":[\"stepper + 3 panes for confirmed spec\",\"locked empty-state for unconfirmed\",\"select/Edit/Save/Approve wired\",\"App.tsx lazy-registers route\"]}\n```"
+    },
+    {
+      "id": 20,
+      "subject": "Task 6: Replace Generate SCL one-shot with Open Code Builder",
+      "status": "completed",
+      "blockedBy": [19],
+      "description": "**Goal:** Co-Author header links to Code Builder (enabled only when confirmed); swallow-errors handleGenerate one-shot removed.\n\n```json:metadata\n{\"files\":[\"src/routes/spec-co-author.tsx\"],\"verifyCommand\":\"npx tsc -b\",\"acceptanceCriteria\":[\"Generate SCL replaced by Open Code Builder link\",\"disabled unless confirmed\",\"handleGenerate + unused imports removed\",\"tsc passes\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-06-24T00:00:00Z"
+}
