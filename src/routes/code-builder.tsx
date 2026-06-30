@@ -14,13 +14,18 @@ import { BuilderStepper } from "@/components/code-builder/builder-stepper";
 import { ControlModuleList } from "@/components/code-builder/control-module-list";
 import { ArtifactViewer } from "@/components/code-builder/artifact-viewer";
 import { ArtifactPanel } from "@/components/code-builder/artifact-panel";
+import { FbQualityGates } from "@/components/code-builder/fb-quality-gates";
+import { FbVersionHistory } from "@/components/code-builder/fb-version-history";
+import { useCodeBuilderVersions } from "@/hooks/use-code-builder-versions";
+import { useEmStandardsReview, type EmReviewArtifact } from "@/hooks/use-em-standards-review";
+import { evaluateSafetyGate } from "@/lib/spec-builder/fb-quality-gate";
 import type { CodegenLayer } from "@/lib/spec-builder/codegen";
 
 export default function CodeBuilderPage() {
   const { projectId, specId } = useParams<{ projectId: string; specId: string }>();
   const { data: spec } = useSpecProject(specId);
   const [activeLayer, setActiveLayer] = useState<CodegenLayer>("device");
-  const { artifacts, approve, saveEdit, unitGroups = [], emById = {} } = useCodeBuilder(specId, activeLayer);
+  const { artifacts, approve, saveEdit, acknowledgeWarning, saveReview, revision, unitGroups = [], emById = {} } = useCodeBuilder(specId, activeLayer);
   const [selected, setSelected] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<string>("");
@@ -35,6 +40,28 @@ export default function CodeBuilderPage() {
     [views, current],
   );
   const emInfo = current?.owner_id ? emById[current.owner_id] : undefined;
+
+  const isEmFb = current?.layer === "em" && current.type === "FB";
+  const gate = useMemo(
+    () =>
+      isEmFb && current
+        ? evaluateSafetyGate(
+            current.artifact_name,
+            current.type,
+            current.edited_content ?? current.generated_content,
+            current.acknowledged_warnings,
+          )
+        : { warnings: [], blocked: false },
+    [isEmFb, current],
+  );
+
+  const { versions, saveVersion, restoreVersion } = useCodeBuilderVersions(
+    specId, revision, current?.owner_id, activeLayer,
+  );
+  const { review: runStandardsReview, loading: reviewing } = useEmStandardsReview();
+
+  const snapshotArtifacts = () =>
+    related.map((r) => ({ artifact_name: r.artifact_name, content: r.edited_content ?? r.generated_content }));
 
   if (spec && spec.confirmation_status !== "confirmed") {
     return (
@@ -109,6 +136,7 @@ export default function CodeBuilderPage() {
             editing={editing}
             saving={saveEdit.isPending}
             approving={approve.isPending}
+            approveDisabled={gate.blocked}
             onEdit={() => {
               setDraft(current?.edited_content ?? current?.generated_content ?? "");
               setEditing(true);
@@ -120,9 +148,53 @@ export default function CodeBuilderPage() {
               }
             }}
             onApprove={() => {
-              if (current) approve.mutate(current.artifact_name);
+              if (!current || gate.blocked) return;
+              saveVersion.mutate({ artifacts: snapshotArtifacts(), note: `Approved ${current.artifact_name}` });
+              approve.mutate(current.artifact_name);
             }}
           />
+          {isEmFb && current && (
+            <>
+              <FbQualityGates
+                warnings={gate.warnings}
+                blocked={gate.blocked}
+                acknowledged={current.acknowledged_warnings}
+                reviewStatus={current.review_status}
+                findings={current.review_findings}
+                reviewing={reviewing}
+                onAcknowledge={(key) =>
+                  acknowledgeWarning.mutate({
+                    artifactName: current.artifact_name,
+                    warningKeys: [...current.acknowledged_warnings, key],
+                  })
+                }
+                onRunReview={async () => {
+                  const fb: EmReviewArtifact = {
+                    name: current.artifact_name,
+                    type: current.type,
+                    content: current.edited_content ?? current.generated_content,
+                  };
+                  const result = await runStandardsReview(fb);
+                  saveReview.mutate({
+                    artifactName: current.artifact_name,
+                    status: result.findings.length > 0 ? "findings" : "pass",
+                    findings: result.findings,
+                  });
+                }}
+              />
+              <FbVersionHistory
+                fbName={current.artifact_name}
+                currentContent={current.edited_content ?? current.generated_content}
+                versions={versions.data ?? []}
+                saving={saveVersion.isPending}
+                restoring={restoreVersion.isPending}
+                onSaveVersion={() =>
+                  saveVersion.mutate({ artifacts: snapshotArtifacts(), note: `Manual snapshot ${current.artifact_name}` })
+                }
+                onRestore={(v) => restoreVersion.mutate(v)}
+              />
+            </>
+          )}
         </div>
       </div>
     </div>

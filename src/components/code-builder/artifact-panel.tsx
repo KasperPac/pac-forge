@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import type { CodeBuilderArtifactView } from "@/types/code-builder";
 
 export function ArtifactPanel({
-  artifact, editing, onEdit, onSave, onApprove, saving, approving,
+  artifact, editing, onEdit, onSave, onApprove, saving, approving, approveDisabled = false,
 }: {
   artifact: CodeBuilderArtifactView | null;
   editing: boolean;
@@ -12,6 +12,7 @@ export function ArtifactPanel({
   onApprove: () => void;
   saving: boolean;
   approving: boolean;
+  approveDisabled?: boolean;
 }) {
   if (!artifact) {
     return <div className="p-3 text-[11px] text-muted-foreground">No selection.</div>;
@@ -32,7 +33,7 @@ export function ArtifactPanel({
         <Button
           size="sm"
           className="h-7 text-[11px]"
-          disabled={approving || artifact.status === "approved"}
+          disabled={approving || approveDisabled || artifact.status === "approved"}
           onClick={onApprove}
         >
           {artifact.status === "approved" ? "Approved" : "Approve"}
