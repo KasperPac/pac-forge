@@ -4,39 +4,39 @@
     {
       "id": 1,
       "subject": "Task 1: Schema — declared states on FbInterfaceContract",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** FbInterfaceContract carries a `states` list for coverage checks; all construction sites compile.\n\n**Files:**\n- Modify: src/types/fb-interface.ts\n- Modify: src/hooks/use-generate-fb-interface.ts:61\n- Modify: src/components/fb-library/fb-interface-grid.tsx:54-56\n- Modify: src/lib/spec-builder/codegen/__tests__/fb-instantiate.test.ts\n\n```json:metadata\n{\"files\": [\"src/types/fb-interface.ts\", \"src/hooks/use-generate-fb-interface.ts\", \"src/components/fb-library/fb-interface-grid.tsx\", \"src/lib/spec-builder/codegen/__tests__/fb-instantiate.test.ts\"], \"verifyCommand\": \"npx tsc -b && npx vitest run src/lib/spec-builder/codegen src/components/fb-library\", \"acceptanceCriteria\": [\"FbInterfaceState exists\", \"states field exists\", \"tsc clean + tests pass\"]}\n```"
     },
     {
       "id": 2,
       "subject": "Task 2: State-coverage module",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [1],
       "description": "**Goal:** Pure check asserting FDS-required states are a subset of the library FB's declared states.\n\n**Files:**\n- Create: src/lib/spec-builder/codegen/em-state-coverage.ts\n- Test: src/lib/spec-builder/codegen/__tests__/em-state-coverage.test.ts\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/codegen/em-state-coverage.ts\", \"src/lib/spec-builder/codegen/__tests__/em-state-coverage.test.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/codegen/__tests__/em-state-coverage.test.ts\", \"acceptanceCriteria\": [\"checkStateCoverage returns ok+missing\", \"normSlug normalization\", \"surplus ignored\", \"empty = full miss\"]}\n```"
     },
     {
       "id": 3,
       "subject": "Task 3: Shared command-seam module + em-writer refactor",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** One definition of <EM>_CMD DB + call bindings used by both paths; synthesized output byte-for-byte unchanged.\n\n**Files:**\n- Create: src/lib/spec-builder/codegen/em-command-seam.ts\n- Test: src/lib/spec-builder/codegen/__tests__/em-command-seam.test.ts\n- Modify: src/lib/spec-builder/codegen/em-writer.ts\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/codegen/em-command-seam.ts\", \"src/lib/spec-builder/codegen/__tests__/em-command-seam.test.ts\", \"src/lib/spec-builder/codegen/em-writer.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/codegen/__tests__/em-command-seam.test.ts src/lib/spec-builder/codegen/__tests__/em-writer.test.ts\", \"acceptanceCriteria\": [\"buildCommandSeam returns cmdDb+callBindings+warnings\", \"empty pins warning\", \"em-writer byte-for-byte green\"]}\n```"
     },
     {
       "id": 4,
       "subject": "Task 4: EM<->CM wiring module",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Resolve EM sensor_in/actuator_out pins to CM instance pins by role+tag; LINK_IN/_OUT FCs with TODO on ambiguity.\n\n**Files:**\n- Create: src/lib/spec-builder/codegen/matched-em-builder.ts\n- Test: src/lib/spec-builder/codegen/__tests__/matched-em-builder.test.ts\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/codegen/matched-em-builder.ts\", \"src/lib/spec-builder/codegen/__tests__/matched-em-builder.test.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/codegen/__tests__/matched-em-builder.test.ts\", \"acceptanceCriteria\": [\"linkKey normalization\", \"unambiguous IN/OUT wiring\", \"TODO on 0/2+ match\", \"only sensor_in/actuator_out\"]}\n```"
     },
     {
       "id": 5,
       "subject": "Task 5: Expose instance DB + contract from fb-instantiate",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [1],
       "description": "**Goal:** InstantiateResult carries instanceDb name + matched template's contract.\n\n**Files:**\n- Modify: src/lib/spec-builder/codegen/fb-instantiate.ts\n- Test: src/lib/spec-builder/codegen/__tests__/fb-instantiate.test.ts\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/codegen/fb-instantiate.ts\", \"src/lib/spec-builder/codegen/__tests__/fb-instantiate.test.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/codegen/__tests__/fb-instantiate.test.ts && npx tsc -b\", \"acceptanceCriteria\": [\"instanceDb + contract on InstantiateResult\", \"matched vs stub values\", \"existing tests pass\"]}\n```"
     },
     {
       "id": 6,
       "subject": "Task 6: Compile-contract 4-case integration",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [2, 3, 4, 5],
       "description": "**Goal:** Replace matched-EM branch with the 4-case split — coverage gating, EM<->CM links, command seam, structural double-drive fix, OB1 ordering CM->IN->EM->OUT.\n\n**Files:**\n- Modify: src/lib/spec-builder/codegen/compile-contract.ts\n- Test: src/lib/spec-builder/codegen/__tests__/compile-contract.test.ts\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/codegen/compile-contract.ts\", \"src/lib/spec-builder/codegen/__tests__/compile-contract.test.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/codegen && npx tsc -b\", \"acceptanceCriteria\": [\"Case A pass artifacts + OB1 order\", \"Case A fail blocked\", \"Case B warning\", \"C/D unchanged\", \"double-drive regression\", \"tsc clean\"]}\n```"
     }
