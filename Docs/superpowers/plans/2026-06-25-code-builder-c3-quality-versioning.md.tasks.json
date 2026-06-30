@@ -23,37 +23,37 @@
     {
       "id": 4,
       "subject": "Task 4: Gate/review/version persistence hooks",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [3],
       "description": "**Goal:** Mutations to acknowledge a warning and save review results on an artifact, plus a versions hook to list / snapshot / restore an EM FB's artifact set.\n\n**Files:**\n- Modify: `src/hooks/use-code-builder.ts`\n- Create: `src/hooks/use-code-builder-versions.ts`\n\n```json:metadata\n{\"files\": [\"src/hooks/use-code-builder.ts\", \"src/hooks/use-code-builder-versions.ts\"], \"verifyCommand\": \"npx tsc -b && npx vitest run src/routes/__tests__/code-builder.test.tsx\", \"acceptanceCriteria\": [\"useCodeBuilder returns acknowledgeWarning and saveReview mutations that update the row and invalidate by the codeBuilderKey prefix\", \"useCodeBuilderVersions returns a versions query keyed by spec/revision/owner/layer plus saveVersion and restoreVersion\", \"restoreVersion writes each snapshot artifact's content back to edited_content (non-destructive) and invalidates the artifact query\", \"npx tsc -b is clean\"]}\n```"
     },
     {
       "id": 5,
       "subject": "Task 5: EM Standards Review hook (AI)",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** An on-demand AI Standards Review of a single EM FB, reusing the Forge reviewer prompt + parser, with a pure input-builder that is unit-testable without the network.\n\n**Files:**\n- Create: `src/hooks/use-em-standards-review.ts`\n- Test: `src/hooks/__tests__/use-em-standards-review.test.ts`\n\n```json:metadata\n{\"files\": [\"src/hooks/use-em-standards-review.ts\", \"src/hooks/__tests__/use-em-standards-review.test.ts\"], \"verifyCommand\": \"npx vitest run src/hooks/__tests__/use-em-standards-review.test.ts\", \"acceptanceCriteria\": [\"buildEmReviewInput returns { systemPrompt, userMessage }; the user message contains the FB name + its SCL and is generic (no machine-specific tokens)\", \"The hook calls callNonStreaming with that input and returns parseForgeReviewResponse(content)\", \"A NO_CHANGES response yields a clean (no-findings) result\"]}\n```"
     },
     {
       "id": 6,
       "subject": "Task 6: FB quality-gates component",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [2],
       "description": "**Goal:** A presentational panel that shows safety warnings with acknowledge controls and the Standards Review badge + findings, driven entirely by props/callbacks.\n\n**Files:**\n- Create: `src/components/code-builder/fb-quality-gates.tsx`\n- Test: `src/components/code-builder/__tests__/fb-quality-gates.test.tsx`\n\n```json:metadata\n{\"files\": [\"src/components/code-builder/fb-quality-gates.tsx\", \"src/components/code-builder/__tests__/fb-quality-gates.test.tsx\"], \"verifyCommand\": \"npx vitest run src/components/code-builder/__tests__/fb-quality-gates.test.tsx\", \"acceptanceCriteria\": [\"Renders one row per safety warning with an Acknowledge button; acknowledged warnings show an acknowledged state and no button\", \"Shows a blocked indicator when the gate is blocked and a clean indicator when not\", \"Run Standards Review button fires onRunReview; while reviewing it is disabled\", \"Renders a review badge (pass / findings) and one row per finding when reviewStatus is set\"]}\n```"
     },
     {
       "id": 7,
       "subject": "Task 7: FB version-history component",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [3],
       "description": "**Goal:** A presentational panel that lists snapshots, diffs the selected snapshot against the current content, and offers restore — driven by props/callbacks.\n\n**Files:**\n- Create: `src/components/code-builder/fb-version-history.tsx`\n- Test: `src/components/code-builder/__tests__/fb-version-history.test.tsx`\n\n```json:metadata\n{\"files\": [\"src/components/code-builder/fb-version-history.tsx\", \"src/components/code-builder/__tests__/fb-version-history.test.tsx\"], \"verifyCommand\": \"npx vitest run src/components/code-builder/__tests__/fb-version-history.test.tsx\", \"acceptanceCriteria\": [\"Renders one row per version with its note + relative position; empty state when none\", \"Selecting a version shows a diff (added/removed counts) of its FB content vs currentContent\", \"Restore fires onRestore with the selected version; Save version fires onSaveVersion\"]}\n```"
     },
     {
       "id": 8,
       "subject": "Task 8: Wire gates + history into the Code Builder route",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [4, 5, 6, 7],
       "description": "**Goal:** Mount the quality gates and version history below the artifact panel for EM artifacts, gate Approve on unacknowledged safety warnings, persist acknowledgements + review results, and snapshot a version on Approve.\n\n**Files:**\n- Modify: `src/routes/code-builder.tsx`\n- Modify: `src/components/code-builder/artifact-panel.tsx`\n- Test: `src/routes/__tests__/code-builder.test.tsx`\n\n```json:metadata\n{\"files\": [\"src/routes/code-builder.tsx\", \"src/components/code-builder/artifact-panel.tsx\", \"src/routes/__tests__/code-builder.test.tsx\"], \"verifyCommand\": \"npx vitest run src/components/code-builder src/routes/__tests__/code-builder.test.tsx && npx tsc -b\", \"acceptanceCriteria\": [\"For an EM-layer artifact, the gates + history panels render in the right column\", \"Approve is disabled while the safety gate is blocked; acknowledging the last warning re-enables it\", \"Approve also snapshots a version (calls the versions hook's saveVersion)\", \"Run Standards Review calls the review hook and persists the result via saveReview\", \"Full suite + typecheck pass\"]}\n```"
     }
   ],
-  "lastUpdated": "2026-06-25T15:00:00Z"
+  "lastUpdated": "2026-06-30T00:00:00Z"
 }
