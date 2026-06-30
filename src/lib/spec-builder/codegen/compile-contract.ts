@@ -55,24 +55,8 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
         continue;
       }
 
-      // Matched or stub-without-contract: CMs are their own FBs and own all
-      // physical IO. Collect link info as we instantiate them.
-      const cmLinks: CmLinkInfo[] = [];
-      const cmCallLines: string[] = [];
-      for (const cm of em.control_modules) {
-        const cmRes = instantiateControlModule(cm, templates);
-        cmRes.artifacts.forEach(push);
-        cmCallLines.push(...cmRes.callLines);
-        warnings.push(...cmRes.warnings);
-        if (cmRes.stub) stubs.controlModules.push(cmRes.stub);
-        cmLinks.push({
-          instanceDb: cmRes.instanceDb,
-          pins: cmRes.contract?.pins ?? [],
-          tags: cm.io_signals.map((s) => s.tag),
-        });
-      }
-
-      // Case D: stub EM (no template, no contract). Keep the stub FB + wiring.
+      // Case D: stub EM (no template, no contract). Owns its IO directly; no
+      // separate CM instantiation (avoids orphan, never-called CM blocks).
       if (emRes.stub) {
         emRes.artifacts.forEach(push);
         deviceCallLines.push(...emRes.callLines);
@@ -80,12 +64,12 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
         continue;
       }
 
-      // Matched EM (Cases A/B). The EM never touches physical IO — emRes.callLines
-      // are intentionally NOT pushed (double-drive fix); CMs own the IO.
+      // Matched EM (Cases A/B). The EM never touches physical IO; CMs own it.
       const sclName = sclIdent(em.equipment_module_name);
 
       if (emContract) {
-        // Case A: verify the library FB declares every FDS-required state.
+        // Case A: verify the library FB declares every FDS-required state. Gate
+        // runs BEFORE CM instantiation so a blocked EM emits no CM blocks either.
         const cov = checkStateCoverage(emContract.states, emRes.contract?.states ?? []);
         if (!cov.ok) {
           const missing = cov.missing.map((s) => s.name).join(", ");
@@ -105,6 +89,23 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
       } else {
         // Case B: matched, but no FDS state machine to verify against.
         warnings.push(`EM ${em.equipment_module_name}: coverage unverifiable — no FDS state machine`);
+      }
+
+      // Now instantiate CMs (matched, not blocked): each CM is its own FB and
+      // owns all physical IO. Collect link info as we go.
+      const cmLinks: CmLinkInfo[] = [];
+      const cmCallLines: string[] = [];
+      for (const cm of em.control_modules) {
+        const cmRes = instantiateControlModule(cm, templates);
+        cmRes.artifacts.forEach(push);
+        cmCallLines.push(...cmRes.callLines);
+        warnings.push(...cmRes.warnings);
+        if (cmRes.stub) stubs.controlModules.push(cmRes.stub);
+        cmLinks.push({
+          instanceDb: cmRes.instanceDb,
+          pins: cmRes.contract?.pins ?? [],
+          tags: cm.io_signals.map((s) => s.tag),
+        });
       }
 
       emRes.artifacts.forEach(push); // EM instance DB

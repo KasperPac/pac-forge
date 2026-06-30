@@ -229,6 +229,11 @@ describe("compile-contract — verified matched EM", () => {
         expect(a.content).not.toMatch(/"[IQ]\d+\.\d+"/);
       }
     });
+
+    it("double-drive: each physical address is written exactly once (in OB1, by the CM)", () => {
+      const ob = res.artifacts.find((a) => a.type === "OB")!.content;
+      expect((ob.match(/"Q0\.0" :=/g) ?? []).length).toBe(1);
+    });
   });
 
   describe("Case A — coverage fail (library FB missing a state)", () => {
@@ -261,6 +266,35 @@ describe("compile-contract — verified matched EM", () => {
       expect(names).toContain("Carriage_CMD");
       expect(names).toContain("LINK_Carriage_IN");
       expect(names).toContain("LINK_Carriage_OUT");
+    });
+  });
+
+  describe("Case D — stub EM (no template, no contract)", () => {
+    const res = compileContract(matchedFixture({ withEmContract: false }), []); // no templates, no FDS machine → EM stub
+    const ob = res.artifacts.find((a) => a.type === "OB")!.content;
+
+    it("reports the EM as a stub", () => {
+      expect(res.stubs.equipmentModules.find((s) => s.id === "em-carriage")).toBeDefined();
+    });
+
+    it("wires the stub EM directly — it owns its physical IO", () => {
+      expect(ob).toContain('"EM_Carriage_DB"(');
+      expect(ob).toContain('"Q0.0"'); // EM drives the output itself; no separate CM
+    });
+
+    it("instantiates NO separate CM blocks (no orphan, never-called blocks)", () => {
+      // The CM "M01" is subsumed by the stub EM and must not be instantiated.
+      const cmArtifacts = res.artifacts.filter((a) => a.ownerName === "M01");
+      expect(cmArtifacts).toHaveLength(0);
+      expect(res.stubs.controlModules).toHaveLength(0);
+      // No EM↔CM link FCs exist for a stub EM (CMs were not wired).
+      const names = res.artifacts.map((a) => a.name);
+      expect(names).not.toContain("LINK_Carriage_IN");
+      expect(names).not.toContain("LINK_Carriage_OUT");
+      // Every EM-owned artifact that IS emitted is referenced in OB1 (no orphans).
+      const emArts = res.artifacts.filter((a) => a.ownerName === "Carriage" && (a.type === "FB" || a.type === "DB"));
+      expect(emArts.length).toBeGreaterThan(0);
+      expect(ob).toContain("EM_Carriage_DB");
     });
   });
 });
