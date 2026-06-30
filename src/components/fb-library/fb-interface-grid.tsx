@@ -52,7 +52,9 @@ export function FbInterfaceGrid({ template }: { template: FbTemplate }) {
 
   function handleSave() {
     const contract: FbInterfaceContract = {
-      block_name: blockName, pins, reviewed: true,
+      block_name: blockName, pins,
+      states: template.interface_contract?.states ?? [],
+      reviewed: true,
       generated_at: template.interface_contract?.generated_at ?? new Date().toISOString(),
     };
     save.mutate({ templateId: template.id, contract });

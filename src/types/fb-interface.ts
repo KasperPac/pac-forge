@@ -42,10 +42,20 @@ export interface FbInterfacePin {
   description: string;
 }
 
+/** A state a library EM FB implements. Compared against the FDS EM state
+ *  machine for coverage. `slug` matches FDS EmStateV2.state_id. */
+export interface FbInterfaceState {
+  slug: string;
+  name: string;
+  is_safe?: boolean;
+}
+
 export interface FbInterfaceContract {
   /** the main FB block this describes */
   block_name: string;
   pins: FbInterfacePin[];
+  /** States this FB implements (EM templates). [] when none declared. */
+  states: FbInterfaceState[];
   /** a human has confirmed the AI-extracted semantic layer */
   reviewed: boolean;
   /** ISO timestamp of the last AI extraction */

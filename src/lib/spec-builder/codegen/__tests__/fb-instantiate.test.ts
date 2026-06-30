@@ -86,7 +86,7 @@ function contractCm(io: IoSignalV2[] = contractIo): ControlModuleV2 {
 }
 
 const reviewedContract: FbInterfaceContract = {
-  block_name: "CM_Motor", reviewed: true, generated_at: "",
+  block_name: "CM_Motor", reviewed: true, generated_at: "", states: [],
   pins: [
     { name: "open_fb", scl_type: "Bool", direction: "input", role: "sensor_in", default_binding: "io_input", exposed: true, description: "" },
     { name: "run_cmd", scl_type: "Bool", direction: "output", role: "actuator_out", default_binding: "io_output", exposed: true, description: "" },

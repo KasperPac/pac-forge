@@ -58,7 +58,7 @@ export function buildContractFromAi(
       description: p.description,
     };
   });
-  return { block_name: blockName, pins, reviewed: false, generated_at: new Date().toISOString() };
+  return { block_name: blockName, pins, states: [], reviewed: false, generated_at: new Date().toISOString() };
 }
 
 const SYSTEM_PROMPT = `You classify the interface pins of a Siemens TIA Portal Function Block for an industrial automation contract. You are GENERIC across all machine types — never reference a specific device, project, or signal name in your reasoning.
