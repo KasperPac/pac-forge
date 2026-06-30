@@ -1,0 +1,58 @@
+{
+  "planPath": "Docs/superpowers/plans/2026-06-24-code-builder-c1-generation-core.md",
+  "tasks": [
+    {
+      "id": 26,
+      "subject": "Task 1: EM IR + completion serializer + em-builder",
+      "status": "completed",
+      "description": "**Goal:** Lower a hierarchy EM (EquipmentModuleV2) + its state-machine contract (EquipmentModuleContract) into an EmSequence IR, with a new serialize-completion.ts for CompletionCriterion[] -> SCL.\n\n**Files:** Create serialize-completion.ts, em-builder.ts + tests; Modify types.ts (EmSeqStep/EmSeqState/EmSequence), sa-builder.ts (export staticEntries), index.ts (export buildEmSequence).\n\n**Verify:** npx vitest run src/lib/spec-builder/codegen/__tests__/em-builder.test.ts src/lib/spec-builder/codegen/__tests__/serialize-completion.test.ts\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/codegen/serialize-completion.ts\", \"src/lib/spec-builder/codegen/em-builder.ts\", \"src/lib/spec-builder/codegen/types.ts\", \"src/lib/spec-builder/codegen/sa-builder.ts\", \"src/lib/spec-builder/codegen/index.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/codegen/__tests__/em-builder.test.ts src/lib/spec-builder/codegen/__tests__/serialize-completion.test.ts\", \"acceptanceCriteria\": [\"buildEmSequence produces ordered states, role-tagged pins, static commands, linear steps with fillId+advance, exits\", \"serialize-completion lowers CompletionCriterion[] to SCL boolean\"]}\n```"
+    },
+    {
+      "id": 27,
+      "subject": "Task 2: AI-fill region markers",
+      "status": "completed",
+      "description": "**Goal:** Pure string helpers for the AI-fill marker contract between em-writer and the AI path.\n\n**Files:** Create em-fill-regions.ts + test.\n\n**Verify:** npx vitest run src/lib/spec-builder/codegen/__tests__/em-fill-regions.test.ts\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/codegen/em-fill-regions.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/codegen/__tests__/em-fill-regions.test.ts\", \"acceptanceCriteria\": [\"regionId/defaultStub/renderRegion produce stable markers\", \"parseRegions CRLF-tolerant; replaceRegion no-op on unknown id; regionDrift works\"]}\n```"
+    },
+    {
+      "id": 28,
+      "subject": "Task 3: em-writer \u00e2\u20ac\u201d 5-artifact EM bundle",
+      "status": "completed",
+      "blockedBy": [
+        26,
+        27
+      ],
+      "description": "**Goal:** Serialize an EmSequence into the 5 SCL artifacts (EM FB skeleton + AI-fill regions, State UDT, CMD DB, MAP FC, instance DB) + OB1 call lines. All layer:em.\n\n**Files:** Create em-writer.ts + test; Modify index.ts (export writeEmArtifacts).\n\n**Verify:** npx vitest run src/lib/spec-builder/codegen/__tests__/em-writer.test.ts\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/codegen/em-writer.ts\", \"src/lib/spec-builder/codegen/index.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/codegen/__tests__/em-writer.test.ts\", \"acceptanceCriteria\": [\"5 artifacts with EM_/MAP_/_CMD/_State/_DB naming, all layer em\", \"FB CASE state/step skeleton with AI-fill region stubs\", \"MAP wires sensors/actuators; missing addr -> TODO comment\", \"writeEmArtifacts returns {artifacts,callLines}\"]}\n```"
+    },
+    {
+      "id": 29,
+      "subject": "Task 4: Hybrid AI-fill (em-fill-prompt + use-em-generate)",
+      "status": "completed",
+      "blockedBy": [
+        26,
+        27,
+        28
+      ],
+      "description": "**Goal:** Generic, contract-driven AI prompt + orchestrator that replaces ONLY the marked SFC step-body regions, always falling back to deterministic stubs.\n\n**Files:** Create src/lib/spec-builder/em-fill-prompt.ts, src/hooks/use-em-generate.ts + tests.\n\n**MANUAL self-check:** em-fill-prompt.ts matches CLAUDE.md *-prompt*.ts glob -> confirm generic across machine types.\n\n**Verify:** npx vitest run src/lib/spec-builder/__tests__/em-fill-prompt.test.ts src/hooks/__tests__/use-em-generate.test.ts\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/em-fill-prompt.ts\", \"src/hooks/use-em-generate.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/__tests__/em-fill-prompt.test.ts src/hooks/__tests__/use-em-generate.test.ts\", \"acceptanceCriteria\": [\"emFillBriefs one brief per sequential step, bare sclName region ids\", \"system prompt generic (no machine names), forbids skeleton edits\", \"fillEmFb replaces only valid non-empty regions; AI failure keeps stubs + warning\", \"useEmGenerate thin pending+run hook\"]}\n```",
+      "lastUpdated": "2026-06-25T01:21:48.815991Z"
+    },
+    {
+      "id": 30,
+      "subject": "Task 5: Matched-FB interface_contract wiring (MAP/CMD seam)",
+      "status": "completed",
+      "description": "**Goal:** Wire matched library EM/CM FBs by role from their reviewed interface_contract instead of the DI/AI address heuristic; add warnings to InstantiateResult. Independent of Tasks 1-4.\n\n**Files:** Modify fb-instantiate.ts; add cases to fb-instantiate.test.ts.\n\n**Verify:** npx vitest run src/lib/spec-builder/codegen/__tests__/fb-instantiate.test.ts\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/codegen/fb-instantiate.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/codegen/__tests__/fb-instantiate.test.ts\", \"acceptanceCriteria\": [\"InstantiateResult.warnings on both return paths\", \"reviewed contract wires by role; fallback to heuristic otherwise\", \"surplus/unmapped pins warn\"]}\n```",
+      "lastUpdated": "2026-06-25T01:24:49.722290+00:00"
+    },
+    {
+      "id": 31,
+      "subject": "Task 6: compile-contract EM-layer path supersedes flattened unit sequence",
+      "status": "completed",
+      "blockedBy": [
+        28,
+        30
+      ],
+      "description": "**Goal:** Rewire compileContract: unmatched EMs w/ contract emit the 5-artifact bundle (CMs subsumed via MAP), matched/no-contract EMs keep device-layer wiring, flattened per-Unit sequencer replaced by UC_<unit> coordination stub, OB1 receives [] units.\n\n**Files:** Modify compile-contract.ts; rewrite compile-contract.test.ts.\n\n**MANUAL generic self-check:** branching keys only off contract presence + template match.\n\n**Verify:** npx vitest run src/lib/spec-builder/codegen && npx tsc -b\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/codegen/compile-contract.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/codegen && npx tsc -b\", \"acceptanceCriteria\": [\"unmatched EM w/ contract emits 5-artifact bundle, CMs subsumed\", \"no UDT_/DB_ unit sequencer; one UC_<unit> stub per unit\", \"matched/no-contract EMs unchanged; warnings propagate\", \"writeOb1([]) but OB1 calls EM instance DBs\", \"old sequencer imports removed\"]}\n```",
+      "lastUpdated": "2026-06-25T01:31:01.855191+00:00"
+    }
+  ],
+  "lastUpdated": "2026-06-25T01:16:23.258476+00:00"
+}

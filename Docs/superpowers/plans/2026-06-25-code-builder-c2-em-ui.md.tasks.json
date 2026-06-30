@@ -1,0 +1,52 @@
+{
+  "planPath": "Docs/superpowers/plans/2026-06-25-code-builder-c2-em-ui.md",
+  "tasks": [
+    {
+      "id": 1,
+      "subject": "Task 1: EM UI model derivation",
+      "status": "completed",
+      "description": "**Goal:** A pure function that turns a confirmed `SpecContractV2` into the Unit\u2192EM grouping and per-EM state/transition info the EM-layer UI needs.\n\n**Files:**\n- Create: `src/lib/spec-builder/code-builder-em-ui-model.ts`\n- Test: `src/lib/spec-builder/__tests__/code-builder-em-ui-model.test.ts`\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/code-builder-em-ui-model.ts\", \"src/lib/spec-builder/__tests__/code-builder-em-ui-model.test.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/__tests__/code-builder-em-ui-model.test.ts\", \"acceptanceCriteria\": [\"buildEmUiModel returns unitGroups + emById\", \"excluded units skipped\", \"missing EM contract yields empty arrays\"]}\n```"
+    },
+    {
+      "id": 2,
+      "subject": "Task 2: EM State Diagram component",
+      "status": "pending",
+      "description": "**Goal:** A dedicated, deterministic SVG that renders an EM state machine plus the pure transition-label formatter it uses.\n\n**Files:**\n- Create: `src/components/code-builder/em-state-diagram.tsx`\n- Test: `src/components/code-builder/__tests__/em-state-diagram.test.tsx`\n\n```json:metadata\n{\"files\": [\"src/components/code-builder/em-state-diagram.tsx\", \"src/components/code-builder/__tests__/em-state-diagram.test.tsx\"], \"verifyCommand\": \"npx vitest run src/components/code-builder/__tests__/em-state-diagram.test.tsx\", \"acceptanceCriteria\": [\"formatTransition formats command/completion/guards\", \"EmStateDiagram renders boxes via orderStates\", \"safe state highlighted\", \"empty placeholder\"]}\n```"
+    },
+    {
+      "id": 3,
+      "subject": "Task 3: Clickable BuilderStepper with EM enabled",
+      "status": "completed",
+      "description": "**Goal:** Make the stepper steps clickable via an `onSelect` callback and enable the `EM` step.\n\n**Files:**\n- Modify: `src/components/code-builder/builder-stepper.tsx`\n- Test: `src/components/code-builder/__tests__/builder-stepper.test.tsx`\n\n```json:metadata\n{\"files\": [\"src/components/code-builder/builder-stepper.tsx\", \"src/components/code-builder/__tests__/builder-stepper.test.tsx\"], \"verifyCommand\": \"npx vitest run src/components/code-builder/__tests__/builder-stepper.test.tsx\", \"acceptanceCriteria\": [\"steps are buttons with testid + disabled\", \"onSelect fires only when enabled\", \"EM enabled, unit/export disabled\"]}\n```"
+    },
+    {
+      "id": 4,
+      "subject": "Task 4: Layer-parameterise the Code Builder hook + expose EM UI model",
+      "status": "completed",
+      "blockedBy": [1],
+      "description": "**Goal:** `useCodeBuilder` compiles/persists the active layer and exposes contract-derived `unitGroups` + `emById`.\n\n**Files:**\n- Modify: `src/hooks/use-code-builder.ts`\n\n```json:metadata\n{\"files\": [\"src/hooks/use-code-builder.ts\"], \"verifyCommand\": \"npx tsc -b && npx vitest run src/routes/__tests__/code-builder.test.tsx\", \"acceptanceCriteria\": [\"compileAndReconcile takes layer param\", \"artifact query keyed by layer\", \"emUi query exposes unitGroups+emById\", \"invalidation still works by prefix\"]}\n```"
+    },
+    {
+      "id": 5,
+      "subject": "Task 5: EM/Unit grouping in the control-module list",
+      "status": "completed",
+      "blockedBy": [1],
+      "description": "**Goal:** Parameterise `ControlModuleList` with a `layer` prop; EM path renders rows grouped under collapsible Unit headers.\n\n**Files:**\n- Modify: `src/components/code-builder/control-module-list.tsx`\n- Test: `src/components/code-builder/__tests__/control-module-list.test.tsx`\n\n```json:metadata\n{\"files\": [\"src/components/code-builder/control-module-list.tsx\", \"src/components/code-builder/__tests__/control-module-list.test.tsx\"], \"verifyCommand\": \"npx vitest run src/components/code-builder/__tests__/control-module-list.test.tsx\", \"acceptanceCriteria\": [\"layer + unitGroups props\", \"device path unchanged\", \"EM path groups by Unit with collapsible headers\", \"Ungrouped fallback\"]}\n```"
+    },
+    {
+      "id": 6,
+      "subject": "Task 6: Layer-conditional artifact-viewer tabs",
+      "status": "completed",
+      "blockedBy": [2],
+      "description": "**Goal:** EM artifact shows Code \u00b7 State \u00b7 Map \u00b7 UDT \u00b7 Inst DB; device keeps Code \u00b7 Flow \u00b7 UDT \u00b7 Inst DB.\n\n**Files:**\n- Modify: `src/components/code-builder/artifact-viewer.tsx`\n- Test: `src/components/code-builder/__tests__/artifact-viewer.test.tsx`\n\n```json:metadata\n{\"files\": [\"src/components/code-builder/artifact-viewer.tsx\", \"src/components/code-builder/__tests__/artifact-viewer.test.tsx\"], \"verifyCommand\": \"npx vitest run src/components/code-builder/__tests__/artifact-viewer.test.tsx\", \"acceptanceCriteria\": [\"states/transitions props\", \"EM hides Flow, shows State/Map\", \"device tabs unchanged\", \"tab resets on artifact change\", \"Monaco mocked\"]}\n```"
+    },
+    {
+      "id": 7,
+      "subject": "Task 7: Wire the active layer through the route",
+      "status": "completed",
+      "blockedBy": [3, 4, 5, 6],
+      "description": "**Goal:** Add `activeLayer` state to the Code Builder page, drive stepper/list/viewer/hook from it, pass selected EM state machine to the viewer.\n\n**Files:**\n- Modify: `src/routes/code-builder.tsx`\n- Test: `src/routes/__tests__/code-builder.test.tsx`\n\n```json:metadata\n{\"files\": [\"src/routes/code-builder.tsx\", \"src/routes/__tests__/code-builder.test.tsx\"], \"verifyCommand\": \"npx vitest run src/components/code-builder src/routes/__tests__/code-builder.test.tsx && npx tsc -b\", \"acceptanceCriteria\": [\"activeLayer state wired to hook/stepper/list/viewer\", \"EM state machine passed to viewer\", \"route test covers layer switch\", \"full suite + typecheck green\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-06-25T13:35:00Z"
+}
