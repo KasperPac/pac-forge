@@ -16,6 +16,7 @@ import type {
   CodeBuilderArtifactRow, CodeBuilderArtifactView,
 } from "@/types/code-builder";
 import type { FbTemplate } from "@/types/fb-template";
+import type { ReviewFinding } from "@/lib/forge-review-parser";
 
 const TABLE = "code_builder_artifacts";
 
@@ -109,8 +110,34 @@ export function useCodeBuilder(specId: string | undefined, layer: CodegenLayer =
     onSuccess: () => { void qc.invalidateQueries({ queryKey: codeBuilderKey(specId, revision) }); },
   });
 
+  const acknowledgeWarning = useMutation({
+    mutationFn: async (vars: { artifactName: string; warningKeys: string[] }) => {
+      const { error } = await supabase
+        .from(TABLE)
+        .update({ acknowledged_warnings: vars.warningKeys })
+        .eq("spec_id", specId as string)
+        .eq("revision", revision as number)
+        .eq("artifact_name", vars.artifactName);
+      if (error) throw error;
+    },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: codeBuilderKey(specId, revision) }); },
+  });
+
+  const saveReview = useMutation({
+    mutationFn: async (vars: { artifactName: string; status: "pass" | "findings"; findings: ReviewFinding[] }) => {
+      const { error } = await supabase
+        .from(TABLE)
+        .update({ review_status: vars.status, review_findings: vars.findings })
+        .eq("spec_id", specId as string)
+        .eq("revision", revision as number)
+        .eq("artifact_name", vars.artifactName);
+      if (error) throw error;
+    },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: codeBuilderKey(specId, revision) }); },
+  });
+
   const unitGroups: CodeBuilderUnitGroup[] = emUi.data?.unitGroups ?? [];
   const emById: Record<string, CodeBuilderEmInfo> = emUi.data?.emById ?? {};
 
-  return { artifacts, approve, saveEdit, ready, revision, unitGroups, emById };
+  return { artifacts, approve, saveEdit, acknowledgeWarning, saveReview, ready, revision, unitGroups, emById };
 }
