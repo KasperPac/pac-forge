@@ -1,7 +1,7 @@
 // src/lib/spec-builder/codegen/fb-instantiate.ts
 import type { ControlModuleV2, EquipmentModuleV2, IoSignalV2 } from "@/types/spec-contract-v2";
 import type { FbTemplate } from "@/types/fb-template";
-import type { FbInterfacePin } from "@/types/fb-interface";
+import type { FbInterfacePin, FbInterfaceContract } from "@/types/fb-interface";
 import type { CodegenArtifact, CodegenLayer } from "./types";
 import { sclIdent } from "./sa-builder";
 
@@ -14,6 +14,10 @@ export interface InstantiateResult {
   callLines: string[];
   stub: { id: string; name: string; reason: string } | null;
   warnings: string[];
+  /** The instance DB block name (matched or stub). */
+  instanceDb: string;
+  /** The matched template's interface contract, or null for a stub. */
+  contract: FbInterfaceContract | null;
 }
 
 /** Score-pick the best library FB for a device. Category/class match dominates,
@@ -159,13 +163,15 @@ function instantiate(
       callLines: wiringLines(instanceName, io),
       stub: { id, name, reason: `no ${isEm ? "EM" : "CM"} template matched "${deviceClass}"` },
       warnings: [],
+      instanceDb: instanceName,
+      contract: null,
     };
   }
   const block = templateBlockName(t);
   const instance = `${block}_${sclIdent(name)}_DB`;
   const db = instanceDb(instance, block);
   const w = buildWiring(instance, t, io);
-  return { artifacts: [db].map(tag), callLines: w.lines, stub: null, warnings: w.warnings };
+  return { artifacts: [db].map(tag), callLines: w.lines, stub: null, warnings: w.warnings, instanceDb: instance, contract: t.interface_contract };
 }
 
 /** Instantiate one Control Module (basic-control FB). */

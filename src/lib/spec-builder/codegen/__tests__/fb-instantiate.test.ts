@@ -121,4 +121,17 @@ describe("instantiate contract wiring", () => {
     const r = instantiateControlModule(contractCm(extra), [tmpl({ interface_contract: reviewedContract })]);
     expect(r.warnings.some((w) => w.includes("input signal(s) unmapped"))).toBe(true);
   });
+
+  it("exposes the instance DB name and contract for a matched CM", () => {
+    const r = instantiateControlModule(contractCm(), [tmpl({ interface_contract: reviewedContract })]);
+    expect(r.instanceDb).toBe("CM_Motor_M01_DB");
+    expect(r.contract).not.toBeNull();
+    expect(r.contract?.block_name).toBe("CM_Motor");
+  });
+
+  it("exposes a stub instance DB name and null contract when nothing matched", () => {
+    const r = instantiateControlModule(contractCm(), []);
+    expect(r.instanceDb).toMatch(/_DB$/);
+    expect(r.contract).toBeNull();
+  });
 });
