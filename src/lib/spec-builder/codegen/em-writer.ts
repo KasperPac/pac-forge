@@ -1,5 +1,6 @@
 import type { CodegenArtifact, EmSeqState, EmSeqStep, EmSequence } from "./types";
 import { regionId, renderRegion, defaultStub } from "./em-fill-regions";
+import { buildCommandSeam, type CommandSeamPin } from "./em-command-seam";
 
 const PROGRAM = "Program blocks";
 const DATA = "PLC data types";
@@ -113,23 +114,19 @@ function writeStateUdt(seq: EmSequence): CodegenArtifact {
   return { name, type: "UDT", filename: `${name}.udt`, content, dependencies: [], folder: DATA, layer: "em", ownerId: seq.emId, ownerName: seq.emName };
 }
 
+/** The fixed command-seam pins every synthesized EM FB exposes. */
+function commandPins(seq: EmSequence): CommandSeamPin[] {
+  return [
+    { name: "enable", scl_type: "Bool" },
+    { name: "mode", scl_type: "Int" },
+    ...seq.cmdPins.map((p) => ({ name: p, scl_type: "Bool" as const })),
+  ];
+}
+
 /** Command DB — the Unit/HMI seam that drives the EM's command inputs. */
 function writeCmdDb(seq: EmSequence): CodegenArtifact {
-  const name = `${seq.sclName}_CMD`;
-  const content = [
-    `DATA_BLOCK "${name}"`,
-    `{ S7_Optimized_Access := 'TRUE' }`,
-    `VERSION : 0.1`,
-    `   STRUCT`,
-    `      enable : Bool;`,
-    `      mode : Int;`,
-    ...seq.cmdPins.map((p) => `      ${p} : Bool;`),
-    `   END_STRUCT;`,
-    `BEGIN`,
-    `END_DATA_BLOCK`,
-    ``,
-  ].join("\n");
-  return { name, type: "DB", filename: `${name}.db`, content, dependencies: [], folder: PROGRAM, layer: "em", ownerId: seq.emId, ownerName: seq.emName };
+  const { cmdDb } = buildCommandSeam(seq.sclName, commandPins(seq));
+  return { ...cmdDb, ownerId: seq.emId, ownerName: seq.emName };
 }
 
 /** MAP FC — the IO seam between physical addresses and the instance DB. */
@@ -180,13 +177,8 @@ function writeInstanceDb(seq: EmSequence): CodegenArtifact {
 /** OB1 call lines: instantiate the FB from its CMD DB, then run its MAP FC. */
 function buildCallLines(seq: EmSequence): string[] {
   const inst = `EM_${seq.sclName}_DB`;
-  const cmd = `${seq.sclName}_CMD`;
-  const params = [
-    `enable := "${cmd}".enable`,
-    `mode := "${cmd}".mode`,
-    ...seq.cmdPins.map((p) => `${p} := "${cmd}".${p}`),
-  ].join(", ");
-  return [`   "${inst}"(${params});`, `   "MAP_${seq.sclName}"();`];
+  const { callBindings } = buildCommandSeam(seq.sclName, commandPins(seq));
+  return [`   "${inst}"(${callBindings.join(", ")});`, `   "MAP_${seq.sclName}"();`];
 }
 
 /** Serialize an EmSequence into its 5 SCL artifacts plus OB1 call lines. Pure;
