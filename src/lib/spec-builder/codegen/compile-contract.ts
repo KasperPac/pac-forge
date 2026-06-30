@@ -7,6 +7,9 @@ import { buildEmSequence } from "./em-builder";
 import { writeEmArtifacts } from "./em-writer";
 import { instantiateControlModule, instantiateEquipmentModule } from "./fb-instantiate";
 import { writeOb1 } from "./ob1-writer";
+import { checkStateCoverage, normSlug } from "./em-state-coverage";
+import { buildCommandSeam, type CommandSeamPin } from "./em-command-seam";
+import { buildEmCmLinks, type CmLinkInfo } from "./matched-em-builder";
 
 /**
  * Compile a confirmed FDS into deterministic SCL.
@@ -40,9 +43,9 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
       const emContract = contract.equipment_modules[em.equipment_module_id];
       const emRes = instantiateEquipmentModule(em, templates);
 
-      // Unmatched EM with a state-machine contract → generate the hybrid bundle.
-      // The EM FB owns sequencing and its CMs' IO (via MAP_<EM>); CMs are not
-      // instantiated separately here.
+      // Case C: synthesized (unmatched + contract). The generated EM FB owns
+      // sequencing and its CMs' IO (via MAP_<EM>); CMs are not instantiated
+      // separately here.
       if (emRes.stub && emContract) {
         const seq = buildEmSequence(em, emContract);
         const { artifacts: emArts, callLines } = writeEmArtifacts(seq);
@@ -52,20 +55,77 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
         continue;
       }
 
-      // Matched library EM (or unmatched-with-no-contract) → device-layer
-      // instance + per-CM wiring, unchanged.
-      emRes.artifacts.forEach(push);
-      deviceCallLines.push(...emRes.callLines);
-      warnings.push(...emRes.warnings);
-      if (emRes.stub) stubs.equipmentModules.push(emRes.stub);
-
+      // Matched or stub-without-contract: CMs are their own FBs and own all
+      // physical IO. Collect link info as we instantiate them.
+      const cmLinks: CmLinkInfo[] = [];
+      const cmCallLines: string[] = [];
       for (const cm of em.control_modules) {
         const cmRes = instantiateControlModule(cm, templates);
         cmRes.artifacts.forEach(push);
-        deviceCallLines.push(...cmRes.callLines);
+        cmCallLines.push(...cmRes.callLines);
         warnings.push(...cmRes.warnings);
         if (cmRes.stub) stubs.controlModules.push(cmRes.stub);
+        cmLinks.push({
+          instanceDb: cmRes.instanceDb,
+          pins: cmRes.contract?.pins ?? [],
+          tags: cm.io_signals.map((s) => s.tag),
+        });
       }
+
+      // Case D: stub EM (no template, no contract). Keep the stub FB + wiring.
+      if (emRes.stub) {
+        emRes.artifacts.forEach(push);
+        deviceCallLines.push(...emRes.callLines);
+        stubs.equipmentModules.push(emRes.stub);
+        continue;
+      }
+
+      // Matched EM (Cases A/B). The EM never touches physical IO — emRes.callLines
+      // are intentionally NOT pushed (double-drive fix); CMs own the IO.
+      const sclName = sclIdent(em.equipment_module_name);
+
+      if (emContract) {
+        // Case A: verify the library FB declares every FDS-required state.
+        const cov = checkStateCoverage(emContract.states, emRes.contract?.states ?? []);
+        if (!cov.ok) {
+          const missing = cov.missing.map((s) => s.name).join(", ");
+          stubs.equipmentModules.push({
+            id: em.equipment_module_id,
+            name: em.equipment_module_name,
+            reason: `library FB "${emRes.contract?.block_name ?? sclName}" missing states: ${missing}`,
+          });
+          warnings.push(`EM ${em.equipment_module_name}: BLOCKED — library FB missing states: ${missing}`);
+          continue;
+        }
+        const fdsSafe = emContract.states.find((s) => s.is_safe_state);
+        const declSafe = (emRes.contract?.states ?? []).find((s) => s.is_safe);
+        if (fdsSafe && declSafe && normSlug(fdsSafe.state_id) !== normSlug(declSafe.slug)) {
+          warnings.push(`EM ${em.equipment_module_name}: safe-state mismatch — FDS "${fdsSafe.state_id}" vs FB "${declSafe.slug}"`);
+        }
+      } else {
+        // Case B: matched, but no FDS state machine to verify against.
+        warnings.push(`EM ${em.equipment_module_name}: coverage unverifiable — no FDS state machine`);
+      }
+
+      emRes.artifacts.forEach(push); // EM instance DB
+
+      const cmdPins: CommandSeamPin[] = (emRes.contract?.pins ?? [])
+        .filter((p) => p.role === "cmd" || p.role === "mode")
+        .map((p) => ({ name: p.name, scl_type: p.scl_type }));
+      const seam = buildCommandSeam(sclName, cmdPins);
+      push({ ...seam.cmdDb, ownerId: em.equipment_module_id, ownerName: em.equipment_module_name });
+      warnings.push(...seam.warnings);
+
+      const links = buildEmCmLinks(sclName, emRes.instanceDb, emRes.contract?.pins ?? [], cmLinks);
+      push({ ...links.linkIn, ownerId: em.equipment_module_id, ownerName: em.equipment_module_name });
+      push({ ...links.linkOut, ownerId: em.equipment_module_id, ownerName: em.equipment_module_name });
+      warnings.push(...links.warnings);
+
+      // OB1 order: CM calls → LINK_IN (CM status → EM) → EM → LINK_OUT (EM → CM).
+      deviceCallLines.push(...cmCallLines);
+      deviceCallLines.push(`   "${links.linkIn.name}"();`);
+      deviceCallLines.push(`   "${emRes.instanceDb}"(${seam.callBindings.join(", ")});`);
+      deviceCallLines.push(`   "${links.linkOut.name}"();`);
     }
 
     // Coordination stub replaces the flattened per-Unit sequencer.
