@@ -8,8 +8,8 @@ interface VariationCardProps {
 }
 
 const STATUS_STYLES: Record<VariationStatus, string> = {
-  draft: "bg-zinc-800 text-zinc-300 border-zinc-700",
-  issued: "bg-[#3050A0]/30 text-[#94AEDF] border-[#3050A0]",
+  draft: "bg-muted text-muted-foreground border-border",
+  issued: "bg-pac-blue-50 text-pac-blue-700 border-pac-blue-300",
 };
 
 export function VariationCard({ variation }: VariationCardProps) {
@@ -19,10 +19,10 @@ export function VariationCard({ variation }: VariationCardProps) {
     : `/variations/${variation.id}/view`;
 
   return (
-    <div className="rounded-md border border-zinc-800 bg-zinc-900 p-3 flex items-center justify-between gap-3">
+    <div className="rounded-md border border-border bg-card p-3 flex items-center justify-between gap-3 shadow-pac-1">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
-          <span className="font-mono text-sm text-zinc-100">
+          <span className="font-mono text-sm text-foreground">
             V{variation.variation_number}
           </span>
           <span
@@ -34,20 +34,20 @@ export function VariationCard({ variation }: VariationCardProps) {
             {variation.status}
           </span>
           {variation.issued_at ? (
-            <span className="text-[11px] font-mono text-zinc-500">
+            <span className="text-[11px] font-mono text-muted-foreground">
               · {new Date(variation.issued_at).toLocaleDateString()}
             </span>
           ) : null}
         </div>
         {variation.summary ? (
-          <div className="mt-1 text-xs font-mono text-zinc-400 truncate">
+          <div className="mt-1 text-xs font-mono text-muted-foreground truncate">
             {variation.summary}
           </div>
         ) : null}
       </div>
       <Link
         to={href}
-        className="inline-flex items-center gap-1 text-xs font-mono px-2 py-1 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800 flex-shrink-0"
+        className="inline-flex items-center gap-1 text-xs font-mono px-2 py-1 rounded border border-border text-foreground hover:bg-accent hover:text-accent-foreground flex-shrink-0"
       >
         {isDraft ? (
           <>

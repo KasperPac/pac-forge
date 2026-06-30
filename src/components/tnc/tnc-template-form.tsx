@@ -35,14 +35,14 @@ export function TncTemplateForm({ template, onDeleted }: Props) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-zinc-100">Template metadata</h2>
+        <h2 className="text-sm font-semibold text-foreground">Template metadata</h2>
         <div className="flex items-center gap-2">
           {confirmingDelete ? (
             <>
               <button
                 type="button"
                 onClick={() => setConfirmingDelete(false)}
-                className="text-xs font-mono px-2 py-1 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-900"
+                className="text-xs font-mono px-2 py-1 rounded border border-border text-foreground hover:bg-accent"
               >
                 Cancel
               </button>
@@ -50,7 +50,7 @@ export function TncTemplateForm({ template, onDeleted }: Props) {
                 type="button"
                 onClick={handleDelete}
                 disabled={remove.isPending}
-                className="inline-flex items-center gap-1 text-xs font-mono px-2 py-1 rounded bg-red-900 text-white hover:bg-red-800 disabled:opacity-50"
+                className="inline-flex items-center gap-1 text-xs font-mono px-2 py-1 rounded bg-pac-signal-red text-pac-paper hover:bg-pac-signal-red/90 disabled:opacity-50"
               >
                 <Trash2 className="h-3 w-3" />
                 {remove.isPending ? "Deleting…" : "Confirm delete"}
@@ -60,7 +60,7 @@ export function TncTemplateForm({ template, onDeleted }: Props) {
             <button
               type="button"
               onClick={() => setConfirmingDelete(true)}
-              className="inline-flex items-center gap-1 text-xs font-mono px-2 py-1 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-900"
+              className="inline-flex items-center gap-1 text-xs font-mono px-2 py-1 rounded border border-border text-foreground hover:bg-accent"
             >
               <Trash2 className="h-3 w-3" />
               Delete
@@ -72,7 +72,7 @@ export function TncTemplateForm({ template, onDeleted }: Props) {
       <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-x-3 gap-y-2 items-center">
         <label
           htmlFor={`tpl-name-${template.id}`}
-          className="text-[11px] font-mono uppercase tracking-wider text-zinc-500"
+          className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground"
         >
           Name
         </label>
@@ -81,12 +81,12 @@ export function TncTemplateForm({ template, onDeleted }: Props) {
           key={`${template.id}-name`}
           defaultValue={template.name}
           onBlur={(e) => saveField("name", e.target.value)}
-          className="bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-sm text-zinc-100 focus:border-[#3050A0] outline-none"
+          className="bg-background border border-border rounded px-2 py-1 text-sm text-foreground focus:border-pac-blue-600 outline-none"
         />
 
         <label
           htmlFor={`tpl-version-${template.id}`}
-          className="text-[11px] font-mono uppercase tracking-wider text-zinc-500"
+          className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground"
         >
           Version
         </label>
@@ -97,24 +97,24 @@ export function TncTemplateForm({ template, onDeleted }: Props) {
           min="1"
           defaultValue={template.version}
           onBlur={(e) => saveField("version", Number(e.target.value) || 1)}
-          className="bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-sm text-zinc-100 focus:border-[#3050A0] outline-none w-24"
+          className="bg-background border border-border rounded px-2 py-1 text-sm text-foreground focus:border-pac-blue-600 outline-none w-24"
         />
 
-        <span className="text-[11px] font-mono uppercase tracking-wider text-zinc-500">
+        <span className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
           Status
         </span>
         <div className="flex items-center gap-1.5 text-xs font-mono">
           <span
-            className={`px-2 py-0.5 rounded ${
+            className={`px-2 py-0.5 rounded border ${
               template.status === "active"
-                ? "bg-emerald-900/40 text-emerald-300 border border-emerald-800"
-                : "bg-zinc-800 text-zinc-400 border border-zinc-700"
+                ? "bg-pac-signal-green-bg text-pac-signal-green border-pac-signal-green/30"
+                : "bg-muted text-muted-foreground border-border"
             }`}
           >
             {template.status}
           </span>
           {template.is_default && (
-            <span className="px-2 py-0.5 rounded bg-amber-900/40 text-amber-300 border border-amber-800">
+            <span className="px-2 py-0.5 rounded bg-pac-signal-amber-bg text-pac-signal-amber border border-pac-signal-amber/30">
               default
             </span>
           )}

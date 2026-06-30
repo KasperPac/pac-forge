@@ -63,13 +63,13 @@ export default function QuotesRoute() {
   return (
     <div className="space-y-4">
       <header>
-        <h1 className="text-xl font-semibold text-zinc-100">Quotes</h1>
-        <p className="text-xs font-mono text-zinc-500 mt-1">
+        <h1 className="text-xl font-semibold text-foreground">Quotes</h1>
+        <p className="text-xs font-mono text-muted-foreground mt-1">
           All quotes across projects. Filter by status / stage / customer.
         </p>
       </header>
 
-      <div className="flex flex-wrap gap-3 items-end p-3 rounded-md border border-zinc-800 bg-zinc-900/60">
+      <div className="flex flex-wrap gap-3 items-end p-3 rounded-md border border-border bg-card">
         <Filter
           label="Quote status"
           value={statusFilter}
@@ -97,15 +97,15 @@ export default function QuotesRoute() {
             ...customers.map((c) => ({ value: c.id, label: c.name })),
           ]}
         />
-        <div className="ml-auto text-[11px] font-mono text-zinc-500 pb-1">
+        <div className="ml-auto text-[11px] font-mono text-muted-foreground pb-1">
           Showing {visible.length} of {quotes.length}
         </div>
       </div>
 
       {isLoading ? (
-        <p className="text-xs font-mono text-zinc-500">Loading quotes…</p>
+        <p className="text-xs font-mono text-muted-foreground">Loading quotes…</p>
       ) : visible.length === 0 ? (
-        <p className="text-sm font-mono text-zinc-500 rounded-md border border-dashed border-zinc-700 bg-zinc-900/40 p-6">
+        <p className="text-sm font-mono text-muted-foreground rounded-md border border-dashed border-border bg-muted/40 p-6">
           No quotes match these filters.
         </p>
       ) : (
@@ -145,13 +145,13 @@ function Filter({
 }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+      <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
         {label}
       </span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-xs font-mono text-zinc-200 focus:border-[#3050A0] outline-none min-w-[140px]"
+        className="bg-background border border-border rounded px-2 py-1 text-xs font-mono text-foreground focus:border-pac-blue-600 outline-none min-w-[140px]"
       >
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>

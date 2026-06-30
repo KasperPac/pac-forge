@@ -19,26 +19,26 @@ export default function TncLibraryRoute() {
   const selected = templates.find((t) => t.id === effectiveId) ?? null;
 
   return (
-    <div className="grid grid-cols-[280px_minmax(0,1fr)] h-full min-h-0 gap-px bg-zinc-800">
-      <aside className="bg-zinc-950 min-h-0">
+    <div className="grid grid-cols-[280px_minmax(0,1fr)] h-full min-h-0 gap-px bg-border">
+      <aside className="bg-card min-h-0">
         <TncTemplateList
           selectedId={effectiveId}
           onSelect={setSelectedId}
         />
       </aside>
-      <main className="bg-zinc-950 overflow-y-auto p-6 space-y-6">
+      <main className="bg-background overflow-y-auto p-6 space-y-6">
         {selected ? (
           <>
             <TncTemplateForm
               template={selected}
               onDeleted={() => setSelectedId(null)}
             />
-            <div className="border-t border-zinc-800 pt-6">
+            <div className="border-t border-border pt-6">
               <TncClauseEditor templateId={selected.id} />
             </div>
           </>
         ) : (
-          <p className="text-sm font-mono text-zinc-500">
+          <p className="text-sm font-mono text-muted-foreground">
             Select a template on the left, or create a new one.
           </p>
         )}

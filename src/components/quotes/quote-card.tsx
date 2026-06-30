@@ -17,11 +17,11 @@ interface QuoteCardProps {
 }
 
 const STATUS_STYLES: Record<QuoteStatus, string> = {
-  draft: "bg-zinc-800 text-zinc-300 border-zinc-700",
-  issued: "bg-[#3050A0]/30 text-[#94AEDF] border-[#3050A0]",
-  superseded: "bg-zinc-800 text-zinc-500 border-zinc-700",
-  awarded: "bg-emerald-900/40 text-emerald-300 border-emerald-800",
-  lost: "bg-red-900/30 text-red-300 border-red-900",
+  draft: "bg-muted text-muted-foreground border-border",
+  issued: "bg-pac-blue-50 text-pac-blue-700 border-pac-blue-300",
+  superseded: "bg-muted text-muted-foreground border-border",
+  awarded: "bg-pac-signal-green-bg text-pac-signal-green border-pac-signal-green/30",
+  lost: "bg-pac-signal-red-bg text-pac-signal-red border-pac-signal-red/30",
 };
 
 export function QuoteCard({ quote, project, customer, revisions }: QuoteCardProps) {
@@ -30,12 +30,12 @@ export function QuoteCard({ quote, project, customer, revisions }: QuoteCardProp
   const editTarget = sortedRevs.find((r) => r.status === "draft");
 
   return (
-    <div className="rounded-md border border-zinc-800 bg-zinc-900 p-4 space-y-3">
+    <div className="rounded-md border border-border bg-card p-4 space-y-3 shadow-pac-1">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <FileText className="h-4 w-4 text-zinc-400" />
-            <span className="font-mono text-sm text-zinc-100">{quote.number}</span>
+            <FileText className="h-4 w-4 text-muted-foreground" />
+            <span className="font-mono text-sm text-foreground">{quote.number}</span>
             <span
               className={cn(
                 "inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider border",
@@ -45,7 +45,7 @@ export function QuoteCard({ quote, project, customer, revisions }: QuoteCardProp
               {quote.status}
             </span>
           </div>
-          <div className="mt-1 text-xs font-mono text-zinc-400 truncate">
+          <div className="mt-1 text-xs font-mono text-muted-foreground truncate">
             {project?.project_name ?? project?.project_number ?? "Project"}
             {customer ? ` · ${customer.name}` : ""}
           </div>
@@ -54,7 +54,7 @@ export function QuoteCard({ quote, project, customer, revisions }: QuoteCardProp
           {editTarget && quote.status !== "awarded" && (
             <Link
               to={`/quotes/${editTarget.id}/edit`}
-              className="inline-flex items-center gap-1 text-xs font-mono px-2 py-1 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+              className="inline-flex items-center gap-1 text-xs font-mono px-2 py-1 rounded border border-border text-foreground hover:bg-accent hover:text-accent-foreground"
             >
               <Pencil className="h-3 w-3" />
               Edit draft
@@ -63,7 +63,7 @@ export function QuoteCard({ quote, project, customer, revisions }: QuoteCardProp
           {latest && latest.status !== "draft" && (
             <Link
               to={`/quotes/${latest.id}/view`}
-              className="inline-flex items-center gap-1 text-xs font-mono px-2 py-1 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+              className="inline-flex items-center gap-1 text-xs font-mono px-2 py-1 rounded border border-border text-foreground hover:bg-accent hover:text-accent-foreground"
             >
               <Eye className="h-3 w-3" />
               View Rev {latest.rev_number}
@@ -82,11 +82,11 @@ export function QuoteCard({ quote, project, customer, revisions }: QuoteCardProp
                     ? `/quotes/${r.id}/edit`
                     : `/quotes/${r.id}/view`
                 }
-                className="text-zinc-300 hover:text-white"
+                className="text-foreground hover:text-pac-blue-700"
               >
                 Rev {r.rev_number}
               </Link>
-              <span className="text-zinc-500">
+              <span className="text-muted-foreground">
                 {r.status}
                 {r.issued_at
                   ? ` · ${new Date(r.issued_at).toLocaleDateString()}`
@@ -95,11 +95,11 @@ export function QuoteCard({ quote, project, customer, revisions }: QuoteCardProp
             </li>
           ))}
           {sortedRevs.length > 4 && (
-            <li className="text-zinc-500">+ {sortedRevs.length - 4} more</li>
+            <li className="text-muted-foreground">+ {sortedRevs.length - 4} more</li>
           )}
         </ul>
       ) : (
-        <p className="text-xs font-mono text-zinc-500">No revisions yet.</p>
+        <p className="text-xs font-mono text-muted-foreground">No revisions yet.</p>
       )}
     </div>
   );

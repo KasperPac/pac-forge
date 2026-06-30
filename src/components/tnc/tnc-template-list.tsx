@@ -28,8 +28,8 @@ export function TncTemplateList({ selectedId, onSelect }: Props) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
-        <span className="text-xs font-mono uppercase tracking-wider text-zinc-400">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+        <span className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
           Templates
         </span>
         <button
@@ -39,20 +39,20 @@ export function TncTemplateList({ selectedId, onSelect }: Props) {
             onSelect(t.id);
           }}
           disabled={create.isPending}
-          className="inline-flex items-center gap-1 text-xs font-mono px-2 py-1 rounded bg-[#3050A0] text-white hover:bg-[#3F61B0] disabled:opacity-50"
+          className="inline-flex items-center gap-1 text-xs font-mono px-2 py-1 rounded bg-pac-blue-600 text-pac-paper hover:bg-pac-blue-700 disabled:opacity-50"
         >
           <Plus className="h-3 w-3" />
           New
         </button>
       </div>
 
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-zinc-900">
-        <label className="text-[11px] font-mono text-zinc-500 cursor-pointer flex items-center gap-1.5">
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border">
+        <label className="text-[11px] font-mono text-muted-foreground cursor-pointer flex items-center gap-1.5">
           <input
             type="checkbox"
             checked={showArchived}
             onChange={(e) => setShowArchived(e.target.checked)}
-            className="accent-[#3050A0]"
+            className="accent-pac-blue-600"
           />
           Show archived
         </label>
@@ -60,10 +60,10 @@ export function TncTemplateList({ selectedId, onSelect }: Props) {
 
       <ul className="flex-1 overflow-y-auto">
         {isLoading && (
-          <li className="px-3 py-4 text-xs font-mono text-zinc-500">Loading…</li>
+          <li className="px-3 py-4 text-xs font-mono text-muted-foreground">Loading…</li>
         )}
         {!isLoading && visible.length === 0 && (
-          <li className="px-3 py-4 text-xs font-mono text-zinc-500">
+          <li className="px-3 py-4 text-xs font-mono text-muted-foreground">
             No templates yet.
           </li>
         )}
@@ -108,15 +108,15 @@ function TemplateRow({
       className={cn(
         "w-full text-left px-3 py-2 flex items-center gap-2 border-l-2 transition-colors",
         isActive
-          ? "bg-[#3050A0]/15 border-l-[#3050A0]"
-          : "border-l-transparent hover:bg-zinc-900",
+          ? "bg-pac-blue-50 border-l-pac-blue-600"
+          : "border-l-transparent hover:bg-accent",
       )}
     >
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
           {template.is_default && (
             <Star
-              className="h-3 w-3 text-amber-400 fill-amber-400 flex-shrink-0"
+              className="h-3 w-3 text-pac-signal-amber fill-pac-signal-amber flex-shrink-0"
               aria-label="Default template"
             />
           )}
@@ -124,13 +124,13 @@ function TemplateRow({
             className={cn(
               "text-sm truncate",
               template.status === "archived"
-                ? "text-zinc-500 line-through"
-                : "text-zinc-100",
+                ? "text-muted-foreground line-through"
+                : "text-foreground",
             )}
           >
             {template.name}
           </span>
-          <span className="text-[10px] font-mono text-zinc-500">
+          <span className="text-[10px] font-mono text-muted-foreground">
             v{template.version}
           </span>
         </div>
@@ -145,9 +145,9 @@ function TemplateRow({
               e.stopPropagation();
               onSetDefault();
             }}
-            className="p-1 rounded hover:bg-zinc-800"
+            className="p-1 rounded hover:bg-accent"
           >
-            <Star className="h-3 w-3 text-zinc-500 hover:text-amber-400" />
+            <Star className="h-3 w-3 text-muted-foreground hover:text-pac-signal-amber" />
           </span>
         )}
         <span
@@ -158,12 +158,12 @@ function TemplateRow({
             e.stopPropagation();
             onArchive();
           }}
-          className="p-1 rounded hover:bg-zinc-800"
+          className="p-1 rounded hover:bg-accent"
         >
           {template.status === "active" ? (
-            <Archive className="h-3 w-3 text-zinc-500 hover:text-zinc-300" />
+            <Archive className="h-3 w-3 text-muted-foreground hover:text-foreground" />
           ) : (
-            <RotateCcw className="h-3 w-3 text-zinc-500 hover:text-zinc-300" />
+            <RotateCcw className="h-3 w-3 text-muted-foreground hover:text-foreground" />
           )}
         </span>
       </div>

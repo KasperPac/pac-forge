@@ -46,14 +46,14 @@ export function TncClauseEditor({ templateId }: Props) {
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-zinc-100">
+        <h2 className="text-sm font-semibold text-foreground">
           Clauses ({sorted.length})
         </h2>
         <button
           type="button"
           onClick={addClause}
           disabled={create.isPending}
-          className="inline-flex items-center gap-1 text-xs font-mono px-2 py-1 rounded bg-[#3050A0] text-white hover:bg-[#3F61B0] disabled:opacity-50"
+          className="inline-flex items-center gap-1 text-xs font-mono px-2 py-1 rounded bg-pac-blue-600 text-pac-paper hover:bg-pac-blue-700 disabled:opacity-50"
         >
           <Plus className="h-3 w-3" />
           Add clause
@@ -61,11 +61,11 @@ export function TncClauseEditor({ templateId }: Props) {
       </div>
 
       {isLoading && (
-        <p className="text-xs font-mono text-zinc-500">Loading clauses…</p>
+        <p className="text-xs font-mono text-muted-foreground">Loading clauses…</p>
       )}
 
       {!isLoading && sorted.length === 0 && (
-        <p className="text-xs font-mono text-zinc-500 rounded border border-dashed border-zinc-700 bg-zinc-900/40 p-4">
+        <p className="text-xs font-mono text-muted-foreground rounded border border-dashed border-border bg-muted/40 p-4">
           No clauses yet. Add the first one to start the template.
         </p>
       )}
@@ -74,7 +74,7 @@ export function TncClauseEditor({ templateId }: Props) {
         {sorted.map((c, idx) => (
           <li
             key={c.id}
-            className="rounded border border-zinc-800 bg-zinc-900 p-3"
+            className="rounded border border-border bg-card p-3"
           >
             <div className="flex items-start gap-2">
               <div className="flex flex-col gap-0.5 pt-1">
@@ -83,7 +83,7 @@ export function TncClauseEditor({ templateId }: Props) {
                   aria-label="Move up"
                   onClick={() => swap(idx, idx - 1)}
                   disabled={idx === 0 || reorder.isPending}
-                  className="text-zinc-500 hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed"
+                  className="text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   <ChevronUp className="h-4 w-4" />
                 </button>
@@ -92,7 +92,7 @@ export function TncClauseEditor({ templateId }: Props) {
                   aria-label="Move down"
                   onClick={() => swap(idx, idx + 1)}
                   disabled={idx === sorted.length - 1 || reorder.isPending}
-                  className="text-zinc-500 hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed"
+                  className="text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   <ChevronDown className="h-4 w-4" />
                 </button>
@@ -110,7 +110,7 @@ export function TncClauseEditor({ templateId }: Props) {
                         });
                       }
                     }}
-                    className="w-16 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-xs font-mono text-zinc-200 focus:border-[#3050A0] outline-none"
+                    className="w-16 bg-background border border-border rounded px-2 py-1 text-xs font-mono text-foreground focus:border-pac-blue-600 outline-none"
                   />
                   <input
                     aria-label="Clause title"
@@ -123,7 +123,7 @@ export function TncClauseEditor({ templateId }: Props) {
                         });
                       }
                     }}
-                    className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-sm text-zinc-100 focus:border-[#3050A0] outline-none"
+                    className="flex-1 bg-background border border-border rounded px-2 py-1 text-sm text-foreground focus:border-pac-blue-600 outline-none"
                   />
                 </div>
                 <textarea
@@ -138,7 +138,7 @@ export function TncClauseEditor({ templateId }: Props) {
                       });
                     }
                   }}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded p-2 text-xs font-mono text-zinc-300 focus:border-[#3050A0] outline-none"
+                  className="w-full bg-background border border-border rounded p-2 text-xs font-mono text-foreground focus:border-pac-blue-600 outline-none"
                 />
               </div>
               <button
@@ -146,7 +146,7 @@ export function TncClauseEditor({ templateId }: Props) {
                 aria-label="Delete clause"
                 onClick={() => remove.mutate({ id: c.id, template_id: templateId })}
                 disabled={remove.isPending}
-                className="text-zinc-500 hover:text-red-400 disabled:opacity-30"
+                className="text-muted-foreground hover:text-pac-signal-red disabled:opacity-30"
               >
                 <Trash2 className="h-4 w-4" />
               </button>
