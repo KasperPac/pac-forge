@@ -17,7 +17,7 @@ Before the co-author can author in that model, the contract must be able to *hol
 
 1. Manual motion = **command-conditional device holds within Execute** (not a state, not a direction-param).
 2. The holds live in a **new `command_behavior` field** on `EquipmentModuleContract` — NOT overloaded onto `static_states`.
-3. PackML-membership validation is **author-time** (`validateEmStateMachine`), NOT a hard Zod refinement — so the existing Segment Wagon spec still *loads* (flagged) rather than failing to parse.
+3. PackML-membership validation is a **standalone, not-yet-wired** `validateEmPackmlConformance` (NOT baked into `validateEmStateMachine`, NOT a hard Zod refinement) — so the existing Segment Wagon spec + co-author keep working unchanged; SP-3b wires enforcement in when Stage A emits PackML.
 4. The single `is_safe_state` must be the canonical `aborted` (packml_id 9).
 5. Random builder's non-canonical `estop` safe slug is reconciled to `aborted` here.
 
@@ -27,6 +27,7 @@ Before the co-author can author in that model, the contract must be able to *hol
 - Codegen — emitting the command-branched Execute CASE (SP-4).
 - Re-authoring the Segment Wagon (SP-3d).
 - Any UI. Any hard Zod rejection of non-PackML slugs (kept permissive at load).
+- **Wiring `validateEmPackmlConformance` into the co-author / `validateSpecContractPatch`** — deferred to SP-3b (would otherwise flag the co-author before Stage A emits PackML).
 - Restoring `ai/PACKML_STATE_MODEL.md` prompt-reference doc (belongs to SP-3b when Stage A needs the vocabulary injected).
 
 ---
@@ -60,12 +61,13 @@ Add to `EquipmentModuleContractSchema`:
 
 ```ts
   // Command-conditional device holds for acting PackML states (primarily
-  // "execute"). Keyed by EM state_id (a PackML slug). Empty for EMs with no
-  // manual motion. Old contracts without this field parse to {}.
-  command_behavior: z.record(z.string(), CommandBehaviorV2Schema).default({}),
+  // "execute"). Keyed by EM state_id (a PackML slug). Absent for EMs with no
+  // manual motion. Optional so the ~15 existing EquipmentModuleContract
+  // construction sites are not forced to add `command_behavior: {}`.
+  command_behavior: z.record(z.string(), CommandBehaviorV2Schema).optional(),
 ```
 
-`.default({})` keeps backward-compat: contracts persisted before SP-3a load with an empty `command_behavior`.
+**`.optional()`, not `.default({})`:** a `.default({})` makes the field *required* in the Zod-inferred output type, which would break every literal `EquipmentModuleContract` construction (~15 sites across random/forge/tests). `.optional()` keeps the same backward-compat (absent → treated as `{}` by consumers via `?? {}`) with zero blast radius on existing code.
 
 ## 2. PackML EM-state seed (`src/lib/spec-builder/packml-states.ts`)
 
@@ -88,15 +90,19 @@ export function defaultEmStates(): EmStateV2[] {
 
 `PackmlState.state_pattern` (`static`/`sequential`) maps 1:1 onto `EmStateV2.kind` (`EmStateKind`). Consumed by SP-3b's Stage A seeding.
 
-## 3. Author-time validation (`src/lib/spec-builder/em-state-machine.ts`)
+## 3. Standalone PackML conformance validator (`src/lib/spec-builder/em-state-machine.ts`)
 
-Extend `validateEmStateMachine(em): string[]` (which already checks exactly-one-safe-state, dup ids, and transition endpoints) with, appended after the existing checks and guarded by `em.states.length > 0`:
+**Add a NEW function** `validateEmPackmlConformance(em): string[]` — do NOT extend `validateEmStateMachine`, and do NOT wire it into `validateSpecContractPatch` in this slice.
+
+**Why standalone:** `validateEmStateMachine` runs in the live persistence path (`contract.ts` `validateSpecContractPatch`, and `use-fds-conversation.ts` Stage-A persistence). Baking PackML checks into it would flag/break the co-author *before* SP-3b makes Stage A emit PackML slugs, and would break existing tests that assert `validateEmStateMachine(...) === []` on free-slug fixtures (`segment-wagon-hybrid.test.ts`, `em-state-machine.test.ts`) by design. Keeping conformance separate lets SP-3a land non-breaking; **SP-3b wires `validateEmPackmlConformance` into the co-author** exactly where Stage A starts emitting PackML.
+
+The function (pure, guarded by `em.states.length > 0`, returns `[]` for an empty skeleton):
 
 - **PackML membership:** for each `s` in `em.states`, if `!isPackmlSlug(s.state_id)` → `` `${where}: non-PackML state_id "${s.state_id}" (expected a PackML slug)` ``.
-- **Canonical safe state:** the single `is_safe_state` state (when exactly one exists) must have `state_id === "aborted"`; else → `` `${where}: safe state must be "aborted", found "${safeState.state_id}"` ``.
-- **command_behavior keys:** each key of `em.command_behavior` must be an existing `state_id` in `em.states` AND that state's `kind === "sequential"` (acting state); else → a `` `${where}: command_behavior for unknown/non-acting state "${key}"` `` issue.
+- **Canonical safe state:** when exactly one `is_safe_state` exists, it must have `state_id === "aborted"`; else → `` `${where}: safe state must be "aborted", found "${safe.state_id}"` ``.
+- **command_behavior keys:** for each key of `em.command_behavior ?? {}`, it must match an existing `state_id` whose `kind === "sequential"` (an acting state); else → `` `${where}: command_behavior for unknown/non-acting state "${key}"` ``.
 
-Imports `isPackmlSlug` from `packml-states.ts`. These are **soft** issues (surfaced to the author), consistent with the existing validation contract — they do NOT block Zod parsing/loading.
+Imports `isPackmlSlug` from `packml-states.ts`. These are **soft** issues (surfaced, never block Zod parse). `validateEmStateMachine` is left entirely unchanged.
 
 ## 4. Random-builder alignment (`src/lib/spec-builder/random/state-machine.ts` + `em-state-machine-builder.ts`)
 
@@ -120,18 +126,18 @@ SP-3a spec-contract-v2.ts: EquipmentModuleContract
         + command_behavior: Record<slug, CommandBehaviorV2>   ← NEW construct
                                          │
                                          ▼
-     em-state-machine.ts validateEmStateMachine  ← NEW PackML/safe/command_behavior checks
+     em-state-machine.ts  validateEmPackmlConformance  ← NEW standalone fn (not wired yet)
                                          ▲
-     random/*  buildEmCanonicalStateMachine  → now emits "aborted" (validates clean)
+     random/*  buildEmCanonicalStateMachine  → now emits "aborted" (conformance-clean)
 ```
 
-Consumers arriving later: SP-3b seeds Stage A from `defaultEmStates()`; SP-3c authors `command_behavior`; SP-4 codegen reads `command_behavior["execute"]` to emit command-branched holds.
+Consumers arriving later: SP-3b seeds Stage A from `defaultEmStates()` **and wires `validateEmPackmlConformance` into the co-author**; SP-3c authors `command_behavior`; SP-4 codegen reads `command_behavior["execute"]` to emit command-branched holds.
 
 ## Files
 
 - **Edit:** `src/types/spec-contract-v2.ts` — `CommandBranchSchema`, `CommandBehaviorV2Schema`, `command_behavior` on `EquipmentModuleContractSchema`.
 - **Edit:** `src/lib/spec-builder/packml-states.ts` — `defaultEmStates()`.
-- **Edit:** `src/lib/spec-builder/em-state-machine.ts` — extend `validateEmStateMachine`.
+- **Edit:** `src/lib/spec-builder/em-state-machine.ts` — add standalone `validateEmPackmlConformance` (leave `validateEmStateMachine` unchanged).
 - **Edit:** `src/lib/spec-builder/random/state-machine.ts` + `random/em-state-machine-builder.ts` — `estop` → `aborted`.
 - **Tests:** `spec-contract-v2` round-trip for the new schema + backward-compat; `packml-states.test.ts` `defaultEmStates`; `em-state-machine.test.ts` new validation cases; `random` builder regression.
 
@@ -139,8 +145,8 @@ Consumers arriving later: SP-3b seeds Stage A from `defaultEmStates()`; SP-3c au
 
 - **Schema (vitest):** `CommandBranch`/`CommandBehaviorV2` parse; an `EquipmentModuleContract` with `command_behavior["execute"]` round-trips; a contract JSON *without* `command_behavior` parses to `{}` (backward-compat).
 - **Seed:** `defaultEmStates()` returns 17 `EmStateV2`, exactly one `is_safe_state` (`aborted`), `kind` mapped from `state_pattern`.
-- **Validation:** a canonical machine (states from `defaultEmStates()`) yields no issues; a machine with a `driving_fwd` state yields a "non-PackML state_id" issue; `is_safe_state` on `stopped` yields a "safe state must be aborted" issue; a `command_behavior` key not in states yields an issue.
-- **Random builder:** `buildEmCanonicalStateMachine()` now produces `aborted` (not `estop`) as the safe state and `validateEmStateMachine` returns no issues for it (regression against the estop non-canonical slug).
+- **Validation (`validateEmPackmlConformance`):** a canonical machine (states from `defaultEmStates()`) yields no issues; a machine with a `driving_fwd` state yields a "non-PackML state_id" issue; `is_safe_state` on `stopped` yields a "safe state must be aborted" issue; a `command_behavior` key on a non-acting/unknown state yields an issue. `validateEmStateMachine` is separately confirmed UNCHANGED (existing suite still green).
+- **Random builder:** `buildEmCanonicalStateMachine()` now produces `aborted` (not `estop`) as the safe state; `validateEmPackmlConformance` returns no issues for it (regression against the estop non-canonical slug), and the existing `validateEmStateMachine` regression still passes.
 
 ## Generic-rule compliance (CLAUDE.md)
 
