@@ -100,9 +100,11 @@ export function validateEmStateMachine(em: EquipmentModuleContract): string[] {
 
 /**
  * PackML conformance for one EM's state machine — SEPARATE from the structural
- * validateEmStateMachine so it can be adopted incrementally. NOT yet wired into
- * validateSpecContractPatch / the co-author (that is SP-3b, once Stage A emits
- * PackML slugs). Soft issues; never blocks Zod parsing. Empty machine → [].
+ * validateEmStateMachine so it can be adopted incrementally. SP-3b wired this
+ * into the co-author Stage-A persist path (via validateEmStateMachineAndPackml
+ * below); it is deliberately NOT wired into validateSpecContractPatch (the
+ * global patch validator), so pre-SP-3b free-slug specs keep working in Stage B.
+ * Soft issues; never blocks Zod parsing. Empty machine → [].
  */
 export function validateEmPackmlConformance(em: EquipmentModuleContract): string[] {
   const issues: string[] = [];
