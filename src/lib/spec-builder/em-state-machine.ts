@@ -20,6 +20,7 @@ import type {
   SafetyGateV2,
 } from "@/types/spec-contract-v2";
 import { z } from "zod";
+import { isPackmlSlug } from "@/lib/spec-builder/packml-states";
 
 /** States valid in the given machine mode. Empty allowed_modes = all modes. */
 export function resolveAllowedStates(
@@ -91,6 +92,41 @@ export function validateEmStateMachine(em: EquipmentModuleContract): string[] {
     }
     if (!stateIds.has(t.to_state_id)) {
       issues.push(`${where}: transition ${t.transition_id} targets unknown state "${t.to_state_id}"`);
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * PackML conformance for one EM's state machine — SEPARATE from the structural
+ * validateEmStateMachine so it can be adopted incrementally. NOT yet wired into
+ * validateSpecContractPatch / the co-author (that is SP-3b, once Stage A emits
+ * PackML slugs). Soft issues; never blocks Zod parsing. Empty machine → [].
+ */
+export function validateEmPackmlConformance(em: EquipmentModuleContract): string[] {
+  const issues: string[] = [];
+  const where = `equipment_module ${em.equipment_module_id}`;
+  if (em.states.length === 0) return issues;
+
+  for (const s of em.states) {
+    if (!isPackmlSlug(s.state_id)) {
+      issues.push(`${where}: non-PackML state_id "${s.state_id}" (expected a PackML slug)`);
+    }
+  }
+
+  const safe = em.states.filter((s) => s.is_safe_state);
+  if (safe.length === 1 && safe[0].state_id !== "aborted") {
+    issues.push(`${where}: safe state must be "aborted", found "${safe[0].state_id}"`);
+  }
+
+  const byId = new Map(em.states.map((s) => [s.state_id, s]));
+  for (const key of Object.keys(em.command_behavior ?? {})) {
+    const st = byId.get(key);
+    if (!st) {
+      issues.push(`${where}: command_behavior for unknown state "${key}"`);
+    } else if (st.kind !== "sequential") {
+      issues.push(`${where}: command_behavior on non-acting state "${key}" (must be a sequential state)`);
     }
   }
 

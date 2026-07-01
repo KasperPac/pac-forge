@@ -3,11 +3,14 @@ import {
   resolveAllowedStates,
   resolveForcedSafeStates,
   validateEmStateMachine,
+  validateEmPackmlConformance,
   parseStateMachineProposal,
   isLikelyTruncatedProposal,
 } from "@/lib/spec-builder/em-state-machine";
+import { defaultEmStates } from "@/lib/spec-builder/packml-states";
 import type {
   EquipmentModuleContract,
+  EmStateV2,
   SafetyGateV2,
 } from "@/types/spec-contract-v2";
 
@@ -233,6 +236,41 @@ describe("isLikelyTruncatedProposal", () => {
       '{ "states": [ { "state_id": "s1", "name": "S1", "kind": "static", "is_safe_state": true } ], "transitions": [] }\n```';
     expect(parseStateMachineProposal(ok)).not.toBeNull();
     expect(isLikelyTruncatedProposal(ok)).toBe(false);
+  });
+});
+
+describe("validateEmPackmlConformance", () => {
+  it("passes for a machine seeded from defaultEmStates", () => {
+    expect(validateEmPackmlConformance(em("cm", { states: defaultEmStates() }))).toEqual([]);
+  });
+
+  it("returns [] for an empty skeleton", () => {
+    expect(validateEmPackmlConformance(em("empty"))).toEqual([]);
+  });
+
+  it("flags a non-PackML state_id", () => {
+    const states: EmStateV2[] = [
+      { state_id: "driving_fwd", name: "Driving Fwd", kind: "static", allowed_modes: [], is_safe_state: false },
+      { state_id: "aborted", name: "Aborted", kind: "static", allowed_modes: [], is_safe_state: true },
+    ];
+    const issues = validateEmPackmlConformance(em("a", { states }));
+    expect(issues.some((i) => i.includes('non-PackML state_id "driving_fwd"'))).toBe(true);
+  });
+
+  it("flags a safe state that is not aborted", () => {
+    const states: EmStateV2[] = [
+      { state_id: "stopped", name: "Stopped", kind: "static", allowed_modes: [], is_safe_state: true },
+    ];
+    const issues = validateEmPackmlConformance(em("b", { states }));
+    expect(issues.some((i) => i.includes('safe state must be "aborted"'))).toBe(true);
+  });
+
+  it("flags command_behavior on a non-acting (static) state", () => {
+    const issues = validateEmPackmlConformance(em("c", {
+      states: defaultEmStates(),
+      command_behavior: { idle: { branches: [], default_hold: [] } }, // idle is static → non-acting
+    }));
+    expect(issues.some((i) => /command_behavior.*"idle"/.test(i))).toBe(true);
   });
 });
 
