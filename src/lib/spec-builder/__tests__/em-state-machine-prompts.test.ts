@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildEmStateMachineInterviewPrompt } from "@/lib/spec-builder/em-state-machine-prompts";
+import {
+  buildEmStateMachineInterviewPrompt,
+  buildEmStateMachineOpeningMessage,
+} from "@/lib/spec-builder/em-state-machine-prompts";
 import type { EquipmentModuleConfig, UnitConfig } from "@/types/spec-builder";
 import type { OperatorMode } from "@/types/spec-contract-v2";
 
@@ -48,5 +51,44 @@ describe("buildEmStateMachineInterviewPrompt", () => {
     ]);
     expect(p).toContain("Carriage");
     expect(p).toContain("pendant");
+  });
+});
+
+describe("buildEmStateMachineInterviewPrompt — PackML reframe (SP-3b)", () => {
+  it("injects the fixed PackML state vocabulary", () => {
+    const p = buildEmStateMachineInterviewPrompt(em, unit, modes, []);
+    expect(p).toContain("PACKML STATE VOCABULARY");
+    for (const slug of ["stopped", "idle", "execute", "aborting", "aborted"]) {
+      expect(p).toContain(slug);
+    }
+  });
+
+  it("mandates PackML slugs and the aborted safe state", () => {
+    const p = buildEmStateMachineInterviewPrompt(em, unit, modes, []);
+    expect(p).toMatch(/PackML slug/i);
+    expect(p).toMatch(/"aborted"/);
+    expect(p).toMatch(/aborted/);
+  });
+
+  it("models manual motions as Execute-phase behaviour, not states", () => {
+    const p = buildEmStateMachineInterviewPrompt(em, unit, modes, []);
+    expect(p).toContain("MANUAL / COMMAND-DRIVEN MOTIONS ARE NOT STATES");
+    expect(p).toMatch(/execute/i);
+  });
+
+  it("drops the old free-slug examples", () => {
+    const p = buildEmStateMachineInterviewPrompt(em, unit, modes, []);
+    expect(p).not.toContain("driving_fwd");
+    expect(p).not.toContain("auto_cycle");
+    expect(p).not.toContain("faulted");
+  });
+});
+
+describe("buildEmStateMachineOpeningMessage — PackML reframe (SP-3b)", () => {
+  it("frames the opening around PackML lifecycle states", () => {
+    const msg = buildEmStateMachineOpeningMessage(em, []);
+    expect(msg).toMatch(/PackML/);
+    expect(msg).toContain("aborted");
+    expect(msg).not.toContain("manually driving");
   });
 });
