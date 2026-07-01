@@ -734,6 +734,26 @@ export const SafetyGateV2Schema = z.object({
 });
 export type SafetyGateV2 = z.infer<typeof SafetyGateV2Schema>;
 
+// A device-hold branch active while an operator/EM command condition holds.
+// Manual motions (Drive Fwd/Rev) are branches under command_behavior["execute"],
+// NOT states — see the SP-3 PackML design. Generic across machine types.
+export const CommandBranchSchema = z.object({
+  branch_id: z.string().min(1),
+  label: z.string().min(1),
+  when: z.array(PermissiveConditionSchema).min(1),
+  control_modules: z.array(ControlModuleStateEntrySchema),
+});
+export type CommandBranch = z.infer<typeof CommandBranchSchema>;
+
+// Command-conditional behavior for one acting PackML state (primarily
+// execute): mutually-evaluated command branches + the hold applied when no
+// branch is active.
+export const CommandBehaviorV2Schema = z.object({
+  branches: z.array(CommandBranchSchema).default([]),
+  default_hold: z.array(ControlModuleStateEntrySchema).default([]),
+});
+export type CommandBehaviorV2 = z.infer<typeof CommandBehaviorV2Schema>;
+
 export const EquipmentModuleContractSchema = z.object({
   equipment_module_id: UuidSchema,
   unit_id: UuidSchema,
@@ -748,6 +768,11 @@ export const EquipmentModuleContractSchema = z.object({
     z.union([z.array(ControlModuleStateEntrySchema), StaticStateV2Schema]),
   ),
   sequential_states: z.record(z.string(), SequentialStateV2Schema),
+  // Command-conditional device holds for acting PackML states (primarily
+  // "execute"), keyed by EM state_id. Optional so the existing
+  // EquipmentModuleContract construction sites need not add `command_behavior: {}`;
+  // consumers treat absent as {}.
+  command_behavior: z.record(z.string(), CommandBehaviorV2Schema).optional(),
 });
 export type EquipmentModuleContract = z.infer<typeof EquipmentModuleContractSchema>;
 
