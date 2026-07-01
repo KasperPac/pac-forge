@@ -1,0 +1,26 @@
+{
+  "planPath": "Docs/superpowers/plans/2026-07-01-packml-em-state-foundation.md",
+  "tasks": [
+    {
+      "id": 1,
+      "subject": "Task 1: Canonical PackML state module (SP-1)",
+      "status": "completed",
+      "description": "**Goal:** A pure module exposing the fixed PackML 17-state vocabulary, lookups, and the EM-FB default-states helper.\n\n**Files:**\n- Create: `src/lib/spec-builder/packml-states.ts`\n- Test: `src/lib/spec-builder/__tests__/packml-states.test.ts`\n\n**Verify:** `npx vitest run src/lib/spec-builder/__tests__/packml-states.test.ts` then `npx tsc -b`\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/packml-states.ts\", \"src/lib/spec-builder/__tests__/packml-states.test.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/__tests__/packml-states.test.ts\", \"acceptanceCriteria\": [\"17 states unique ids/slugs, one safe=aborted\", \"PackML naming execute not running, no pausing/paused\", \"lookups trim/case-insensitive; isPackmlSlug rejects free slugs\", \"defaultFbStates returns 17 FbInterfaceState one safe\"]}\n```"
+    },
+    {
+      "id": 2,
+      "subject": "Task 2: FbStatesGrid component (SP-2)",
+      "status": "completed",
+      "blockedBy": [1],
+      "description": "**Goal:** An EM-only grid that declares which PackML states an FB implements + marks the safe state, saving a merged interface_contract via useSaveFbInterface.\n\n**Files:**\n- Create: `src/components/fb-library/fb-states-grid.tsx`\n- Test: `src/components/fb-library/__tests__/fb-states-grid.test.tsx`\n\n**Verify:** `npx vitest run src/components/fb-library/__tests__/fb-states-grid.test.tsx` then `npx tsc -b`\n\n```json:metadata\n{\"files\": [\"src/components/fb-library/fb-states-grid.tsx\", \"src/components/fb-library/__tests__/fb-states-grid.test.tsx\"], \"verifyCommand\": \"npx vitest run src/components/fb-library/__tests__/fb-states-grid.test.tsx\", \"acceptanceCriteria\": [\"17 rows all checked, aborted safe, needs-review\", \"non-EM renders nothing\", \"untick+save excludes state, preserves pins, reviewed:true\", \"safe marker change → exactly one is_safe\"]}\n```"
+    },
+    {
+      "id": 3,
+      "subject": "Task 3: Wire grid into FB Library + coverage regression",
+      "status": "completed",
+      "blockedBy": [2],
+      "description": "**Goal:** Render the states grid in the template detail view and lock the SP-1 ↔ checkStateCoverage contract with a regression test.\n\n**Files:**\n- Modify: `src/routes/fb-library.tsx` (import + render after <FbInterfaceGrid> near line 1436)\n- Modify: `src/lib/spec-builder/codegen/__tests__/em-state-coverage.test.ts`\n\n**Verify:** `npx vitest run src/lib/spec-builder/codegen/__tests__/em-state-coverage.test.ts` then `npx tsc -b`\n\n```json:metadata\n{\"files\": [\"src/routes/fb-library.tsx\", \"src/lib/spec-builder/codegen/__tests__/em-state-coverage.test.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/codegen/__tests__/em-state-coverage.test.ts\", \"acceptanceCriteria\": [\"FbStatesGrid rendered after FbInterfaceGrid\", \"coverage regression: PackML slugs pass, driving_fwd missing\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-07-01T13:20:00Z"
+}
