@@ -4,15 +4,15 @@
     {
       "id": 0,
       "subject": "Task 1: Reframe Stage A prompt to PackML vocabulary",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** buildEmStateMachineInterviewPrompt/OpeningMessage author using the fixed PackML slugs (from PACKML_STATES), model manual motions as Execute-phase behaviour (not states), mark aborted as the single safe state.\n\n**Files:**\n- Modify: src/lib/spec-builder/em-state-machine-prompts.ts\n- Test: src/lib/spec-builder/__tests__/em-state-machine-prompts.test.ts\n\n**Acceptance Criteria:**\n- PACKML STATE VOCABULARY section from PACKML_STATES (stopped/idle/execute/aborting/aborted present)\n- safe state must be aborted; state_id must be a PackML slug\n- MANUAL / COMMAND-DRIVEN MOTIONS ARE NOT STATES section defers motions to Stage B\n- old free-slug tokens driving_fwd/auto_cycle/faulted absent\n- opening references PackML + aborted, not 'manually driving'\n- existing prompt tests still pass\n\n**Verify:** npx vitest run src/lib/spec-builder/__tests__/em-state-machine-prompts.test.ts && npx tsc -b\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/em-state-machine-prompts.ts\", \"src/lib/spec-builder/__tests__/em-state-machine-prompts.test.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/__tests__/em-state-machine-prompts.test.ts && npx tsc -b\", \"acceptanceCriteria\": [\"PackML menu injected\", \"aborted-safe + PackML-slug rule\", \"manual-motions-not-states section\", \"old free-slug examples removed\", \"opening reframed\", \"existing tests pass\"]}\n```"
     },
     {
       "id": 1,
       "subject": "Task 2: Compose + wire PackML conformance gate into Stage A persist",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Add pure validateEmStateMachineAndPackml(em) (structural then PackML conformance) and call it from handleStateMachineResponse so non-PackML / non-aborted-safe Stage A proposals are blocked, not persisted.\n\n**Files:**\n- Modify: src/lib/spec-builder/em-state-machine.ts (add helper; leave validateEmStateMachine + validateEmPackmlConformance untouched)\n- Test: src/lib/spec-builder/__tests__/em-state-machine.test.ts\n- Modify: src/hooks/use-fds-conversation.ts (handleStateMachineResponse + import)\n\n**Acceptance Criteria:**\n- helper returns [] for defaultEmStates() machine and empty skeleton\n- surfaces driving_fwd as conformance issue\n- structural issues ordered before conformance issues\n- handleStateMachineResponse calls composed helper (not validateEmStateMachine); non-PackML proposal -> failure turn, no persist\n- both component validators still exported + independently tested\n- Stage-A-only wiring: validateSpecContractPatch untouched\n\n**Verify:** npx tsc -b && npx vitest run src/lib/spec-builder/__tests__/em-state-machine.test.ts src/lib/spec-builder/__tests__/em-state-machine-prompts.test.ts\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/em-state-machine.ts\", \"src/lib/spec-builder/__tests__/em-state-machine.test.ts\", \"src/hooks/use-fds-conversation.ts\"], \"verifyCommand\": \"npx tsc -b && npx vitest run src/lib/spec-builder/__tests__/em-state-machine.test.ts src/lib/spec-builder/__tests__/em-state-machine-prompts.test.ts\", \"acceptanceCriteria\": [\"helper canonical/empty -> []\", \"non-PackML surfaced\", \"structural before conformance\", \"hook calls composed helper, blocks non-PackML\", \"component validators still exported/tested\", \"validateSpecContractPatch untouched\"]}\n```"
     }
   ],
-  "lastUpdated": "2026-07-01T00:00:00Z"
+  "lastUpdated": "2026-07-01T02:00:00Z"
 }
