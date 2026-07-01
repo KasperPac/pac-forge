@@ -1,0 +1,32 @@
+{
+  "planPath": "Docs/superpowers/plans/2026-07-01-sp3a-packml-em-schema.md",
+  "tasks": [
+    {
+      "id": 4,
+      "subject": "Task 1: command_behavior schema construct",
+      "status": "completed",
+      "description": "**Goal:** Add the command-conditional Execute-behavior schema to the EM contract, backward-compatibly.\n\n**Files:**\n- Modify: `src/types/spec-contract-v2.ts`\n- Test: `src/lib/spec-builder/__tests__/command-behavior-schema.test.ts`\n\n**Verify:** `npx vitest run src/lib/spec-builder/__tests__/command-behavior-schema.test.ts` then `npx tsc -b`\n\n```json:metadata\n{\"files\": [\"src/types/spec-contract-v2.ts\", \"src/lib/spec-builder/__tests__/command-behavior-schema.test.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/__tests__/command-behavior-schema.test.ts\", \"acceptanceCriteria\": [\"CommandBranch parses; rejects empty when\", \"CommandBehaviorV2 defaults []\", \"command_behavior optional; absent->undefined; execute round-trips\", \"tsc clean\"]}\n```"
+    },
+    {
+      "id": 5,
+      "subject": "Task 2: defaultEmStates() PackML seed",
+      "status": "completed",
+      "description": "**Goal:** A helper producing the canonical PackML 17 states as EmStateV2[] for Stage A seeding.\n\n**Files:**\n- Modify: `src/lib/spec-builder/packml-states.ts`\n- Test: `src/lib/spec-builder/__tests__/packml-states.test.ts`\n\n**Verify:** `npx vitest run src/lib/spec-builder/__tests__/packml-states.test.ts` then `npx tsc -b`\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/packml-states.ts\", \"src/lib/spec-builder/__tests__/packml-states.test.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/__tests__/packml-states.test.ts\", \"acceptanceCriteria\": [\"defaultEmStates 17 EmStateV2, aborted safe, kinds mapped, allowed_modes []\"]}\n```"
+    },
+    {
+      "id": 6,
+      "subject": "Task 3: validateEmPackmlConformance() standalone validator",
+      "status": "completed",
+      "blockedBy": [4, 5],
+      "description": "**Goal:** A NEW pure validator flagging non-PackML slugs, wrong safe state, misplaced command_behavior — WITHOUT touching validateEmStateMachine or the co-author (wiring is SP-3b).\n\n**Files:**\n- Modify: `src/lib/spec-builder/em-state-machine.ts`\n- Test: `src/lib/spec-builder/__tests__/em-state-machine.test.ts`\n\n**Verify:** `npx vitest run src/lib/spec-builder/__tests__/em-state-machine.test.ts` then `npx tsc -b`\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/em-state-machine.ts\", \"src/lib/spec-builder/__tests__/em-state-machine.test.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/__tests__/em-state-machine.test.ts\", \"acceptanceCriteria\": [\"[] for defaultEmStates + empty\", \"flags driving_fwd/non-aborted-safe/misplaced command_behavior\", \"validateEmStateMachine unchanged\"]}\n```"
+    },
+    {
+      "id": 7,
+      "subject": "Task 4: Random-builder estop -> aborted",
+      "status": "completed",
+      "blockedBy": [6],
+      "description": "**Goal:** Reconcile the random builder's non-canonical estop safe slug to canonical PackML aborted.\n\n**Files:**\n- Modify: `src/lib/spec-builder/random/state-machine.ts`\n- Modify: `src/lib/spec-builder/random/em-state-machine-builder.ts`\n- Test: `src/lib/spec-builder/random/__tests__/em-state-machine-builder.test.ts`\n\n**Verify:** `npx vitest run src/lib/spec-builder/random/__tests__/em-state-machine-builder.test.ts` then `npx tsc -b`\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/random/state-machine.ts\", \"src/lib/spec-builder/random/em-state-machine-builder.ts\", \"src/lib/spec-builder/random/__tests__/em-state-machine-builder.test.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/random/__tests__/em-state-machine-builder.test.ts\", \"acceptanceCriteria\": [\"safe state aborted/Aborted\", \"passes both validators\", \"no stray estop state slug\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-07-01T13:45:00Z"
+}
