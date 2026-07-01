@@ -26,7 +26,7 @@ import {
   EM_LOCAL_EXECUTE,
   EM_LOCAL_STOPPING,
   EM_LOCAL_COMPLETE,
-  EM_LOCAL_ESTOP,
+  EM_LOCAL_ABORTED,
 } from "./state-machine";
 import { buildEmCanonicalStateMachine } from "./em-state-machine-builder";
 
@@ -194,7 +194,7 @@ export function buildEquipmentModuleContracts(
       static_states: {
         [EM_LOCAL_IDLE]: emptyStatic(),
         [EM_LOCAL_COMPLETE]: emptyStatic(),
-        [EM_LOCAL_ESTOP]: emptyStatic(),
+        [EM_LOCAL_ABORTED]: emptyStatic(),
       },
       sequential_states: {
         [EM_LOCAL_STARTING]: buildSequentialState(asm, "STARTING"),

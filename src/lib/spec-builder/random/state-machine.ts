@@ -24,7 +24,7 @@ export const EM_LOCAL_STARTING = "starting";
 export const EM_LOCAL_EXECUTE = "execute";
 export const EM_LOCAL_STOPPING = "stopping";
 export const EM_LOCAL_COMPLETE = "complete";
-export const EM_LOCAL_ESTOP = "estop";
+export const EM_LOCAL_ABORTED = "aborted";
 
 export const EM_LOCAL_SEQUENTIAL_IDS = [
   EM_LOCAL_STARTING,

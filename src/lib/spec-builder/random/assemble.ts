@@ -19,7 +19,7 @@ import {
   EM_LOCAL_SEQUENTIAL_IDS,
   EM_LOCAL_IDLE,
   EM_LOCAL_COMPLETE,
-  EM_LOCAL_ESTOP,
+  EM_LOCAL_ABORTED,
 } from "./state-machine";
 import { computeSubsystemBases, createIoAllocator, type IoSignalKind } from "./io-allocator";
 import { DEVICE_TEMPLATES } from "./device-templates";
@@ -381,7 +381,7 @@ export function assembleRandomFds(theme: RandomFdsTheme, opts: AssembleOptions):
           approved: true,
         });
       }
-      for (const stateId of [EM_LOCAL_IDLE, EM_LOCAL_COMPLETE, EM_LOCAL_ESTOP]) {
+      for (const stateId of [EM_LOCAL_IDLE, EM_LOCAL_COMPLETE, EM_LOCAL_ABORTED]) {
         functionalDescriptionRows.push({
           spec_project_id: opts.projectId,
           section_type: "functional_description",

@@ -1,12 +1,12 @@
 /**
  * Build a canonical per-EM state machine (hybrid state model) for the random
- * FDS builder: Idle/Complete/E-Stop static + Starting/Execute/Stopping
- * sequential, with completion-driven transitions and E-Stop as the safe state.
+ * FDS builder: Idle/Complete/Aborted static + Starting/Execute/Stopping
+ * sequential, with completion-driven transitions and Aborted as the safe state.
  */
 import type { EmStateV2, EmTransitionV2 } from "@/types/spec-contract-v2";
 import {
   EM_LOCAL_IDLE, EM_LOCAL_STARTING, EM_LOCAL_EXECUTE,
-  EM_LOCAL_STOPPING, EM_LOCAL_COMPLETE, EM_LOCAL_ESTOP,
+  EM_LOCAL_STOPPING, EM_LOCAL_COMPLETE, EM_LOCAL_ABORTED,
 } from "./state-machine";
 
 export function buildEmCanonicalStateMachine(): {
@@ -19,7 +19,7 @@ export function buildEmCanonicalStateMachine(): {
     { state_id: EM_LOCAL_EXECUTE, name: "Execute", kind: "sequential", allowed_modes: [], is_safe_state: false },
     { state_id: EM_LOCAL_STOPPING, name: "Stopping", kind: "sequential", allowed_modes: [], is_safe_state: false },
     { state_id: EM_LOCAL_COMPLETE, name: "Complete", kind: "static", allowed_modes: [], is_safe_state: false },
-    { state_id: EM_LOCAL_ESTOP, name: "E-Stop", kind: "static", allowed_modes: [], is_safe_state: true },
+    { state_id: EM_LOCAL_ABORTED, name: "Aborted", kind: "static", allowed_modes: [], is_safe_state: true },
   ];
   const t = (id: string, from: string, to: string): EmTransitionV2 => ({
     transition_id: id, from_state_id: from, to_state_id: to,

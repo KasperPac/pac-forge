@@ -6,7 +6,7 @@ import {
   EM_LOCAL_STARTING,
   EM_LOCAL_IDLE,
   EM_LOCAL_COMPLETE,
-  EM_LOCAL_ESTOP,
+  EM_LOCAL_ABORTED,
 } from "../state-machine";
 
 function dev(id: string, name: string, deviceClass: string, prefix: string): ResolvedDevice {
@@ -96,9 +96,9 @@ describe("buildEquipmentModuleContracts", () => {
     expect(last.transitions ?? []).toHaveLength(0);
   });
 
-  it("static states IDLE / COMPLETE / E_STOP exist with empty control_modules arrays (StaticStateV2 shape)", () => {
+  it("static states IDLE / COMPLETE / ABORTED exist with empty control_modules arrays (StaticStateV2 shape)", () => {
     const out = buildEquipmentModuleContracts(inputs);
-    for (const k of [EM_LOCAL_IDLE, EM_LOCAL_COMPLETE, EM_LOCAL_ESTOP]) {
+    for (const k of [EM_LOCAL_IDLE, EM_LOCAL_COMPLETE, EM_LOCAL_ABORTED]) {
       const s = out[aId].static_states[k];
       expect(s).toBeDefined();
       // StaticStateV2 shape, not bare ControlModuleStateEntry[]
