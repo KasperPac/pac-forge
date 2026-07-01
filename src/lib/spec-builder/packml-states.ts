@@ -7,6 +7,7 @@
 // project's deleted migrate/packml-canonical.ts (git a9942fb). Generic across all
 // machine types — never device-specific. Pure: no React/IO.
 import type { FbInterfaceState } from "@/types/fb-interface";
+import type { EmStateV2 } from "@/types/spec-contract-v2";
 
 export type PackmlStatePattern = "static" | "sequential";
 
@@ -69,4 +70,15 @@ export function isPackmlSlug(slug: string): boolean {
 /** The full canonical set an EM FB declares by default, as FbInterfaceState. */
 export function defaultFbStates(): FbInterfaceState[] {
   return PACKML_STATES.map((s) => ({ slug: s.slug, name: s.name, is_safe: s.is_safe }));
+}
+
+/** The full canonical PackML set as EM state-machine states (Stage A seed). */
+export function defaultEmStates(): EmStateV2[] {
+  return PACKML_STATES.map((s) => ({
+    state_id: s.slug,
+    name: s.name,
+    kind: s.state_pattern, // "static" | "sequential" == EmStateKind
+    allowed_modes: [],
+    is_safe_state: s.is_safe,
+  }));
 }

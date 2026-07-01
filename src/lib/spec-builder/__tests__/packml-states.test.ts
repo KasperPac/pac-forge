@@ -6,6 +6,7 @@ import {
   packmlStateById,
   isPackmlSlug,
   defaultFbStates,
+  defaultEmStates,
 } from "@/lib/spec-builder/packml-states";
 
 describe("PACKML_STATES", () => {
@@ -73,5 +74,17 @@ describe("defaultFbStates", () => {
     expect(states.filter((s) => s.is_safe)).toHaveLength(1);
     expect(states.find((s) => s.is_safe)?.slug).toBe("aborted");
     expect(states.every((s) => typeof s.slug === "string" && typeof s.name === "string")).toBe(true);
+  });
+});
+
+describe("defaultEmStates", () => {
+  it("returns all 17 as EmStateV2 with aborted safe and kinds mapped from state_pattern", () => {
+    const states = defaultEmStates();
+    expect(states).toHaveLength(17);
+    expect(states.filter((s) => s.is_safe_state)).toHaveLength(1);
+    expect(states.find((s) => s.is_safe_state)?.state_id).toBe("aborted");
+    expect(states.find((s) => s.state_id === "execute")?.kind).toBe("sequential");
+    expect(states.find((s) => s.state_id === "idle")?.kind).toBe("static");
+    expect(states.every((s) => s.allowed_modes.length === 0)).toBe(true);
   });
 });
