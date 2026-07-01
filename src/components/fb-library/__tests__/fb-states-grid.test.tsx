@@ -78,4 +78,18 @@ describe("FbStatesGrid", () => {
     expect(safe).toHaveLength(1);
     expect(safe[0].slug).toBe("stopped");
   });
+
+  it("moves the safe marker to a declared state when the safe row is unticked", () => {
+    render(<FbStatesGrid template={emTemplate()} />);
+    // make 'stopped' the safe state, then un-declare it
+    fireEvent.click(screen.getByTestId("safe-stopped"));
+    fireEvent.click(screen.getByTestId("impl-stopped")); // untick the now-safe row
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+    const arg = mutate.mock.calls[0][0];
+    const safe = arg.contract.states.filter((s: { is_safe?: boolean }) => s.is_safe);
+    expect(safe).toHaveLength(1);
+    expect(safe[0].slug).not.toBe("stopped");
+    // canonical safe (aborted) is still declared, so it should win
+    expect(safe[0].slug).toBe("aborted");
+  });
 });

@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { Sparkles, Loader2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { parseFbInterface, interfacePins } from "@/lib/spec-builder/fb-interface";
+import { fbMainBlock, seedPinsFromTemplate } from "@/lib/spec-builder/fb-interface";
 import {
   FB_PIN_ROLES, FB_BINDING_SOURCES,
   type FbInterfaceContract, type FbInterfacePin, type FbPinRole, type FbBindingSource,
@@ -14,35 +14,19 @@ import { useGenerateFbInterface } from "@/hooks/use-generate-fb-interface";
 import { useSaveFbInterface } from "@/hooks/use-save-fb-interface";
 import type { FbTemplate } from "@/types/fb-template";
 
-function mainBlock(t: FbTemplate) {
-  return t.blocks?.find((b) => b.block_type === "FB") ?? t.blocks?.[0];
-}
-
-/** Seed pins from SCL when the template has no contract yet. */
-function seedPins(t: FbTemplate): FbInterfacePin[] {
-  const block = mainBlock(t);
-  if (!block?.scl_code) return [];
-  return interfacePins(parseFbInterface(block.scl_code)).map((p) => ({
-    name: p.name, scl_type: p.scl_type, direction: p.direction,
-    role: (p.direction === "output" ? "status" : "sensor_in") as FbPinRole,
-    default_binding: (p.direction === "output" ? "io_output" : "io_input") as FbBindingSource,
-    exposed: false, description: p.description,
-  }));
-}
-
 export function FbInterfaceGrid({ template }: { template: FbTemplate }) {
   const { generate, loadingId } = useGenerateFbInterface();
   const save = useSaveFbInterface();
 
-  const initial = template.interface_contract?.pins ?? seedPins(template);
+  const initial = template.interface_contract?.pins ?? seedPinsFromTemplate(template);
   const [pins, setPins] = useState<FbInterfacePin[]>(initial);
-  const blockName = template.interface_contract?.block_name ?? mainBlock(template)?.block_name ?? template.name;
+  const blockName = template.interface_contract?.block_name ?? fbMainBlock(template)?.block_name ?? template.name;
   const reviewed = template.interface_contract?.reviewed ?? false;
 
   // Re-seed when the persisted contract changes (after Generate/Save invalidation).
   const persistedKey = JSON.stringify(template.interface_contract?.pins ?? null);
   useEffect(() => {
-    setPins(template.interface_contract?.pins ?? seedPins(template));
+    setPins(template.interface_contract?.pins ?? seedPinsFromTemplate(template));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [persistedKey]);
 

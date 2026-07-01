@@ -8,26 +8,10 @@ import { Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PACKML_STATES, defaultFbStates } from "@/lib/spec-builder/packml-states";
-import { parseFbInterface, interfacePins } from "@/lib/spec-builder/fb-interface";
-import type { FbInterfaceContract, FbInterfacePin, FbInterfaceState } from "@/types/fb-interface";
+import { fbMainBlock, seedPinsFromTemplate } from "@/lib/spec-builder/fb-interface";
+import type { FbInterfaceContract, FbInterfaceState } from "@/types/fb-interface";
 import { useSaveFbInterface } from "@/hooks/use-save-fb-interface";
 import type { FbTemplate } from "@/types/fb-template";
-
-function mainBlock(t: FbTemplate) {
-  return t.blocks?.find((b) => b.block_type === "FB") ?? t.blocks?.[0];
-}
-
-/** Seed pins from SCL so saving states before pins are authored preserves a pins layer. */
-function seedPins(t: FbTemplate): FbInterfacePin[] {
-  const block = mainBlock(t);
-  if (!block?.scl_code) return [];
-  return interfacePins(parseFbInterface(block.scl_code)).map((p) => ({
-    name: p.name, scl_type: p.scl_type, direction: p.direction,
-    role: (p.direction === "output" ? "status" : "sensor_in") as FbInterfacePin["role"],
-    default_binding: (p.direction === "output" ? "io_output" : "io_input") as FbInterfacePin["default_binding"],
-    exposed: false, description: p.description,
-  }));
-}
 
 function initDeclared(c: FbInterfaceContract | null | undefined): Set<string> {
   const states = c?.states?.length ? c.states : defaultFbStates();
@@ -55,7 +39,11 @@ export function FbStatesGrid({ template }: { template: FbTemplate }) {
   // The safe marker must always land on a declared state.
   const effectiveSafe = useMemo(() => {
     if (declared.has(safeSlug)) return safeSlug;
-    return PACKML_STATES.find((s) => declared.has(s.slug))?.slug ?? "";
+    return (
+      PACKML_STATES.find((s) => s.is_safe && declared.has(s.slug))?.slug ??
+      PACKML_STATES.find((s) => declared.has(s.slug))?.slug ??
+      ""
+    );
   }, [declared, safeSlug]);
 
   if (!template.is_equipment_module) return null;
@@ -76,8 +64,8 @@ export function FbStatesGrid({ template }: { template: FbTemplate }) {
       .filter((s) => declared.has(s.slug))
       .map((s) => ({ slug: s.slug, name: s.name, is_safe: s.slug === effectiveSafe }));
     const contract: FbInterfaceContract = {
-      block_name: existing?.block_name ?? mainBlock(template)?.block_name ?? template.name,
-      pins: existing?.pins ?? seedPins(template),
+      block_name: existing?.block_name ?? fbMainBlock(template)?.block_name ?? template.name,
+      pins: existing?.pins ?? seedPinsFromTemplate(template),
       states,
       reviewed: true,
       generated_at: existing?.generated_at ?? new Date().toISOString(),
@@ -92,7 +80,7 @@ export function FbStatesGrid({ template }: { template: FbTemplate }) {
           <span className="font-mono text-[11px] uppercase text-muted-foreground">PackML States</span>
           {!reviewed && <Badge variant="outline" className="text-amber-600 border-amber-400/50">Needs review</Badge>}
         </div>
-        <Button size="sm" variant="ghost" onClick={handleSave} disabled={save.isPending}>
+        <Button size="sm" variant="ghost" onClick={handleSave} disabled={save.isPending || declared.size === 0}>
           <Save className="h-3.5 w-3.5" /><span className="ml-1">Save</span>
         </Button>
       </div>
@@ -119,7 +107,7 @@ export function FbStatesGrid({ template }: { template: FbTemplate }) {
                   <td className="px-2 py-0.5 font-mono text-foreground">{s.name}</td>
                   <td className="px-2 py-0.5 font-mono text-muted-foreground">{s.state_pattern}</td>
                   <td className="px-2 py-0.5">
-                    <input type="radio" name="fb-safe-state" data-testid={`safe-${s.slug}`}
+                    <input type="radio" name={`fb-safe-state-${template.id}`} data-testid={`safe-${s.slug}`}
                       disabled={!isDeclared}
                       checked={effectiveSafe === s.slug}
                       onChange={() => setSafeSlug(s.slug)} />

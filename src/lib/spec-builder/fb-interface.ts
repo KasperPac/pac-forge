@@ -15,6 +15,9 @@ export interface ParsedSclVar {
   description: string;
 }
 
+import type { FbTemplate } from "@/types/fb-template";
+import type { FbInterfacePin } from "@/types/fb-interface";
+
 // One declaration line: `  name : Type[ := default][ // comment]`
 const DECL_RE = /^\s+(\w+)\s*:\s*([^;]+);?\s*(?:\/\/\s*(.*))?$/gm;
 
@@ -74,4 +77,21 @@ export function interfacePins(vars: ParsedSclVar[]): Array<{
       direction: v.section as "input" | "output" | "inout",
       description: v.description,
     }));
+}
+
+/** The main FB block of a template (first FB, else first block). */
+export function fbMainBlock(t: FbTemplate) {
+  return t.blocks?.find((b) => b.block_type === "FB") ?? t.blocks?.[0];
+}
+
+/** Seed interface pins from a template's main-block SCL (direction-based role/binding defaults). */
+export function seedPinsFromTemplate(t: FbTemplate): FbInterfacePin[] {
+  const block = fbMainBlock(t);
+  if (!block?.scl_code) return [];
+  return interfacePins(parseFbInterface(block.scl_code)).map((p) => ({
+    name: p.name, scl_type: p.scl_type, direction: p.direction,
+    role: (p.direction === "output" ? "status" : "sensor_in") as FbInterfacePin["role"],
+    default_binding: (p.direction === "output" ? "io_output" : "io_input") as FbInterfacePin["default_binding"],
+    exposed: false, description: p.description,
+  }));
 }
