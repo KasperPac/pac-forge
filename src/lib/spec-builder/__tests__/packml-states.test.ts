@@ -38,6 +38,16 @@ describe("PACKML_STATES", () => {
     }
     expect(isPackmlSlug("estop")).toBe(false);
   });
+
+  it("pins state_pattern for representative acting/waiting states", () => {
+    // Guards the hand-maintained table against an accidental static/sequential swap.
+    const pattern = (slug: string) => PACKML_STATES.find((s) => s.slug === slug)?.state_pattern;
+    expect(pattern("execute")).toBe("sequential");
+    expect(pattern("starting")).toBe("sequential");
+    expect(pattern("idle")).toBe("static");
+    expect(pattern("stopped")).toBe("static");
+    expect(pattern("complete")).toBe("static");
+  });
 });
 
 describe("lookups", () => {

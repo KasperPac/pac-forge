@@ -41,12 +41,14 @@ export const PACKML_STATES: readonly PackmlState[] = [
   { packml_id: 15, slug: "resetting",    name: "Resetting",    state_pattern: "sequential", is_safe: false },
   { packml_id: 16, slug: "completing",   name: "Completing",   state_pattern: "sequential", is_safe: false },
   { packml_id: 17, slug: "complete",     name: "Complete",     state_pattern: "static",     is_safe: false },
-] as const;
+];
 
 function norm(s: string): string {
   return s.trim().toLowerCase();
 }
 
+/** Raw canonical slugs (already lowercase). NOT normalization-safe — use
+ *  isPackmlSlug() to test arbitrary/user input (it trims + lowercases first). */
 export const PACKML_STATE_SLUGS: ReadonlySet<string> = new Set(PACKML_STATES.map((s) => s.slug));
 
 const BY_SLUG = new Map<string, PackmlState>(PACKML_STATES.map((s) => [s.slug, s]));
