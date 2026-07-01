@@ -34,7 +34,7 @@ import {
 import {
   parseStateMachineProposal,
   isLikelyTruncatedProposal,
-  validateEmStateMachine,
+  validateEmStateMachineAndPackml,
 } from "@/lib/spec-builder/em-state-machine";
 import type {
   EquipmentModuleConfig,
@@ -313,9 +313,12 @@ export function useFdsConversation({
         return;
       }
 
-      // Validate the proposed machine before persisting. Reuse the structural
-      // validator with empty behavior maps (states/transitions only matter here).
-      const issues = validateEmStateMachine({
+      // Validate the proposed machine before persisting: structural invariants
+      // AND PackML conformance (SP-3b). Non-PackML slugs / a non-"aborted" safe
+      // state are hard-blocked here so em_states only ever holds PackML slugs —
+      // making C5 Case A coverage non-vacuous. Empty behavior maps: only
+      // states/transitions matter at this gate.
+      const issues = validateEmStateMachineAndPackml({
         equipment_module_id: equipment_module.equipment_module_id,
         unit_id: unit.unit_id,
         states: proposal.states,

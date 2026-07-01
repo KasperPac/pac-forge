@@ -4,6 +4,7 @@ import {
   resolveForcedSafeStates,
   validateEmStateMachine,
   validateEmPackmlConformance,
+  validateEmStateMachineAndPackml,
   parseStateMachineProposal,
   isLikelyTruncatedProposal,
 } from "@/lib/spec-builder/em-state-machine";
@@ -363,5 +364,43 @@ describe("parseStateMachineProposal — OR-trigger expansion (regression)", () =
     const single = out!.transitions.find((t) => t.transition_id === "stopped_to_driving");
     expect(single).toBeTruthy();
     expect(single!.trigger.kind === "command" && single!.trigger.expr.tag).toBe("Fwd");
+  });
+});
+
+describe("validateEmStateMachineAndPackml", () => {
+  it("returns [] for a canonical PackML machine", () => {
+    expect(validateEmStateMachineAndPackml(em("cm", { states: defaultEmStates() }))).toEqual([]);
+  });
+
+  it("returns [] for an empty skeleton", () => {
+    expect(validateEmStateMachineAndPackml(em("empty"))).toEqual([]);
+  });
+
+  it("surfaces a non-PackML slug as a conformance issue", () => {
+    const states: EmStateV2[] = [
+      { state_id: "driving_fwd", name: "Driving Fwd", kind: "static", allowed_modes: [], is_safe_state: false },
+      { state_id: "aborted", name: "Aborted", kind: "static", allowed_modes: [], is_safe_state: true },
+    ];
+    const issues = validateEmStateMachineAndPackml(em("a", { states }));
+    expect(issues.some((i) => i.includes('non-PackML state_id "driving_fwd"'))).toBe(true);
+  });
+
+  it("lists structural issues before conformance issues", () => {
+    const states: EmStateV2[] = [
+      { state_id: "driving_fwd", name: "Driving Fwd", kind: "static", allowed_modes: [], is_safe_state: true },
+    ];
+    const bad = em("b", {
+      states,
+      transitions: [
+        { transition_id: "t1", from_state_id: "driving_fwd", to_state_id: "ghost",
+          trigger: { kind: "completion" }, guard: [] },
+      ],
+    });
+    const issues = validateEmStateMachineAndPackml(bad);
+    const structuralIdx = issues.findIndex((i) => /unknown.*ghost/.test(i));
+    const conformanceIdx = issues.findIndex((i) => /non-PackML/.test(i));
+    expect(structuralIdx).toBeGreaterThanOrEqual(0);
+    expect(conformanceIdx).toBeGreaterThanOrEqual(0);
+    expect(structuralIdx).toBeLessThan(conformanceIdx);
   });
 });

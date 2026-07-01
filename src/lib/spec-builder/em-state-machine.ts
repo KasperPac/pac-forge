@@ -133,6 +133,23 @@ export function validateEmPackmlConformance(em: EquipmentModuleContract): string
   return issues;
 }
 
+/**
+ * Full Stage-A gate for one EM's authored machine: structural invariants
+ * (validateEmStateMachine) followed by PackML conformance
+ * (validateEmPackmlConformance). Structural issues are listed first so the
+ * co-author surfaces shape problems before vocabulary problems. This is the
+ * single function the Stage-A persist path (use-fds-conversation.ts) calls;
+ * both component validators remain independently exported and tested.
+ *
+ * SP-3b: this composition is wired into the CO-AUTHOR Stage-A path only, NOT
+ * into validateSpecContractPatch — wiring conformance into the global patch
+ * validator would re-check already-persisted free-slug states and break the
+ * Stage-B path for pre-SP-3b specs (reconciled per-spec in SP-3d).
+ */
+export function validateEmStateMachineAndPackml(em: EquipmentModuleContract): string[] {
+  return [...validateEmStateMachine(em), ...validateEmPackmlConformance(em)];
+}
+
 // ============================================================
 // Stage-A proposal parsing (co-author state-machine interview)
 // ============================================================
