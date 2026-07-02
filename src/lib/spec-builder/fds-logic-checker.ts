@@ -11,7 +11,7 @@ import type {
   FdsValidationIssue,
   ProcessModel,
 } from "@/types/spec-builder";
-import type { EmStateV2, SequentialStateV2 } from "@/types/spec-contract-v2";
+import type { EmStateV2, SequentialStateV2, CommandBehaviorV2 } from "@/types/spec-contract-v2";
 
 // ---------------------------------------------------------------------------
 // Equipment-module-level validation
@@ -28,6 +28,7 @@ export function validateEquipmentModule(
   sequentialStates: Record<string, SequentialStateV2>,
   emStates: EmStateV2[],
   allTags: InstrumentTag[],
+  commandBehavior: Record<string, CommandBehaviorV2> = {},
 ): FdsValidationResult {
   const issues: FdsValidationIssue[] = [];
 
@@ -66,13 +67,60 @@ export function validateEquipmentModule(
   }
 
   // --- Check 2: State completeness for sequential states ---
+  // Sequential states are completed EITHER via authored steps (Checks 3/4
+  // below) OR via SP-3c command_behavior (branches + default_hold) for
+  // command-driven states (e.g. "execute" on a manually-jogged motion). The
+  // two are mutually exclusive by design — a state with branches authored
+  // is complete without steps.
   for (const state of sequentialStateIds) {
     const data = sequentialStates[state.state_id];
-    if (!data || data.steps.length === 0) {
+    const cb = commandBehavior[state.state_id];
+
+    if (data && data.steps.length > 0) {
+      // Steps path — fall through to Checks 3/4 below.
+    } else if (cb && cb.branches.length > 0) {
+      // --- Check 2b: command_behavior tag references ---
+      for (const branch of cb.branches) {
+        for (const w of branch.when) {
+          if (w.tag && !allTagNames.has(w.tag)) {
+            issues.push({
+              severity: "warning",
+              category: "permissive_ref",
+              message: `Command branch "${branch.label}" when-tag "${w.tag}" is not in the instrument register`,
+              equipment_module_id: equipment_module.equipment_module_id,
+              state_id: state.state_id,
+            });
+          }
+        }
+        for (const d of branch.control_modules) {
+          if (d.tag && !allTagNames.has(d.tag)) {
+            issues.push({
+              severity: "warning",
+              category: "permissive_ref",
+              message: `Command hold tag "${d.tag}" is not in the instrument register`,
+              equipment_module_id: equipment_module.equipment_module_id,
+              state_id: state.state_id,
+            });
+          }
+        }
+      }
+      for (const d of cb.default_hold) {
+        if (d.tag && !allTagNames.has(d.tag)) {
+          issues.push({
+            severity: "warning",
+            category: "permissive_ref",
+            message: `Command hold tag "${d.tag}" is not in the instrument register`,
+            equipment_module_id: equipment_module.equipment_module_id,
+            state_id: state.state_id,
+          });
+        }
+      }
+      continue;
+    } else {
       issues.push({
         severity: "error",
         category: "state_completeness",
-        message: `No steps defined for ${state.name}`,
+        message: `No steps or command branches defined for ${state.name}`,
         equipment_module_id: equipment_module.equipment_module_id,
         state_id: state.state_id,
       });

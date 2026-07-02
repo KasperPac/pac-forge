@@ -173,6 +173,7 @@ export function FdsCoAuthor({ spec, register, fullScreen = false }: Props) {
       activeSession.sequential_states,
       activeEmStates,
       register.tags,
+      activeSession.command_behavior ?? {},
     );
     await saveValidation.mutateAsync({ id: activeSession.id, results: result });
 
