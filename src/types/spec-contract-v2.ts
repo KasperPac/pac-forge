@@ -737,6 +737,9 @@ export type SafetyGateV2 = z.infer<typeof SafetyGateV2Schema>;
 // A device-hold branch active while an operator/EM command condition holds.
 // Manual motions (Drive Fwd/Rev) are branches under command_behavior["execute"],
 // NOT states — see the SP-3 PackML design. Generic across machine types.
+// NB: fds-compose serializes this for rendering as CommandBranchEntry
+// (types/spec-builder.ts — `when: string[]` via serializePermissive); keep the
+// two shapes in sync when editing.
 export const CommandBranchSchema = z.object({
   branch_id: z.string().min(1),
   label: z.string().min(1),

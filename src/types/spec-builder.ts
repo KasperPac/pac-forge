@@ -456,6 +456,8 @@ export interface FunctionalDescriptionContent {
   // instead of a step table. Present only when the state was authored as
   // command_behavior; steps/permissives are absent then.
   command_branches?: CommandBranchEntry[];
+  // The hold applied when no branch is active — mirrors
+  // CommandBehaviorV2.default_hold; populated only alongside command_branches.
   default_hold?: ControlModuleStateEntry[];
 }
 

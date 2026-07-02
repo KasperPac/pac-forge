@@ -20,6 +20,9 @@ export function summarizeAction(fd: FunctionalDescriptionContent): string[] {
   // AND-ed when-conditions, and the holds — plus the default hold. Machine
   // boolean, no prose. Both the DOCX exporter and the structured editor render
   // these lines verbatim, so no renderer change is needed.
+  // MUST run before the pattern === "sequential" fallback below — command
+  // states are composed with pattern "sequential" too, and would otherwise
+  // silently degrade to the "Sequenced" pointer.
   if (fd.command_branches?.length) {
     const holdText = (ds: { tag: string; state: string }[]) =>
       ds.map((d) => `${d.tag}: ${d.state}`).join(", ") || "—";
