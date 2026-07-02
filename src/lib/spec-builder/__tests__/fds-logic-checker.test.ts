@@ -123,6 +123,22 @@ describe("validateEquipmentModule — command_behavior (SP-3d)", () => {
     expect(warning?.message).toContain('Command hold tag "M99_UNKNOWN"');
   });
 
+  it("warns with the branch label when a branch control-module tag is not in the instrument register", () => {
+    const cb = commandBehaviorFixture();
+    cb.execute.branches[0].control_modules = [
+      { tag: "M98_UNKNOWN", description: "Unknown actuator", state: "on" },
+    ];
+    const result = validateEquipmentModule(em, staticStates, {}, emStates, tags, cb);
+    const warning = result.issues.find(
+      (i) => i.category === "permissive_ref" && i.message.includes("M98_UNKNOWN"),
+    );
+    expect(warning).toBeDefined();
+    expect(warning?.severity).toBe("warning");
+    expect(warning?.message).toContain(
+      'Command branch "Drive Forward" control module tag "M98_UNKNOWN"',
+    );
+  });
+
   it("errors with the broadened message when a sequential state has neither steps nor command branches", () => {
     const result = validateEquipmentModule(em, staticStates, {}, emStates, tags, {});
     const error = result.issues.find((i) => i.category === "state_completeness");

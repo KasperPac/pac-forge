@@ -70,8 +70,9 @@ export function validateEquipmentModule(
   // Sequential states are completed EITHER via authored steps (Checks 3/4
   // below) OR via SP-3c command_behavior (branches + default_hold) for
   // command-driven states (e.g. "execute" on a manually-jogged motion). The
-  // two are mutually exclusive by design — a state with branches authored
-  // is complete without steps.
+  // two are mutually exclusive by design — enforced at persist by
+  // use-fds-conversation.ts's steps-XOR-branches routing — so a state with
+  // branches authored is complete without steps.
   for (const state of sequentialStateIds) {
     const data = sequentialStates[state.state_id];
     const cb = commandBehavior[state.state_id];
@@ -97,7 +98,7 @@ export function validateEquipmentModule(
             issues.push({
               severity: "warning",
               category: "permissive_ref",
-              message: `Command hold tag "${d.tag}" is not in the instrument register`,
+              message: `Command branch "${branch.label}" control module tag "${d.tag}" is not in the instrument register`,
               equipment_module_id: equipment_module.equipment_module_id,
               state_id: state.state_id,
             });
