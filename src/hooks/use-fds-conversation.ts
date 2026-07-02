@@ -14,7 +14,10 @@
  *   Stage B (behavior): once `em_states` exist, run the per-state behavior
  *     interview (buildFdsInterviewSystemPrompt) keyed by the `sequential`-kind
  *     EM states, persisting per-state behavior to `sequential_states` keyed by
- *     the EM-local state_id slug.
+ *     the EM-local state_id slug. SP-3c: a sequential state may instead be
+ *     command-driven — its blocks carry `command_behavior` (branches +
+ *     default_hold) and persist to the session's `command_behavior` column;
+ *     steps and command_behavior are mutually exclusive per state.
  */
 import { useState, useCallback, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -237,7 +240,13 @@ export function useFdsConversation({
             });
             continue;
           }
-          if ((session.sequential_states[stateId]?.steps?.length ?? 0) > 0) {
+          // XOR vs steps — both the persisted sequence AND a steps block that
+          // already merged earlier in this same response (updates), so block
+          // order within one AI reply cannot smuggle both shapes in.
+          if (
+            (session.sequential_states[stateId]?.steps?.length ?? 0) > 0 ||
+            updates.some((u) => u.state_id === stateId)
+          ) {
             failures.push({
               state_id: stateId,
               issues: [`State "${stateId}" already has an authored step sequence. A state is either automatic (steps) or command-driven (command_behavior) — clear the steps first.`],
@@ -285,14 +294,17 @@ export function useFdsConversation({
           continue;
         }
 
-        // Steps block for a command-driven state → XOR failure.
+        // Non-command block (steps/permissives/notes) for a command-driven
+        // state → XOR failure. Fires for ANY table update targeting the state,
+        // not only blocks carrying a steps key — a command-driven state has no
+        // steps/permissives slots to update.
         if (
           session.command_behavior?.[stateId] !== undefined ||
           commandUpdates.some((u) => u.state_id === stateId)
         ) {
           failures.push({
             state_id: stateId,
-            issues: [`State "${stateId}" is authored as command-driven (command_behavior). It cannot also carry steps — clear the command behaviour first.`],
+            issues: [`State "${stateId}" is authored as command-driven (command_behavior). It cannot be updated via a steps/permissives block — re-emit it as command_behavior, or clear the command behaviour first.`],
             stateLabel: stateLabelFor(stateId),
           });
           continue;
