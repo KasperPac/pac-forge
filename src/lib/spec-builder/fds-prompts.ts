@@ -94,7 +94,10 @@ export function buildFdsInterviewSystemPrompt(
       return `  ${stateName}:\n    Permissives:\n${perms || "    (none)"}\n    Steps: ${stepCount} V2 step(s)`;
     }),
     // SP-3c: command-driven states count as completed once their
-    // command_behavior is authored.
+    // command_behavior is authored. Exact wording (em dash here, comma in the
+    // REMAINING suffix below) is pinned by fds-prompts-command.test.ts — the
+    // comma variant must never appear outside the annotation, or its
+    // not.toContain assertion breaks.
     ...Object.entries(commandBehavior).map(([stateId, cb]) => {
       const match = emStates.find((s) => s.state_id === stateId);
       const stateName = match ? stateLabel(match) : stateId;
@@ -301,7 +304,7 @@ Use multiple \`branches[]\` entries only when the step has >1 possible successor
 
 When you propose a table update, include a fenced JSON block at the END of your message. Emit a JSON ARRAY of state objects (you may update multiple states in one turn).
 
-Each state object must conform to this V2 shape:
+Each state object must conform to this V2 shape (or, for a command-driven state, the command_behavior shape from COMMAND-DRIVEN STATES above — never both):
 
 \`\`\`json
 [

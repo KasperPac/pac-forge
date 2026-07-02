@@ -161,7 +161,7 @@ Use multiple \`branches[]\` entries only when the step has >1 possible successor
 
 When you propose a table update, include a fenced JSON block at the END of your message. Emit a JSON ARRAY of state objects (you may update multiple states in one turn).
 
-Each state object must conform to this V2 shape:
+Each state object must conform to this V2 shape (or, for a command-driven state, the command_behavior shape from COMMAND-DRIVEN STATES above — never both):
 
 \`\`\`json
 [
