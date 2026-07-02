@@ -34,6 +34,7 @@ import type {
 import type {
   SequentialStateV2,
   EmStateV2,
+  CommandBehaviorV2,
 } from "@/types/spec-contract-v2";
 import type { SourceSection } from "./source-section-select";
 
@@ -45,6 +46,7 @@ export function buildFdsInterviewSystemPrompt(
   completedSequentialStates: Record<string, SequentialStateV2>,
   emStates: EmStateV2[],
   sourceSections: SourceSection[] = [],
+  commandBehavior: Record<string, CommandBehaviorV2> = {},
 ): string {
   // --- Data gathering (unchanged from original) ---
   const equipment_moduleTagNames = new Set<string>();
@@ -82,19 +84,31 @@ export function buildFdsInterviewSystemPrompt(
       return `  ${stateName}:\n${rows}`;
     }).join("\n");
 
-  const completedText = Object.entries(completedSequentialStates)
-    .map(([stateId, data]) => {
+  const completedText = [
+    ...Object.entries(completedSequentialStates).map(([stateId, data]) => {
       const match = emStates.find((s) => s.state_id === stateId);
       const stateName = match ? stateLabel(match) : stateId;
       // SequentialStateV2 permissives are structured; render their tag for the summary.
       const perms = data.permissives.map((p) => `    - ${p.tag} ${p.operator} ${String(p.value)}`).join("\n");
       const stepCount = data.steps.length;
       return `  ${stateName}:\n    Permissives:\n${perms || "    (none)"}\n    Steps: ${stepCount} V2 step(s)`;
-    }).join("\n");
+    }),
+    // SP-3c: command-driven states count as completed once their
+    // command_behavior is authored.
+    ...Object.entries(commandBehavior).map(([stateId, cb]) => {
+      const match = emStates.find((s) => s.state_id === stateId);
+      const stateName = match ? stateLabel(match) : stateId;
+      return `  ${stateName}:\n    Command-driven — ${cb.branches.length} branch(es) authored`;
+    }),
+  ].join("\n");
 
   const sequentialStatesList = emStates.filter((s) => s.kind === "sequential");
   const sequentialStatesTable = sequentialStatesList
-    .map((s) => `  - ${s.state_id}  (${stateLabel(s)})`)
+    .map((s) => {
+      const cb = commandBehavior[s.state_id];
+      const suffix = cb ? `  — command-driven, ${cb.branches.length} branch(es) authored` : "";
+      return `  - ${s.state_id}  (${stateLabel(s)})${suffix}`;
+    })
     .join("\n");
   const firstSequentialStateId = sequentialStatesList[0]?.state_id ?? "";
 
@@ -179,6 +193,7 @@ ${groundingProtocol}# INTERVIEW PROTOCOL
 
 You are running a deterministic interview, not a free-form chat. For each sequential state, gather information in this fixed order:
 
+0. **Nature** — FIRST, determine whether this state is (a) an AUTOMATIC step sequence that runs to completion, or (b) COMMAND-DRIVEN manual behaviour (an operator holds a command input; devices respond while it is held). In grounded mode infer the nature from the customer spec and tag it "(assumption — confirm)". A command-driven state is authored as command_behavior (see COMMAND-DRIVEN STATES below), NOT as steps — skip the step interview for it.
 1. **Permissives** — input conditions that must be TRUE before the state can begin.
 2. **Steps**, in order. For EACH step, you MUST obtain before moving on:
    a. Step number (10, 20, 30… with 21/22 reserved for branch paths)
@@ -192,6 +207,41 @@ You are running a deterministic interview, not a free-form chat. For each sequen
 3. **Confirmation** — read the full state back to the engineer in prose before emitting a JSON block.
 
 ${completenessRule}
+
+# COMMAND-DRIVEN STATES (command_behavior)
+
+When the engineer confirms a state is command-driven — do NOT author steps. Gather, in order:
+1. The command input tags (operator / HMI / pendant inputs) that drive the motions.
+2. One branch per command: a branch_id slug, a display label, the when-conditions (the command condition AND any interlock guards — all INPUT tags, permissive shape { tag, operator, value } with raw booleans), and the device holds while the when-conditions are true (OUTPUT tags with their held state).
+3. The default_hold — what every commanded device holds when NO branch is active (typically the safe/off values).
+
+Branch mutual exclusion is expressed through the when-conditions themselves. A branch with an empty holds list is legal.
+
+For a command-driven state, emit this shape INSTEAD of steps:
+
+\`\`\`json
+[
+  {
+    "state_id": "execute",
+    "command_behavior": {
+      "branches": [
+        { "branch_id": "drive_fwd", "label": "Drive Forward",
+          "when": [ { "tag": "CAR_CMD_FWD", "operator": "=", "value": true }, { "tag": "CAR_LS_FWD", "operator": "=", "value": false } ],
+          "control_modules": [ { "tag": "CAR_M01_FWD", "description": "Carriage motor forward", "state": "on" } ] },
+        { "branch_id": "drive_rev", "label": "Drive Reverse",
+          "when": [ { "tag": "CAR_CMD_REV", "operator": "=", "value": true }, { "tag": "CAR_LS_REV", "operator": "=", "value": false } ],
+          "control_modules": [ { "tag": "CAR_M01_REV", "description": "Carriage motor reverse", "state": "on" } ] }
+      ],
+      "default_hold": [
+        { "tag": "CAR_M01_FWD", "description": "Carriage motor forward", "state": "off" },
+        { "tag": "CAR_M01_REV", "description": "Carriage motor reverse", "state": "off" }
+      ]
+    }
+  }
+]
+\`\`\`
+
+state_id must come from SEQUENTIAL STATES REMAINING. The example tags are illustrative — always use tags from OUTPUT TAGS / INPUT TAGS.
 
 ## Questioning rules
 - Ask about ONE missing field per turn. Do not batch questions.
@@ -439,6 +489,9 @@ State_id ${JSON.stringify(firstSequentialStateId || "auto_cycle")} above is illu
 - ❌ Using the V1 condition shape \`{ tag, op, value }\` without a \`kind\` discriminator. The current schema requires \`kind\` as the first field of every guard / source_condition.
 - ❌ Inventing override_kind values you have not been told about. Phase 3 is single-mode; always emit \`"override_kind": "override"\`.
 - ❌ Emitting a transition without \`"kind": "single"\`, \`"target_step_id"\`, \`"priority"\`, \`"is_default"\`, and \`"notes"\`. The schema rejects partial transitions.
+- ❌ Emitting BOTH "steps" and "command_behavior" for the same state — a state is one or the other.
+- ❌ Modelling a commanded motion as steps ("wait for operator to press X" is a command branch, not a step).
+- ❌ Inventing command tag names that don't appear in INPUT TAGS.
 
 If you have no table update to propose (still gathering info), do not include a JSON block. Keep conversational text concise — the engineer is an expert.`;
 }
