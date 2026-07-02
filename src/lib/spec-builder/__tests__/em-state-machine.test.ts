@@ -5,6 +5,7 @@ import {
   validateEmStateMachine,
   validateEmPackmlConformance,
   validateEmStateMachineAndPackml,
+  validateCommandBehavior,
   parseStateMachineProposal,
   isLikelyTruncatedProposal,
 } from "@/lib/spec-builder/em-state-machine";
@@ -402,5 +403,55 @@ describe("validateEmStateMachineAndPackml", () => {
     expect(structuralIdx).toBeGreaterThanOrEqual(0);
     expect(conformanceIdx).toBeGreaterThanOrEqual(0);
     expect(structuralIdx).toBeLessThan(conformanceIdx);
+  });
+});
+
+describe("validateCommandBehavior", () => {
+  const branch = (id: string, tag: string) => ({
+    branch_id: id, label: id,
+    when: [{ tag, operator: "=" as const, value: true }],
+    control_modules: [],
+  });
+
+  it("returns [] when command_behavior is absent", () => {
+    expect(validateCommandBehavior(em("none", { states: defaultEmStates() }))).toEqual([]);
+  });
+
+  it("passes canonical command_behavior on execute", () => {
+    const issues = validateCommandBehavior(em("ok", {
+      states: defaultEmStates(),
+      command_behavior: { execute: { branches: [branch("fwd", "C_F"), branch("rev", "C_R")], default_hold: [] } },
+    }));
+    expect(issues).toEqual([]);
+  });
+
+  it("flags duplicate branch_ids within a state", () => {
+    const issues = validateCommandBehavior(em("dup", {
+      states: defaultEmStates(),
+      command_behavior: { execute: { branches: [branch("fwd", "C_F"), branch("fwd", "C_R")], default_hold: [] } },
+    }));
+    expect(issues.some((i) => i.includes('duplicate branch_id "fwd"'))).toBe(true);
+  });
+
+  it("flags a key on a static state", () => {
+    const issues = validateCommandBehavior(em("static", {
+      states: defaultEmStates(),
+      command_behavior: { idle: { branches: [branch("x", "C")], default_hold: [] } },
+    }));
+    expect(issues.some((i) => /command_behavior on non-acting state "idle"/.test(i))).toBe(true);
+  });
+
+  it("flags a key on an unknown state", () => {
+    const issues = validateCommandBehavior(em("unknown", {
+      states: defaultEmStates(),
+      command_behavior: { ghost: { branches: [], default_hold: [] } },
+    }));
+    expect(issues.some((i) => /command_behavior for unknown state "ghost"/.test(i))).toBe(true);
+  });
+
+  it("skips the key-kind check when states are empty (patch without states)", () => {
+    expect(validateCommandBehavior(em("skel", {
+      command_behavior: { execute: { branches: [], default_hold: [] } },
+    }))).toEqual([]);
   });
 });

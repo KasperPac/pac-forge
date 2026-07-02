@@ -152,6 +152,41 @@ export function validateEmStateMachineAndPackml(em: EquipmentModuleContract): st
   return [...validateEmStateMachine(em), ...validateEmPackmlConformance(em)];
 }
 
+/**
+ * Structural checks for one EM's command_behavior (SP-3c) — the command-
+ * conditional device holds authored by Stage B. Runs inside
+ * validateSpecContractPatch, safely for pre-SP-3c specs: absent/empty
+ * command_behavior → []. The key-must-be-a-sequential-state rule mirrors
+ * validateEmPackmlConformance's check but is re-applied here because the two
+ * validators fire on different gates (Stage A persist vs Stage B patch); it is
+ * skipped when the EM's states are absent from the patch. No PackML slug
+ * enforcement here — the SP-3b Stage-A-only boundary stands.
+ */
+export function validateCommandBehavior(em: EquipmentModuleContract): string[] {
+  const issues: string[] = [];
+  const where = `equipment_module ${em.equipment_module_id}`;
+  const byId = new Map(em.states.map((s) => [s.state_id, s]));
+
+  for (const [stateId, behavior] of Object.entries(em.command_behavior ?? {})) {
+    const seen = new Set<string>();
+    for (const b of behavior.branches) {
+      if (seen.has(b.branch_id)) {
+        issues.push(`${where}: duplicate branch_id "${b.branch_id}" in command_behavior["${stateId}"]`);
+      }
+      seen.add(b.branch_id);
+    }
+    if (em.states.length > 0) {
+      const st = byId.get(stateId);
+      if (!st) {
+        issues.push(`${where}: command_behavior for unknown state "${stateId}"`);
+      } else if (st.kind !== "sequential") {
+        issues.push(`${where}: command_behavior on non-acting state "${stateId}" (must be a sequential state)`);
+      }
+    }
+  }
+  return issues;
+}
+
 // ============================================================
 // Stage-A proposal parsing (co-author state-machine interview)
 // ============================================================

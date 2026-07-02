@@ -54,7 +54,7 @@ import {
   type ConfirmationStatus,
   type ProcessModelV2,
 } from "@/types/spec-contract-v2";
-import { validateEmStateMachine } from "@/lib/spec-builder/em-state-machine";
+import { validateEmStateMachine, validateCommandBehavior } from "@/lib/spec-builder/em-state-machine";
 import { z } from "zod";
 
 // ============================================================
@@ -1190,6 +1190,10 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
     for (const contract of Object.values(patch.equipment_modules)) {
       if (!Array.isArray((contract as EquipmentModuleContract).states)) continue;
       issues.push(...validateEmStateMachine(contract as EquipmentModuleContract));
+      // SP-3c: command_behavior structural checks. Returns [] when the field is
+      // absent, so pre-SP-3c specs are unaffected (no PackML enforcement here —
+      // the SP-3b Stage-A-only boundary stands).
+      issues.push(...validateCommandBehavior(contract as EquipmentModuleContract));
     }
   }
 

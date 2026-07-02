@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateSpecContractPatch } from "../contract";
+import { validateSpecContractPatch, SpecContractPatchSchema } from "../contract";
 
 describe("validateSpecContractPatch — EM state machines", () => {
   it("flags an EM with states but no safe state", () => {
@@ -30,5 +30,43 @@ describe("validateSpecContractPatch — EM state machines", () => {
       ],
     });
     expect(issues.some((i) => /unknown equipment_module/.test(i))).toBe(true);
+  });
+});
+
+describe("validateSpecContractPatch — command_behavior wiring (SP-3c)", () => {
+  const emPatch = (commandBehavior: Record<string, unknown>) => ({
+    equipment_modules: {
+      em1: {
+        equipment_module_id: "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+        unit_id: "9b2e4c6a-8f3d-4a1b-b2c7-1e5f7a9d0c3e",
+        states: [
+          { state_id: "execute", name: "Execute", kind: "sequential", allowed_modes: [], is_safe_state: false },
+          { state_id: "aborted", name: "Aborted", kind: "static", allowed_modes: [], is_safe_state: true },
+        ],
+        transitions: [], static_states: {}, sequential_states: {},
+        command_behavior: commandBehavior,
+      },
+    },
+  });
+  const dupBranch = (label: string, tag: string) => ({
+    branch_id: "dup", label,
+    when: [{ tag, operator: "=", value: true }],
+    control_modules: [],
+  });
+
+  it("surfaces duplicate branch_ids through the patch validator", () => {
+    const parsed = SpecContractPatchSchema.parse(
+      emPatch({ execute: { branches: [dupBranch("A", "T1"), dupBranch("B", "T2")], default_hold: [] } }),
+    );
+    const issues = validateSpecContractPatch(parsed);
+    expect(issues.some((i) => i.includes('duplicate branch_id "dup"'))).toBe(true);
+  });
+
+  it("accepts a clean command_behavior patch", () => {
+    const parsed = SpecContractPatchSchema.parse(
+      emPatch({ execute: { branches: [{ branch_id: "fwd", label: "Fwd", when: [{ tag: "T", operator: "=", value: true }], control_modules: [] }], default_hold: [] } }),
+    );
+    const issues = validateSpecContractPatch(parsed);
+    expect(issues.filter((i) => i.includes("command_behavior"))).toEqual([]);
   });
 });
