@@ -16,6 +16,19 @@ import type { FunctionalDescriptionContent, SpecSection, UnitConfig } from "@/ty
 
 /** The Action column for a step: device outputs held, or a sequence pointer. */
 export function summarizeAction(fd: FunctionalDescriptionContent): string[] {
+  // Command-driven acting state (SP-3c): one line per branch — label, the
+  // AND-ed when-conditions, and the holds — plus the default hold. Machine
+  // boolean, no prose. Both the DOCX exporter and the structured editor render
+  // these lines verbatim, so no renderer change is needed.
+  if (fd.command_branches?.length) {
+    const holdText = (ds: { tag: string; state: string }[]) =>
+      ds.map((d) => `${d.tag}: ${d.state}`).join(", ") || "—";
+    const lines = fd.command_branches.map(
+      (b) => `${b.label} — while ${b.when.join(" AND ")}: ${holdText(b.control_modules)}`,
+    );
+    if (fd.default_hold?.length) lines.push(`Default — ${holdText(fd.default_hold)}`);
+    return lines;
+  }
   if (fd.pattern === "sequential") return ["Sequenced — see steps below"];
   const ds = fd.control_module_states ?? [];
   if (!ds.length) return ["—"];

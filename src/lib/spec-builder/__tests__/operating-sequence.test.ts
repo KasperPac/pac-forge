@@ -83,3 +83,31 @@ describe("buildEmOperationView", () => {
     expect(view.steps[0].action).toEqual(["CM1_Run: STOP"]);
   });
 });
+
+describe("buildEmOperationView — command-driven state (SP-3c)", () => {
+  it("renders one action line per branch plus the default hold", () => {
+    const view = buildEmOperationView([
+      fd("Execute", {
+        pattern: "sequential",
+        command_branches: [
+          { label: "Drive Forward", when: ["CMD_FWD = TRUE", "LS_FWD = FALSE"], control_modules: [{ tag: "M01_FWD", description: "", state: "on" }] },
+          { label: "Drive Reverse", when: ["CMD_REV = TRUE", "LS_REV = FALSE"], control_modules: [{ tag: "M01_REV", description: "", state: "on" }] },
+        ],
+        default_hold: [{ tag: "M01_FWD", description: "", state: "off" }],
+        transitions: [],
+      }),
+    ]);
+    expect(view.steps[0].action).toEqual([
+      "Drive Forward — while CMD_FWD = TRUE AND LS_FWD = FALSE: M01_FWD: on",
+      "Drive Reverse — while CMD_REV = TRUE AND LS_REV = FALSE: M01_REV: on",
+      "Default — M01_FWD: off",
+    ]);
+  });
+
+  it("leaves step-sequence states unchanged (regression)", () => {
+    const view = buildEmOperationView([
+      fd("Auto", { pattern: "sequential", steps: [], transitions: [] }),
+    ]);
+    expect(view.steps[0].action).toEqual(["Sequenced — see steps below"]);
+  });
+});

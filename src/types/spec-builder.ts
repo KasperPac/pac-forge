@@ -452,6 +452,11 @@ export interface FunctionalDescriptionContent {
   // carriage" and "the limit stops the motor" are documented. Derived from the
   // EM's authored em_transitions; empty/omitted when the state has none.
   transitions?: TransitionEntry[];
+  // Pattern B variant (command-driven acting state, SP-3c) — command branches
+  // instead of a step table. Present only when the state was authored as
+  // command_behavior; steps/permissives are absent then.
+  command_branches?: CommandBranchEntry[];
+  default_hold?: ControlModuleStateEntry[];
 }
 
 /** A single outgoing transition rendered in the functional description. */
@@ -462,6 +467,14 @@ export interface TransitionEntry {
   to_state: string;
   /** AND-ed permissive guard conditions that must hold for the transition. */
   permissives: string[];
+}
+
+/** A serialized command branch rendered in the functional description (SP-3c). */
+export interface CommandBranchEntry {
+  label: string;
+  /** Serialized AND-ed when-conditions, e.g. "CAR_CMD_FWD = TRUE". */
+  when: string[];
+  control_modules: ControlModuleStateEntry[];
 }
 
 export interface ControlModuleStateEntry {

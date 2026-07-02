@@ -180,6 +180,24 @@ export async function composeFdsToSections(
     // --- Sequential states: one row per (equipment_module, state), carrying
     // that module's own permissives/steps/notes. ---
     for (const state of emStates.filter((s) => s.kind === "sequential")) {
+      // SP-3c: a command-driven acting state carries command_behavior instead
+      // of a step table (steps XOR command_behavior per state). Serialize its
+      // branches for the editor/DOCX and skip the steps path.
+      const cb = session.command_behavior?.[state.state_id];
+      if (cb) {
+        await insertRow(session, state, {
+          pattern: "sequential",
+          command_branches: cb.branches.map((b) => ({
+            label: b.label,
+            when: b.when.map(serializePermissive),
+            control_modules: b.control_modules,
+          })),
+          default_hold: cb.default_hold,
+          transitions: outgoingTransitions(state.state_id, transitions, stateNameById),
+        });
+        continue;
+      }
+
       const data = session.sequential_states[state.state_id];
       if (!data) continue;
       await insertRow(session, state, {
