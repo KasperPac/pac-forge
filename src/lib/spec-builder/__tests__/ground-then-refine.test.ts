@@ -80,7 +80,9 @@ describe("Stage A ground-then-refine", () => {
   it("opening message asks a cold question when no context is present", () => {
     const m = buildEmStateMachineOpeningMessage(em, []);
     expect(m).not.toContain("PHASE 1");
-    expect(m.toLowerCase()).toContain("what distinct states");
+    // SP-3b reframed the cold opening to the fixed PackML vocabulary.
+    expect(m.toLowerCase()).toContain("which packml lifecycle states");
+    expect(m).toContain('"aborted"');
   });
 });
 
