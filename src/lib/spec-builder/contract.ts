@@ -384,6 +384,28 @@ export function upgradeEquipmentModuleContracts(
 }
 
 /**
+ * The DB's spec_sections_granularity_check still only permits the LEGACY
+ * granularity vocabulary ('assembly_state', 'subsystem', ...), and compose
+ * deliberately lets the column default apply (see fds-compose.ts). Map the
+ * legacy values onto the contract vocabulary at load; unknown/absent falls
+ * back to equipment_module_state (matching the previous default).
+ * Exported for unit tests (pure).
+ */
+export function normalizeGranularity(
+  raw: unknown,
+): "equipment_module_state" | "unit" | "project" {
+  switch (raw) {
+    case "unit":
+    case "subsystem":
+      return "unit";
+    case "project":
+      return "project";
+    default:
+      return "equipment_module_state"; // incl. legacy 'assembly_state' and absent
+  }
+}
+
+/**
  * Upgrade spec_section rows: legacy rows use `state_name` + `unit_id`;
  * per-unit functional_description rows fan out into per-equipment_module copies.
  * Each fan-out carries `provenance: "fanout_from_unit"` so downstream
@@ -412,9 +434,7 @@ function upgradeSections(
       state_id: stateId ?? null,
       state_pattern:
         (row.state_pattern as "static" | "sequential" | null) ?? null,
-      granularity:
-        (row.granularity as "equipment_module_state" | "unit" | "project") ??
-        "equipment_module_state",
+      granularity: normalizeGranularity(row.granularity),
       content_json: (row.content_json as Record<string, unknown>) ?? {},
       content_markdown: (row.content_markdown as string | null) ?? null,
       model_used: (row.model_used as string | null) ?? null,

@@ -13,7 +13,12 @@ vi.mock("@/lib/supabase", () => ({
   },
 }));
 
-import { writeSpecContract, upgradeEquipmentModuleContracts, buildUpgradeContext } from "../contract";
+import {
+  writeSpecContract,
+  upgradeEquipmentModuleContracts,
+  buildUpgradeContext,
+  normalizeGranularity,
+} from "../contract";
 
 describe("writeSpecContract — hybrid state model persistence", () => {
   beforeEach(() => { writeCalls.length = 0; });
@@ -95,5 +100,29 @@ describe("command_behavior persistence (SP-3c)", () => {
     });
     const s = writeCalls.find((c) => c.table === "fds_operation_sessions" && c.op === "upsert");
     expect(s?.payload).toMatchObject({ command_behavior: { execute: expect.any(Object) } });
+  });
+});
+
+describe("normalizeGranularity (SP-3d — legacy section granularity at contract load)", () => {
+  it("maps the legacy DB default 'assembly_state' to equipment_module_state", () => {
+    expect(normalizeGranularity("assembly_state")).toBe("equipment_module_state");
+  });
+
+  it("maps legacy 'subsystem' to the contract's 'unit'", () => {
+    expect(normalizeGranularity("subsystem")).toBe("unit");
+  });
+
+  it("passes contract-native 'unit' through unchanged", () => {
+    expect(normalizeGranularity("unit")).toBe("unit");
+  });
+
+  it("passes contract-native 'project' through unchanged", () => {
+    expect(normalizeGranularity("project")).toBe("project");
+  });
+
+  it("falls back to equipment_module_state for null/undefined/unknown", () => {
+    expect(normalizeGranularity(null)).toBe("equipment_module_state");
+    expect(normalizeGranularity(undefined)).toBe("equipment_module_state");
+    expect(normalizeGranularity("something_unexpected")).toBe("equipment_module_state");
   });
 });
