@@ -48,7 +48,9 @@ import type {
   SequentialStateV2,
   EmStateV2,
   OperatorMode,
+  CommandBehaviorV2,
 } from "@/types/spec-contract-v2";
+import { CommandBehaviorV2Schema } from "@/types/spec-contract-v2";
 import { ensureV2 } from "@/lib/spec-builder/sequence-legacy-shim";
 import { SpecContractPatchSchema, validateSpecContractPatch } from "@/lib/spec-builder/contract";
 import { buildValidationFailureTurn } from "@/lib/spec-builder/validation-failure-turn";
@@ -131,8 +133,10 @@ export function useFdsConversation({
       session.sequential_states,
       emStates,
       emSections,
+      // SP-3c: authored command-driven states render as completed.
+      session.command_behavior ?? {},
     );
-  }, [equipment_module, unit, allTags, session.static_states, session.sequential_states, emStates, emSections]);
+  }, [equipment_module, unit, allTags, session.static_states, session.sequential_states, session.command_behavior, emStates, emSections]);
 
   const buildMessages = useCallback(
     (extraUserMessage?: string) => {
@@ -201,14 +205,16 @@ export function useFdsConversation({
   const processAiResponse = useCallback(
     (fullText: string): {
       updates: Array<{ state_id: string; data: SequentialStateV2 }>;
+      commandUpdates: Array<{ state_id: string; data: CommandBehaviorV2 }>;
       failures: Array<{ state_id: string; issues: string[]; stateLabel: string }>;
     } => {
       const extracted = extractJsonFromResponse(fullText) as unknown as Array<Record<string, unknown>> | null;
       if (!extracted || extracted.length === 0) {
-        return { updates: [], failures: [] };
+        return { updates: [], commandUpdates: [], failures: [] };
       }
 
       const updates: Array<{ state_id: string; data: SequentialStateV2 }> = [];
+      const commandUpdates: Array<{ state_id: string; data: CommandBehaviorV2 }> = [];
       const failures: Array<{ state_id: string; issues: string[]; stateLabel: string }> = [];
 
       for (const block of extracted) {
@@ -217,6 +223,80 @@ export function useFdsConversation({
           typeof rawStateId === "number" ? String(rawStateId) : (rawStateId as string | undefined),
         );
         if (!stateId) continue;
+
+        // SP-3c: route on shape. A block carrying command_behavior authors
+        // command-conditional holds for the state; a steps block keeps the
+        // existing path. A state is EITHER automatic (steps) OR command-driven
+        // (command_behavior) — never both.
+        if (block.command_behavior !== undefined) {
+          if (block.steps !== undefined) {
+            failures.push({
+              state_id: stateId,
+              issues: [`State "${stateId}": a block must carry EITHER steps OR command_behavior, not both.`],
+              stateLabel: stateLabelFor(stateId),
+            });
+            continue;
+          }
+          if ((session.sequential_states[stateId]?.steps?.length ?? 0) > 0) {
+            failures.push({
+              state_id: stateId,
+              issues: [`State "${stateId}" already has an authored step sequence. A state is either automatic (steps) or command-driven (command_behavior) — clear the steps first.`],
+              stateLabel: stateLabelFor(stateId),
+            });
+            continue;
+          }
+          const parsedCb = CommandBehaviorV2Schema.safeParse(block.command_behavior);
+          if (!parsedCb.success) {
+            failures.push({
+              state_id: stateId,
+              issues: parsedCb.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`),
+              stateLabel: stateLabelFor(stateId),
+            });
+            continue;
+          }
+          // Patch gate: same two-stage machinery as steps blocks. Includes the
+          // EM's authored states/transitions so validateCommandBehavior's
+          // key-must-be-sequential check engages.
+          const cbPatch = {
+            equipment_modules: {
+              [equipment_module.equipment_module_id]: {
+                equipment_module_id: equipment_module.equipment_module_id,
+                unit_id: unit.unit_id,
+                states: session.em_states ?? [],
+                transitions: session.em_transitions ?? [],
+                static_states: session.static_states,
+                sequential_states: session.sequential_states,
+                command_behavior: { ...(session.command_behavior ?? {}), [stateId]: parsedCb.data },
+              },
+            },
+          };
+          const cbParsed = SpecContractPatchSchema.safeParse(cbPatch);
+          const cbIssues: string[] = [];
+          if (!cbParsed.success) {
+            for (const issue of cbParsed.error.issues) cbIssues.push(`${issue.path.join(".")}: ${issue.message}`);
+          } else {
+            cbIssues.push(...validateSpecContractPatch(cbParsed.data));
+          }
+          if (cbIssues.length > 0) {
+            failures.push({ state_id: stateId, issues: cbIssues, stateLabel: stateLabelFor(stateId) });
+            continue;
+          }
+          commandUpdates.push({ state_id: stateId, data: parsedCb.data });
+          continue;
+        }
+
+        // Steps block for a command-driven state → XOR failure.
+        if (
+          session.command_behavior?.[stateId] !== undefined ||
+          commandUpdates.some((u) => u.state_id === stateId)
+        ) {
+          failures.push({
+            state_id: stateId,
+            issues: [`State "${stateId}" is authored as command-driven (command_behavior). It cannot also carry steps — clear the command behaviour first.`],
+            stateLabel: stateLabelFor(stateId),
+          });
+          continue;
+        }
 
         const existing = session.sequential_states[stateId] ?? { permissives: [], steps: [], notes: null };
         const merged: SequentialStateV2 = {
@@ -265,9 +345,13 @@ export function useFdsConversation({
         updates.push({ state_id: stateId, data: v2 });
       }
 
-      return { updates, failures };
+      return { updates, commandUpdates, failures };
     },
-    [resolveStateId, session.sequential_states, session.static_states, equipment_module.equipment_module_id, unit.unit_id, stateLabelFor],
+    [
+      resolveStateId, session.sequential_states, session.static_states,
+      session.em_states, session.em_transitions, session.command_behavior,
+      equipment_module.equipment_module_id, unit.unit_id, stateLabelFor,
+    ],
   );
 
   // -------------------------------------------------------------------------
@@ -415,7 +499,7 @@ export function useFdsConversation({
         }
 
         // Stage B — extract JSON (may contain multiple states), validate, persist.
-        const { updates: tableUpdates, failures } = processAiResponse(fullText);
+        const { updates: tableUpdates, commandUpdates, failures } = processAiResponse(fullText);
         const proseContent = stripJsonFromResponse(fullText);
 
         const assistantTurn: FdsConversationTurn = {
@@ -446,6 +530,14 @@ export function useFdsConversation({
           update.sequential_states = existing;
           if (session.status === "static_confirmed") update.status = "in_progress";
         }
+        if (commandUpdates.length > 0) {
+          const existingCb = { ...(session.command_behavior ?? {}) };
+          for (const { state_id, data } of commandUpdates) {
+            existingCb[state_id] = data;
+          }
+          update.command_behavior = existingCb;
+          if (session.status === "static_confirmed") update.status = "in_progress";
+        }
         await supabase
           .from("fds_operation_sessions")
           .update(update)
@@ -463,7 +555,7 @@ export function useFdsConversation({
       isStreaming, stage, buildSystemPrompt, buildMessages, processAiResponse,
       handleStateMachineResponse, equipment_module, unit, modes, emSections,
       session.id, session.conversation, session.sequential_states, session.status,
-      queryClient,
+      session.command_behavior, queryClient,
     ],
   );
 
