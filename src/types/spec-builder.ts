@@ -1,5 +1,5 @@
 // Spec Builder types — functional specification document generation
-import type { PermissiveCondition, SequentialStateV2, OperatorMode, SafetyGateV2, EmStateV2, EmTransitionV2 } from "./spec-contract-v2";
+import type { PermissiveCondition, SequentialStateV2, OperatorMode, SafetyGateV2, EmStateV2, EmTransitionV2, CommandBehaviorV2 } from "./spec-contract-v2";
 
 // --- ISA-88 Process Model (§4.3) ---
 // Describes WHAT happens to the product (product-centric), not HOW equipment does it.
@@ -580,6 +580,9 @@ export interface OperationSession {
   // sequential_states. Empty until Stage A authors them.
   em_states?: EmStateV2[];
   em_transitions?: EmTransitionV2[];
+  // Command-conditional device holds per acting PackML state (SP-3c).
+  // Keyed by EM-local state_id. Absent until Stage B authors one.
+  command_behavior?: Record<string, CommandBehaviorV2>;
   // Conversation audit trail
   conversation: FdsConversationTurn[];
   // Duplicate tracking

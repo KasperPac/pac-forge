@@ -221,7 +221,7 @@ interface UpgradeContext {
 // project rows. It is NO LONGER an operating-state source — states live
 // per-EM now — but the legacy shim still uses its state_name → state_id pairs
 // to resolve legacy section / static-state map keys during upgrade.
-function buildUpgradeContext(projectRow: Record<string, unknown>): UpgradeContext {
+export function buildUpgradeContext(projectRow: Record<string, unknown>): UpgradeContext {
   const rawStates = (projectRow.confirmed_states ?? []) as Record<string, unknown>[];
   const stateNameToId = new Map<string, string>();
   for (const s of rawStates) {
@@ -332,8 +332,9 @@ function buildHierarchyFromLegacy(
  * Upgrade legacy per-equipment_module session rows into EquipmentModuleContract entries,
  * keyed by equipment_module_id. Prefers `static_states_v2` (already keyed by
  * state_id); otherwise converts legacy `static_states` (keyed by state_name).
+ * Exported for unit tests (pure).
  */
-function upgradeEquipmentModuleContracts(
+export function upgradeEquipmentModuleContracts(
   equipment_moduleSessions: Record<string, unknown>[],
   ctx: UpgradeContext,
 ): Record<string, EquipmentModuleContract> {
@@ -371,6 +372,12 @@ function upgradeEquipmentModuleContracts(
         : [],
       static_states: staticStates,
       sequential_states: sequentialStates,
+      // SP-3c: command-conditional Execute-behavior — pass the session column
+      // through verbatim; absent stays absent (schema field is .optional()).
+      command_behavior:
+        s.command_behavior && typeof s.command_behavior === "object"
+          ? (s.command_behavior as EquipmentModuleContract["command_behavior"])
+          : undefined,
     };
   }
   return out;
@@ -987,6 +994,7 @@ export async function writeSpecContract(
         sequential_states: asm.sequential_states,
         em_states: asm.states,
         em_transitions: asm.transitions,
+        command_behavior: asm.command_behavior ?? null,
       };
       const { error } = await supabase
         .from("fds_operation_sessions")

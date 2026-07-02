@@ -13,7 +13,7 @@ vi.mock("@/lib/supabase", () => ({
   },
 }));
 
-import { writeSpecContract } from "../contract";
+import { writeSpecContract, upgradeEquipmentModuleContracts, buildUpgradeContext } from "../contract";
 
 describe("writeSpecContract — hybrid state model persistence", () => {
   beforeEach(() => { writeCalls.length = 0; });
@@ -43,5 +43,57 @@ describe("writeSpecContract — hybrid state model persistence", () => {
     });
     const s = writeCalls.find((c) => c.table === "fds_operation_sessions" && c.op === "upsert");
     expect(s?.payload).toMatchObject({ em_states: expect.any(Array), em_transitions: expect.any(Array) });
+  });
+});
+
+describe("command_behavior persistence (SP-3c)", () => {
+  beforeEach(() => { writeCalls.length = 0; });
+
+  const CB = {
+    execute: {
+      branches: [
+        { branch_id: "drive_fwd", label: "Drive Forward",
+          when: [{ tag: "CAR_CMD_FWD", operator: "=", value: true }],
+          control_modules: [{ tag: "CAR_M01_FWD", description: "", state: "on" }] },
+      ],
+      default_hold: [{ tag: "CAR_M01_FWD", description: "", state: "off" }],
+    },
+  };
+
+  it("upgradeEquipmentModuleContracts passes command_behavior through to the contract", () => {
+    const ctx = buildUpgradeContext({});
+    const out = upgradeEquipmentModuleContracts(
+      [{ equipment_module_id: "em1", unit_id: "u1", static_states_v2: {}, sequential_states: {}, em_states: [], em_transitions: [], command_behavior: CB }],
+      ctx,
+    );
+    expect(out.em1.command_behavior).toEqual(CB);
+  });
+
+  it("upgradeEquipmentModuleContracts yields undefined when the row has none (backward-compat)", () => {
+    const ctx = buildUpgradeContext({});
+    const out = upgradeEquipmentModuleContracts(
+      [{ equipment_module_id: "em1", unit_id: "u1", static_states_v2: {}, sequential_states: {}, em_states: [], em_transitions: [] }],
+      ctx,
+    );
+    expect(out.em1.command_behavior).toBeUndefined();
+  });
+
+  it("writeSpecContract persists command_behavior on the fds_operation_sessions upsert", async () => {
+    await writeSpecContract("00000000-0000-0000-0000-000000000000", {
+      equipment_modules: {
+        em1: {
+          equipment_module_id: "00000000-0000-4000-8000-000000000001",
+          unit_id: "00000000-0000-4000-8000-000000000002",
+          states: [
+            { state_id: "execute", name: "Execute", kind: "sequential", allowed_modes: [], is_safe_state: false },
+            { state_id: "aborted", name: "Aborted", kind: "static", allowed_modes: [], is_safe_state: true },
+          ],
+          transitions: [], static_states: {}, sequential_states: {},
+          command_behavior: CB,
+        },
+      },
+    });
+    const s = writeCalls.find((c) => c.table === "fds_operation_sessions" && c.op === "upsert");
+    expect(s?.payload).toMatchObject({ command_behavior: { execute: expect.any(Object) } });
   });
 });
