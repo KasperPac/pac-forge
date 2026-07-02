@@ -26,11 +26,13 @@
 
 > Fill in as you go — this section is the audit trail the spec requires.
 
-- New spec id: `________________`
-- Phase 1 row counts (source → copy) per table: `________________`
-- Pilot EM: `________________` — user approved: ☐
-- EM completion checklist: `________________` (list all 10 EM ids/names, tick each)
-- Defects found → follow-up slices: `________________`
+- New spec id: `8913bad6-7040-4908-bbb3-67f16a501802` (SRL-1427-500802-PACKML, confirmed 2026-07-02T03:11:43Z)
+- Phase 1 row counts (source → copy): instrument_registers 1→1 (51 tags/5 units), spec_source_sections 10→10, spec_sections 5→5 (30 generated rows skipped by design), spec_alarms 0→0; sessions/exports/revisions in copy = 0. Original untouched (updated_at 2026-06-21T23:12:15Z before and after). Wizard walked (5 units/10 EMs/28 CMs, IO 51/51, 2 modes, 3 gates, 4 tiers) → Confirm & Save. Surprises: spec_projects title column is `title` (not `name`); revision-FK columns `current_draft_revision_id`/`latest_approved_revision_id` nulled in the copy; doc_code suffixed `-PACKML` for disambiguation.
+- Pilot EM: `Carriage Drive` (Carriage unit) — user approved: ✔ (Stage A shape + hold semantics + therm class + command-driven execute all confirmed; branches gate passed)
+- Pilot result: 11 PackML states (aborted safe), static holds confirmed, 6 automatic sequential states (2 steps each), execute = 4 command branches (fwd/fwd-fast/rev/rev-fast, when = command + Carriage_Brake_Open + Long_Limit_Stop, holds = CM1-4 RUN + named VSD setpoints), XOR held, Mark Complete passed=true.
+- Two in-conversation validation rejects during the pilot (invalid value_type enum; numeric state values) — both recovered via the failure-turn → retry loop, no pipeline defect.
+- EM completion checklist: Carriage Brake ☐ · Carriage Drive ✔ · Carriage Limits ☐ · Carriage Pendant ☐ · Travel Indicators ☐ · Rotator Brake ☐ · Rotator Drive ☐ · Rotator Pendant ☐ · E-Stop Circuit ☐ · Spare ☐
+- Defects found → follow-up slices: (1) `validateEquipmentModule` (fds-logic-checker.ts) demanded steps for command-driven states → fixed as reviewed mini-slice, commits `5b00085` + `b157bd9` (trailing commandBehavior param, steps-OR-branches completeness, Check 2b tag warnings, first test suite for the module).
 
 ---
 
