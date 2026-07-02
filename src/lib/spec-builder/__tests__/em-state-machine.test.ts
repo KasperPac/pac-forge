@@ -454,4 +454,12 @@ describe("validateCommandBehavior", () => {
       command_behavior: { execute: { branches: [], default_hold: [] } },
     }))).toEqual([]);
   });
+
+  it("still reports duplicate branch_ids when states are empty (checks are independently gated)", () => {
+    const issues = validateCommandBehavior(em("skel-dup", {
+      command_behavior: { execute: { branches: [branch("fwd", "C_F"), branch("fwd", "C_R")], default_hold: [] } },
+    }));
+    expect(issues.some((i) => i.includes('duplicate branch_id "fwd"'))).toBe(true);
+    expect(issues.some((i) => /unknown state|non-acting state/.test(i))).toBe(false);
+  });
 });

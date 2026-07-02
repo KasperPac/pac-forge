@@ -1184,8 +1184,10 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
   }
 
   // Hybrid state model: per-EM state-machine invariants.
-  // Only run when the EM contract carries the hybrid state fields (states/transitions).
-  // EMs authored before Task 1 (no states field) are treated as skeletons and skipped.
+  // NB: EquipmentModuleContractSchema.states has .default([]), so on
+  // schema-parsed patches this Array.isArray guard never skips — it only
+  // protects callers that bypass Zod. A zero-state EM still passes silently
+  // (both validators early-return / gate on states.length).
   if (patch.equipment_modules !== undefined) {
     for (const contract of Object.values(patch.equipment_modules)) {
       if (!Array.isArray((contract as EquipmentModuleContract).states)) continue;

@@ -159,8 +159,12 @@ export function validateEmStateMachineAndPackml(em: EquipmentModuleContract): st
  * command_behavior → []. The key-must-be-a-sequential-state rule mirrors
  * validateEmPackmlConformance's check but is re-applied here because the two
  * validators fire on different gates (Stage A persist vs Stage B patch); it is
- * skipped when the EM's states are absent from the patch. No PackML slug
- * enforcement here — the SP-3b Stage-A-only boundary stands.
+ * skipped when the EM's states are absent from the patch, while the
+ * duplicate-branch_id check runs whenever command_behavior is present. The two
+ * gates never see the same populated command_behavior payload today (Stage A
+ * validates a synthetic {states,transitions}-only object) — if a future path
+ * runs both on one full contract, the key-kind issue will be reported twice.
+ * No PackML slug enforcement here — the SP-3b Stage-A-only boundary stands.
  */
 export function validateCommandBehavior(em: EquipmentModuleContract): string[] {
   const issues: string[] = [];
