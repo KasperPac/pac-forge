@@ -4,35 +4,35 @@
     {
       "id": 0,
       "subject": "Task 1: command_behavior persistence pipe",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Migration + OperationSession field + contract read/write so command_behavior round-trips.\n\n**Files:** supabase/migrations/20260702000000_command_behavior.sql (new), src/types/spec-builder.ts (~582), src/lib/spec-builder/contract.ts (read ~365, write ~980, export upgrade helpers), src/lib/spec-builder/__tests__/contract-em-roundtrip.test.ts\n\n**Verify:** npx vitest run src/lib/spec-builder/__tests__/contract-em-roundtrip.test.ts && npx tsc -b\n\n```json:metadata\n{\"files\": [\"supabase/migrations/20260702000000_command_behavior.sql\", \"src/types/spec-builder.ts\", \"src/lib/spec-builder/contract.ts\", \"src/lib/spec-builder/__tests__/contract-em-roundtrip.test.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/__tests__/contract-em-roundtrip.test.ts && npx tsc -b\", \"acceptanceCriteria\": [\"migration additive nullable jsonb\", \"OperationSession field\", \"read passthrough + backward-compat\", \"write upsert carries field\", \"tsc clean\"]}\n```"
     },
     {
       "id": 1,
       "subject": "Task 2: validateCommandBehavior + patch wiring",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Pure validateCommandBehavior (dup branch_ids, key must be sequential state) wired into validateSpecContractPatch — inert for pre-SP-3c specs.\n\n**Files:** src/lib/spec-builder/em-state-machine.ts, __tests__/em-state-machine.test.ts, src/lib/spec-builder/contract.ts (~1184 loop + import), __tests__/contract-em-validation.test.ts\n\n**Verify:** npx vitest run src/lib/spec-builder/__tests__/em-state-machine.test.ts src/lib/spec-builder/__tests__/contract-em-validation.test.ts && npx tsc -b\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/em-state-machine.ts\", \"src/lib/spec-builder/__tests__/em-state-machine.test.ts\", \"src/lib/spec-builder/contract.ts\", \"src/lib/spec-builder/__tests__/contract-em-validation.test.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/__tests__/em-state-machine.test.ts src/lib/spec-builder/__tests__/contract-em-validation.test.ts && npx tsc -b\", \"acceptanceCriteria\": [\"absent -> []\", \"dup/static/unknown flagged\", \"empty-states skip\", \"patch wiring\", \"no PackML enforcement\"]}\n```"
     },
     {
       "id": 2,
       "subject": "Task 3: Stage B prompt reframe (nature + command shape)",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** buildFdsInterviewSystemPrompt gains nature step 0, COMMAND-DRIVEN STATES section + worked example, XOR MUST NOTs, completed/annotated rendering, trailing commandBehavior={} param.\n\n**Files:** src/lib/spec-builder/fds-prompts.ts, __tests__/fds-prompts-command.test.ts (new), __snapshots__/fds-prompts-v2.test.ts.snap (regenerate -u + REVIEW diff)\n\n**Verify:** npx vitest run src/lib/spec-builder/__tests__/fds-prompts-command.test.ts src/lib/spec-builder/__tests__/fds-prompts-v2.test.ts src/lib/spec-builder/__tests__/fds-prompts-emlocal.test.ts src/lib/spec-builder/__tests__/ground-then-refine.test.ts && npx tsc -b\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/fds-prompts.ts\", \"src/lib/spec-builder/__tests__/fds-prompts-command.test.ts\", \"src/lib/spec-builder/__tests__/__snapshots__/fds-prompts-v2.test.ts.snap\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/__tests__/fds-prompts-command.test.ts src/lib/spec-builder/__tests__/fds-prompts-v2.test.ts src/lib/spec-builder/__tests__/fds-prompts-emlocal.test.ts src/lib/spec-builder/__tests__/ground-then-refine.test.ts && npx tsc -b\", \"acceptanceCriteria\": [\"nature step 0\", \"command section + example\", \"XOR MUST NOTs\", \"completed/annotated rendering\", \"snapshot reviewed\", \"generic self-check\"]}\n```"
     },
     {
       "id": 3,
       "subject": "Task 4: hook routing + XOR persist",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [0, 1, 2],
       "description": "**Goal:** processAiResponse routes blocks on shape, enforces steps-XOR-branches, patch-gates command blocks, persists to session command_behavior column; prompt builder receives session.command_behavior.\n\n**Files:** src/hooks/use-fds-conversation.ts\n\n**Verify:** npx tsc -b && npx vitest run src/lib/spec-builder/__tests__/em-state-machine.test.ts src/lib/spec-builder/__tests__/fds-prompts-command.test.ts && npm run lint -- src/hooks/use-fds-conversation.ts\n\n```json:metadata\n{\"files\": [\"src/hooks/use-fds-conversation.ts\"], \"verifyCommand\": \"npx tsc -b && npx vitest run src/lib/spec-builder/__tests__/em-state-machine.test.ts src/lib/spec-builder/__tests__/fds-prompts-command.test.ts\", \"acceptanceCriteria\": [\"shape routing + patch gate\", \"XOR enforced all three ways\", \"command merge persist\", \"prompt gets command_behavior\", \"Stage A untouched\"]}\n```"
     },
     {
       "id": 4,
       "subject": "Task 5: compose + operating-view rendering",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [0],
       "description": "**Goal:** Command states get a functional_description row (serialized branches via serializePermissive) and summarizeAction renders row-per-branch lines — DOCX + editor pick it up with zero renderer changes.\n\n**Files:** src/types/spec-builder.ts (CommandBranchEntry + FunctionalDescriptionContent fields), src/lib/spec-builder/fds-compose.ts (~182), src/lib/spec-builder/operating-sequence.ts (summarizeAction), __tests__/operating-sequence.test.ts, __tests__/fds-compose-command.test.ts (new)\n\n**Verify:** npx vitest run src/lib/spec-builder/__tests__/operating-sequence.test.ts src/lib/spec-builder/__tests__/fds-compose-command.test.ts && npx tsc -b\n\n```json:metadata\n{\"files\": [\"src/types/spec-builder.ts\", \"src/lib/spec-builder/fds-compose.ts\", \"src/lib/spec-builder/operating-sequence.ts\", \"src/lib/spec-builder/__tests__/operating-sequence.test.ts\", \"src/lib/spec-builder/__tests__/fds-compose-command.test.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/__tests__/operating-sequence.test.ts src/lib/spec-builder/__tests__/fds-compose-command.test.ts && npx tsc -b\", \"acceptanceCriteria\": [\"compose row for command state\", \"bare-state skip regression\", \"branch action lines + default hold\", \"steps/static unchanged\", \"no renderer edits needed\"]}\n```"
     }
   ],
-  "lastUpdated": "2026-07-02T00:00:00Z"
+  "lastUpdated": "2026-07-02T05:00:00Z"
 }
