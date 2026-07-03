@@ -87,6 +87,18 @@ export interface EmSeqStep {
   manual: boolean;
 }
 
+/** One command-conditional hold branch inside a command-driven state (SP-4).
+ *  Branches are mutually-evaluated holds, NOT a sequenced SFC — see the
+ *  SP-3/SP-4 PackML design. */
+export interface EmCommandBranch {
+  /** FDS branch label — emitted as the audit comment above the holds. */
+  label: string;
+  /** Serialized SCL boolean for the branch's `when` permissives. */
+  condition: string;
+  /** Pin assignments applied while this branch is active. */
+  holds: { pin: string; value: string }[];
+}
+
 /** One state in the ordered EM state machine. */
 export interface EmSeqState {
   stateId: string;
@@ -101,6 +113,11 @@ export interface EmSeqState {
   staticCommands: { pin: string; active: boolean }[];
   /** Linear SFC steps (rendered whenever present, regardless of kind). */
   steps: EmSeqStep[];
+  /** Command-conditional hold branches (command-driven states only). */
+  commandBranches: EmCommandBranch[];
+  /** Anti-latch defaults assigned before the branch chain: the union of all
+   *  pins any branch or the default_hold touches. */
+  commandDefaults: { pin: string; value: string }[];
   /** Outgoing edges to other state indices. */
   exits: { toIndex: number; condition: string; viaCompletion: boolean }[];
 }
@@ -113,6 +130,9 @@ export interface EmSequence {
   states: EmSeqState[];
   /** Fixed command inputs every EM FB exposes. */
   cmdPins: string[];
+  /** Symbolic setpoint inputs (Int) generated from non-numeric hold values;
+   *  exposed on the command seam so commissioning sets them in the CMD DB. */
+  setpointPins: string[];
   /** Coordination interlock inputs (unwired in C1; Unit layer wires them). */
   interlockPins: string[];
   /** Sensor feedback inputs (own DI/AI). */

@@ -1,13 +1,13 @@
 import type {
   EquipmentModuleV2, EquipmentModuleContract, IoSignalV2,
-  PhaseStep, CompletionCriterion,
+  PhaseStep, CompletionCriterion, ControlModuleStateEntry,
 } from "@/types/spec-contract-v2";
 import { orderStates } from "./step-order";
 import { packmlStateBySlug } from "../packml-states";
 import { sclIdent, isActiveCommand, staticEntries } from "./sa-builder";
-import { serializeAdvance } from "./serialize-condition";
+import { serializeAdvance, serializeGuard } from "./serialize-condition";
 import { serializeCompletionGuard, isUnevaluable } from "./serialize-completion";
-import type { EmPin, EmSeqState, EmSeqStep, EmSequence } from "./types";
+import type { EmPin, EmSeqState, EmSeqStep, EmSequence, EmCommandBranch } from "./types";
 
 const INPUT_TYPES = new Set<string>(["DI", "AI"]);
 const OUTPUT_TYPES = new Set<string>(["DO", "AO"]);
@@ -93,6 +93,28 @@ export function buildEmSequence(
     return `#${interlockPin(tag)}`;
   };
 
+  // symbolic setpoint pins (Int inputs), deduped per EM in insertion order
+  const setpoints = new Map<string, string>();
+
+  /** Lower one hold entry {tag, state} to a pin assignment. Bool pins use the
+   *  active-token table; Int pins take signed numeric literals directly and
+   *  route symbolic names through a generated sp_ input pin. */
+  const holdAssign = (entry: ControlModuleStateEntry): { pin: string; value: string } => {
+    const pin = actuatorPin(entry.tag);
+    if (actuators.get(pin)?.scl_type === "Int") {
+      const raw = entry.state.trim();
+      if (/^[+-]?\d+$/.test(raw)) return { pin, value: String(parseInt(raw, 10)) };
+      const sp = `sp_${sclIdent(raw)}`;
+      if (!setpoints.has(sp)) setpoints.set(sp, raw);
+      return { pin, value: `#${sp}` };
+    }
+    return { pin, value: isActiveCommand(entry.state) ? "TRUE" : "FALSE" };
+  };
+
+  /** Inactive value for a pin: FALSE for Bool, 0 for Int. */
+  const inactiveValue = (pin: string): string =>
+    actuators.get(pin)?.scl_type === "Int" ? "0" : "FALSE";
+
   // order states; first is home/safe
   const ordered = orderStates(contract.states, contract.transitions);
   const indexOf = new Map<string, number>();
@@ -114,11 +136,20 @@ export function buildEmSequence(
       active: isActiveCommand(e.state),
     }));
 
+    // Command-conditional states (primarily "execute") lower branches instead
+    // of steps — authoring enforces steps XOR command_behavior per state.
+    const behavior = contract.command_behavior?.[st.state_id];
+    const hasCommand = !!behavior && (behavior.branches.length > 0 || behavior.default_hold.length > 0);
+
     // Steps are lowered from the data, not the kind, so a mis-authored kind
     // never drops authored behavior.
     const seqSteps = contract.sequential_states[st.state_id]?.steps ?? [];
     const steps: EmSeqStep[] = [];
-    if (seqSteps.length) {
+    if (hasCommand && seqSteps.length) {
+      // tolerate legacy/hand-edited contracts that carry both — command
+      // branches win, steps are dropped
+      warnings.push(`EM ${em.equipment_module_name}: state ${st.state_id} has both steps and command_behavior — command branches win`);
+    } else if (seqSteps.length) {
       const sorted = [...seqSteps].sort((a, b) => a.step - b.step);
       if (sorted.some((ps) => ps.transitions?.some((t) => t.kind === "parallel"))) {
         warnings.push(`EM ${em.equipment_module_name}: state ${st.state_id} has parallel branches — collapsed to a linear sequence`);
@@ -139,7 +170,31 @@ export function buildEmSequence(
       });
     }
 
-    return { stateId: st.state_id, name: st.name, index, kind, isSafe: st.is_safe_state, staticCommands, steps, exits: [] };
+    let commandBranches: EmCommandBranch[] = [];
+    let commandDefaults: { pin: string; value: string }[] = [];
+    if (hasCommand) {
+      commandBranches = behavior.branches.map((b) => ({
+        label: b.label,
+        condition: serializeGuard(b.when, pinRef),
+        holds: b.control_modules.map(holdAssign),
+      }));
+      // anti-latch union: every pin any branch touches defaults to inactive,
+      // then default_hold entries override (and add their own pins)
+      const defaults = new Map<string, string>();
+      for (const b of commandBranches) {
+        for (const h of b.holds) if (!defaults.has(h.pin)) defaults.set(h.pin, inactiveValue(h.pin));
+      }
+      for (const e of behavior.default_hold) {
+        const h = holdAssign(e);
+        defaults.set(h.pin, h.value);
+      }
+      commandDefaults = [...defaults.entries()].map(([pin, value]) => ({ pin, value }));
+    }
+
+    return {
+      stateId: st.state_id, name: st.name, index, kind, isSafe: st.is_safe_state,
+      staticCommands, steps, commandBranches, commandDefaults, exits: [],
+    };
   });
 
   for (const t of contract.transitions) {
@@ -156,12 +211,19 @@ export function buildEmSequence(
     });
   }
 
+  if (setpoints.size) {
+    warnings.push(
+      `EM ${em.equipment_module_name}: setpoint pins ${[...setpoints.keys()].join(", ")} — set commissioning values in ${sclIdent(em.equipment_module_name)}_CMD`,
+    );
+  }
+
   return {
     emId: em.equipment_module_id,
     emName: em.equipment_module_name,
     sclName: sclIdent(em.equipment_module_name),
     states,
     cmdPins: [...CMD_PINS],
+    setpointPins: [...setpoints.keys()],
     interlockPins: [...interlocks.keys()],
     sensors: [...sensors.values()],
     actuators: [...actuators.values()],

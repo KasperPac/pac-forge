@@ -8,6 +8,7 @@ function seq(): EmSequence {
     emName: "Carriage Drive",
     sclName: "Carriage_Drive",
     cmdPins: ["cmd_start", "cmd_stop", "cmd_hold", "cmd_reset"],
+    setpointPins: [],
     interlockPins: ["ilk_rotator_safe"],
     sensors: [{ name: "fb_brake_open", tag: "brake_open", scl_type: "Bool", address: "I0.0" }],
     actuators: [{ name: "cmd_run", tag: "run", scl_type: "Bool", address: "Q0.0" }],
@@ -15,6 +16,7 @@ function seq(): EmSequence {
     states: [
       { stateId: "idle", name: "Idle", index: 0, kind: "static", isSafe: true,
         staticCommands: [{ pin: "cmd_run", active: false }], steps: [],
+        commandBranches: [], commandDefaults: [],
         exits: [{ toIndex: 1, condition: "(#ilk_rotator_safe = TRUE)", viaCompletion: false }] },
       { stateId: "running", name: "Running", index: 1, kind: "sequential", isSafe: false,
         staticCommands: [],
@@ -22,6 +24,7 @@ function seq(): EmSequence {
           { step: 1, fillId: "running.1", actionProse: "release brake", advance: "(#fb_brake_open = TRUE)", manual: false },
           { step: 2, fillId: "running.2", actionProse: "ramp drive", advance: "TRUE", manual: false },
         ],
+        commandBranches: [], commandDefaults: [],
         exits: [{ toIndex: 0, condition: "TRUE", viaCompletion: true }] },
     ],
   };

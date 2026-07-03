@@ -4,6 +4,8 @@ import type {
 } from "@/types/spec-contract-v2";
 import { buildEmSequence } from "../em-builder";
 
+
+
 function em(): EquipmentModuleV2 {
   return {
     equipment_module_id: "em-drive",
@@ -18,6 +20,7 @@ function em(): EquipmentModuleV2 {
       io_signals: [
         { tag: "brake_open", signal_type: "DI", io_address: "I0.0", description: "", source: "wired" },
         { tag: "run_cmd", signal_type: "DO", io_address: "Q0.0", description: "", source: "wired" },
+        { tag: "speed_ref", signal_type: "AO", io_address: "QW64", description: "", source: "wired" },
       ],
     }],
   };
@@ -128,5 +131,86 @@ describe("buildEmSequence", () => {
     c.states = c.states.map((s) => (s.state_id === "running" ? { ...s, kind: "static" as const } : s));
     const seq = buildEmSequence(em(), c);
     expect(seq.states.find((s) => s.stateId === "running")!.steps).toHaveLength(1);
+  });
+});
+
+describe("buildEmSequence command_behavior lowering", () => {
+  function commandContract(): EquipmentModuleContract {
+    const c = contract();
+    c.states.push({ state_id: "execute", name: "Execute", kind: "sequential", allowed_modes: [], is_safe_state: false });
+    c.command_behavior = {
+      execute: {
+        branches: [
+          { branch_id: "b1", label: "Drive Forward (Jog)",
+            when: [{ tag: "brake_open", operator: "=", value: true }],
+            control_modules: [
+              { tag: "run_cmd", description: "", state: "run" },
+              { tag: "speed_ref", description: "", state: "JOG_SPEED_FWD" },
+            ] },
+          { branch_id: "b2", label: "Creep Reverse",
+            when: [{ tag: "rev_sel", operator: "=", value: true }],
+            control_modules: [{ tag: "speed_ref", description: "", state: "-50" }] },
+        ],
+        default_hold: [{ tag: "run_cmd", description: "", state: "off" }],
+      },
+    };
+    return c;
+  }
+
+  it("lowers branches with serialized conditions, labels, and typed hold values", () => {
+    const seq = buildEmSequence(em(), commandContract());
+    const ex = seq.states.find((s) => s.stateId === "execute")!;
+    expect(ex.commandBranches).toHaveLength(2);
+    expect(ex.commandBranches[0]).toEqual({
+      label: "Drive Forward (Jog)",
+      condition: "(#fb_brake_open = TRUE)",
+      holds: [
+        { pin: "cmd_run_cmd", value: "TRUE" },
+        { pin: "cmd_speed_ref", value: "#sp_JOG_SPEED_FWD" },
+      ],
+    });
+    // signed numeric literal on an Int pin assigns directly
+    expect(ex.commandBranches[1].holds).toEqual([{ pin: "cmd_speed_ref", value: "-50" }]);
+    expect(seq.setpointPins).toEqual(["sp_JOG_SPEED_FWD"]);
+  });
+
+  it("builds anti-latch defaults from the union of branch + default_hold pins", () => {
+    const seq = buildEmSequence(em(), commandContract());
+    const ex = seq.states.find((s) => s.stateId === "execute")!;
+    // default_hold wins for run_cmd ("off" → FALSE); speed_ref falls to inactive 0
+    expect(ex.commandDefaults).toEqual([
+      { pin: "cmd_run_cmd", value: "FALSE" },
+      { pin: "cmd_speed_ref", value: "0" },
+    ]);
+  });
+
+  it("prefers command branches over steps and warns (XOR guard)", () => {
+    const c = commandContract();
+    c.sequential_states["execute"] = {
+      permissives: [], notes: null,
+      steps: [{ step: 1, action: "should be dropped", completion_criteria: [], completion_criteria_text: "" }],
+    };
+    const seq = buildEmSequence(em(), c);
+    const ex = seq.states.find((s) => s.stateId === "execute")!;
+    expect(ex.commandBranches).toHaveLength(2);
+    expect(ex.steps).toHaveLength(0);
+    expect(seq.warnings.some((w) => w.includes("execute") && w.includes("command"))).toBe(true);
+  });
+
+  it("warns once per EM naming the setpoint pins and CMD DB", () => {
+    const seq = buildEmSequence(em(), commandContract());
+    const w = seq.warnings.filter((x) => x.includes("setpoint"));
+    expect(w).toHaveLength(1);
+    expect(w[0]).toContain("sp_JOG_SPEED_FWD");
+    expect(w[0]).toContain("Carriage_Drive_CMD");
+  });
+
+  it("leaves non-command states and EMs untouched", () => {
+    const seq = buildEmSequence(em(), contract());
+    expect(seq.setpointPins).toEqual([]);
+    for (const s of seq.states) {
+      expect(s.commandBranches).toEqual([]);
+      expect(s.commandDefaults).toEqual([]);
+    }
   });
 });
