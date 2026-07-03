@@ -1,0 +1,44 @@
+{
+  "planPath": "Docs/superpowers/plans/2026-07-03-sp4-command-behavior-codegen.md",
+  "tasks": [
+    {
+      "id": 1,
+      "nativeId": 31,
+      "subject": "Task 1: Kind derivation + data-driven rendering fallback",
+      "status": "pending",
+      "description": "**Goal:** buildEmSequence derives kind from the PackML slug; rendering becomes data-driven (steps → step CASE, else static holds).\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/codegen/em-builder.ts\", \"src/lib/spec-builder/codegen/em-writer.ts\", \"src/lib/spec-builder/codegen/__tests__/em-builder.test.ts\", \"src/lib/spec-builder/codegen/__tests__/em-writer.test.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/codegen && npx tsc -b\", \"acceptanceCriteria\": [\"PackML slug mismatch derives canonical kind + warning\", \"legacy slug keeps authored kind\", \"static fallback for step-less sequential state\", \"empty state renders ;\", \"existing tests green\"]}\n```"
+    },
+    {
+      "id": 2,
+      "nativeId": 32,
+      "subject": "Task 2: IR types + command-behavior lowering in em-builder",
+      "status": "pending",
+      "blockedBy": [1],
+      "description": "**Goal:** Lower command_behavior into new IR fields: EmCommandBranch, commandDefaults (anti-latch union), setpointPins, commissioning warning, XOR guard.\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/codegen/types.ts\", \"src/lib/spec-builder/codegen/em-builder.ts\", \"src/lib/spec-builder/codegen/__tests__/em-builder.test.ts\", \"src/lib/spec-builder/codegen/__tests__/em-writer.test.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/codegen && npx tsc -b\", \"acceptanceCriteria\": [\"branch lowering with serialized conditions\", \"typed hold values incl. sp_ pins\", \"anti-latch union defaults\", \"XOR guard warning\", \"setpoint commissioning warning\", \"empty defaults for non-command states\"]}\n```"
+    },
+    {
+      "id": 3,
+      "nativeId": 33,
+      "subject": "Task 3: Command-branch emission + setpoint pins on the seam",
+      "status": "pending",
+      "blockedBy": [2],
+      "description": "**Goal:** em-writer renders the command IF/ELSIF hold chain (defaults first, labels, no ai-fill, #done untouched); sp_* pins in VAR_INPUT, CMD DB, OB1 bindings.\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/codegen/em-writer.ts\", \"src/lib/spec-builder/codegen/__tests__/em-writer.test.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/codegen && npx tsc -b\", \"acceptanceCriteria\": [\"IF/ELSIF chain with labels + defaults first\", \"defaults-only no IF\", \"empty branch gets ;\", \"no ai-fill/#done in command states\", \"sp_ pins through interface+CMD DB+bindings\", \"command wins precedence\"]}\n```"
+    },
+    {
+      "id": 4,
+      "nativeId": 34,
+      "subject": "Task 4: Stage-A kind-conformance check",
+      "status": "pending",
+      "description": "**Goal:** validateEmPackmlConformance rejects kind/PackML-pattern mismatches. Stage-A gate only.\n\n```json:metadata\n{\"files\": [\"src/lib/spec-builder/em-state-machine.ts\", \"src/lib/spec-builder/__tests__/em-state-machine.test.ts\"], \"verifyCommand\": \"npx vitest run src/lib/spec-builder/__tests__/em-state-machine.test.ts && npx tsc -b\", \"acceptanceCriteria\": [\"mismatch rejected with detail\", \"match accepted\", \"non-PackML slugs skipped for kind check\", \"no global-patch wiring\"]}\n```"
+    },
+    {
+      "id": 5,
+      "nativeId": 35,
+      "subject": "Task 5: Full verification + docs/memory",
+      "status": "pending",
+      "blockedBy": [3, 4],
+      "description": "**Goal:** Verification bar passes; handover + memory record SP-4 shipped; live Code Builder check documented.\n\n```json:metadata\n{\"files\": [\"Docs/HANDOVER-PACKML-INITIATIVE-2026-07-03.md\"], \"verifyCommand\": \"npx tsc -b && npx vitest run src/lib/spec-builder\", \"acceptanceCriteria\": [\"tsc clean\", \"spec-builder suite green\", \"generic check passed\", \"docs+memory updated\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-07-03"
+}
