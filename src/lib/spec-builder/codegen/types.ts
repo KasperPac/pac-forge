@@ -93,11 +93,13 @@ export interface EmSeqState {
   name: string;
   /** 0-based dispatch index; 0 is the home/safe state. */
   index: number;
+  /** Derived from the PackML state_pattern for canonical slugs; the authored
+   *  kind only survives for legacy non-PackML slugs. */
   kind: "static" | "sequential";
   isSafe: boolean;
   /** Static-state actuator commands: pin + whether driven active. */
   staticCommands: { pin: string; active: boolean }[];
-  /** Linear SFC steps (sequential states only). */
+  /** Linear SFC steps (rendered whenever present, regardless of kind). */
   steps: EmSeqStep[];
   /** Outgoing edges to other state indices. */
   exits: { toIndex: number; condition: string; viaCompletion: boolean }[];

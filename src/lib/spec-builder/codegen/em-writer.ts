@@ -9,18 +9,19 @@ function pad(n: number): string {
   return " ".repeat(n);
 }
 
-/** Entry assignment for a transition; sequential targets also reset #step. */
-function enterStmt(toIndex: number, targetSequential: boolean): string {
+/** Entry assignment for a transition; targets that carry steps also reset #step. */
+function enterStmt(toIndex: number, targetHasSteps: boolean): string {
   const base = `#state := ${toIndex}; #done := FALSE;`;
-  return targetSequential ? `${base} #step := 1;` : base;
+  return targetHasSteps ? `${base} #step := 1;` : base;
 }
 
 /** One outgoing edge as a guarded transition. Completion edges gate on #done;
- *  command edges gate on their serialized condition. */
+ *  command edges gate on their serialized condition. The #step reset is chosen
+ *  by the data the target carries (steps), matching stateBranch — never kind. */
 function exitLine(
   exit: EmSeqState["exits"][number], states: EmSeqState[], indent: number,
 ): string {
-  const enter = enterStmt(exit.toIndex, states[exit.toIndex].kind === "sequential");
+  const enter = enterStmt(exit.toIndex, states[exit.toIndex].steps.length > 0);
   if (exit.viaCompletion) {
     const gate = exit.condition === "TRUE" ? "#done" : `#done AND ${exit.condition}`;
     return `${pad(indent)}IF ${gate} THEN ${enter} END_IF;`;

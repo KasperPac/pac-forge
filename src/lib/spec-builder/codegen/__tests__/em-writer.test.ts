@@ -98,4 +98,25 @@ describe("writeEmArtifacts", () => {
     expect(fb).not.toContain("CASE #step OF");
     expect(fb.split("\n").filter((l) => l.includes("#cmd_run := TRUE;"))).toHaveLength(1);
   });
+
+  it("resets #step when entering a state that carries steps regardless of its kind", () => {
+    const s = seq();
+    // mis-authored: target state is kind static but carries steps — entry must
+    // still reset #step or no step ever matches and the machine deadlocks
+    s.states[1].kind = "static";
+    const fb = writeEmArtifacts(s).artifacts[0].content;
+    expect(fb).toContain("IF (#ilk_rotator_safe = TRUE) THEN #state := 1; #done := FALSE; #step := 1; END_IF;");
+  });
+
+  it("renders a bare ; for a state with no steps, no static commands and no exits", () => {
+    const s = seq();
+    s.states[1].steps = [];
+    s.states[1].staticCommands = [];
+    s.states[1].exits = [];
+    const fb = writeEmArtifacts(s).artifacts[0].content;
+    const lines = fb.split("\n");
+    const header = lines.findIndex((l) => l.includes("1:   // Running"));
+    expect(header).toBeGreaterThan(-1);
+    expect(lines[header + 1].trim()).toBe(";");
+  });
 });
