@@ -38,11 +38,24 @@ function advanceLine(step: EmSeqStep, isLast: boolean, indent: number): string {
 }
 
 /** Lower one state to its CASE branch lines. The body is chosen by the data
- *  the state carries (steps → step CASE, else static holds), not its kind —
- *  a mis-authored kind never drops authored behavior. */
+ *  the state carries (command branches → hold chain, steps → step CASE, else
+ *  static holds), never its kind — a mis-authored kind never drops behavior. */
 function stateBranch(seq: EmSequence, st: EmSeqState, states: EmSeqState[]): string[] {
   const out: string[] = [`${pad(6)}${st.index}:   // ${st.name}${st.isSafe ? " (safe)" : ""}`];
-  if (st.steps.length) {
+  const isCommand = st.commandBranches.length > 0 || st.commandDefaults.length > 0;
+  if (isCommand) {
+    // command-driven hold state: fully deterministic, no ai-fill region, no
+    // #done — it holds until a contract transition exits it
+    out.push(`${pad(9)}// command-conditional holds (defaults first, active branch overrides)`);
+    for (const d of st.commandDefaults) out.push(`${pad(9)}#${d.pin} := ${d.value};`);
+    st.commandBranches.forEach((b, i) => {
+      out.push(`${pad(9)}${i === 0 ? "IF" : "ELSIF"} ${b.condition} THEN`);
+      out.push(`${pad(12)}// ${b.label}`);
+      if (!b.holds.length) out.push(`${pad(12)};`);
+      for (const h of b.holds) out.push(`${pad(12)}#${h.pin} := ${h.value};`);
+    });
+    if (st.commandBranches.length) out.push(`${pad(9)}END_IF;`);
+  } else if (st.steps.length) {
     out.push(`${pad(9)}CASE #step OF`);
     st.steps.forEach((step, i) => {
       out.push(`${pad(12)}${step.step}:`);
@@ -57,7 +70,7 @@ function stateBranch(seq: EmSequence, st: EmSeqState, states: EmSeqState[]): str
   }
   for (const exit of st.exits) out.push(exitLine(exit, states, 9));
   // every CASE branch must hold at least one statement
-  if (!st.steps.length && !st.staticCommands.length && !st.exits.length) {
+  if (!isCommand && !st.steps.length && !st.staticCommands.length && !st.exits.length) {
     out.push(`${pad(9)};`);
   }
   return out;
@@ -71,6 +84,7 @@ function writeFb(seq: EmSequence): CodegenArtifact {
     `      enable : Bool;`,
     `      mode : Int;`,
     ...seq.cmdPins.map((p) => `      ${p} : Bool;`),
+    ...seq.setpointPins.map((p) => `      ${p} : Int;`),
     ...seq.interlockPins.map((p) => `      ${p} : Bool;`),
     ...seq.sensors.map((p) => `      ${p.name} : ${p.scl_type};`),
   ];
@@ -123,6 +137,7 @@ function commandPins(seq: EmSequence): CommandSeamPin[] {
     { name: "enable", scl_type: "Bool" },
     { name: "mode", scl_type: "Int" },
     ...seq.cmdPins.map((p) => ({ name: p, scl_type: "Bool" as const })),
+    ...seq.setpointPins.map((p) => ({ name: p, scl_type: "Int" as const })),
   ];
 }
 

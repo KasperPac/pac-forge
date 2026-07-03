@@ -123,3 +123,72 @@ describe("writeEmArtifacts", () => {
     expect(lines[header + 1].trim()).toBe(";");
   });
 });
+
+describe("writeEmArtifacts command-driven states", () => {
+  function commandSeq(): EmSequence {
+    const s = seq();
+    s.setpointPins = ["sp_JOG_SPEED_FWD"];
+    s.actuators.push({ name: "cmd_speed_ref", tag: "speed_ref", scl_type: "Int", address: "QW64" });
+    s.states[1] = {
+      stateId: "execute", name: "Execute", index: 1, kind: "sequential", isSafe: false,
+      staticCommands: [], steps: [],
+      commandDefaults: [
+        { pin: "cmd_run", value: "FALSE" },
+        { pin: "cmd_speed_ref", value: "0" },
+      ],
+      commandBranches: [
+        { label: "Drive Forward (Jog)", condition: "(#fb_brake_open = TRUE)",
+          holds: [{ pin: "cmd_run", value: "TRUE" }, { pin: "cmd_speed_ref", value: "#sp_JOG_SPEED_FWD" }] },
+        { label: "Creep Reverse", condition: "(#ilk_rotator_safe = TRUE)",
+          holds: [{ pin: "cmd_speed_ref", value: "-50" }] },
+      ],
+      exits: [{ toIndex: 0, condition: "(#ilk_rotator_safe = FALSE)", viaCompletion: false }],
+    };
+    return s;
+  }
+
+  it("renders defaults first, then the labelled IF/ELSIF branch chain", () => {
+    const fb = writeEmArtifacts(commandSeq()).artifacts[0].content;
+    const body = fb.slice(fb.indexOf("1:   // Execute"));
+    expect(body).toContain("// command-conditional holds (defaults first, active branch overrides)");
+    // defaults precede the IF
+    expect(body.indexOf("#cmd_run := FALSE;")).toBeLessThan(body.indexOf("IF (#fb_brake_open = TRUE) THEN"));
+    expect(body).toContain("IF (#fb_brake_open = TRUE) THEN");
+    expect(body).toContain("// Drive Forward (Jog)");
+    expect(body).toContain("#cmd_speed_ref := #sp_JOG_SPEED_FWD;");
+    expect(body).toContain("ELSIF (#ilk_rotator_safe = TRUE) THEN");
+    expect(body).toContain("#cmd_speed_ref := -50;");
+    expect(body).toContain("END_IF;");
+  });
+
+  it("emits no ai-fill markers and never assigns #done in a command state", () => {
+    const fb = writeEmArtifacts(commandSeq()).artifacts[0].content;
+    const body = fb.slice(fb.indexOf("1:   // Execute"));
+    expect(body).not.toContain("<ai-fill");
+    expect(body).not.toContain("#done := TRUE");
+  });
+
+  it("exposes setpoint pins in VAR_INPUT, the CMD DB, and the call bindings", () => {
+    const { artifacts, callLines } = writeEmArtifacts(commandSeq());
+    expect(artifacts[0].content).toContain("sp_JOG_SPEED_FWD : Int;");
+    expect(artifacts[2].content).toContain("sp_JOG_SPEED_FWD : Int;");
+    expect(callLines[0]).toContain(`sp_JOG_SPEED_FWD := "Carriage_Drive_CMD".sp_JOG_SPEED_FWD`);
+  });
+
+  it("renders defaults-only command behavior without an IF chain", () => {
+    const s = commandSeq();
+    s.states[1].commandBranches = [];
+    const fb = writeEmArtifacts(s).artifacts[0].content;
+    const body = fb.slice(fb.indexOf("1:   // Execute"));
+    expect(body).toContain("#cmd_run := FALSE;");
+    expect(body).not.toContain("IF (#fb_brake_open");
+  });
+
+  it("emits a bare statement for a branch with no holds", () => {
+    const s = commandSeq();
+    s.states[1].commandBranches = [{ label: "Signal only", condition: "(#fb_brake_open = TRUE)", holds: [] }];
+    const fb = writeEmArtifacts(s).artifacts[0].content;
+    const body = fb.slice(fb.indexOf("1:   // Execute"));
+    expect(body).toMatch(/\/\/ Signal only\r?\n\s*;/);
+  });
+});
