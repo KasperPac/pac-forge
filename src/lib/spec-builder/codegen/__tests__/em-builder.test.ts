@@ -4,8 +4,6 @@ import type {
 } from "@/types/spec-contract-v2";
 import { buildEmSequence } from "../em-builder";
 
-
-
 function em(): EquipmentModuleV2 {
   return {
     equipment_module_id: "em-drive",
@@ -21,6 +19,7 @@ function em(): EquipmentModuleV2 {
         { tag: "brake_open", signal_type: "DI", io_address: "I0.0", description: "", source: "wired" },
         { tag: "run_cmd", signal_type: "DO", io_address: "Q0.0", description: "", source: "wired" },
         { tag: "speed_ref", signal_type: "AO", io_address: "QW64", description: "", source: "wired" },
+        { tag: "brake", signal_type: "DO", io_address: "Q0.1", description: "", source: "wired" },
       ],
     }],
   };
@@ -151,7 +150,10 @@ describe("buildEmSequence command_behavior lowering", () => {
             when: [{ tag: "rev_sel", operator: "=", value: true }],
             control_modules: [{ tag: "speed_ref", description: "", state: "-50" }] },
         ],
-        default_hold: [{ tag: "run_cmd", description: "", state: "off" }],
+        default_hold: [
+          { tag: "run_cmd", description: "", state: "run" },
+          { tag: "brake", description: "", state: "on" },
+        ],
       },
     };
     return c;
@@ -177,10 +179,13 @@ describe("buildEmSequence command_behavior lowering", () => {
   it("builds anti-latch defaults from the union of branch + default_hold pins", () => {
     const seq = buildEmSequence(em(), commandContract());
     const ex = seq.states.find((s) => s.stateId === "execute")!;
-    // default_hold wins for run_cmd ("off" → FALSE); speed_ref falls to inactive 0
+    // default_hold OVERRIDES the inactive default for run_cmd ("run" → TRUE),
+    // speed_ref falls to the inactive 0, and brake — touched by default_hold
+    // alone — EXTENDS the union. Pins both the override and extend paths.
     expect(ex.commandDefaults).toEqual([
-      { pin: "cmd_run_cmd", value: "FALSE" },
+      { pin: "cmd_run_cmd", value: "TRUE" },
       { pin: "cmd_speed_ref", value: "0" },
+      { pin: "cmd_brake", value: "TRUE" },
     ]);
   });
 
@@ -212,5 +217,33 @@ describe("buildEmSequence command_behavior lowering", () => {
       expect(s.commandBranches).toEqual([]);
       expect(s.commandDefaults).toEqual([]);
     }
+  });
+
+  it("warns on a setpoint name collision and keeps the first registration", () => {
+    const c = commandContract();
+    // "JOG SPEED" and "JOG_SPEED" both sanitize to sp_JOG_SPEED
+    c.command_behavior!.execute.branches = [
+      { branch_id: "b1", label: "Fwd",
+        when: [{ tag: "brake_open", operator: "=", value: true }],
+        control_modules: [{ tag: "speed_ref", description: "", state: "JOG SPEED" }] },
+      { branch_id: "b2", label: "Rev",
+        when: [{ tag: "rev_sel", operator: "=", value: true }],
+        control_modules: [{ tag: "speed_ref", description: "", state: "JOG_SPEED" }] },
+    ];
+    const seq = buildEmSequence(em(), c);
+    expect(seq.setpointPins).toEqual(["sp_JOG_SPEED"]);
+    expect(seq.warnings.some((w) => w.includes("collision") && w.includes("sp_JOG_SPEED"))).toBe(true);
+  });
+
+  it("warns when a command hold references a tag that is not an output of this EM", () => {
+    const c = commandContract();
+    c.command_behavior!.execute.branches[0].control_modules.push(
+      { tag: "ghost", description: "", state: "on" },
+    );
+    const seq = buildEmSequence(em(), c);
+    const ex = seq.states.find((s) => s.stateId === "execute")!;
+    // pin is still created (warn-don't-throw)
+    expect(ex.commandBranches[0].holds).toContainEqual({ pin: "cmd_ghost", value: "TRUE" });
+    expect(seq.warnings.some((w) => w.includes("ghost") && w.includes("not an output"))).toBe(true);
   });
 });

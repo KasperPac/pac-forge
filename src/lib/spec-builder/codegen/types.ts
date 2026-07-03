@@ -95,7 +95,9 @@ export interface EmCommandBranch {
   label: string;
   /** Serialized SCL boolean for the branch's `when` permissives. */
   condition: string;
-  /** Pin assignments applied while this branch is active. */
+  /** Pin assignments applied while this branch is active. `value` is a
+   *  ready-to-emit SCL rvalue (e.g. `"TRUE"`, `"-50"`, `"#sp_X"`) — it already
+   *  carries the `#` sigil where needed; the writer must not re-prefix. */
   holds: { pin: string; value: string }[];
 }
 
@@ -116,7 +118,9 @@ export interface EmSeqState {
   /** Command-conditional hold branches (command-driven states only). */
   commandBranches: EmCommandBranch[];
   /** Anti-latch defaults assigned before the branch chain: the union of all
-   *  pins any branch or the default_hold touches. */
+   *  pins any branch or the default_hold touches. `value` is a ready-to-emit
+   *  SCL rvalue (e.g. `"TRUE"`, `"-50"`, `"#sp_X"`) — it already carries the
+   *  `#` sigil where needed; the writer must not re-prefix. */
   commandDefaults: { pin: string; value: string }[];
   /** Outgoing edges to other state indices. */
   exits: { toIndex: number; condition: string; viaCompletion: boolean }[];

@@ -100,12 +100,21 @@ export function buildEmSequence(
    *  active-token table; Int pins take signed numeric literals directly and
    *  route symbolic names through a generated sp_ input pin. */
   const holdAssign = (entry: ControlModuleStateEntry): { pin: string; value: string } => {
+    if (!ownOutput.has(entry.tag)) {
+      warnings.push(`EM ${em.equipment_module_name}: command hold references tag ${entry.tag} which is not an output of this EM`);
+    }
     const pin = actuatorPin(entry.tag);
     if (actuators.get(pin)?.scl_type === "Int") {
       const raw = entry.state.trim();
       if (/^[+-]?\d+$/.test(raw)) return { pin, value: String(parseInt(raw, 10)) };
       const sp = `sp_${sclIdent(raw)}`;
-      if (!setpoints.has(sp)) setpoints.set(sp, raw);
+      const prior = setpoints.get(sp);
+      if (prior === undefined) {
+        setpoints.set(sp, raw);
+      } else if (prior !== raw) {
+        // distinct raw names sanitize to the same identifier — first wins
+        warnings.push(`EM ${em.equipment_module_name}: setpoint name collision — "${raw}" and "${prior}" both map to ${sp}`);
+      }
       return { pin, value: `#${sp}` };
     }
     return { pin, value: isActiveCommand(entry.state) ? "TRUE" : "FALSE" };
