@@ -36,10 +36,12 @@ function advanceLine(step: EmSeqStep, isLast: boolean, indent: number): string {
   return `${pad(indent)}IF ${step.advance} THEN ${target} END_IF;`;
 }
 
-/** Lower one state to its CASE branch lines. */
+/** Lower one state to its CASE branch lines. The body is chosen by the data
+ *  the state carries (steps → step CASE, else static holds), not its kind —
+ *  a mis-authored kind never drops authored behavior. */
 function stateBranch(seq: EmSequence, st: EmSeqState, states: EmSeqState[]): string[] {
   const out: string[] = [`${pad(6)}${st.index}:   // ${st.name}${st.isSafe ? " (safe)" : ""}`];
-  if (st.kind === "sequential") {
+  if (st.steps.length) {
     out.push(`${pad(9)}CASE #step OF`);
     st.steps.forEach((step, i) => {
       out.push(`${pad(12)}${step.step}:`);
@@ -54,7 +56,7 @@ function stateBranch(seq: EmSequence, st: EmSeqState, states: EmSeqState[]): str
   }
   for (const exit of st.exits) out.push(exitLine(exit, states, 9));
   // every CASE branch must hold at least one statement
-  if (st.kind === "static" && !st.staticCommands.length && !st.exits.length) {
+  if (!st.steps.length && !st.staticCommands.length && !st.exits.length) {
     out.push(`${pad(9)};`);
   }
   return out;

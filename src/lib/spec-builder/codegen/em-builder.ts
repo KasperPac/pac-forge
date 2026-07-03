@@ -3,6 +3,7 @@ import type {
   PhaseStep, CompletionCriterion,
 } from "@/types/spec-contract-v2";
 import { orderStates } from "./step-order";
+import { packmlStateBySlug } from "../packml-states";
 import { sclIdent, isActiveCommand, staticEntries } from "./sa-builder";
 import { serializeAdvance } from "./serialize-condition";
 import { serializeCompletionGuard, isUnevaluable } from "./serialize-completion";
@@ -98,15 +99,27 @@ export function buildEmSequence(
   ordered.forEach((s, i) => indexOf.set(s.state_id, i));
 
   const states: EmSeqState[] = ordered.map((st, index) => {
+    // PackML slugs own their pattern; the authored kind is only trusted for
+    // legacy non-PackML slugs (pre-SP-3b specs).
+    const canonical = packmlStateBySlug(st.state_id);
+    const kind = canonical?.state_pattern ?? st.kind;
+    if (canonical && st.kind !== canonical.state_pattern) {
+      warnings.push(
+        `EM ${em.equipment_module_name}: state ${st.state_id} authored as "${st.kind}" but PackML ${canonical.name} is "${canonical.state_pattern}" — using "${canonical.state_pattern}"`,
+      );
+    }
+
     const staticCommands = staticEntries(contract.static_states[st.state_id]).map((e) => ({
       pin: actuatorPin(e.tag),
       active: isActiveCommand(e.state),
     }));
 
+    // Steps are lowered from the data, not the kind, so a mis-authored kind
+    // never drops authored behavior.
+    const seqSteps = contract.sequential_states[st.state_id]?.steps ?? [];
     const steps: EmSeqStep[] = [];
-    if (st.kind === "sequential") {
-      const seq = contract.sequential_states[st.state_id];
-      const sorted = [...(seq?.steps ?? [])].sort((a, b) => a.step - b.step);
+    if (seqSteps.length) {
+      const sorted = [...seqSteps].sort((a, b) => a.step - b.step);
       if (sorted.some((ps) => ps.transitions?.some((t) => t.kind === "parallel"))) {
         warnings.push(`EM ${em.equipment_module_name}: state ${st.state_id} has parallel branches — collapsed to a linear sequence`);
       }
@@ -126,7 +139,7 @@ export function buildEmSequence(
       });
     }
 
-    return { stateId: st.state_id, name: st.name, index, kind: st.kind, isSafe: st.is_safe_state, staticCommands, steps, exits: [] };
+    return { stateId: st.state_id, name: st.name, index, kind, isSafe: st.is_safe_state, staticCommands, steps, exits: [] };
   });
 
   for (const t of contract.transitions) {

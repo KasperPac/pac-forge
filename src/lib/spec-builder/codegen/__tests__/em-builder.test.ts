@@ -102,4 +102,31 @@ describe("buildEmSequence", () => {
     const seq = buildEmSequence(em(), c);
     expect(seq.warnings.some((w) => w.includes("t3"))).toBe(true);
   });
+
+  it("derives kind from the PackML slug and warns on mismatch", () => {
+    const c = contract();
+    // "execute" is PackML sequential; author it static with a hold (brake pattern)
+    c.states.push({ state_id: "execute", name: "Execute", kind: "static", allowed_modes: [], is_safe_state: false });
+    c.static_states["execute"] = [{ tag: "run_cmd", description: "hold open", state: "on" }];
+    const seq = buildEmSequence(em(), c);
+    const ex = seq.states.find((s) => s.stateId === "execute")!;
+    expect(ex.kind).toBe("sequential");
+    expect(ex.staticCommands).toEqual([{ pin: "cmd_run_cmd", active: true }]);
+    expect(seq.warnings.some((w) => w.includes("execute") && w.includes("sequential"))).toBe(true);
+  });
+
+  it("keeps the authored kind for legacy non-PackML slugs", () => {
+    const seq = buildEmSequence(em(), contract());
+    // "running" is not a PackML slug — authored sequential kind survives, no warning
+    expect(seq.states.find((s) => s.stateId === "running")!.kind).toBe("sequential");
+    expect(seq.warnings).toHaveLength(0);
+  });
+
+  it("lowers steps for a state regardless of authored kind", () => {
+    const c = contract();
+    // author "running" as static but give it steps — data wins
+    c.states = c.states.map((s) => (s.state_id === "running" ? { ...s, kind: "static" as const } : s));
+    const seq = buildEmSequence(em(), c);
+    expect(seq.states.find((s) => s.stateId === "running")!.steps).toHaveLength(1);
+  });
 });

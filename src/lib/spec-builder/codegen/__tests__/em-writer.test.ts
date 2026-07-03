@@ -89,4 +89,13 @@ describe("writeEmArtifacts", () => {
     expect(callLines[0]).toContain(`cmd_reset := "Carriage_Drive_CMD".cmd_reset`);
     expect(callLines[1]).toBe(`   "MAP_Carriage_Drive"();`);
   });
+
+  it("renders static holds for a step-less sequential state instead of an empty step CASE", () => {
+    const s = seq();
+    s.states[1].steps = [];
+    s.states[1].staticCommands = [{ pin: "cmd_run", active: true }];
+    const fb = writeEmArtifacts(s).artifacts[0].content;
+    expect(fb).not.toContain("CASE #step OF");
+    expect(fb.split("\n").filter((l) => l.includes("#cmd_run := TRUE;"))).toHaveLength(1);
+  });
 });
