@@ -213,7 +213,18 @@ export function buildEmSequence(
       warnings.push(`EM ${em.equipment_module_name}: transition ${t.transition_id} targets an unknown state — skipped`);
       continue;
     }
-    states[from].exits.push({
+    const src = states[from];
+    if (
+      t.trigger.kind === "completion" &&
+      (src.commandBranches.length > 0 || src.commandDefaults.length > 0)
+    ) {
+      // command-driven states hold; they never set #done, so a completion
+      // gate out of one is dead code. Emit the exit anyway (warn-don't-throw).
+      warnings.push(
+        `EM ${em.equipment_module_name}: completion transition ${t.transition_id} leaves command-driven state ${t.from_state_id} but that state never completes — the transition can never fire`,
+      );
+    }
+    src.exits.push({
       toIndex: to,
       condition: serializeAdvance(t.trigger, t.guard, pinRef),
       viaCompletion: t.trigger.kind === "completion",

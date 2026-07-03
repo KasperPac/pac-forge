@@ -235,6 +235,19 @@ describe("buildEmSequence command_behavior lowering", () => {
     expect(seq.warnings.some((w) => w.includes("collision") && w.includes("sp_JOG_SPEED"))).toBe(true);
   });
 
+  it("warns on a completion transition out of a command-driven state but still wires the exit", () => {
+    const c = commandContract();
+    c.transitions.push({ transition_id: "t_done", from_state_id: "execute", to_state_id: "idle",
+      trigger: { kind: "completion" }, guard: [] });
+    const seq = buildEmSequence(em(), c);
+    const ex = seq.states.find((s) => s.stateId === "execute")!;
+    // exit is still emitted (warn-don't-throw)
+    expect(ex.exits).toContainEqual({ toIndex: 0, condition: "TRUE", viaCompletion: true });
+    expect(seq.warnings.some(
+      (w) => w.includes("t_done") && w.includes("execute") && w.includes("never fire"),
+    )).toBe(true);
+  });
+
   it("warns when a command hold references a tag that is not an output of this EM", () => {
     const c = commandContract();
     c.command_behavior!.execute.branches[0].control_modules.push(

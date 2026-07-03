@@ -184,6 +184,17 @@ describe("writeEmArtifacts command-driven states", () => {
     expect(body).not.toContain("IF (#fb_brake_open");
   });
 
+  it("renders the hold chain, not the step CASE, when a state carries both", () => {
+    const s = commandSeq();
+    s.states[1].steps = [
+      { step: 1, fillId: "execute.1", actionProse: "should not render", advance: "TRUE", manual: false },
+    ];
+    const fb = writeEmArtifacts(s).artifacts[0].content;
+    const body = fb.slice(fb.indexOf("1:   // Execute"));
+    expect(body).toContain("IF (#fb_brake_open = TRUE) THEN");
+    expect(body).not.toContain("CASE #step OF");
+  });
+
   it("emits a bare statement for a branch with no holds", () => {
     const s = commandSeq();
     s.states[1].commandBranches = [{ label: "Signal only", condition: "(#fb_brake_open = TRUE)", holds: [] }];
