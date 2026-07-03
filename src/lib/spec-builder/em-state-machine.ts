@@ -20,7 +20,7 @@ import type {
   SafetyGateV2,
 } from "@/types/spec-contract-v2";
 import { z } from "zod";
-import { isPackmlSlug } from "@/lib/spec-builder/packml-states";
+import { isPackmlSlug, packmlStateBySlug } from "@/lib/spec-builder/packml-states";
 
 /** States valid in the given machine mode. Empty allowed_modes = all modes. */
 export function resolveAllowedStates(
@@ -114,6 +114,13 @@ export function validateEmPackmlConformance(em: EquipmentModuleContract): string
   for (const s of em.states) {
     if (!isPackmlSlug(s.state_id)) {
       issues.push(`${where}: non-PackML state_id "${s.state_id}" (expected a PackML slug)`);
+      continue;
+    }
+    const canonical = packmlStateBySlug(s.state_id);
+    if (canonical && s.kind !== canonical.state_pattern) {
+      issues.push(
+        `${where}: state "${s.state_id}" must be kind "${canonical.state_pattern}" (PackML ${canonical.name} is ${canonical.state_pattern === "sequential" ? "an acting" : "a waiting"} state), got "${s.kind}"`,
+      );
     }
   }
 

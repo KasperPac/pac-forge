@@ -274,6 +274,25 @@ describe("validateEmPackmlConformance", () => {
     }));
     expect(issues.some((i) => /command_behavior.*"idle"/.test(i))).toBe(true);
   });
+
+  it("rejects a PackML state whose kind mismatches the canonical pattern", () => {
+    const issues = validateEmPackmlConformance(em("kind-mismatch", { states: [
+      { state_id: "execute", name: "Execute", kind: "static", allowed_modes: [], is_safe_state: false },
+      { state_id: "aborted", name: "Aborted", kind: "static", allowed_modes: [], is_safe_state: true },
+    ] }));
+    expect(issues.some((i) => i.includes('"execute"') && i.includes('"sequential"') && i.includes('"static"'))).toBe(true);
+  });
+
+  it("accepts matching kinds and ignores non-PackML slugs for the kind check", () => {
+    const issues = validateEmPackmlConformance(em("kind-ok", { states: [
+      { state_id: "execute", name: "Execute", kind: "sequential", allowed_modes: [], is_safe_state: false },
+      { state_id: "aborted", name: "Aborted", kind: "static", allowed_modes: [], is_safe_state: true },
+      { state_id: "driving_fwd", name: "Driving Fwd", kind: "static", allowed_modes: [], is_safe_state: false },
+    ] }));
+    expect(issues.some((i) => i.includes("must be kind"))).toBe(false);
+    // the legacy slug still gets the existing non-PackML issue
+    expect(issues.some((i) => i.includes("driving_fwd"))).toBe(true);
+  });
 });
 
 /**
