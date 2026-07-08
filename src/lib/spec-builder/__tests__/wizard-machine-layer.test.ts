@@ -6,11 +6,28 @@ import {
 import type { OperatorMode } from "@/types/spec-contract-v2";
 
 describe("seedDefaultModes", () => {
-  it("seeds Auto/Maintenance/Manual with exactly one default", () => {
+  it("seeds Production (default) + Maintenance with semantic kinds (G0-9)", () => {
     const modes = seedDefaultModes();
-    expect(modes.map((m) => m.mode_id)).toEqual(["auto", "maintenance", "manual"]);
-    expect(modes.filter((m: OperatorMode) => m.is_default)).toHaveLength(1);
-    expect(modes.find((m) => m.is_default)?.mode_id).toBe("auto");
+    expect(modes).toEqual([
+      {
+        mode_id: "production",
+        name: "Production",
+        description: "Normal production mode",
+        is_default: true,
+        kind: "production",
+      },
+      {
+        mode_id: "maintenance",
+        name: "Maintenance",
+        description: "Service / maintenance mode",
+        is_default: false,
+        kind: "maintenance",
+      },
+    ]);
+  });
+
+  it("seeds exactly one default mode", () => {
+    expect(seedDefaultModes().filter((m) => m.is_default)).toHaveLength(1);
   });
 });
 

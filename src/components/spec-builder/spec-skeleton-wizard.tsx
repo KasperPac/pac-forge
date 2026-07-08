@@ -94,7 +94,7 @@ export function SpecSkeletonWizard({ spec, register, onComplete }: Props) {
   });
   const [inferringHierarchy, setInferringHierarchy] = useState(false);
 
-  // Step 4 — Machine modes (extensible; seed Auto/Maintenance/Manual).
+  // Step 4 — Machine modes (extensible; seed Production/Maintenance (G0-9)).
   const [modes, setModes] = useState<OperatorMode[]>(() => {
     const existing = (spec.confirmed_modes ?? []) as OperatorMode[];
     return existing.length > 0 ? existing : seedDefaultModes();

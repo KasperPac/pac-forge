@@ -1,15 +1,31 @@
 /**
  * Pure helpers for the skeleton wizard's machine-layer steps:
- * Machine Modes (seed Auto/Maintenance/Manual) and Safety Gates
+ * Machine Modes (seed Production/Maintenance) and Safety Gates
  * (auto-suggested from is_safety register tags).
  */
 import type { OperatorMode, SafetyGateV2 } from "@/types/spec-contract-v2";
 
+/**
+ * G0-9 seed: Production (default) + Maintenance. Manual/engineering/custom
+ * modes are added per-project by the engineer. Only applies to projects
+ * with no stored modes — existing projects keep theirs.
+ */
 export function seedDefaultModes(): OperatorMode[] {
   return [
-    { mode_id: "auto", name: "Auto", description: "Automatic production mode", is_default: true, kind: "production" },
-    { mode_id: "maintenance", name: "Maintenance", description: "Service / maintenance mode", is_default: false, kind: "maintenance" },
-    { mode_id: "manual", name: "Manual", description: "Manual / jog mode", is_default: false, kind: "manual" },
+    {
+      mode_id: "production",
+      name: "Production",
+      description: "Normal production mode",
+      is_default: true,
+      kind: "production",
+    },
+    {
+      mode_id: "maintenance",
+      name: "Maintenance",
+      description: "Service / maintenance mode",
+      is_default: false,
+      kind: "maintenance",
+    },
   ];
 }
 
