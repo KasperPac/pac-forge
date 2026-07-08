@@ -431,7 +431,7 @@ function StepMachineModes({
   };
   const add = () => {
     const id = `mode_${Date.now()}`;
-    onChange([...modes, { mode_id: id, name: "New Mode", is_default: false }]);
+    onChange([...modes, { mode_id: id, name: "New Mode", is_default: false, kind: "custom" }]);
   };
   const remove = (i: number) => onChange(modes.filter((_, j) => j !== i));
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ConfigParameterSchema,
   ExpressionSchema,
+  ModeKindSchema,
   OperatorModeSchema,
   ProjectSectionContentSchema,
   ProjectSectionTypeSchema,
@@ -251,5 +252,48 @@ describe("SpecContractV2Schema new top-level fields", () => {
     const c = baseContract();
     (c as Record<string, unknown>).confirmation_status = "halfway";
     expect(() => SpecContractV2Schema.parse(c)).toThrow();
+  });
+});
+
+describe("OperatorMode.kind (G0-9)", () => {
+  it("defaults kind to 'custom' so pre-G0-9 stored contracts parse unchanged", () => {
+    const parsed = OperatorModeSchema.parse({
+      mode_id: "auto",
+      name: "Auto",
+      is_default: true,
+    });
+    expect(parsed.kind).toBe("custom");
+  });
+
+  it("accepts each semantic kind", () => {
+    for (const kind of ["production", "maintenance", "manual", "engineering", "custom"]) {
+      const parsed = OperatorModeSchema.parse({
+        mode_id: "m",
+        name: "M",
+        is_default: false,
+        kind,
+      });
+      expect(parsed.kind).toBe(kind);
+    }
+  });
+
+  it("rejects unknown kinds", () => {
+    const res = OperatorModeSchema.safeParse({
+      mode_id: "m",
+      name: "M",
+      is_default: false,
+      kind: "turbo",
+    });
+    expect(res.success).toBe(false);
+  });
+
+  it("ModeKindSchema exposes exactly the five kinds", () => {
+    expect(ModeKindSchema.options).toEqual([
+      "production",
+      "maintenance",
+      "manual",
+      "engineering",
+      "custom",
+    ]);
   });
 });

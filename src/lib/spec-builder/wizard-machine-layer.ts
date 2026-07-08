@@ -7,9 +7,9 @@ import type { OperatorMode, SafetyGateV2 } from "@/types/spec-contract-v2";
 
 export function seedDefaultModes(): OperatorMode[] {
   return [
-    { mode_id: "auto", name: "Auto", description: "Automatic production mode", is_default: true },
-    { mode_id: "maintenance", name: "Maintenance", description: "Service / maintenance mode", is_default: false },
-    { mode_id: "manual", name: "Manual", description: "Manual / jog mode", is_default: false },
+    { mode_id: "auto", name: "Auto", description: "Automatic production mode", is_default: true, kind: "production" },
+    { mode_id: "maintenance", name: "Maintenance", description: "Service / maintenance mode", is_default: false, kind: "maintenance" },
+    { mode_id: "manual", name: "Manual", description: "Manual / jog mode", is_default: false, kind: "manual" },
   ];
 }
 

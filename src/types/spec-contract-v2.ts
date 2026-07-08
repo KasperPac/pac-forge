@@ -111,11 +111,29 @@ export type TelegramOffset = z.infer<typeof TelegramOffsetSchema>;
 // row is keyed by (mode_id, state_id).
 // ============================================================
 
+// Semantic mode kinds (G0-9). Writer/coordinator behavior keys off `kind`,
+// never off mode names — generic across machine types:
+//   production   — the normal mode; full authored state model.
+//   maintenance  — drives commanded to Stopped; override/preset seams (G3).
+//   manual       — operator-paced motion.
+//   engineering  — never exposed on the HMI; coordinator releases command pins.
+//   custom       — no writer-attached behavior beyond the authored masks.
+export const ModeKindSchema = z.enum([
+  "production",
+  "maintenance",
+  "manual",
+  "engineering",
+  "custom",
+]);
+export type ModeKind = z.infer<typeof ModeKindSchema>;
+
 export const OperatorModeSchema = z.object({
   mode_id: z.string().min(1),
   name: z.string().min(1),
   description: z.string().optional(),
   is_default: z.boolean(),
+  // .default("custom") so contracts stored before G0-9 parse unchanged.
+  kind: ModeKindSchema.default("custom"),
 });
 export type OperatorMode = z.infer<typeof OperatorModeSchema>;
 

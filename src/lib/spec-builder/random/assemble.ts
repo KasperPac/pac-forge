@@ -303,7 +303,7 @@ export function assembleRandomFds(theme: RandomFdsTheme, opts: AssembleOptions):
     hierarchy: buildHierarchy(resolved),
     alarm_tiers: buildAlarmTiers(),
     alarms: buildAlarms(resolved),
-    modes: [{ mode_id: "auto", name: "Auto", description: "Single default mode", is_default: true }],
+    modes: [{ mode_id: "auto", name: "Auto", description: "Single default mode", is_default: true, kind: "production" }],
     safety_gates: buildSafetyGates(resolved),
     equipment_modules,
     confirmation_status: "confirmed",
