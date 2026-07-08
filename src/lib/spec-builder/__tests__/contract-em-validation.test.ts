@@ -70,3 +70,50 @@ describe("validateSpecContractPatch — command_behavior wiring (SP-3c)", () => 
     expect(issues.filter((i) => i.includes("command_behavior"))).toEqual([]);
   });
 });
+
+describe("validateSpecContractPatch — unit_coordination (G0-9)", () => {
+  it("flags a record key that disagrees with coord.unit_id", () => {
+    const issues = validateSpecContractPatch({
+      unit_coordination: {
+        unit_1: {
+          unit_id: "unit_2",
+          states: [{ state_id: "stopped", allowed_modes: [], mode_change_allowed: true }],
+          transitions: [],
+        },
+      },
+    });
+    expect(issues.some((i) => i.includes("unit_1") && i.includes("unit_2"))).toBe(true);
+  });
+
+  it("runs validateUnitCoordination per unit with modes from the same patch", () => {
+    const issues = validateSpecContractPatch({
+      modes: [
+        { mode_id: "production", name: "P", is_default: true, kind: "production" },
+        { mode_id: "maintenance", name: "M", is_default: false, kind: "maintenance" },
+      ],
+      unit_coordination: {
+        unit_1: {
+          unit_id: "unit_1",
+          states: [
+            { state_id: "stopped", allowed_modes: ["production"], mode_change_allowed: true },
+          ],
+          transitions: [],
+        },
+      },
+    });
+    expect(issues.some((i) => i.includes("maintenance"))).toBe(true); // rule 2
+  });
+
+  it("accepts a valid coordination patch", () => {
+    const issues = validateSpecContractPatch({
+      unit_coordination: {
+        unit_1: {
+          unit_id: "unit_1",
+          states: [{ state_id: "stopped", allowed_modes: [], mode_change_allowed: true }],
+          transitions: [],
+        },
+      },
+    });
+    expect(issues).toEqual([]);
+  });
+});

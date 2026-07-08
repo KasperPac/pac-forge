@@ -153,3 +153,73 @@ export function isModeChangeLegal(
 
   return { legal: reasons.length === 0, reasons };
 }
+
+/**
+ * Structural invariants over one unit's coordination (design §Validation).
+ * Context-dependent checks are skipped when their context is absent —
+ * callers pass whatever the patch carries (same convention as the
+ * safety-gates validator in contract.ts). Rule 3 (exactly one default
+ * mode) already lives in validateSpecContractPatch.
+ */
+export function validateUnitCoordination(
+  coord: UnitCoordinationV1,
+  ctx: { modes?: OperatorMode[]; memberEmIds?: Set<string> },
+): string[] {
+  const issues: string[] = [];
+  const where = `unit_coordination[${coord.unit_id}]`;
+
+  // Rule 1 — unique state ids; transitions reference declared states.
+  const stateIds = coord.states.map((s) => s.state_id);
+  const declared = new Set(stateIds);
+  const dupStates = stateIds.filter((id, i) => stateIds.indexOf(id) !== i);
+  if (dupStates.length > 0) {
+    issues.push(`${where}: duplicate state_id(s): ${[...new Set(dupStates)].join(", ")}`);
+  }
+  const seenTransitions = new Set<string>();
+  for (const t of coord.transitions) {
+    if (seenTransitions.has(t.transition_id)) {
+      issues.push(`${where}: duplicate transition_id ${t.transition_id}`);
+    }
+    seenTransitions.add(t.transition_id);
+    for (const ref of [t.from_state_id, t.to_state_id]) {
+      if (!declared.has(ref)) {
+        issues.push(
+          `${where}: transition ${t.transition_id} references undeclared state ${ref}`,
+        );
+      }
+    }
+  }
+
+  // Rules 2 + 4 — need the mode list.
+  if (ctx.modes) {
+    for (const mode of ctx.modes) {
+      const inMask = coord.states.filter(
+        (s) => s.allowed_modes.length === 0 || s.allowed_modes.includes(mode.mode_id),
+      );
+      if (inMask.length === 0) {
+        issues.push(
+          `${where}: mode ${mode.mode_id} has no allowed unit state (empty machine)`,
+        );
+      } else if (!inMask.some((s) => s.mode_change_allowed)) {
+        issues.push(
+          `${where}: mode ${mode.mode_id} has no state with mode_change_allowed=true in its mask (cannot leave the mode)`,
+        );
+      }
+    }
+  }
+
+  // Rule 5 — overrides must reference member EMs of this unit.
+  if (ctx.memberEmIds && coord.em_command_overrides) {
+    for (const [stateId, overrides] of Object.entries(coord.em_command_overrides)) {
+      for (const o of overrides ?? []) {
+        if (!ctx.memberEmIds.has(o.equipment_module_id)) {
+          issues.push(
+            `${where}: em_command_overrides[${stateId}] references equipment_module ${o.equipment_module_id} which is not a member of this unit`,
+          );
+        }
+      }
+    }
+  }
+
+  return issues;
+}

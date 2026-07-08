@@ -57,6 +57,7 @@ import {
   type UnitCoordinationV1,
 } from "@/types/spec-contract-v2";
 import { validateEmStateMachine, validateCommandBehavior } from "@/lib/spec-builder/em-state-machine";
+import { validateUnitCoordination } from "@/lib/spec-builder/unit-coordination";
 import { z } from "zod";
 
 // ============================================================
@@ -1245,6 +1246,29 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
           }
         }
       }
+    }
+  }
+
+  // G0-9: unit coordination invariants. Member-EM cross-check only runs when
+  // the same patch carries the hierarchy (same convention as safety_gates);
+  // mode rules only when the patch carries modes.
+  if (patch.unit_coordination !== undefined) {
+    for (const [key, coord] of Object.entries(patch.unit_coordination)) {
+      if (key !== coord.unit_id) {
+        issues.push(
+          `unit_coordination key ${key} disagrees with its unit_id ${coord.unit_id}`,
+        );
+      }
+      let memberEmIds: Set<string> | undefined;
+      if (patch.hierarchy) {
+        const unit = patch.hierarchy.units.find((u) => u.unit_id === coord.unit_id);
+        memberEmIds = new Set(
+          (unit?.equipment_modules ?? []).map((asm) => asm.equipment_module_id),
+        );
+      }
+      issues.push(
+        ...validateUnitCoordination(coord, { modes: patch.modes, memberEmIds }),
+      );
     }
   }
 

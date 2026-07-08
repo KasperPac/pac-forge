@@ -3,6 +3,7 @@ import {
   CANONICAL_EM_COMMAND_MAP,
   emCommandForState,
   isModeChangeLegal,
+  validateUnitCoordination,
 } from "@/lib/spec-builder/unit-coordination";
 import type { ModeChangeSpecView } from "@/lib/spec-builder/unit-coordination";
 import type { UnitCoordinationV1 } from "@/types/spec-contract-v2";
@@ -168,5 +169,108 @@ describe("isModeChangeLegal", () => {
     });
     expect(v.legal).toBe(false);
     expect(v.reasons.length).toBeGreaterThanOrEqual(2); // (a)+(c) on unit state, (b) on EM
+  });
+});
+
+describe("validateUnitCoordination", () => {
+  const modes = [
+    { mode_id: "production", name: "Production", is_default: true, kind: "production" as const },
+    { mode_id: "maintenance", name: "Maintenance", is_default: false, kind: "maintenance" as const },
+  ];
+
+  function coordOf(partial: Record<string, unknown>): UnitCoordinationV1 {
+    return UnitCoordinationV1Schema.parse({
+      unit_id: "unit_1",
+      states: [
+        { state_id: "stopped", mode_change_allowed: true },
+        { state_id: "execute" },
+      ],
+      transitions: [],
+      ...partial,
+    });
+  }
+
+  it("passes a well-formed coordination", () => {
+    expect(validateUnitCoordination(coordOf({}), { modes })).toEqual([]);
+  });
+
+  it("rule 1: flags duplicate state_ids", () => {
+    const issues = validateUnitCoordination(
+      coordOf({ states: [{ state_id: "stopped", mode_change_allowed: true }, { state_id: "stopped" }] }),
+      {},
+    );
+    expect(issues.some((i) => i.includes("duplicate"))).toBe(true);
+  });
+
+  it("rule 1: flags transitions referencing undeclared states", () => {
+    const issues = validateUnitCoordination(
+      coordOf({
+        transitions: [
+          {
+            transition_id: "t1",
+            from_state_id: "stopped",
+            to_state_id: "aborted", // not declared on this unit
+            trigger: { type: "command", command: "abort" },
+          },
+        ],
+      }),
+      {},
+    );
+    expect(issues.length).toBeGreaterThan(0);
+  });
+
+  it("rule 1: flags duplicate transition_ids", () => {
+    const t = {
+      transition_id: "t1",
+      from_state_id: "stopped",
+      to_state_id: "execute",
+      trigger: { type: "command", command: "start" },
+    };
+    const issues = validateUnitCoordination(coordOf({ transitions: [t, t] }), {});
+    expect(issues.some((i) => i.includes("t1"))).toBe(true);
+  });
+
+  it("rule 2: flags a mode with no allowed unit state", () => {
+    const issues = validateUnitCoordination(
+      coordOf({
+        states: [
+          { state_id: "stopped", allowed_modes: ["production"], mode_change_allowed: true },
+          { state_id: "execute", allowed_modes: ["production"] },
+        ],
+      }),
+      { modes },
+    );
+    expect(issues.some((i) => i.includes("maintenance"))).toBe(true);
+  });
+
+  it("rule 4: flags a roach-motel mode (no mode_change_allowed state in its mask)", () => {
+    const issues = validateUnitCoordination(
+      coordOf({
+        states: [
+          { state_id: "stopped", allowed_modes: ["production"], mode_change_allowed: true },
+          // maintenance's only state can't leave
+          { state_id: "held", allowed_modes: ["maintenance"], mode_change_allowed: false },
+        ],
+      }),
+      { modes },
+    );
+    expect(issues.some((i) => i.includes("maintenance") && i.includes("mode_change_allowed"))).toBe(true);
+  });
+
+  it("rule 5: flags overrides referencing non-member EMs; skipped without ctx", () => {
+    const coord = coordOf({
+      em_command_overrides: { stopped: [{ equipment_module_id: EM_A, command: "NONE" }] },
+    });
+    expect(validateUnitCoordination(coord, { memberEmIds: new Set([EM_B]) }).length).toBe(1);
+    expect(validateUnitCoordination(coord, { memberEmIds: new Set([EM_A]) })).toEqual([]);
+    expect(validateUnitCoordination(coord, {})).toEqual([]); // no ctx → skipped
+  });
+
+  it("skips mode rules when ctx.modes is absent", () => {
+    const issues = validateUnitCoordination(
+      coordOf({ states: [{ state_id: "stopped", allowed_modes: ["production"] }] }),
+      {},
+    );
+    expect(issues).toEqual([]);
   });
 });
