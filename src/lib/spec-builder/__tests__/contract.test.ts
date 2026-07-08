@@ -44,6 +44,22 @@ describe("writeSpecContract patch routing — new keys", () => {
     });
   });
 
+  it("routes unit_coordination patch to spec_projects.unit_coordination", async () => {
+    await writeSpecContract("00000000-0000-0000-0000-000000000000", {
+      unit_coordination: {
+        "00000000-0000-0000-0000-000000000bbb": {
+          unit_id: "00000000-0000-0000-0000-000000000bbb",
+          states: [{ state_id: "idle", allowed_modes: [], mode_change_allowed: true }],
+          transitions: [],
+        },
+      },
+    });
+    const projectsWrite = writeCalls.find((c) => c.table === "spec_projects");
+    expect(projectsWrite?.payload).toMatchObject({
+      unit_coordination: expect.any(Object),
+    });
+  });
+
   it("routes section_overrides patch to spec_projects.section_overrides", async () => {
     await writeSpecContract("00000000-0000-0000-0000-000000000000", {
       section_overrides: {

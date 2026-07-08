@@ -807,6 +807,9 @@ export async function loadSpecContract(
   return SpecContractV2Schema.parse({
     ...baseContract,
     modes: (projectRow.confirmed_modes as OperatorMode[] | null) ?? undefined,
+    unit_coordination:
+      (projectRow.unit_coordination as Record<string, UnitCoordinationV1> | null) ??
+      undefined,
     configuration_parameters:
       (projectRow.configuration_parameters as ConfigParameter[] | null) ?? undefined,
     section_overrides:
@@ -931,8 +934,9 @@ export async function loadFaults(specProjectId: string): Promise<FaultRow[]> {
  *
  * Persists hierarchy (`confirmed_units`), `alarm_tiers`,
  * `confirmed_modes`, `configuration_parameters`, `section_overrides`,
- * `process_model`, and `confirmation_status` onto `spec_projects`, plus alarm
- * rows via `spec_alarms` and equipment-module / section upserts.
+ * `process_model`, `unit_coordination`, and `confirmation_status` onto
+ * `spec_projects`, plus alarm rows via `spec_alarms` and equipment-module /
+ * section upserts.
  */
 export async function writeSpecContract(
   specProjectId: string,
@@ -982,6 +986,9 @@ export async function writeSpecContract(
   }
   if (parsed.modes !== undefined) {
     projectUpdate.confirmed_modes = parsed.modes;
+  }
+  if (parsed.unit_coordination !== undefined) {
+    projectUpdate.unit_coordination = parsed.unit_coordination;
   }
   if (parsed.configuration_parameters !== undefined) {
     projectUpdate.configuration_parameters = parsed.configuration_parameters;
