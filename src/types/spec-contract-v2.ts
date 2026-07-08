@@ -941,6 +941,106 @@ export const ProcessModelSchema = z.object({
 export type ProcessModelV2 = z.infer<typeof ProcessModelSchema>;
 
 // ============================================================
+// Unit coordination (G0-9 — PackML-proper unit state machine).
+// Each unit owns a generated state machine FB that commands its member
+// EMs top-down. One SM per unit; modes may only DISABLE states from the
+// canonical set below, never add (`allowed_modes` masks) — formally
+// equivalent to ISA-TR88.00.02 per-mode state models.
+// Consumers: G2 unit-FB writer, G7 text lists, G8-7 faceplates, G0-12.
+// ============================================================
+
+export const UNIT_PACKML_STATES = [
+  "idle",
+  "starting",
+  "execute",
+  "completing",
+  "complete",
+  "resetting",
+  "holding",
+  "held",
+  "unholding",
+  "suspending",
+  "suspended",
+  "unsuspending",
+  "stopping",
+  "stopped",
+  "aborting",
+  "aborted",
+  "clearing",
+] as const;
+export const UnitPackMLStateSchema = z.enum(UNIT_PACKML_STATES);
+export type UnitPackMLState = z.infer<typeof UnitPackMLStateSchema>;
+
+export const UnitStateV1Schema = z.object({
+  state_id: UnitPackMLStateSchema,
+  // mode_ids this state is active in; empty = all modes.
+  allowed_modes: z.array(z.string()).default([]),
+  // Authoring UI should default this true for stopped/idle/aborted.
+  mode_change_allowed: z.boolean().default(false),
+});
+export type UnitStateV1 = z.infer<typeof UnitStateV1Schema>;
+
+export const UnitTransitionTriggerSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("command"),
+    command: z.enum([
+      "start",
+      "stop",
+      "hold",
+      "unhold",
+      "suspend",
+      "unsuspend",
+      "reset",
+      "clear",
+      "abort",
+    ]),
+  }),
+  z.object({
+    type: z.literal("condition"),
+    expr: z.array(PermissiveConditionSchema).min(1),
+  }),
+  // e.g. all member EMs report EM-local state "idle".
+  z.object({
+    type: z.literal("em_aggregate"),
+    em_scope: z.union([z.literal("all"), z.array(z.string())]),
+    em_state: z.string().min(1),
+  }),
+]);
+export type UnitTransitionTrigger = z.infer<typeof UnitTransitionTriggerSchema>;
+
+export const UnitTransitionV1Schema = z.object({
+  transition_id: z.string().min(1),
+  from_state_id: UnitPackMLStateSchema,
+  to_state_id: UnitPackMLStateSchema,
+  trigger: UnitTransitionTriggerSchema,
+  guard: z.array(PermissiveConditionSchema).default([]),
+  allowed_modes: z.array(z.string()).default([]),
+});
+export type UnitTransitionV1 = z.infer<typeof UnitTransitionV1Schema>;
+
+// Per-EM override of the canonical unit-state → EM-command map
+// (see CANONICAL_EM_COMMAND_MAP in lib/spec-builder/unit-coordination.ts).
+export const EmCommandOverrideSchema = z.object({
+  equipment_module_id: UuidSchema,
+  command: z.enum(["CLEAR", "RESET", "START", "STOP", "HOLD", "ABORT", "NONE"]),
+});
+export type EmCommandOverride = z.infer<typeof EmCommandOverrideSchema>;
+
+export const UnitCoordinationV1Schema = z.object({
+  unit_id: z.string().min(1),
+  states: z.array(UnitStateV1Schema).min(1),
+  transitions: z.array(UnitTransitionV1Schema).default([]),
+  // Sparse per-unit-state overrides only — canonical defaults apply to
+  // absent states. partialRecord: plain z.record over an enum key demands
+  // exhaustiveness (same pattern as SpecContractV2.section_overrides).
+  // nullableOptional: AI-authored JSON may emit explicit null.
+  em_command_overrides: nullableOptional(
+    z.partialRecord(UnitPackMLStateSchema, z.array(EmCommandOverrideSchema)),
+  ),
+});
+export type UnitCoordinationV1 = z.infer<typeof UnitCoordinationV1Schema>;
+
+// ============================================================
 
 export const SpecContractV2Schema = z.object({
   schema_version: z.literal(3),
@@ -958,6 +1058,9 @@ export const SpecContractV2Schema = z.object({
   sections: z.record(SpecSectionTypeSchema, z.array(SpecSectionRowSchema)),
   // FDS Engine Phase 1 additions — all optional during shim window
   modes: z.array(OperatorModeSchema).optional(),
+  // G0-9: keyed by unit_id — mirrors the equipment_modules keyed-record
+  // pattern; HierarchySchema untouched. Absent until authored.
+  unit_coordination: z.record(z.string(), UnitCoordinationV1Schema).optional(),
   configuration_parameters: z.array(ConfigParameterSchema).optional(),
   // Sparse map — override only the project-level sections you want to
   // customise. Absent keys fall back to engine-generated content.

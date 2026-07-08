@@ -8,6 +8,8 @@ import {
   ProjectSectionTypeSchema,
   SequentialStateV2Schema,
   SpecContractV2Schema,
+  UNIT_PACKML_STATES,
+  UnitCoordinationV1Schema,
 } from "../spec-contract-v2";
 
 describe("OperatorModeSchema", () => {
@@ -167,54 +169,55 @@ describe("ProjectSectionContentSchema", () => {
   });
 });
 
-describe("SpecContractV2Schema new top-level fields", () => {
-  // Minimal valid contract scaffolding — uses ACTUAL existing schema shape:
-  //   top-level key `project` (not `header`), schema_version:2 literal,
-  //   system_orchestration nullable, scope_exclusions on header, etc.
-  function baseContract() {
-    return {
-      schema_version: 3,
-      project: {
-        id: "00000000-0000-0000-0000-000000000000",
-        doc_code: "PAC-EFD-001",
-        title: "Test",
-        client_name: "Test Client",
-        project_number: null,
-        plc_model: null,
-        hmi_type: null,
-        comms_protocol: null,
-        safety_classification: null,
-        fault_philosophy: null,
-        design_principles: [],
-        scope_exclusions: [],
-      },
-      hierarchy: { units: [] },
-      states: [],
-      alarm_tiers: [],
-      equipment_modules: {},
-      alarms: [],
+// Minimal valid contract scaffolding — uses ACTUAL existing schema shape:
+//   top-level key `project` (not `header`), schema_version:2 literal,
+//   system_orchestration nullable, scope_exclusions on header, etc.
+// Module-scoped so it can be reused across describe blocks (see G0-9 tests).
+function baseContract() {
+  return {
+    schema_version: 3,
+    project: {
+      id: "00000000-0000-0000-0000-000000000000",
+      doc_code: "PAC-EFD-001",
+      title: "Test",
+      client_name: "Test Client",
+      project_number: null,
+      plc_model: null,
+      hmi_type: null,
+      comms_protocol: null,
+      safety_classification: null,
+      fault_philosophy: null,
+      design_principles: [],
+      scope_exclusions: [],
+    },
+    hierarchy: { units: [] },
+    states: [],
+    alarm_tiers: [],
+    equipment_modules: {},
+    alarms: [],
+    io_list: [],
+    faults: [],
+    sections: {
+      document_control: [],
+      system_overview: [],
+      control_philosophy: [],
+      functional_description: [],
       io_list: [],
-      faults: [],
-      sections: {
-        document_control: [],
-        system_overview: [],
-        control_philosophy: [],
-        functional_description: [],
-        io_list: [],
-        alarm_specification: [],
-        hmi_specification: [],
-        interfaces: [],
-        testing_fat: [],
-        audit_report: [],
-        introduction: [],
-        equipment_description: [],
-        functional_state: [],
-        alarm_table: [],
-        settings_table: [],
-      },
-    };
-  }
+      alarm_specification: [],
+      hmi_specification: [],
+      interfaces: [],
+      testing_fat: [],
+      audit_report: [],
+      introduction: [],
+      equipment_description: [],
+      functional_state: [],
+      alarm_table: [],
+      settings_table: [],
+    },
+  };
+}
 
+describe("SpecContractV2Schema new top-level fields", () => {
   it("accepts a contract with no modes / params / overrides (legacy default)", () => {
     expect(() => SpecContractV2Schema.parse(baseContract())).not.toThrow();
   });
@@ -295,5 +298,103 @@ describe("OperatorMode.kind (G0-9)", () => {
       "engineering",
       "custom",
     ]);
+  });
+});
+
+describe("UnitCoordinationV1 (G0-9)", () => {
+  const minimalCoord = {
+    unit_id: "unit_1",
+    states: [{ state_id: "idle" }, { state_id: "execute" }, { state_id: "stopped" }],
+    transitions: [
+      {
+        transition_id: "t_start",
+        from_state_id: "idle",
+        to_state_id: "execute",
+        trigger: { type: "command", command: "start" },
+      },
+    ],
+  };
+
+  it("parses a minimal coordination with defaults applied", () => {
+    const parsed = UnitCoordinationV1Schema.parse(minimalCoord);
+    expect(parsed.states[0]).toEqual({
+      state_id: "idle",
+      allowed_modes: [],
+      mode_change_allowed: false,
+    });
+    expect(parsed.transitions[0].guard).toEqual([]);
+    expect(parsed.transitions[0].allowed_modes).toEqual([]);
+    expect(parsed.em_command_overrides).toBeUndefined();
+  });
+
+  it("rejects state_ids outside the canonical PackML set", () => {
+    const res = UnitCoordinationV1Schema.safeParse({
+      ...minimalCoord,
+      states: [{ state_id: "warp_speed" }],
+    });
+    expect(res.success).toBe(false);
+  });
+
+  it("accepts all three trigger types", () => {
+    const triggers = [
+      { type: "command", command: "abort" },
+      { type: "condition", expr: [{ tag: "X", operator: "=", value: true }] },
+      { type: "em_aggregate", em_scope: "all", em_state: "idle" },
+    ];
+    for (const trigger of triggers) {
+      const res = UnitCoordinationV1Schema.safeParse({
+        ...minimalCoord,
+        transitions: [
+          { transition_id: "t", from_state_id: "idle", to_state_id: "stopped", trigger },
+        ],
+      });
+      expect(res.success).toBe(true);
+    }
+  });
+
+  it("rejects a condition trigger with an empty expr", () => {
+    const res = UnitCoordinationV1Schema.safeParse({
+      ...minimalCoord,
+      transitions: [
+        {
+          transition_id: "t",
+          from_state_id: "idle",
+          to_state_id: "stopped",
+          trigger: { type: "condition", expr: [] },
+        },
+      ],
+    });
+    expect(res.success).toBe(false);
+  });
+
+  it("parses sparse em_command_overrides and tolerates explicit null (AI-authored JSON)", () => {
+    const emId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const parsed = UnitCoordinationV1Schema.parse({
+      ...minimalCoord,
+      em_command_overrides: {
+        stopped: [{ equipment_module_id: emId, command: "NONE" }],
+      },
+    });
+    expect(parsed.em_command_overrides?.stopped?.[0].command).toBe("NONE");
+    const nulled = UnitCoordinationV1Schema.parse({
+      ...minimalCoord,
+      em_command_overrides: null,
+    });
+    expect(nulled.em_command_overrides).toBeUndefined();
+  });
+
+  it("UNIT_PACKML_STATES is the 17-state canonical set", () => {
+    expect(UNIT_PACKML_STATES).toHaveLength(17);
+    expect(UNIT_PACKML_STATES).toContain("unsuspending");
+  });
+
+  it("SpecContractV2Schema accepts an absent unit_coordination (additive wave)", () => {
+    const c = baseContract();
+    const parsed = SpecContractV2Schema.parse(c);
+    expect(parsed.unit_coordination).toBeUndefined();
+
+    const withCoord = { ...c, unit_coordination: { unit_1: minimalCoord } };
+    const parsedWithCoord = SpecContractV2Schema.parse(withCoord);
+    expect(parsedWithCoord.unit_coordination?.unit_1.unit_id).toBe("unit_1");
   });
 });

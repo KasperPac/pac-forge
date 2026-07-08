@@ -30,6 +30,7 @@ import {
   ProjectSectionContentSchema,
   ConfirmationStatusSchema,
   ProcessModelSchema,
+  UnitCoordinationV1Schema,
   type AlarmRow,
   type AlarmTier,
   type EquipmentModuleContract,
@@ -53,6 +54,7 @@ import {
   type ProjectSectionContent,
   type ConfirmationStatus,
   type ProcessModelV2,
+  type UnitCoordinationV1,
 } from "@/types/spec-contract-v2";
 import { validateEmStateMachine, validateCommandBehavior } from "@/lib/spec-builder/em-state-machine";
 import { z } from "zod";
@@ -89,6 +91,7 @@ export interface SpecContractPatch {
   section_overrides?: Partial<Record<ProjectSectionType, ProjectSectionContent>>;
   confirmation_status?: ConfirmationStatus;
   process_model?: ProcessModelV2 | null;
+  unit_coordination?: Record<string, UnitCoordinationV1>;
 }
 
 export const SpecContractPatchSchema = z.object({
@@ -112,6 +115,7 @@ export const SpecContractPatchSchema = z.object({
     .optional(),
   sections: z.record(z.string(), z.array(SpecSectionRowSchema)).optional(),
   modes: z.array(OperatorModeSchema).optional(),
+  unit_coordination: z.record(z.string(), UnitCoordinationV1Schema).optional(),
   configuration_parameters: z.array(ConfigParameterSchema).optional(),
   // section_overrides uses partialRecord because z.record with an enum key in
   // Zod v4 demands all keys be present — overrides are sparse by definition.
