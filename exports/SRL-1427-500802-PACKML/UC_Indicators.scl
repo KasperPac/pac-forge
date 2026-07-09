@@ -1,0 +1,38 @@
+FUNCTION "UC_Indicators" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.3
+   VAR_TEMP
+      ok : Bool;
+   END_VAR
+
+BEGIN
+   // Unit coordination — first-cut commissioning coordinator (2026-07-06).
+   #ok := "EStop_Healthy" AND "SR1_Healthy";
+
+   // --- signal routing (always active, like the pendant routing in
+   //     UC_Carriage) ---
+   // Carriage is travelling while its drive EM commands motion, or the VSD
+   // still reports speed (covers ramp-down after the button is released).
+   "EM_Travel_Indicators_DB".ilk_Carriage_Travelling :=
+       ("EM_Carriage_Drive_DB".cmd_VSD1_Speed_Ref <> 0)
+       OR ("EM_Carriage_Drive_DB".fb_VSD1_Speed_Fb > 1)
+       OR ("EM_Carriage_Drive_DB".fb_VSD1_Speed_Fb < -1);
+   // Horn sounds while the pendant reset button is held — audible feedback
+   // that the safety reset is being commanded. (Conditioned: sim/force aware.)
+   "EM_Travel_Indicators_DB".ilk_Horn_Request := "IO_Cond".Reset_PB;
+   // Pre-travel horn: a travel request is any carriage pendant motion button
+   // (conditioned inputs); the enable toggle comes from the HMI.
+   "EM_Travel_Indicators_DB".ilk_Travel_Request :=
+       "IO_Cond".Fwd_Carriage OR "IO_Cond".Fwd_Fast_Carriage
+       OR "IO_Cond".Rev_Carriage OR "IO_Cond".Rev_Fast_Carriage;
+   "EM_Travel_Indicators_DB".cfg_Pre_Travel_Horn := "Indicators_Config".horn_pre_travel_enable;
+
+   IF "Maintenance_CMD".seq_test_mode THEN
+      RETURN;
+   END_IF;
+   "EM_Travel_Indicators_DB".ilk_Travel_CMD_Reset := #ok;
+   "EM_Travel_Indicators_DB".ilk_Travel_CMD_Start := #ok;
+   "EM_Travel_Indicators_DB".ilk_Travel_CMD_Stop := NOT #ok;
+   "EM_Travel_Indicators_DB".ilk_SYS_Abort := NOT #ok;
+
+END_FUNCTION

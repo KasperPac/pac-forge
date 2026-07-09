@@ -1,0 +1,11 @@
+FUNCTION "MAP_Rotator_Pendant" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.3
+BEGIN
+   // sensor feedback: conditioned input (IO_Cond: sim/force-aware) -> instance DB
+   "EM_Rotator_Pendant_DB".fb_Rotate_Left := "IO_Cond".Rotate_Left;   // %I2.1
+   "EM_Rotator_Pendant_DB".fb_Rotate_Left_Fast := "IO_Cond".Rotate_Left_Fast;   // %I2.2
+   "EM_Rotator_Pendant_DB".fb_Rot_Right := "IO_Cond".Rot_Right;   // %I3.6
+   "EM_Rotator_Pendant_DB".fb_Rot_Right_Fast := "IO_Cond".Rot_Right_Fast;   // %I3.7
+   // actuator commands: instance DB -> physical output
+END_FUNCTION

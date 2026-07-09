@@ -1,0 +1,75 @@
+FUNCTION_BLOCK "EM_Carriage_Limits"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_INPUT
+      enable : Bool;
+      mode : Int;
+      cmd_start : Bool;
+      cmd_stop : Bool;
+      cmd_hold : Bool;
+      cmd_reset : Bool;
+      ilk_CLIM_CMD_Reset : Bool;
+      ilk_CLIM_CMD_Start : Bool;
+      ilk_CLIM_CMD_Stop : Bool;
+      ilk_CM_Sensor_LS1 : Bool;
+      ilk_CLIM_CMD_Abort : Bool;
+      fb_Long_Limit_Stop : Bool;
+   END_VAR
+   VAR_OUTPUT
+      state : Int;
+      step : Int;
+      done : Bool;
+      fault : Bool;
+   END_VAR
+
+BEGIN
+   CASE #state OF
+      0:   // Aborted (safe)
+         IF (#ilk_CLIM_CMD_Reset = TRUE) THEN #state := 1; #done := FALSE; #step := 1; END_IF;
+      1:   // Resetting
+         CASE #step OF
+            1:
+               // <ai-fill Carriage_Limits:resetting.1>
+               // TODO (AI-fill): Step 10
+               // </ai-fill Carriage_Limits:resetting.1>
+               IF (#fb_Long_Limit_Stop = FALSE) THEN #done := TRUE; END_IF;
+         END_CASE;
+         IF #done THEN #state := 2; #done := FALSE; END_IF;
+      2:   // Idle
+         IF (#ilk_CLIM_CMD_Start = TRUE) THEN #state := 3; #done := FALSE; #step := 1; END_IF;
+         IF (#ilk_CLIM_CMD_Stop = TRUE) THEN #state := 4; #done := FALSE; #step := 1; END_IF;
+         IF (#ilk_CLIM_CMD_Abort = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+      3:   // Execute
+         CASE #step OF
+            1:
+               // <ai-fill Carriage_Limits:execute.1>
+               // TODO (AI-fill): Step 10
+               // </ai-fill Carriage_Limits:execute.1>
+               IF (#fb_Long_Limit_Stop = FALSE) THEN #done := TRUE; END_IF;
+         END_CASE;
+         IF (#ilk_CLIM_CMD_Stop = TRUE) THEN #state := 4; #done := FALSE; #step := 1; END_IF;
+         IF (#ilk_CM_Sensor_LS1 = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#ilk_CLIM_CMD_Abort = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+      4:   // Stopping
+         CASE #step OF
+            1:
+               // <ai-fill Carriage_Limits:stopping.1>
+               // TODO (AI-fill): Step 10
+               // </ai-fill Carriage_Limits:stopping.1>
+               #done := TRUE;
+         END_CASE;
+         IF #done THEN #state := 6; #done := FALSE; END_IF;
+      5:   // Aborting
+         CASE #step OF
+            1:
+               // <ai-fill Carriage_Limits:aborting.1>
+               // TODO (AI-fill): Step 10
+               // </ai-fill Carriage_Limits:aborting.1>
+               #done := TRUE;
+         END_CASE;
+         IF #done THEN #state := 0; #done := FALSE; END_IF;
+      6:   // Stopped
+         IF (#ilk_CLIM_CMD_Reset = TRUE) THEN #state := 1; #done := FALSE; #step := 1; END_IF;
+         IF (#ilk_CLIM_CMD_Abort = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+   END_CASE;
+END_FUNCTION_BLOCK

@@ -1,0 +1,41 @@
+Process Cell,Unit,Equipment Module,Control Module,Tag,Device Type,Description,Signal Type,IO Address,Safety
+DFS-100,Safety,Safety Circuit,ES1,EStop_Healthy,Safety Relay Contact,E-Stop Circuit Healthy,DI,I0.0,Yes
+DFS-100,Safety,Safety Circuit,LC1,LC1_Healthy,Light Curtain,Light Curtain Healthy (muted for drum pass-through),DI,I0.1,Yes
+DFS-100,Safety,Safety Circuit,SR1,SR1_Healthy,Safety Relay,Safety Relay Healthy,DI,I0.2,Yes
+DFS-100,Safety,Safety Circuit,GS1,Guard_Closed,Guard Switch,Fill Enclosure Guard Closed,DI,I0.3,Yes
+DFS-100,Safety,Safety Circuit,PB1,Reset_PB,Pushbutton,Safety Reset Pushbutton,DI,I0.4,No
+DFS-100,Safety,Safety Circuit,SR1,Reset_Safety,Safety Relay,Safety Relay Reset Output,DO,Q0.0,Yes
+DFS-100,Safety,Status Indicators,SL1,Stack_Red,Stack Light,Stack Light Red,DO,Q0.1,No
+DFS-100,Safety,Status Indicators,SL1,Stack_Amber,Stack Light,Stack Light Amber,DO,Q0.2,No
+DFS-100,Safety,Status Indicators,SL1,Stack_Green,Stack Light,Stack Light Green,DO,Q0.3,No
+DFS-100,Safety,Status Indicators,HN1,Horn,Horn,Pre-Motion Warning Horn,DO,Q0.4,No
+DFS-100,Safety,Operator Station,PB2,Start_PB,Pushbutton,Cycle Start Pushbutton,DI,I0.5,No
+DFS-100,Safety,Operator Station,PB3,Stop_PB,Pushbutton,Cycle Stop Pushbutton (N/C),DI,I0.6,No
+DFS-100,Safety,Operator Station,SS1,Auto_Manual_SS,Selector Switch,Mode Selector (1 = Auto),DI,I0.7,No
+DFS-100,Infeed,Infeed Conveyor,IC1,IC1_Run,Motor,Infeed Conveyor Run,DO,Q1.0,No
+DFS-100,Infeed,Infeed Conveyor,VSD1,IC1_Fault,VSD,Infeed Conveyor VSD Fault,DI,I1.0,No
+DFS-100,Infeed,Infeed Conveyor,VSD1,IC1_Speed_Ref,VSD,Infeed Conveyor Speed Reference 0-10 V,AO,QW96,No
+DFS-100,Infeed,Infeed Conveyor,PE1,Drum_At_Infeed,Photoelectric Sensor,Drum Present at Infeed,DI,I1.1,No
+DFS-100,Infeed,Infeed Conveyor,PE2,Drum_At_Fill,Photoelectric Sensor,Drum Present at Fill Position,DI,I1.2,No
+DFS-100,Filling,Drum Clamp,SOL1,Clamp_Close,Solenoid Valve,Drum Clamp Close Solenoid (spring open),DO,Q1.1,No
+DFS-100,Filling,Drum Clamp,PX1,Clamp_Closed,Proximity Sensor,Drum Clamp Closed,DI,I1.3,No
+DFS-100,Filling,Drum Clamp,PX2,Clamp_Open,Proximity Sensor,Drum Clamp Open,DI,I1.4,No
+DFS-100,Filling,Fill Head,SOL2,Head_Lower,Solenoid Valve,Fill Head Lower Solenoid (spring raise),DO,Q1.2,No
+DFS-100,Filling,Fill Head,PX3,Head_Up,Proximity Sensor,Fill Head Raised,DI,I1.5,No
+DFS-100,Filling,Fill Head,PX4,Head_Down,Proximity Sensor,Fill Head Lowered,DI,I1.6,No
+DFS-100,Filling,Fill Head,FP1,FP1_Run,Pump,Fill Pump Run,DO,Q1.3,No
+DFS-100,Filling,Fill Head,VSD2,FP1_Fault,VSD,Fill Pump VSD Fault,DI,I1.7,No
+DFS-100,Filling,Fill Head,VSD2,FP1_Speed_Ref,VSD,Fill Pump Speed Reference 0-10 V,AO,QW98,No
+DFS-100,Filling,Fill Head,FV1,Fill_Valve_Open,Solenoid Valve,Fill Valve Open Solenoid,DO,Q1.4,No
+DFS-100,Filling,Fill Head,FV1,Fill_Valve_Opened,Valve Feedback,Fill Valve Opened,DI,I2.0,No
+DFS-100,Filling,Fill Head,FV1,Fill_Valve_Closed,Valve Feedback,Fill Valve Closed,DI,I2.1,No
+DFS-100,Filling,Fill Head,FM1,Fill_Flow,Flow Meter,Fill Flow Rate 4-20 mA (0-120 L/min),AI,IW96,No
+DFS-100,Filling,Fill Head,WT1,Drum_Weight,Load Cell,Drum Scale Weight 4-20 mA (0-300 kg),AI,IW98,No
+DFS-100,Filling,Fill Head,LS1,Spill_Detected,Level Switch,Spill Tray Level High,DI,I2.2,No
+DFS-100,Outfeed,Outfeed Conveyor,OC1,OC1_Run,Motor,Outfeed Conveyor Run,DO,Q1.5,No
+DFS-100,Outfeed,Outfeed Conveyor,VSD3,OC1_Fault,VSD,Outfeed Conveyor VSD Fault,DI,I2.3,No
+DFS-100,Outfeed,Outfeed Conveyor,PE3,Drum_At_Outfeed,Photoelectric Sensor,Drum Present at Outfeed,DI,I2.4,No
+DFS-100,Outfeed,Outfeed Conveyor,PE4,Outfeed_Clear,Photoelectric Sensor,Outfeed Exit Clear,DI,I2.5,No
+DFS-100,Safety,Safety Circuit,SP1,Spare_DI_1,Spare,Spare,DI,I2.6,No
+DFS-100,Safety,Safety Circuit,SP2,Spare_DI_2,Spare,Spare,DI,I2.7,No
+DFS-100,Safety,Safety Circuit,SP3,Spare_DO_1,Spare,Spare,DO,Q1.6,No

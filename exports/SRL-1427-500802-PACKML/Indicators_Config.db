@@ -1,0 +1,11 @@
+DATA_BLOCK "Indicators_Config"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.2
+   VAR RETAIN
+      horn_pre_travel_enable : Bool := TRUE;   // HMI toggle: sound horn 2 s before permitting carriage motion (FALSE = carriage runs immediately); retentive
+   END_VAR
+
+
+BEGIN
+
+END_DATA_BLOCK

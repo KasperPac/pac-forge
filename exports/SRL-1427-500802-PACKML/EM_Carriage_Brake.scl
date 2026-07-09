@@ -1,0 +1,87 @@
+FUNCTION_BLOCK "EM_Carriage_Brake"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_INPUT
+      enable : Bool;
+      mode : Int;
+      cmd_start : Bool;
+      cmd_stop : Bool;
+      cmd_hold : Bool;
+      cmd_reset : Bool;
+      ilk_CMD_Reset : Bool;
+      ilk_CMD_Start : Bool;
+      ilk_CMD_Stop : Bool;
+      ilk_CMD_Clear : Bool;
+      fb_Carriage_Brake_Fault : Bool;
+      fb_Carriage_Brake_Open : Bool;
+   END_VAR
+   VAR_OUTPUT
+      state : Int;
+      step : Int;
+      done : Bool;
+      fault : Bool;
+   END_VAR
+
+BEGIN
+   CASE #state OF
+      0:   // Aborted (safe)
+         IF (#ilk_CMD_Clear = TRUE) THEN #state := 1; #done := FALSE; #step := 1; END_IF;
+      1:   // Clearing
+         CASE #step OF
+            1:
+               // <ai-fill Carriage_Brake:clearing.1>
+               // TODO (AI-fill): Step 10
+               // </ai-fill Carriage_Brake:clearing.1>
+               IF (#fb_Carriage_Brake_Fault = FALSE) THEN #done := TRUE; END_IF;
+         END_CASE;
+         IF #done AND (#fb_Carriage_Brake_Fault = FALSE) THEN #state := 2; #done := FALSE; END_IF;
+         IF (#fb_Carriage_Brake_Fault = TRUE) THEN #state := 3; #done := FALSE; #step := 1; END_IF;
+      2:   // Stopped
+         IF (#ilk_CMD_Reset = TRUE) THEN #state := 4; #done := FALSE; #step := 1; END_IF;
+      3:   // Aborting
+         CASE #step OF
+            1:
+               // <ai-fill Carriage_Brake:aborting.1>
+               // TODO (AI-fill): Brake is VSD-controlled — monitor brake feedback only
+               // </ai-fill Carriage_Brake:aborting.1>
+               IF (#fb_Carriage_Brake_Open = FALSE) THEN #done := TRUE; END_IF;
+         END_CASE;
+         IF #done THEN #state := 0; #done := FALSE; END_IF;
+      4:   // Resetting
+         CASE #step OF
+            1:
+               // <ai-fill Carriage_Brake:resetting.1>
+               // TODO (AI-fill): Step 10
+               // </ai-fill Carriage_Brake:resetting.1>
+               IF (#fb_Carriage_Brake_Open = FALSE) AND (#fb_Carriage_Brake_Fault = FALSE) THEN #done := TRUE; END_IF;
+         END_CASE;
+         IF #done AND (#fb_Carriage_Brake_Open = FALSE) THEN #state := 5; #done := FALSE; END_IF;
+         IF (#fb_Carriage_Brake_Fault = TRUE) THEN #state := 3; #done := FALSE; #step := 1; END_IF;
+      5:   // Idle
+         IF (#ilk_CMD_Start = TRUE) AND (#fb_Carriage_Brake_Fault = FALSE) THEN #state := 6; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_Carriage_Brake_Fault = TRUE) THEN #state := 3; #done := FALSE; #step := 1; END_IF;
+      6:   // Starting
+         CASE #step OF
+            1:
+               // <ai-fill Carriage_Brake:starting.1>
+               // TODO (AI-fill): Brake is VSD-controlled — monitor brake feedback only
+               // </ai-fill Carriage_Brake:starting.1>
+               IF (#fb_Carriage_Brake_Open = TRUE) THEN #done := TRUE; END_IF;
+         END_CASE;
+         IF #done AND (#fb_Carriage_Brake_Open = TRUE) THEN #state := 7; #done := FALSE; END_IF;
+         IF (#fb_Carriage_Brake_Fault = TRUE) THEN #state := 3; #done := FALSE; #step := 1; END_IF;
+      7:   // Execute
+         IF (#ilk_CMD_Stop = TRUE) THEN #state := 8; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_Carriage_Brake_Fault = TRUE) THEN #state := 3; #done := FALSE; #step := 1; END_IF;
+      8:   // Stopping
+         CASE #step OF
+            1:
+               // <ai-fill Carriage_Brake:stopping.1>
+               // TODO (AI-fill): Brake is VSD-controlled — monitor brake feedback only
+               // </ai-fill Carriage_Brake:stopping.1>
+               IF (#fb_Carriage_Brake_Open = FALSE) THEN #done := TRUE; END_IF;
+         END_CASE;
+         IF #done AND (#fb_Carriage_Brake_Open = FALSE) THEN #state := 2; #done := FALSE; END_IF;
+         IF (#fb_Carriage_Brake_Fault = TRUE) THEN #state := 3; #done := FALSE; #step := 1; END_IF;
+   END_CASE;
+END_FUNCTION_BLOCK

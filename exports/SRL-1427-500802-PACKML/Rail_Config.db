@@ -1,0 +1,23 @@
+DATA_BLOCK "Rail_Config"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.2
+   VAR RETAIN
+      mm_per_rev_x10 : DInt;   // Rail scale (set once): mm per encoder rev x10 — fixed physics, encoder at 1000 units/rev
+      rail_length_mm : DInt;   // Operational envelope — grows as rail sections are added (1.7 m each); operator-set from dashboard/HMI
+      ramp_zone_mm : DInt;   // FD rev B: ramp-down point 2 m before the stop position at either end — fast falls back to jog inside the zone
+      rot_counts_per_360 : DInt;   // Rotator gear calibration: raw encoder counts for one full 360 deg turn; 0 = uncalibrated -> raw treated as 0.1-deg direct (legacy)
+      end_margin_mm : DInt;   // All motion toward an end blocked within this margin (soft limit — Long_Limit_Stop remains the hard backstop)
+   END_VAR
+   VAR
+      position_mm : DInt;   // Live readback for dashboard/HMI (written by UC_Carriage each scan)
+      rot_position_deg10 : DInt;   // Rotator position, signed tenths of a degree (-1799..+1800, 0 = home)
+      rot_at_home : Bool;   // TRUE while the rotator is inside the fast-speed home window
+   END_VAR
+
+
+BEGIN
+   ramp_zone_mm := 2000;
+   rot_counts_per_360 := 0;
+   end_margin_mm := 500;
+
+END_DATA_BLOCK

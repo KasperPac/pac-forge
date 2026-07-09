@@ -1,0 +1,68 @@
+FUNCTION "MAINT_Encoder_Preset" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+BEGIN
+   // Maintenance-mode encoder preset (TR C__582, TR Encoder Profile preset
+   // submodule: 1 control byte + DWord value out, status byte in).
+   // Interface = "Maintenance_CMD" (watch table now, HMI later).
+   // Preset writes encoder EEPROM — one-shot pulses only, never cyclic.
+   // Rotator preset IO: ctrl %QB70, value %QD71, status %IB78 (tr_2)
+   // Rail    preset IO: ctrl %QB64, value %QD65, status %IB68 (tr_1)
+
+   // trigger bytes default to zero every scan; the step logic pulses them
+   %QB70 := 16#00;
+   %QB64 := 16#00;
+
+   IF NOT "Maintenance_CMD".maintenance_mode THEN
+      "Maintenance_CMD".rot_preset_step := 0;
+      "Maintenance_CMD".rail_preset_step := 0;
+      "Maintenance_CMD".rot_preset_done := FALSE;
+      "Maintenance_CMD".rail_preset_done := FALSE;
+      RETURN;
+   END_IF;
+
+   // --- rotator encoder (tr_2) — only while Rotator Drive is not in Execute ---
+   CASE "Maintenance_CMD".rot_preset_step OF
+      0:
+         "Maintenance_CMD".rot_preset_done := FALSE;
+         IF "Maintenance_CMD".rot_preset_execute AND ("EM_Rotator_Drive_DB".state <> 6) THEN
+            %QD71 := DINT_TO_DWORD("Maintenance_CMD".rot_preset_value);
+            "Maintenance_CMD".rot_preset_timer := 0;
+            "Maintenance_CMD".rot_preset_step := 1;
+         END_IF;
+      1:   // hold the trigger ~1 s of scans
+         %QB70 := 16#01;
+         "Maintenance_CMD".rot_preset_timer := "Maintenance_CMD".rot_preset_timer + 1;
+         IF "Maintenance_CMD".rot_preset_timer >= 100 THEN
+            "Maintenance_CMD".rot_preset_step := 2;
+         END_IF;
+      2:   // released; done until the operator drops execute
+         "Maintenance_CMD".rot_preset_done := TRUE;
+         IF NOT "Maintenance_CMD".rot_preset_execute THEN
+            "Maintenance_CMD".rot_preset_step := 0;
+         END_IF;
+   END_CASE;
+
+   // --- rail encoder (tr_1) — only while Carriage Drive is not in Execute ---
+   CASE "Maintenance_CMD".rail_preset_step OF
+      0:
+         "Maintenance_CMD".rail_preset_done := FALSE;
+         IF "Maintenance_CMD".rail_preset_execute AND ("EM_Carriage_Drive_DB".state <> 6) THEN
+            %QD65 := DINT_TO_DWORD("Maintenance_CMD".rail_preset_value);
+            "Maintenance_CMD".rail_preset_timer := 0;
+            "Maintenance_CMD".rail_preset_step := 1;
+         END_IF;
+      1:
+         %QB64 := 16#01;
+         "Maintenance_CMD".rail_preset_timer := "Maintenance_CMD".rail_preset_timer + 1;
+         IF "Maintenance_CMD".rail_preset_timer >= 100 THEN
+            "Maintenance_CMD".rail_preset_step := 2;
+         END_IF;
+      2:
+         "Maintenance_CMD".rail_preset_done := TRUE;
+         IF NOT "Maintenance_CMD".rail_preset_execute THEN
+            "Maintenance_CMD".rail_preset_step := 0;
+         END_IF;
+   END_CASE;
+END_FUNCTION

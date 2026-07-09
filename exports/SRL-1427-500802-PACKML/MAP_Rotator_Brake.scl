@@ -1,0 +1,9 @@
+FUNCTION "MAP_Rotator_Brake" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.2
+BEGIN
+   // sensor feedback: conditioned input (IO_Cond: force-aware) -> instance DB
+   "EM_Rotator_Brake_DB".fb_Rot_Brake_Fault := NOT "IO_Cond".Rot_Brake_Fault;   // %I3.1 N/C fail-safe (TRUE=healthy), inverted 2026-07-07
+   "EM_Rotator_Brake_DB".fb_Rot_Brake_Open := "IO_Cond".Rot_Brake_Open;   // %I3.0
+   // actuator commands: instance DB -> physical output
+END_FUNCTION

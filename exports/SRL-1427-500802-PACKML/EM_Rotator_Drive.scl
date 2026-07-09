@@ -1,0 +1,252 @@
+FUNCTION_BLOCK "EM_Rotator_Drive"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.2
+   VAR_INPUT
+      enable : Bool;
+      mode : Int;
+      cmd_start : Bool;
+      cmd_stop : Bool;
+      cmd_hold : Bool;
+      cmd_reset : Bool;
+      sp_JOG_SPEED_LEFT : Int;
+      sp_FAST_SPEED_LEFT : Int;
+      sp_JOG_SPEED_RIGHT : Int;
+      sp_FAST_SPEED_RIGHT : Int;
+      sp_STRAIGHTEN_SPEED : Int;
+      ilk_Rotate_Left : Bool;
+      ilk_Rotate_Left_Fast : Bool;
+      ilk_Rot_Right : Bool;
+      ilk_Rot_Right_Fast : Bool;
+      ilk_Straighten : Bool;
+      fb_Rot_Pos_deg10 : DInt;
+      ilk_CMD_Reset : Bool;
+      ilk_CMD_Start : Bool;
+      ilk_CMD_Stop : Bool;
+      ilk_CMD_Clear : Bool;
+      fb_BR2_Fault : Bool;
+      fb_M5_Therm : Bool;
+      fb_VSD2_CB_Trip : Bool;
+      fb_VSD2_Speed_Fb : Int;
+   END_VAR
+   VAR_OUTPUT
+      state : Int;
+      step : Int;
+      done : Bool;
+      fault : Bool;
+      cmd_VSD2_Speed_Ref : Int;
+   END_VAR
+   VAR_TEMP
+      err_abs : DInt;
+      auto_mag : DInt;
+      sp_eff : DInt;
+   END_VAR
+
+BEGIN
+   CASE #state OF
+      0:   // Aborted (safe)
+         #cmd_VSD2_Speed_Ref := 0;
+         IF (#ilk_CMD_Clear = TRUE) THEN
+            #state := 1;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+      1:   // Clearing
+         CASE #step OF
+            1:
+               IF (#fb_BR2_Fault = FALSE) AND (#fb_M5_Therm = FALSE) AND (#fb_VSD2_CB_Trip = FALSE) THEN
+                  #done := TRUE;
+               END_IF;
+         END_CASE;
+         IF #done THEN
+            #state := 2;
+            #done := FALSE;
+         END_IF;
+      2:   // Stopped
+         #cmd_VSD2_Speed_Ref := 0;
+         IF (#ilk_CMD_Reset = TRUE) THEN
+            #state := 3;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+         IF (#fb_BR2_Fault = TRUE) THEN
+            #state := 4;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+         IF (#fb_M5_Therm = TRUE) THEN
+            #state := 4;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+         IF (#fb_VSD2_CB_Trip = TRUE) THEN
+            #state := 4;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+      3:   // Resetting
+         CASE #step OF
+            1:
+               #cmd_VSD2_Speed_Ref := 0;
+               IF (#fb_VSD2_Speed_Fb <= 5) THEN
+                  #step := 2;
+               END_IF;
+            2:
+               IF (#fb_BR2_Fault = FALSE) AND (#fb_M5_Therm = FALSE) AND (#fb_VSD2_CB_Trip = FALSE) THEN
+                  #done := TRUE;
+               END_IF;
+         END_CASE;
+         IF #done THEN
+            #state := 5;
+            #done := FALSE;
+         END_IF;
+         IF (#fb_BR2_Fault = TRUE) THEN
+            #state := 4;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+         IF (#fb_M5_Therm = TRUE) THEN
+            #state := 4;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+         IF (#fb_VSD2_CB_Trip = TRUE) THEN
+            #state := 4;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+      4:   // Aborting
+         CASE #step OF
+            1:
+               #cmd_VSD2_Speed_Ref := 0;
+               IF (#fb_VSD2_Speed_Fb <= 5) THEN
+                  #done := TRUE;
+               END_IF;
+         END_CASE;
+         IF #done THEN
+            #state := 0;
+            #done := FALSE;
+         END_IF;
+      5:   // Idle
+         #cmd_VSD2_Speed_Ref := 0;
+         IF (#ilk_CMD_Start = TRUE) THEN
+            #state := 6;
+            #done := FALSE;
+         END_IF;
+         IF (#ilk_CMD_Stop = TRUE) THEN
+            #state := 7;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+         IF (#fb_BR2_Fault = TRUE) THEN
+            #state := 4;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+         IF (#fb_M5_Therm = TRUE) THEN
+            #state := 4;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+         IF (#fb_VSD2_CB_Trip = TRUE) THEN
+            #state := 4;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+      6:   // Execute
+         // command-conditional holds (defaults first, active branch overrides;
+         // pendant buttons take priority over the straighten-up auto function)
+         #cmd_VSD2_Speed_Ref := 0;
+         IF (#ilk_Rotate_Left = TRUE) THEN
+            // Rotate Left (Jog)
+            #cmd_VSD2_Speed_Ref := #sp_JOG_SPEED_LEFT;
+         ELSIF (#ilk_Rotate_Left_Fast = TRUE) THEN
+            // Rotate Left (Fast)
+            #cmd_VSD2_Speed_Ref := #sp_FAST_SPEED_LEFT;
+         ELSIF (#ilk_Rot_Right = TRUE) THEN
+            // Rotate Right (Jog)
+            #cmd_VSD2_Speed_Ref := #sp_JOG_SPEED_RIGHT;
+         ELSIF (#ilk_Rot_Right_Fast = TRUE) THEN
+            // Rotate Right (Fast)
+            #cmd_VSD2_Speed_Ref := #sp_FAST_SPEED_RIGHT;
+         ELSIF (#ilk_Straighten = TRUE) THEN
+            // Straighten Up — closed-loop return to 0.0 deg. The angle is
+            // normalized to -179.9..+180.0 deg, so driving toward zero IS the
+            // shortest direction. Profile: constant sp_STRAIGHTEN_SPEED until
+            // 10.0 deg of error remains, then a linear ramp down to the 5 %
+            // floor so the final approach is slow enough to stop accurately.
+            #err_abs := ABS(#fb_Rot_Pos_deg10);
+            #sp_eff := INT_TO_DINT(#sp_STRAIGHTEN_SPEED);
+            IF #sp_eff < 5 THEN
+               #sp_eff := 25;   // unconfigured/absurd setpoint -> sane default
+            END_IF;
+            IF #err_abs > 100 THEN
+               #auto_mag := #sp_eff;   // beyond 10.0 deg: full straighten speed
+            ELSE
+               #auto_mag := #sp_eff * #err_abs / 100;   // inside 10.0 deg: ramp
+               IF #auto_mag < 5 THEN
+                  #auto_mag := 5;   // 5 % floor for the final approach
+               END_IF;
+            END_IF;
+            IF #err_abs <= 5 THEN
+               #cmd_VSD2_Speed_Ref := 0;   // within +/-0.5 deg — stop
+            ELSIF #fb_Rot_Pos_deg10 > 0 THEN
+               // left swings read positive; positive ref = rotate right = back to 0
+               #cmd_VSD2_Speed_Ref := DINT_TO_INT(#auto_mag);
+            ELSE
+               #cmd_VSD2_Speed_Ref := DINT_TO_INT(-#auto_mag);
+            END_IF;
+         END_IF;
+         IF #done THEN
+            #state := 5;
+            #done := FALSE;
+         END_IF;
+         IF (#ilk_CMD_Stop = TRUE) THEN
+            #state := 7;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+         IF (#fb_BR2_Fault = TRUE) THEN
+            #state := 4;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+         IF (#fb_M5_Therm = TRUE) THEN
+            #state := 4;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+         IF (#fb_VSD2_CB_Trip = TRUE) THEN
+            #state := 4;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+      7:   // Stopping
+         CASE #step OF
+            1:
+               #cmd_VSD2_Speed_Ref := 0;
+               IF (#fb_VSD2_Speed_Fb <= 5) THEN
+                  #done := TRUE;
+               END_IF;
+         END_CASE;
+         IF #done THEN
+            #state := 2;
+            #done := FALSE;
+         END_IF;
+         IF (#fb_BR2_Fault = TRUE) THEN
+            #state := 4;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+         IF (#fb_M5_Therm = TRUE) THEN
+            #state := 4;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+         IF (#fb_VSD2_CB_Trip = TRUE) THEN
+            #state := 4;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+   END_CASE;
+
+END_FUNCTION_BLOCK

@@ -1,0 +1,24 @@
+DATA_BLOCK "Rotator_Drive_CMD"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.3
+   VAR RETAIN
+      sp_JOG_SPEED_LEFT : Int;   // speed setpoints survive power cycles (operator-tuned from HMI/dashboard)
+      sp_FAST_SPEED_LEFT : Int;
+      sp_JOG_SPEED_RIGHT : Int;
+      sp_FAST_SPEED_RIGHT : Int;
+      sp_STRAIGHTEN_SPEED : Int := 20;   // max speed (%) for the straighten-up auto function; ramps down to a 5 % floor
+   END_VAR
+   VAR
+      enable : Bool;
+      mode : Int;
+      cmd_start : Bool;
+      cmd_stop : Bool;
+      cmd_hold : Bool;
+      cmd_reset : Bool;
+      straighten_req : Bool;   // HMI one-shot: rotate back to 0 deg; self-clears on done / pendant override / safety drop. Deliberately NOT retentive.
+   END_VAR
+
+
+BEGIN
+
+END_DATA_BLOCK

@@ -1,0 +1,22 @@
+DATA_BLOCK "Carriage_Drive_CMD"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.2
+   VAR RETAIN
+      sp_JOG_SPEED_FWD : Int;   // speed setpoints survive power cycles (operator-tuned from HMI/dashboard)
+      sp_FAST_SPEED_FWD : Int;
+      sp_JOG_SPEED_REV : Int;
+      sp_FAST_SPEED_REV : Int;
+   END_VAR
+   VAR
+      enable : Bool;
+      mode : Int;
+      cmd_start : Bool;
+      cmd_stop : Bool;
+      cmd_hold : Bool;
+      cmd_reset : Bool;
+   END_VAR
+
+
+BEGIN
+
+END_DATA_BLOCK

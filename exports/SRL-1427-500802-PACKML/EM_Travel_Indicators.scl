@@ -1,0 +1,113 @@
+FUNCTION_BLOCK "EM_Travel_Indicators"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.3
+   VAR_INPUT
+      enable : Bool;
+      mode : Int;
+      cmd_start : Bool;
+      cmd_stop : Bool;
+      cmd_hold : Bool;
+      cmd_reset : Bool;
+      ilk_Travel_CMD_Reset : Bool;
+      ilk_Travel_CMD_Start : Bool;
+      ilk_Travel_CMD_Stop : Bool;
+      ilk_SYS_Abort : Bool;
+      ilk_Carriage_Travelling : Bool;
+      ilk_Horn_Request : Bool;
+      ilk_Travel_Request : Bool;
+      cfg_Pre_Travel_Horn : Bool;
+   END_VAR
+   VAR_OUTPUT
+      state : Int;
+      step : Int;
+      done : Bool;
+      fault : Bool;
+      cmd_Travel_Horn : Bool;
+      cmd_Travel_Strobe : Bool;
+      permit_travel : Bool;
+   END_VAR
+   VAR
+      pre_ton {InstructionName := 'TON'; LibVersion := '1.0'} : TON;
+   END_VAR
+
+BEGIN
+   // Pre-travel horn warning: when enabled, a travel request (pendant button)
+   // sounds the horn for 2 s BEFORE motion is permitted — UC_Carriage gates
+   // the drive interlocks on permit_travel. Disabled = permit always TRUE,
+   // the carriage runs immediately.
+   #pre_ton(IN := #cfg_Pre_Travel_Horn AND #ilk_Travel_Request, PT := T#2S);
+   #permit_travel := (NOT #cfg_Pre_Travel_Horn) OR #pre_ton.Q;
+
+   // Horn is a pure audible indicator (it cannot cause motion), so it is
+   // combinational across ALL states — it must still sound during a safety
+   // reset, when this EM is not in Execute. Sources: reset feedback + the
+   // pre-travel warning phase (request held, timer not yet done).
+   #cmd_Travel_Horn := #ilk_Horn_Request
+   OR (#cfg_Pre_Travel_Horn AND #ilk_Travel_Request AND (NOT #pre_ton.Q));
+
+   CASE #state OF
+      0:   // Aborted (safe)
+         #cmd_Travel_Strobe := FALSE;
+         IF (#ilk_Travel_CMD_Reset = TRUE) THEN
+            #state := 1;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+      1:   // Resetting — indicators are direct outputs, nothing to sequence
+         #cmd_Travel_Strobe := FALSE;
+         #state := 2;
+         #done := FALSE;
+      2:   // Idle
+         #cmd_Travel_Strobe := FALSE;
+         IF (#ilk_Travel_CMD_Start = TRUE) THEN
+            #state := 4;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+         IF (#ilk_Travel_CMD_Stop = TRUE) THEN
+            #state := 5;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+         IF (#ilk_SYS_Abort = TRUE) THEN
+            #state := 3;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+      3:   // Aborting
+         #cmd_Travel_Strobe := FALSE;
+         #state := 0;
+         #done := FALSE;
+      4:   // Execute — command-conditional hold
+         // Strobe runs while the carriage drive commands motion (or the
+         // VSD still reports speed during ramp-down).
+         #cmd_Travel_Strobe := #ilk_Carriage_Travelling;
+         IF (#ilk_Travel_CMD_Stop = TRUE) THEN
+            #state := 5;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+         IF (#ilk_SYS_Abort = TRUE) THEN
+            #state := 3;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+      5:   // Stopping
+         #cmd_Travel_Strobe := FALSE;
+         #state := 6;
+         #done := FALSE;
+      6:   // Stopped
+         #cmd_Travel_Strobe := FALSE;
+         IF (#ilk_Travel_CMD_Reset = TRUE) THEN
+            #state := 1;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+         IF (#ilk_SYS_Abort = TRUE) THEN
+            #state := 3;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+   END_CASE;
+
+END_FUNCTION_BLOCK

@@ -1,0 +1,6 @@
+DATA_BLOCK "EM_Travel_Indicators_DB"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+"EM_Travel_Indicators"
+BEGIN
+END_DATA_BLOCK

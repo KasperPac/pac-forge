@@ -1,0 +1,13 @@
+DATA_BLOCK "Carriage_Limits_CMD"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   STRUCT
+      enable : Bool;
+      mode : Int;
+      cmd_start : Bool;
+      cmd_stop : Bool;
+      cmd_hold : Bool;
+      cmd_reset : Bool;
+   END_STRUCT;
+BEGIN
+END_DATA_BLOCK

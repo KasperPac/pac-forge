@@ -1,0 +1,86 @@
+FUNCTION_BLOCK "EM_Spare"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_INPUT
+      enable : Bool;
+      mode : Int;
+      cmd_start : Bool;
+      cmd_stop : Bool;
+      cmd_hold : Bool;
+      cmd_reset : Bool;
+      ilk_SPARE_CMD_RESET : Bool;
+      ilk_SPARE_CMD_START : Bool;
+      ilk_SPARE_CMD_STOP : Bool;
+      ilk_SPARE_CMD_ABORT : Bool;
+      ilk_SPARE_CMD_CLEAR : Bool;
+      fb_Spare_DI_1 : Bool;
+   END_VAR
+   VAR_OUTPUT
+      state : Int;
+      step : Int;
+      done : Bool;
+      fault : Bool;
+   END_VAR
+
+BEGIN
+   CASE #state OF
+      0:   // Aborted (safe)
+         IF (#ilk_SPARE_CMD_CLEAR = TRUE) THEN #state := 1; #done := FALSE; #step := 1; END_IF;
+      1:   // Clearing
+         CASE #step OF
+            1:
+               // <ai-fill Spare:clearing.1>
+               // TODO (AI-fill): Step 10
+               // </ai-fill Spare:clearing.1>
+               IF (#fb_Spare_DI_1 = TRUE) THEN #done := TRUE; END_IF;
+         END_CASE;
+         IF #done THEN #state := 2; #done := FALSE; END_IF;
+      2:   // Stopped
+         IF (#ilk_SPARE_CMD_RESET = TRUE) THEN #state := 3; #done := FALSE; #step := 1; END_IF;
+         IF (#ilk_SPARE_CMD_ABORT = TRUE) THEN #state := 4; #done := FALSE; #step := 1; END_IF;
+      3:   // Resetting
+         CASE #step OF
+            1:
+               // <ai-fill Spare:resetting.1>
+               // TODO (AI-fill): Step 10
+               // </ai-fill Spare:resetting.1>
+               IF (#fb_Spare_DI_1 = TRUE) THEN #done := TRUE; END_IF;
+         END_CASE;
+         IF #done THEN #state := 5; #done := FALSE; END_IF;
+         IF (#ilk_SPARE_CMD_ABORT = TRUE) THEN #state := 4; #done := FALSE; #step := 1; END_IF;
+      4:   // Aborting
+         CASE #step OF
+            1:
+               // <ai-fill Spare:aborting.1>
+               // TODO (AI-fill): Step 10
+               // </ai-fill Spare:aborting.1>
+               IF (#fb_Spare_DI_1 = TRUE) THEN #done := TRUE; END_IF;
+         END_CASE;
+         IF #done THEN #state := 0; #done := FALSE; END_IF;
+      5:   // Idle
+         IF (#ilk_SPARE_CMD_START = TRUE) THEN #state := 6; #done := FALSE; #step := 1; END_IF;
+         IF (#ilk_SPARE_CMD_STOP = TRUE) THEN #state := 7; #done := FALSE; #step := 1; END_IF;
+         IF (#ilk_SPARE_CMD_ABORT = TRUE) THEN #state := 4; #done := FALSE; #step := 1; END_IF;
+      6:   // Execute
+         CASE #step OF
+            1:
+               // <ai-fill Spare:execute.1>
+               // TODO (AI-fill): Step 10
+               // </ai-fill Spare:execute.1>
+               IF (#fb_Spare_DI_1 = TRUE) THEN #done := TRUE; END_IF;
+         END_CASE;
+         IF #done THEN #state := 5; #done := FALSE; END_IF;
+         IF (#ilk_SPARE_CMD_STOP = TRUE) THEN #state := 7; #done := FALSE; #step := 1; END_IF;
+         IF (#ilk_SPARE_CMD_ABORT = TRUE) THEN #state := 4; #done := FALSE; #step := 1; END_IF;
+      7:   // Stopping
+         CASE #step OF
+            1:
+               // <ai-fill Spare:stopping.1>
+               // TODO (AI-fill): Step 10
+               // </ai-fill Spare:stopping.1>
+               IF (#fb_Spare_DI_1 = TRUE) THEN #done := TRUE; END_IF;
+         END_CASE;
+         IF #done THEN #state := 2; #done := FALSE; END_IF;
+         IF (#ilk_SPARE_CMD_ABORT = TRUE) THEN #state := 4; #done := FALSE; #step := 1; END_IF;
+   END_CASE;
+END_FUNCTION_BLOCK

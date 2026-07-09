@@ -1,0 +1,9 @@
+FUNCTION "MAP_Travel_Indicators" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+BEGIN
+   // sensor feedback: physical input -> instance DB
+   // actuator commands: instance DB -> physical output
+   "Travel_Horn" := "EM_Travel_Indicators_DB".cmd_Travel_Horn;   // %Q0.2
+   "Travel_Strobe" := "EM_Travel_Indicators_DB".cmd_Travel_Strobe;   // %Q0.3
+END_FUNCTION

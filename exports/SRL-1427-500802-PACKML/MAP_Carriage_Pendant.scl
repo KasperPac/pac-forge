@@ -1,0 +1,11 @@
+FUNCTION "MAP_Carriage_Pendant" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.3
+BEGIN
+   // sensor feedback: conditioned input (IO_Cond: sim/force-aware) -> instance DB
+   "EM_Carriage_Pendant_DB".fb_Fwd_Carriage := "IO_Cond".Fwd_Carriage;   // %I3.2
+   "EM_Carriage_Pendant_DB".fb_Fwd_Fast_Carriage := "IO_Cond".Fwd_Fast_Carriage;   // %I3.3
+   "EM_Carriage_Pendant_DB".fb_Rev_Carriage := "IO_Cond".Rev_Carriage;   // %I3.4
+   "EM_Carriage_Pendant_DB".fb_Rev_Fast_Carriage := "IO_Cond".Rev_Fast_Carriage;   // %I3.5
+   // actuator commands: instance DB -> physical output
+END_FUNCTION

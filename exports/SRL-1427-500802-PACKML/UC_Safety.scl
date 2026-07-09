@@ -1,0 +1,11 @@
+FUNCTION "UC_Safety" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+BEGIN
+   // Unit coordination (2026-07-06): the E-Stop Circuit EM is self-contained —
+   // it sequences off its own inputs (EStop_Healthy, SR1_Healthy, MS1_Healthy,
+   // ECB_Trip, Reset_PB) and has no coordination command pins. Safe Torque Off
+   // is hardwired; this layer intentionally adds nothing.
+   ;
+END_FUNCTION

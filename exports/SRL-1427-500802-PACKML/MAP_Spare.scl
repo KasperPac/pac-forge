@@ -1,0 +1,8 @@
+FUNCTION "MAP_Spare" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+BEGIN
+   // sensor feedback: physical input -> instance DB
+   "EM_Spare_DB".fb_Spare_DI_1 := "Spare_DI_1";   // %I4.1
+   // actuator commands: instance DB -> physical output
+END_FUNCTION

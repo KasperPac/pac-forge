@@ -1,0 +1,6 @@
+DATA_BLOCK "EM_Spare_DB"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+"EM_Spare"
+BEGIN
+END_DATA_BLOCK

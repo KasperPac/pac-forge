@@ -1,0 +1,21 @@
+DATA_BLOCK "Sim_CMD"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   STRUCT
+      sim_enable : Bool;   // master arm — dashboard sets; SIM_Input_Guard drops it on watchdog timeout
+      watchdog_kick : Int;   // dashboard increments ~every 0.4 s while armed; stale 1.5 s = all sim bits cleared
+      // simulated pendant buttons + reset PB. Momentary — the dashboard holds
+      // them TRUE only while the on-screen button is held. Safety-chain inputs
+      // (EStop_Healthy, SR1_Healthy) are deliberately NOT simulatable.
+      sim_Fwd_Carriage : Bool;         // ‖ I3.2 Forward Carriage
+      sim_Fwd_Fast_Carriage : Bool;    // ‖ I3.3 Forward Fast Carriage
+      sim_Rev_Carriage : Bool;         // ‖ I3.4 Reverse Carriage
+      sim_Rev_Fast_Carriage : Bool;    // ‖ I3.5 Reverse Fast Carriage
+      sim_Rotate_Left : Bool;          // ‖ I2.1 Rotate Left
+      sim_Rotate_Left_Fast : Bool;     // ‖ I2.2 Rotate Left Fast
+      sim_Rot_Right : Bool;            // ‖ I3.6 Rotate Right
+      sim_Rot_Right_Fast : Bool;       // ‖ I3.7 Rotate Right Fast
+      sim_Reset_PB : Bool;             // ‖ I2.3 Reset Pushbutton (safety reset cmd, drive fault ack, horn)
+   END_STRUCT;
+BEGIN
+END_DATA_BLOCK

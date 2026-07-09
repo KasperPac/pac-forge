@@ -1,0 +1,220 @@
+FUNCTION "FORCE_Input_Cond" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+BEGIN
+   // Conditioned-inputs layer. Runs AFTER SIM_Input_Guard, BEFORE the UCs.
+   // IO_Cond.X := force (maintenance mode only) else physical OR sim.
+   // All forces auto-clear when maintenance mode drops (falling edge).
+   IF "Force_CMD".maint_prev AND NOT "Maintenance_CMD".maintenance_mode THEN
+      "Force_CMD".f_ECB_Trip := FALSE;
+      "Force_CMD".v_ECB_Trip := FALSE;
+      "Force_CMD".f_BR1_Fault := FALSE;
+      "Force_CMD".v_BR1_Fault := FALSE;
+      "Force_CMD".f_VSD1_CB_Trip := FALSE;
+      "Force_CMD".v_VSD1_CB_Trip := FALSE;
+      "Force_CMD".f_CM1_Fault := FALSE;
+      "Force_CMD".v_CM1_Fault := FALSE;
+      "Force_CMD".f_CM2_Fault := FALSE;
+      "Force_CMD".v_CM2_Fault := FALSE;
+      "Force_CMD".f_CM3_Fault := FALSE;
+      "Force_CMD".v_CM3_Fault := FALSE;
+      "Force_CMD".f_CM4_Fault := FALSE;
+      "Force_CMD".v_CM4_Fault := FALSE;
+      "Force_CMD".f_CM1_Therm := FALSE;
+      "Force_CMD".v_CM1_Therm := FALSE;
+      "Force_CMD".f_CM2_Therm := FALSE;
+      "Force_CMD".v_CM2_Therm := FALSE;
+      "Force_CMD".f_CM3_Therm := FALSE;
+      "Force_CMD".v_CM3_Therm := FALSE;
+      "Force_CMD".f_CM4_Therm := FALSE;
+      "Force_CMD".v_CM4_Therm := FALSE;
+      "Force_CMD".f_Carriage_Brake_Open := FALSE;
+      "Force_CMD".v_Carriage_Brake_Open := FALSE;
+      "Force_CMD".f_Carriage_Brake_Fault := FALSE;
+      "Force_CMD".v_Carriage_Brake_Fault := FALSE;
+      "Force_CMD".f_Rotate_Left := FALSE;
+      "Force_CMD".v_Rotate_Left := FALSE;
+      "Force_CMD".f_Rotate_Left_Fast := FALSE;
+      "Force_CMD".v_Rotate_Left_Fast := FALSE;
+      "Force_CMD".f_Reset_PB := FALSE;
+      "Force_CMD".v_Reset_PB := FALSE;
+      "Force_CMD".f_BR2_Fault := FALSE;
+      "Force_CMD".v_BR2_Fault := FALSE;
+      "Force_CMD".f_VSD2_CB_Trip := FALSE;
+      "Force_CMD".v_VSD2_CB_Trip := FALSE;
+      "Force_CMD".f_M5_Therm := FALSE;
+      "Force_CMD".v_M5_Therm := FALSE;
+      "Force_CMD".f_Rot_Brake_Open := FALSE;
+      "Force_CMD".v_Rot_Brake_Open := FALSE;
+      "Force_CMD".f_Rot_Brake_Fault := FALSE;
+      "Force_CMD".v_Rot_Brake_Fault := FALSE;
+      "Force_CMD".f_Fwd_Carriage := FALSE;
+      "Force_CMD".v_Fwd_Carriage := FALSE;
+      "Force_CMD".f_Fwd_Fast_Carriage := FALSE;
+      "Force_CMD".v_Fwd_Fast_Carriage := FALSE;
+      "Force_CMD".f_Rev_Carriage := FALSE;
+      "Force_CMD".v_Rev_Carriage := FALSE;
+      "Force_CMD".f_Rev_Fast_Carriage := FALSE;
+      "Force_CMD".v_Rev_Fast_Carriage := FALSE;
+      "Force_CMD".f_Rot_Right := FALSE;
+      "Force_CMD".v_Rot_Right := FALSE;
+      "Force_CMD".f_Rot_Right_Fast := FALSE;
+      "Force_CMD".v_Rot_Right_Fast := FALSE;
+      "Force_CMD".f_Long_Limit_Stop := FALSE;
+      "Force_CMD".v_Long_Limit_Stop := FALSE;
+   END_IF;
+   "Force_CMD".maint_prev := "Maintenance_CMD".maintenance_mode;
+
+   IF "Force_CMD".f_ECB_Trip AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".ECB_Trip := "Force_CMD".v_ECB_Trip;
+   ELSE
+      "IO_Cond".ECB_Trip := "ECB_Trip";
+   END_IF;
+   IF "Force_CMD".f_BR1_Fault AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".BR1_Fault := "Force_CMD".v_BR1_Fault;
+   ELSE
+      "IO_Cond".BR1_Fault := "BR1_Fault";
+   END_IF;
+   IF "Force_CMD".f_VSD1_CB_Trip AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".VSD1_CB_Trip := "Force_CMD".v_VSD1_CB_Trip;
+   ELSE
+      "IO_Cond".VSD1_CB_Trip := "VSD1_CB_Trip";
+   END_IF;
+   IF "Force_CMD".f_CM1_Fault AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".CM1_Fault := "Force_CMD".v_CM1_Fault;
+   ELSE
+      "IO_Cond".CM1_Fault := "CM1_Fault";
+   END_IF;
+   IF "Force_CMD".f_CM2_Fault AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".CM2_Fault := "Force_CMD".v_CM2_Fault;
+   ELSE
+      "IO_Cond".CM2_Fault := "CM2_Fault";
+   END_IF;
+   IF "Force_CMD".f_CM3_Fault AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".CM3_Fault := "Force_CMD".v_CM3_Fault;
+   ELSE
+      "IO_Cond".CM3_Fault := "CM3_Fault";
+   END_IF;
+   IF "Force_CMD".f_CM4_Fault AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".CM4_Fault := "Force_CMD".v_CM4_Fault;
+   ELSE
+      "IO_Cond".CM4_Fault := "CM4_Fault";
+   END_IF;
+   IF "Force_CMD".f_CM1_Therm AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".CM1_Therm := "Force_CMD".v_CM1_Therm;
+   ELSE
+      "IO_Cond".CM1_Therm := "CM1_Therm";
+   END_IF;
+   IF "Force_CMD".f_CM2_Therm AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".CM2_Therm := "Force_CMD".v_CM2_Therm;
+   ELSE
+      "IO_Cond".CM2_Therm := "CM2_Therm";
+   END_IF;
+   IF "Force_CMD".f_CM3_Therm AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".CM3_Therm := "Force_CMD".v_CM3_Therm;
+   ELSE
+      "IO_Cond".CM3_Therm := "CM3_Therm";
+   END_IF;
+   IF "Force_CMD".f_CM4_Therm AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".CM4_Therm := "Force_CMD".v_CM4_Therm;
+   ELSE
+      "IO_Cond".CM4_Therm := "CM4_Therm";
+   END_IF;
+   IF "Force_CMD".f_Carriage_Brake_Open AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".Carriage_Brake_Open := "Force_CMD".v_Carriage_Brake_Open;
+   ELSE
+      "IO_Cond".Carriage_Brake_Open := "Carriage_Brake_Open";
+   END_IF;
+   IF "Force_CMD".f_Carriage_Brake_Fault AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".Carriage_Brake_Fault := "Force_CMD".v_Carriage_Brake_Fault;
+   ELSE
+      "IO_Cond".Carriage_Brake_Fault := "Carriage_Brake_Fault";
+   END_IF;
+   IF "Force_CMD".f_Rotate_Left AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".Rotate_Left := "Force_CMD".v_Rotate_Left;
+   ELSE
+      "IO_Cond".Rotate_Left := "Rotate_Left" OR "Sim_CMD".sim_Rotate_Left;
+   END_IF;
+   IF "Force_CMD".f_Rotate_Left_Fast AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".Rotate_Left_Fast := "Force_CMD".v_Rotate_Left_Fast;
+   ELSE
+      "IO_Cond".Rotate_Left_Fast := "Rotate_Left_Fast" OR "Sim_CMD".sim_Rotate_Left_Fast;
+   END_IF;
+   // HMI global reset: momentary panel request, stuck-bit capped (~3000
+   // scans; a frozen panel cannot hold the reset coil energised — the
+   // monitored-manual relay needs the release edge anyway).
+   IF "HMI_CMD".reset_req THEN
+      IF "HMI_CMD".reset_hold_scans < 3000 THEN
+         "HMI_CMD".reset_hold_scans := "HMI_CMD".reset_hold_scans + 1;
+      END_IF;
+   ELSE
+      "HMI_CMD".reset_hold_scans := 0;
+   END_IF;
+   IF "Force_CMD".f_Reset_PB AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".Reset_PB := "Force_CMD".v_Reset_PB;
+   ELSE
+      "IO_Cond".Reset_PB := "Reset_PB" OR "Sim_CMD".sim_Reset_PB
+      OR ("HMI_CMD".reset_req AND ("HMI_CMD".reset_hold_scans < 3000));
+   END_IF;
+   IF "Force_CMD".f_BR2_Fault AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".BR2_Fault := "Force_CMD".v_BR2_Fault;
+   ELSE
+      "IO_Cond".BR2_Fault := "BR2_Fault";
+   END_IF;
+   IF "Force_CMD".f_VSD2_CB_Trip AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".VSD2_CB_Trip := "Force_CMD".v_VSD2_CB_Trip;
+   ELSE
+      "IO_Cond".VSD2_CB_Trip := "VSD2_CB_Trip";
+   END_IF;
+   IF "Force_CMD".f_M5_Therm AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".M5_Therm := "Force_CMD".v_M5_Therm;
+   ELSE
+      "IO_Cond".M5_Therm := "M5_Therm";
+   END_IF;
+   IF "Force_CMD".f_Rot_Brake_Open AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".Rot_Brake_Open := "Force_CMD".v_Rot_Brake_Open;
+   ELSE
+      "IO_Cond".Rot_Brake_Open := "Rot_Brake_Open";
+   END_IF;
+   IF "Force_CMD".f_Rot_Brake_Fault AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".Rot_Brake_Fault := "Force_CMD".v_Rot_Brake_Fault;
+   ELSE
+      "IO_Cond".Rot_Brake_Fault := "Rot_Brake_Fault";
+   END_IF;
+   IF "Force_CMD".f_Fwd_Carriage AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".Fwd_Carriage := "Force_CMD".v_Fwd_Carriage;
+   ELSE
+      "IO_Cond".Fwd_Carriage := "Fwd_Carriage" OR "Sim_CMD".sim_Fwd_Carriage;
+   END_IF;
+   IF "Force_CMD".f_Fwd_Fast_Carriage AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".Fwd_Fast_Carriage := "Force_CMD".v_Fwd_Fast_Carriage;
+   ELSE
+      "IO_Cond".Fwd_Fast_Carriage := "Fwd_Fast_Carriage" OR "Sim_CMD".sim_Fwd_Fast_Carriage;
+   END_IF;
+   IF "Force_CMD".f_Rev_Carriage AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".Rev_Carriage := "Force_CMD".v_Rev_Carriage;
+   ELSE
+      "IO_Cond".Rev_Carriage := "Rev_Carriage" OR "Sim_CMD".sim_Rev_Carriage;
+   END_IF;
+   IF "Force_CMD".f_Rev_Fast_Carriage AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".Rev_Fast_Carriage := "Force_CMD".v_Rev_Fast_Carriage;
+   ELSE
+      "IO_Cond".Rev_Fast_Carriage := "Rev_Fast_Carriage" OR "Sim_CMD".sim_Rev_Fast_Carriage;
+   END_IF;
+   IF "Force_CMD".f_Rot_Right AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".Rot_Right := "Force_CMD".v_Rot_Right;
+   ELSE
+      "IO_Cond".Rot_Right := "Rot_Right" OR "Sim_CMD".sim_Rot_Right;
+   END_IF;
+   IF "Force_CMD".f_Rot_Right_Fast AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".Rot_Right_Fast := "Force_CMD".v_Rot_Right_Fast;
+   ELSE
+      "IO_Cond".Rot_Right_Fast := "Rot_Right_Fast" OR "Sim_CMD".sim_Rot_Right_Fast;
+   END_IF;
+   IF "Force_CMD".f_Long_Limit_Stop AND "Maintenance_CMD".maintenance_mode THEN
+      "IO_Cond".Long_Limit_Stop := "Force_CMD".v_Long_Limit_Stop;
+   ELSE
+      "IO_Cond".Long_Limit_Stop := "Long_Limit_Stop";
+   END_IF;
+END_FUNCTION

@@ -1,0 +1,2981 @@
+{
+ "sessions": [
+  {
+   "equipment_module_id": "7697aeec-08ec-46c3-8f90-b6c3037c53f3",
+   "command_behavior": {
+    "execute": {
+     "branches": [
+      {
+       "when": [
+        {
+         "tag": "Rotate_Left",
+         "value": true,
+         "operator": "="
+        },
+        {
+         "tag": "Rot_Brake_Open",
+         "value": true,
+         "operator": "="
+        }
+       ],
+       "label": "Rotate Left (Jog)",
+       "branch_id": "rotate_left",
+       "control_modules": [
+        {
+         "tag": "VSD2_Speed_Ref",
+         "state": "JOG_SPEED_LEFT",
+         "description": "Rotator VSD speed reference — jog left (negative direction)"
+        }
+       ]
+      },
+      {
+       "when": [
+        {
+         "tag": "Rotate_Left_Fast",
+         "value": true,
+         "operator": "="
+        },
+        {
+         "tag": "Rot_Brake_Open",
+         "value": true,
+         "operator": "="
+        }
+       ],
+       "label": "Rotate Left (Fast)",
+       "branch_id": "rotate_left_fast",
+       "control_modules": [
+        {
+         "tag": "VSD2_Speed_Ref",
+         "state": "FAST_SPEED_LEFT",
+         "description": "Rotator VSD speed reference — fast left (negative direction)"
+        }
+       ]
+      },
+      {
+       "when": [
+        {
+         "tag": "Rot_Right",
+         "value": true,
+         "operator": "="
+        },
+        {
+         "tag": "Rot_Brake_Open",
+         "value": true,
+         "operator": "="
+        }
+       ],
+       "label": "Rotate Right (Jog)",
+       "branch_id": "rotate_right",
+       "control_modules": [
+        {
+         "tag": "VSD2_Speed_Ref",
+         "state": "JOG_SPEED_RIGHT",
+         "description": "Rotator VSD speed reference — jog right (positive direction)"
+        }
+       ]
+      },
+      {
+       "when": [
+        {
+         "tag": "Rot_Right_Fast",
+         "value": true,
+         "operator": "="
+        },
+        {
+         "tag": "Rot_Brake_Open",
+         "value": true,
+         "operator": "="
+        }
+       ],
+       "label": "Rotate Right (Fast)",
+       "branch_id": "rotate_right_fast",
+       "control_modules": [
+        {
+         "tag": "VSD2_Speed_Ref",
+         "state": "FAST_SPEED_RIGHT",
+         "description": "Rotator VSD speed reference — fast right (positive direction)"
+        }
+       ]
+      }
+     ],
+     "default_hold": [
+      {
+       "tag": "VSD2_Speed_Ref",
+       "state": "0",
+       "description": "Rotator VSD speed reference — stopped"
+      }
+     ]
+    }
+   },
+   "static_states": {
+    "idle": [
+     {
+      "tag": "VSD2_Speed_Ref",
+      "state": "0",
+      "description": "Rotator VSD Speed Reference"
+     }
+    ],
+    "aborted": [
+     {
+      "tag": "VSD2_Speed_Ref",
+      "state": "0",
+      "description": "Rotator VSD Speed Reference"
+     }
+    ],
+    "stopped": [
+     {
+      "tag": "VSD2_Speed_Ref",
+      "state": "0",
+      "description": "Rotator VSD Speed Reference"
+     }
+    ]
+   },
+   "sequential_states": {
+    "aborting": {
+     "notes": null,
+     "steps": [
+      {
+       "step": 10,
+       "action": "Immediately set VSD2 speed reference to zero on fault-driven abort",
+       "actions": [
+        {
+         "kind": "assign",
+         "prose": "Immediately set VSD2 speed reference to zero on fault-driven abort",
+         "source": {
+          "kind": "literal",
+          "value": "0",
+          "value_type": "string"
+         },
+         "action_id": "rot_aborting_step_10_act_1",
+         "target_tag": "VSD2_Speed_Ref"
+        }
+       ],
+       "on_fail": {
+        "severity": "critical",
+        "fault_code": "F_VSD2_ABORT_TIMEOUT"
+       },
+       "step_id": "rot_aborting_step_10",
+       "monitors": [],
+       "branch_id": "main",
+       "transitions": [
+        {
+         "kind": "single",
+         "guard": [
+          {
+           "op": "<=",
+           "tag": "VSD2_Speed_Fb",
+           "kind": "tag_compare",
+           "value": 5,
+           "on_fail": {
+            "severity": "critical",
+            "fault_code": "F_VSD2_ABORT_TIMEOUT"
+           },
+           "within_ms": 5000
+          }
+         ],
+         "notes": "Failure to reach zero speed during abort is safety-relevant — severity escalated to critical",
+         "priority": 0,
+         "is_default": true,
+         "transition_id": "rot_aborting_step_10_terminal",
+         "target_step_id": ""
+        }
+       ],
+       "completion_criteria": [
+        {
+         "op": "<=",
+         "tag": "VSD2_Speed_Fb",
+         "kind": "tag_compare",
+         "value": 5,
+         "on_fail": {
+          "severity": "critical",
+          "fault_code": "F_VSD2_ABORT_TIMEOUT"
+         },
+         "within_ms": 5000
+        }
+       ],
+       "completion_criteria_text": "VSD2_Speed_Fb <= 5"
+      }
+     ],
+     "permissives": [],
+     "override_kind": "override"
+    },
+    "clearing": {
+     "notes": null,
+     "steps": [
+      {
+       "step": 10,
+       "action": "Step 10",
+       "actions": [],
+       "on_fail": {
+        "severity": "fault",
+        "fault_code": "F_VSD2_CLEAR_TIMEOUT"
+       },
+       "step_id": "rot_clearing_step_10",
+       "monitors": [],
+       "branch_id": "main",
+       "transitions": [
+        {
+         "kind": "single",
+         "guard": [
+          {
+           "tag": "BR2_Fault",
+           "kind": "tag_equals",
+           "value": "FALSE",
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_VSD2_CLEAR_TIMEOUT"
+           },
+           "within_ms": 10000
+          },
+          {
+           "tag": "M5_Therm",
+           "kind": "tag_equals",
+           "value": "FALSE",
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_VSD2_CLEAR_TIMEOUT"
+           },
+           "within_ms": 10000
+          },
+          {
+           "tag": "VSD2_CB_Trip",
+           "kind": "tag_equals",
+           "value": "FALSE",
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_VSD2_CLEAR_TIMEOUT"
+           },
+           "within_ms": 10000
+          }
+         ],
+         "notes": "Operator must physically clear all fault devices within 10 000 ms window before Clearing completes and module returns to Stopped",
+         "priority": 0,
+         "is_default": true,
+         "transition_id": "rot_clearing_step_10_terminal",
+         "target_step_id": ""
+        }
+       ],
+       "completion_criteria": [
+        {
+         "tag": "BR2_Fault",
+         "kind": "tag_equals",
+         "value": "FALSE",
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_VSD2_CLEAR_TIMEOUT"
+         },
+         "within_ms": 10000
+        },
+        {
+         "tag": "M5_Therm",
+         "kind": "tag_equals",
+         "value": "FALSE",
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_VSD2_CLEAR_TIMEOUT"
+         },
+         "within_ms": 10000
+        },
+        {
+         "tag": "VSD2_CB_Trip",
+         "kind": "tag_equals",
+         "value": "FALSE",
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_VSD2_CLEAR_TIMEOUT"
+         },
+         "within_ms": 10000
+        }
+       ],
+       "completion_criteria_text": "BR2_Fault = FALSE AND M5_Therm = FALSE AND VSD2_CB_Trip = FALSE"
+      }
+     ],
+     "permissives": [],
+     "override_kind": "override"
+    },
+    "stopping": {
+     "notes": null,
+     "steps": [
+      {
+       "step": 10,
+       "action": "Ramp VSD2 speed reference to zero to decelerate rotator to rest",
+       "actions": [
+        {
+         "kind": "assign",
+         "prose": "Ramp VSD2 speed reference to zero to decelerate rotator to rest",
+         "source": {
+          "kind": "literal",
+          "value": "0",
+          "value_type": "string"
+         },
+         "action_id": "rot_stopping_step_10_act_1",
+         "target_tag": "VSD2_Speed_Ref"
+        }
+       ],
+       "on_fail": {
+        "severity": "fault",
+        "fault_code": "F_VSD2_STOP_TIMEOUT"
+       },
+       "step_id": "rot_stopping_step_10",
+       "monitors": [],
+       "branch_id": "main",
+       "transitions": [
+        {
+         "kind": "single",
+         "guard": [
+          {
+           "op": "<=",
+           "tag": "VSD2_Speed_Fb",
+           "kind": "tag_compare",
+           "value": 5,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_VSD2_STOP_TIMEOUT"
+           },
+           "within_ms": 5000
+          }
+         ],
+         "notes": "Near-zero threshold of 5 engineering units — confirm value with engineer",
+         "priority": 0,
+         "is_default": true,
+         "transition_id": "rot_stopping_step_10_terminal",
+         "target_step_id": ""
+        }
+       ],
+       "completion_criteria": [
+        {
+         "op": "<=",
+         "tag": "VSD2_Speed_Fb",
+         "kind": "tag_compare",
+         "value": 5,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_VSD2_STOP_TIMEOUT"
+         },
+         "within_ms": 5000
+        }
+       ],
+       "completion_criteria_text": "VSD2_Speed_Fb <= 5"
+      }
+     ],
+     "permissives": [],
+     "override_kind": "override"
+    },
+    "resetting": {
+     "notes": null,
+     "steps": [
+      {
+       "step": 10,
+       "action": "Set VSD2 speed reference to zero to ensure drive is not running on entry to Resetting",
+       "actions": [
+        {
+         "kind": "assign",
+         "prose": "Set VSD2 speed reference to zero to ensure drive is not running on entry to Resetting",
+         "source": {
+          "kind": "literal",
+          "value": "0",
+          "value_type": "string"
+         },
+         "action_id": "rot_resetting_step_10_act_1",
+         "target_tag": "VSD2_Speed_Ref"
+        }
+       ],
+       "on_fail": {
+        "severity": "fault",
+        "fault_code": "F_VSD2_SPEED_ZERO"
+       },
+       "step_id": "rot_resetting_step_10",
+       "monitors": [],
+       "branch_id": "main",
+       "transitions": [
+        {
+         "kind": "single",
+         "guard": [
+          {
+           "op": "<=",
+           "tag": "VSD2_Speed_Fb",
+           "kind": "tag_compare",
+           "value": 5,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_VSD2_SPEED_ZERO"
+           },
+           "within_ms": 5000
+          }
+         ],
+         "notes": "Near-zero threshold of 5 engineering units — confirm value with engineer",
+         "priority": 0,
+         "is_default": true,
+         "transition_id": "rot_resetting_step_10_to_20",
+         "target_step_id": "rot_resetting_step_20"
+        }
+       ],
+       "completion_criteria": [
+        {
+         "op": "<=",
+         "tag": "VSD2_Speed_Fb",
+         "kind": "tag_compare",
+         "value": 5,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_VSD2_SPEED_ZERO"
+         },
+         "within_ms": 5000
+        }
+       ],
+       "completion_criteria_text": "VSD2_Speed_Fb <= 5"
+      },
+      {
+       "step": 20,
+       "action": "Step 20",
+       "actions": [],
+       "on_fail": {
+        "severity": "fault",
+        "fault_code": "F_VSD2_FAULTS_CLEAR"
+       },
+       "step_id": "rot_resetting_step_20",
+       "monitors": [],
+       "branch_id": "main",
+       "transitions": [
+        {
+         "kind": "single",
+         "guard": [
+          {
+           "tag": "BR2_Fault",
+           "kind": "tag_equals",
+           "value": "FALSE",
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_VSD2_FAULTS_CLEAR"
+           },
+           "within_ms": 3000
+          },
+          {
+           "tag": "M5_Therm",
+           "kind": "tag_equals",
+           "value": "FALSE",
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_VSD2_FAULTS_CLEAR"
+           },
+           "within_ms": 3000
+          },
+          {
+           "tag": "VSD2_CB_Trip",
+           "kind": "tag_equals",
+           "value": "FALSE",
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_VSD2_FAULTS_CLEAR"
+           },
+           "within_ms": 3000
+          }
+         ],
+         "notes": "All fault inputs must be de-asserted before Resetting completes and module transitions to Idle",
+         "priority": 0,
+         "is_default": true,
+         "transition_id": "rot_resetting_step_20_terminal",
+         "target_step_id": ""
+        }
+       ],
+       "completion_criteria": [
+        {
+         "tag": "BR2_Fault",
+         "kind": "tag_equals",
+         "value": "FALSE",
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_VSD2_FAULTS_CLEAR"
+         },
+         "within_ms": 3000
+        },
+        {
+         "tag": "M5_Therm",
+         "kind": "tag_equals",
+         "value": "FALSE",
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_VSD2_FAULTS_CLEAR"
+         },
+         "within_ms": 3000
+        },
+        {
+         "tag": "VSD2_CB_Trip",
+         "kind": "tag_equals",
+         "value": "FALSE",
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_VSD2_FAULTS_CLEAR"
+         },
+         "within_ms": 3000
+        }
+       ],
+       "completion_criteria_text": "BR2_Fault = FALSE AND M5_Therm = FALSE AND VSD2_CB_Trip = FALSE"
+      }
+     ],
+     "permissives": [],
+     "override_kind": "override"
+    }
+   }
+  },
+  {
+   "equipment_module_id": "99b33118-afe9-4cb8-86de-1c284065e85e",
+   "command_behavior": {
+    "execute": {
+     "branches": [
+      {
+       "when": [
+        {
+         "tag": "Fwd_Carriage",
+         "value": true,
+         "operator": "="
+        },
+        {
+         "tag": "Carriage_Brake_Open",
+         "value": true,
+         "operator": "="
+        },
+        {
+         "tag": "Long_Limit_Stop",
+         "value": false,
+         "operator": "="
+        }
+       ],
+       "label": "Drive Forward (Jog)",
+       "branch_id": "drive_fwd",
+       "control_modules": [
+        {
+         "tag": "CM1_Run",
+         "state": "RUN",
+         "description": "Carriage Motor 1 Run"
+        },
+        {
+         "tag": "CM2_Run",
+         "state": "RUN",
+         "description": "Carriage Motor 2 Run"
+        },
+        {
+         "tag": "CM3_Run",
+         "state": "RUN",
+         "description": "Carriage Motor 3 Run"
+        },
+        {
+         "tag": "CM4_Run",
+         "state": "RUN",
+         "description": "Carriage Motor 4 Run"
+        },
+        {
+         "tag": "VSD1_Speed_Ref",
+         "state": "JOG_SPEED_FWD",
+         "description": "Carriage VSD Speed Reference — forward jog"
+        }
+       ]
+      },
+      {
+       "when": [
+        {
+         "tag": "Fwd_Fast_Carriage",
+         "value": true,
+         "operator": "="
+        },
+        {
+         "tag": "Carriage_Brake_Open",
+         "value": true,
+         "operator": "="
+        },
+        {
+         "tag": "Long_Limit_Stop",
+         "value": false,
+         "operator": "="
+        }
+       ],
+       "label": "Drive Forward (Fast)",
+       "branch_id": "drive_fwd_fast",
+       "control_modules": [
+        {
+         "tag": "CM1_Run",
+         "state": "RUN",
+         "description": "Carriage Motor 1 Run"
+        },
+        {
+         "tag": "CM2_Run",
+         "state": "RUN",
+         "description": "Carriage Motor 2 Run"
+        },
+        {
+         "tag": "CM3_Run",
+         "state": "RUN",
+         "description": "Carriage Motor 3 Run"
+        },
+        {
+         "tag": "CM4_Run",
+         "state": "RUN",
+         "description": "Carriage Motor 4 Run"
+        },
+        {
+         "tag": "VSD1_Speed_Ref",
+         "state": "FAST_SPEED_FWD",
+         "description": "Carriage VSD Speed Reference — forward fast"
+        }
+       ]
+      },
+      {
+       "when": [
+        {
+         "tag": "Rev_Carriage",
+         "value": true,
+         "operator": "="
+        },
+        {
+         "tag": "Carriage_Brake_Open",
+         "value": true,
+         "operator": "="
+        },
+        {
+         "tag": "Long_Limit_Stop",
+         "value": false,
+         "operator": "="
+        }
+       ],
+       "label": "Drive Reverse (Jog)",
+       "branch_id": "drive_rev",
+       "control_modules": [
+        {
+         "tag": "CM1_Run",
+         "state": "RUN",
+         "description": "Carriage Motor 1 Run"
+        },
+        {
+         "tag": "CM2_Run",
+         "state": "RUN",
+         "description": "Carriage Motor 2 Run"
+        },
+        {
+         "tag": "CM3_Run",
+         "state": "RUN",
+         "description": "Carriage Motor 3 Run"
+        },
+        {
+         "tag": "CM4_Run",
+         "state": "RUN",
+         "description": "Carriage Motor 4 Run"
+        },
+        {
+         "tag": "VSD1_Speed_Ref",
+         "state": "JOG_SPEED_REV",
+         "description": "Carriage VSD Speed Reference — reverse jog"
+        }
+       ]
+      },
+      {
+       "when": [
+        {
+         "tag": "Rev_Fast_Carriage",
+         "value": true,
+         "operator": "="
+        },
+        {
+         "tag": "Carriage_Brake_Open",
+         "value": true,
+         "operator": "="
+        },
+        {
+         "tag": "Long_Limit_Stop",
+         "value": false,
+         "operator": "="
+        }
+       ],
+       "label": "Drive Reverse (Fast)",
+       "branch_id": "drive_rev_fast",
+       "control_modules": [
+        {
+         "tag": "CM1_Run",
+         "state": "RUN",
+         "description": "Carriage Motor 1 Run"
+        },
+        {
+         "tag": "CM2_Run",
+         "state": "RUN",
+         "description": "Carriage Motor 2 Run"
+        },
+        {
+         "tag": "CM3_Run",
+         "state": "RUN",
+         "description": "Carriage Motor 3 Run"
+        },
+        {
+         "tag": "CM4_Run",
+         "state": "RUN",
+         "description": "Carriage Motor 4 Run"
+        },
+        {
+         "tag": "VSD1_Speed_Ref",
+         "state": "FAST_SPEED_REV",
+         "description": "Carriage VSD Speed Reference — reverse fast"
+        }
+       ]
+      }
+     ],
+     "default_hold": [
+      {
+       "tag": "CM1_Run",
+       "state": "STOP",
+       "description": "Carriage Motor 1 Run"
+      },
+      {
+       "tag": "CM2_Run",
+       "state": "STOP",
+       "description": "Carriage Motor 2 Run"
+      },
+      {
+       "tag": "CM3_Run",
+       "state": "STOP",
+       "description": "Carriage Motor 3 Run"
+      },
+      {
+       "tag": "CM4_Run",
+       "state": "STOP",
+       "description": "Carriage Motor 4 Run"
+      },
+      {
+       "tag": "VSD1_Speed_Ref",
+       "state": "0",
+       "description": "Carriage VSD Speed Reference"
+      }
+     ]
+    }
+   },
+   "static_states": {
+    "held": [
+     {
+      "tag": "CM1_Run",
+      "state": "STOP",
+      "description": "Carriage Motor 1 Run"
+     },
+     {
+      "tag": "CM2_Run",
+      "state": "STOP",
+      "description": "Carriage Motor 2 Run"
+     },
+     {
+      "tag": "CM3_Run",
+      "state": "STOP",
+      "description": "Carriage Motor 3 Run"
+     },
+     {
+      "tag": "CM4_Run",
+      "state": "STOP",
+      "description": "Carriage Motor 4 Run"
+     },
+     {
+      "tag": "VSD1_Speed_Ref",
+      "state": "0",
+      "description": "Carriage VSD Speed Reference"
+     }
+    ],
+    "idle": [
+     {
+      "tag": "CM1_Run",
+      "state": "STOP",
+      "description": "Carriage Motor 1 Run"
+     },
+     {
+      "tag": "CM2_Run",
+      "state": "STOP",
+      "description": "Carriage Motor 2 Run"
+     },
+     {
+      "tag": "CM3_Run",
+      "state": "STOP",
+      "description": "Carriage Motor 3 Run"
+     },
+     {
+      "tag": "CM4_Run",
+      "state": "STOP",
+      "description": "Carriage Motor 4 Run"
+     },
+     {
+      "tag": "VSD1_Speed_Ref",
+      "state": "0",
+      "description": "Carriage VSD Speed Reference"
+     }
+    ],
+    "aborted": [
+     {
+      "tag": "CM1_Run",
+      "state": "STOP",
+      "description": "Carriage Motor 1 Run"
+     },
+     {
+      "tag": "CM2_Run",
+      "state": "STOP",
+      "description": "Carriage Motor 2 Run"
+     },
+     {
+      "tag": "CM3_Run",
+      "state": "STOP",
+      "description": "Carriage Motor 3 Run"
+     },
+     {
+      "tag": "CM4_Run",
+      "state": "STOP",
+      "description": "Carriage Motor 4 Run"
+     },
+     {
+      "tag": "VSD1_Speed_Ref",
+      "state": "0",
+      "description": "Carriage VSD Speed Reference"
+     }
+    ],
+    "stopped": [
+     {
+      "tag": "CM1_Run",
+      "state": "STOP",
+      "description": "Carriage Motor 1 Run"
+     },
+     {
+      "tag": "CM2_Run",
+      "state": "STOP",
+      "description": "Carriage Motor 2 Run"
+     },
+     {
+      "tag": "CM3_Run",
+      "state": "STOP",
+      "description": "Carriage Motor 3 Run"
+     },
+     {
+      "tag": "CM4_Run",
+      "state": "STOP",
+      "description": "Carriage Motor 4 Run"
+     },
+     {
+      "tag": "VSD1_Speed_Ref",
+      "state": "0",
+      "description": "Carriage VSD Speed Reference"
+     }
+    ]
+   },
+   "sequential_states": {
+    "holding": {
+     "notes": "Holding ramps drive to zero and confirms zero speed feedback before entering Held static state",
+     "steps": [
+      {
+       "step": 10,
+       "action": "De-energise carriage motor 1 contactor",
+       "actions": [
+        {
+         "kind": "assign",
+         "prose": "De-energise carriage motor 1 contactor",
+         "source": {
+          "kind": "literal",
+          "value": false,
+          "value_type": "boolean"
+         },
+         "action_id": "cm_holding_step_10_act_1",
+         "target_tag": "CM1_Run"
+        },
+        {
+         "kind": "assign",
+         "prose": "De-energise carriage motor 2 contactor",
+         "source": {
+          "kind": "literal",
+          "value": false,
+          "value_type": "boolean"
+         },
+         "action_id": "cm_holding_step_10_act_2",
+         "target_tag": "CM2_Run"
+        },
+        {
+         "kind": "assign",
+         "prose": "De-energise carriage motor 3 contactor",
+         "source": {
+          "kind": "literal",
+          "value": false,
+          "value_type": "boolean"
+         },
+         "action_id": "cm_holding_step_10_act_3",
+         "target_tag": "CM3_Run"
+        },
+        {
+         "kind": "assign",
+         "prose": "De-energise carriage motor 4 contactor",
+         "source": {
+          "kind": "literal",
+          "value": false,
+          "value_type": "boolean"
+         },
+         "action_id": "cm_holding_step_10_act_4",
+         "target_tag": "CM4_Run"
+        },
+        {
+         "kind": "assign",
+         "prose": "Ramp VSD1 speed reference to zero",
+         "source": {
+          "kind": "literal",
+          "value": 0,
+          "value_type": "number"
+         },
+         "action_id": "cm_holding_step_10_act_5",
+         "target_tag": "VSD1_Speed_Ref"
+        }
+       ],
+       "on_fail": {
+        "severity": "fault",
+        "fault_code": "F_CM_HOLD_ZERO_SPD"
+       },
+       "step_id": "cm_holding_step_10",
+       "monitors": [],
+       "branch_id": "main",
+       "transitions": [
+        {
+         "kind": "single",
+         "guard": [
+          {
+           "op": "<=",
+           "tag": "VSD1_Speed_Fb",
+           "kind": "tag_compare",
+           "value": 1,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_CM_HOLD_ZERO_SPD"
+           },
+           "within_ms": 8000
+          }
+         ],
+         "notes": "Wait for VSD1 to confirm zero speed before completing hold",
+         "priority": 0,
+         "is_default": true,
+         "transition_id": "cm_holding_step_10_to_20",
+         "target_step_id": "cm_holding_step_20"
+        }
+       ],
+       "completion_criteria": [
+        {
+         "op": "<=",
+         "tag": "VSD1_Speed_Fb",
+         "kind": "tag_compare",
+         "value": 1,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_CM_HOLD_ZERO_SPD"
+         },
+         "within_ms": 8000
+        }
+       ],
+       "completion_criteria_text": "VSD1_Speed_Fb <= 1"
+      },
+      {
+       "step": 20,
+       "action": "Step 20",
+       "actions": [],
+       "on_fail": {
+        "severity": "fault",
+        "fault_code": "F_CM_HOLD_SPD_CONFIRM"
+       },
+       "step_id": "cm_holding_step_20",
+       "monitors": [],
+       "branch_id": "main",
+       "transitions": [
+        {
+         "kind": "single",
+         "guard": [
+          {
+           "op": "<=",
+           "tag": "VSD1_Speed_Fb",
+           "kind": "tag_compare",
+           "value": 1,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_CM_HOLD_SPD_CONFIRM"
+           },
+           "within_ms": 3000
+          }
+         ],
+         "notes": "Final confirmation of zero speed before transitioning to Held",
+         "priority": 0,
+         "is_default": true,
+         "transition_id": "cm_holding_step_20_terminal",
+         "target_step_id": ""
+        }
+       ],
+       "completion_criteria": [
+        {
+         "op": "<=",
+         "tag": "VSD1_Speed_Fb",
+         "kind": "tag_compare",
+         "value": 1,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_CM_HOLD_SPD_CONFIRM"
+         },
+         "within_ms": 3000
+        }
+       ],
+       "completion_criteria_text": "VSD1_Speed_Fb <= 1"
+      }
+     ],
+     "permissives": [],
+     "override_kind": "override"
+    },
+    "aborting": {
+     "notes": "Aborting immediately de-energises all drive outputs with no ramp; waits for coast-to-zero before Aborted",
+     "steps": [
+      {
+       "step": 10,
+       "action": "Immediately de-energise carriage motor 1 contactor",
+       "actions": [
+        {
+         "kind": "assign",
+         "prose": "Immediately de-energise carriage motor 1 contactor",
+         "source": {
+          "kind": "literal",
+          "value": false,
+          "value_type": "boolean"
+         },
+         "action_id": "cm_aborting_step_10_act_1",
+         "target_tag": "CM1_Run"
+        },
+        {
+         "kind": "assign",
+         "prose": "Immediately de-energise carriage motor 2 contactor",
+         "source": {
+          "kind": "literal",
+          "value": false,
+          "value_type": "boolean"
+         },
+         "action_id": "cm_aborting_step_10_act_2",
+         "target_tag": "CM2_Run"
+        },
+        {
+         "kind": "assign",
+         "prose": "Immediately de-energise carriage motor 3 contactor",
+         "source": {
+          "kind": "literal",
+          "value": false,
+          "value_type": "boolean"
+         },
+         "action_id": "cm_aborting_step_10_act_3",
+         "target_tag": "CM3_Run"
+        },
+        {
+         "kind": "assign",
+         "prose": "Immediately de-energise carriage motor 4 contactor",
+         "source": {
+          "kind": "literal",
+          "value": false,
+          "value_type": "boolean"
+         },
+         "action_id": "cm_aborting_step_10_act_4",
+         "target_tag": "CM4_Run"
+        },
+        {
+         "kind": "assign",
+         "prose": "Immediately set VSD1 speed reference to zero",
+         "source": {
+          "kind": "literal",
+          "value": 0,
+          "value_type": "number"
+         },
+         "action_id": "cm_aborting_step_10_act_5",
+         "target_tag": "VSD1_Speed_Ref"
+        }
+       ],
+       "on_fail": {
+        "severity": "critical",
+        "fault_code": "F_CM_ABORT_ZERO_SPD"
+       },
+       "step_id": "cm_aborting_step_10",
+       "monitors": [],
+       "branch_id": "main",
+       "transitions": [
+        {
+         "kind": "single",
+         "guard": [
+          {
+           "op": "<=",
+           "tag": "VSD1_Speed_Fb",
+           "kind": "tag_compare",
+           "value": 1,
+           "on_fail": {
+            "severity": "critical",
+            "fault_code": "F_CM_ABORT_ZERO_SPD"
+           },
+           "within_ms": 5000
+          }
+         ],
+         "notes": "Wait for drive to coast to zero after immediate de-energise",
+         "priority": 0,
+         "is_default": true,
+         "transition_id": "cm_aborting_step_10_to_20",
+         "target_step_id": "cm_aborting_step_20"
+        }
+       ],
+       "completion_criteria": [
+        {
+         "op": "<=",
+         "tag": "VSD1_Speed_Fb",
+         "kind": "tag_compare",
+         "value": 1,
+         "on_fail": {
+          "severity": "critical",
+          "fault_code": "F_CM_ABORT_ZERO_SPD"
+         },
+         "within_ms": 5000
+        }
+       ],
+       "completion_criteria_text": "VSD1_Speed_Fb <= 1"
+      },
+      {
+       "step": 20,
+       "action": "Step 20",
+       "actions": [],
+       "on_fail": {
+        "severity": "critical",
+        "fault_code": "F_CM_ABORT_SPD_CONFIRM"
+       },
+       "step_id": "cm_aborting_step_20",
+       "monitors": [],
+       "branch_id": "main",
+       "transitions": [
+        {
+         "kind": "single",
+         "guard": [
+          {
+           "op": "<=",
+           "tag": "VSD1_Speed_Fb",
+           "kind": "tag_compare",
+           "value": 1,
+           "on_fail": {
+            "severity": "critical",
+            "fault_code": "F_CM_ABORT_SPD_CONFIRM"
+           },
+           "within_ms": 3000
+          }
+         ],
+         "notes": "Final confirmation all motion has ceased before entering Aborted safe state",
+         "priority": 0,
+         "is_default": true,
+         "transition_id": "cm_aborting_step_20_terminal",
+         "target_step_id": ""
+        }
+       ],
+       "completion_criteria": [
+        {
+         "op": "<=",
+         "tag": "VSD1_Speed_Fb",
+         "kind": "tag_compare",
+         "value": 1,
+         "on_fail": {
+          "severity": "critical",
+          "fault_code": "F_CM_ABORT_SPD_CONFIRM"
+         },
+         "within_ms": 3000
+        }
+       ],
+       "completion_criteria_text": "VSD1_Speed_Fb <= 1"
+      }
+     ],
+     "permissives": [],
+     "override_kind": "override"
+    },
+    "clearing": {
+     "notes": "Clearing verifies all fault inputs are healthy before allowing the state machine to transition to Stopped and then Resetting",
+     "steps": [
+      {
+       "step": 10,
+       "action": "Step 10",
+       "actions": [],
+       "on_fail": {
+        "severity": "fault",
+        "fault_code": "F_CM_CLEAR_CM1_FAULT"
+       },
+       "step_id": "cm_clearing_step_10",
+       "monitors": [],
+       "branch_id": "main",
+       "transitions": [
+        {
+         "kind": "single",
+         "guard": [
+          {
+           "tag": "CM1_Fault",
+           "kind": "tag_equals",
+           "value": false,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_CM_CLEAR_CM1_FAULT"
+           },
+           "within_ms": 5000
+          },
+          {
+           "tag": "CM2_Fault",
+           "kind": "tag_equals",
+           "value": false,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_CM_CLEAR_CM2_FAULT"
+           },
+           "within_ms": 5000
+          },
+          {
+           "tag": "CM3_Fault",
+           "kind": "tag_equals",
+           "value": false,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_CM_CLEAR_CM3_FAULT"
+           },
+           "within_ms": 5000
+          },
+          {
+           "tag": "CM4_Fault",
+           "kind": "tag_equals",
+           "value": false,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_CM_CLEAR_CM4_FAULT"
+           },
+           "within_ms": 5000
+          }
+         ],
+         "notes": "Verify all motor contactor faults have cleared before proceeding",
+         "priority": 0,
+         "is_default": true,
+         "transition_id": "cm_clearing_step_10_to_20",
+         "target_step_id": "cm_clearing_step_20"
+        }
+       ],
+       "completion_criteria": [
+        {
+         "tag": "CM1_Fault",
+         "kind": "tag_equals",
+         "value": false,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_CM_CLEAR_CM1_FAULT"
+         },
+         "within_ms": 5000
+        },
+        {
+         "tag": "CM2_Fault",
+         "kind": "tag_equals",
+         "value": false,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_CM_CLEAR_CM2_FAULT"
+         },
+         "within_ms": 5000
+        },
+        {
+         "tag": "CM3_Fault",
+         "kind": "tag_equals",
+         "value": false,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_CM_CLEAR_CM3_FAULT"
+         },
+         "within_ms": 5000
+        },
+        {
+         "tag": "CM4_Fault",
+         "kind": "tag_equals",
+         "value": false,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_CM_CLEAR_CM4_FAULT"
+         },
+         "within_ms": 5000
+        }
+       ],
+       "completion_criteria_text": "CM1_Fault = false AND CM2_Fault = false AND CM3_Fault = false AND CM4_Fault = false"
+      },
+      {
+       "step": 20,
+       "action": "Step 20",
+       "actions": [],
+       "on_fail": {
+        "severity": "fault",
+        "fault_code": "F_CM_CLEAR_CM1_THERM"
+       },
+       "step_id": "cm_clearing_step_20",
+       "monitors": [],
+       "branch_id": "main",
+       "transitions": [
+        {
+         "kind": "single",
+         "guard": [
+          {
+           "tag": "CM1_Therm",
+           "kind": "tag_equals",
+           "value": false,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_CM_CLEAR_CM1_THERM"
+           },
+           "within_ms": 5000
+          },
+          {
+           "tag": "CM2_Therm",
+           "kind": "tag_equals",
+           "value": false,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_CM_CLEAR_CM2_THERM"
+           },
+           "within_ms": 5000
+          },
+          {
+           "tag": "CM3_Therm",
+           "kind": "tag_equals",
+           "value": false,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_CM_CLEAR_CM3_THERM"
+           },
+           "within_ms": 5000
+          },
+          {
+           "tag": "CM4_Therm",
+           "kind": "tag_equals",
+           "value": false,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_CM_CLEAR_CM4_THERM"
+           },
+           "within_ms": 5000
+          },
+          {
+           "tag": "VSD1_CB_Trip",
+           "kind": "tag_equals",
+           "value": false,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_CM_CLEAR_VSD1_CB"
+           },
+           "within_ms": 5000
+          },
+          {
+           "tag": "BR1_Fault",
+           "kind": "tag_equals",
+           "value": false,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_CM_CLEAR_BR1_FAULT"
+           },
+           "within_ms": 5000
+          }
+         ],
+         "notes": "Verify all thermal faults, VSD1 CB trip and BR1 fault have cleared before transitioning to Stopped",
+         "priority": 0,
+         "is_default": true,
+         "transition_id": "cm_clearing_step_20_terminal",
+         "target_step_id": ""
+        }
+       ],
+       "completion_criteria": [
+        {
+         "tag": "CM1_Therm",
+         "kind": "tag_equals",
+         "value": false,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_CM_CLEAR_CM1_THERM"
+         },
+         "within_ms": 5000
+        },
+        {
+         "tag": "CM2_Therm",
+         "kind": "tag_equals",
+         "value": false,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_CM_CLEAR_CM2_THERM"
+         },
+         "within_ms": 5000
+        },
+        {
+         "tag": "CM3_Therm",
+         "kind": "tag_equals",
+         "value": false,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_CM_CLEAR_CM3_THERM"
+         },
+         "within_ms": 5000
+        },
+        {
+         "tag": "CM4_Therm",
+         "kind": "tag_equals",
+         "value": false,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_CM_CLEAR_CM4_THERM"
+         },
+         "within_ms": 5000
+        },
+        {
+         "tag": "VSD1_CB_Trip",
+         "kind": "tag_equals",
+         "value": false,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_CM_CLEAR_VSD1_CB"
+         },
+         "within_ms": 5000
+        },
+        {
+         "tag": "BR1_Fault",
+         "kind": "tag_equals",
+         "value": false,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_CM_CLEAR_BR1_FAULT"
+         },
+         "within_ms": 5000
+        }
+       ],
+       "completion_criteria_text": "CM1_Therm = false AND CM2_Therm = false AND CM3_Therm = false AND CM4_Therm = false AND VSD1_CB_Trip = false AND BR1_Fault = false"
+      }
+     ],
+     "permissives": [],
+     "override_kind": "override"
+    },
+    "stopping": {
+     "notes": "Stopping ramps VSD1 to zero then de-energises all motor contactors in sequence",
+     "steps": [
+      {
+       "step": 10,
+       "action": "Command VSD1 speed reference to zero to ramp drive to stop",
+       "actions": [
+        {
+         "kind": "assign",
+         "prose": "Command VSD1 speed reference to zero to ramp drive to stop",
+         "source": {
+          "kind": "literal",
+          "value": 0,
+          "value_type": "number"
+         },
+         "action_id": "cm_stopping_step_10_act_1",
+         "target_tag": "VSD1_Speed_Ref"
+        }
+       ],
+       "on_fail": {
+        "severity": "fault",
+        "fault_code": "F_CM_STOP_ZERO_SPD"
+       },
+       "step_id": "cm_stopping_step_10",
+       "monitors": [],
+       "branch_id": "main",
+       "transitions": [
+        {
+         "kind": "single",
+         "guard": [
+          {
+           "op": "<=",
+           "tag": "VSD1_Speed_Fb",
+           "kind": "tag_compare",
+           "value": 1,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_CM_STOP_ZERO_SPD"
+           },
+           "within_ms": 8000
+          }
+         ],
+         "notes": "Wait for VSD1 speed feedback to confirm drive has ramped to zero",
+         "priority": 0,
+         "is_default": true,
+         "transition_id": "cm_stopping_step_10_to_20",
+         "target_step_id": "cm_stopping_step_20"
+        }
+       ],
+       "completion_criteria": [
+        {
+         "op": "<=",
+         "tag": "VSD1_Speed_Fb",
+         "kind": "tag_compare",
+         "value": 1,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_CM_STOP_ZERO_SPD"
+         },
+         "within_ms": 8000
+        }
+       ],
+       "completion_criteria_text": "VSD1_Speed_Fb <= 1"
+      },
+      {
+       "step": 20,
+       "action": "De-energise carriage motor 1 contactor after zero speed confirmed",
+       "actions": [
+        {
+         "kind": "assign",
+         "prose": "De-energise carriage motor 1 contactor after zero speed confirmed",
+         "source": {
+          "kind": "literal",
+          "value": false,
+          "value_type": "boolean"
+         },
+         "action_id": "cm_stopping_step_20_act_1",
+         "target_tag": "CM1_Run"
+        },
+        {
+         "kind": "assign",
+         "prose": "De-energise carriage motor 2 contactor after zero speed confirmed",
+         "source": {
+          "kind": "literal",
+          "value": false,
+          "value_type": "boolean"
+         },
+         "action_id": "cm_stopping_step_20_act_2",
+         "target_tag": "CM2_Run"
+        },
+        {
+         "kind": "assign",
+         "prose": "De-energise carriage motor 3 contactor after zero speed confirmed",
+         "source": {
+          "kind": "literal",
+          "value": false,
+          "value_type": "boolean"
+         },
+         "action_id": "cm_stopping_step_20_act_3",
+         "target_tag": "CM3_Run"
+        },
+        {
+         "kind": "assign",
+         "prose": "De-energise carriage motor 4 contactor after zero speed confirmed",
+         "source": {
+          "kind": "literal",
+          "value": false,
+          "value_type": "boolean"
+         },
+         "action_id": "cm_stopping_step_20_act_4",
+         "target_tag": "CM4_Run"
+        }
+       ],
+       "on_fail": {
+        "severity": "fault",
+        "fault_code": "F_CM_STOP_MTR_OFF"
+       },
+       "step_id": "cm_stopping_step_20",
+       "monitors": [],
+       "branch_id": "main",
+       "transitions": [
+        {
+         "kind": "single",
+         "guard": [
+          {
+           "op": "<=",
+           "tag": "VSD1_Speed_Fb",
+           "kind": "tag_compare",
+           "value": 1,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_CM_STOP_MTR_OFF"
+           },
+           "within_ms": 3000
+          }
+         ],
+         "notes": "Final zero-speed confirmation with all motor contactors de-energised before transitioning to Stopped",
+         "priority": 0,
+         "is_default": true,
+         "transition_id": "cm_stopping_step_20_terminal",
+         "target_step_id": ""
+        }
+       ],
+       "completion_criteria": [
+        {
+         "op": "<=",
+         "tag": "VSD1_Speed_Fb",
+         "kind": "tag_compare",
+         "value": 1,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_CM_STOP_MTR_OFF"
+         },
+         "within_ms": 3000
+        }
+       ],
+       "completion_criteria_text": "VSD1_Speed_Fb <= 1"
+      }
+     ],
+     "permissives": [],
+     "override_kind": "override"
+    },
+    "resetting": {
+     "notes": "Step 30 (encoder reference validation) is held pending engineer confirmation of encoder input tag name and zero-reference value.",
+     "steps": [
+      {
+       "step": 10,
+       "action": "De-energise motor contactor CM1",
+       "actions": [
+        {
+         "kind": "assign",
+         "prose": "De-energise motor contactor CM1",
+         "source": {
+          "kind": "literal",
+          "value": false,
+          "value_type": "boolean"
+         },
+         "action_id": "cm_resetting_step_10_act_1",
+         "target_tag": "CM1_Run"
+        },
+        {
+         "kind": "assign",
+         "prose": "De-energise motor contactor CM2",
+         "source": {
+          "kind": "literal",
+          "value": false,
+          "value_type": "boolean"
+         },
+         "action_id": "cm_resetting_step_10_act_2",
+         "target_tag": "CM2_Run"
+        },
+        {
+         "kind": "assign",
+         "prose": "De-energise motor contactor CM3",
+         "source": {
+          "kind": "literal",
+          "value": false,
+          "value_type": "boolean"
+         },
+         "action_id": "cm_resetting_step_10_act_3",
+         "target_tag": "CM3_Run"
+        },
+        {
+         "kind": "assign",
+         "prose": "De-energise motor contactor CM4",
+         "source": {
+          "kind": "literal",
+          "value": false,
+          "value_type": "boolean"
+         },
+         "action_id": "cm_resetting_step_10_act_4",
+         "target_tag": "CM4_Run"
+        },
+        {
+         "kind": "assign",
+         "prose": "Set VSD1 speed reference to zero",
+         "source": {
+          "kind": "literal",
+          "value": 0,
+          "value_type": "number"
+         },
+         "action_id": "cm_resetting_step_10_act_5",
+         "target_tag": "VSD1_Speed_Ref"
+        }
+       ],
+       "on_fail": {
+        "severity": "fault",
+        "fault_code": "F_CM_VSD_ZERO_SPD"
+       },
+       "step_id": "cm_resetting_step_10",
+       "monitors": [],
+       "branch_id": "main",
+       "transitions": [
+        {
+         "kind": "single",
+         "guard": [
+          {
+           "op": "<=",
+           "tag": "VSD1_Speed_Fb",
+           "kind": "tag_compare",
+           "value": 1,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_CM_VSD_ZERO_SPD"
+           },
+           "within_ms": 5000
+          }
+         ],
+         "notes": "Threshold of 1.0 EU assumed for zero-speed — confirm with engineer",
+         "priority": 0,
+         "is_default": true,
+         "transition_id": "cm_resetting_step_10_to_20",
+         "target_step_id": "cm_resetting_step_20"
+        }
+       ],
+       "completion_criteria": [
+        {
+         "op": "<=",
+         "tag": "VSD1_Speed_Fb",
+         "kind": "tag_compare",
+         "value": 1,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_CM_VSD_ZERO_SPD"
+         },
+         "within_ms": 5000
+        }
+       ],
+       "completion_criteria_text": "VSD1_Speed_Fb <= 1"
+      },
+      {
+       "step": 20,
+       "action": "Step 20",
+       "actions": [],
+       "on_fail": {
+        "severity": "fault",
+        "fault_code": "F_CM_VSD_READY"
+       },
+       "step_id": "cm_resetting_step_20",
+       "monitors": [],
+       "branch_id": "main",
+       "transitions": [
+        {
+         "kind": "single",
+         "guard": [
+          {
+           "tag": "VSD1_CB_Trip",
+           "kind": "tag_equals",
+           "value": false,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_CM_VSD_READY"
+           },
+           "within_ms": 3000
+          }
+         ],
+         "notes": "Confirms VSD1 has not tripped during reset sequence; terminal step pending encoder tag confirmation",
+         "priority": 0,
+         "is_default": true,
+         "transition_id": "cm_resetting_step_20_terminal",
+         "target_step_id": ""
+        }
+       ],
+       "completion_criteria": [
+        {
+         "tag": "VSD1_CB_Trip",
+         "kind": "tag_equals",
+         "value": false,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_CM_VSD_READY"
+         },
+         "within_ms": 3000
+        }
+       ],
+       "completion_criteria_text": "VSD1_CB_Trip = false"
+      }
+     ],
+     "permissives": [
+      {
+       "tag": "CM1_Fault",
+       "value": false,
+       "operator": "="
+      },
+      {
+       "tag": "CM2_Fault",
+       "value": false,
+       "operator": "="
+      },
+      {
+       "tag": "CM3_Fault",
+       "value": false,
+       "operator": "="
+      },
+      {
+       "tag": "CM4_Fault",
+       "value": false,
+       "operator": "="
+      },
+      {
+       "tag": "CM1_Therm",
+       "value": false,
+       "operator": "="
+      },
+      {
+       "tag": "CM2_Therm",
+       "value": false,
+       "operator": "="
+      },
+      {
+       "tag": "CM3_Therm",
+       "value": false,
+       "operator": "="
+      },
+      {
+       "tag": "CM4_Therm",
+       "value": false,
+       "operator": "="
+      },
+      {
+       "tag": "VSD1_CB_Trip",
+       "value": false,
+       "operator": "="
+      },
+      {
+       "tag": "BR1_Fault",
+       "value": false,
+       "operator": "="
+      }
+     ],
+     "override_kind": "override"
+    },
+    "unholding": {
+     "notes": "Unholding re-confirms VSD health and brake open status before handing control back to Execute command branches",
+     "steps": [
+      {
+       "step": 10,
+       "action": "Step 10",
+       "actions": [],
+       "on_fail": {
+        "severity": "fault",
+        "fault_code": "F_CM_UNHOLD_VSD_READY"
+       },
+       "step_id": "cm_unholding_step_10",
+       "monitors": [],
+       "branch_id": "main",
+       "transitions": [
+        {
+         "kind": "single",
+         "guard": [
+          {
+           "tag": "VSD1_CB_Trip",
+           "kind": "tag_equals",
+           "value": false,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_CM_UNHOLD_VSD_READY"
+           },
+           "within_ms": 5000
+          },
+          {
+           "tag": "BR1_Fault",
+           "kind": "tag_equals",
+           "value": false,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_CM_UNHOLD_BR1_READY"
+           },
+           "within_ms": 5000
+          }
+         ],
+         "notes": "Confirm VSD1 CB healthy and braking resistor healthy before restoring drive",
+         "priority": 0,
+         "is_default": true,
+         "transition_id": "cm_unholding_step_10_to_20",
+         "target_step_id": "cm_unholding_step_20"
+        }
+       ],
+       "completion_criteria": [
+        {
+         "tag": "VSD1_CB_Trip",
+         "kind": "tag_equals",
+         "value": false,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_CM_UNHOLD_VSD_READY"
+         },
+         "within_ms": 5000
+        },
+        {
+         "tag": "BR1_Fault",
+         "kind": "tag_equals",
+         "value": false,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_CM_UNHOLD_BR1_READY"
+         },
+         "within_ms": 5000
+        }
+       ],
+       "completion_criteria_text": "VSD1_CB_Trip = false AND BR1_Fault = false"
+      },
+      {
+       "step": 20,
+       "action": "Step 20",
+       "actions": [],
+       "on_fail": {
+        "severity": "fault",
+        "fault_code": "F_CM_UNHOLD_BRAKE_OPEN"
+       },
+       "step_id": "cm_unholding_step_20",
+       "monitors": [],
+       "branch_id": "main",
+       "transitions": [
+        {
+         "kind": "single",
+         "guard": [
+          {
+           "tag": "Carriage_Brake_Open",
+           "kind": "tag_equals",
+           "value": true,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_CM_UNHOLD_BRAKE_OPEN"
+           },
+           "within_ms": 5000
+          }
+         ],
+         "notes": "Confirm brake is open before returning to Execute",
+         "priority": 0,
+         "is_default": true,
+         "transition_id": "cm_unholding_step_20_terminal",
+         "target_step_id": ""
+        }
+       ],
+       "completion_criteria": [
+        {
+         "tag": "Carriage_Brake_Open",
+         "kind": "tag_equals",
+         "value": true,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_CM_UNHOLD_BRAKE_OPEN"
+         },
+         "within_ms": 5000
+        }
+       ],
+       "completion_criteria_text": "Carriage_Brake_Open = true"
+      }
+     ],
+     "permissives": [],
+     "override_kind": "override"
+    }
+   }
+  },
+  {
+   "equipment_module_id": "eaadf532-2c2b-4e62-8cab-19bd17b3efd1",
+   "command_behavior": null,
+   "static_states": {
+    "idle": [
+     {
+      "tag": "Carriage_Brake_Rel",
+      "state": "STOP",
+      "description": "Carriage Brake Release"
+     }
+    ],
+    "aborted": [
+     {
+      "tag": "Carriage_Brake_Rel",
+      "state": "STOP",
+      "description": "Carriage Brake Release"
+     }
+    ],
+    "execute": [
+     {
+      "tag": "Carriage_Brake_Rel",
+      "state": "RELEASE",
+      "description": "Carriage Brake Release"
+     }
+    ],
+    "stopped": [
+     {
+      "tag": "Carriage_Brake_Rel",
+      "state": "STOP",
+      "description": "Carriage Brake Release"
+     }
+    ]
+   },
+   "sequential_states": {
+    "aborting": {
+     "notes": "Immediate safe-state action. Carriage_Brake_Rel de-asserted unconditionally. Brake engagement confirmed before entering aborted.",
+     "steps": [
+      {
+       "step": 10,
+       "action": "Immediately de-assert Carriage_Brake_Rel to spring-apply the brake and bring the wagon to a safe stop.",
+       "actions": [
+        {
+         "kind": "assign",
+         "prose": "Immediately de-assert Carriage_Brake_Rel to spring-apply the brake and bring the wagon to a safe stop.",
+         "source": {
+          "kind": "literal",
+          "value": false,
+          "value_type": "boolean"
+         },
+         "action_id": "cm_brake_aborting_step_10_act_1",
+         "target_tag": "Carriage_Brake_Rel"
+        }
+       ],
+       "on_fail": {
+        "severity": "critical",
+        "fault_code": "F_CM_BRAKE_ABORT_ENGAGE"
+       },
+       "step_id": "cm_brake_aborting_step_10",
+       "monitors": [],
+       "branch_id": "main",
+       "transitions": [
+        {
+         "kind": "single",
+         "guard": [
+          {
+           "tag": "Carriage_Brake_Open",
+           "kind": "tag_equals",
+           "value": false,
+           "on_fail": {
+            "severity": "critical",
+            "fault_code": "F_CM_BRAKE_ABORT_ENGAGE"
+           },
+           "within_ms": 5000
+          }
+         ],
+         "notes": "Safety-critical: confirm brake physically engaged within 5000 ms. If not confirmed, escalate to critical — unit-wide shutdown.",
+         "priority": 0,
+         "is_default": true,
+         "transition_id": "cm_brake_aborting_step_10_terminal",
+         "target_step_id": ""
+        }
+       ],
+       "completion_criteria": [
+        {
+         "tag": "Carriage_Brake_Open",
+         "kind": "tag_equals",
+         "value": false,
+         "on_fail": {
+          "severity": "critical",
+          "fault_code": "F_CM_BRAKE_ABORT_ENGAGE"
+         },
+         "within_ms": 5000
+        }
+       ],
+       "completion_criteria_text": "Carriage_Brake_Open = false"
+      }
+     ],
+     "permissives": [],
+     "override_kind": "override"
+    },
+    "clearing": {
+     "notes": "Operator-initiated recovery from aborted. Confirms contactor fault is cleared before re-entering stopped state. No output commanded.",
+     "steps": [
+      {
+       "step": 10,
+       "action": "Step 10",
+       "actions": [],
+       "on_fail": {
+        "severity": "fault",
+        "fault_code": "F_CM_BRAKE_FAULT_PERSIST"
+       },
+       "step_id": "cm_brake_clearing_step_10",
+       "monitors": [],
+       "branch_id": "main",
+       "transitions": [
+        {
+         "kind": "single",
+         "guard": [
+          {
+           "tag": "Carriage_Brake_Fault",
+           "kind": "tag_equals",
+           "value": false,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_CM_BRAKE_FAULT_PERSIST"
+           },
+           "within_ms": 5000
+          }
+         ],
+         "notes": "Verify Carriage_Brake_Fault is cleared before allowing progression to stopped. No output commanded.",
+         "priority": 0,
+         "is_default": true,
+         "transition_id": "cm_brake_clearing_step_10_terminal",
+         "target_step_id": ""
+        }
+       ],
+       "completion_criteria": [
+        {
+         "tag": "Carriage_Brake_Fault",
+         "kind": "tag_equals",
+         "value": false,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_CM_BRAKE_FAULT_PERSIST"
+         },
+         "within_ms": 5000
+        }
+       ],
+       "completion_criteria_text": "Carriage_Brake_Fault = false"
+      }
+     ],
+     "permissives": [],
+     "override_kind": "override"
+    },
+    "starting": {
+     "notes": "Issues brake release command and waits for Carriage_Brake_Open confirmation. Faults if not released within 5000 ms.",
+     "steps": [
+      {
+       "step": 10,
+       "action": "Assert Carriage_Brake_Rel to release the Demag braked gearmotor, allowing longitudinal rail movement.",
+       "actions": [
+        {
+         "kind": "assign",
+         "prose": "Assert Carriage_Brake_Rel to release the Demag braked gearmotor, allowing longitudinal rail movement.",
+         "source": {
+          "kind": "literal",
+          "value": true,
+          "value_type": "boolean"
+         },
+         "action_id": "cm_brake_starting_step_10_act_1",
+         "target_tag": "Carriage_Brake_Rel"
+        }
+       ],
+       "on_fail": {
+        "severity": "fault",
+        "fault_code": "F_CM_BRAKE_RELEASE"
+       },
+       "step_id": "cm_brake_starting_step_10",
+       "monitors": [],
+       "branch_id": "main",
+       "transitions": [
+        {
+         "kind": "single",
+         "guard": [
+          {
+           "tag": "Carriage_Brake_Open",
+           "kind": "tag_equals",
+           "value": true,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_CM_BRAKE_RELEASE"
+           },
+           "within_ms": 5000
+          }
+         ],
+         "notes": "Confirm brake open feedback within 5000 ms stroke timeout. Fault to aborting if not confirmed.",
+         "priority": 0,
+         "is_default": true,
+         "transition_id": "cm_brake_starting_step_10_terminal",
+         "target_step_id": ""
+        }
+       ],
+       "completion_criteria": [
+        {
+         "tag": "Carriage_Brake_Open",
+         "kind": "tag_equals",
+         "value": true,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_CM_BRAKE_RELEASE"
+         },
+         "within_ms": 5000
+        }
+       ],
+       "completion_criteria_text": "Carriage_Brake_Open = true"
+      }
+     ],
+     "permissives": [
+      {
+       "tag": "Carriage_Brake_Fault",
+       "value": false,
+       "operator": "="
+      }
+     ],
+     "override_kind": "override"
+    },
+    "stopping": {
+     "notes": "De-asserts release command; spring-applied brake engages. Confirms engagement before transitioning to stopped.",
+     "steps": [
+      {
+       "step": 10,
+       "action": "De-assert Carriage_Brake_Rel to engage the spring-applied Demag brake, holding the wagon stationary.",
+       "actions": [
+        {
+         "kind": "assign",
+         "prose": "De-assert Carriage_Brake_Rel to engage the spring-applied Demag brake, holding the wagon stationary.",
+         "source": {
+          "kind": "literal",
+          "value": false,
+          "value_type": "boolean"
+         },
+         "action_id": "cm_brake_stopping_step_10_act_1",
+         "target_tag": "Carriage_Brake_Rel"
+        }
+       ],
+       "on_fail": {
+        "severity": "fault",
+        "fault_code": "F_CM_BRAKE_ENGAGE"
+       },
+       "step_id": "cm_brake_stopping_step_10",
+       "monitors": [],
+       "branch_id": "main",
+       "transitions": [
+        {
+         "kind": "single",
+         "guard": [
+          {
+           "tag": "Carriage_Brake_Open",
+           "kind": "tag_equals",
+           "value": false,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_CM_BRAKE_ENGAGE"
+           },
+           "within_ms": 5000
+          }
+         ],
+         "notes": "Confirm brake engaged (Carriage_Brake_Open=FALSE) within 5000 ms. Fault if not confirmed.",
+         "priority": 0,
+         "is_default": true,
+         "transition_id": "cm_brake_stopping_step_10_terminal",
+         "target_step_id": ""
+        }
+       ],
+       "completion_criteria": [
+        {
+         "tag": "Carriage_Brake_Open",
+         "kind": "tag_equals",
+         "value": false,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_CM_BRAKE_ENGAGE"
+         },
+         "within_ms": 5000
+        }
+       ],
+       "completion_criteria_text": "Carriage_Brake_Open = false"
+      }
+     ],
+     "permissives": [],
+     "override_kind": "override"
+    },
+    "resetting": {
+     "notes": "No output commanded. Pure confirmation of safe brake state before entering idle.",
+     "steps": [
+      {
+       "step": 10,
+       "action": "Step 10",
+       "actions": [],
+       "on_fail": {
+        "severity": "fault",
+        "fault_code": "F_CM_BRAKE_CONFIRM_ENGAGED"
+       },
+       "step_id": "cm_brake_resetting_step_10",
+       "monitors": [],
+       "branch_id": "main",
+       "transitions": [
+        {
+         "kind": "single",
+         "guard": [
+          {
+           "tag": "Carriage_Brake_Open",
+           "kind": "tag_equals",
+           "value": false,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_CM_BRAKE_CONFIRM_ENGAGED"
+           },
+           "within_ms": 5000
+          },
+          {
+           "tag": "Carriage_Brake_Fault",
+           "kind": "tag_equals",
+           "value": false,
+           "on_fail": {
+            "severity": "fault",
+            "fault_code": "F_CM_BRAKE_CONFIRM_ENGAGED"
+           },
+           "within_ms": 5000
+          }
+         ],
+         "notes": "Verify brake is physically engaged (Carriage_Brake_Open=FALSE) and no contactor fault before transitioning to idle.",
+         "priority": 0,
+         "is_default": true,
+         "transition_id": "cm_brake_resetting_step_10_terminal",
+         "target_step_id": ""
+        }
+       ],
+       "completion_criteria": [
+        {
+         "tag": "Carriage_Brake_Open",
+         "kind": "tag_equals",
+         "value": false,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_CM_BRAKE_CONFIRM_ENGAGED"
+         },
+         "within_ms": 5000
+        },
+        {
+         "tag": "Carriage_Brake_Fault",
+         "kind": "tag_equals",
+         "value": false,
+         "on_fail": {
+          "severity": "fault",
+          "fault_code": "F_CM_BRAKE_CONFIRM_ENGAGED"
+         },
+         "within_ms": 5000
+        }
+       ],
+       "completion_criteria_text": "Carriage_Brake_Open = false AND Carriage_Brake_Fault = false"
+      }
+     ],
+     "permissives": [],
+     "override_kind": "override"
+    }
+   }
+  }
+ ],
+ "confirmed_units": [
+  {
+   "unit_id": "aed7db1b-9700-4187-91a7-44b0a25d84bb",
+   "excluded": false,
+   "unit_name": "Carriage",
+   "description": "",
+   "equipment_type": "Other",
+   "equipment_modules": [
+    {
+     "description": "",
+     "control_modules": [
+      {
+       "is_safety": false,
+       "io_signals": [
+        {
+         "tag": "Carriage_Brake_Open",
+         "io_address": "I1.5",
+         "description": "Carriage Brake Open",
+         "signal_type": "DI"
+        },
+        {
+         "tag": "Carriage_Brake_Fault",
+         "io_address": "I2.0",
+         "description": "Carriage Brake Contactor Fault",
+         "signal_type": "DI"
+        },
+        {
+         "tag": "Carriage_Brake_Rel",
+         "io_address": "Q1.0",
+         "description": "Carriage Brake Release",
+         "signal_type": "DO"
+        }
+       ],
+       "description": "Carriage Brake Open",
+       "control_module_id": "6e38e67b-d822-4e15-8f28-48c45391e6b8",
+       "control_module_name": "CM_Motor_K1",
+       "control_module_class": "motor"
+      }
+     ],
+     "equipment_module_id": "eaadf532-2c2b-4e62-8cab-19bd17b3efd1",
+     "equipment_module_name": "Carriage Brake"
+    },
+    {
+     "description": "",
+     "control_modules": [
+      {
+       "is_safety": false,
+       "io_signals": [
+        {
+         "tag": "BR1_Fault",
+         "io_address": "I0.3",
+         "description": "Carriage Braking Resistor Fault",
+         "signal_type": "DI"
+        }
+       ],
+       "description": "Carriage Braking Resistor Fault",
+       "control_module_id": "4d7709ca-b06e-4aed-9bdc-d7805aab2cad",
+       "control_module_name": "CM_Motor_BR1",
+       "control_module_class": "motor"
+      },
+      {
+       "is_safety": false,
+       "io_signals": [
+        {
+         "tag": "CM1_Fault",
+         "io_address": "I0.5",
+         "description": "Carriage Motor 1 Contactor Fault",
+         "signal_type": "DI"
+        },
+        {
+         "tag": "CM1_Therm",
+         "io_address": "I1.1",
+         "description": "Carriage Motor 1 Thermistor Fault",
+         "signal_type": "DI"
+        },
+        {
+         "tag": "CM1_Run",
+         "io_address": "Q0.4",
+         "description": "Carriage Motor 1 Run",
+         "signal_type": "DO"
+        }
+       ],
+       "description": "Carriage Motor 1 Contactor Fault",
+       "control_module_id": "86a6cd3c-070d-4cf3-9071-5ab08a7177bc",
+       "control_module_name": "CM_Motor_CM1",
+       "control_module_class": "motor"
+      },
+      {
+       "is_safety": false,
+       "io_signals": [
+        {
+         "tag": "CM2_Fault",
+         "io_address": "I0.6",
+         "description": "Carriage Motor 2 Contactor Fault",
+         "signal_type": "DI"
+        },
+        {
+         "tag": "CM2_Therm",
+         "io_address": "I1.2",
+         "description": "Carriage Motor 2 Thermistor Fault",
+         "signal_type": "DI"
+        },
+        {
+         "tag": "CM2_Run",
+         "io_address": "Q0.5",
+         "description": "Carriage Motor 2 Run",
+         "signal_type": "DO"
+        }
+       ],
+       "description": "Carriage Motor 2 Contactor Fault",
+       "control_module_id": "d0e6c7c4-612e-409e-a74d-997ee8fbf5e9",
+       "control_module_name": "CM_Motor_CM2",
+       "control_module_class": "motor"
+      },
+      {
+       "is_safety": false,
+       "io_signals": [
+        {
+         "tag": "CM3_Fault",
+         "io_address": "I0.7",
+         "description": "Carriage Motor 3 Contactor Fault",
+         "signal_type": "DI"
+        },
+        {
+         "tag": "CM3_Therm",
+         "io_address": "I1.3",
+         "description": "Carriage Motor 3 Thermistor Fault",
+         "signal_type": "DI"
+        },
+        {
+         "tag": "CM3_Run",
+         "io_address": "Q0.6",
+         "description": "Carriage Motor 3 Run",
+         "signal_type": "DO"
+        }
+       ],
+       "description": "Carriage Motor 3 Contactor Fault",
+       "control_module_id": "83a41b52-7642-437a-ac58-f24ce2e69300",
+       "control_module_name": "CM_Motor_CM3",
+       "control_module_class": "motor"
+      },
+      {
+       "is_safety": false,
+       "io_signals": [
+        {
+         "tag": "CM4_Fault",
+         "io_address": "I1.0",
+         "description": "Carriage Motor 4 Contactor Fault",
+         "signal_type": "DI"
+        },
+        {
+         "tag": "CM4_Therm",
+         "io_address": "I1.4",
+         "description": "Carriage Motor 4 Thermistor Fault",
+         "signal_type": "DI"
+        },
+        {
+         "tag": "CM4_Run",
+         "io_address": "Q0.7",
+         "description": "Carriage Motor 4 Run",
+         "signal_type": "DO"
+        }
+       ],
+       "description": "Carriage Motor 4 Contactor Fault",
+       "control_module_id": "b09c6f1b-11db-4b98-b1e7-c009ac944c74",
+       "control_module_name": "CM_Motor_CM4",
+       "control_module_class": "motor"
+      },
+      {
+       "is_safety": false,
+       "io_signals": [
+        {
+         "tag": "VSD1_CB_Trip",
+         "io_address": "I0.4",
+         "description": "VSD1 CB Trip",
+         "signal_type": "DI"
+        },
+        {
+         "tag": "VSD1_Speed_Fb",
+         "io_address": "AI0",
+         "description": "Carriage VSD Speed Feedback",
+         "signal_type": "AI"
+        },
+        {
+         "tag": "VSD1_Speed_Ref",
+         "io_address": "AQ0",
+         "description": "Carriage VSD Speed Reference",
+         "signal_type": "AO"
+        }
+       ],
+       "description": "VSD1 CB Trip",
+       "control_module_id": "b8c9b7ee-0257-4fbf-ad15-5eb83ef83bd5",
+       "control_module_name": "CM_Motor_VSD1",
+       "control_module_class": "motor"
+      }
+     ],
+     "equipment_module_id": "99b33118-afe9-4cb8-86de-1c284065e85e",
+     "equipment_module_name": "Carriage Drive"
+    },
+    {
+     "description": "",
+     "control_modules": [
+      {
+       "is_safety": false,
+       "io_signals": [
+        {
+         "tag": "Long_Limit_Stop",
+         "io_address": "I4.0",
+         "description": "Longitudinal Limit Stop",
+         "signal_type": "DI"
+        }
+       ],
+       "description": "Longitudinal Limit Stop",
+       "control_module_id": "9cf9158c-d7bf-40bb-8604-edf46be4b363",
+       "control_module_name": "CM_Sensor_LS1",
+       "control_module_class": "sensor_position"
+      }
+     ],
+     "equipment_module_id": "69af661f-f9f7-420d-8657-be9002f49ef0",
+     "equipment_module_name": "Carriage Limits"
+    },
+    {
+     "description": "",
+     "control_modules": [
+      {
+       "is_safety": false,
+       "io_signals": [
+        {
+         "tag": "Fwd_Carriage",
+         "io_address": "I3.2",
+         "description": "Forward Carriage",
+         "signal_type": "DI"
+        },
+        {
+         "tag": "Fwd_Fast_Carriage",
+         "io_address": "I3.3",
+         "description": "Forward Fast Carriage",
+         "signal_type": "DI"
+        },
+        {
+         "tag": "Rev_Carriage",
+         "io_address": "I3.4",
+         "description": "Reverse Carriage",
+         "signal_type": "DI"
+        },
+        {
+         "tag": "Rev_Fast_Carriage",
+         "io_address": "I3.5",
+         "description": "Reverse Fast Carriage",
+         "signal_type": "DI"
+        }
+       ],
+       "description": "Forward Carriage",
+       "control_module_id": "acc7b036-4a11-4bfe-abf3-18b4aa97da24",
+       "control_module_name": "CM_PushButton_Pendant",
+       "control_module_class": "push_button"
+      }
+     ],
+     "equipment_module_id": "e150e548-4934-4931-be5f-1d4537420380",
+     "equipment_module_name": "Carriage Pendant"
+    }
+   ]
+  },
+  {
+   "unit_id": "00a733ae-37cb-4a79-b38a-7d27fcfa9265",
+   "excluded": false,
+   "unit_name": "Indicators",
+   "description": "",
+   "equipment_type": "Other",
+   "equipment_modules": [
+    {
+     "description": "",
+     "control_modules": [
+      {
+       "is_safety": false,
+       "io_signals": [
+        {
+         "tag": "Travel_Horn",
+         "io_address": "Q0.2",
+         "description": "Travel Horn",
+         "signal_type": "DO"
+        }
+       ],
+       "description": "Travel Horn",
+       "control_module_id": "3f5e51b9-8b3e-4921-9fe8-0cc5d24b9cd9",
+       "control_module_name": "CM_Indicator_HORN",
+       "control_module_class": "indicator"
+      },
+      {
+       "is_safety": false,
+       "io_signals": [
+        {
+         "tag": "Travel_Strobe",
+         "io_address": "Q0.3",
+         "description": "Travel Strobe",
+         "signal_type": "DO"
+        }
+       ],
+       "description": "Travel Strobe",
+       "control_module_id": "9a0d51bd-6583-4e15-8ff2-26aae994eb6d",
+       "control_module_name": "CM_Indicator_STROBE",
+       "control_module_class": "indicator"
+      }
+     ],
+     "equipment_module_id": "5c1e1894-d99b-428e-9595-4c0cd03c45a3",
+     "equipment_module_name": "Travel Indicators"
+    }
+   ]
+  },
+  {
+   "unit_id": "33253f31-f961-471a-b358-ebff53157c6a",
+   "excluded": false,
+   "unit_name": "Rotator",
+   "description": "",
+   "equipment_type": "Other",
+   "equipment_modules": [
+    {
+     "description": "",
+     "control_modules": [
+      {
+       "is_safety": false,
+       "io_signals": [
+        {
+         "tag": "Rot_Brake_Open",
+         "io_address": "I3.0",
+         "description": "Rotator Brake Open",
+         "signal_type": "DI"
+        },
+        {
+         "tag": "Rot_Brake_Fault",
+         "io_address": "I3.1",
+         "description": "Rotator Brake Contactor Fault",
+         "signal_type": "DI"
+        }
+       ],
+       "description": "Rotator Brake Open",
+       "control_module_id": "3f13a49f-0536-4ede-b8be-443f995e5d5b",
+       "control_module_name": "CM_Motor_K2",
+       "control_module_class": "motor"
+      }
+     ],
+     "equipment_module_id": "c95adfe2-8665-400c-89e1-18fc72cbade3",
+     "equipment_module_name": "Rotator Brake"
+    },
+    {
+     "description": "",
+     "control_modules": [
+      {
+       "is_safety": false,
+       "io_signals": [
+        {
+         "tag": "BR2_Fault",
+         "io_address": "I2.5",
+         "description": "Rotator Braking Resistor Fault",
+         "signal_type": "DI"
+        }
+       ],
+       "description": "Rotator Braking Resistor Fault",
+       "control_module_id": "d8294c22-bc71-4dbd-bc58-67b2ab2bfebb",
+       "control_module_name": "CM_Motor_BR2",
+       "control_module_class": "motor"
+      },
+      {
+       "is_safety": false,
+       "io_signals": [
+        {
+         "tag": "M5_Therm",
+         "io_address": "I2.7",
+         "description": "Rotator Motor Thermistor Fault",
+         "signal_type": "DI"
+        }
+       ],
+       "description": "Rotator Motor Thermistor Fault",
+       "control_module_id": "181752d2-1da3-4260-a9c7-e3759c019c88",
+       "control_module_name": "CM_Motor_M5",
+       "control_module_class": "motor"
+      },
+      {
+       "is_safety": false,
+       "io_signals": [
+        {
+         "tag": "VSD2_CB_Trip",
+         "io_address": "I2.6",
+         "description": "Rotator VSD CB Trip",
+         "signal_type": "DI"
+        },
+        {
+         "tag": "VSD2_Speed_Fb",
+         "io_address": "AI1",
+         "description": "Rotator VSD Speed Feedback",
+         "signal_type": "AI"
+        },
+        {
+         "tag": "VSD2_Speed_Ref",
+         "io_address": "AQ1",
+         "description": "Rotator VSD Speed Reference",
+         "signal_type": "AO"
+        }
+       ],
+       "description": "Rotator VSD CB Trip",
+       "control_module_id": "68e37a81-4ebc-4e56-abca-655e2ed7e155",
+       "control_module_name": "CM_Motor_VSD2",
+       "control_module_class": "motor"
+      }
+     ],
+     "equipment_module_id": "7697aeec-08ec-46c3-8f90-b6c3037c53f3",
+     "equipment_module_name": "Rotator Drive"
+    },
+    {
+     "description": "",
+     "control_modules": [
+      {
+       "is_safety": false,
+       "io_signals": [
+        {
+         "tag": "Rotate_Left",
+         "io_address": "I2.1",
+         "description": "Rotate Left",
+         "signal_type": "DI"
+        },
+        {
+         "tag": "Rotate_Left_Fast",
+         "io_address": "I2.2",
+         "description": "Rotate Left Fast",
+         "signal_type": "DI"
+        },
+        {
+         "tag": "Rot_Right",
+         "io_address": "I3.6",
+         "description": "Rotate Right",
+         "signal_type": "DI"
+        },
+        {
+         "tag": "Rot_Right_Fast",
+         "io_address": "I3.7",
+         "description": "Rotate Right Fast",
+         "signal_type": "DI"
+        }
+       ],
+       "description": "Rotate Left",
+       "control_module_id": "df1ee92b-175f-493a-b0a6-5ad55418bac8",
+       "control_module_name": "CM_PushButton_Pendant",
+       "control_module_class": "push_button"
+      }
+     ],
+     "equipment_module_id": "f3ea5e73-e962-433c-99dc-98a8f7e93cc8",
+     "equipment_module_name": "Rotator Pendant"
+    }
+   ]
+  },
+  {
+   "unit_id": "7413a202-0cb2-42b2-ad6c-b1fe1669570c",
+   "excluded": false,
+   "unit_name": "Safety",
+   "description": "",
+   "equipment_type": "Other",
+   "equipment_modules": [
+    {
+     "description": "",
+     "control_modules": [
+      {
+       "is_safety": false,
+       "io_signals": [
+        {
+         "tag": "ECB_Trip",
+         "io_address": "I0.0",
+         "description": "ECB Trip",
+         "signal_type": "DI"
+        },
+        {
+         "tag": "Reset_ECB",
+         "io_address": "Q0.0",
+         "description": "Reset ECB",
+         "signal_type": "DO"
+        }
+       ],
+       "description": "ECB Trip",
+       "control_module_id": "75828119-c527-475f-b0f0-e8106b9db5a2",
+       "control_module_name": "CM_Device_ECB1",
+       "control_module_class": "other"
+      },
+      {
+       "is_safety": true,
+       "io_signals": [
+        {
+         "tag": "EStop_Healthy",
+         "io_address": "I2.4",
+         "description": "E-Stop Healthy",
+         "signal_type": "DI"
+        }
+       ],
+       "description": "E-Stop Healthy",
+       "control_module_id": "8554d8d9-d3db-44fe-b328-f092faa5a814",
+       "control_module_name": "CM_EStop_ES1",
+       "control_module_class": "emergency_stop"
+      },
+      {
+       "is_safety": true,
+       "io_signals": [
+        {
+         "tag": "MS1_Healthy",
+         "io_address": "I0.2",
+         "description": "Maintenance Switch Healthy",
+         "signal_type": "DI"
+        }
+       ],
+       "description": "Maintenance Switch Healthy",
+       "control_module_id": "e8716e68-4af5-47e7-bb0e-96aea0c732c0",
+       "control_module_name": "CM_EStop_MS1",
+       "control_module_class": "emergency_stop"
+      },
+      {
+       "is_safety": false,
+       "io_signals": [
+        {
+         "tag": "Reset_PB",
+         "io_address": "I2.3",
+         "description": "Reset Pushbutton",
+         "signal_type": "DI"
+        }
+       ],
+       "description": "Reset Pushbutton",
+       "control_module_id": "d7a47fe8-e3d6-4e32-b9ea-cdb2f829ffca",
+       "control_module_name": "CM_PushButton_PB_Reset",
+       "control_module_class": "push_button"
+      },
+      {
+       "is_safety": true,
+       "io_signals": [
+        {
+         "tag": "SR1_Healthy",
+         "io_address": "I0.1",
+         "description": "Safety Relay Healthy",
+         "signal_type": "DI"
+        },
+        {
+         "tag": "Reset_Safety",
+         "io_address": "Q0.1",
+         "description": "Reset Safety Relay",
+         "signal_type": "DO"
+        }
+       ],
+       "description": "Safety Relay Healthy",
+       "control_module_id": "3c0908b9-6008-4097-aba0-b395a3be17bb",
+       "control_module_name": "CM_EStop_SR1",
+       "control_module_class": "emergency_stop"
+      }
+     ],
+     "equipment_module_id": "8260213d-9e9a-4b4c-8a55-fa010f437c74",
+     "equipment_module_name": "E-Stop Circuit"
+    }
+   ]
+  },
+  {
+   "unit_id": "babcc438-95cf-4873-9a72-b186746c8dde",
+   "excluded": false,
+   "unit_name": "Spare",
+   "description": "",
+   "equipment_type": "Other",
+   "equipment_modules": [
+    {
+     "description": "",
+     "control_modules": [
+      {
+       "is_safety": false,
+       "io_signals": [
+        {
+         "tag": "Spare_DI_1",
+         "io_address": "I4.1",
+         "description": "Spare DI",
+         "signal_type": "DI"
+        }
+       ],
+       "description": "Spare DI",
+       "control_module_id": "f76b2a62-c241-43ba-8694-4730413c77c6",
+       "control_module_name": "CM_Device_1",
+       "control_module_class": "other"
+      },
+      {
+       "is_safety": false,
+       "io_signals": [
+        {
+         "tag": "Spare_DI_2",
+         "io_address": "I4.2",
+         "description": "Spare DI",
+         "signal_type": "DI"
+        }
+       ],
+       "description": "Spare DI",
+       "control_module_id": "9654196c-e049-4544-acba-1488598bffba",
+       "control_module_name": "CM_Device_2",
+       "control_module_class": "other"
+      },
+      {
+       "is_safety": false,
+       "io_signals": [
+        {
+         "tag": "Spare_DI_3",
+         "io_address": "I4.3",
+         "description": "Spare DI",
+         "signal_type": "DI"
+        }
+       ],
+       "description": "Spare DI",
+       "control_module_id": "0b341e51-cca8-4523-a593-ab3240f2a6ba",
+       "control_module_name": "CM_Device_3",
+       "control_module_class": "other"
+      },
+      {
+       "is_safety": false,
+       "io_signals": [
+        {
+         "tag": "Spare_DI_4",
+         "io_address": "I4.4",
+         "description": "Spare DI",
+         "signal_type": "DI"
+        }
+       ],
+       "description": "Spare DI",
+       "control_module_id": "2f383dc6-541e-4092-a820-52929f0dece2",
+       "control_module_name": "CM_Device_4",
+       "control_module_class": "other"
+      },
+      {
+       "is_safety": false,
+       "io_signals": [
+        {
+         "tag": "Spare_DI_5",
+         "io_address": "I4.5",
+         "description": "Spare DI",
+         "signal_type": "DI"
+        }
+       ],
+       "description": "Spare DI",
+       "control_module_id": "69a51c38-8b78-4635-8899-f3557270b2d9",
+       "control_module_name": "CM_Device_5",
+       "control_module_class": "other"
+      },
+      {
+       "is_safety": false,
+       "io_signals": [
+        {
+         "tag": "Spare_DI_6",
+         "io_address": "I4.6",
+         "description": "Spare DI",
+         "signal_type": "DI"
+        }
+       ],
+       "description": "Spare DI",
+       "control_module_id": "12389fa2-23ab-42c7-8cdb-7fcacc2fac78",
+       "control_module_name": "CM_Device_6",
+       "control_module_class": "other"
+      },
+      {
+       "is_safety": false,
+       "io_signals": [
+        {
+         "tag": "Spare_DI_7",
+         "io_address": "I4.7",
+         "description": "Spare DI",
+         "signal_type": "DI"
+        }
+       ],
+       "description": "Spare DI",
+       "control_module_id": "10251976-af38-4715-aa17-2f8b7935f60b",
+       "control_module_name": "CM_Device_7",
+       "control_module_class": "other"
+      }
+     ],
+     "equipment_module_id": "976aa38a-80cf-4028-81d4-1650703f73ec",
+     "equipment_module_name": "Spare"
+    }
+   ]
+  }
+ ]
+}

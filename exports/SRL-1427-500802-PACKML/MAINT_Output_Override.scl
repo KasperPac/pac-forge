@@ -1,0 +1,23 @@
+FUNCTION "MAINT_Output_Override" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+BEGIN
+   // Commissioning output overrides — MUST be the LAST call in OB1 so these
+   // writes win over the MAP FCs. Only active in maintenance mode (drives are
+   // commanded to Stopped by the UCs in that mode). Outside maintenance mode
+   // this block writes nothing and the program owns the outputs.
+   IF NOT "Maintenance_CMD".maintenance_mode THEN
+      RETURN;
+   END_IF;
+
+   "Reset_ECB" := "Maintenance_CMD".ov_Reset_ECB;                 // %Q0.0
+   "Reset_Safety" := "Maintenance_CMD".ov_Reset_Safety;           // %Q0.1
+   "Travel_Horn" := "Maintenance_CMD".ov_Travel_Horn;             // %Q0.2
+   "Travel_Strobe" := "Maintenance_CMD".ov_Travel_Strobe;         // %Q0.3
+   "CM1_Run" := "Maintenance_CMD".ov_CM1_Run;                     // %Q0.4
+   "CM2_Run" := "Maintenance_CMD".ov_CM2_Run;                     // %Q0.5
+   "CM3_Run" := "Maintenance_CMD".ov_CM3_Run;                     // %Q0.6
+   "CM4_Run" := "Maintenance_CMD".ov_CM4_Run;                     // %Q0.7
+   "Carriage_Brake_Rel" := "Maintenance_CMD".ov_Carriage_Brake_Rel;   // %Q1.0
+END_FUNCTION

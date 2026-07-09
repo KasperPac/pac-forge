@@ -1,0 +1,48 @@
+ORGANIZATION_BLOCK "Main"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.3
+BEGIN
+   // --- dashboard sim dead-man guard — MUST stay the FIRST call: clears the
+   //     Sim_CMD bits before any consumer reads them when the watchdog is stale
+   "SIM_Input_Guard_DB"();
+
+   // --- conditioned-inputs layer: IO_Cond := force (maintenance only) else
+   //     physical OR sim. All UC/MAP input reads use IO_Cond from here on.
+   "FORCE_Input_Cond"();
+
+   // --- Unit coordination: route signals + PackML commands into the EM
+   //     instance DBs BEFORE the EMs execute this scan ---
+   "UC_Carriage"();
+   "UC_Indicators"();
+   "UC_Rotator"();
+   "UC_Safety"();
+   "UC_Spare"();
+
+   // --- maintenance functions (encoder presets, gated on maintenance mode) ---
+   "MAINT_Encoder_Preset"();
+
+   // --- Control / Equipment module instances ---
+   "EM_Carriage_Brake_DB"(enable := "Carriage_Brake_CMD".enable, mode := "Carriage_Brake_CMD".mode, cmd_start := "Carriage_Brake_CMD".cmd_start, cmd_stop := "Carriage_Brake_CMD".cmd_stop, cmd_hold := "Carriage_Brake_CMD".cmd_hold, cmd_reset := "Carriage_Brake_CMD".cmd_reset);
+   "MAP_Carriage_Brake"();
+   "EM_Carriage_Drive_DB"(enable := "Carriage_Drive_CMD".enable, mode := "Carriage_Drive_CMD".mode, cmd_start := "Carriage_Drive_CMD".cmd_start, cmd_stop := "Carriage_Drive_CMD".cmd_stop, cmd_hold := "Carriage_Drive_CMD".cmd_hold, cmd_reset := "Carriage_Drive_CMD".cmd_reset, sp_JOG_SPEED_FWD := "Carriage_Drive_CMD".sp_JOG_SPEED_FWD, sp_FAST_SPEED_FWD := "Carriage_Drive_CMD".sp_FAST_SPEED_FWD, sp_JOG_SPEED_REV := "Carriage_Drive_CMD".sp_JOG_SPEED_REV, sp_FAST_SPEED_REV := "Carriage_Drive_CMD".sp_FAST_SPEED_REV);
+   "MAP_Carriage_Drive"();
+   "EM_Carriage_Limits_DB"(enable := "Carriage_Limits_CMD".enable, mode := "Carriage_Limits_CMD".mode, cmd_start := "Carriage_Limits_CMD".cmd_start, cmd_stop := "Carriage_Limits_CMD".cmd_stop, cmd_hold := "Carriage_Limits_CMD".cmd_hold, cmd_reset := "Carriage_Limits_CMD".cmd_reset);
+   "MAP_Carriage_Limits"();
+   "EM_Carriage_Pendant_DB"(enable := "Carriage_Pendant_CMD".enable, mode := "Carriage_Pendant_CMD".mode, cmd_start := "Carriage_Pendant_CMD".cmd_start, cmd_stop := "Carriage_Pendant_CMD".cmd_stop, cmd_hold := "Carriage_Pendant_CMD".cmd_hold, cmd_reset := "Carriage_Pendant_CMD".cmd_reset);
+   "MAP_Carriage_Pendant"();
+   "EM_Travel_Indicators_DB"(enable := "Travel_Indicators_CMD".enable, mode := "Travel_Indicators_CMD".mode, cmd_start := "Travel_Indicators_CMD".cmd_start, cmd_stop := "Travel_Indicators_CMD".cmd_stop, cmd_hold := "Travel_Indicators_CMD".cmd_hold, cmd_reset := "Travel_Indicators_CMD".cmd_reset);
+   "MAP_Travel_Indicators"();
+   "EM_Rotator_Brake_DB"(enable := "Rotator_Brake_CMD".enable, mode := "Rotator_Brake_CMD".mode, cmd_start := "Rotator_Brake_CMD".cmd_start, cmd_stop := "Rotator_Brake_CMD".cmd_stop, cmd_hold := "Rotator_Brake_CMD".cmd_hold, cmd_reset := "Rotator_Brake_CMD".cmd_reset);
+   "MAP_Rotator_Brake"();
+   "EM_Rotator_Drive_DB"(enable := "Rotator_Drive_CMD".enable, mode := "Rotator_Drive_CMD".mode, cmd_start := "Rotator_Drive_CMD".cmd_start, cmd_stop := "Rotator_Drive_CMD".cmd_stop, cmd_hold := "Rotator_Drive_CMD".cmd_hold, cmd_reset := "Rotator_Drive_CMD".cmd_reset, sp_JOG_SPEED_LEFT := "Rotator_Drive_CMD".sp_JOG_SPEED_LEFT, sp_FAST_SPEED_LEFT := "Rotator_Drive_CMD".sp_FAST_SPEED_LEFT, sp_JOG_SPEED_RIGHT := "Rotator_Drive_CMD".sp_JOG_SPEED_RIGHT, sp_FAST_SPEED_RIGHT := "Rotator_Drive_CMD".sp_FAST_SPEED_RIGHT);
+   "MAP_Rotator_Drive"();
+   "EM_Rotator_Pendant_DB"(enable := "Rotator_Pendant_CMD".enable, mode := "Rotator_Pendant_CMD".mode, cmd_start := "Rotator_Pendant_CMD".cmd_start, cmd_stop := "Rotator_Pendant_CMD".cmd_stop, cmd_hold := "Rotator_Pendant_CMD".cmd_hold, cmd_reset := "Rotator_Pendant_CMD".cmd_reset);
+   "MAP_Rotator_Pendant"();
+   "EM_E_Stop_Circuit_DB"(enable := "E_Stop_Circuit_CMD".enable, mode := "E_Stop_Circuit_CMD".mode, cmd_start := "E_Stop_Circuit_CMD".cmd_start, cmd_stop := "E_Stop_Circuit_CMD".cmd_stop, cmd_hold := "E_Stop_Circuit_CMD".cmd_hold, cmd_reset := "E_Stop_Circuit_CMD".cmd_reset);
+   "MAP_E_Stop_Circuit"();
+   "EM_Spare_DB"(enable := "Spare_CMD".enable, mode := "Spare_CMD".mode, cmd_start := "Spare_CMD".cmd_start, cmd_stop := "Spare_CMD".cmd_stop, cmd_hold := "Spare_CMD".cmd_hold, cmd_reset := "Spare_CMD".cmd_reset);
+   "MAP_Spare"();
+
+   // --- commissioning output overrides — MUST stay the last call ---
+   "MAINT_Output_Override"();
+END_ORGANIZATION_BLOCK

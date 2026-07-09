@@ -1,0 +1,68 @@
+DATA_BLOCK "Force_CMD"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   STRUCT
+      // Latched input forces — dashboard IO page. Effective ONLY while
+      // Maintenance_CMD.maintenance_mode is TRUE; FORCE_Input_Cond clears
+      // every pair on the maintenance-mode falling edge. Safety-chain
+      // inputs have no members here by design.
+      maint_prev : Bool;   // edge memory for the auto-clear
+      f_ECB_Trip : Bool;
+      v_ECB_Trip : Bool;
+      f_BR1_Fault : Bool;
+      v_BR1_Fault : Bool;
+      f_VSD1_CB_Trip : Bool;
+      v_VSD1_CB_Trip : Bool;
+      f_CM1_Fault : Bool;
+      v_CM1_Fault : Bool;
+      f_CM2_Fault : Bool;
+      v_CM2_Fault : Bool;
+      f_CM3_Fault : Bool;
+      v_CM3_Fault : Bool;
+      f_CM4_Fault : Bool;
+      v_CM4_Fault : Bool;
+      f_CM1_Therm : Bool;
+      v_CM1_Therm : Bool;
+      f_CM2_Therm : Bool;
+      v_CM2_Therm : Bool;
+      f_CM3_Therm : Bool;
+      v_CM3_Therm : Bool;
+      f_CM4_Therm : Bool;
+      v_CM4_Therm : Bool;
+      f_Carriage_Brake_Open : Bool;
+      v_Carriage_Brake_Open : Bool;
+      f_Carriage_Brake_Fault : Bool;
+      v_Carriage_Brake_Fault : Bool;
+      f_Rotate_Left : Bool;
+      v_Rotate_Left : Bool;
+      f_Rotate_Left_Fast : Bool;
+      v_Rotate_Left_Fast : Bool;
+      f_Reset_PB : Bool;
+      v_Reset_PB : Bool;
+      f_BR2_Fault : Bool;
+      v_BR2_Fault : Bool;
+      f_VSD2_CB_Trip : Bool;
+      v_VSD2_CB_Trip : Bool;
+      f_M5_Therm : Bool;
+      v_M5_Therm : Bool;
+      f_Rot_Brake_Open : Bool;
+      v_Rot_Brake_Open : Bool;
+      f_Rot_Brake_Fault : Bool;
+      v_Rot_Brake_Fault : Bool;
+      f_Fwd_Carriage : Bool;
+      v_Fwd_Carriage : Bool;
+      f_Fwd_Fast_Carriage : Bool;
+      v_Fwd_Fast_Carriage : Bool;
+      f_Rev_Carriage : Bool;
+      v_Rev_Carriage : Bool;
+      f_Rev_Fast_Carriage : Bool;
+      v_Rev_Fast_Carriage : Bool;
+      f_Rot_Right : Bool;
+      v_Rot_Right : Bool;
+      f_Rot_Right_Fast : Bool;
+      v_Rot_Right_Fast : Bool;
+      f_Long_Limit_Stop : Bool;
+      v_Long_Limit_Stop : Bool;
+   END_STRUCT;
+BEGIN
+END_DATA_BLOCK

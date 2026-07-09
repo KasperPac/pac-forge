@@ -1,0 +1,8 @@
+FUNCTION "MAP_Carriage_Limits" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.2
+BEGIN
+   // sensor feedback: conditioned input (IO_Cond: force-aware) -> instance DB
+   "EM_Carriage_Limits_DB".fb_Long_Limit_Stop := "IO_Cond".Long_Limit_Stop;   // %I4.0
+   // actuator commands: instance DB -> physical output
+END_FUNCTION

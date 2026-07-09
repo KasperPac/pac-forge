@@ -1,0 +1,231 @@
+FUNCTION_BLOCK "EM_Carriage_Drive"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_INPUT
+      enable : Bool;
+      mode : Int;
+      cmd_start : Bool;
+      cmd_stop : Bool;
+      cmd_hold : Bool;
+      cmd_reset : Bool;
+      sp_JOG_SPEED_FWD : Int;
+      sp_FAST_SPEED_FWD : Int;
+      sp_JOG_SPEED_REV : Int;
+      sp_FAST_SPEED_REV : Int;
+      ilk_Fwd_Carriage : Bool;
+      ilk_Long_Limit_Stop : Bool;
+      ilk_Fwd_Fast_Carriage : Bool;
+      ilk_Rev_Carriage : Bool;
+      ilk_Rev_Fast_Carriage : Bool;
+      ilk_CD_CMD_RESET : Bool;
+      ilk_CD_CMD_START : Bool;
+      ilk_CD_CMD_STOP : Bool;
+      ilk_CD_CMD_HOLD : Bool;
+      ilk_CD_CMD_UNHOLD : Bool;
+      ilk_CD_CMD_CLEAR : Bool;
+      fb_CM1_Fault : Bool;
+      fb_CM2_Fault : Bool;
+      fb_CM3_Fault : Bool;
+      fb_CM4_Fault : Bool;
+      fb_CM1_Therm : Bool;
+      fb_CM2_Therm : Bool;
+      fb_CM3_Therm : Bool;
+      fb_CM4_Therm : Bool;
+      fb_VSD1_CB_Trip : Bool;
+      fb_BR1_Fault : Bool;
+      fb_VSD1_Speed_Fb : Int;
+   END_VAR
+   VAR_OUTPUT
+      state : Int;
+      step : Int;
+      done : Bool;
+      fault : Bool;
+      cmd_VSD1_Speed_Ref : Int;
+   END_VAR
+
+BEGIN
+   CASE #state OF
+      0:   // Aborted (safe)
+         #cmd_VSD1_Speed_Ref := 0;
+         IF (#ilk_CD_CMD_CLEAR = TRUE) THEN #state := 1; #done := FALSE; #step := 1; END_IF;
+      1:   // Clearing
+         CASE #step OF
+            1:
+               // <ai-fill Carriage_Drive:clearing.1>
+               // TODO (AI-fill): Step 10
+               // </ai-fill Carriage_Drive:clearing.1>
+               IF (#fb_CM1_Fault = FALSE) AND (#fb_CM2_Fault = FALSE) AND (#fb_CM3_Fault = FALSE) AND (#fb_CM4_Fault = FALSE) THEN #step := 2; END_IF;
+            2:
+               // <ai-fill Carriage_Drive:clearing.2>
+               // TODO (AI-fill): Step 20
+               // </ai-fill Carriage_Drive:clearing.2>
+               IF (#fb_CM1_Therm = FALSE) AND (#fb_CM2_Therm = FALSE) AND (#fb_CM3_Therm = FALSE) AND (#fb_CM4_Therm = FALSE) AND (#fb_VSD1_CB_Trip = FALSE) AND (#fb_BR1_Fault = FALSE) THEN #done := TRUE; END_IF;
+         END_CASE;
+         IF #done THEN #state := 2; #done := FALSE; END_IF;
+      2:   // Stopped
+         #cmd_VSD1_Speed_Ref := 0;
+         IF (#ilk_CD_CMD_RESET = TRUE) THEN #state := 3; #done := FALSE; #step := 1; END_IF;
+         IF (#ilk_CD_CMD_START = TRUE) AND (#fb_VSD1_CB_Trip = FALSE) AND (#fb_BR1_Fault = FALSE) AND (#fb_CM1_Fault = FALSE) AND (#fb_CM2_Fault = FALSE) AND (#fb_CM3_Fault = FALSE) AND (#fb_CM4_Fault = FALSE) AND (#fb_CM1_Therm = FALSE) AND (#fb_CM2_Therm = FALSE) AND (#fb_CM3_Therm = FALSE) AND (#fb_CM4_Therm = FALSE) THEN #state := 4; #done := FALSE; END_IF;
+      3:   // Resetting
+         CASE #step OF
+            1:
+               // <ai-fill Carriage_Drive:resetting.1>
+               // TODO (AI-fill): Set VSD1 speed reference to zero
+               #cmd_VSD1_Speed_Ref := 0;
+               // </ai-fill Carriage_Drive:resetting.1>
+               IF (#fb_VSD1_Speed_Fb <= 1) THEN #step := 2; END_IF;
+            2:
+               // <ai-fill Carriage_Drive:resetting.2>
+               // TODO (AI-fill): Step 20
+               // </ai-fill Carriage_Drive:resetting.2>
+               IF (#fb_VSD1_CB_Trip = FALSE) THEN #done := TRUE; END_IF;
+         END_CASE;
+         IF #done THEN #state := 2; #done := FALSE; END_IF;
+         IF (#fb_CM1_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_VSD1_CB_Trip = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_BR1_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+      4:   // Idle
+         #cmd_VSD1_Speed_Ref := 0;
+         IF (#ilk_CD_CMD_START = TRUE) AND (#fb_VSD1_CB_Trip = FALSE) AND (#fb_BR1_Fault = FALSE) AND (#fb_CM1_Fault = FALSE) AND (#fb_CM2_Fault = FALSE) AND (#fb_CM3_Fault = FALSE) AND (#fb_CM4_Fault = FALSE) AND (#fb_CM1_Therm = FALSE) AND (#fb_CM2_Therm = FALSE) AND (#fb_CM3_Therm = FALSE) AND (#fb_CM4_Therm = FALSE) THEN #state := 6; #done := FALSE; END_IF;
+         IF (#fb_CM1_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM2_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM3_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM4_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM1_Therm = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM2_Therm = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM3_Therm = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM4_Therm = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_VSD1_CB_Trip = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_BR1_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+      5:   // Aborting
+         CASE #step OF
+            1:
+               // <ai-fill Carriage_Drive:aborting.1>
+               // TODO (AI-fill): Immediately set VSD1 speed reference to zero
+               #cmd_VSD1_Speed_Ref := 0;
+               // </ai-fill Carriage_Drive:aborting.1>
+               IF (#fb_VSD1_Speed_Fb <= 1) THEN #step := 2; END_IF;
+            2:
+               // <ai-fill Carriage_Drive:aborting.2>
+               // TODO (AI-fill): Step 20
+               // </ai-fill Carriage_Drive:aborting.2>
+               IF (#fb_VSD1_Speed_Fb <= 1) THEN #done := TRUE; END_IF;
+         END_CASE;
+         IF #done THEN #state := 0; #done := FALSE; END_IF;
+      6:   // Execute
+         // command-conditional holds (defaults first, active branch overrides)
+         #cmd_VSD1_Speed_Ref := 0;
+         IF (#ilk_Fwd_Carriage = TRUE) AND (#ilk_Long_Limit_Stop = FALSE) THEN
+            // Drive Forward (Jog)
+            #cmd_VSD1_Speed_Ref := #sp_JOG_SPEED_FWD;
+         ELSIF (#ilk_Fwd_Fast_Carriage = TRUE) AND (#ilk_Long_Limit_Stop = FALSE) THEN
+            // Drive Forward (Fast)
+            #cmd_VSD1_Speed_Ref := #sp_FAST_SPEED_FWD;
+         ELSIF (#ilk_Rev_Carriage = TRUE) AND (#ilk_Long_Limit_Stop = FALSE) THEN
+            // Drive Reverse (Jog)
+            #cmd_VSD1_Speed_Ref := #sp_JOG_SPEED_REV;
+         ELSIF (#ilk_Rev_Fast_Carriage = TRUE) AND (#ilk_Long_Limit_Stop = FALSE) THEN
+            // Drive Reverse (Fast)
+            #cmd_VSD1_Speed_Ref := #sp_FAST_SPEED_REV;
+         END_IF;
+         IF (#ilk_CD_CMD_STOP = TRUE) THEN #state := 7; #done := FALSE; #step := 1; END_IF;
+         IF (#ilk_CD_CMD_HOLD = TRUE) THEN #state := 8; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM1_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM2_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM3_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM4_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM1_Therm = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM2_Therm = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM3_Therm = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM4_Therm = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_VSD1_CB_Trip = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_BR1_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+      7:   // Stopping
+         CASE #step OF
+            1:
+               // <ai-fill Carriage_Drive:stopping.1>
+               // TODO (AI-fill): Command VSD1 speed reference to zero to ramp drive to stop
+               #cmd_VSD1_Speed_Ref := 0;
+               // </ai-fill Carriage_Drive:stopping.1>
+               IF (#fb_VSD1_Speed_Fb <= 1) THEN #step := 2; END_IF;
+            2:
+               // <ai-fill Carriage_Drive:stopping.2>
+               // TODO (AI-fill): Confirm zero speed (no contactors to de-energise)
+               // </ai-fill Carriage_Drive:stopping.2>
+               IF (#fb_VSD1_Speed_Fb <= 1) THEN #done := TRUE; END_IF;
+         END_CASE;
+         IF #done THEN #state := 2; #done := FALSE; END_IF;
+         IF (#fb_CM1_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM2_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM3_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM4_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM1_Therm = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM2_Therm = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM3_Therm = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM4_Therm = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_VSD1_CB_Trip = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_BR1_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+      8:   // Holding
+         CASE #step OF
+            1:
+               // <ai-fill Carriage_Drive:holding.1>
+               // TODO (AI-fill): Ramp VSD1 speed reference to zero
+               #cmd_VSD1_Speed_Ref := 0;
+               // </ai-fill Carriage_Drive:holding.1>
+               IF (#fb_VSD1_Speed_Fb <= 1) THEN #step := 2; END_IF;
+            2:
+               // <ai-fill Carriage_Drive:holding.2>
+               // TODO (AI-fill): Step 20
+               // </ai-fill Carriage_Drive:holding.2>
+               IF (#fb_VSD1_Speed_Fb <= 1) THEN #done := TRUE; END_IF;
+         END_CASE;
+         IF #done THEN #state := 9; #done := FALSE; END_IF;
+         IF (#fb_CM1_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM2_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM3_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM4_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM1_Therm = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM2_Therm = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM3_Therm = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM4_Therm = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_VSD1_CB_Trip = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_BR1_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+      9:   // Held
+         #cmd_VSD1_Speed_Ref := 0;
+         IF (#ilk_CD_CMD_UNHOLD = TRUE) THEN #state := 10; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM1_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM2_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM3_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM4_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM1_Therm = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM2_Therm = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM3_Therm = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM4_Therm = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_VSD1_CB_Trip = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_BR1_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+      10:   // Unholding
+         CASE #step OF
+            1:
+               // <ai-fill Carriage_Drive:unholding.1>
+               // TODO (AI-fill): Step 10
+               // </ai-fill Carriage_Drive:unholding.1>
+               IF (#fb_VSD1_CB_Trip = FALSE) AND (#fb_BR1_Fault = FALSE) THEN #step := 2; END_IF;
+            2:
+               // <ai-fill Carriage_Drive:unholding.2>
+               // TODO (AI-fill): Step 20
+               // </ai-fill Carriage_Drive:unholding.2>
+               IF (#fb_VSD1_Speed_Fb <= 1) THEN #done := TRUE; END_IF;
+         END_CASE;
+         IF #done THEN #state := 6; #done := FALSE; END_IF;
+         IF (#fb_CM1_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM2_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM3_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM4_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM1_Therm = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM2_Therm = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM3_Therm = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_CM4_Therm = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_VSD1_CB_Trip = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#fb_BR1_Fault = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+   END_CASE;
+END_FUNCTION_BLOCK

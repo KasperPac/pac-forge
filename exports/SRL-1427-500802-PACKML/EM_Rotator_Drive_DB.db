@@ -1,0 +1,6 @@
+DATA_BLOCK "EM_Rotator_Drive_DB"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+"EM_Rotator_Drive"
+BEGIN
+END_DATA_BLOCK

@@ -1,0 +1,139 @@
+FUNCTION_BLOCK "EM_E_Stop_Circuit"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.2
+   VAR_INPUT
+      enable : Bool;
+      mode : Int;
+      cmd_start : Bool;
+      cmd_stop : Bool;
+      cmd_hold : Bool;
+      cmd_reset : Bool;
+      fb_SR1_Healthy : Bool;
+      fb_Reset_PB : Bool;
+      fb_EStop_Healthy : Bool;
+      fb_MS1_Healthy : Bool;
+      fb_ECB_Trip : Bool;
+   END_VAR
+   VAR_OUTPUT
+      state : Int;
+      step : Int;
+      done : Bool;
+      fault : Bool;
+      cmd_Reset_ECB : Bool;
+      cmd_Reset_Safety : Bool;
+   END_VAR
+
+BEGIN
+   CASE #state OF
+      0:   // Aborted (safe)
+         #cmd_Reset_ECB := FALSE;
+         #cmd_Reset_Safety := FALSE;
+         IF (#fb_Reset_PB = TRUE) THEN
+            #state := 1;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+      1:   // Clearing — nothing latched in the PLC to clear; the hardwired
+           // chain holds the real state. Completes immediately (waiting for
+           // SR1 = FALSE here deadlocked after a power-up with the relay
+           // still latched healthy).
+         #cmd_Reset_ECB := FALSE;
+         #cmd_Reset_Safety := FALSE;
+         #state := 2;
+         #done := FALSE;
+      2:   // Stopped
+         #cmd_Reset_ECB := FALSE;
+         #cmd_Reset_Safety := FALSE;
+         // NOTE: no SR1 abort here — SR1 down is the NORMAL condition while
+         // stopped awaiting a reset; aborting on it made Resetting
+         // unreachable (the abort write always won over the reset one).
+         IF (#fb_EStop_Healthy = FALSE) THEN
+            #state := 4;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+         IF (#fb_MS1_Healthy = FALSE) THEN
+            #state := 4;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+         // Reset request wins over an ECB trip on purpose — Resetting is
+         // where the ECB reset output gets driven.
+         IF (#fb_Reset_PB = TRUE) AND (#fb_EStop_Healthy = TRUE) AND (#fb_MS1_Healthy = TRUE) THEN
+            #state := 3;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+      3:   // Resetting
+         CASE #step OF
+            1:
+               // Reset outputs FOLLOW the pendant reset button — the
+               // monitored-manual safety relay latches on the RELEASE edge:
+               // press = energise reset circuit, release = relay pulls in.
+               #cmd_Reset_Safety := #fb_Reset_PB;
+               #cmd_Reset_ECB := #fb_Reset_PB;
+               IF (#fb_Reset_PB = FALSE) AND (#fb_SR1_Healthy = TRUE) THEN
+                  #done := TRUE;
+               END_IF;
+         END_CASE;
+         IF #done THEN
+            #state := 5;
+            #done := FALSE;
+         END_IF;
+         // NOTE: no SR1/ECB aborts here — SR1 is down and the ECB may be
+         // tripped DURING a reset; aborting on them made reset impossible.
+         IF (#fb_EStop_Healthy = FALSE) THEN
+            #state := 4;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+         IF (#fb_MS1_Healthy = FALSE) THEN
+            #state := 4;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+      4:   // Aborting
+         CASE #step OF
+            1:
+               // make safe: reset outputs off
+               #cmd_Reset_ECB := FALSE;
+               #cmd_Reset_Safety := FALSE;
+               IF (#fb_SR1_Healthy = FALSE) THEN
+                  #done := TRUE;
+               END_IF;
+         END_CASE;
+         IF #done THEN
+            #state := 0;
+            #done := FALSE;
+         END_IF;
+      5:   // Idle
+         #cmd_Reset_ECB := FALSE;
+         #cmd_Reset_Safety := FALSE;
+         IF (#fb_Reset_PB = TRUE) THEN
+            #state := 3;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+         IF (#fb_EStop_Healthy = FALSE) THEN
+            #state := 4;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+         IF (#fb_MS1_Healthy = FALSE) THEN
+            #state := 4;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+         IF (#fb_SR1_Healthy = FALSE) THEN
+            #state := 4;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+         IF (#fb_ECB_Trip = TRUE) THEN
+            #state := 4;
+            #done := FALSE;
+            #step := 1;
+         END_IF;
+   END_CASE;
+
+END_FUNCTION_BLOCK

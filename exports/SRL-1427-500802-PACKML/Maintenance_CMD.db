@@ -1,0 +1,30 @@
+DATA_BLOCK "Maintenance_CMD"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.2
+   STRUCT
+      maintenance_mode : Bool;   // TRUE = drives commanded to Stopped, presets + output overrides enabled
+      seq_test_mode : Bool;   // TRUE = UCs release the PackML command pins; dashboard drives them for sequence testing
+      rot_preset_execute : Bool;   // rising edge starts rotator encoder preset
+      rot_preset_value : DInt;   // value the rotator encoder adopts (0 = home)
+      rot_preset_done : Bool;
+      rot_preset_step : Int;   // internal sequencer state
+      rot_preset_timer : Int;   // internal pulse counter
+      rail_preset_execute : Bool;
+      rail_preset_value : DInt;
+      rail_preset_done : Bool;
+      rail_preset_step : Int;
+      rail_preset_timer : Int;
+      // manual output overrides — applied by MAINT_Output_Override (last in
+      // OB1) only while maintenance_mode is TRUE
+      ov_Reset_ECB : Bool;         // Q0.0
+      ov_Reset_Safety : Bool;      // Q0.1
+      ov_Travel_Horn : Bool;       // Q0.2
+      ov_Travel_Strobe : Bool;     // Q0.3
+      ov_CM1_Run : Bool;           // Q0.4 (unused by logic — wire check only)
+      ov_CM2_Run : Bool;           // Q0.5
+      ov_CM3_Run : Bool;           // Q0.6
+      ov_CM4_Run : Bool;           // Q0.7
+      ov_Carriage_Brake_Rel : Bool;   // Q1.0 (brake is VSD-controlled — wire check only)
+   END_STRUCT;
+BEGIN
+END_DATA_BLOCK

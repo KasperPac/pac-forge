@@ -1,0 +1,19 @@
+FUNCTION "UC_Spare" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_TEMP
+      ok : Bool;
+   END_VAR
+
+BEGIN
+   // Unit coordination — first-cut commissioning coordinator (2026-07-06).
+   #ok := "EStop_Healthy" AND "SR1_Healthy";
+
+   IF "Maintenance_CMD".seq_test_mode THEN
+      RETURN;
+   END_IF;
+   "EM_Spare_DB".ilk_SPARE_CMD_CLEAR := #ok;
+   "EM_Spare_DB".ilk_SPARE_CMD_RESET := #ok;
+   "EM_Spare_DB".ilk_SPARE_CMD_START := #ok;
+   "EM_Spare_DB".ilk_SPARE_CMD_STOP := NOT #ok;
+END_FUNCTION

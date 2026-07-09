@@ -1,0 +1,17 @@
+DATA_BLOCK "Rail_Status"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.2
+   VAR
+      dist_to_fwd_end_mm : DInt;   // remaining travel toward the forward stop (rail_length - end_margin - position)
+      dist_to_rev_end_mm : DInt;   // remaining travel toward the reverse/entry stop (position - end_margin)
+      in_ramp_zone : Bool;   // within a ramp-down zone at either end (fast falls back to jog)
+      fwd_fast_allowed : Bool;   // fast forward currently permitted (rotator straight AND outside fwd ramp zone)
+      rev_fast_allowed : Bool;   // fast reverse currently permitted
+      fwd_allowed : Bool;   // forward motion permitted (clear of fwd end margin; TRUE when envelope unconfigured)
+      rev_allowed : Bool;   // reverse motion permitted (clear of entrance end margin)
+   END_VAR
+
+
+BEGIN
+
+END_DATA_BLOCK

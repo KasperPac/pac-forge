@@ -1,0 +1,9 @@
+FUNCTION "MAP_Carriage_Brake" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.2
+BEGIN
+   // sensor feedback: conditioned input (IO_Cond: force-aware) -> instance DB
+   "EM_Carriage_Brake_DB".fb_Carriage_Brake_Fault := NOT "IO_Cond".Carriage_Brake_Fault;   // %I2.0 N/C fail-safe (TRUE=healthy), inverted 2026-07-07
+   "EM_Carriage_Brake_DB".fb_Carriage_Brake_Open := "IO_Cond".Carriage_Brake_Open;   // %I1.5
+   // actuator commands: instance DB -> physical output
+END_FUNCTION

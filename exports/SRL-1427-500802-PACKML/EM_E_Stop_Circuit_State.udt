@@ -1,0 +1,9 @@
+TYPE "EM_E_Stop_Circuit_State"
+VERSION : 0.1
+   STRUCT
+      state : Int;
+      step : Int;
+      done : Bool;
+      fault : Bool;
+   END_STRUCT;
+END_TYPE

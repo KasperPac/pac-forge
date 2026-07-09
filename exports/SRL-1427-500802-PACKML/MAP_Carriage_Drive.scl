@@ -1,0 +1,39 @@
+FUNCTION "MAP_Carriage_Drive" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.4
+   VAR_TEMP
+      ref_pct : Int;
+   END_VAR
+
+BEGIN
+   // sensor feedback: conditioned input (IO_Cond: force/sim-aware) -> instance DB
+   "EM_Carriage_Drive_DB".fb_CM1_Fault := "IO_Cond".CM1_Fault;   // %I0.5
+   "EM_Carriage_Drive_DB".fb_CM2_Fault := "IO_Cond".CM2_Fault;   // %I0.6
+   "EM_Carriage_Drive_DB".fb_CM3_Fault := "IO_Cond".CM3_Fault;   // %I0.7
+   "EM_Carriage_Drive_DB".fb_CM4_Fault := "IO_Cond".CM4_Fault;   // %I1.0
+   "EM_Carriage_Drive_DB".fb_CM1_Therm := NOT "IO_Cond".CM1_Therm;   // %I1.1 N/C fail-safe (TRUE=healthy), inverted 2026-07-07
+   "EM_Carriage_Drive_DB".fb_CM2_Therm := NOT "IO_Cond".CM2_Therm;   // %I1.2 N/C fail-safe (TRUE=healthy), inverted 2026-07-07
+   "EM_Carriage_Drive_DB".fb_CM3_Therm := NOT "IO_Cond".CM3_Therm;   // %I1.3 N/C fail-safe (TRUE=healthy), inverted 2026-07-07
+   "EM_Carriage_Drive_DB".fb_CM4_Therm := NOT "IO_Cond".CM4_Therm;   // %I1.4 N/C fail-safe (TRUE=healthy), inverted 2026-07-07
+   "EM_Carriage_Drive_DB".fb_VSD1_CB_Trip := NOT "IO_Cond".VSD1_CB_Trip;   // %I0.4 N/C fail-safe (TRUE=healthy), inverted 2026-07-07
+   "EM_Carriage_Drive_DB".fb_BR1_Fault := NOT "IO_Cond".BR1_Fault;   // %I0.3 N/C fail-safe (TRUE=healthy), inverted 2026-07-07
+
+   // --- SINAMICS G120 "rail_motors" via SINA_SPEED, Standard Telegram 1 ---
+   // Setpoints are PERCENT of p2000. p2000 MUST be 1500.0 rpm in the drive
+   // (expert list) to match RefSpeed below. Run whenever the EM commands a
+   // nonzero reference (pendant branch active in Execute); fault ack from the
+   // panel reset pushbutton.
+   #ref_pct := "EM_Carriage_Drive_DB".cmd_VSD1_Speed_Ref;
+   "SinaSpeed_Rail_DB"(
+      EnableAxis := #ref_pct <> 0,
+      AckError := "IO_Cond".Reset_PB,   // %I2.3 conditioned (sim/force aware)
+      SpeedSp := INT_TO_REAL(#ref_pct) * 15.0,   // percent -> rpm (1500/100)
+      RefSpeed := 1500.0,                        // = p2000
+      ConfigAxis := 16#003F,
+      HWIDSTW := 322,   // 322
+      HWIDZSW := 322
+   );
+   // actual speed (rpm, signed) -> percent, same units as the setpoints, so
+   // the EM zero-speed checks (<= 1) read true drive feedback
+   "EM_Carriage_Drive_DB".fb_VSD1_Speed_Fb := REAL_TO_INT("SinaSpeed_Rail_DB".ActVelocity / 15.0);
+END_FUNCTION

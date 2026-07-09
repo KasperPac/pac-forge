@@ -1,0 +1,13 @@
+DATA_BLOCK "HMI_CMD"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   STRUCT
+      // Global command requests from the MTP700 panel (momentary bits written
+      // by button Down/Up scripts). Consumed by FORCE_Input_Cond, which ORs
+      // them into the conditioned-input seam with a stuck-bit scan cap — a
+      // frozen panel can never hold a request active.
+      reset_req : Bool;   // global reset: behaves exactly like the physical Reset_PB (safety + ECB reset outputs, drive fault ack, horn)
+      reset_hold_scans : Int;   // internal: scans reset_req has been held; capped in FORCE_Input_Cond
+   END_STRUCT;
+BEGIN
+END_DATA_BLOCK

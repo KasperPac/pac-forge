@@ -1,0 +1,869 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Segment Wagon — HMI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  /* ISA-101 high-performance: grey canvas, muted equipment, color = abnormal only.
+     red = Fault, amber = Warning, blue = manual/forced/sim intervention. */
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; margin: 0; }
+  body { font: 13px/1.45 "Segoe UI", system-ui, sans-serif; background: #c9cdd1; color: #232b33; padding: 0; }
+  .hdr { background: #3b444d; color: #e8eaec; padding: 8px 16px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  .hdr h1 { font-size: 15px; font-weight: 600; letter-spacing: .02em; }
+  .pill { padding: 2px 10px; border-radius: 3px; font-weight: 600; font-size: 12px; }
+  .pill.ok { background: #4a545e; color: #cfd6dc; } .pill.bad { background: #b71c1c; color: #fff; }
+  .err { color: #ffb4a8; font-size: 12px; margin-left: auto; }
+  .banner { background: #1565c0; color: #fff; font-weight: 700; text-align: center; padding: 5px; letter-spacing: .05em; display: none; }
+  .banner.alm { background: #b71c1c; }
+  .nav { display: flex; gap: 2px; background: #59636d; padding: 4px 12px 0; }
+  .nav button { font: inherit; border: 0; border-radius: 4px 4px 0 0; background: #6b757f; color: #d7dce0; padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .nav button.active { background: #c9cdd1; color: #232b33; }
+  .nav button .badge { background: #b71c1c; color: #fff; border-radius: 99px; padding: 0 6px; font-size: 11px; margin-left: 6px; }
+  .nav button .badge.n { background: #8a939c; }
+  .page { padding: 14px 16px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #59636d; margin: 16px 0 8px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; }
+  .card { background: #e8eaec; border: 1px solid #a8b0b8; border-radius: 4px; padding: 12px; }
+  .card .ct { font-weight: 600; color: #3b444d; margin-bottom: 8px; font-size: 13px; }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+  .kv { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; border-bottom: 1px solid #d4d8db; font-variant-numeric: tabular-nums; }
+  .kv:last-child { border-bottom: 0; }
+  .kv span { color: #59636d; } .kv b { font-weight: 600; }
+  .abn-r { color: #b71c1c !important; font-weight: 700; }
+  .abn-a { color: #b45309 !important; font-weight: 700; }
+  .abn-b { color: #1565c0 !important; font-weight: 700; }
+  button { font: inherit; border: 1px solid #8a939c; background: #f2f3f4; color: #232b33; border-radius: 3px; padding: 5px 12px; cursor: pointer; }
+  button:hover { background: #fff; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.on { background: #1565c0; border-color: #0d47a1; color: #fff; }
+  button.big { padding: 9px 18px; font-weight: 700; }
+  input[type=number] { font: inherit; width: 80px; background: #fff; color: #232b33; border: 1px solid #8a939c; border-radius: 3px; padding: 4px 6px; }
+  .lamp { width: 12px; height: 12px; border-radius: 50%; background: #f2f3f4; border: 1.5px solid #8a939c; flex: none; }
+  .lamp.on { background: #2e9e46; border-color: #1e7a33; }
+  .lamp.nul { background: repeating-linear-gradient(45deg,#d4d8db,#d4d8db 2px,#f2f3f4 2px,#f2f3f4 4px); }
+  .lamp.forced { box-shadow: 0 0 0 2px #1565c0; }
+  /* mode / status tiles */
+  .tiles { display: flex; gap: 8px; flex-wrap: wrap; }
+  .tile { background: #e8eaec; border: 1px solid #a8b0b8; border-radius: 4px; padding: 8px 14px; min-width: 120px; text-align: center; }
+  .tile .tl { font-size: 11px; color: #59636d; text-transform: uppercase; letter-spacing: .05em; }
+  .tile .tv { font-weight: 700; font-size: 14px; margin-top: 2px; }
+  .tile.blue { background: #1565c0; border-color: #0d47a1; } .tile.blue .tl, .tile.blue .tv { color: #fff; }
+  .tile.red { background: #b71c1c; border-color: #7f1d1d; } .tile.red .tl, .tile.red .tv { color: #fff; }
+  .tile.amber { background: #e6a817; border-color: #b45309; } .tile.amber .tl, .tile.amber .tv { color: #232b33; }
+  .chip { background: #dde0e3; border: 1px solid #b6bcc2; border-radius: 3px; padding: 2px 8px; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .chip.abn { background: #b71c1c; border-color: #7f1d1d; color: #fff; }
+  /* IO table */
+  .iot { width: 100%; border-collapse: collapse; background: #e8eaec; border: 1px solid #a8b0b8; }
+  .iot th { text-align: left; font-size: 11px; text-transform: uppercase; color: #59636d; padding: 6px 8px; border-bottom: 1px solid #a8b0b8; }
+  .iot td { padding: 4px 8px; border-bottom: 1px solid #d4d8db; font-variant-numeric: tabular-nums; }
+  .iot tr.forced td { background: #dbe7f6; }
+  .iot .mono { font-family: Consolas, monospace; font-size: 12px; }
+  .fbadge { background: #1565c0; color: #fff; font-weight: 700; border-radius: 3px; padding: 0 6px; font-size: 11px; }
+  .seg { display: inline-flex; border: 1px solid #8a939c; border-radius: 3px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; padding: 3px 10px; font-size: 12px; }
+  .seg button.sel0 { background: #3b444d; color: #fff; }
+  .seg button.sel1 { background: #1565c0; color: #fff; }
+  /* pendant */
+  .pendbtn { padding: 18px 10px; font-size: 15px; font-weight: 700; width: 100%; user-select: none; -webkit-user-select: none; touch-action: none; }
+  .pendbtn.held { background: #1565c0; border-color: #0d47a1; color: #fff; }
+  button.arm.on { background: #b71c1c; border-color: #7f1d1d; color: #fff; }
+  /* permissives */
+  .perm { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; align-items: center; padding: 4px 2px; border-bottom: 1px solid #d4d8db; }
+  .perm:last-child { border-bottom: 0; }
+  .pdot { width: 12px; height: 12px; border-radius: 50%; background: #2e9e46; justify-self: center; }
+  .pdot.blk { background: #b71c1c; }
+  .pdot.na { background: repeating-linear-gradient(45deg,#d4d8db,#d4d8db 2px,#f2f3f4 2px,#f2f3f4 4px); border: 1px solid #8a939c; }
+  .perm.blk { background: #f6dedb; }
+  .pnote { font-size: 11px; color: #59636d; }
+  .reqchip { font-weight: 700; }
+  /* alarms */
+  .alarm-row { display: flex; gap: 10px; padding: 6px 10px; border-bottom: 1px solid #d4d8db; align-items: center; font-variant-numeric: tabular-nums; }
+  .alarm-row:last-child { border-bottom: 0; }
+  .acls { font-weight: 700; border-radius: 3px; padding: 2px 8px; font-size: 11px; flex: none; }
+  .acls.Fault { background: #b71c1c; color: #fff; } .acls.Warning { background: #e6a817; color: #232b33; }
+  .ats { color: #59636d; font-size: 11px; margin-left: auto; flex: none; }
+  /* testing (ported) */
+  .rtab.active { background: #1565c0; border-color: #0d47a1; color: #fff; }
+  .rtab .prog { font-size: 10px; opacity: .75; margin-left: 6px; }
+  .step { display: grid; grid-template-columns: 22px 22px 1fr auto; align-items: center; gap: 10px; padding: 6px 4px; border-bottom: 1px solid #d4d8db; }
+  .step:last-child { border-bottom: 0; }
+  .sdot { width: 12px; height: 12px; border-radius: 50%; background: #c9cdd1; border: 1px solid #8a939c; justify-self: center; }
+  .sdot.pass { background: #2e9e46; border-color: #1e7a33; }
+  .sdot.fail { background: #e6a817; border-color: #b45309; }
+  .sdot.man { background: transparent; border: 1px dashed #8a939c; }
+  .step input[type=checkbox] { width: 16px; height: 16px; accent-color: #1565c0; cursor: pointer; }
+  .step.done .stext { color: #8a939c; }
+  .snote { font-size: 11px; color: #59636d; text-align: right; }
+  .rhead { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+  .rhead h3 { font-size: 14px; } .rhead .desc { font-size: 12px; color: #59636d; }
+  .rreset { margin-left: auto; font-size: 11px; padding: 3px 9px; }
+  svg text { font: 11px "Segoe UI", sans-serif; fill: #3b444d; }
+  svg .big { font-size: 20px; font-weight: 700; }
+</style>
+</head>
+<body>
+  <div class="hdr">
+    <h1>SEGMENT WAGON</h1>
+    <span id="conn" class="pill bad">connecting…</span>
+    <span id="hdr_mode" class="pill ok">—</span>
+    <span id="err" class="err"></span>
+  </div>
+  <div class="banner" id="force_banner"></div>
+  <div class="banner alm" id="safety_banner">SAFETY CHAIN TRIPPED</div>
+  <div class="nav" id="nav">
+    <button data-p="overview" class="active">Overview</button>
+    <button data-p="pendant">Pendant</button>
+    <button data-p="io">IO<span class="badge n" id="nav_force_badge" style="display:none"></span></button>
+    <button data-p="perms">Permissives</button>
+    <button data-p="vfd">VFD</button>
+    <button data-p="settings">Settings</button>
+    <button data-p="alarms">Alarms<span class="badge" id="nav_alarm_badge" style="display:none"></span></button>
+    <button data-p="testing">Testing<span class="badge n" id="nav_test_badge" style="display:none"></span></button>
+  </div>
+
+  <!-- ================= OVERVIEW ================= -->
+  <div class="page" id="page_overview">
+    <div class="tiles" id="ov_tiles"></div>
+    <div class="cards" style="margin-top:12px;grid-template-columns:340px 1fr">
+      <div class="card">
+        <div class="ct">Rotator — segment orientation</div>
+        <svg viewBox="0 0 300 300" style="width:100%;max-width:320px;display:block;margin:auto">
+          <circle cx="150" cy="140" r="112" fill="#dde0e3" stroke="#8a939c" stroke-width="2"/>
+          <!-- straight-window markers at 0 and 180 deg -->
+          <g stroke="#59636d" stroke-width="2">
+            <line x1="150" y1="18" x2="150" y2="34"/><line x1="150" y1="246" x2="150" y2="262"/>
+          </g>
+          <text x="150" y="12" text-anchor="middle">0°</text>
+          <text x="150" y="276" text-anchor="middle">180°</text>
+          <g id="ov_plate" style="transition: transform .45s ease; transform-origin:150px 140px">
+            <rect x="142" y="34" width="16" height="212" rx="5" fill="#6b757f" stroke="#3b444d" stroke-width="1.5"/>
+            <circle cx="150" cy="140" r="14" fill="#3b444d"/>
+            <polygon points="150,26 143,42 157,42" fill="#3b444d"/>
+          </g>
+          <text id="ov_angle" class="big" x="150" y="298" text-anchor="middle">—</text>
+        </svg>
+        <div class="row" style="justify-content:center">
+          <span class="chip" id="ov_straight">STRAIGHT: —</span>
+          <span class="chip" id="ov_rot_ref">ref — %</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="ct">Carriage — rail position</div>
+        <svg viewBox="0 0 640 120" style="width:100%">
+          <rect x="20" y="52" width="600" height="14" fill="#dde0e3" stroke="#8a939c"/>
+          <rect id="ov_margin_l" x="20" y="52" width="0" height="14" fill="#b71c1c" opacity=".22"/>
+          <rect id="ov_margin_r" x="620" y="52" width="0" height="14" fill="#b71c1c" opacity=".22"/>
+          <rect id="ov_ramp_l" x="20" y="52" width="0" height="14" fill="#e6a817" opacity=".28"/>
+          <rect id="ov_ramp_r" x="620" y="52" width="0" height="14" fill="#e6a817" opacity=".28"/>
+          <rect x="14" y="42" width="8" height="34" fill="#59636d"/>
+          <rect x="618" y="42" width="8" height="34" fill="#59636d"/>
+          <text id="ov_len_lbl" x="20" y="36">— m</text>
+          <text x="620" y="36" text-anchor="end">tunnel entrance (0 m)</text>
+          <g id="ov_car" style="transition: transform .45s linear">
+            <rect x="-22" y="40" width="44" height="20" rx="3" fill="#6b757f" stroke="#3b444d" stroke-width="1.5"/>
+            <circle cx="-12" cy="64" r="5" fill="#3b444d"/><circle cx="12" cy="64" r="5" fill="#3b444d"/>
+            <text id="ov_car_arrow" x="0" y="32" text-anchor="middle" style="font-weight:700"></text>
+          </g>
+          <text id="ov_pos" class="big" x="320" y="108" text-anchor="middle">—</text>
+        </svg>
+        <div class="row" style="justify-content:center">
+          <span class="chip" id="ov_dfwd">→ end: —</span>
+          <span class="chip" id="ov_drev">← entrance: —</span>
+          <span class="chip" id="ov_ramp">ramp zone: —</span>
+          <span class="chip" id="ov_car_ref">ref — %</span>
+        </div>
+      </div>
+    </div>
+    <div class="cards" style="margin-top:10px">
+      <div class="card"><div class="ct">Carriage drive <span style="color:#8a939c;font-weight:400">(rail_motors)</span></div><div id="ov_drv_rail"></div></div>
+      <div class="card"><div class="ct">Rotator drive <span style="color:#8a939c;font-weight:400">(horizontal_drive)</span></div><div id="ov_drv_rot"></div></div>
+      <div class="card"><div class="ct">Equipment modules</div><div class="row" id="ov_ems" style="gap:5px"></div></div>
+    </div>
+  </div>
+
+  <!-- ================= PENDANT ================= -->
+  <div class="page" id="page_pendant" style="display:none">
+    <h2>Simulated pendant <span style="text-transform:none">(hold-to-run — release, tab-switch, network loss or server death all stop motion ≤1.5 s; safety chain is NOT simulatable)</span></h2>
+    <div class="row" style="margin-bottom:10px">
+      <button id="simarm" class="big arm">ARM SIMULATED PENDANT</button>
+      <span id="simstatus" style="color:#59636d">disarmed — buttons inactive</span>
+    </div>
+    <div class="cards">
+      <div class="card">
+        <div class="ct">Carriage <span style="color:#8a939c;font-weight:400">(fwd = deeper into tunnel)</span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <button class="pendbtn" data-sim="Rev_Fast_Carriage">◀◀ REV FAST</button>
+          <button class="pendbtn" data-sim="Fwd_Fast_Carriage">FWD FAST ▶▶</button>
+          <button class="pendbtn" data-sim="Rev_Carriage">◀ REV</button>
+          <button class="pendbtn" data-sim="Fwd_Carriage">FWD ▶</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="ct">Rotator</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <button class="pendbtn" data-sim="Rotate_Left_Fast">↺↺ LEFT FAST</button>
+          <button class="pendbtn" data-sim="Rot_Right_Fast">RIGHT FAST ↻↻</button>
+          <button class="pendbtn" data-sim="Rotate_Left">↺ LEFT</button>
+          <button class="pendbtn" data-sim="Rot_Right">RIGHT ↻</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="ct">Reset <span style="color:#8a939c;font-weight:400">(safety reset · drive fault ack · horn)</span></div>
+        <button class="pendbtn" data-sim="Reset_PB">RESET</button>
+        <div class="row" style="margin-top:12px" id="pend_live"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= IO ================= -->
+  <div class="page" id="page_io" style="display:none">
+    <div class="row">
+      <span id="io_maint_note" class="chip">forcing requires maintenance mode</span>
+      <button id="force_clear">CLEAR ALL FORCES</button>
+      <span class="pnote">forces auto-clear when maintenance mode exits</span>
+    </div>
+    <h2>Digital inputs</h2>
+    <table class="iot"><thead><tr><th></th><th>Tag</th><th>Addr</th><th>Description</th><th>Force</th></tr></thead><tbody id="io_di"></tbody></table>
+    <h2>Digital outputs <span style="text-transform:none">(override toggles write the ov_ bits — live only in maintenance mode)</span></h2>
+    <table class="iot"><thead><tr><th></th><th>Tag</th><th>Addr</th><th>Override</th></tr></thead><tbody id="io_do"></tbody></table>
+  </div>
+
+  <!-- ================= PERMISSIVES ================= -->
+  <div class="page" id="page_perms" style="display:none">
+    <h2>Permissives <span style="text-transform:none">(live gate conditions per action — first blocking term highlighted)</span></h2>
+    <div class="cards" id="perm_cards"></div>
+  </div>
+
+  <!-- ================= VFD ================= -->
+  <div class="page" id="page_vfd" style="display:none">
+    <div class="cards" style="grid-template-columns:repeat(auto-fill,minmax(420px,1fr))">
+      <div class="card"><div class="ct">Carriage drive — rail_motors (G120 · SINA_SPEED · Tel 1 · HW-ID 322)</div><div id="vfd_rail"></div></div>
+      <div class="card"><div class="ct">Rotator drive — horizontal_drive (G120 · SINA_SPEED · Tel 1 · HW-ID 323)</div><div id="vfd_rot"></div></div>
+      <div class="card">
+        <div class="ct">Drive-side settings (reference — set in the drive, not readable via Telegram 1)</div>
+        <div class="kv"><span>p2000 reference speed</span><b>1500.0 rpm (must match RefSpeed in MAP FCs)</b></div>
+        <div class="kv"><span>Setpoint scaling</span><b>% of p2000 → NSOLL ±16384</b></div>
+        <div class="kv"><span>Control mode</span><b>V/f (paralleled carriage motors — never SLVC)</b></div>
+        <div class="kv"><span>Fault acknowledge</span><b>Reset PB → STW1 bit 7 (AckError)</b></div>
+        <div class="kv"><span>Carriage motor group</span><b>4× parallel, 22.4 A / 4.4 kW aggregate</b></div>
+        <div class="pnote" style="margin-top:6px">current / torque / fault numbers need the acyclic parameter channel — read in Startdrive.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= SETTINGS ================= -->
+  <div class="page" id="page_settings" style="display:none">
+    <div class="cards">
+      <div class="card">
+        <div class="ct">Modes</div>
+        <div class="row"><button id="maint" class="big">MAINTENANCE MODE</button></div>
+        <div class="pnote" style="margin-top:4px">drives commanded to Stopped while active; forcing, output overrides &amp; presets need it</div>
+        <div class="row" style="margin-top:10px"><button id="seqmode" class="big">SEQUENCE-TEST MODE</button></div>
+        <div class="pnote" style="margin-top:4px" id="seqstatus">off — coordinators auto-arm normally</div>
+      </div>
+      <div class="card">
+        <div class="ct">Rail envelope</div>
+        <div class="row">length <input type="number" id="rc_len"> mm <button id="rc_len_set">SET</button> <button id="rc_addsec">+1 SECTION (1.7 m)</button></div>
+        <div class="row">scale <input type="number" id="rc_scale" title="rail mm per encoder rev x10"> x0.1mm/rev <button id="rc_scale_set">SET</button></div>
+        <div class="row">ramp <input type="number" id="rc_ramp"> mm <button id="rc_ramp_set">SET</button> margin <input type="number" id="rc_margin"> mm <button id="rc_margin_set">SET</button></div>
+      </div>
+      <div class="card">
+        <div class="ct">Rail encoder <span style="color:#8a939c;font-weight:400" id="set_enc_rail">—</span></div>
+        <div class="row"><input type="number" id="rail_pv" value="0"> <button id="rail_go">PRESET</button> <span class="chip" id="rail_done">done: —</span></div>
+        <div class="pnote" style="margin-top:4px">maintenance mode; wagon at tunnel-entrance reference → preset 0</div>
+      </div>
+      <div class="card">
+        <div class="ct">Rotator encoder <span style="color:#8a939c;font-weight:400" id="set_enc_rot">—</span></div>
+        <div class="row"><input type="number" id="rot_pv" value="0"> <button id="rot_go">PRESET</button> <span class="chip" id="rot_done">done: —</span></div>
+        <div class="row" style="border-top:1px solid #d4d8db;padding-top:8px;margin-top:8px">
+          gear cal <input type="number" id="rc_rotk"> counts/360 <button id="rc_rotk_cap" title="raw − 500000, right after the 360° turn">CAPTURE</button> <button id="rc_rotk_set">SET</button>
+        </div>
+        <div class="pnote" style="margin-top:4px">cal: straight → PRESET <b>500000</b> → turn exactly 360° → K = raw − 500000</div>
+      </div>
+      <div class="card"><div class="ct">Carriage speed setpoints (% of p2000)</div><div id="sp_carriage"></div></div>
+      <div class="card"><div class="ct">Rotator speed setpoints (% of p2000)</div><div id="sp_rotator"></div></div>
+      <div class="card">
+        <div class="ct">Travel indicators</div>
+        <div class="row"><button id="horn_en">PRE-TRAVEL HORN</button><span class="pnote">2 s horn warning before carriage motion</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= ALARMS ================= -->
+  <div class="page" id="page_alarms" style="display:none">
+    <h2>Active alarms <span style="text-transform:none">(same list as the panel HMI)</span></h2>
+    <div class="card" id="alm_active">—</div>
+    <h2>History <span style="text-transform:none">(this server session, newest first)</span></h2>
+    <div class="card" id="alm_hist">—</div>
+  </div>
+
+  <!-- ================= TESTING ================= -->
+  <div class="page" id="page_testing" style="display:none">
+    <h2>Commissioning routines <span style="text-transform:none">(live steps auto-tick as the PLC reaches them; ☐ = sign off manually)</span></h2>
+    <div class="row" id="routine_tabs" style="flex-wrap:wrap;gap:6px;margin-bottom:8px"></div>
+    <div id="routine_detail" class="card"></div>
+    <h2>Sequence tests <span style="text-transform:none">(releases the coordinators' auto-arm; drive each EM's PackML commands individually — enable seq-test mode on Settings)</span></h2>
+    <div id="ems" style="display:grid;gap:6px"></div>
+    <div id="seqlog" class="card" style="margin-top:8px;display:none"></div>
+  </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let S = null;
+const write = (id, value) => fetch("/write", { method: "POST", body: JSON.stringify({ id, value }) })
+  .then(r => r.json()).then(j => { if (!j.ok) $("err").textContent = j.error; });
+const M = (m) => "Maintenance_CMD." + m;
+
+let V = {};
+const on = (t) => V[t] === true;
+const st = (db) => V[db + ".state"];
+const num = (t) => (typeof V[t] === "number" ? V[t] : null);
+const CD = "EM_Carriage_Drive_DB", RD = "EM_Rotator_Drive_DB";
+const cSp = (s) => num("Carriage_Drive_CMD.sp_" + s), rSp = (s) => num("Rotator_Drive_CMD.sp_" + s);
+const safety = () => on("EStop_Healthy") && on("SR1_Healthy");
+const modesClear = () => !on(M("maintenance_mode")) && !on(M("seq_test_mode"));
+// effective input value: force (if enabled) else physical OR sim
+const eff = (t) => {
+  if (V["Force_CMD.f_" + t] === true && on(M("maintenance_mode"))) return V["Force_CMD.v_" + t] === true;
+  const simMember = S && S.simButtons && S.simButtons[t];
+  return V[t] === true || (simMember ? V["Sim_CMD." + simMember] === true : false);
+};
+
+// ---- latched observations (Testing page) ----------------------------------
+const LATCH_KEY = "wagon_latch_v1";
+const latches = JSON.parse(localStorage.getItem(LATCH_KEY) || "{}");
+const saveLatch = () => localStorage.setItem(LATCH_KEY, JSON.stringify(latches));
+const seen = (k, cond) => { if (cond && !latches[k]) { latches[k] = Date.now(); saveLatch(); } return !!latches[k]; };
+
+const CB = "EM_Carriage_Brake_DB", RB = "EM_Rotator_Brake_DB";
+const armed = () => st(CD) === 6 && st(RD) === 6;
+
+const FAULTS = [
+  ["CM1_Fault", "Carriage motor 1 overload", "no", CD], ["CM2_Fault", "Carriage motor 2 overload", "no", CD],
+  ["CM3_Fault", "Carriage motor 3 overload", "no", CD], ["CM4_Fault", "Carriage motor 4 overload", "no", CD],
+  ["CM1_Therm", "Carriage motor 1 thermistor", "nc", CD], ["CM2_Therm", "Carriage motor 2 thermistor", "nc", CD],
+  ["CM3_Therm", "Carriage motor 3 thermistor", "nc", CD], ["CM4_Therm", "Carriage motor 4 thermistor", "nc", CD],
+  ["VSD1_CB_Trip", "Carriage VSD circuit breaker", "nc", CD], ["BR1_Fault", "Carriage braking resistor", "nc", CD],
+  ["VSD2_CB_Trip", "Rotator VSD circuit breaker", "nc", RD], ["BR2_Fault", "Rotator braking resistor", "nc", RD],
+  ["M5_Therm", "Rotator motor thermistor", "nc", RD], ["ECB_Trip", "Earth circuit breaker", "nc", null],
+  ["Carriage_Brake_Fault", "Carriage brake contactor", "nc", CB], ["Rot_Brake_Fault", "Rotator brake contactor", "nc", RB],
+];
+const fActive = (tag, sense) => sense === "nc" ? V[tag] === false : V[tag] === true;
+
+const PENDANT = [
+  ["Fwd_Carriage", "Forward (1st detent)"], ["Fwd_Fast_Carriage", "Forward FAST (2nd detent)"],
+  ["Rev_Carriage", "Reverse (1st detent)"], ["Rev_Fast_Carriage", "Reverse FAST (2nd detent)"],
+  ["Rotate_Left", "Rotate Left"], ["Rotate_Left_Fast", "Rotate Left FAST"],
+  ["Rot_Right", "Rotate Right"], ["Rot_Right_Fast", "Rotate Right FAST"],
+  ["Reset_PB", "Reset pushbutton"],
+];
+
+const ROUTINES = [
+  { id: "arm", title: "1 · Power-up & arm", desc: "Cold start: coordinators walk every EM to Execute with no hands on anything.", steps: [
+    { t: "Safety chain healthy — E-Stop &amp; safety relay made", auto: () => safety() },
+    { t: "Maintenance mode &amp; sequence-test mode both OFF", auto: () => modesClear() },
+    { t: "Carriage Drive passes <b>Clearing</b> (no motor/VSD/BR faults)", auto: () => st(CD) >= 2 },
+    { t: "Carriage &amp; Rotator Drives reach <b>Execute</b> (6)", auto: () => armed() },
+    { t: "Brake EMs reach <b>Execute</b>", auto: () => st(CB) === 6 && st(RB) === 6 },
+    { t: "Both drive FBs clean — no fault, no lockout, bus OK", auto: () => !on("SinaSpeed_Rail_DB.Error") && !on("SinaSpeed_Rail_DB.Lockout") && !on("SinaSpeed_Rot_DB.Error") && !on("SinaSpeed_Rot_DB.Lockout") },
+  ]},
+  { id: "pendant", title: "2 · Pendant / controls", desc: "Operate every control once — each latches ✓ when the PLC sees it.", steps:
+    PENDANT.map(([tag, label]) => ({ t: `Operate <b>${label}</b>`, auto: () => seen("pendant." + tag, on(tag)) }))
+  },
+  { id: "carr", title: "3 · Carriage drive", desc: "Jog + fast, both directions. Fast needs the segment straight & clear of the ramp zone.", steps: [
+    { t: "Armed &amp; jog setpoints entered (fwd &gt; 0, rev &lt; 0)", auto: () => armed() && cSp("JOG_SPEED_FWD") > 0 && cSp("JOG_SPEED_REV") < 0 },
+    { t: "Hold Forward → ref = jog %, drive runs", auto: () => seen("carr.fwd", on("Fwd_Carriage") && num(CD + ".cmd_VSD1_Speed_Ref") === cSp("JOG_SPEED_FWD") && on("SinaSpeed_Rail_DB.AxisEnabled")) },
+    { t: "Actual speed tracks setpoint (±3 %)", auto: () => seen("carr.track", on("SinaSpeed_Rail_DB.AxisEnabled") && num("SinaSpeed_Rail_DB.ActVelocity") != null && Math.abs(num("SinaSpeed_Rail_DB.ActVelocity") / 15 - num(CD + ".cmd_VSD1_Speed_Ref")) < 3) },
+    { t: "Wagon moves the direction the button says — FORWARD", auto: () => null },
+    { t: "Carriage brake releases on run, re-applies at standstill", auto: () => null },
+    { t: "Hold Reverse → ref = reverse % (negative), runs", auto: () => seen("carr.rev", on("Rev_Carriage") && num(CD + ".cmd_VSD1_Speed_Ref") === cSp("JOG_SPEED_REV")) },
+    { t: "2nd detent (segment straight, clear of ends) → ref steps to FAST %", auto: () => seen("carr.fast", on("Fwd_Fast_Carriage") && num(CD + ".cmd_VSD1_Speed_Ref") === cSp("FAST_SPEED_FWD") && cSp("FAST_SPEED_FWD") !== 0) },
+    { t: "Release → ref 0, drive ramps to standstill", auto: () => seen("carr.stop", latches["carr.fwd"] && !on("Fwd_Carriage") && !on("Rev_Carriage") && num(CD + ".cmd_VSD1_Speed_Ref") === 0 && Math.abs(num("SinaSpeed_Rail_DB.ActVelocity") ?? 999) <= 5) },
+  ]},
+  { id: "rot", title: "4 · Rotator drive", desc: "Left / right, jog + fast. Left = negative setpoints.", steps: [
+    { t: "Armed &amp; setpoints entered (left &lt; 0, right &gt; 0)", auto: () => armed() && rSp("JOG_SPEED_LEFT") < 0 && rSp("JOG_SPEED_RIGHT") > 0 },
+    { t: "Hold Rotate Left → ref = left jog (negative), runs", auto: () => seen("rot.left", on("Rotate_Left") && num(RD + ".cmd_VSD2_Speed_Ref") === rSp("JOG_SPEED_LEFT") && on("SinaSpeed_Rot_DB.AxisEnabled")) },
+    { t: "Hold Rotate Right → ref = right jog (positive), runs", auto: () => seen("rot.right", on("Rot_Right") && num(RD + ".cmd_VSD2_Speed_Ref") === rSp("JOG_SPEED_RIGHT")) },
+    { t: "Left and right turn OPPOSITE ways, labels correct", auto: () => null },
+    { t: "2nd detent → ref steps to FAST %", auto: () => seen("rot.fast", (on("Rotate_Left_Fast") && num(RD + ".cmd_VSD2_Speed_Ref") === rSp("FAST_SPEED_LEFT")) || (on("Rot_Right_Fast") && num(RD + ".cmd_VSD2_Speed_Ref") === rSp("FAST_SPEED_RIGHT"))) },
+    { t: "Rotator brake clicks open on jog, closed after release", auto: () => null },
+    { t: "Release → ref 0, stops", auto: () => seen("rot.stop", latches["rot.left"] && !on("Rotate_Left") && !on("Rot_Right") && num(RD + ".cmd_VSD2_Speed_Ref") === 0) },
+  ]},
+  { id: "enc", title: "5 · Encoders", desc: "Scaling in the encoder device config, presets in maintenance mode.", steps: [
+    { t: "Rotator encoder scaled in HW config: 3600 steps/rev, total 3600", auto: () => null },
+    { t: "Rail encoder scaled: 1000 steps/rev, multiturn (no wrap)", auto: () => null },
+    { t: "Segment physically straight → maintenance mode → rotator PRESET 0", auto: () => seen("enc.rotpre", on(M("rot_preset_done"))) },
+    { t: "Angle reads ≈ 0.0° at home; rotate &amp; return — repeats", auto: () => Math.abs(num("Rail_Config.rot_position_deg10") ?? 999) <= 20 },
+    { t: "Rail scale entered (0.1 mm per rev) in Settings", auto: () => (num("Rail_Config.mm_per_rev_x10") ?? 0) > 0 },
+    { t: "Wagon at tunnel-entrance reference → rail PRESET 0", auto: () => seen("enc.railpre", on(M("rail_preset_done"))) },
+    { t: "Rail length entered; position tracks travel, sane m readout", auto: () => (num("Rail_Config.rail_length_mm") ?? 0) > 0 },
+    { t: "Leave maintenance mode → machine re-arms", auto: () => !on(M("maintenance_mode")) && armed() },
+  ]},
+  { id: "lim", title: "6 · Speed limiting (FD)", desc: "FD rev B: fast only at 0°/180° and clear of the 2 m ramp zones; otherwise fast runs at jog. Travel limit stops motion.", steps: [
+    { t: "Segment OFF straight + hold Fast Fwd → LIMITED to jog %", auto: () => seen("lim.rot", !on("Rail_Config.rot_at_home") && on("Fwd_Fast_Carriage") && num(CD + ".cmd_VSD1_Speed_Ref") === cSp("JOG_SPEED_FWD")) },
+    { t: "Segment straight (0° or 180°) → fast works again", auto: () => seen("lim.rotok", on("Rail_Config.rot_at_home") && on("Fwd_Fast_Carriage") && num(CD + ".cmd_VSD1_Speed_Ref") === cSp("FAST_SPEED_FWD")) },
+    { t: "Within 2 m of an end → fast limits to jog (needs rail length + preset)", auto: () => null },
+    { t: "Long-travel limit switch wired to a real terminal (was phantom I4.0)", auto: () => null },
+    { t: "Trip the travel limit — input registers", auto: () => seen("lim.trip", on("Long_Limit_Stop")) },
+    { t: "Motion toward the limit REFUSED while tripped", auto: () => (on("Long_Limit_Stop") && on("Fwd_Carriage")) ? num(CD + ".cmd_VSD1_Speed_Ref") === 0 : null },
+    { t: "Clear the limit → jog works again", auto: () => seen("lim.clear", latches["lim.trip"] && !on("Long_Limit_Stop") && armed()) },
+  ]},
+  { id: "faults", title: "7 · Fault-input walk", desc: "Trip every fault input (at the device, its terminal, or FORCE it from the IO page), watch the reaction, restore.", steps: [
+    { t: "Machine armed before starting", auto: () => armed() },
+    ...FAULTS.flatMap(([tag, label, sense, em]) => [
+      { t: `Trip <b>${label}</b> <small>(${tag}${sense === "nc" ? ", N/C — open the circuit" : ""})</small>`, auto: () => seen("flt." + tag, fActive(tag, sense)) },
+      { t: `↳ restore${em ? " — EM returns to Execute" : ""}`, auto: () => seen("flt.r." + tag, latches["flt." + tag] && !fActive(tag, sense) && (em ? st(em) === 6 : true)) },
+    ]),
+  ]},
+  { id: "safety", title: "8 · Safety & reset", desc: "E-Stop drop kills motion; restore + reset re-arms. Drive faults ack via the Reset pushbutton.", steps: [
+    { t: "Machine armed, then press an <b>E-Stop</b>", auto: () => seen("saf.drop", !safety()) },
+    { t: "Drive EMs leave Execute — refs killed", auto: () => seen("saf.react", latches["saf.drop"] && st(CD) !== 6) },
+    { t: "Drives at standstill; STO indicated at both drives", auto: () => null },
+    { t: "Release E-Stop, reset safety relay → chain healthy", auto: () => seen("saf.restore", latches["saf.drop"] && safety()) },
+    { t: "Machine re-arms to Execute on its own", auto: () => seen("saf.rearm", latches["saf.restore"] && armed()) },
+    { t: "Provoke / observe a drive fault → FAULT flag on a drive card", auto: () => seen("saf.dfault", on("SinaSpeed_Rail_DB.Error") || on("SinaSpeed_Rot_DB.Error")) },
+    { t: "Press <b>Reset PB</b> → AckError pulses, fault clears", auto: () => seen("saf.dack", latches["saf.dfault"] && on("Reset_PB")) },
+    { t: "Both drive FBs clean again", auto: () => !on("SinaSpeed_Rail_DB.Error") && !on("SinaSpeed_Rot_DB.Error") },
+  ]},
+];
+
+const SIGN_KEY = "wagon_signoff_v2";
+const signoff = JSON.parse(localStorage.getItem(SIGN_KEY) || "{}");
+const saveSign = () => localStorage.setItem(SIGN_KEY, JSON.stringify(signoff));
+let activeRoutine = localStorage.getItem("wagon_active_routine") || ROUTINES[0].id;
+if (!ROUTINES.find(x => x.id === activeRoutine)) activeRoutine = ROUTINES[0].id;
+
+function buildRoutines() {
+  $("routine_tabs").innerHTML = ROUTINES.map(r => `<button class="rtab" data-r="${r.id}">${r.title}<span class="prog" id="prog_${r.id}"></span></button>`).join("");
+  document.querySelectorAll(".rtab").forEach(b => b.onclick = () => { activeRoutine = b.dataset.r; localStorage.setItem("wagon_active_routine", activeRoutine); renderRoutineStructure(); });
+  renderRoutineStructure();
+}
+function renderRoutineStructure() {
+  const r = ROUTINES.find(x => x.id === activeRoutine);
+  document.querySelectorAll(".rtab").forEach(b => b.classList.toggle("active", b.dataset.r === activeRoutine));
+  $("routine_detail").innerHTML =
+    `<div class="rhead"><h3>${r.title}</h3><span class="desc">${r.desc}</span>
+       <button class="rreset" id="rreset">clear sign-off</button></div>` +
+    r.steps.map((s, i) => {
+      const key = r.id + "." + i, checked = signoff[key] ? "checked" : "";
+      return `<div class="step" id="step_${i}"><div class="sdot" id="dot_${i}"></div>
+        <input type="checkbox" data-key="${key}" ${checked}>
+        <div class="stext">${s.t}</div><div class="snote" id="note_${i}"></div></div>`;
+    }).join("");
+  $("rreset").onclick = () => { r.steps.forEach((_, i) => delete signoff[r.id + "." + i]); saveSign(); for (const k of Object.keys(latches)) delete latches[k]; saveLatch(); renderRoutineStructure(); };
+  $("routine_detail").querySelectorAll("input[type=checkbox]").forEach(cb =>
+    cb.onchange = () => { const k = cb.dataset.key; if (cb.checked) signoff[k] = Date.now(); else delete signoff[k]; saveSign(); });
+}
+function updateRoutinesLive() {
+  let fullyDone = 0;
+  for (const r of ROUTINES) {
+    const done = r.steps.reduce((n, _, i) => n + (signoff[r.id + "." + i] ? 1 : 0), 0);
+    const el = $("prog_" + r.id); if (el) el.textContent = done + "/" + r.steps.length;
+    if (done === r.steps.length) fullyDone++;
+  }
+  const badge = $("nav_test_badge");
+  if (badge) { badge.textContent = fullyDone + "/" + ROUTINES.length; badge.style.display = ""; }
+  if ($("page_testing").style.display === "none") return;
+  const r = ROUTINES.find(x => x.id === activeRoutine);
+  r.steps.forEach((s, i) => {
+    const dot = $("dot_" + i), row = $("step_" + i); if (!dot) return;
+    let res; try { res = s.auto(); } catch { res = false; }
+    dot.className = "sdot " + (res === true ? "pass" : res == null ? "man" : "fail");
+    row.classList.toggle("done", !!signoff[r.id + "." + i]);
+    const note = $("note_" + i);
+    if (note) note.textContent = res === true ? "✓ live" : res === null ? "manual check" : "waiting";
+  });
+}
+
+// ---- permissives definitions ------------------------------------------------
+const envConfigured = () => (num("Rail_Config.mm_per_rev_x10") ?? 0) > 0 && (num("Rail_Config.rail_length_mm") ?? 0) > 0;
+const vsd1ok = () => !on("SinaSpeed_Rail_DB.Error") && !on("SinaSpeed_Rail_DB.Lockout");
+const vsd2ok = () => !on("SinaSpeed_Rot_DB.Error") && !on("SinaSpeed_Rot_DB.Lockout");
+const PERM_CARDS = [
+  { title: "Machine arm (auto-walk to Execute)", req: () => armed() ? "ARMED" : "arming…", terms: [
+    ["E-Stop chain healthy", () => on("EStop_Healthy")],
+    ["Safety relay healthy", () => on("SR1_Healthy")],
+    ["Maintenance mode OFF", () => !on(M("maintenance_mode"))],
+    ["Sequence-test mode OFF", () => !on(M("seq_test_mode"))],
+    ["Carriage Drive EM in Execute", () => st(CD) === 6],
+    ["Rotator Drive EM in Execute", () => st(RD) === 6],
+  ]},
+  { title: "Run carriage FORWARD (jog)", req: () => eff("Fwd_Carriage") ? "REQUESTED" : "idle", terms: [
+    ["Machine armed (drive EM Execute)", () => st(CD) === 6],
+    ["Travel permit (pre-travel horn done)", () => on("EM_Travel_Indicators_DB.permit_travel")],
+    ["Travel limit not tripped", () => !eff("Long_Limit_Stop")],
+    ["Clear of forward end margin", () => on("Rail_Status.fwd_allowed")],
+    ["Jog setpoint entered (≠ 0)", () => (cSp("JOG_SPEED_FWD") ?? 0) > 0],
+    ["Carriage VSD healthy", vsd1ok],
+  ]},
+  { title: "Run carriage FORWARD FAST", req: () => eff("Fwd_Fast_Carriage") ? "REQUESTED" : "idle", terms: [
+    ["Machine armed (drive EM Execute)", () => st(CD) === 6],
+    ["Travel permit (pre-travel horn done)", () => on("EM_Travel_Indicators_DB.permit_travel")],
+    ["Segment straight (0° / 180° ± 2°)", () => on("Rail_Config.rot_at_home")],
+    ["Fast gate (straight AND outside 2 m ramp)", () => on("Rail_Status.fwd_fast_allowed")],
+    ["Travel limit not tripped", () => !eff("Long_Limit_Stop")],
+    ["Fast setpoint entered (≠ 0)", () => (cSp("FAST_SPEED_FWD") ?? 0) > 0],
+    ["Carriage VSD healthy", vsd1ok],
+  ], note: "a FAST request that fails straight/ramp gates falls back to JOG — it still moves, slower" },
+  { title: "Run carriage REVERSE (jog)", req: () => eff("Rev_Carriage") ? "REQUESTED" : "idle", terms: [
+    ["Machine armed (drive EM Execute)", () => st(CD) === 6],
+    ["Travel permit (pre-travel horn done)", () => on("EM_Travel_Indicators_DB.permit_travel")],
+    ["Clear of entrance end margin", () => on("Rail_Status.rev_allowed")],
+    ["Reverse jog setpoint entered (&lt; 0)", () => (cSp("JOG_SPEED_REV") ?? 0) < 0],
+    ["Carriage VSD healthy", vsd1ok],
+  ]},
+  { title: "Run carriage REVERSE FAST", req: () => eff("Rev_Fast_Carriage") ? "REQUESTED" : "idle", terms: [
+    ["Machine armed (drive EM Execute)", () => st(CD) === 6],
+    ["Travel permit (pre-travel horn done)", () => on("EM_Travel_Indicators_DB.permit_travel")],
+    ["Segment straight (0° / 180° ± 2°)", () => on("Rail_Config.rot_at_home")],
+    ["Fast gate (straight AND outside 2 m ramp)", () => on("Rail_Status.rev_fast_allowed")],
+    ["Reverse fast setpoint entered (&lt; 0)", () => (cSp("FAST_SPEED_REV") ?? 0) < 0],
+    ["Carriage VSD healthy", vsd1ok],
+  ], note: "fast falls back to jog when straight/ramp gates fail" },
+  { title: "Rotate LEFT / RIGHT", req: () => (eff("Rotate_Left") || eff("Rotate_Left_Fast") || eff("Rot_Right") || eff("Rot_Right_Fast")) ? "REQUESTED" : "idle", terms: [
+    ["Rotator Drive EM in Execute", () => st(RD) === 6],
+    ["Setpoints entered (left &lt; 0, right &gt; 0)", () => (rSp("JOG_SPEED_LEFT") ?? 0) < 0 && (rSp("JOG_SPEED_RIGHT") ?? 0) > 0],
+    ["Rotator VSD healthy", vsd2ok],
+  ], note: "no envelope gates on rotation; fast detent wins over jog (two-detent suppression)" },
+  { title: "Straighten-Up (HMI one-shot)", req: () => on("Rotator_Drive_CMD.straighten_req") ? "ACTIVE" : "idle", terms: [
+    ["Rotator Drive EM in Execute", () => st(RD) === 6],
+    ["Safety chain healthy", safety],
+    ["No pendant rotate held (operator override cancels)", () => !(eff("Rotate_Left") || eff("Rotate_Left_Fast") || eff("Rot_Right") || eff("Rot_Right_Fast"))],
+    ["Straighten setpoint entered", () => (num("Rotator_Drive_CMD.sp_STRAIGHTEN_SPEED") ?? 0) !== 0],
+  ]},
+];
+
+// ---- build (once) ------------------------------------------------------------
+function build() {
+  // IO tables
+  $("io_di").innerHTML = S.di.map(([n, a, d]) => {
+    const forcible = S.forcible.includes(n);
+    return `<tr id="R_${n}"><td><div id="L_${n}" class="lamp"></div></td>
+      <td class="mono">${n} <span id="FB_${n}"></span></td><td class="mono">${a}</td><td style="color:#59636d">${d}</td>
+      <td>${forcible ? `<span class="seg"><button data-ftag="${n}" data-fa="off">LIVE</button><button data-ftag="${n}" data-fa="f0">F=0</button><button data-ftag="${n}" data-fa="f1">F=1</button></span>` : `<span class="pnote">${n.includes("Spare") ? "spare" : "safety — not forcible"}</span>`}</td></tr>`;
+  }).join("");
+  document.querySelectorAll("[data-ftag]").forEach(b => b.onclick = () => {
+    const tag = b.dataset.ftag, a = b.dataset.fa;
+    fetch("/force/set", { method: "POST", body: JSON.stringify({ tag, enable: a !== "off", value: a === "f1" }) })
+      .then(r => r.json()).then(j => { if (!j.ok) $("err").textContent = j.error; });
+  });
+  $("force_clear").onclick = () => fetch("/force/clear", { method: "POST" });
+  $("io_do").innerHTML = S.do_.map(([n, a]) =>
+    `<tr><td><div id="LO_${n}" class="lamp"></div></td><td class="mono">${n}</td><td class="mono">${a}</td>
+     <td><button id="B_${n}">OFF</button></td></tr>`).join("");
+  S.do_.forEach(([n]) => $("B_" + n).onclick = () => write(M("ov_" + n), !(V[M("ov_" + n)] === true)));
+
+  // settings: setpoints
+  for (const [card, db, sps] of [["sp_carriage", S.setpoints[0][0], S.setpoints[0][1]], ["sp_rotator", S.setpoints[1][0], S.setpoints[1][1]]]) {
+    const el = $(card);
+    el.innerHTML += sps.map(sp => `<div class="row">${sp.replace("sp_", "")} <input type="number" id="I_${db}.${sp}"> <button id="S_${db}.${sp}">SET</button></div>`).join("");
+    sps.forEach(sp => $(`S_${db}.${sp}`).onclick = () => write(`${db}.${sp}`, Number($(`I_${db}.${sp}`).value)));
+  }
+  $("maint").onclick = () => write(M("maintenance_mode"), !(V[M("maintenance_mode")] === true));
+  $("seqmode").onclick = () => fetch("/seq/mode", { method: "POST", body: JSON.stringify({ on: !(V[M("seq_test_mode")] === true) }) });
+  $("horn_en").onclick = () => write("Indicators_Config.horn_pre_travel_enable", !(V["Indicators_Config.horn_pre_travel_enable"] === true));
+  $("rot_go").onclick = async () => { await write(M("rot_preset_value"), Number($("rot_pv").value)); await write(M("rot_preset_execute"), true); setTimeout(() => write(M("rot_preset_execute"), false), 3000); };
+  $("rail_go").onclick = async () => { await write(M("rail_preset_value"), Number($("rail_pv").value)); await write(M("rail_preset_execute"), true); setTimeout(() => write(M("rail_preset_execute"), false), 3000); };
+  const RC = (m) => "Rail_Config." + m;
+  $("rc_len_set").onclick = () => write(RC("rail_length_mm"), Number($("rc_len").value));
+  $("rc_addsec").onclick = () => write(RC("rail_length_mm"), (V[RC("rail_length_mm")] ?? 0) + 1700);
+  $("rc_scale_set").onclick = () => write(RC("mm_per_rev_x10"), Number($("rc_scale").value));
+  $("rc_rotk_set").onclick = () => write(RC("rot_counts_per_360"), Number($("rc_rotk").value));
+  $("rc_rotk_cap").onclick = () => { const r = V["Rotator_Encoder_Pos"]; if (r != null) $("rc_rotk").value = r - 500000; };
+  $("rc_ramp_set").onclick = () => write(RC("ramp_zone_mm"), Number($("rc_ramp").value));
+  $("rc_margin_set").onclick = () => write(RC("end_margin_mm"), Number($("rc_margin").value));
+
+  // sequence tests
+  $("ems").innerHTML = S.ems.map(em => `
+    <div class="card" style="display:flex;justify-content:flex-start;gap:10px;flex-wrap:wrap;align-items:center;padding:8px 12px">
+      <b style="min-width:130px">${em.name}</b>
+      <span class="chip" id="ST_${em.db}">—</span>
+      ${em.pins.map(c => `<button class="seqcmd" data-db="${em.db}" data-cmd="${c}">${c.toUpperCase()}</button>`).join("")}
+      ${em.pins.length ? `<button style="margin-left:auto" data-run="${em.db}">▶ RUN TEST</button>` : `<span style="margin-left:auto;color:#8a939c">observe only</span>`}
+    </div>`).join("");
+  document.querySelectorAll(".seqcmd").forEach(b => b.onclick = () => fetch("/seq/cmd", { method: "POST", body: JSON.stringify({ db: b.dataset.db, cmd: b.dataset.cmd }) }));
+  document.querySelectorAll("[data-run]").forEach(b => b.onclick = () => fetch("/seq/run", { method: "POST", body: JSON.stringify({ db: b.dataset.run }) }));
+
+  // permissives structure
+  $("perm_cards").innerHTML = PERM_CARDS.map((c, ci) => `
+    <div class="card"><div class="ct" style="display:flex;justify-content:space-between">${c.title}<span class="chip reqchip" id="preq_${ci}">—</span></div>
+      ${c.terms.map(([label], ti) => `<div class="perm" id="perm_${ci}_${ti}"><div class="pdot" id="pdot_${ci}_${ti}"></div><div>${label}</div><div class="pnote" id="pnote_${ci}_${ti}"></div></div>`).join("")}
+      ${c.note ? `<div class="pnote" style="margin-top:6px">${c.note}</div>` : ""}
+    </div>`).join("");
+
+  // pendant hold-to-run
+  const simBtn = (tag, down) => fetch("/sim/btn", { method: "POST", body: JSON.stringify({ tag, down }) })
+    .then(r => r.json()).then(j => { if (!j.ok) $("err").textContent = j.error; }).catch(() => {});
+  const heldLocal = new Set();
+  window.releaseAllSim = () => { for (const t of [...heldLocal]) { heldLocal.delete(t); simBtn(t, false); } document.querySelectorAll(".pendbtn.held").forEach(b => b.classList.remove("held")); };
+  document.querySelectorAll(".pendbtn").forEach(el => {
+    const tag = el.dataset.sim;
+    const dn = (e) => { e.preventDefault(); if (el.disabled) return; try { el.setPointerCapture(e.pointerId); } catch {} heldLocal.add(tag); el.classList.add("held"); simBtn(tag, true); };
+    const up = () => { if (!heldLocal.has(tag)) return; heldLocal.delete(tag); el.classList.remove("held"); simBtn(tag, false); };
+    el.onpointerdown = dn; el.onpointerup = up; el.onpointercancel = up; el.onpointerleave = up;
+    el.oncontextmenu = (e) => e.preventDefault();
+  });
+  setInterval(() => { if (heldLocal.size) fetch("/sim/heartbeat", { method: "POST" }).catch(() => {}); }, 250);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) window.releaseAllSim(); });
+  window.addEventListener("pagehide", () => window.releaseAllSim());
+  $("simarm").onclick = () => {
+    const arming = !(S.sim && S.sim.armed);
+    if (!arming) window.releaseAllSim();
+    fetch("/sim/enable", { method: "POST", body: JSON.stringify({ on: arming }) })
+      .then(r => r.json()).then(j => { if (!j.ok) $("err").textContent = j.error; });
+  };
+
+  buildRoutines();
+  const PAGES = ["overview", "pendant", "io", "perms", "vfd", "settings", "alarms", "testing"];
+  const showPage = (p) => {
+    if (!PAGES.includes(p)) p = "overview";
+    PAGES.forEach(x => $("page_" + x).style.display = x === p ? "" : "none");
+    document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("active", b.dataset.p === p));
+    localStorage.setItem("wagon_page2", p);
+  };
+  document.querySelectorAll("#nav button").forEach(b => b.onclick = () => showPage(b.dataset.p));
+  showPage(localStorage.getItem("wagon_page2") || "overview");
+}
+
+// ---- per-tick renderers ------------------------------------------------------
+const fmtT = (ts) => new Date(ts).toLocaleTimeString();
+const kv = (l, val, cls) => `<div class="kv"><span>${l}</span><b class="${cls ?? ""}">${val}</b></div>`;
+const FB_STATUS = { 0x7002: "ready (not enabled)", 0x8401: "DRIVE FAULT", 0x8402: "switch-on inhibit", 0x8600: "bus read error", 0x8601: "bus write error" };
+const ZSW1_BITS = ["Ready to switch on", "Ready to operate", "Operation enabled", "FAULT present", "Coast stop (OFF2) inactive", "Quick stop (OFF3) inactive", "Switching-on inhibited", "Alarm present", "Speed within tolerance", "Control requested", "Target speed reached", "I/M/P limit reached", "(drive-specific)", "No motor overtemp warning", "Direction positive", "(drive-specific)"];
+
+function drvSummary(db, cmdTag) {
+  const v = (f) => V[db + "." + f];
+  const zsw = v("ZSW1") ?? 0, act = v("ActVelocity"), en = v("AxisEnabled") === true, fault = !!(zsw & 8);
+  return kv("cmd setpoint", (V[cmdTag] ?? "—") + " %") +
+    kv("actual", act != null ? (act / 15).toFixed(1) + " %  (" + act.toFixed(0) + " rpm)" : "—") +
+    kv("state", en ? "RUNNING" : "stopped") +
+    kv("fault", fault || v("Error") === true ? "FAULT" : "none", (fault || v("Error") === true) ? "abn-r" : "");
+}
+function drvDetail(db, cmdTag, spDb, sps) {
+  const v = (f) => V[db + "." + f];
+  const zsw = (v("ZSW1") ?? 0) >>> 0, stat = (v("Status") ?? 0) >>> 0, act = v("ActVelocity"), sp = v("SpeedSp");
+  let h = kv("cmd setpoint", (V[cmdTag] ?? "—") + " %  (" + (sp != null ? sp.toFixed(0) : "—") + " rpm)") +
+    kv("actual speed", act != null ? act.toFixed(0) + " rpm  (" + (act / 15).toFixed(1) + " %)" : "—") +
+    kv("enabled", v("AxisEnabled") === true ? "RUNNING" : "stopped") +
+    kv("lockout", v("Lockout") === true ? "LOCKED OUT" : "no", v("Lockout") === true ? "abn-r" : "") +
+    kv("FB status", "0x" + stat.toString(16).toUpperCase() + " — " + (FB_STATUS[stat] ?? "?"), (stat & 0x8000) ? "abn-a" : "") +
+    kv("diag code", "0x" + ((v("DiagId") ?? 0) >>> 0).toString(16).toUpperCase());
+  h += `<div class="pnote" style="margin:8px 0 2px">ZSW1 status word: 0x${zsw.toString(16).toUpperCase().padStart(4, "0")}</div>`;
+  h += ZSW1_BITS.map((lbl, i) => {
+    const set = !!(zsw & (1 << i));
+    const bad = (i === 3 && set) || (i === 7 && set) || (i === 6 && set);
+    return `<div class="kv"><span>bit ${i} — ${lbl}</span><b class="${bad ? (i === 3 ? "abn-r" : "abn-a") : ""}">${set ? "1" : "0"}</b></div>`;
+  }).join("");
+  h += `<div class="pnote" style="margin:8px 0 2px">speed setpoints (% of p2000)</div>`;
+  h += sps.map(sp => `<div class="row">${sp.replace("sp_", "")} <input type="number" id="IV_${spDb}.${sp}" placeholder="${V[spDb + "." + sp] ?? ""}"> <button onclick="write('${spDb}.${sp}', Number(document.getElementById('IV_${spDb}.${sp}').value))">SET</button></div>`).join("");
+  return h;
+}
+
+function tickOverview() {
+  if ($("page_overview").style.display === "none") return;
+  // tiles
+  const conn = S.connected;
+  const maint = on(M("maintenance_mode")), seq = on(M("seq_test_mode"));
+  const nAlm = (S.alarms && S.alarms.active || []).length;
+  const nForce = (S.forces || []).length;
+  const mode = !conn ? ["—", ""] : maint ? ["MAINTENANCE", "blue"] : seq ? ["SEQ-TEST", "blue"] : ["PRODUCTION", ""];
+  $("ov_tiles").innerHTML =
+    `<div class="tile ${mode[1]}"><div class="tl">Mode</div><div class="tv">${mode[0]}</div></div>` +
+    `<div class="tile ${!conn ? "" : safety() ? "" : "red"}"><div class="tl">Safety chain</div><div class="tv">${!conn ? "—" : safety() ? "HEALTHY" : "TRIPPED"}</div></div>` +
+    `<div class="tile ${!conn ? "" : armed() ? "" : "amber"}"><div class="tl">Machine</div><div class="tv">${!conn ? "—" : armed() ? "ARMED" : "NOT ARMED"}</div></div>` +
+    `<div class="tile ${nAlm ? "red" : ""}"><div class="tl">Alarms</div><div class="tv">${nAlm || "NONE"}</div></div>` +
+    `<div class="tile ${nForce ? "blue" : ""}"><div class="tl">Forces</div><div class="tv">${nForce || "NONE"}</div></div>` +
+    `<div class="tile ${S.sim && S.sim.armed ? "blue" : ""}"><div class="tl">Sim pendant</div><div class="tv">${S.sim && S.sim.armed ? "ARMED" : "off"}</div></div>`;
+  // rotator plate
+  const deg10 = num("Rail_Config.rot_position_deg10");
+  if (deg10 != null) {
+    $("ov_plate").style.transform = `rotate(${deg10 / 10}deg)`;
+    $("ov_angle").textContent = (deg10 / 10).toFixed(1) + "°";
+  } else { $("ov_angle").textContent = "—"; }
+  const home = on("Rail_Config.rot_at_home");
+  $("ov_straight").textContent = "STRAIGHT: " + (home ? "YES — fast enabled" : "no");
+  $("ov_straight").className = "chip" + (home ? "" : "");
+  $("ov_rot_ref").textContent = "ref " + (num(RD + ".cmd_VSD2_Speed_Ref") ?? "—") + " %";
+  // rail
+  // Travel runs RIGHT → LEFT: tunnel entrance (0 m) at the right edge,
+  // forward = deeper into the tunnel = toward the LEFT end.
+  const len = num("Rail_Config.rail_length_mm"), pos = num("Rail_Config.position_mm");
+  const cfg = envConfigured();
+  const X0 = 20, W = 600;
+  if (cfg && len > 0) {
+    const margin = num("Rail_Config.end_margin_mm") ?? 0, ramp = num("Rail_Config.ramp_zone_mm") ?? 0;
+    const px = (mm) => X0 + W - Math.max(0, Math.min(1, mm / len)) * W; // mirrored
+    // left = far end (len..len-margin/ramp), right = entrance (0..margin/ramp)
+    $("ov_margin_l").setAttribute("width", Math.max(0, px(len - margin) - X0));
+    $("ov_margin_r").setAttribute("x", px(margin)); $("ov_margin_r").setAttribute("width", Math.max(0, X0 + W - px(margin)));
+    $("ov_ramp_l").setAttribute("width", Math.max(0, px(len - ramp) - X0));
+    $("ov_ramp_r").setAttribute("x", px(ramp)); $("ov_ramp_r").setAttribute("width", Math.max(0, X0 + W - px(ramp)));
+    const cx = px(pos ?? 0);
+    $("ov_car").style.transform = `translate(${cx}px, 0)`;
+    $("ov_pos").textContent = ((pos ?? 0) / 1000).toFixed(2) + " m";
+    $("ov_len_lbl").textContent = (len / 1000).toFixed(1) + " m";
+  } else {
+    $("ov_car").style.transform = `translate(${X0 + W / 2}px, 0)`;
+    $("ov_pos").textContent = "envelope not configured";
+    $("ov_len_lbl").textContent = "— m";
+  }
+  const ref1 = num(CD + ".cmd_VSD1_Speed_Ref") ?? 0, act1 = num("SinaSpeed_Rail_DB.ActVelocity") ?? 0;
+  // forward (positive) = leftward on screen
+  $("ov_car_arrow").textContent = act1 > 2 ? "←←" : act1 < -2 ? "→→" : ref1 > 0 ? "←" : ref1 < 0 ? "→" : "";
+  $("ov_car_ref").textContent = "ref " + (num(CD + ".cmd_VSD1_Speed_Ref") ?? "—") + " %";
+  const dF = num("Rail_Status.dist_to_fwd_end_mm"), dR = num("Rail_Status.dist_to_rev_end_mm");
+  $("ov_dfwd").textContent = "◀ far end: " + (cfg && dF != null ? (dF / 1000).toFixed(2) + " m" : "—");
+  $("ov_drev").textContent = "entrance ▶: " + (cfg && dR != null ? (dR / 1000).toFixed(2) + " m" : "—");
+  const inRamp = on("Rail_Status.in_ramp_zone");
+  $("ov_ramp").textContent = "ramp zone: " + (inRamp ? "IN — fast limited" : "clear");
+  $("ov_ramp").className = "chip" + (inRamp ? " abn" : "");
+  // drives + EMs
+  $("ov_drv_rail").innerHTML = drvSummary("SinaSpeed_Rail_DB", CD + ".cmd_VSD1_Speed_Ref");
+  $("ov_drv_rot").innerHTML = drvSummary("SinaSpeed_Rot_DB", RD + ".cmd_VSD2_Speed_Ref");
+  $("ov_ems").innerHTML = S.ems.map(em => {
+    const abn = em.stateName === "Aborted" || em.stateName === "Aborting";
+    return `<span class="chip${abn ? " abn" : ""}">${em.name}: ${em.stateName}</span>`;
+  }).join("");
+}
+
+function tickIo() {
+  if ($("page_io").style.display === "none") return;
+  const maint = on(M("maintenance_mode"));
+  $("io_maint_note").textContent = maint ? "maintenance mode ACTIVE — forcing enabled" : "forcing requires maintenance mode";
+  S.di.forEach(([n]) => {
+    const lamp = $("L_" + n); if (!lamp) return;
+    const forced = V["Force_CMD.f_" + n] === true;
+    lamp.className = "lamp" + (V[n] === true ? " on" : V[n] == null ? " nul" : "") + (forced ? " forced" : "");
+    const fb = $("FB_" + n); if (fb) fb.innerHTML = forced ? `<span class="fbadge">F=${V["Force_CMD.v_" + n] === true ? 1 : 0}</span>` : "";
+    const row = $("R_" + n); if (row) row.classList.toggle("forced", forced);
+    document.querySelectorAll(`[data-ftag="${n}"]`).forEach(b => {
+      b.disabled = !maint && b.dataset.fa !== "off";
+      const sel = forced ? (V["Force_CMD.v_" + n] === true ? "f1" : "f0") : "off";
+      b.className = b.dataset.fa === sel ? (sel === "off" ? "sel0" : "sel1") : "";
+    });
+  });
+  S.do_.forEach(([n]) => {
+    const b = $("B_" + n), ov = V[M("ov_" + n)] === true, live = V[n] === true;
+    if (!b) return;
+    b.disabled = !maint; b.className = ov ? "on" : ""; b.textContent = ov ? "ON" : "OFF";
+    const lamp = $("LO_" + n); if (lamp) lamp.className = "lamp" + (live ? " on" : V[n] == null ? " nul" : "");
+  });
+}
+
+function tickPerms() {
+  if ($("page_perms").style.display === "none") return;
+  PERM_CARDS.forEach((c, ci) => {
+    const rq = $("preq_" + ci); if (!rq) return;
+    const reqv = c.req(); rq.textContent = reqv;
+    rq.className = "chip reqchip" + (reqv === "REQUESTED" || reqv === "ACTIVE" || reqv === "ARMED" ? " " : "");
+    let blocked = false;
+    c.terms.forEach(([label, fn], ti) => {
+      let res; try { res = fn(); } catch { res = false; }
+      const dot = $(`pdot_${ci}_${ti}`), row = $(`perm_${ci}_${ti}`), note = $(`pnote_${ci}_${ti}`);
+      const firstBlock = res === false && !blocked;
+      if (firstBlock) blocked = true;
+      dot.className = "pdot" + (res === true ? "" : res == null ? " na" : " blk");
+      row.className = "perm" + (firstBlock ? " blk" : "");
+      note.textContent = res === true ? "OK" : res == null ? "n/a — envelope not configured" : firstBlock ? "BLOCKING" : "not met";
+    });
+  });
+}
+
+function tickVfd() {
+  if ($("page_vfd").style.display === "none") return;
+  // don't rebuild while the user is typing in a setpoint field
+  if (document.activeElement && $("page_vfd").contains(document.activeElement) && document.activeElement.tagName === "INPUT") return;
+  $("vfd_rail").innerHTML = drvDetail("SinaSpeed_Rail_DB", CD + ".cmd_VSD1_Speed_Ref", "Carriage_Drive_CMD", S.setpoints[0][1]);
+  $("vfd_rot").innerHTML = drvDetail("SinaSpeed_Rot_DB", RD + ".cmd_VSD2_Speed_Ref", "Rotator_Drive_CMD", S.setpoints[1][1]);
+}
+
+function tickSettings() {
+  const maint = on(M("maintenance_mode")), seq = on(M("seq_test_mode"));
+  $("maint").className = "big" + (maint ? " on" : "");
+  $("seqmode").className = "big" + (seq ? " on" : "");
+  $("seqstatus").textContent = S.seq.running ? `running: ${S.seq.em}` : (seq ? "auto-arm released — EMs only move on your commands (Testing page)" : "off — coordinators auto-arm normally");
+  $("horn_en").className = (V["Indicators_Config.horn_pre_travel_enable"] === true ? "on" : "");
+  $("horn_en").textContent = "PRE-TRAVEL HORN " + (V["Indicators_Config.horn_pre_travel_enable"] === true ? "ON" : "OFF");
+  for (const [el, m] of [["rc_len", "rail_length_mm"], ["rc_scale", "mm_per_rev_x10"], ["rc_ramp", "ramp_zone_mm"], ["rc_margin", "end_margin_mm"], ["rc_rotk", "rot_counts_per_360"]]) {
+    const e = $(el), v = V["Rail_Config." + m];
+    if (e && document.activeElement !== e) e.placeholder = v ?? "—";
+  }
+  $("rot_done").textContent = "done: " + (V[M("rot_preset_done")] ?? "—");
+  $("rail_done").textContent = "done: " + (V[M("rail_preset_done")] ?? "—");
+  $("rot_go").disabled = $("rail_go").disabled = !maint;
+  $("set_enc_rail").textContent = "raw " + (V["Carriage_Encoder_Pos"] ?? "—");
+  $("set_enc_rot").textContent = "raw " + (V["Rotator_Encoder_Pos"] ?? "—");
+  for (const [db, sps] of S.setpoints) sps.forEach(sp => {
+    const el = $(`I_${db}.${sp}`);
+    if (el && document.activeElement !== el) el.placeholder = V[`${db}.${sp}`] ?? "";
+  });
+}
+
+function tickPendant() {
+  const armed_ = S.sim && S.sim.armed;
+  $("simarm").className = "big arm" + (armed_ ? " on" : "");
+  $("simarm").textContent = armed_ ? "DISARM SIMULATED PENDANT" : "ARM SIMULATED PENDANT";
+  $("simstatus").textContent = armed_
+    ? "ARMED — hold a button to move; watchdog live" + (S.sim.held.length ? " · holding: " + S.sim.held.join(", ") : "")
+    : "disarmed — buttons inactive";
+  document.querySelectorAll(".pendbtn").forEach(b => { b.disabled = !armed_; });
+  $("pend_live").innerHTML =
+    `<span class="chip">carriage ref ${num(CD + ".cmd_VSD1_Speed_Ref") ?? "—"} %</span>` +
+    `<span class="chip">rotator ref ${num(RD + ".cmd_VSD2_Speed_Ref") ?? "—"} %</span>` +
+    `<span class="chip">pos ${num("Rail_Config.position_mm") != null ? (num("Rail_Config.position_mm") / 1000).toFixed(2) + " m" : "—"}</span>` +
+    `<span class="chip">angle ${num("Rail_Config.rot_position_deg10") != null ? (num("Rail_Config.rot_position_deg10") / 10).toFixed(1) + "°" : "—"}${on("Rail_Config.rot_at_home") ? " STRAIGHT" : ""}</span>` +
+    `<span class="chip">travel permit ${on("EM_Travel_Indicators_DB.permit_travel") ? "OK" : "held (horn)"}</span>`;
+}
+
+function tickAlarms() {
+  const act = (S.alarms && S.alarms.active) || [];
+  const badge = $("nav_alarm_badge");
+  badge.style.display = act.length ? "" : "none"; badge.textContent = act.length;
+  $("alm_active").innerHTML = act.length
+    ? act.map(a => `<div class="alarm-row"><span class="acls ${a.cls}">${a.cls.toUpperCase()}</span><span>${a.text}</span><span style="color:#8a939c">${a.tag}</span><span class="ats">since ${fmtT(a.since)}</span></div>`).join("")
+    : `<div style="color:#59636d">no active alarms</div>`;
+  const hist = (S.alarms && S.alarms.history) || [];
+  $("alm_hist").innerHTML = hist.length
+    ? hist.map(h => `<div class="alarm-row" style="${h.kind === "clear" ? "opacity:.55" : ""}"><span class="acls ${h.cls}">${h.kind === "raise" ? h.cls.toUpperCase() : "cleared"}</span><span>${h.text}</span><span style="color:#8a939c">${h.tag}</span><span class="ats">${fmtT(h.ts)}</span></div>`).join("")
+    : `<div style="color:#59636d">no events this session</div>`;
+}
+
+function tickTesting() {
+  s_ems_states();
+  const seqOn = V[M("seq_test_mode")] === true;
+  document.querySelectorAll(".seqcmd,[data-run]").forEach(b => b.disabled = !seqOn || S.seq.running);
+  if (S.seq.log.length) {
+    $("seqlog").style.display = "block";
+    $("seqlog").innerHTML = `<b>${S.seq.em}</b>` + S.seq.log.map(l =>
+      `<div class="row"><span class="chip">${l.cmd.toUpperCase()}</span> from ${l.from} → expect ${l.expect}: <b class="${l.result.startsWith("PASS") ? "" : l.result.startsWith("running") ? "abn-a" : "abn-r"}">${l.result}</b></div>`).join("");
+  }
+  updateRoutinesLive();
+}
+function s_ems_states() { S.ems.forEach(em => { const el = $("ST_" + em.db); if (el) el.textContent = em.stateName; }); }
+
+async function tick() {
+  try {
+    const s = await (await fetch("/state")).json();
+    const first = !S; S = s; V = s.values; if (first) build();
+    $("conn").className = "pill " + (s.connected ? "ok" : "bad");
+    $("conn").textContent = s.connected ? "PLC ONLINE" : "PLC OFFLINE";
+    $("err").textContent = s.error ?? "";
+    const maint = on(M("maintenance_mode")), seq = on(M("seq_test_mode"));
+    $("hdr_mode").textContent = maint ? "MAINTENANCE" : seq ? "SEQ-TEST" : "PRODUCTION";
+    $("hdr_mode").className = "pill " + (maint || seq ? "bad" : "ok");
+    // global banners
+    const nForce = (s.forces || []).length;
+    $("force_banner").style.display = nForce ? "block" : "none";
+    $("force_banner").textContent = `⚠ FORCES ACTIVE (${nForce}): ` + (s.forces || []).map(f => `${f.tag}=${f.value ? 1 : 0}`).join(" · ");
+    $("safety_banner").style.display = s.connected && !safety() ? "block" : "none";
+    const fb = $("nav_force_badge"); fb.style.display = nForce ? "" : "none"; fb.textContent = nForce;
+    tickAlarms(); tickOverview(); tickPendant(); tickIo(); tickPerms(); tickVfd(); tickSettings(); tickTesting();
+  } catch (e) { $("conn").className = "pill bad"; $("conn").textContent = "SERVER?"; }
+  setTimeout(tick, 500);
+}
+tick();
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+DATA_BLOCK "SIM_Input_Guard_DB"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+"SIM_Input_Guard"
+
+BEGIN
+
+END_DATA_BLOCK

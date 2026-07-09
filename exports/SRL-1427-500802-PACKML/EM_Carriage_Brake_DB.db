@@ -1,0 +1,6 @@
+DATA_BLOCK "EM_Carriage_Brake_DB"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+"EM_Carriage_Brake"
+BEGIN
+END_DATA_BLOCK

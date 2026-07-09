@@ -1,0 +1,139 @@
+FUNCTION "UC_Carriage" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.4
+   VAR_TEMP
+      ok : Bool;
+      rot_home : Bool;
+      rot_deg10 : DInt;
+      rot_raw : LInt;
+      pos_mm : DInt;
+      fwd_ok : Bool;
+      fwd_fast_ok : Bool;
+      rev_ok : Bool;
+      rev_fast_ok : Bool;
+      permit : Bool;
+      s_fwd : Bool;
+      s_fwd_f : Bool;
+      s_rev : Bool;
+      s_rev_f : Bool;
+   END_VAR
+
+BEGIN
+   // Unit coordination — first-cut commissioning coordinator (2026-07-06).
+   // Policy: while the hardwired safety chain is healthy, walk all EMs up to
+   // Execute (pendant branches only drive while a button is held); on safety
+   // drop, command STOP. Runs BEFORE the EM calls in OB1.
+   // maintenance mode commands STOP everywhere and enables encoder presets
+   #ok := "EStop_Healthy" AND "SR1_Healthy"
+   AND NOT "Maintenance_CMD".maintenance_mode;
+
+   // Rotator angle from a gearbox-mounted encoder (raw counts, multiturn
+   // linear). Calibration (dashboard, maintenance mode):
+   //   1. Segment straight -> PRESET 500000 (offset keeps left swings
+   //      positive — the encoder's unsigned range never goes below zero).
+   //   2. Rotate exactly one full 360 turn -> raw now 500000 + K.
+   //   3. Enter K (counts per 360) as rot_counts_per_360.
+   // deg10 = (raw - 500000) * 3600 / K, normalized to -1799..+1800.
+   // K = 0 (uncalibrated) = legacy direct-mount: raw IS 0.1-deg, preset 0.
+   IF "Rail_Config".rot_counts_per_360 > 0 THEN
+       #rot_raw := DINT_TO_LINT("Rotator_Encoder_Pos") - 500000;
+       #rot_deg10 := LINT_TO_DINT(#rot_raw * 3600 / DINT_TO_LINT("Rail_Config".rot_counts_per_360));
+   ELSE
+       #rot_deg10 := "Rotator_Encoder_Pos";
+   END_IF;
+   // normalize to -1799..+1800 (tolerates full turns either way)
+   #rot_deg10 := ((#rot_deg10 MOD 3600) + 3600) MOD 3600;
+   IF #rot_deg10 > 1800 THEN
+       #rot_deg10 := #rot_deg10 - 3600;
+   END_IF;
+   // FD rev B: segment is "straight" at 0 deg OR 180 deg — both allow full
+   // speed. Window +/- 2.0 deg at either orientation.
+   #rot_home := ((#rot_deg10 > -20) AND (#rot_deg10 < 20))
+   OR (#rot_deg10 > 1780) OR (#rot_deg10 < -1780);
+   "Rail_Config".rot_position_deg10 := #rot_deg10;
+   "Rail_Config".rot_at_home := #rot_home;
+
+   // Rail position + growing-envelope zones. Scaling is fixed physics
+   // (mm_per_rev_x10, encoder at 1000 units/rev, preset 0 at the tunnel
+   // entrance); rail_length_mm GROWS as 1.7 m sections are added (operator
+   // sets it from the dashboard/HMI). Fwd = deeper (increasing count).
+   // Unconfigured (scale or length = 0) -> gates stay open, behaves as before.
+   #pos_mm := LINT_TO_DINT(DINT_TO_LINT("Carriage_Encoder_Pos") * "Rail_Config".mm_per_rev_x10 / 10000);
+   "Rail_Config".position_mm := #pos_mm;
+   IF ("Rail_Config".mm_per_rev_x10 > 0) AND ("Rail_Config".rail_length_mm > 0) THEN
+       #fwd_ok := #pos_mm < ("Rail_Config".rail_length_mm - "Rail_Config".end_margin_mm);
+       #fwd_fast_ok := #pos_mm < ("Rail_Config".rail_length_mm - "Rail_Config".ramp_zone_mm);
+       #rev_ok := #pos_mm > "Rail_Config".end_margin_mm;
+       #rev_fast_ok := #pos_mm > "Rail_Config".ramp_zone_mm;
+   ELSE
+       #fwd_ok := TRUE;
+       #fwd_fast_ok := TRUE;
+       #rev_ok := TRUE;
+       #rev_fast_ok := TRUE;
+   END_IF;
+
+   // --- travel-envelope status readbacks for the HMI (Rail_Status) ---
+   IF ("Rail_Config".mm_per_rev_x10 > 0) AND ("Rail_Config".rail_length_mm > 0) THEN
+       "Rail_Status".dist_to_fwd_end_mm := "Rail_Config".rail_length_mm - "Rail_Config".end_margin_mm - #pos_mm;
+       "Rail_Status".dist_to_rev_end_mm := #pos_mm - "Rail_Config".end_margin_mm;
+   ELSE
+       "Rail_Status".dist_to_fwd_end_mm := 0;
+       "Rail_Status".dist_to_rev_end_mm := 0;
+   END_IF;
+   "Rail_Status".in_ramp_zone := (NOT #fwd_fast_ok) OR (NOT #rev_fast_ok);
+   "Rail_Status".fwd_fast_allowed := #fwd_fast_ok AND #rot_home;
+   "Rail_Status".rev_fast_allowed := #rev_fast_ok AND #rot_home;
+   "Rail_Status".fwd_allowed := #fwd_ok;
+   "Rail_Status".rev_allowed := #rev_ok;
+
+   // --- signal routing: pendant buttons + travel limit -> Carriage Drive ---
+   // Two-detent pendant: FAST detent keeps the jog contact closed and the EM
+   // evaluates jog first — so jog must be suppressed while fast WINS.
+   // FD rev B: off-straight rotation or the 2 m ramp zone LIMITS speed rather
+   // than blocking it — a fast request that fails its gates falls back to the
+   // jog branch, so the operator holding "fast" still moves, just slower.
+   // Pre-travel horn: permit_travel comes from the Travel Indicators EM —
+   // FALSE while the 2 s horn warning sounds (toggle enabled), so the drive
+   // gets no motion interlock until the warning completes.
+   // Conditioned inputs (physical OR dashboard-sim; force-overridable in
+   // maintenance mode) — computed by FORCE_Input_Cond earlier this scan
+   #s_fwd := "IO_Cond".Fwd_Carriage;
+   #s_fwd_f := "IO_Cond".Fwd_Fast_Carriage;
+   #s_rev := "IO_Cond".Rev_Carriage;
+   #s_rev_f := "IO_Cond".Rev_Fast_Carriage;
+   #permit := "EM_Travel_Indicators_DB".permit_travel;
+   "EM_Carriage_Drive_DB".ilk_Fwd_Fast_Carriage := #s_fwd_f AND #rot_home AND #fwd_fast_ok AND #permit;
+   "EM_Carriage_Drive_DB".ilk_Fwd_Carriage :=
+   (#s_fwd OR #s_fwd_f)
+   AND NOT (#s_fwd_f AND #rot_home AND #fwd_fast_ok) AND #fwd_ok AND #permit;
+   "EM_Carriage_Drive_DB".ilk_Rev_Fast_Carriage := #s_rev_f AND #rot_home AND #rev_fast_ok AND #permit;
+   "EM_Carriage_Drive_DB".ilk_Rev_Carriage :=
+   (#s_rev OR #s_rev_f)
+   AND NOT (#s_rev_f AND #rot_home AND #rev_fast_ok) AND #rev_ok AND #permit;
+   "EM_Carriage_Drive_DB".ilk_Long_Limit_Stop := "IO_Cond".Long_Limit_Stop;
+   "EM_Carriage_Limits_DB".ilk_CM_Sensor_LS1 := "IO_Cond".Long_Limit_Stop;
+
+   // --- PackML command routing (released in sequence-test mode) ---
+   IF "Maintenance_CMD".seq_test_mode THEN
+       RETURN;
+   END_IF;
+   "EM_Carriage_Drive_DB".ilk_CD_CMD_CLEAR := #ok;
+   "EM_Carriage_Drive_DB".ilk_CD_CMD_RESET := #ok;
+   "EM_Carriage_Drive_DB".ilk_CD_CMD_START := #ok;
+   "EM_Carriage_Drive_DB".ilk_CD_CMD_STOP := NOT #ok;
+
+   "EM_Carriage_Brake_DB".ilk_CMD_Clear := #ok;
+   "EM_Carriage_Brake_DB".ilk_CMD_Reset := #ok;
+   "EM_Carriage_Brake_DB".ilk_CMD_Start := #ok;
+   "EM_Carriage_Brake_DB".ilk_CMD_Stop := NOT #ok;
+
+   "EM_Carriage_Limits_DB".ilk_CLIM_CMD_Reset := #ok;
+   "EM_Carriage_Limits_DB".ilk_CLIM_CMD_Start := #ok;
+   "EM_Carriage_Limits_DB".ilk_CLIM_CMD_Stop := NOT #ok;
+
+   "EM_Carriage_Pendant_DB".ilk_PENDANT_CMD_CLEAR := #ok;
+   "EM_Carriage_Pendant_DB".ilk_PENDANT_CMD_RESET := #ok;
+   "EM_Carriage_Pendant_DB".ilk_PENDANT_CMD_START := #ok;
+   "EM_Carriage_Pendant_DB".ilk_PENDANT_CMD_STOP := NOT #ok;
+
+END_FUNCTION

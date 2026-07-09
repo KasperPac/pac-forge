@@ -1,0 +1,6 @@
+DATA_BLOCK "EM_E_Stop_Circuit_DB"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+"EM_E_Stop_Circuit"
+BEGIN
+END_DATA_BLOCK

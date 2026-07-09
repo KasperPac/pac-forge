@@ -1,0 +1,15 @@
+FUNCTION "MAP_E_Stop_Circuit" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.4
+BEGIN
+   // sensor feedback -> instance DB. Safety-chain inputs read PHYSICAL tags
+   // (unforcible by design); Reset_PB/ECB come via the conditioned layer.
+   "EM_E_Stop_Circuit_DB".fb_SR1_Healthy := "SR1_Healthy";   // %I0.1 physical — never forced
+   "EM_E_Stop_Circuit_DB".fb_Reset_PB := "IO_Cond".Reset_PB;   // %I2.3 conditioned (sim/force aware)
+   "EM_E_Stop_Circuit_DB".fb_EStop_Healthy := "EStop_Healthy";   // %I2.4 physical — never forced
+   "EM_E_Stop_Circuit_DB".fb_MS1_Healthy := TRUE;   // MS1 switch removed from machine 2026-07-07 — input retired
+   "EM_E_Stop_Circuit_DB".fb_ECB_Trip := NOT "IO_Cond".ECB_Trip;   // %I0.0 N/C fail-safe (TRUE=healthy), inverted 2026-07-07
+   // actuator commands: instance DB -> physical output
+   "Reset_ECB" := "EM_E_Stop_Circuit_DB".cmd_Reset_ECB;   // %Q0.0
+   "Reset_Safety" := "EM_E_Stop_Circuit_DB".cmd_Reset_Safety;   // %Q0.1
+END_FUNCTION

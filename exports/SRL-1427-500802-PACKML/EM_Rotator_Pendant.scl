@@ -1,0 +1,93 @@
+FUNCTION_BLOCK "EM_Rotator_Pendant"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_INPUT
+      enable : Bool;
+      mode : Int;
+      cmd_start : Bool;
+      cmd_stop : Bool;
+      cmd_hold : Bool;
+      cmd_reset : Bool;
+      ilk_CMD_RESET : Bool;
+      ilk_CM_PushButton_Pendant_Rotate_Left : Bool;
+      ilk_CM_PushButton_Pendant_Rotate_Left_Fast : Bool;
+      ilk_CM_PushButton_Pendant_Rot_Right : Bool;
+      ilk_CM_PushButton_Pendant_Rot_Right_Fast : Bool;
+      ilk_CMD_STOP : Bool;
+      ilk_CMD_ABORT : Bool;
+      ilk_CMD_CLEAR : Bool;
+      fb_Rotate_Left : Bool;
+      fb_Rotate_Left_Fast : Bool;
+      fb_Rot_Right : Bool;
+      fb_Rot_Right_Fast : Bool;
+   END_VAR
+   VAR_OUTPUT
+      state : Int;
+      step : Int;
+      done : Bool;
+      fault : Bool;
+   END_VAR
+
+BEGIN
+   CASE #state OF
+      0:   // Aborted (safe)
+         IF (#ilk_CMD_CLEAR = TRUE) THEN #state := 1; #done := FALSE; #step := 1; END_IF;
+      1:   // Clearing
+         CASE #step OF
+            1:
+               // <ai-fill Rotator_Pendant:clearing.1>
+               // TODO (AI-fill): Step 10
+               // </ai-fill Rotator_Pendant:clearing.1>
+               IF (#fb_Rotate_Left = FALSE) THEN #done := TRUE; END_IF;
+         END_CASE;
+         IF #done THEN #state := 2; #done := FALSE; END_IF;
+      2:   // Stopped
+         IF (#ilk_CMD_RESET = TRUE) THEN #state := 3; #done := FALSE; #step := 1; END_IF;
+      3:   // Resetting
+         CASE #step OF
+            1:
+               // <ai-fill Rotator_Pendant:resetting.1>
+               // TODO (AI-fill): Step 10
+               // </ai-fill Rotator_Pendant:resetting.1>
+               IF (#fb_Rotate_Left = FALSE) AND (#fb_Rotate_Left_Fast = FALSE) AND (#fb_Rot_Right = FALSE) AND (#fb_Rot_Right_Fast = FALSE) THEN #done := TRUE; END_IF;
+         END_CASE;
+         IF #done THEN #state := 4; #done := FALSE; END_IF;
+      4:   // Idle
+         IF (#ilk_CM_PushButton_Pendant_Rotate_Left = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#ilk_CM_PushButton_Pendant_Rotate_Left_Fast = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#ilk_CM_PushButton_Pendant_Rot_Right = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#ilk_CM_PushButton_Pendant_Rot_Right_Fast = TRUE) THEN #state := 5; #done := FALSE; #step := 1; END_IF;
+         IF (#ilk_CMD_STOP = TRUE) THEN #state := 6; #done := FALSE; #step := 1; END_IF;
+         IF (#ilk_CMD_ABORT = TRUE) THEN #state := 7; #done := FALSE; #step := 1; END_IF;
+      5:   // Execute
+         CASE #step OF
+            1:
+               // <ai-fill Rotator_Pendant:execute.1>
+               // TODO (AI-fill): Step 10
+               // </ai-fill Rotator_Pendant:execute.1>
+               IF (#fb_Rotate_Left = FALSE) AND (#fb_Rotate_Left_Fast = FALSE) AND (#fb_Rot_Right = FALSE) AND (#fb_Rot_Right_Fast = FALSE) THEN #done := TRUE; END_IF;
+         END_CASE;
+         IF #done THEN #state := 4; #done := FALSE; END_IF;
+         IF (#ilk_CMD_STOP = TRUE) THEN #state := 6; #done := FALSE; #step := 1; END_IF;
+         IF (#ilk_CMD_ABORT = TRUE) THEN #state := 7; #done := FALSE; #step := 1; END_IF;
+      6:   // Stopping
+         CASE #step OF
+            1:
+               // <ai-fill Rotator_Pendant:stopping.1>
+               // TODO (AI-fill): Step 10
+               // </ai-fill Rotator_Pendant:stopping.1>
+               IF (#fb_Rotate_Left = FALSE) THEN #done := TRUE; END_IF;
+         END_CASE;
+         IF #done THEN #state := 2; #done := FALSE; END_IF;
+         IF (#ilk_CMD_ABORT = TRUE) THEN #state := 7; #done := FALSE; #step := 1; END_IF;
+      7:   // Aborting
+         CASE #step OF
+            1:
+               // <ai-fill Rotator_Pendant:aborting.1>
+               // TODO (AI-fill): Step 10
+               // </ai-fill Rotator_Pendant:aborting.1>
+               IF (#fb_Rotate_Left = FALSE) THEN #done := TRUE; END_IF;
+         END_CASE;
+         IF #done THEN #state := 0; #done := FALSE; END_IF;
+   END_CASE;
+END_FUNCTION_BLOCK

@@ -1,0 +1,74 @@
+FUNCTION "UC_Rotator" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.3
+   VAR_TEMP
+      ok : Bool;
+      in_band : Bool;
+      s_left : Bool;
+      s_left_f : Bool;
+      s_right : Bool;
+      s_right_f : Bool;
+   END_VAR
+
+BEGIN
+   // Unit coordination — first-cut commissioning coordinator (2026-07-06).
+   // maintenance mode commands STOP everywhere and enables encoder presets
+   #ok := "EStop_Healthy" AND "SR1_Healthy"
+   AND NOT "Maintenance_CMD".maintenance_mode;
+
+   // --- signal routing: pendant rotate buttons -> Rotator Drive + Pendant EM ---
+   // Conditioned inputs (physical OR dashboard-sim; force-overridable in
+   // maintenance mode) — computed by FORCE_Input_Cond earlier this scan
+   #s_left := "IO_Cond".Rotate_Left;
+   #s_left_f := "IO_Cond".Rotate_Left_Fast;
+   #s_right := "IO_Cond".Rot_Right;
+   #s_right_f := "IO_Cond".Rot_Right_Fast;
+   // Two-detent pendant: FAST detent keeps the jog contact closed, and the
+   // EM evaluates the jog branch first — suppress jog while fast is active
+   // so the fast branch wins.
+   "EM_Rotator_Drive_DB".ilk_Rotate_Left := #s_left AND NOT #s_left_f;
+   "EM_Rotator_Drive_DB".ilk_Rotate_Left_Fast := #s_left_f;
+   "EM_Rotator_Drive_DB".ilk_Rot_Right := #s_right AND NOT #s_right_f;
+   "EM_Rotator_Drive_DB".ilk_Rot_Right_Fast := #s_right_f;
+   "EM_Rotator_Pendant_DB".ilk_CM_PushButton_Pendant_Rotate_Left := #s_left;
+   "EM_Rotator_Pendant_DB".ilk_CM_PushButton_Pendant_Rotate_Left_Fast := #s_left_f;
+   "EM_Rotator_Pendant_DB".ilk_CM_PushButton_Pendant_Rot_Right := #s_right;
+   "EM_Rotator_Pendant_DB".ilk_CM_PushButton_Pendant_Rot_Right_Fast := #s_right_f;
+
+   // --- Straighten Up (HMI one-shot): rotate back to 0 deg, shortest way ---
+   // The request self-clears when done (within +/-0.5 deg AND drive stopped),
+   // on any pendant rotate button (operator override), or when coordination
+   // is lost (safety drop / maintenance mode). The EM's Execute branch does
+   // the closed-loop speed control; pendant branches rank above it there too.
+   #in_band := ("Rail_Config".rot_position_deg10 >= -5) AND ("Rail_Config".rot_position_deg10 <= 5);
+   IF "Rotator_Drive_CMD".straighten_req THEN
+      IF (#s_left OR #s_left_f OR #s_right OR #s_right_f)
+      OR (NOT #ok)
+      OR (#in_band AND ("EM_Rotator_Drive_DB".fb_VSD2_Speed_Fb >= -2) AND ("EM_Rotator_Drive_DB".fb_VSD2_Speed_Fb <= 2)) THEN
+         "Rotator_Drive_CMD".straighten_req := FALSE;
+      END_IF;
+   END_IF;
+   "EM_Rotator_Drive_DB".ilk_Straighten := "Rotator_Drive_CMD".straighten_req;
+   "EM_Rotator_Drive_DB".fb_Rot_Pos_deg10 := "Rail_Config".rot_position_deg10;
+   "EM_Rotator_Drive_DB".sp_STRAIGHTEN_SPEED := "Rotator_Drive_CMD".sp_STRAIGHTEN_SPEED;
+
+   // --- PackML command routing (released in sequence-test mode) ---
+   IF "Maintenance_CMD".seq_test_mode THEN
+      RETURN;
+   END_IF;
+   "EM_Rotator_Drive_DB".ilk_CMD_Clear := #ok;
+   "EM_Rotator_Drive_DB".ilk_CMD_Reset := #ok;
+   "EM_Rotator_Drive_DB".ilk_CMD_Start := #ok;
+   "EM_Rotator_Drive_DB".ilk_CMD_Stop := NOT #ok;
+
+   "EM_Rotator_Brake_DB".ilk_CMD_Clear := #ok;
+   "EM_Rotator_Brake_DB".ilk_CMD_Reset := #ok;
+   "EM_Rotator_Brake_DB".ilk_CMD_Start := #ok;
+   "EM_Rotator_Brake_DB".ilk_CMD_Stop := NOT #ok;
+
+   // Pendant EM: Idle -> Execute fires from the buttons themselves (no START pin)
+   "EM_Rotator_Pendant_DB".ilk_CMD_CLEAR := #ok;
+   "EM_Rotator_Pendant_DB".ilk_CMD_RESET := #ok;
+   "EM_Rotator_Pendant_DB".ilk_CMD_STOP := NOT #ok;
+
+END_FUNCTION

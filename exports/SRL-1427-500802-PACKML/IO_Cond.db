@@ -1,0 +1,41 @@
+DATA_BLOCK "IO_Cond"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   STRUCT
+      // Conditioned digital inputs — written every scan by FORCE_Input_Cond
+      // (after SIM_Input_Guard, before the UCs). Value = force (maintenance
+      // mode only) else physical OR dashboard-sim (pendant/reset signals).
+      // Raw polarity — N/C inversions stay at the consumers.
+      // Safety-chain inputs (EStop_Healthy, SR1_Healthy) are deliberately
+      // ABSENT: consumers read them physically, unforcible by construction.
+      ECB_Trip : Bool;                 // I0.0
+      BR1_Fault : Bool;                // I0.3
+      VSD1_CB_Trip : Bool;             // I0.4
+      CM1_Fault : Bool;                // I0.5
+      CM2_Fault : Bool;                // I0.6
+      CM3_Fault : Bool;                // I0.7
+      CM4_Fault : Bool;                // I1.0
+      CM1_Therm : Bool;                // I1.1
+      CM2_Therm : Bool;                // I1.2
+      CM3_Therm : Bool;                // I1.3
+      CM4_Therm : Bool;                // I1.4
+      Carriage_Brake_Open : Bool;      // I1.5
+      Carriage_Brake_Fault : Bool;     // I2.0
+      Rotate_Left : Bool;              // I2.1 (+sim)
+      Rotate_Left_Fast : Bool;         // I2.2 (+sim)
+      Reset_PB : Bool;                 // I2.3 (+sim)
+      BR2_Fault : Bool;                // I2.5
+      VSD2_CB_Trip : Bool;             // I2.6
+      M5_Therm : Bool;                 // I2.7
+      Rot_Brake_Open : Bool;           // I3.0
+      Rot_Brake_Fault : Bool;          // I3.1
+      Fwd_Carriage : Bool;             // I3.2 (+sim)
+      Fwd_Fast_Carriage : Bool;        // I3.3 (+sim)
+      Rev_Carriage : Bool;             // I3.4 (+sim)
+      Rev_Fast_Carriage : Bool;        // I3.5 (+sim)
+      Rot_Right : Bool;                // I3.6 (+sim)
+      Rot_Right_Fast : Bool;           // I3.7 (+sim)
+      Long_Limit_Stop : Bool;          // I4.0
+   END_STRUCT;
+BEGIN
+END_DATA_BLOCK
