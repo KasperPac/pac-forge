@@ -65,7 +65,7 @@ function stateBranch(seq: EmSequence, st: EmSeqState, states: EmSeqState[]): str
     out.push(`${pad(9)}END_CASE;`);
   } else {
     for (const c of st.staticCommands) {
-      out.push(`${pad(9)}#${c.pin} := ${c.active ? "TRUE" : "FALSE"};`);
+      out.push(`${pad(9)}#${c.pin} := ${c.value};`);
     }
   }
   for (const exit of st.exits) out.push(exitLine(exit, states, 9));
@@ -151,14 +151,16 @@ function writeCmdDb(seq: EmSequence): CodegenArtifact {
 function writeMapFc(seq: EmSequence): CodegenArtifact {
   const inst = `EM_${seq.sclName}_DB`;
   const name = `MAP_${seq.sclName}`;
+  // wire by symbolic PLC tag (the IO-register name); the address rides along
+  // as a comment — the tag table owns the physical binding
   const sensorLines = seq.sensors.map((p) =>
     p.address
-      ? `   "${inst}".${p.name} := "${p.address}";`
+      ? `   "${inst}".${p.name} := "${p.tag}";   // %${p.address}`
       : `   // TODO wire sensor ${p.name} (no address in spec)`,
   );
   const actuatorLines = seq.actuators.map((p) =>
     p.address
-      ? `   "${p.address}" := "${inst}".${p.name};`
+      ? `   "${p.tag}" := "${inst}".${p.name};   // %${p.address}`
       : `   // TODO wire actuator ${p.name} (no address in spec)`,
   );
   const content = [

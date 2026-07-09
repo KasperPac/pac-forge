@@ -15,7 +15,7 @@ function seq(): EmSequence {
     warnings: [],
     states: [
       { stateId: "idle", name: "Idle", index: 0, kind: "static", isSafe: true,
-        staticCommands: [{ pin: "cmd_run", active: false }], steps: [],
+        staticCommands: [{ pin: "cmd_run", value: "FALSE" }], steps: [],
         commandBranches: [], commandDefaults: [],
         exits: [{ toIndex: 1, condition: "(#ilk_rotator_safe = TRUE)", viaCompletion: false }] },
       { stateId: "running", name: "Running", index: 1, kind: "sequential", isSafe: false,
@@ -65,10 +65,10 @@ describe("writeEmArtifacts", () => {
     expect(fb).toContain("IF #done THEN #state := 0; #done := FALSE; END_IF;");
   });
 
-  it("wires sensors and actuators through the MAP FC", () => {
+  it("wires sensors and actuators through the MAP FC by symbolic tag name", () => {
     const map = writeEmArtifacts(seq()).artifacts[3];
-    expect(map.content).toContain(`"EM_Carriage_Drive_DB".fb_brake_open := "I0.0";`);
-    expect(map.content).toContain(`"Q0.0" := "EM_Carriage_Drive_DB".cmd_run;`);
+    expect(map.content).toContain(`"EM_Carriage_Drive_DB".fb_brake_open := "brake_open";   // %I0.0`);
+    expect(map.content).toContain(`"run" := "EM_Carriage_Drive_DB".cmd_run;   // %Q0.0`);
     expect(map.dependencies).toContain("EM_Carriage_Drive_DB");
   });
 
@@ -96,10 +96,22 @@ describe("writeEmArtifacts", () => {
   it("renders static holds for a step-less sequential state instead of an empty step CASE", () => {
     const s = seq();
     s.states[1].steps = [];
-    s.states[1].staticCommands = [{ pin: "cmd_run", active: true }];
+    s.states[1].staticCommands = [{ pin: "cmd_run", value: "TRUE" }];
     const fb = writeEmArtifacts(s).artifacts[0].content;
     expect(fb).not.toContain("CASE #step OF");
     expect(fb.split("\n").filter((l) => l.includes("#cmd_run := TRUE;"))).toHaveLength(1);
+  });
+
+  it("emits typed static-hold values verbatim (Int pins hold 0, not FALSE)", () => {
+    const s = seq();
+    s.actuators.push({ name: "cmd_speed_ref", tag: "speed_ref", scl_type: "Int", address: "QW64" });
+    s.states[0].staticCommands = [
+      { pin: "cmd_run", value: "FALSE" },
+      { pin: "cmd_speed_ref", value: "0" },
+    ];
+    const fb = writeEmArtifacts(s).artifacts[0].content;
+    expect(fb).toContain("#cmd_speed_ref := 0;");
+    expect(fb).not.toContain("#cmd_speed_ref := FALSE;");
   });
 
   it("resets #step when entering a state that carries steps regardless of its kind", () => {

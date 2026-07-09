@@ -89,12 +89,35 @@ describe("buildEmSequence", () => {
   it("records static commands and state exits", () => {
     const seq = buildEmSequence(em(), contract());
     const idle = seq.states.find((s) => s.stateId === "idle")!;
-    expect(idle.staticCommands).toEqual([{ pin: "cmd_run_cmd", active: false }]);
+    expect(idle.staticCommands).toEqual([{ pin: "cmd_run_cmd", value: "FALSE" }]);
     expect(idle.exits).toEqual([
       { toIndex: 1, condition: "(#ilk_cmd_start = TRUE) AND (#fb_brake_open = TRUE)", viaCompletion: false },
     ]);
     const running = seq.states.find((s) => s.stateId === "running")!;
     expect(running.exits[0].viaCompletion).toBe(true);
+  });
+
+  it("types static holds per pin — Int pins keep numeric values instead of FALSE", () => {
+    const c = contract();
+    c.static_states["idle"] = [
+      { tag: "run_cmd", description: "stop", state: "off" },
+      { tag: "speed_ref", description: "zero speed", state: "0" },
+    ];
+    const seq = buildEmSequence(em(), c);
+    const idle = seq.states.find((s) => s.stateId === "idle")!;
+    expect(idle.staticCommands).toEqual([
+      { pin: "cmd_run_cmd", value: "FALSE" },
+      { pin: "cmd_speed_ref", value: "0" },
+    ]);
+  });
+
+  it("routes symbolic static holds on Int pins through sp_ setpoint inputs", () => {
+    const c = contract();
+    c.static_states["idle"] = [{ tag: "speed_ref", description: "creep", state: "CREEP_SPEED" }];
+    const seq = buildEmSequence(em(), c);
+    const idle = seq.states.find((s) => s.stateId === "idle")!;
+    expect(idle.staticCommands).toEqual([{ pin: "cmd_speed_ref", value: "#sp_CREEP_SPEED" }]);
+    expect(seq.setpointPins).toContain("sp_CREEP_SPEED");
   });
 
   it("warns on an out-of-EM transition target without throwing", () => {
@@ -113,7 +136,7 @@ describe("buildEmSequence", () => {
     const seq = buildEmSequence(em(), c);
     const ex = seq.states.find((s) => s.stateId === "execute")!;
     expect(ex.kind).toBe("sequential");
-    expect(ex.staticCommands).toEqual([{ pin: "cmd_run_cmd", active: true }]);
+    expect(ex.staticCommands).toEqual([{ pin: "cmd_run_cmd", value: "TRUE" }]);
     expect(seq.warnings.some((w) => w.includes("execute") && w.includes("sequential"))).toBe(true);
   });
 

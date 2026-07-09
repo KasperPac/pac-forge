@@ -101,7 +101,7 @@ export function buildEmSequence(
    *  route symbolic names through a generated sp_ input pin. */
   const holdAssign = (entry: ControlModuleStateEntry): { pin: string; value: string } => {
     if (!ownOutput.has(entry.tag)) {
-      warnings.push(`EM ${em.equipment_module_name}: command hold references tag ${entry.tag} which is not an output of this EM`);
+      warnings.push(`EM ${em.equipment_module_name}: state hold references tag ${entry.tag} which is not an output of this EM`);
     }
     const pin = actuatorPin(entry.tag);
     if (actuators.get(pin)?.scl_type === "Int") {
@@ -140,10 +140,9 @@ export function buildEmSequence(
       );
     }
 
-    const staticCommands = staticEntries(contract.static_states[st.state_id]).map((e) => ({
-      pin: actuatorPin(e.tag),
-      active: isActiveCommand(e.state),
-    }));
+    // typed like command holds so non-Bool pins keep their values (an Int
+    // speed-ref hold must emit `:= 0`, never `:= FALSE`)
+    const staticCommands = staticEntries(contract.static_states[st.state_id]).map(holdAssign);
 
     // Command-conditional states (primarily "execute") lower branches instead
     // of steps — authoring enforces steps XOR command_behavior per state.

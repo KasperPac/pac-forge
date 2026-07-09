@@ -111,8 +111,9 @@ export interface EmSeqState {
    *  kind only survives for legacy non-PackML slugs. */
   kind: "static" | "sequential";
   isSafe: boolean;
-  /** Static-state actuator commands: pin + whether driven active. */
-  staticCommands: { pin: string; active: boolean }[];
+  /** Static-state actuator holds: pin + ready-to-emit SCL rvalue, typed like
+   *  command holds (`"TRUE"`, `"0"`, `"#sp_X"`) — the writer must not re-prefix. */
+  staticCommands: { pin: string; value: string }[];
   /** Linear SFC steps (rendered whenever present, regardless of kind). */
   steps: EmSeqStep[];
   /** Command-conditional hold branches (command-driven states only). */
