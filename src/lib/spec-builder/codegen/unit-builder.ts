@@ -83,6 +83,8 @@ export interface UnitBuildInput {
 export interface UnitSequenceIr {
   unitId: string;
   unitName: string;
+  /** Member EMs in declaration order (drives EM_St[] and command assertion). */
+  members: { emId: string; emName: string }[];
   states: UnitStateIr[];
   transitions: UnitTransitionIr[];
   warnings: string[];
@@ -128,7 +130,14 @@ export function buildUnitSequence(input: UnitBuildInput): UnitSequenceIr {
       .filter((n): n is number => n !== undefined),
   }));
 
-  return { unitId, unitName, states, transitions, warnings };
+  return {
+    unitId,
+    unitName,
+    members: members.map((m) => ({ emId: m.emId, emName: m.emName })),
+    states,
+    transitions,
+    warnings,
+  };
 }
 
 /** Resolve one transition trigger against the member EMs (pure; may push warnings). */
