@@ -427,6 +427,7 @@ Run this checklist before considering the task done:
 4. Post an **update/comment** (`create_update`) recording what changed and why — decisions, links to commits/docs. This is the running log.
 5. **Add** rows when new work is discovered; **remove** rows that are cut or merged; keep names/priority/effort tags current. Keep scope truthful.
 6. **Every newly created item/subitem MUST immediately receive a `create_update` comment** — stating what it is, why it was added, and its source (decision doc / commit / conversation). A row without its origin comment is an incomplete creation, not an optional nicety.
+7. **Attach every plan / spec `.md` you author to its Monday row.** Whenever you create a plan or design spec (`Docs/superpowers/plans/*`, `Docs/superpowers/specs/*`, `Docs/forge-plan/*`), attach it to the matching phase item/subitem so it's viewable from the board without digging through the repo: upload the file as an asset (`get_asset_upload_url` → `finalize_asset_upload`) **and** post a `create_update` carrying the doc's repo path + a short summary. When the doc materially changes, re-attach the new version (or note the change in an update). The board row should always link straight to the current plan/spec.
 
 Match whatever hierarchy and columns the active board actually uses (inspect with `get_board_info` if unsure) rather than assuming a fixed shape.
 
