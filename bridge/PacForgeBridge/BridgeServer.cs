@@ -137,6 +137,52 @@ namespace PacForgeBridge
                     return;
                 }
 
+#if !TIA_V18
+                // Route: POST /tia/hmi/build — generate WinCC Unified HMI from a JSON spec
+                if (method == "POST" && path == "/tia/hmi/build")
+                {
+                    await HandleHmiBuild(req, res);
+                    return;
+                }
+
+                // Route: GET /tia/hmi/inspect — read the HMI structure
+                if (method == "GET" && path == "/tia/hmi/inspect")
+                {
+                    try
+                    {
+                        if (!_tiaService.IsProjectOpen) _tiaService.Connect(preferAttach: true);
+                        await WriteJson(res, 200, _tiaService.InspectHmi(req.QueryString["device"] ?? ""));
+                    }
+                    catch (Exception ex) { await WriteJson(res, 500, new TiaActionResponse { Success = false, Message = ex.Message }); }
+                    return;
+                }
+
+                // Route: POST /tia/hmi/compile — compile the Unified HMI software
+                if (method == "POST" && path == "/tia/hmi/compile")
+                {
+                    try
+                    {
+                        if (!_tiaService.IsProjectOpen) _tiaService.Connect(preferAttach: true);
+                        await WriteJson(res, 200, _tiaService.CompileHmi(req.QueryString["device"] ?? ""));
+                    }
+                    catch (Exception ex) { await WriteJson(res, 500, new TiaActionResponse { Success = false, Message = ex.Message }); }
+                    return;
+                }
+
+                // Route: GET /tia/hmi/screen?name=X — item-level dump of one screen
+                if (method == "GET" && path == "/tia/hmi/screen")
+                {
+                    try
+                    {
+                        if (!_tiaService.IsProjectOpen) _tiaService.Connect(preferAttach: true);
+                        bool dumpProps = (req.QueryString["props"] ?? "") == "1";
+                        await WriteJson(res, 200, _tiaService.InspectScreen(req.QueryString["device"] ?? "", req.QueryString["name"] ?? "", dumpProps));
+                    }
+                    catch (Exception ex) { await WriteJson(res, 500, new TiaActionResponse { Success = false, Message = ex.Message }); }
+                    return;
+                }
+#endif
+
                 // Route: POST /tia/list-directory
                 if (method == "POST" && path == "/tia/list-directory")
                 {
@@ -1463,6 +1509,30 @@ namespace PacForgeBridge
                 });
             }
         }
+
+#if !TIA_V18
+        private async Task HandleHmiBuild(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            try
+            {
+                string body = await ReadBody(req);
+                var spec = Newtonsoft.Json.Linq.JObject.Parse(body);
+                Console.WriteLine($"[HMI] Build request: device={spec["device"]}, " +
+                    $"{((Newtonsoft.Json.Linq.JArray)spec["tags"])?.Count ?? 0} tags, " +
+                    $"{((Newtonsoft.Json.Linq.JArray)spec["alarms"])?.Count ?? 0} alarms, " +
+                    $"{((Newtonsoft.Json.Linq.JArray)spec["screens"])?.Count ?? 0} screens");
+                if (!_tiaService.IsProjectOpen) _tiaService.Connect(preferAttach: true);
+                var result = _tiaService.BuildHmi(spec);
+                Console.WriteLine($"[HMI] Build done: {result["errors"]} error(s)");
+                await WriteJson(res, 200, result);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[HMI] Build failed: {ex.Message}");
+                await WriteJson(res, 500, new TiaActionResponse { Success = false, Message = ex.Message });
+            }
+        }
+#endif
 
         private async Task HandleLibraryOpen(HttpListenerRequest req, HttpListenerResponse res)
         {
