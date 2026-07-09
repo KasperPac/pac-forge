@@ -1,7 +1,12 @@
 // src/lib/spec-builder/codegen/__tests__/unit-builder.test.ts
 import { describe, it, expect } from "vitest";
 import { buildUnitSequence, type UnitMemberEm } from "../unit-builder";
-import type { UnitCoordinationV1, UnitTransitionV1 } from "@/types/spec-contract-v2";
+import type { OperatorMode, UnitCoordinationV1, UnitTransitionV1 } from "@/types/spec-contract-v2";
+
+const twoModes: OperatorMode[] = [
+  { mode_id: "prod", name: "Production", is_default: true, kind: "production" },
+  { mode_id: "maint", name: "Maintenance", is_default: false, kind: "maintenance" },
+];
 
 const twoMembers: UnitMemberEm[] = [
   { emId: "em-a", emName: "Drive", states: [{ slug: "idle", index: 0 }, { slug: "active", index: 1 }] },
@@ -139,5 +144,39 @@ describe("buildUnitSequence — resolved transitions (G2-1)", () => {
     expect(trig.kind).toBe("em_aggregate");
     if (trig.kind === "em_aggregate") expect(trig.alwaysFalse).toBe(true);
     expect(ir.warnings.some((w) => w.includes("purging") && w.includes("Drive"))).toBe(true);
+  });
+});
+
+describe("buildUnitSequence — transition mode masks + guards (G2-1)", () => {
+  it("resolves transition allowed_modes to a Cur_Mode index mask (empty = all modes)", () => {
+    const coord: UnitCoordinationV1 = {
+      unit_id: "unit-1",
+      states: [
+        { state_id: "idle", allowed_modes: [], mode_change_allowed: true },
+        { state_id: "execute", allowed_modes: [], mode_change_allowed: false },
+        { state_id: "stopping", allowed_modes: [], mode_change_allowed: false },
+      ],
+      transitions: [
+        { transition_id: "t-maint", from_state_id: "idle", to_state_id: "execute",
+          trigger: { type: "command", command: "start" }, guard: [], allowed_modes: ["maint"] },
+        { transition_id: "t-any", from_state_id: "execute", to_state_id: "stopping",
+          trigger: { type: "command", command: "stop" }, guard: [], allowed_modes: [] },
+      ],
+      em_command_overrides: null,
+    };
+    const ir = buildUnitSequence({ unitId: "unit-1", unitName: "Carriage", coord, members: twoMembers, modes: twoModes });
+    const byId = Object.fromEntries(ir.transitions.map((t) => [t.transitionId, t.modeMask]));
+    expect(byId["t-maint"]).toEqual([1]); // maint = Cur_Mode index 1
+    expect(byId["t-any"]).toEqual([]); // empty = all modes
+  });
+
+  it("passes a transition's guard array through unchanged", () => {
+    const guard = [{ tag: "Enable", operator: "=" as const, value: true }];
+    const coord = coordWithTransition({
+      transition_id: "t1", from_state_id: "idle", to_state_id: "complete",
+      trigger: { type: "command", command: "start" }, guard, allowed_modes: [],
+    });
+    const ir = buildUnitSequence({ unitId: "unit-1", unitName: "Carriage", coord, members: twoMembers, modes: [] });
+    expect(ir.transitions[0].guard).toEqual(guard);
   });
 });

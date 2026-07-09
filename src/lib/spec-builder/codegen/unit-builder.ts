@@ -62,6 +62,10 @@ export interface UnitTransitionIr {
   fromIndex: number;
   toIndex: number;
   trigger: ResolvedTriggerIr;
+  /** Extra permissive conditions AND'd onto the trigger (empty = none). */
+  guard: PermissiveCondition[];
+  /** Cur_Mode indices in which this transition is enabled (empty = all modes). */
+  modeMask: number[];
 }
 
 /** Inputs to the unit IR builder. */
@@ -90,8 +94,9 @@ export interface UnitSequenceIr {
  * rule; G7-1 text lists share this order) — never authoring order.
  */
 export function buildUnitSequence(input: UnitBuildInput): UnitSequenceIr {
-  const { unitId, unitName, coord, members } = input;
+  const { unitId, unitName, coord, members, modes } = input;
   const warnings: string[] = [];
+  const modeIndex = new Map(modes.map((m, i) => [m.mode_id, i]));
 
   const states: UnitStateIr[] = [...coord.states]
     .sort(
@@ -117,6 +122,10 @@ export function buildUnitSequence(input: UnitBuildInput): UnitSequenceIr {
     fromIndex: indexByState.get(t.from_state_id) ?? -1,
     toIndex: indexByState.get(t.to_state_id) ?? -1,
     trigger: resolveTrigger(t.trigger, t.transition_id, unitName, members, warnings),
+    guard: t.guard,
+    modeMask: t.allowed_modes
+      .map((id) => modeIndex.get(id))
+      .filter((n): n is number => n !== undefined),
   }));
 
   return { unitId, unitName, states, transitions, warnings };
