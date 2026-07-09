@@ -231,6 +231,11 @@ The bridge (`bridge/PacForgeBridge/`) is a .NET Framework 4.8 console app that w
 - **TIA Openness `GenerateSource`** requires 3 params: `(IEnumerable<IGenerateSource>, FileInfo, GenerateOptions)`. File extension must match block type (`.scl` for SCL, `.awl` for STL, `.db` for DBs)
 - **LAD import**: Uses `PlcBlockGroup.Blocks.Import(FileInfo, ImportOptions.Override)` — different from SCL path. Returns `IList<PlcBlock>` (not `IEngineeringObject`)
 - **Stale project fix**: `Connect()` always refreshes `_project` from `_tiaPortal.Projects[0]` — handles user switching projects in TIA Portal without restarting bridge
+- **Versioning (MANDATORY)**: any change to the bridge must bump `BridgeVersion` in `TiaPortalService.cs` (semver: features = minor, fixes = patch) AND add an entry to `bridge/PacForgeBridge/CHANGELOG.md` describing what the version includes
+- **Live commissioning workflow**: `POST /tia/reimport-compile` `{sources:{name:scl}}` deletes+reimports each block then compiles all; `POST /tia/export-sources` dumps every block. When an FB interface changes, include its instance DB in the same request (delete+recreate resets DB values on download — warn the user). TIA must be OFFLINE for any compile/save ("operation not permitted in online mode")
+- **WinCC Unified HMI endpoints** (`TiaPortalService.HmiUnified.cs`): `POST /tia/hmi/build` (JSON spec: tags/screens/items/alarms/editItems, dynamizations incl. `singleBit` color mapping), `GET /tia/hmi/inspect` (structure + per-tag connection/PlcTag), `GET /tia/hmi/screen?name=X&props=1` (recursive property-graph dump — the discovery tool for any element option). See `Docs/WINCC-UNIFIED-OPENNESS-DISCOVERY.md` for the option-discovery method, binding rules, and capability map
+- **Bridge rebuild quirks**: build `bridge/PacForgeBridge/PacForgeBridge.csproj` only (the solution also builds a V18 twin whose exe is often running/locked); every rebuild changes the exe checksum → TIA re-prompts the Openness whitelist on next connect (user must click Accept); the bridge attaches lazily on first endpoint call, so `/tia/status` shows `connected:false` after restart until something touches TIA
+- **Openness is slow per item-edit** (~5–10 s): batches of ~90 screen-item edits run >10 min — run them in background; an HTTP client timeout does NOT mean the batch failed (verify by re-inspecting, force a save with an empty `/tia/hmi/build` call)
 
 ### Path Aliases
 
@@ -289,6 +294,13 @@ For Spec Builder / Forge / Code Builder work (the primary pipeline):
 
 For TIA bridge / Pac-ST / agents:
 10. `Docs/TIA_OPENNESS_INTEGRATION.md`, `Docs/PAC_ST_MASTER_SPEC.md`, `Docs/AGENT_POOL_ARCHITECTURE.md`
+11. For WinCC Unified HMI work: `Docs/COMMISSIONING-NOTES.md` (binding/certificate/navigation rules) + `Docs/WINCC-UNIFIED-OPENNESS-DISCOVERY.md` (option discovery, bridge capability map, known generation gaps)
+
+## Repo Tooling Gotchas
+
+- `exports/<project>/*.db` files are TEXT (SCL DB sources) but the Read tool rejects the `.db` extension — write via a scratchpad `.txt` and copy over
+- PowerShell 5.1: build JSON request bodies with `[IO.File]::ReadAllText()`, not `Get-Content -Raw` (piped strings carry PSPath metadata into `ConvertTo-Json`, corrupting the payload)
+- Local Openness API catalogue: `C:\Program Files\Siemens\Automation\Portal V20\PublicAPI\V20\Siemens.Engineering.xml` documents all 487 HmiUnified types/members/enums — grep it before guessing API shapes
 
 ## Tech Constraints (Non-negotiable)
 
@@ -375,11 +387,29 @@ Run this checklist before considering the task done:
 2. **Typecheck** — `npx tsc -b` must pass clean.
 3. **Tests** — run the relevant `npx vitest run <path>` suite(s); add a regression test for any bug fixed.
 
-## Monday Integration
+## Monday Board Sync (MANDATORY, always on)
 
-**DISABLED until further notice.** Do NOT create, update, or sync Monday tasks for any work. Skip step 1 of the previous mandatory flow — no Monday task is required before code changes. Use plan/task tracking files (`tasks.json` next to plans, native TaskCreate) and git commits as the audit trail instead.
+> **The rule (non-negotiable, self-enforcing):** as you produce code, keep the work tracked on Monday. While doing substantive **Forja app** delivery work — features, fixes, roadmap tasks, research spikes on the app's own capability — you MUST keep the active Monday board in sync by **calling the Monday MCP tools (`mcp__monday__*`) directly**, at every level of the board's hierarchy (group → item → subitem → sub-subitem, as deep as it goes). This instruction alone obligates the calls; no hook, reminder, or user prompt is required to trigger them. Sync in the **same turn as the work**, the moment state changes — not as an end-of-task step. Never let the board drift from reality. If `mcp__monday__*` is deferred, load it via ToolSearch (`select:mcp__monday__change_item_column_values,mcp__monday__create_update,mcp__monday__create_items,mcp__monday__all_monday_api`) and proceed.
+>
+> **Scope boundary (explicit):** the board tracks the **Forja app's capability ONLY**. Project-specific delivery work — HRE/SRL commissioning, anything under `exports/` (dashboards, hand-authored PLC blocks, site tooling), customer-project fixes — is **NOT tracked on Monday**, no rows, no updates. If project work surfaces a *generic app gap*, put THAT (generically phrased) on the board; the project work itself stays off.
 
-When the user is ready to re-enable Monday, restore the workflow from git history (`git log -p -- CLAUDE.md`). Reference docs: `CLAUDE.monday.md`, `scripts/task_create.py`, `scripts/task_update.py`. Monday MCP: `https://mcp.monday.com/mcp`. Board ID: `5092432355`. Status column: `status_cdbba809`.
+**On every change you MUST, as applicable:**
+1. Move the **Status** of the touched row when its state changes (start / done / blocked / needs-design).
+2. Recompute the parent's **Progress %** when a child changes (rule of thumb: done=100, in-progress=50, blocked/needs-design/not-started=0; a parent's % = mean of its children).
+3. Set/adjust **Timeline** dates when work starts, is scheduled, or slips.
+4. Post an **update/comment** (`create_update`) recording what changed and why — decisions, links to commits/docs. This is the running log.
+5. **Add** rows when new work is discovered; **remove** rows that are cut or merged; keep names/priority/effort tags current. Keep scope truthful.
+6. **Every newly created item/subitem MUST immediately receive a `create_update` comment** — stating what it is, why it was added, and its source (decision doc / commit / conversation). A row without its origin comment is an incomplete creation, not an optional nicety.
+
+Match whatever hierarchy and columns the active board actually uses (inspect with `get_board_info` if unsure) rather than assuming a fixed shape.
+
+### Active board (current instance)
+
+- **Board:** "Forja" `5099871231` (workspace Software Automation) — https://pac-technologies-company.monday.com/boards/5099871231. (Old board `5092432355` is retired; ignore it.)
+- **Hierarchy:** Group = delivery area · Item = phase (`G0`…`G10`) · Subitem = task (`G0-1`…; name carries `· P{0-2}/{S|M|L}`) · sub-subitems = task breakdown as you decompose while working.
+- **Columns:** Status `color_mkv68q9k` (`Working on it`, `Done`, `Stuck`, `Needs design`, `Blocker / Research`; blank = not started) · Progress % `numeric_mm51xyq6` · Timeline `timerange_mkypz732` · People `person` · Subitems `subtasks_mkrmtgvm`.
+- **Phase item IDs:** G0 `3056319948` · G1 `3056337724` · G2 `3056337764` · G3 `3056337727` · G4 `3056319949` · G5 `3056336774` · G6 `3056400706` · G7 `3056337435` · G8 `3056337434` · G9 `3056329989` · G10 `3056349330`.
+- **Sources of truth** feeding it: `Docs/ROADMAP-RUNNABLE-CODE-HMI.md` (+ `.tasks.json`) and `Docs/WINCC-UNIFIED-OPENNESS-DISCOVERY.md` — change one, reflect on the board (and vice-versa).
 
 ## Pipeline Integrity (MANDATORY)
 
