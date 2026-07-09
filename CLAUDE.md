@@ -2,6 +2,33 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+---
+
+> ## 🎯 PRIMARY FOCUS (temporary) — Runnable Code + HMI Roadmap
+>
+> **Until this roadmap is complete, `Docs/ROADMAP-RUNNABLE-CODE-HMI.md` is the single primary focus of all work.** Unless a request explicitly says otherwise, assume everything we discuss is in service of *completing this roadmap*: getting the app to generate PLC code **and** operator HMI that compiles, downloads and runs on a new/unseen project with ~zero hand-authoring, at the fidelity that was hand-commissioned on the HRE Segment Wagon project over the last few days (the `exports/SRL-1427-500802-PACKML/` golden master is the quality bar, not the thing to reproduce — see G9).
+>
+> Work is split into per-stream git worktrees under `.claude/worktrees/` — **Foundation** (`foundation`, G0), **PLC Codegen** (`plc-codegen`, G1–G6), **HMI** (`hmi`, G7–G8), **Integration & Run** (`integration-run`, G9). See `WORKTREES.md` at the repo root for the live stream→branch→status map.
+>
+> _Remove this banner (and restore normal multi-module priorities) once the roadmap reaches G9 acceptance._
+
+---
+
+## Model Selection (suggest per task)
+
+**At the start of any non-trivial task, suggest the model tier that fits it** (one line — e.g. _"This is codegen-writer work; recommend Opus 4.8"_), then proceed. Claude Code can't switch models itself — the user toggles with `/model`, so this is a recommendation, not an automatic switch. Default is **Opus 4.8**; only suggest another tier when the task clearly fits it.
+
+| Model (`id`) | $/1M in·out | Use for |
+|---|---|---|
+| **Opus 4.8** (`claude-opus-4-8`) — default | $5 · $25 | Deterministic SCL/HMI writers (G1–G6), FDS contract (G0), safety-gate & compile-correctness logic, the .NET TIA bridge, multi-file debugging — anything correctness-critical or cross-file. |
+| **Sonnet 5** (`claude-sonnet-5`) | $3 · $15 | Well-scoped, lower-risk work: UI wiring, tests, mechanical refactors, docs/tracking, prompt-text edits. Near-Opus quality, faster/cheaper. |
+| **Fable 5** (`claude-fable-5`) | $10 · $50 | Only the hardest long-horizon, cross-cutting efforts where Opus stalls. 2× Opus cost + different API surface (always-on thinking, 30-day data-retention requirement) — never a default. |
+| **Haiku 4.5** (`claude-haiku-4-5`) | $1 · $5 | Trivial mechanical sweeps — renames, lint, find/replace. |
+
+Rule of thumb for this roadmap: **correctness-critical or multi-file → Opus 4.8; scoped/mechanical → Sonnet 5 (or Haiku for trivial); reserve Fable 5 for the genuinely hard.**
+
+---
+
 ## What Is This
 
 Pac-Forge ("Forja") is an internal productivity web app (React 19 + Vite + TypeScript) for industrial automation engineers at Pac Technologies. It spans the full delivery lifecycle: quoting, functional spec authoring, PLC code generation with Claude AI, HMI generation, and Siemens TIA Portal integration.
