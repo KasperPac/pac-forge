@@ -18,9 +18,11 @@ branch, all branched from `master`. Keep this file in sync with the roadmap and 
 | **HMI** | `.claude/worktrees/hmi` | `feat/hmi` | **G7–G8** — FDS→HMI compiler, HMI bridge wiring | Independent of the codegen writers. Target deliverable `HMI-BUILD-PACK.md`. |
 | **Integration & Run** | `.claude/worktrees/integration-run` | `feat/integration-run` | **G9** — prove generalization, e2e round-trip | Nothing to build until G1/G2/G5 land; holds e2e/validation + the second-project pilot. |
 
-**Trunk:** `master` is checked out at `.claude/worktrees/master-hybrid`. Merge finished stream
-branches here (or PR into it). `feat/project-docs-doc-control` (main repo checkout) is a
-separate, older feature branch — not part of the roadmap streams.
+**Trunk:** `master` is checked out at the **project root** (`C:\dev\pac-forge`). Merge finished
+stream branches here (or PR into it). `feat/project-docs-doc-control` is a preserved, unmerged
+feature branch (Dropbox doc-browser / doc-control work, 14 commits) — resume with
+`git switch feat/project-docs-doc-control` or merge to master when finished; not part of the
+roadmap streams.
 
 ## Why grouped this way (not one worktree per G-number)
 
