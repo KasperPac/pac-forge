@@ -111,7 +111,9 @@
         { "id": "G8-4", "title": "Bridge: Unified text-list creation (only Comfort SimaticML path today)", "state": "BLOCKER_RESEARCH", "priority": "P0", "effort": "M", "depends": [], "evidence": "TiaPortalService.cs:2439; Openness support unverified" },
         { "id": "G8-5", "title": "Basic-panel family (MTP700 Unified Basic) — app only has Comfort", "state": "NOT_STARTED", "priority": "P1", "effort": "S", "depends": [], "evidence": "hmi-panel.ts:68" },
         { "id": "G8-6", "title": "Commit HmiUnified.cs bridge extension + BridgeServer routes", "state": "IN_PROGRESS", "priority": "P0", "effort": "S", "depends": [], "evidence": "uncommitted (git status)" },
-        { "id": "G8-7", "title": "PackML faceplate model (state/mode/PackTag)", "state": "NEEDS_DESIGN", "priority": "P2", "effort": "L", "depends": [], "evidence": "faceplates device-type/Open-Library today" }
+        { "id": "G8-7", "title": "PackML faceplate model (state/mode/PackTag)", "state": "NEEDS_DESIGN", "priority": "P2", "effort": "L", "depends": [], "evidence": "faceplates device-type/Open-Library today" },
+        { "id": "G8-8", "title": "Bridge: internal HMI tag creation (no PLC connection) via /tia/hmi/build tags[].internal", "state": "NOT_STARTED", "priority": "P1", "effort": "S", "depends": [], "evidence": "board subitem 3058195949" },
+        { "id": "G8-9", "title": "Bridge: edit existing item Text/AlternateText/Content via editItems.set (MultilingualText)", "state": "NOT_STARTED", "priority": "P1", "effort": "S", "depends": [], "evidence": "board subitem 3058121975" }
       ]
     },
     { "key": "G9", "name": "Prove it generalizes on a new project (round-trip & run)",
@@ -121,6 +123,23 @@
         { "id": "G9-2", "title": "Generalization acceptance: pipeline on a DIFFERENT machine, hand-authoring delta ~= 0 (golden master = quality bar/regression fixture, not target)", "state": "NEEDS_DESIGN", "priority": "P0", "effort": "M", "depends": ["G9-1"], "evidence": "the real definition of done" },
         { "id": "G9-3", "title": "Post-gen edit strategy: how regeneration does not clobber hand-added EM pins", "state": "NEEDS_DESIGN", "priority": "P0", "effort": "L", "depends": [], "evidence": "ilk_Straighten, sp_STRAIGHTEN_SPEED, cfg_Pre_Travel_Horn never emitted — round-trip problem" },
         { "id": "G9-4", "title": "Second-project pilot: unrelated machine type (filling/stamping/conveyor) -> author FDS -> generate -> measure hand-authoring gaps -> feed back as new tasks", "state": "NOT_STARTED", "priority": "P0", "effort": "L", "depends": ["G9-1"], "evidence": "generalization proof; turns gaps into backlog" }
+      ]
+    },
+    { "key": "G10", "name": "WinCC Unified Openness — commissioning gaps",
+      "note": "HMI-gen + bridge gaps found during HRE commissioning. Source: Docs/WINCC-UNIFIED-OPENNESS-DISCOVERY.md. Backfilled from Monday board 2026-07-09.",
+      "tasks": [
+        { "id": "G10-1", "title": "Bridge: ResourceListDynamization + text-list authoring (EM state int->name fields)", "state": "NOT_STARTED", "priority": "P0", "effort": "M", "depends": [], "evidence": "board subitem 3056369510" },
+        { "id": "G10-2", "title": "Bridge: ScriptDynamization / FlashingDynamization / movement animations spec support", "state": "NOT_STARTED", "priority": "P1", "effort": "M", "depends": [], "evidence": "board subitem 3056362954" },
+        { "id": "G10-3", "title": "Bridge: access-level assignment on items, per-item roles (see G7-5, G8-3)", "state": "NOT_STARTED", "priority": "P1", "effort": "M", "depends": ["G8-3"], "evidence": "board subitem 3056362692" },
+        { "id": "G10-4", "title": "Bridge: global script modules, graphic lists, faceplate instances, parameter sets", "state": "NOT_STARTED", "priority": "P2", "effort": "L", "depends": [], "evidence": "board subitem 3056369511" },
+        { "id": "G10-5", "title": "Bridge: recipe/UserArchive + trend/f(x) controls", "state": "NOT_STARTED", "priority": "P2", "effort": "L", "depends": [], "evidence": "board subitem 3056362887" },
+        { "id": "G10-6", "title": "HMI-gen: operator diagnostic screens (VSD diag, machine state, motor/pendant detail)", "state": "NOT_STARTED", "priority": "P0", "effort": "L", "depends": [], "evidence": "board subitem 3056362365" },
+        { "id": "G10-7", "title": "HMI-gen: full IO status page from FDS IO register (address + description + lamp)", "state": "NOT_STARTED", "priority": "P0", "effort": "M", "depends": [], "evidence": "board subitem 3056362488" },
+        { "id": "G10-8", "title": "HMI-gen: correctly-bound ProcessValue dynamizations + single-bit lamp colour mapping", "state": "NOT_STARTED", "priority": "P0", "effort": "M", "depends": [], "evidence": "board subitem 3056368994" },
+        { "id": "G10-9", "title": "Retentivity classification of DB fields (settings retentive; modes/cmds volatile) (see G4-3)", "state": "NOT_STARTED", "priority": "P1", "effort": "S", "depends": ["G4-3"], "evidence": "board subitem 3056362489" },
+        { "id": "G10-10", "title": "FDS/codegen vocabulary for command-driven auto functions: pre-travel horn, straighten-up (see G0, G2-6, G9-3)", "state": "NOT_STARTED", "priority": "P1", "effort": "L", "depends": ["G9-3"], "evidence": "board subitem 3056368993" },
+        { "id": "G10-11", "title": "Status/readback DBs for HMI consumption (Rail_Status envelope telemetry) (see G4-2)", "state": "NOT_STARTED", "priority": "P1", "effort": "M", "depends": ["G4-2"], "evidence": "board subitem 3056368996" },
+        { "id": "G10-12", "title": "Discovery method as tooling: XML-catalogue grep -> hand-config -> props=1 diff -> bridge spec", "state": "NOT_STARTED", "priority": "P2", "effort": "S", "depends": [], "evidence": "board subitem 3056368995" }
       ]
     }
   ]
