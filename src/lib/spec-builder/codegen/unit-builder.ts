@@ -7,6 +7,7 @@
 import { UNIT_PACKML_STATES } from "@/types/spec-contract-v2";
 import type {
   OperatorMode,
+  PermissiveCondition,
   UnitCoordinationV1,
   UnitPackMLState,
 } from "@/types/spec-contract-v2";
@@ -38,6 +39,31 @@ export interface UnitStateIr {
   commands: UnitEmCommandIr[];
 }
 
+/**
+ * A unit transition trigger resolved against member EMs and the mode set.
+ * - `command`  → a PackML command-word constant fires the transition.
+ * - `condition`→ serialized permissive expression against global tags.
+ * - `em_aggregate` → AND of `"EM_<x>_DB".state = <idx>` comparisons; when a
+ *   member EM lacks the referenced slug the whole guard renders FALSE
+ *   (`alwaysFalse`) rather than silently true.
+ */
+export type ResolvedTriggerIr =
+  | { kind: "command"; command: string }
+  | { kind: "condition"; expr: PermissiveCondition[] }
+  | {
+      kind: "em_aggregate";
+      comparisons: { emName: string; stateIndex: number }[];
+      alwaysFalse: boolean;
+    };
+
+/** One resolved unit-SM transition. */
+export interface UnitTransitionIr {
+  transitionId: string;
+  fromIndex: number;
+  toIndex: number;
+  trigger: ResolvedTriggerIr;
+}
+
 /** Inputs to the unit IR builder. */
 export interface UnitBuildInput {
   unitId: string;
@@ -54,6 +80,7 @@ export interface UnitSequenceIr {
   unitId: string;
   unitName: string;
   states: UnitStateIr[];
+  transitions: UnitTransitionIr[];
   warnings: string[];
 }
 
@@ -83,5 +110,52 @@ export function buildUnitSequence(input: UnitBuildInput): UnitSequenceIr {
       })),
     }));
 
-  return { unitId, unitName, states, warnings };
+  const indexByState = new Map(states.map((s) => [s.stateId, s.index]));
+
+  const transitions: UnitTransitionIr[] = coord.transitions.map((t) => ({
+    transitionId: t.transition_id,
+    fromIndex: indexByState.get(t.from_state_id) ?? -1,
+    toIndex: indexByState.get(t.to_state_id) ?? -1,
+    trigger: resolveTrigger(t.trigger, t.transition_id, unitName, members, warnings),
+  }));
+
+  return { unitId, unitName, states, transitions, warnings };
+}
+
+/** Resolve one transition trigger against the member EMs (pure; may push warnings). */
+function resolveTrigger(
+  trigger: UnitCoordinationV1["transitions"][number]["trigger"],
+  transitionId: string,
+  unitName: string,
+  members: UnitMemberEm[],
+  warnings: string[],
+): ResolvedTriggerIr {
+  switch (trigger.type) {
+    case "command":
+      return { kind: "command", command: trigger.command };
+    case "condition":
+      return { kind: "condition", expr: trigger.expr };
+    case "em_aggregate": {
+      const scope =
+        trigger.em_scope === "all"
+          ? members
+          : trigger.em_scope
+              .map((id) => members.find((m) => m.emId === id))
+              .filter((m): m is UnitMemberEm => m !== undefined);
+      const comparisons: { emName: string; stateIndex: number }[] = [];
+      let alwaysFalse = false;
+      for (const m of scope) {
+        const st = m.states.find((s) => s.slug === trigger.em_state);
+        if (!st) {
+          alwaysFalse = true;
+          warnings.push(
+            `unit ${unitName}: em_aggregate transition ${transitionId} references EM state "${trigger.em_state}" not found on EM ${m.emName} — guard renders FALSE`,
+          );
+          continue;
+        }
+        comparisons.push({ emName: m.emName, stateIndex: st.index });
+      }
+      return { kind: "em_aggregate", comparisons, alwaysFalse };
+    }
+  }
 }
