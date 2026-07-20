@@ -60,6 +60,7 @@ import {
 } from "@/types/spec-contract-v2";
 import { validateEmStateMachine, validateCommandBehavior } from "@/lib/spec-builder/em-state-machine";
 import { validateUnitCoordination } from "@/lib/spec-builder/unit-coordination";
+import { backfillModeKinds } from "@/lib/spec-builder/wizard-machine-layer";
 import {
   seedDrivesFromNetworkConfig,
   validateDriveModels,
@@ -818,8 +819,9 @@ export async function loadSpecContract(
   // FDS Engine Phase 1: populate new top-level fields from spec_projects.
   // Re-parse so SpecContractV2Schema.confirmation_status default + the new
   // optional fields are normalised. G0-1: seed drive models from legacy
-  // network_config after parse (pure in-memory shim, see drive-model.ts).
-  return seedDrivesFromNetworkConfig(
+  // network_config after parse. G0-9-F1: backfill semantic mode kinds onto
+  // pre-G0-9 all-custom sets. Both pure in-memory shims.
+  const loaded = seedDrivesFromNetworkConfig(
     SpecContractV2Schema.parse({
     ...baseContract,
     modes: (projectRow.confirmed_modes as OperatorMode[] | null) ?? undefined,
@@ -838,6 +840,9 @@ export async function loadSpecContract(
       (projectRow.process_model as ProcessModelV2 | null) ?? undefined,
     }),
   );
+  if (!loaded.modes) return loaded;
+  const backfilled = backfillModeKinds(loaded.modes);
+  return backfilled === loaded.modes ? loaded : { ...loaded, modes: backfilled };
 }
 
 export async function loadAssemblyStates(
@@ -1281,6 +1286,18 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
   // the same patch carries the hierarchy (same convention as safety_gates);
   // mode rules only when the patch carries modes.
   if (patch.unit_coordination !== undefined) {
+    // G0-9-F1: coordinations that reference mode ids are unverifiable
+    // without the mode set — require co-sending modes in the same patch.
+    if (patch.modes === undefined) {
+      const referencesModes = Object.values(patch.unit_coordination).some((c) =>
+        c.states.some((s) => s.allowed_modes.length > 0),
+      );
+      if (referencesModes) {
+        issues.push(
+          "unit_coordination references mode ids (states[].allowed_modes) but the patch does not co-send modes — include the mode set in the same patch",
+        );
+      }
+    }
     for (const [key, coord] of Object.entries(patch.unit_coordination)) {
       if (key !== coord.unit_id) {
         issues.push(

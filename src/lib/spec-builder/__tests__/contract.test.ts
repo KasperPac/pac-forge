@@ -468,6 +468,45 @@ describe("validateSpecContractPatch + deriveIoList — per-IO model (G0-2)", () 
     );
   });
 
+  it("requires co-sent modes when coordination references mode ids (G0-9-F1)", () => {
+    const coordWithModeRefs = {
+      unit_id: "u1",
+      states: [
+        { state_id: "idle", allowed_modes: ["production"], mode_change_allowed: true },
+      ],
+      transitions: [],
+    };
+    const withoutModes = SpecContractPatchSchema.parse({
+      unit_coordination: { u1: coordWithModeRefs },
+    });
+    expect(
+      validateSpecContractPatch(withoutModes).some((i) => i.includes("co-send")),
+    ).toBe(true);
+
+    const withModes = SpecContractPatchSchema.parse({
+      modes: [
+        { mode_id: "production", name: "Production", is_default: true, kind: "production" },
+      ],
+      unit_coordination: { u1: coordWithModeRefs },
+    });
+    expect(
+      validateSpecContractPatch(withModes).some((i) => i.includes("co-send")),
+    ).toBe(false);
+
+    const modeAgnostic = SpecContractPatchSchema.parse({
+      unit_coordination: {
+        u1: {
+          unit_id: "u1",
+          states: [{ state_id: "idle", allowed_modes: [], mode_change_allowed: true }],
+          transitions: [],
+        },
+      },
+    });
+    expect(
+      validateSpecContractPatch(modeAgnostic).some((i) => i.includes("co-send")),
+    ).toBe(false);
+  });
+
   it("rejects a named_gate ref not defined by the unit's axes (G0-4)", () => {
     const patch = SpecContractPatchSchema.parse({
       unit_coordination: {

@@ -29,6 +29,35 @@ export function seedDefaultModes(): OperatorMode[] {
   ];
 }
 
+// G0-9-F1: name/id → semantic kind inference for pre-G0-9 mode sets.
+// Order matters: first match wins (e.g. "Manual / Jog" is manual).
+const KIND_PATTERNS: ReadonlyArray<[RegExp, OperatorMode["kind"]]> = [
+  [/production|auto/i, "production"],
+  [/maintenance|service/i, "maintenance"],
+  [/manual|jog/i, "manual"],
+  [/engineering|commissioning/i, "engineering"],
+];
+
+/**
+ * Backfill semantic kinds onto a pre-G0-9 mode set (G0-9-F1). Applies ONLY
+ * when every mode is kind "custom" — the whole set predates kind authoring;
+ * any authored kind means the author has been here and we never touch it.
+ * Pure; returns the same reference when nothing changes (loader no-op
+ * discipline, same as seedDrivesFromNetworkConfig).
+ */
+export function backfillModeKinds(modes: OperatorMode[]): OperatorMode[] {
+  if (modes.some((m) => m.kind !== "custom")) return modes;
+  let changed = false;
+  const out = modes.map((m) => {
+    const haystack = `${m.mode_id} ${m.name}`;
+    const match = KIND_PATTERNS.find(([re]) => re.test(haystack));
+    if (!match || match[1] === m.kind) return m;
+    changed = true;
+    return { ...m, kind: match[1] };
+  });
+  return changed ? out : modes;
+}
+
 export interface SafetyTagLike {
   tag: string;
   is_safety: boolean;

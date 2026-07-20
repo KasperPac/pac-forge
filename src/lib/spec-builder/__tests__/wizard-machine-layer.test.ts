@@ -1,9 +1,53 @@
 import { describe, expect, it } from "vitest";
 import {
+  backfillModeKinds,
   seedDefaultModes,
   suggestSafetyGates,
 } from "@/lib/spec-builder/wizard-machine-layer";
 import type { OperatorMode } from "@/types/spec-contract-v2";
+
+describe("backfillModeKinds (G0-9-F1)", () => {
+  const mode = (
+    mode_id: string,
+    name: string,
+    kind: OperatorMode["kind"] = "custom",
+  ): OperatorMode => ({ mode_id, name, is_default: mode_id === "auto", kind });
+
+  it("infers kinds for an all-custom pre-G0-9 set", () => {
+    const out = backfillModeKinds([
+      mode("auto", "Auto"),
+      mode("maintenance", "Maintenance"),
+      mode("manual", "Manual / Jog"),
+      mode("comm", "Commissioning"),
+      mode("special", "Special Wash"),
+    ]);
+    expect(out.map((m) => m.kind)).toEqual([
+      "production",
+      "maintenance",
+      "manual",
+      "engineering",
+      "custom",
+    ]);
+  });
+
+  it("never touches a set with any authored kind", () => {
+    const authored = [
+      mode("auto", "Auto", "production"),
+      mode("maintenance", "Maintenance"),
+    ];
+    expect(backfillModeKinds(authored)).toBe(authored);
+  });
+
+  it("returns the same reference when nothing would change", () => {
+    const noMatch = [mode("x", "Special A"), mode("y", "Special B")];
+    expect(backfillModeKinds(noMatch)).toBe(noMatch);
+  });
+
+  it("matches on mode_id as well as name, case-insensitive", () => {
+    const out = backfillModeKinds([mode("service_mode", "Mode 2")]);
+    expect(out[0].kind).toBe("maintenance");
+  });
+});
 
 describe("seedDefaultModes", () => {
   it("seeds Production (default) + Maintenance with semantic kinds (G0-9)", () => {
