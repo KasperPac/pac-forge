@@ -32,6 +32,7 @@ import {
   ProcessModelSchema,
   UnitCoordinationV1Schema,
   EngineeringDataV1Schema,
+  MaintenanceV1Schema,
   type AlarmRow,
   type AlarmTier,
   type EquipmentModuleContract,
@@ -57,6 +58,7 @@ import {
   type ProcessModelV2,
   type UnitCoordinationV1,
   type EngineeringDataV1,
+  type MaintenanceV1,
 } from "@/types/spec-contract-v2";
 import { validateEmStateMachine, validateCommandBehavior } from "@/lib/spec-builder/em-state-machine";
 import { validateUnitCoordination } from "@/lib/spec-builder/unit-coordination";
@@ -104,6 +106,7 @@ export interface SpecContractPatch {
   process_model?: ProcessModelV2 | null;
   unit_coordination?: Record<string, UnitCoordinationV1>;
   engineering?: EngineeringDataV1;
+  maintenance?: MaintenanceV1;
 }
 
 export const SpecContractPatchSchema = z.object({
@@ -129,6 +132,7 @@ export const SpecContractPatchSchema = z.object({
   modes: z.array(OperatorModeSchema).optional(),
   unit_coordination: z.record(z.string(), UnitCoordinationV1Schema).optional(),
   engineering: EngineeringDataV1Schema.optional(),
+  maintenance: MaintenanceV1Schema.optional(),
   configuration_parameters: z.array(ConfigParameterSchema).optional(),
   // section_overrides uses partialRecord because z.record with an enum key in
   // Zod v4 demands all keys be present — overrides are sparse by definition.
@@ -829,6 +833,7 @@ export async function loadSpecContract(
       (projectRow.unit_coordination as Record<string, UnitCoordinationV1> | null) ??
       undefined,
     engineering: (projectRow.engineering as EngineeringDataV1 | null) ?? undefined,
+    maintenance: (projectRow.maintenance as MaintenanceV1 | null) ?? undefined,
     configuration_parameters:
       (projectRow.configuration_parameters as ConfigParameter[] | null) ?? undefined,
     section_overrides:
@@ -1015,6 +1020,9 @@ export async function writeSpecContract(
   }
   if (parsed.engineering !== undefined) {
     projectUpdate.engineering = parsed.engineering;
+  }
+  if (parsed.maintenance !== undefined) {
+    projectUpdate.maintenance = parsed.maintenance;
   }
   if (parsed.configuration_parameters !== undefined) {
     projectUpdate.configuration_parameters = parsed.configuration_parameters;
@@ -1316,7 +1324,7 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
       );
       // G0-4: envelope geometry rides the same per-unit construct, and its
       // gate ids form the registry the routing refs resolve against.
-      issues.push(...validateAxes(coord));
+      issues.push(...validateAxes(coord, { memberEmIds }));
       // G0-3: the routing layer rides the same per-unit construct.
       issues.push(
         ...validateSignalRouting(coord, {
@@ -1327,6 +1335,23 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
           namedGateIds: coord.axes ? collectGateIds(coord.axes) : undefined,
         }),
       );
+    }
+
+    // G0-5 tier-2 cross-check: preset channels need an axis with preset
+    // capability. Same context convention as axis_constants below.
+    for (const entry of patch.engineering?.encoder_presets ?? []) {
+      const coord = patch.unit_coordination[entry.unit_id];
+      if (!coord) continue; // unit not in this patch — context absent
+      const axis = coord.axes?.find((a) => a.axis_id === entry.axis_id);
+      if (!axis) {
+        issues.push(
+          `engineering.encoder_presets: axis "${entry.axis_id}" not found on unit "${entry.unit_id}"`,
+        );
+      } else if (!axis.preset) {
+        issues.push(
+          `engineering.encoder_presets[${entry.axis_id}]: axis does not declare preset capability`,
+        );
+      }
     }
 
     // G0-4 tier-2 cross-check: constants must land on declared members.
@@ -1369,6 +1394,22 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
         .errors,
     );
     issues.push(...validateIoSignals(control_modules).errors);
+
+    // G0-5: overridable outputs must be DO signals in the hierarchy.
+    if (patch.maintenance) {
+      const doTags = new Set(
+        control_modules.flatMap((cm) =>
+          cm.io_signals.filter((s) => s.signal_type === "DO").map((s) => s.tag),
+        ),
+      );
+      for (const o of patch.maintenance.overridable_outputs) {
+        if (!doTags.has(o.tag)) {
+          issues.push(
+            `maintenance.overridable_outputs: "${o.tag}" is not a DO signal in the hierarchy`,
+          );
+        }
+      }
+    }
   }
 
   // FDS Engine Phase 1: parameter_ref expressions must reference a known

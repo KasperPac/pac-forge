@@ -578,6 +578,100 @@ describe("validateSpecContractPatch + deriveIoList — per-IO model (G0-2)", () 
     expect(issues.some((i) => i.includes("not_a_member"))).toBe(true);
   });
 
+  it("routes maintenance patch to spec_projects.maintenance (G0-5)", async () => {
+    writeCalls.length = 0;
+    await writeSpecContract("00000000-0000-0000-0000-000000000000", {
+      maintenance: { overridable_outputs: [{ tag: "Horn", wire_check_only: false }] },
+    });
+    const projectsWrite = writeCalls.find((c) => c.table === "spec_projects");
+    expect(projectsWrite?.payload).toMatchObject({ maintenance: expect.any(Object) });
+  });
+
+  it("rejects an overridable output that is not a DO in the hierarchy (G0-5)", () => {
+    const patch = SpecContractPatchSchema.parse({
+      hierarchy: {
+        units: [
+          {
+            unit_id: "00000000-0000-4000-8000-000000000aaa",
+            unit_name: "U",
+            equipment_type: "cell",
+            description: "",
+            excluded: false,
+            equipment_modules: [
+              {
+                equipment_module_id: "00000000-0000-4000-8000-000000000bbb",
+                equipment_module_name: "EM",
+                description: "",
+                control_modules: [
+                  {
+                    control_module_id: "00000000-0000-4000-8000-000000000001",
+                    control_module_name: "CM",
+                    control_module_class: "io",
+                    is_safety: false,
+                    description: "",
+                    io_signals: [
+                      {
+                        tag: "Horn",
+                        signal_type: "DO",
+                        io_address: "%Q0.2",
+                        description: "",
+                        source: "wired",
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      maintenance: {
+        overridable_outputs: [{ tag: "Horn" }, { tag: "Ghost_Output" }],
+      },
+    });
+    const issues = validateSpecContractPatch(patch);
+    expect(issues.some((i) => i.includes("Ghost_Output"))).toBe(true);
+    expect(issues.some((i) => i.includes('"Horn"'))).toBe(false);
+  });
+
+  it("rejects encoder_presets for an axis without preset capability (G0-5)", () => {
+    const patch = SpecContractPatchSchema.parse({
+      unit_coordination: {
+        u1: {
+          unit_id: "u1",
+          states: [{ state_id: "idle", allowed_modes: [], mode_change_allowed: true }],
+          transitions: [],
+          axes: [
+            {
+              axis_id: "rail",
+              kind: "linear",
+              encoder_tag: "Enc1",
+              eu_unit: "mm",
+              scale: { db_member: "scale" },
+              length: { db_member: "length" },
+              end_margin: { db_member: "end_margin" },
+              ramp_zone: { db_member: "ramp_zone" },
+            },
+          ],
+        },
+      },
+      engineering: {
+        encoder_presets: [
+          {
+            unit_id: "u1",
+            axis_id: "rail",
+            ctrl_address: "%QB64",
+            value_address: "%QD65",
+            status_address: "%IB68",
+          },
+        ],
+      },
+    });
+    expect(
+      validateSpecContractPatch(patch).some((i) => i.includes("preset")),
+    ).toBe(true);
+  });
+
   it("deriveIoList renders N/C polarity into normal_state/failsafe_state", () => {
     const hierarchy = {
       units: [

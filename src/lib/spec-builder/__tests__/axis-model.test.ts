@@ -68,4 +68,18 @@ describe("validateAxes", () => {
   it("no axes → no issues", () => {
     expect(validateAxes({ unit_id: "u1" })).toEqual([]);
   });
+
+  it("preset blocked-EM must be a unit member when ctx present (G0-5)", () => {
+    const withPreset: AxisV1 = {
+      ...rotator,
+      preset: { blocked_while_em_execute: "em_foreign" },
+    };
+    const issues = validateAxes(
+      { unit_id: "u1", axes: [withPreset] },
+      { memberEmIds: new Set(["em_drive"]) },
+    );
+    expect(issues.some((i) => i.includes("em_foreign"))).toBe(true);
+    // context absent → skipped
+    expect(validateAxes({ unit_id: "u1", axes: [withPreset] })).toEqual([]);
+  });
 });

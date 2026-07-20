@@ -12,6 +12,7 @@ import {
   EngineeringDataV1Schema,
   IoSignalV2Schema,
   ExpressionSchema,
+  MaintenanceV1Schema,
   ModeKindSchema,
   OperatorModeSchema,
   ProjectSectionContentSchema,
@@ -659,6 +660,58 @@ describe("G0-1 golden fixture — HRE Carriage Drive", () => {
     expect(warnings).toEqual([]);
     // the writer's %→rpm factor is derivable: 1500 / 100 = 15.0
     expect((engineering.drives[0].ref_speed_rpm ?? 0) / 100).toBe(15.0);
+  });
+});
+
+describe("Maintenance config model (G0-5)", () => {
+  it("parses overridable outputs with wire_check_only default", () => {
+    const m = MaintenanceV1Schema.parse({
+      overridable_outputs: [
+        { tag: "Travel_Horn" },
+        { tag: "CM1_Run", wire_check_only: true },
+      ],
+    });
+    expect(m.overridable_outputs[0].wire_check_only).toBe(false);
+    expect(m.overridable_outputs[1].wire_check_only).toBe(true);
+    expect(MaintenanceV1Schema.parse({}).overridable_outputs).toEqual([]);
+  });
+
+  it("SpecContractV2 accepts an optional maintenance key (back-compat)", () => {
+    const c = baseContract();
+    expect(SpecContractV2Schema.parse(c).maintenance).toBeUndefined();
+    const withMaint = SpecContractV2Schema.parse({
+      ...c,
+      maintenance: { overridable_outputs: [{ tag: "Horn" }] },
+    });
+    expect(withMaint.maintenance?.overridable_outputs).toHaveLength(1);
+  });
+
+  it("AxisV1 accepts an optional preset capability", () => {
+    const rot = AxisV1Schema.parse({
+      axis_id: "rotator",
+      kind: "rotary",
+      encoder_tag: "Rotator_Encoder_Pos",
+      counts_per_rev: { db_member: "k" },
+      home_windows: [{ center_deg10: 0, band_deg10: 20 }],
+      preset: { blocked_while_em_execute: "em_rot_drive" },
+    });
+    expect(rot.preset?.blocked_while_em_execute).toBe("em_rot_drive");
+  });
+
+  it("EngineeringDataV1 carries encoder_presets with empty default", () => {
+    expect(EngineeringDataV1Schema.parse({}).encoder_presets).toEqual([]);
+    const parsed = EngineeringDataV1Schema.parse({
+      encoder_presets: [
+        {
+          unit_id: "u1",
+          axis_id: "rotator",
+          ctrl_address: "%QB70",
+          value_address: "%QD71",
+          status_address: "%IB78",
+        },
+      ],
+    });
+    expect(parsed.encoder_presets[0].ctrl_address).toBe("%QB70");
   });
 });
 

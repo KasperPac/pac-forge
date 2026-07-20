@@ -1136,6 +1136,15 @@ export const LinearAxisGatesSchema = z.object({
   rev_fast_ok: z.string().min(1).optional(),
 });
 
+// Encoder-preset capability (G0-5). Presence = presettable; the one-shot
+// sequencer, pulse timing, and last-in-OB1 rules are G3 writer knowledge.
+// Preset IO channels are tier-2 (engineering.encoder_presets).
+export const AxisPresetSchema = z.object({
+  // EM whose Execute state blocks the preset (e.g. the axis drive EM).
+  blocked_while_em_execute: z.string().min(1).optional(),
+});
+export type AxisPreset = z.infer<typeof AxisPresetSchema>;
+
 export const LinearAxisSchema = z.object({
   axis_id: z.string().min(1),
   kind: z.literal("linear"),
@@ -1148,6 +1157,7 @@ export const LinearAxisSchema = z.object({
   gates: LinearAxisGatesSchema.default({}),
   // Evidenced policy: scale/length = 0 ⇒ gates stay open (pre-commissioning).
   unconfigured_open: z.boolean().default(true),
+  preset: AxisPresetSchema.optional(), // G0-5
 });
 export type LinearAxis = z.infer<typeof LinearAxisSchema>;
 
@@ -1170,6 +1180,7 @@ export const RotaryAxisSchema = z.object({
   // Multi-window covers "straight at 0° OR 180°".
   home_windows: z.array(HomeWindowSchema).min(1),
   gates: z.object({ at_home: z.string().min(1).optional() }).default({}),
+  preset: AxisPresetSchema.optional(), // G0-5
 });
 export type RotaryAxis = z.infer<typeof RotaryAxisSchema>;
 
@@ -1178,6 +1189,25 @@ export const AxisV1Schema = z.discriminatedUnion("kind", [
   RotaryAxisSchema,
 ]);
 export type AxisV1 = z.infer<typeof AxisV1Schema>;
+
+// ============================================================
+// Maintenance capabilities (G0-5) — project-level. Which outputs the
+// commissioning override block may drive in maintenance mode. The mode
+// flags live on modes (G0-9); emission (override FC, last-in-OB1) is G3.
+// Design: Docs/superpowers/specs/2026-07-20-g0-5-maintenance-config-design.md
+// ============================================================
+
+export const OverridableOutputSchema = z.object({
+  tag: z.string().min(1), // DO tag (cross-checked vs hierarchy DOs)
+  wire_check_only: z.boolean().default(false), // unused by logic — wire check
+  description: z.string().optional(),
+});
+export type OverridableOutput = z.infer<typeof OverridableOutputSchema>;
+
+export const MaintenanceV1Schema = z.object({
+  overridable_outputs: z.array(OverridableOutputSchema).default([]),
+});
+export type MaintenanceV1 = z.infer<typeof MaintenanceV1Schema>;
 
 // ============================================================
 // Signal-routing intent (G0-3) — the unit coordinator's other half.
@@ -1372,11 +1402,24 @@ export const CommissioningPackSchema = z.object({
 });
 export type CommissioningPack = z.infer<typeof CommissioningPackSchema>;
 
+// Encoder-preset IO channels (G0-5 tier 2): TR-profile control/value/status
+// addresses per presettable axis encoder. Record-only.
+export const EncoderPresetEntrySchema = z.object({
+  unit_id: z.string().min(1),
+  axis_id: z.string().min(1), // must reference an axis declaring `preset`
+  ctrl_address: z.string().min(1), // %QB
+  value_address: z.string().min(1), // %QD
+  status_address: z.string().min(1), // %IB
+  notes: z.string().optional(),
+});
+export type EncoderPresetEntry = z.infer<typeof EncoderPresetEntrySchema>;
+
 export const EngineeringDataV1Schema = z.object({
   drives: z.array(DriveEngineeringEntrySchema).default([]),
   io_conditioning_defaults: IoConditioningDefaultsSchema.optional(),
   axis_constants: z.array(AxisConstantEntrySchema).default([]),
   commissioning_pack: CommissioningPackSchema.optional(),
+  encoder_presets: z.array(EncoderPresetEntrySchema).default([]),
 });
 export type EngineeringDataV1 = z.infer<typeof EngineeringDataV1Schema>;
 
@@ -1403,6 +1446,8 @@ export const SpecContractV2Schema = z.object({
   unit_coordination: z.record(z.string(), UnitCoordinationV1Schema).optional(),
   // G0-1: tier-2 Engineering Data. Absent until authored.
   engineering: EngineeringDataV1Schema.optional(),
+  // G0-5: maintenance capabilities. Absent until authored.
+  maintenance: MaintenanceV1Schema.optional(),
   configuration_parameters: z.array(ConfigParameterSchema).optional(),
   // Sparse map — override only the project-level sections you want to
   // customise. Absent keys fall back to engine-generated content.

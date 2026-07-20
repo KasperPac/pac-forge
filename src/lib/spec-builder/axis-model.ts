@@ -29,6 +29,7 @@ export function collectGateIds(axes: AxisV1[]): Set<string> {
 
 export function validateAxes(
   coord: Pick<UnitCoordinationV1, "unit_id" | "axes">,
+  ctx: { memberEmIds?: Set<string> } = {},
 ): string[] {
   const axes = coord.axes;
   if (!axes) return [];
@@ -68,6 +69,14 @@ export function validateAxes(
           );
         }
       }
+    }
+
+    // G0-5: preset run-interlock EM must belong to the unit (ctx-gated).
+    const blockedEm = axis.preset?.blocked_while_em_execute;
+    if (blockedEm && ctx.memberEmIds && !ctx.memberEmIds.has(blockedEm)) {
+      issues.push(
+        `${where}[${axis.axis_id}]: preset blocked_while_em_execute EM ${blockedEm} is not a member of this unit`,
+      );
     }
   }
 
