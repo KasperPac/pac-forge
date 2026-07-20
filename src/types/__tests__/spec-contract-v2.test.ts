@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { collectGateIds, validateAxes } from "@/lib/spec-builder/axis-model";
 import { validateDriveModels } from "@/lib/spec-builder/drive-model";
 import { validateIoSignals } from "@/lib/spec-builder/io-signal-model";
 import { validateSignalRouting } from "@/lib/spec-builder/signal-routing";
@@ -729,16 +730,17 @@ describe("AxisV1 + axis_constants (G0-4)", () => {
   });
 });
 
-describe("G0-3 golden fixture — HRE Carriage unit routing", () => {
-  it("expresses the UC_Carriage.scl routing table", () => {
-    const gate = (gate_id: string) => ({ kind: "named_gate" as const, gate_id });
-    const permit = {
-      kind: "em_status" as const,
-      equipment_module_id: "em_travel_ind",
-      member: "permit_travel",
-    };
-    const io = (tag: string) => ({ kind: "io_tag" as const, tag });
-    const routing = SignalRoutingV1Schema.parse({
+// Shared HRE routing fixture (UC_Carriage.scl) — used by the G0-3 golden
+// fixture and re-validated against the G0-4 axis gate registry (join proof).
+function buildHreRouting() {
+  const gate = (gate_id: string) => ({ kind: "named_gate" as const, gate_id });
+  const permit = {
+    kind: "em_status" as const,
+    equipment_module_id: "em_travel_ind",
+    member: "permit_travel",
+  };
+  const io = (tag: string) => ({ kind: "io_tag" as const, tag });
+  return SignalRoutingV1Schema.parse({
       safety_healthy: { gate_ids: ["estop_healthy", "sr1_healthy"] },
       routing_rows: [
         {
@@ -783,16 +785,23 @@ describe("G0-3 golden fixture — HRE Carriage unit routing", () => {
       command_routing: { policy: "walk_to_execute_stop_on_unhealthy" },
       first_out: { enabled: false },
     });
+}
+
+const HRE_MEMBER_EMS = new Set([
+  "em_drive",
+  "em_limits",
+  "em_travel_ind",
+  "em_brake",
+  "em_pendant",
+]);
+
+describe("G0-3 golden fixture — HRE Carriage unit routing", () => {
+  it("expresses the UC_Carriage.scl routing table", () => {
+    const routing = buildHreRouting();
     const issues = validateSignalRouting(
       { unit_id: "carriage", signal_routing: routing },
       {
-        memberEmIds: new Set([
-          "em_drive",
-          "em_limits",
-          "em_travel_ind",
-          "em_brake",
-          "em_pendant",
-        ]),
+        memberEmIds: HRE_MEMBER_EMS,
         safetyGateIds: new Set(["estop_healthy", "sr1_healthy"]),
       },
     );
@@ -803,6 +812,56 @@ describe("G0-3 golden fixture — HRE Carriage unit routing", () => {
         (r) => r.source.kind === "io_tag" && r.source.tag === "Long_Limit_Stop",
       ),
     ).toHaveLength(2);
+  });
+});
+
+describe("G0-4 golden fixture — HRE axes + joined G0-3 routing", () => {
+  const railAxis = {
+    axis_id: "rail",
+    kind: "linear",
+    encoder_tag: "Carriage_Encoder_Pos",
+    eu_unit: "mm",
+    scale: { db_member: "mm_per_rev_x10", description: "fixed physics, set once" },
+    length: { db_member: "rail_length_mm", operator_settable: true },
+    end_margin: { db_member: "end_margin_mm", default: 500 },
+    ramp_zone: { db_member: "ramp_zone_mm", default: 2000 },
+    gates: {
+      fwd_ok: "fwd_ok",
+      fwd_fast_ok: "fwd_fast_ok",
+      rev_ok: "rev_ok",
+      rev_fast_ok: "rev_fast_ok",
+    },
+  };
+  const rotatorAxis = {
+    axis_id: "rotator",
+    kind: "rotary",
+    encoder_tag: "Rotator_Encoder_Pos",
+    counts_per_rev: { db_member: "rot_counts_per_360", default: 0 },
+    preset_offset: 500000,
+    home_windows: [
+      { center_deg10: 0, band_deg10: 20 },
+      { center_deg10: 1800, band_deg10: 20 },
+    ],
+    gates: { at_home: "rot_at_home" },
+  };
+
+  it("HRE axes validate and their registry satisfies the G0-3 routing table", () => {
+    const axes = [AxisV1Schema.parse(railAxis), AxisV1Schema.parse(rotatorAxis)];
+    expect(validateAxes({ unit_id: "carriage", axes })).toEqual([]);
+    const registry = collectGateIds(axes);
+    expect(registry).toEqual(
+      new Set(["fwd_ok", "fwd_fast_ok", "rev_ok", "rev_fast_ok", "rot_at_home"]),
+    );
+    // Re-validate the G0-3 golden routing WITH the registry — the join proof.
+    const issues = validateSignalRouting(
+      { unit_id: "carriage", signal_routing: buildHreRouting() },
+      {
+        memberEmIds: HRE_MEMBER_EMS,
+        safetyGateIds: new Set(["estop_healthy", "sr1_healthy"]),
+        namedGateIds: registry,
+      },
+    );
+    expect(issues).toEqual([]);
   });
 });
 
