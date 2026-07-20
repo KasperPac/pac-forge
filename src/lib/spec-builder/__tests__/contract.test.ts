@@ -672,6 +672,48 @@ describe("validateSpecContractPatch + deriveIoList — per-IO model (G0-2)", () 
     ).toBe(true);
   });
 
+  it("cross-checks required_level against a co-sent ladder (G0-10)", async () => {
+    const withLadder = SpecContractPatchSchema.parse({
+      authorization: { roles: [{ level: 0, name: "View" }, { level: 4, name: "Engineer" }] },
+      configuration_parameters: [
+        {
+          parameter_id: "speed_class",
+          name: "Speed class",
+          allowed_values: ["low"],
+          default: "low",
+          access: { required_level: 7 },
+        },
+      ],
+    });
+    expect(
+      validateSpecContractPatch(withLadder).some((i) => i.includes("required_level 7")),
+    ).toBe(true);
+
+    // no ladder in the patch → skip (context absent)
+    const noLadder = SpecContractPatchSchema.parse({
+      configuration_parameters: [
+        {
+          parameter_id: "speed_class",
+          name: "Speed class",
+          allowed_values: ["low"],
+          default: "low",
+          access: { required_level: 7 },
+        },
+      ],
+    });
+    expect(
+      validateSpecContractPatch(noLadder).some((i) => i.includes("required_level")),
+    ).toBe(false);
+
+    // routing to spec_projects.authorization
+    writeCalls.length = 0;
+    await writeSpecContract("00000000-0000-0000-0000-000000000000", {
+      authorization: { roles: [{ level: 0, name: "View" }] },
+    });
+    const projectsWrite = writeCalls.find((c) => c.table === "spec_projects");
+    expect(projectsWrite?.payload).toMatchObject({ authorization: expect.any(Object) });
+  });
+
   it("validates fb_assignments — duplicates and unknown targets (G0-8)", () => {
     const hierarchy = {
       units: [

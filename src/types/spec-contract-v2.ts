@@ -138,6 +138,53 @@ export const OperatorModeSchema = z.object({
 export type OperatorMode = z.infer<typeof OperatorModeSchema>;
 
 // ============================================================
+// Authorization (G0-10, boundary §D) — project role ladder + per-ITEM
+// write access. Attaches to items, never screens (G7-5 screen roles
+// DERIVE from item levels). Enforcement split: HMI enforces WHO (G8-3),
+// PLC enforces WHAT/WHEN (limits + state guards, emitted by writers).
+// Design: Docs/superpowers/specs/2026-07-20-g0-10-authorization-design.md
+// ============================================================
+
+export const AuthRoleSchema = z.object({
+  level: z.number().int().nonnegative(),
+  name: z.string().min(1),
+  description: z.string().optional(),
+});
+export type AuthRole = z.infer<typeof AuthRoleSchema>;
+
+export const AuthorizationV1Schema = z
+  .object({ roles: z.array(AuthRoleSchema).min(1) })
+  .refine((a) => new Set(a.roles.map((r) => r.level)).size === a.roles.length, {
+    message: "role levels must be unique",
+    path: ["roles"],
+  })
+  .refine((a) => new Set(a.roles.map((r) => r.name)).size === a.roles.length, {
+    message: "role names must be unique",
+    path: ["roles"],
+  });
+export type AuthorizationV1 = z.infer<typeof AuthorizationV1Schema>;
+
+// Shared per-item write-access attachment. required_level references the
+// project ladder; write_blocked_while_em_execute mirrors the G0-5 preset
+// run-interlock pattern (e.g. no scaling change while owning EM Executes).
+export const WriteAccessSchema = z
+  .object({
+    required_level: z.number().int().nonnegative().optional(),
+    limits: z
+      .object({ min: z.number().optional(), max: z.number().optional() })
+      .optional(),
+    write_blocked_while_em_execute: z.string().min(1).optional(),
+  })
+  .refine(
+    (a) =>
+      a.limits?.min === undefined ||
+      a.limits?.max === undefined ||
+      a.limits.min <= a.limits.max,
+    { message: "limits.min must be <= limits.max", path: ["limits"] },
+  );
+export type WriteAccess = z.infer<typeof WriteAccessSchema>;
+
+// ============================================================
 // Configuration parameters (§3.4 — new in FDS Engine Phase 1)
 // Discrete-enum project-level switches. Substituted as string
 // literals at expression evaluation time.
@@ -150,6 +197,7 @@ export const ConfigParameterSchema = z
     allowed_values: z.array(z.string()).min(1),
     default: z.string(),
     description: z.string().optional(),
+    access: WriteAccessSchema.optional(), // G0-10
   })
   .refine((p) => p.allowed_values.includes(p.default), {
     message: "default must be one of allowed_values",
@@ -1124,6 +1172,7 @@ export const GeometryParamDefSchema = z.object({
   retain: z.boolean().default(true),
   operator_settable: z.boolean().default(false), // dashboard/HMI-writable
   description: z.string().optional(),
+  access: WriteAccessSchema.optional(), // G0-10
 });
 export type GeometryParamDef = z.infer<typeof GeometryParamDefSchema>;
 
@@ -1142,6 +1191,7 @@ export const LinearAxisGatesSchema = z.object({
 export const AxisPresetSchema = z.object({
   // EM whose Execute state blocks the preset (e.g. the axis drive EM).
   blocked_while_em_execute: z.string().min(1).optional(),
+  access: WriteAccessSchema.optional(), // G0-10
 });
 export type AxisPreset = z.infer<typeof AxisPresetSchema>;
 
@@ -1201,6 +1251,7 @@ export const OverridableOutputSchema = z.object({
   tag: z.string().min(1), // DO tag (cross-checked vs hierarchy DOs)
   wire_check_only: z.boolean().default(false), // unused by logic — wire check
   description: z.string().optional(),
+  access: WriteAccessSchema.optional(), // G0-10
 });
 export type OverridableOutput = z.infer<typeof OverridableOutputSchema>;
 
@@ -1470,6 +1521,8 @@ export const SpecContractV2Schema = z.object({
   engineering: EngineeringDataV1Schema.optional(),
   // G0-5: maintenance capabilities. Absent until authored.
   maintenance: MaintenanceV1Schema.optional(),
+  // G0-10: role ladder. Absent until authored.
+  authorization: AuthorizationV1Schema.optional(),
   configuration_parameters: z.array(ConfigParameterSchema).optional(),
   // Sparse map — override only the project-level sections you want to
   // customise. Absent keys fall back to engine-generated content.

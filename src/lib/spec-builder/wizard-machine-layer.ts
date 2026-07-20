@@ -3,7 +3,11 @@
  * Machine Modes (seed Production/Maintenance) and Safety Gates
  * (auto-suggested from is_safety register tags).
  */
-import type { OperatorMode, SafetyGateV2 } from "@/types/spec-contract-v2";
+import type {
+  AuthorizationV1,
+  OperatorMode,
+  SafetyGateV2,
+} from "@/types/spec-contract-v2";
 
 /**
  * G0-9 seed: Production (default) + Maintenance. Manual/engineering/custom
@@ -27,6 +31,19 @@ export function seedDefaultModes(): OperatorMode[] {
       kind: "maintenance",
     },
   ];
+}
+
+// G0-10: the boundary-§D default ladder — project-configurable seed.
+export function defaultRoleLadder(): AuthorizationV1 {
+  return {
+    roles: [
+      { level: 0, name: "View", description: "Read-only" },
+      { level: 1, name: "Operator" },
+      { level: 2, name: "Supervisor" },
+      { level: 3, name: "Maintenance" },
+      { level: 4, name: "Engineer" },
+    ],
+  };
 }
 
 // G0-9-F1: name/id → semantic kind inference for pre-G0-9 mode sets.

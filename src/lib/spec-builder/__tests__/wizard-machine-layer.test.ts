@@ -1,9 +1,23 @@
 import { describe, expect, it } from "vitest";
 import {
   backfillModeKinds,
+  defaultRoleLadder,
   seedDefaultModes,
   suggestSafetyGates,
 } from "@/lib/spec-builder/wizard-machine-layer";
+
+describe("defaultRoleLadder (G0-10)", () => {
+  it("seeds the boundary-§D five-level ladder", () => {
+    const ladder = defaultRoleLadder();
+    expect(ladder.roles.map((r) => [r.level, r.name])).toEqual([
+      [0, "View"],
+      [1, "Operator"],
+      [2, "Supervisor"],
+      [3, "Maintenance"],
+      [4, "Engineer"],
+    ]);
+  });
+});
 import type { OperatorMode } from "@/types/spec-contract-v2";
 
 describe("backfillModeKinds (G0-9-F1)", () => {

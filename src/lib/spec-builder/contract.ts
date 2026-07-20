@@ -33,6 +33,7 @@ import {
   UnitCoordinationV1Schema,
   EngineeringDataV1Schema,
   MaintenanceV1Schema,
+  AuthorizationV1Schema,
   type AlarmRow,
   type AlarmTier,
   type EquipmentModuleContract,
@@ -59,6 +60,8 @@ import {
   type UnitCoordinationV1,
   type EngineeringDataV1,
   type MaintenanceV1,
+  type AuthorizationV1,
+  type WriteAccess,
 } from "@/types/spec-contract-v2";
 import { validateEmStateMachine, validateCommandBehavior } from "@/lib/spec-builder/em-state-machine";
 import { validateUnitCoordination } from "@/lib/spec-builder/unit-coordination";
@@ -107,6 +110,7 @@ export interface SpecContractPatch {
   unit_coordination?: Record<string, UnitCoordinationV1>;
   engineering?: EngineeringDataV1;
   maintenance?: MaintenanceV1;
+  authorization?: AuthorizationV1;
 }
 
 export const SpecContractPatchSchema = z.object({
@@ -133,6 +137,7 @@ export const SpecContractPatchSchema = z.object({
   unit_coordination: z.record(z.string(), UnitCoordinationV1Schema).optional(),
   engineering: EngineeringDataV1Schema.optional(),
   maintenance: MaintenanceV1Schema.optional(),
+  authorization: AuthorizationV1Schema.optional(),
   configuration_parameters: z.array(ConfigParameterSchema).optional(),
   // section_overrides uses partialRecord because z.record with an enum key in
   // Zod v4 demands all keys be present — overrides are sparse by definition.
@@ -834,6 +839,8 @@ export async function loadSpecContract(
       undefined,
     engineering: (projectRow.engineering as EngineeringDataV1 | null) ?? undefined,
     maintenance: (projectRow.maintenance as MaintenanceV1 | null) ?? undefined,
+    authorization:
+      (projectRow.authorization as AuthorizationV1 | null) ?? undefined,
     configuration_parameters:
       (projectRow.configuration_parameters as ConfigParameter[] | null) ?? undefined,
     section_overrides:
@@ -1023,6 +1030,9 @@ export async function writeSpecContract(
   }
   if (parsed.maintenance !== undefined) {
     projectUpdate.maintenance = parsed.maintenance;
+  }
+  if (parsed.authorization !== undefined) {
+    projectUpdate.authorization = parsed.authorization;
   }
   if (parsed.configuration_parameters !== undefined) {
     projectUpdate.configuration_parameters = parsed.configuration_parameters;
@@ -1408,6 +1418,37 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
             `maintenance.overridable_outputs: "${o.tag}" is not a DO signal in the hierarchy`,
           );
         }
+      }
+    }
+  }
+
+  // G0-10: when the ladder rides the patch, every required_level used in
+  // the same patch must exist in it (context-absent skip otherwise).
+  if (patch.authorization) {
+    const levels = new Set(patch.authorization.roles.map((r) => r.level));
+    const check = (access: WriteAccess | undefined, where: string) => {
+      if (access?.required_level !== undefined && !levels.has(access.required_level)) {
+        issues.push(
+          `${where}: required_level ${access.required_level} is not in the authorization ladder`,
+        );
+      }
+    };
+    for (const p of patch.configuration_parameters ?? []) {
+      check(p.access, `configuration_parameters[${p.parameter_id}]`);
+    }
+    for (const o of patch.maintenance?.overridable_outputs ?? []) {
+      check(o.access, `maintenance.overridable_outputs[${o.tag}]`);
+    }
+    for (const coord of Object.values(patch.unit_coordination ?? {})) {
+      for (const axis of coord.axes ?? []) {
+        const params =
+          axis.kind === "linear"
+            ? [axis.scale, axis.length, axis.end_margin, axis.ramp_zone]
+            : [axis.counts_per_rev];
+        for (const p of params) {
+          check(p.access, `unit_coordination[${coord.unit_id}].axes[${axis.axis_id}].${p.db_member}`);
+        }
+        check(axis.preset?.access, `unit_coordination[${coord.unit_id}].axes[${axis.axis_id}].preset`);
       }
     }
   }

@@ -5,6 +5,7 @@ import { validateIoSignals } from "@/lib/spec-builder/io-signal-model";
 import { validateSignalRouting } from "@/lib/spec-builder/signal-routing";
 import {
   AnalogScalingSchema,
+  AuthorizationV1Schema,
   AxisV1Schema,
   ConfigParameterSchema,
   ControlModuleV2Schema,
@@ -19,6 +20,7 @@ import {
   ProjectSectionTypeSchema,
   SequentialStateV2Schema,
   SignalRoutingV1Schema,
+  WriteAccessSchema,
   SpecContractV2Schema,
   UNIT_PACKML_STATES,
   UnitCoordinationV1Schema,
@@ -660,6 +662,84 @@ describe("G0-1 golden fixture — HRE Carriage Drive", () => {
     expect(warnings).toEqual([]);
     // the writer's %→rpm factor is derivable: 1500 / 100 = 15.0
     expect((engineering.drives[0].ref_speed_rpm ?? 0) / 100).toBe(15.0);
+  });
+});
+
+describe("Authorization model (G0-10)", () => {
+  const ladder = {
+    roles: [
+      { level: 0, name: "View" },
+      { level: 1, name: "Operator" },
+      { level: 4, name: "Engineer" },
+    ],
+  };
+
+  it("parses a ladder and rejects duplicate levels or names", () => {
+    expect(AuthorizationV1Schema.parse(ladder).roles).toHaveLength(3);
+    expect(() =>
+      AuthorizationV1Schema.parse({
+        roles: [
+          { level: 1, name: "Operator" },
+          { level: 1, name: "Op2" },
+        ],
+      }),
+    ).toThrow();
+    expect(() =>
+      AuthorizationV1Schema.parse({
+        roles: [
+          { level: 1, name: "Operator" },
+          { level: 2, name: "Operator" },
+        ],
+      }),
+    ).toThrow();
+    expect(() => AuthorizationV1Schema.parse({ roles: [] })).toThrow();
+  });
+
+  it("WriteAccess enforces min <= max and parses guards", () => {
+    expect(
+      WriteAccessSchema.parse({
+        required_level: 3,
+        limits: { min: 0, max: 100 },
+        write_blocked_while_em_execute: "em_drive",
+      }).required_level,
+    ).toBe(3);
+    expect(() =>
+      WriteAccessSchema.parse({ limits: { min: 10, max: 5 } }),
+    ).toThrow();
+  });
+
+  it("access rides GeometryParamDef and ConfigParameter (back-compat optional)", () => {
+    const param = AxisV1Schema.parse({
+      axis_id: "rail",
+      kind: "linear",
+      encoder_tag: "Enc",
+      eu_unit: "mm",
+      scale: { db_member: "scale", access: { required_level: 4 } },
+      length: { db_member: "length" },
+      end_margin: { db_member: "end_margin" },
+      ramp_zone: { db_member: "ramp_zone" },
+    });
+    if (param.kind === "linear") {
+      expect(param.scale.access?.required_level).toBe(4);
+      expect(param.length.access).toBeUndefined();
+    }
+    const cp = ConfigParameterSchema.parse({
+      parameter_id: "speed_class",
+      name: "Speed class",
+      allowed_values: ["low", "high"],
+      default: "low",
+      access: { required_level: 2 },
+    });
+    expect(cp.access?.required_level).toBe(2);
+  });
+
+  it("SpecContractV2 accepts an optional authorization key (back-compat)", () => {
+    const c = baseContract();
+    expect(SpecContractV2Schema.parse(c).authorization).toBeUndefined();
+    expect(
+      SpecContractV2Schema.parse({ ...c, authorization: ladder }).authorization
+        ?.roles,
+    ).toHaveLength(3);
   });
 });
 
