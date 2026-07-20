@@ -3,6 +3,7 @@ import {
   ConfigParameterSchema,
   ControlModuleV2Schema,
   DriveModelV1Schema,
+  EngineeringDataV1Schema,
   ExpressionSchema,
   ModeKindSchema,
   OperatorModeSchema,
@@ -438,5 +439,50 @@ describe("DriveModelV1 (G0-1)", () => {
     expect(ControlModuleV2Schema.parse({ ...cm, drive: goldenDrive }).drive).toEqual(
       goldenDrive,
     );
+  });
+});
+
+describe("EngineeringDataV1 (G0-1)", () => {
+  it("applies the 16#003F config_axis default and parses half-filled entries", () => {
+    const parsed = EngineeringDataV1Schema.parse({
+      drives: [{ control_module_id: "00000000-0000-4000-8000-000000000001" }],
+    });
+    expect(parsed.drives[0].config_axis).toBe(0x003f);
+    expect(parsed.drives[0].ref_speed_rpm).toBeUndefined();
+  });
+
+  it("defaults drives to an empty array", () => {
+    expect(EngineeringDataV1Schema.parse({}).drives).toEqual([]);
+  });
+
+  it("parses the golden-master engineering entry", () => {
+    const entry = {
+      control_module_id: "00000000-0000-4000-8000-000000000001",
+      hw_id_stw: 322,
+      hw_id_zsw: 322,
+      ref_speed_rpm: 1500.0,
+      config_axis: 0x003f,
+    };
+    expect(EngineeringDataV1Schema.parse({ drives: [entry] }).drives[0]).toEqual(entry);
+  });
+
+  it("rejects negative ref_speed_rpm", () => {
+    expect(() =>
+      EngineeringDataV1Schema.parse({
+        drives: [
+          {
+            control_module_id: "00000000-0000-4000-8000-000000000001",
+            ref_speed_rpm: -1500,
+          },
+        ],
+      }),
+    ).toThrow();
+  });
+
+  it("SpecContractV2Schema accepts an absent engineering key (additive wave)", () => {
+    const c = baseContract();
+    expect(SpecContractV2Schema.parse(c).engineering).toBeUndefined();
+    const withEng = { ...c, engineering: { drives: [] } };
+    expect(SpecContractV2Schema.parse(withEng).engineering?.drives).toEqual([]);
   });
 });

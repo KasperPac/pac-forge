@@ -1074,6 +1074,27 @@ export const UnitCoordinationV1Schema = z.object({
 export type UnitCoordinationV1 = z.infer<typeof UnitCoordinationV1Schema>;
 
 // ============================================================
+// Engineering Data (G0-1) — tier-2 record-only container from the
+// boundary decision (2026-07-07). Never signable, never HMI-exposed;
+// commissioning fills values in. G0-2/G0-4/G0-7 add sibling keys here.
+// ============================================================
+
+export const DriveEngineeringEntrySchema = z.object({
+  control_module_id: UuidSchema, // must reference a CM carrying `drive`
+  hw_id_stw: z.number().int().nonnegative().optional(), // HWIDSTW from TIA HW config
+  hw_id_zsw: z.number().int().nonnegative().optional(), // HWIDZSW
+  ref_speed_rpm: z.number().positive().optional(), // MUST equal drive p2000
+  config_axis: z.number().int().nonnegative().default(0x003f),
+  notes: z.string().optional(),
+});
+export type DriveEngineeringEntry = z.infer<typeof DriveEngineeringEntrySchema>;
+
+export const EngineeringDataV1Schema = z.object({
+  drives: z.array(DriveEngineeringEntrySchema).default([]),
+});
+export type EngineeringDataV1 = z.infer<typeof EngineeringDataV1Schema>;
+
+// ============================================================
 
 export const SpecContractV2Schema = z.object({
   schema_version: z.literal(3),
@@ -1094,6 +1115,8 @@ export const SpecContractV2Schema = z.object({
   // G0-9: keyed by unit_id — mirrors the equipment_modules keyed-record
   // pattern; HierarchySchema untouched. Absent until authored.
   unit_coordination: z.record(z.string(), UnitCoordinationV1Schema).optional(),
+  // G0-1: tier-2 Engineering Data. Absent until authored.
+  engineering: EngineeringDataV1Schema.optional(),
   configuration_parameters: z.array(ConfigParameterSchema).optional(),
   // Sparse map — override only the project-level sections you want to
   // customise. Absent keys fall back to engine-generated content.
