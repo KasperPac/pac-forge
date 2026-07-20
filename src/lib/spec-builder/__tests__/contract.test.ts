@@ -672,6 +672,101 @@ describe("validateSpecContractPatch + deriveIoList — per-IO model (G0-2)", () 
     ).toBe(true);
   });
 
+  it("validates appliances — duplicates, hybrid owner, placement targets (G0-11)", async () => {
+    const patch = SpecContractPatchSchema.parse({
+      hierarchy: {
+        units: [
+          {
+            unit_id: "00000000-0000-4000-8000-000000000aaa",
+            unit_name: "U",
+            equipment_type: "cell",
+            description: "",
+            excluded: false,
+            equipment_modules: [
+              {
+                equipment_module_id: "00000000-0000-4000-8000-000000000bbb",
+                equipment_module_name: "EM",
+                description: "",
+                control_modules: [],
+              },
+            ],
+          },
+        ],
+      },
+      appliances: {
+        appliances: [
+          {
+            appliance_id: "robot1",
+            name: "Robot",
+            function: "Palletises",
+            placement: "own_em",
+            target_kind: "equipment_module",
+            target_id: "00000000-0000-4000-8000-000000000bbb",
+            handshakes: [
+              { handshake_id: "h1", pattern: "job_request_ack_done" },
+              { handshake_id: "h1", pattern: "custom" },
+            ],
+          },
+          { appliance_id: "robot1", name: "Dup", function: "x", placement: "cm_like" },
+          { appliance_id: "card1", name: "Card", function: "x", placement: "hybrid" },
+          {
+            appliance_id: "scan1",
+            name: "Scanner",
+            function: "x",
+            placement: "cm_like",
+            target_kind: "equipment_module",
+            target_id: "00000000-0000-4000-8000-000000000bbb",
+          },
+          {
+            appliance_id: "ghost1",
+            name: "Ghost",
+            function: "x",
+            placement: "own_em",
+            target_kind: "equipment_module",
+            target_id: "00000000-0000-4000-8000-00000000dead",
+          },
+        ],
+      },
+    });
+    const issues = validateSpecContractPatch(patch);
+    expect(issues.some((i) => i.includes("duplicate appliance_id"))).toBe(true);
+    expect(issues.some((i) => i.includes("zone_logic_owner"))).toBe(true);
+    expect(issues.some((i) => i.includes("cm_like placement must target"))).toBe(true);
+    expect(issues.some((i) => i.includes("dead"))).toBe(true);
+    expect(issues.some((i) => i.includes('duplicate handshake_id'))).toBe(true);
+
+    // appliances-only patch: internal checks only, target check skips
+    const alone = SpecContractPatchSchema.parse({
+      appliances: {
+        appliances: [
+          {
+            appliance_id: "r1",
+            name: "R",
+            function: "x",
+            placement: "own_em",
+            target_kind: "equipment_module",
+            target_id: "00000000-0000-4000-8000-00000000dead",
+          },
+        ],
+      },
+    });
+    expect(
+      validateSpecContractPatch(alone).some((i) => i.includes("dead")),
+    ).toBe(false);
+
+    // routing to spec_projects.appliances
+    writeCalls.length = 0;
+    await writeSpecContract("00000000-0000-0000-0000-000000000000", {
+      appliances: {
+        appliances: [
+          { appliance_id: "r1", name: "R", function: "x", placement: "cm_like" },
+        ],
+      },
+    });
+    const projectsWrite = writeCalls.find((c) => c.table === "spec_projects");
+    expect(projectsWrite?.payload).toMatchObject({ appliances: expect.any(Object) });
+  });
+
   it("validates upstream_comms — duplicate systems + endpoint refs (G0-12)", async () => {
     const patch = SpecContractPatchSchema.parse({
       upstream_comms: {

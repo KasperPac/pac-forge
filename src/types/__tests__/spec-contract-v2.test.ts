@@ -5,6 +5,7 @@ import { validateIoSignals } from "@/lib/spec-builder/io-signal-model";
 import { validateSignalRouting } from "@/lib/spec-builder/signal-routing";
 import {
   AnalogScalingSchema,
+  ApplianceModelV1Schema,
   AuthorizationV1Schema,
   AxisV1Schema,
   ConfigParameterSchema,
@@ -665,6 +666,61 @@ describe("G0-1 golden fixture — HRE Carriage Drive", () => {
     expect(warnings).toEqual([]);
     // the writer's %→rpm factor is derivable: 1500 / 100 = 15.0
     expect((engineering.drives[0].ref_speed_rpm ?? 0) / 100).toBe(15.0);
+  });
+});
+
+describe("Appliance model (G0-11)", () => {
+  it("parses the KUKA-shaped fixture (own_em, PGNO handshake, typed payload)", () => {
+    const model = ApplianceModelV1Schema.parse({
+      appliances: [
+        {
+          appliance_id: "robot1",
+          name: "Palletising robot",
+          vendor_model: "KUKA KRC5",
+          function: "Palletises ingots into layered stacks",
+          placement: "own_em",
+          target_kind: "equipment_module",
+          target_id: "00000000-0000-4000-8000-000000000bbb",
+          protocol: "ethernet_ip",
+          handshakes: [
+            { handshake_id: "pgno", pattern: "job_request_ack_done" },
+          ],
+          payloads: [
+            {
+              payload_id: "ingot_type",
+              name: "Ingot type",
+              direction: "to_appliance",
+              data_type: "int",
+              validity_flag_tag: "Type_Valid",
+            },
+          ],
+        },
+        {
+          appliance_id: "scanner1",
+          name: "Barcode scanner",
+          function: "Reads pallet labels",
+          placement: "cm_like",
+          handshakes: [{ handshake_id: "scan", pattern: "trigger_result_valid" }],
+          payloads: [
+            {
+              payload_id: "scanned_code",
+              name: "Scanned code",
+              direction: "from_appliance",
+              data_type: "string",
+              comparable: true,
+            },
+          ],
+        },
+      ],
+    });
+    expect(model.appliances[0].payloads[0].comparable).toBe(false);
+    expect(model.appliances[1].payloads[0].comparable).toBe(true);
+    expect(ApplianceModelV1Schema.parse({}).appliances).toEqual([]);
+  });
+
+  it("SpecContractV2 accepts an optional appliances key (back-compat)", () => {
+    const c = baseContract();
+    expect(SpecContractV2Schema.parse(c).appliances).toBeUndefined();
   });
 });
 

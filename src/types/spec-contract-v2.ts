@@ -1424,6 +1424,73 @@ export const UnitCoordinationV1Schema = z.object({
 export type UnitCoordinationV1 = z.infer<typeof UnitCoordinationV1Schema>;
 
 // ============================================================
+// Appliance model (G0-11, boundary §K) — third-party intelligent devices
+// (robots, conveyor cards, RFID/barcode scanners; drives are retroactively
+// the first instance of this class). Signable inventory + ISA-88 placement,
+// handshake semantics, and typed data payloads — the signal kind the
+// Bool/analog IO list cannot express. Driver FBs ride fb_assignments (G0-8);
+// telegram/GSDML/HW-id/IP data rides network_config + engineering. The
+// data-comparison criteria extension is G0-11b.
+// Design: Docs/superpowers/specs/2026-07-20-g0-11-appliance-model-design.md
+// ============================================================
+
+export const AppliancePlacementSchema = z.enum([
+  "cm_like", // scanner: trigger→result under an EM
+  "own_em", // robot: own EM whose PackML states wrap the job handshake
+  "hybrid", // conveyor card: FDS must say who owns zone logic
+]);
+export type AppliancePlacement = z.infer<typeof AppliancePlacementSchema>;
+
+export const ApplianceHandshakePatternSchema = z.enum([
+  "job_request_ack_done", // KUKA PGNO: request/valid/complete
+  "trigger_result_valid", // scanner: trigger → result + valid
+  "zone_release_occupied", // conveyor card zone handshake
+  "custom",
+]);
+export type ApplianceHandshakePattern = z.infer<
+  typeof ApplianceHandshakePatternSchema
+>;
+
+export const ApplianceDataPayloadSchema = z.object({
+  payload_id: z.string().min(1),
+  name: z.string().min(1), // e.g. "ingot_type", "scanned_code"
+  direction: z.enum(["to_appliance", "from_appliance"]),
+  data_type: z.enum(["string", "int", "dint", "real", "record"]),
+  validity_flag_tag: z.string().optional(), // Bool qualifying the payload
+  comparable: z.boolean().default(false), // criteria use — G0-11b delivers it
+  description: z.string().optional(),
+});
+export type ApplianceDataPayload = z.infer<typeof ApplianceDataPayloadSchema>;
+
+export const ApplianceHandshakeSchema = z.object({
+  handshake_id: z.string().min(1),
+  pattern: ApplianceHandshakePatternSchema,
+  description: z.string().optional(),
+});
+export type ApplianceHandshake = z.infer<typeof ApplianceHandshakeSchema>;
+
+export const ApplianceSchema = z.object({
+  appliance_id: z.string().min(1),
+  name: z.string().min(1),
+  vendor_model: z.string().optional(), // "KUKA KRC5", "Interroll MultiControl"
+  function: z.string().min(1), // what it does — customer signs this
+  placement: AppliancePlacementSchema,
+  zone_logic_owner: z.enum(["plc", "appliance"]).optional(), // REQUIRED when hybrid
+  target_kind: z.enum(["control_module", "equipment_module"]).optional(),
+  target_id: z.string().min(1).optional(), // realizing CM/EM in the hierarchy
+  protocol: NetworkProtocolSchema.optional(),
+  handshakes: z.array(ApplianceHandshakeSchema).default([]),
+  payloads: z.array(ApplianceDataPayloadSchema).default([]),
+  notes: z.string().optional(),
+});
+export type Appliance = z.infer<typeof ApplianceSchema>;
+
+export const ApplianceModelV1Schema = z.object({
+  appliances: z.array(ApplianceSchema).default([]),
+});
+export type ApplianceModelV1 = z.infer<typeof ApplianceModelV1Schema>;
+
+// ============================================================
 // Upstream comms (G0-12, boundary §L) — signable plant-system interface
 // list: which SCADA/MES/historian systems exist and what data crosses.
 // Endpoints/tag exposure are tier 2 (engineering.upstream_endpoints);
@@ -1672,6 +1739,8 @@ export const SpecContractV2Schema = z.object({
   recipes: RecipeModelV1Schema.optional(),
   // G0-12: plant-system interface list. Absent until authored.
   upstream_comms: UpstreamCommsV1Schema.optional(),
+  // G0-11: appliance inventory. Absent until authored.
+  appliances: ApplianceModelV1Schema.optional(),
   configuration_parameters: z.array(ConfigParameterSchema).optional(),
   // Sparse map — override only the project-level sections you want to
   // customise. Absent keys fall back to engine-generated content.

@@ -37,6 +37,7 @@ import {
   SafetyInventoryV1Schema,
   RecipeModelV1Schema,
   UpstreamCommsV1Schema,
+  ApplianceModelV1Schema,
   type AlarmRow,
   type AlarmTier,
   type EquipmentModuleContract,
@@ -68,6 +69,7 @@ import {
   type SafetyInventoryV1,
   type RecipeModelV1,
   type UpstreamCommsV1,
+  type ApplianceModelV1,
 } from "@/types/spec-contract-v2";
 import { validateEmStateMachine, validateCommandBehavior } from "@/lib/spec-builder/em-state-machine";
 import { validateUnitCoordination } from "@/lib/spec-builder/unit-coordination";
@@ -120,6 +122,7 @@ export interface SpecContractPatch {
   safety_inventory?: SafetyInventoryV1;
   recipes?: RecipeModelV1;
   upstream_comms?: UpstreamCommsV1;
+  appliances?: ApplianceModelV1;
 }
 
 export const SpecContractPatchSchema = z.object({
@@ -150,6 +153,7 @@ export const SpecContractPatchSchema = z.object({
   safety_inventory: SafetyInventoryV1Schema.optional(),
   recipes: RecipeModelV1Schema.optional(),
   upstream_comms: UpstreamCommsV1Schema.optional(),
+  appliances: ApplianceModelV1Schema.optional(),
   configuration_parameters: z.array(ConfigParameterSchema).optional(),
   // section_overrides uses partialRecord because z.record with an enum key in
   // Zod v4 demands all keys be present — overrides are sparse by definition.
@@ -858,6 +862,7 @@ export async function loadSpecContract(
     recipes: (projectRow.recipes as RecipeModelV1 | null) ?? undefined,
     upstream_comms:
       (projectRow.upstream_comms as UpstreamCommsV1 | null) ?? undefined,
+    appliances: (projectRow.appliances as ApplianceModelV1 | null) ?? undefined,
     configuration_parameters:
       (projectRow.configuration_parameters as ConfigParameter[] | null) ?? undefined,
     section_overrides:
@@ -1059,6 +1064,9 @@ export async function writeSpecContract(
   }
   if (parsed.upstream_comms !== undefined) {
     projectUpdate.upstream_comms = parsed.upstream_comms;
+  }
+  if (parsed.appliances !== undefined) {
+    projectUpdate.appliances = parsed.appliances;
   }
   if (parsed.configuration_parameters !== undefined) {
     projectUpdate.configuration_parameters = parsed.configuration_parameters;
@@ -1482,6 +1490,77 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
             `safety_inventory[${fn.function_id}]: effect target ${eff.target_id} not found in hierarchy`,
           );
         }
+      }
+    }
+  }
+
+  // G0-11: appliances — internal checks always; target existence only with
+  // hierarchy context.
+  if (patch.appliances?.appliances?.length) {
+    let cmIds: Set<string> | undefined;
+    let emIds: Set<string> | undefined;
+    if (patch.hierarchy) {
+      cmIds = new Set(
+        patch.hierarchy.units.flatMap((u) =>
+          u.equipment_modules.flatMap((em) =>
+            em.control_modules.map((c) => c.control_module_id),
+          ),
+        ),
+      );
+      emIds = new Set(
+        patch.hierarchy.units.flatMap((u) =>
+          u.equipment_modules.map((em) => em.equipment_module_id),
+        ),
+      );
+    }
+    const seenAppliances = new Set<string>();
+    for (const a of patch.appliances.appliances) {
+      if (seenAppliances.has(a.appliance_id)) {
+        issues.push(`appliances: duplicate appliance_id "${a.appliance_id}"`);
+      }
+      seenAppliances.add(a.appliance_id);
+
+      if (a.placement === "hybrid" && !a.zone_logic_owner) {
+        issues.push(
+          `appliances[${a.appliance_id}]: hybrid placement requires zone_logic_owner (plc or appliance)`,
+        );
+      }
+      if (a.target_kind) {
+        if (a.placement === "cm_like" && a.target_kind !== "control_module") {
+          issues.push(
+            `appliances[${a.appliance_id}]: cm_like placement must target a control_module`,
+          );
+        }
+        if (a.placement === "own_em" && a.target_kind !== "equipment_module") {
+          issues.push(
+            `appliances[${a.appliance_id}]: own_em placement must target an equipment_module`,
+          );
+        }
+        const pool = a.target_kind === "control_module" ? cmIds : emIds;
+        if (a.target_id && pool && !pool.has(a.target_id)) {
+          issues.push(
+            `appliances[${a.appliance_id}]: target ${a.target_id} not found in hierarchy`,
+          );
+        }
+      }
+
+      const hsIds = new Set<string>();
+      for (const h of a.handshakes) {
+        if (hsIds.has(h.handshake_id)) {
+          issues.push(
+            `appliances[${a.appliance_id}]: duplicate handshake_id "${h.handshake_id}"`,
+          );
+        }
+        hsIds.add(h.handshake_id);
+      }
+      const plIds = new Set<string>();
+      for (const p of a.payloads) {
+        if (plIds.has(p.payload_id)) {
+          issues.push(
+            `appliances[${a.appliance_id}]: duplicate payload_id "${p.payload_id}"`,
+          );
+        }
+        plIds.add(p.payload_id);
       }
     }
   }
