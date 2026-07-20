@@ -18,6 +18,7 @@ import {
   OperatorModeSchema,
   ProjectSectionContentSchema,
   ProjectSectionTypeSchema,
+  SafetyInventoryV1Schema,
   SequentialStateV2Schema,
   SignalRoutingV1Schema,
   WriteAccessSchema,
@@ -662,6 +663,40 @@ describe("G0-1 golden fixture — HRE Carriage Drive", () => {
     expect(warnings).toEqual([]);
     // the writer's %→rpm factor is derivable: 1500 / 100 = 15.0
     expect((engineering.drives[0].ref_speed_rpm ?? 0) / 100).toBe(15.0);
+  });
+});
+
+describe("Safety inventory (G0-13)", () => {
+  it("parses a signed function record with defaults", () => {
+    const inv = SafetyInventoryV1Schema.parse({
+      functions: [
+        {
+          function_id: "sf_estop",
+          name: "E-Stop chain",
+          zone: "Cell",
+          initiators: ["EStop_PB1", "EStop_PB2"],
+          actuation_path: "STO via safety relay",
+          rating: "PLd Cat3",
+          reset: { policy: "manual", reset_point: "panel Reset_PB" },
+          effects: [
+            { target_kind: "unit", target_id: "u1", action: "abort" },
+          ],
+          gate_id: "estop_healthy",
+        },
+      ],
+    });
+    expect(inv.functions[0].effects[0].action).toBe("abort");
+    expect(SafetyInventoryV1Schema.parse({}).functions).toEqual([]);
+    expect(
+      SafetyInventoryV1Schema.parse({
+        functions: [{ function_id: "f1", name: "Guard" }],
+      }).functions[0].initiators,
+    ).toEqual([]);
+  });
+
+  it("SpecContractV2 accepts an optional safety_inventory key (back-compat)", () => {
+    const c = baseContract();
+    expect(SpecContractV2Schema.parse(c).safety_inventory).toBeUndefined();
   });
 });
 

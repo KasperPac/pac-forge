@@ -1241,6 +1241,46 @@ export const AxisV1Schema = z.discriminatedUnion("kind", [
 export type AxisV1 = z.infer<typeof AxisV1Schema>;
 
 // ============================================================
+// Safety layer inventory (G0-13, boundary §M) — record-only, signable.
+// Records the safety FUNCTIONS (safety_gates covers only the control-side
+// reaction). Safety logic is NEVER generated — hardwired / F-PLC
+// engineering; the app records and documents only.
+// Design: Docs/superpowers/specs/2026-07-20-g0-13-safety-inventory-design.md
+// ============================================================
+
+export const SafetyEffectSchema = z.object({
+  target_kind: z.enum(["unit", "equipment_module"]),
+  target_id: z.string().min(1),
+  action: z.enum(["abort", "stop"]), // abort/stop class
+});
+export type SafetyEffect = z.infer<typeof SafetyEffectSchema>;
+
+export const SafetyFunctionSchema = z.object({
+  function_id: z.string().min(1),
+  name: z.string().min(1), // e.g. "E-Stop chain"
+  zone: z.string().optional(),
+  initiators: z.array(z.string().min(1)).default([]), // tags/devices
+  actuation_path: z.string().optional(), // "STO", "main contactor" — free text
+  rating: z.string().optional(), // "PLd Cat3" / "SIL2" — free text
+  reset: z
+    .object({
+      policy: z.enum(["manual", "auto"]),
+      reset_point: z.string().optional(), // e.g. "panel Reset_PB"
+    })
+    .optional(),
+  // Effect-on-control: what the G0-3 safety-healthy aggregation derives from.
+  effects: z.array(SafetyEffectSchema).default([]),
+  gate_id: z.string().optional(), // SafetyGateV2 link (control-side reaction)
+  notes: z.string().optional(),
+});
+export type SafetyFunction = z.infer<typeof SafetyFunctionSchema>;
+
+export const SafetyInventoryV1Schema = z.object({
+  functions: z.array(SafetyFunctionSchema).default([]),
+});
+export type SafetyInventoryV1 = z.infer<typeof SafetyInventoryV1Schema>;
+
+// ============================================================
 // Maintenance capabilities (G0-5) — project-level. Which outputs the
 // commissioning override block may drive in maintenance mode. The mode
 // flags live on modes (G0-9); emission (override FC, last-in-OB1) is G3.
@@ -1523,6 +1563,8 @@ export const SpecContractV2Schema = z.object({
   maintenance: MaintenanceV1Schema.optional(),
   // G0-10: role ladder. Absent until authored.
   authorization: AuthorizationV1Schema.optional(),
+  // G0-13: safety layer inventory (record-only). Absent until authored.
+  safety_inventory: SafetyInventoryV1Schema.optional(),
   configuration_parameters: z.array(ConfigParameterSchema).optional(),
   // Sparse map — override only the project-level sections you want to
   // customise. Absent keys fall back to engine-generated content.

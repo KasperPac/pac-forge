@@ -672,6 +672,68 @@ describe("validateSpecContractPatch + deriveIoList — per-IO model (G0-2)", () 
     ).toBe(true);
   });
 
+  it("validates safety_inventory — duplicates, gate links, targets (G0-13)", () => {
+    const patch = SpecContractPatchSchema.parse({
+      safety_gates: [
+        {
+          gate_id: "estop_healthy",
+          name: "E-Stop",
+          condition: [{ tag: "EStop_Healthy", operator: "=", value: true }],
+          scope: "all",
+        },
+      ],
+      hierarchy: {
+        units: [
+          {
+            unit_id: "00000000-0000-4000-8000-000000000aaa",
+            unit_name: "U",
+            equipment_type: "cell",
+            description: "",
+            excluded: false,
+            equipment_modules: [],
+          },
+        ],
+      },
+      safety_inventory: {
+        functions: [
+          {
+            function_id: "sf1",
+            name: "E-Stop",
+            gate_id: "estop_healthy",
+            effects: [
+              {
+                target_kind: "unit",
+                target_id: "00000000-0000-4000-8000-000000000aaa",
+                action: "abort",
+              },
+            ],
+          },
+          { function_id: "sf1", name: "Duplicate" },
+          { function_id: "sf2", name: "Ghost gate", gate_id: "ghost" },
+          {
+            function_id: "sf3",
+            name: "Ghost target",
+            effects: [
+              { target_kind: "unit", target_id: "ghost_unit", action: "stop" },
+            ],
+          },
+        ],
+      },
+    });
+    const issues = validateSpecContractPatch(patch);
+    expect(issues.some((i) => i.includes("duplicate function_id"))).toBe(true);
+    expect(issues.some((i) => i.includes('"ghost"'))).toBe(true);
+    expect(issues.some((i) => i.includes("ghost_unit"))).toBe(true);
+
+    // inventory-only patch: context-dependent checks skip
+    const alone = SpecContractPatchSchema.parse({
+      safety_inventory: {
+        functions: [{ function_id: "sf2", name: "X", gate_id: "ghost" }],
+      },
+    });
+    expect(validateSpecContractPatch(alone)).toEqual([]);
+  });
+
   it("cross-checks required_level against a co-sent ladder (G0-10)", async () => {
     const withLadder = SpecContractPatchSchema.parse({
       authorization: { roles: [{ level: 0, name: "View" }, { level: 4, name: "Engineer" }] },

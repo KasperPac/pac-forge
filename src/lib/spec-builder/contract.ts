@@ -34,6 +34,7 @@ import {
   EngineeringDataV1Schema,
   MaintenanceV1Schema,
   AuthorizationV1Schema,
+  SafetyInventoryV1Schema,
   type AlarmRow,
   type AlarmTier,
   type EquipmentModuleContract,
@@ -62,6 +63,7 @@ import {
   type MaintenanceV1,
   type AuthorizationV1,
   type WriteAccess,
+  type SafetyInventoryV1,
 } from "@/types/spec-contract-v2";
 import { validateEmStateMachine, validateCommandBehavior } from "@/lib/spec-builder/em-state-machine";
 import { validateUnitCoordination } from "@/lib/spec-builder/unit-coordination";
@@ -111,6 +113,7 @@ export interface SpecContractPatch {
   engineering?: EngineeringDataV1;
   maintenance?: MaintenanceV1;
   authorization?: AuthorizationV1;
+  safety_inventory?: SafetyInventoryV1;
 }
 
 export const SpecContractPatchSchema = z.object({
@@ -138,6 +141,7 @@ export const SpecContractPatchSchema = z.object({
   engineering: EngineeringDataV1Schema.optional(),
   maintenance: MaintenanceV1Schema.optional(),
   authorization: AuthorizationV1Schema.optional(),
+  safety_inventory: SafetyInventoryV1Schema.optional(),
   configuration_parameters: z.array(ConfigParameterSchema).optional(),
   // section_overrides uses partialRecord because z.record with an enum key in
   // Zod v4 demands all keys be present — overrides are sparse by definition.
@@ -841,6 +845,8 @@ export async function loadSpecContract(
     maintenance: (projectRow.maintenance as MaintenanceV1 | null) ?? undefined,
     authorization:
       (projectRow.authorization as AuthorizationV1 | null) ?? undefined,
+    safety_inventory:
+      (projectRow.safety_inventory as SafetyInventoryV1 | null) ?? undefined,
     configuration_parameters:
       (projectRow.configuration_parameters as ConfigParameter[] | null) ?? undefined,
     section_overrides:
@@ -1033,6 +1039,9 @@ export async function writeSpecContract(
   }
   if (parsed.authorization !== undefined) {
     projectUpdate.authorization = parsed.authorization;
+  }
+  if (parsed.safety_inventory !== undefined) {
+    projectUpdate.safety_inventory = parsed.safety_inventory;
   }
   if (parsed.configuration_parameters !== undefined) {
     projectUpdate.configuration_parameters = parsed.configuration_parameters;
@@ -1416,6 +1425,44 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
         if (!doTags.has(o.tag)) {
           issues.push(
             `maintenance.overridable_outputs: "${o.tag}" is not a DO signal in the hierarchy`,
+          );
+        }
+      }
+    }
+  }
+
+  // G0-13: safety inventory — duplicates always; gate/target existence only
+  // with the respective context in the same patch.
+  if (patch.safety_inventory?.functions?.length) {
+    const gateIds = patch.safety_gates
+      ? new Set(patch.safety_gates.map((g) => g.gate_id))
+      : undefined;
+    let unitIds: Set<string> | undefined;
+    let emIds: Set<string> | undefined;
+    if (patch.hierarchy) {
+      unitIds = new Set(patch.hierarchy.units.map((u) => u.unit_id));
+      emIds = new Set(
+        patch.hierarchy.units.flatMap((u) =>
+          u.equipment_modules.map((em) => em.equipment_module_id),
+        ),
+      );
+    }
+    const seenFns = new Set<string>();
+    for (const fn of patch.safety_inventory.functions) {
+      if (seenFns.has(fn.function_id)) {
+        issues.push(`safety_inventory: duplicate function_id "${fn.function_id}"`);
+      }
+      seenFns.add(fn.function_id);
+      if (fn.gate_id && gateIds && !gateIds.has(fn.gate_id)) {
+        issues.push(
+          `safety_inventory[${fn.function_id}]: unknown safety gate "${fn.gate_id}"`,
+        );
+      }
+      for (const eff of fn.effects) {
+        const pool = eff.target_kind === "unit" ? unitIds : emIds;
+        if (pool && !pool.has(eff.target_id)) {
+          issues.push(
+            `safety_inventory[${fn.function_id}]: effect target ${eff.target_id} not found in hierarchy`,
           );
         }
       }
