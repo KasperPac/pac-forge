@@ -490,6 +490,25 @@ describe("EngineeringDataV1 (G0-1)", () => {
   });
 });
 
+describe("EngineeringDataV1.io_conditioning_defaults (G0-2)", () => {
+  it("parses blanket defaults and stays optional", () => {
+    expect(EngineeringDataV1Schema.parse({}).io_conditioning_defaults).toBeUndefined();
+    const parsed = EngineeringDataV1Schema.parse({
+      io_conditioning_defaults: { di_debounce_ms: 10, ai_filter_ms: 100 },
+    });
+    expect(parsed.io_conditioning_defaults?.di_debounce_ms).toBe(10);
+    expect(parsed.drives).toEqual([]); // G0-1 default untouched
+  });
+
+  it("rejects negative defaults", () => {
+    expect(() =>
+      EngineeringDataV1Schema.parse({
+        io_conditioning_defaults: { di_debounce_ms: -5 },
+      }),
+    ).toThrow();
+  });
+});
+
 describe("IoSignalV2 per-signal model (G0-2)", () => {
   const baseSig = {
     tag: "CM1_Therm",

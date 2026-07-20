@@ -1136,8 +1136,18 @@ export const DriveEngineeringEntrySchema = z.object({
 });
 export type DriveEngineeringEntry = z.infer<typeof DriveEngineeringEntrySchema>;
 
+// Blanket engineering defaults with no functional meaning (tier 2, G0-2).
+// Per-signal tier-1 `conditioning` overrides them where present —
+// precedence is a G1-4 writer rule; the contract records both.
+export const IoConditioningDefaultsSchema = z.object({
+  di_debounce_ms: z.number().int().nonnegative().optional(),
+  ai_filter_ms: z.number().int().nonnegative().optional(),
+});
+export type IoConditioningDefaults = z.infer<typeof IoConditioningDefaultsSchema>;
+
 export const EngineeringDataV1Schema = z.object({
   drives: z.array(DriveEngineeringEntrySchema).default([]),
+  io_conditioning_defaults: IoConditioningDefaultsSchema.optional(),
 });
 export type EngineeringDataV1 = z.infer<typeof EngineeringDataV1Schema>;
 
