@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { validateDriveModels } from "@/lib/spec-builder/drive-model";
 import { validateIoSignals } from "@/lib/spec-builder/io-signal-model";
+import { validateSignalRouting } from "@/lib/spec-builder/signal-routing";
 import {
   AnalogScalingSchema,
   ConfigParameterSchema,
@@ -656,6 +657,83 @@ describe("G0-1 golden fixture — HRE Carriage Drive", () => {
     expect(warnings).toEqual([]);
     // the writer's %→rpm factor is derivable: 1500 / 100 = 15.0
     expect((engineering.drives[0].ref_speed_rpm ?? 0) / 100).toBe(15.0);
+  });
+});
+
+describe("G0-3 golden fixture — HRE Carriage unit routing", () => {
+  it("expresses the UC_Carriage.scl routing table", () => {
+    const gate = (gate_id: string) => ({ kind: "named_gate" as const, gate_id });
+    const permit = {
+      kind: "em_status" as const,
+      equipment_module_id: "em_travel_ind",
+      member: "permit_travel",
+    };
+    const io = (tag: string) => ({ kind: "io_tag" as const, tag });
+    const routing = SignalRoutingV1Schema.parse({
+      safety_healthy: { gate_ids: ["estop_healthy", "sr1_healthy"] },
+      routing_rows: [
+        {
+          row_id: "fwd_fast",
+          target: { equipment_module_id: "em_drive", pin: "ilk_Fwd_Fast_Carriage" },
+          source: io("Fwd_Fast_Carriage"),
+          gates: [gate("rot_at_home"), gate("fwd_fast_ok"), permit],
+        },
+        {
+          row_id: "fwd",
+          target: { equipment_module_id: "em_drive", pin: "ilk_Fwd_Carriage" },
+          source: io("Fwd_Carriage"),
+          gates: [gate("fwd_ok"), permit],
+        },
+        {
+          row_id: "rev_fast",
+          target: { equipment_module_id: "em_drive", pin: "ilk_Rev_Fast_Carriage" },
+          source: io("Rev_Fast_Carriage"),
+          gates: [gate("rot_at_home"), gate("rev_fast_ok"), permit],
+        },
+        {
+          row_id: "rev",
+          target: { equipment_module_id: "em_drive", pin: "ilk_Rev_Carriage" },
+          source: io("Rev_Carriage"),
+          gates: [gate("rev_ok"), permit],
+        },
+        {
+          row_id: "limit_drive",
+          target: { equipment_module_id: "em_drive", pin: "ilk_Long_Limit_Stop" },
+          source: io("Long_Limit_Stop"),
+        },
+        {
+          row_id: "limit_lim",
+          target: { equipment_module_id: "em_limits", pin: "ilk_CM_Sensor_LS1" },
+          source: io("Long_Limit_Stop"),
+        },
+      ],
+      two_detent: [
+        { jog_row_id: "fwd", fast_row_id: "fwd_fast" },
+        { jog_row_id: "rev", fast_row_id: "rev_fast" },
+      ],
+      command_routing: { policy: "walk_to_execute_stop_on_unhealthy" },
+      first_out: { enabled: false },
+    });
+    const issues = validateSignalRouting(
+      { unit_id: "carriage", signal_routing: routing },
+      {
+        memberEmIds: new Set([
+          "em_drive",
+          "em_limits",
+          "em_travel_ind",
+          "em_brake",
+          "em_pendant",
+        ]),
+        safetyGateIds: new Set(["estop_healthy", "sr1_healthy"]),
+      },
+    );
+    expect(issues).toEqual([]);
+    // Long_Limit_Stop legitimately fans to two different EM pins
+    expect(
+      routing.routing_rows.filter(
+        (r) => r.source.kind === "io_tag" && r.source.tag === "Long_Limit_Stop",
+      ),
+    ).toHaveLength(2);
   });
 });
 
