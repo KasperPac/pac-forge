@@ -36,6 +36,7 @@ import {
   AuthorizationV1Schema,
   SafetyInventoryV1Schema,
   RecipeModelV1Schema,
+  UpstreamCommsV1Schema,
   type AlarmRow,
   type AlarmTier,
   type EquipmentModuleContract,
@@ -66,6 +67,7 @@ import {
   type WriteAccess,
   type SafetyInventoryV1,
   type RecipeModelV1,
+  type UpstreamCommsV1,
 } from "@/types/spec-contract-v2";
 import { validateEmStateMachine, validateCommandBehavior } from "@/lib/spec-builder/em-state-machine";
 import { validateUnitCoordination } from "@/lib/spec-builder/unit-coordination";
@@ -117,6 +119,7 @@ export interface SpecContractPatch {
   authorization?: AuthorizationV1;
   safety_inventory?: SafetyInventoryV1;
   recipes?: RecipeModelV1;
+  upstream_comms?: UpstreamCommsV1;
 }
 
 export const SpecContractPatchSchema = z.object({
@@ -146,6 +149,7 @@ export const SpecContractPatchSchema = z.object({
   authorization: AuthorizationV1Schema.optional(),
   safety_inventory: SafetyInventoryV1Schema.optional(),
   recipes: RecipeModelV1Schema.optional(),
+  upstream_comms: UpstreamCommsV1Schema.optional(),
   configuration_parameters: z.array(ConfigParameterSchema).optional(),
   // section_overrides uses partialRecord because z.record with an enum key in
   // Zod v4 demands all keys be present — overrides are sparse by definition.
@@ -852,6 +856,8 @@ export async function loadSpecContract(
     safety_inventory:
       (projectRow.safety_inventory as SafetyInventoryV1 | null) ?? undefined,
     recipes: (projectRow.recipes as RecipeModelV1 | null) ?? undefined,
+    upstream_comms:
+      (projectRow.upstream_comms as UpstreamCommsV1 | null) ?? undefined,
     configuration_parameters:
       (projectRow.configuration_parameters as ConfigParameter[] | null) ?? undefined,
     section_overrides:
@@ -1050,6 +1056,9 @@ export async function writeSpecContract(
   }
   if (parsed.recipes !== undefined) {
     projectUpdate.recipes = parsed.recipes;
+  }
+  if (parsed.upstream_comms !== undefined) {
+    projectUpdate.upstream_comms = parsed.upstream_comms;
   }
   if (parsed.configuration_parameters !== undefined) {
     projectUpdate.configuration_parameters = parsed.configuration_parameters;
@@ -1473,6 +1482,25 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
             `safety_inventory[${fn.function_id}]: effect target ${eff.target_id} not found in hierarchy`,
           );
         }
+      }
+    }
+  }
+
+  // G0-12: upstream comms — unique systems always; endpoint refs only when
+  // the system list rides the same patch.
+  if (patch.upstream_comms) {
+    const seenSystems = new Set<string>();
+    for (const s of patch.upstream_comms.systems) {
+      if (seenSystems.has(s.system_id)) {
+        issues.push(`upstream_comms: duplicate system_id "${s.system_id}"`);
+      }
+      seenSystems.add(s.system_id);
+    }
+    for (const e of patch.engineering?.upstream_endpoints ?? []) {
+      if (!seenSystems.has(e.system_id)) {
+        issues.push(
+          `engineering.upstream_endpoints: unknown system "${e.system_id}"`,
+        );
       }
     }
   }

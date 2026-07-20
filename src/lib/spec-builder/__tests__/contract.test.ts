@@ -672,6 +672,45 @@ describe("validateSpecContractPatch + deriveIoList — per-IO model (G0-2)", () 
     ).toBe(true);
   });
 
+  it("validates upstream_comms — duplicate systems + endpoint refs (G0-12)", async () => {
+    const patch = SpecContractPatchSchema.parse({
+      upstream_comms: {
+        systems: [
+          { system_id: "scada1", name: "SCADA", kind: "scada" },
+          { system_id: "scada1", name: "Dup", kind: "scada" },
+        ],
+      },
+      engineering: {
+        upstream_endpoints: [
+          { system_id: "ghost_sys", protocol: "opcua" },
+        ],
+      },
+    });
+    const issues = validateSpecContractPatch(patch);
+    expect(issues.some((i) => i.includes("duplicate system_id"))).toBe(true);
+    expect(issues.some((i) => i.includes("ghost_sys"))).toBe(true);
+
+    // endpoints without a co-sent system list → skip
+    const alone = SpecContractPatchSchema.parse({
+      engineering: {
+        upstream_endpoints: [{ system_id: "ghost_sys" }],
+      },
+    });
+    expect(
+      validateSpecContractPatch(alone).some((i) => i.includes("ghost_sys")),
+    ).toBe(false);
+
+    // routing to spec_projects.upstream_comms
+    writeCalls.length = 0;
+    await writeSpecContract("00000000-0000-0000-0000-000000000000", {
+      upstream_comms: { systems: [{ system_id: "s1", name: "SCADA", kind: "scada" }] },
+    });
+    const projectsWrite = writeCalls.find((c) => c.table === "spec_projects");
+    expect(projectsWrite?.payload).toMatchObject({
+      upstream_comms: expect.any(Object),
+    });
+  });
+
   it("validates recipes — duplicates, param scope, enum values, modes (G0-14)", async () => {
     const patch = SpecContractPatchSchema.parse({
       modes: [

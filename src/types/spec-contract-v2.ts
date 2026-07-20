@@ -1402,6 +1402,45 @@ export const UnitCoordinationV1Schema = z.object({
 export type UnitCoordinationV1 = z.infer<typeof UnitCoordinationV1Schema>;
 
 // ============================================================
+// Upstream comms (G0-12, boundary §L) — signable plant-system interface
+// list: which SCADA/MES/historian systems exist and what data crosses.
+// Endpoints/tag exposure are tier 2 (engineering.upstream_endpoints);
+// certificates/hardening are tier 3 (commissioning pack, not modeled).
+// PackTags DB + S7-1500 OPC UA server are the emission targets (G2).
+// Design: Docs/superpowers/specs/2026-07-20-g0-12-upstream-comms-design.md
+// ============================================================
+
+export const UpstreamDataKindSchema = z.enum([
+  "production_counts",
+  "unit_states_modes",
+  "alarm_forwarding",
+  "order_job_data",
+  "custom",
+]);
+export type UpstreamDataKind = z.infer<typeof UpstreamDataKindSchema>;
+
+export const UpstreamDataCrossingSchema = z.object({
+  kind: UpstreamDataKindSchema,
+  direction: z.enum(["to_plant", "from_plant", "bidirectional"]),
+  description: z.string().optional(), // required context for "custom"
+});
+export type UpstreamDataCrossing = z.infer<typeof UpstreamDataCrossingSchema>;
+
+export const UpstreamSystemSchema = z.object({
+  system_id: z.string().min(1),
+  name: z.string().min(1), // "Plant SCADA", "MES"
+  kind: z.enum(["scada", "mes", "historian", "other"]),
+  data: z.array(UpstreamDataCrossingSchema).default([]),
+  notes: z.string().optional(),
+});
+export type UpstreamSystem = z.infer<typeof UpstreamSystemSchema>;
+
+export const UpstreamCommsV1Schema = z.object({
+  systems: z.array(UpstreamSystemSchema).default([]),
+});
+export type UpstreamCommsV1 = z.infer<typeof UpstreamCommsV1Schema>;
+
+// ============================================================
 // Recipe/format model (G0-14, boundary §N) — named parameter sets over
 // recipe-scoped config parameters + selection/changeover policy. Presence
 // of the key = the machine is recipe/format-driven. Recipe DB + HMI
@@ -1556,6 +1595,17 @@ export const FbAssignmentSchema = z.object({
 });
 export type FbAssignment = z.infer<typeof FbAssignmentSchema>;
 
+// Upstream endpoint record (G0-12 tier 2): protocol bindings, endpoints,
+// node IDs / tag-exposure lists per declared plant system.
+export const UpstreamEndpointEntrySchema = z.object({
+  system_id: z.string().min(1), // must reference a declared system
+  protocol: z.string().optional(), // "opcua" / "s7" / "modbus_tcp" …
+  endpoint: z.string().optional(), // URL / address
+  exposed_tags: z.array(z.string().min(1)).default([]),
+  notes: z.string().optional(),
+});
+export type UpstreamEndpointEntry = z.infer<typeof UpstreamEndpointEntrySchema>;
+
 export const EngineeringDataV1Schema = z.object({
   drives: z.array(DriveEngineeringEntrySchema).default([]),
   io_conditioning_defaults: IoConditioningDefaultsSchema.optional(),
@@ -1563,6 +1613,7 @@ export const EngineeringDataV1Schema = z.object({
   commissioning_pack: CommissioningPackSchema.optional(),
   encoder_presets: z.array(EncoderPresetEntrySchema).default([]),
   fb_assignments: z.array(FbAssignmentSchema).default([]),
+  upstream_endpoints: z.array(UpstreamEndpointEntrySchema).default([]),
 });
 export type EngineeringDataV1 = z.infer<typeof EngineeringDataV1Schema>;
 
@@ -1597,6 +1648,8 @@ export const SpecContractV2Schema = z.object({
   safety_inventory: SafetyInventoryV1Schema.optional(),
   // G0-14: recipe/format model. Absent = not recipe-driven.
   recipes: RecipeModelV1Schema.optional(),
+  // G0-12: plant-system interface list. Absent until authored.
+  upstream_comms: UpstreamCommsV1Schema.optional(),
   configuration_parameters: z.array(ConfigParameterSchema).optional(),
   // Sparse map — override only the project-level sections you want to
   // customise. Absent keys fall back to engine-generated content.

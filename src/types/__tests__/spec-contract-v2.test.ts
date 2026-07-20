@@ -20,6 +20,7 @@ import {
   ProjectSectionTypeSchema,
   RecipeModelV1Schema,
   SafetyInventoryV1Schema,
+  UpstreamCommsV1Schema,
   SequentialStateV2Schema,
   SignalRoutingV1Schema,
   WriteAccessSchema,
@@ -664,6 +665,48 @@ describe("G0-1 golden fixture — HRE Carriage Drive", () => {
     expect(warnings).toEqual([]);
     // the writer's %→rpm factor is derivable: 1500 / 100 = 15.0
     expect((engineering.drives[0].ref_speed_rpm ?? 0) / 100).toBe(15.0);
+  });
+});
+
+describe("Upstream comms (G0-12)", () => {
+  it("parses systems with data crossings and defaults", () => {
+    const uc = UpstreamCommsV1Schema.parse({
+      systems: [
+        {
+          system_id: "scada1",
+          name: "Plant SCADA",
+          kind: "scada",
+          data: [
+            { kind: "unit_states_modes", direction: "to_plant" },
+            { kind: "order_job_data", direction: "from_plant" },
+          ],
+        },
+        { system_id: "hist1", name: "Historian", kind: "historian" },
+      ],
+    });
+    expect(uc.systems[0].data).toHaveLength(2);
+    expect(uc.systems[1].data).toEqual([]);
+    expect(UpstreamCommsV1Schema.parse({}).systems).toEqual([]);
+  });
+
+  it("engineering carries upstream_endpoints with defaults", () => {
+    expect(EngineeringDataV1Schema.parse({}).upstream_endpoints).toEqual([]);
+    const parsed = EngineeringDataV1Schema.parse({
+      upstream_endpoints: [
+        {
+          system_id: "scada1",
+          protocol: "opcua",
+          endpoint: "opc.tcp://192.168.0.1:4840",
+          exposed_tags: ["UN_Cell.Cur_St"],
+        },
+      ],
+    });
+    expect(parsed.upstream_endpoints[0].exposed_tags).toHaveLength(1);
+  });
+
+  it("SpecContractV2 accepts an optional upstream_comms key (back-compat)", () => {
+    const c = baseContract();
+    expect(SpecContractV2Schema.parse(c).upstream_comms).toBeUndefined();
   });
 });
 
