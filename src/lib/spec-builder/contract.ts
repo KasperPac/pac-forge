@@ -64,6 +64,7 @@ import {
   seedDrivesFromNetworkConfig,
   validateDriveModels,
 } from "@/lib/spec-builder/drive-model";
+import { validateIoSignals } from "@/lib/spec-builder/io-signal-model";
 import { z } from "zod";
 
 // ============================================================
@@ -537,7 +538,7 @@ function upgradeAlarms(
  * and the `loadIoList` accessor). Legacy data never materialises an io_list
  * — it's assembled from the hierarchy in upgrade.
  */
-function deriveIoList(hierarchy: Hierarchy): IoListEntry[] {
+export function deriveIoList(hierarchy: Hierarchy): IoListEntry[] {
   const out: IoListEntry[] = [];
   for (const sub of hierarchy.units) {
     for (const asm of sub.equipment_modules) {
@@ -549,8 +550,11 @@ function deriveIoList(hierarchy: Hierarchy): IoListEntry[] {
             description: sig.description,
             signal_type: convertSignalDirection(String(sig.signal_type)),
             io_address: sig.io_address,
-            normal_state: "",
-            failsafe_state: "",
+            // G0-2: render structured polarity into the signable view.
+            normal_state:
+              sig.polarity === "nc" ? "N/C" : sig.polarity === "no" ? "N/O" : "",
+            failsafe_state:
+              sig.polarity === "nc" ? "fail-safe (healthy = TRUE)" : "",
             equipment_module_id: asm.equipment_module_id,
             control_module_id: dev.control_module_id,
           });
@@ -1294,8 +1298,9 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
     }
   }
 
-  // G0-1 drive models: needs hierarchy context (CMs live there); an
-  // engineering-only patch skips — same convention as the block above.
+  // G0-1 drive models + G0-2 per-IO model: both need hierarchy context
+  // (CMs live there); an engineering-only patch skips — same convention
+  // as the block above.
   if (patch.hierarchy) {
     const control_modules = patch.hierarchy.units.flatMap((u) =>
       u.equipment_modules.flatMap((em) => em.control_modules),
@@ -1304,6 +1309,7 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
       ...validateDriveModels({ control_modules, engineering: patch.engineering })
         .errors,
     );
+    issues.push(...validateIoSignals(control_modules).errors);
   }
 
   // FDS Engine Phase 1: parameter_ref expressions must reference a known

@@ -20,6 +20,7 @@ import {
   writeSpecContract,
   validateSpecContractPatch,
   SpecContractPatchSchema,
+  deriveIoList,
 } from "../contract";
 
 describe("writeSpecContract patch routing — new keys", () => {
@@ -365,5 +366,113 @@ describe("validateSpecContractPatch — drive models (G0-1)", () => {
       },
     });
     expect(validateSpecContractPatch(patch)).toEqual([]);
+  });
+});
+
+describe("validateSpecContractPatch + deriveIoList — per-IO model (G0-2)", () => {
+  const hierarchyWithSignal = (signal: object) => ({
+    units: [
+      {
+        unit_id: "00000000-0000-4000-8000-000000000aaa",
+        unit_name: "Unit",
+        equipment_type: "cell",
+        description: "",
+        excluded: false,
+        equipment_modules: [
+          {
+            equipment_module_id: "00000000-0000-4000-8000-000000000bbb",
+            equipment_module_name: "EM",
+            description: "",
+            control_modules: [
+              {
+                control_module_id: "00000000-0000-4000-8000-000000000001",
+                control_module_name: "VSD1",
+                control_module_class: "drive",
+                is_safety: false,
+                description: "",
+                io_signals: [signal],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+
+  it("rejects a hierarchy patch with polarity on an analog signal", () => {
+    const patch = SpecContractPatchSchema.parse({
+      hierarchy: hierarchyWithSignal({
+        tag: "PT01",
+        signal_type: "AI",
+        io_address: "%IW96",
+        description: "",
+        source: "wired",
+        polarity: "nc",
+      }),
+    });
+    expect(
+      validateSpecContractPatch(patch).some((i) => i.includes("polarity")),
+    ).toBe(true);
+  });
+
+  it("deriveIoList renders N/C polarity into normal_state/failsafe_state", () => {
+    const hierarchy = {
+      units: [
+        {
+          unit_id: "u1",
+          unit_name: "U",
+          equipment_type: "cell",
+          description: "",
+          excluded: false,
+          equipment_modules: [
+            {
+              equipment_module_id: "em1",
+              equipment_module_name: "EM",
+              description: "",
+              control_modules: [
+                {
+                  control_module_id: "cm1",
+                  control_module_name: "VSD1",
+                  control_module_class: "drive",
+                  is_safety: false,
+                  description: "",
+                  io_signals: [
+                    {
+                      tag: "CM1_Therm",
+                      signal_type: "DI",
+                      io_address: "%I1.1",
+                      description: "",
+                      source: "wired",
+                      polarity: "nc",
+                    },
+                    {
+                      tag: "Start_PB",
+                      signal_type: "DI",
+                      io_address: "%I0.0",
+                      description: "",
+                      source: "wired",
+                      polarity: "no",
+                    },
+                    {
+                      tag: "Spare",
+                      signal_type: "DI",
+                      io_address: "%I0.1",
+                      description: "",
+                      source: "wired",
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    } as never;
+    const rows = deriveIoList(hierarchy);
+    expect(rows[0].normal_state).toBe("N/C");
+    expect(rows[0].failsafe_state).toBe("fail-safe (healthy = TRUE)");
+    expect(rows[1].normal_state).toBe("N/O");
+    expect(rows[1].failsafe_state).toBe("");
+    expect(rows[2].normal_state).toBe("");
   });
 });
