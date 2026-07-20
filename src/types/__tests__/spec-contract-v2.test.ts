@@ -18,6 +18,7 @@ import {
   OperatorModeSchema,
   ProjectSectionContentSchema,
   ProjectSectionTypeSchema,
+  RecipeModelV1Schema,
   SafetyInventoryV1Schema,
   SequentialStateV2Schema,
   SignalRoutingV1Schema,
@@ -663,6 +664,44 @@ describe("G0-1 golden fixture — HRE Carriage Drive", () => {
     expect(warnings).toEqual([]);
     // the writer's %→rpm factor is derivable: 1500 / 100 = 15.0
     expect((engineering.drives[0].ref_speed_rpm ?? 0) / 100).toBe(15.0);
+  });
+});
+
+describe("Recipe model (G0-14)", () => {
+  it("parses a recipe-driven machine with changeover gating", () => {
+    const model = RecipeModelV1Schema.parse({
+      parameter_ids: ["fill_volume_ml", "cap_torque"],
+      recipes: [
+        {
+          recipe_id: "fmt_330",
+          name: "330ml bottle",
+          values: { fill_volume_ml: 330, cap_torque: 1.2 },
+        },
+        {
+          recipe_id: "fmt_500",
+          name: "500ml bottle",
+          values: { fill_volume_ml: 500 },
+        },
+      ],
+      changeover: { allowed_states: ["idle", "stopped"], allowed_modes: ["production"] },
+    });
+    expect(model.recipes).toHaveLength(2);
+    expect(model.changeover?.allowed_states).toContain("idle");
+  });
+
+  it("rejects a non-PackML changeover state and empty parameter_ids", () => {
+    expect(() =>
+      RecipeModelV1Schema.parse({
+        parameter_ids: ["p1"],
+        changeover: { allowed_states: ["running"] },
+      }),
+    ).toThrow();
+    expect(() => RecipeModelV1Schema.parse({ parameter_ids: [] })).toThrow();
+  });
+
+  it("SpecContractV2 accepts an optional recipes key (back-compat)", () => {
+    const c = baseContract();
+    expect(SpecContractV2Schema.parse(c).recipes).toBeUndefined();
   });
 });
 

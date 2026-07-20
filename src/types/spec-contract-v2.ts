@@ -1402,6 +1402,36 @@ export const UnitCoordinationV1Schema = z.object({
 export type UnitCoordinationV1 = z.infer<typeof UnitCoordinationV1Schema>;
 
 // ============================================================
+// Recipe/format model (G0-14, boundary §N) — named parameter sets over
+// recipe-scoped config parameters + selection/changeover policy. Presence
+// of the key = the machine is recipe/format-driven. Recipe DB + HMI
+// recipe screen are derived (WinCC Unified native controls).
+// Design: Docs/superpowers/specs/2026-07-20-g0-14-recipe-model-design.md
+// ============================================================
+
+export const RecipeSchema = z.object({
+  recipe_id: z.string().min(1),
+  name: z.string().min(1), // product/format name
+  values: z.record(z.string(), z.union([z.string(), z.number()])),
+  description: z.string().optional(),
+});
+export type Recipe = z.infer<typeof RecipeSchema>;
+
+export const RecipeChangeoverSchema = z.object({
+  // canonical PackML unit states where selection/changeover is legal
+  allowed_states: z.array(UnitPackMLStateSchema).default([]),
+  allowed_modes: z.array(z.string().min(1)).default([]), // mode ids (G0-9)
+});
+export type RecipeChangeover = z.infer<typeof RecipeChangeoverSchema>;
+
+export const RecipeModelV1Schema = z.object({
+  parameter_ids: z.array(z.string().min(1)).min(1), // recipe-scoped params
+  recipes: z.array(RecipeSchema).default([]),
+  changeover: RecipeChangeoverSchema.optional(),
+});
+export type RecipeModelV1 = z.infer<typeof RecipeModelV1Schema>;
+
+// ============================================================
 // Engineering Data (G0-1) — tier-2 record-only container from the
 // boundary decision (2026-07-07). Never signable, never HMI-exposed;
 // commissioning fills values in. G0-2/G0-4/G0-7 add sibling keys here.
@@ -1565,6 +1595,8 @@ export const SpecContractV2Schema = z.object({
   authorization: AuthorizationV1Schema.optional(),
   // G0-13: safety layer inventory (record-only). Absent until authored.
   safety_inventory: SafetyInventoryV1Schema.optional(),
+  // G0-14: recipe/format model. Absent = not recipe-driven.
+  recipes: RecipeModelV1Schema.optional(),
   configuration_parameters: z.array(ConfigParameterSchema).optional(),
   // Sparse map — override only the project-level sections you want to
   // customise. Absent keys fall back to engine-generated content.

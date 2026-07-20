@@ -672,6 +672,56 @@ describe("validateSpecContractPatch + deriveIoList — per-IO model (G0-2)", () 
     ).toBe(true);
   });
 
+  it("validates recipes — duplicates, param scope, enum values, modes (G0-14)", async () => {
+    const patch = SpecContractPatchSchema.parse({
+      modes: [
+        { mode_id: "production", name: "Production", is_default: true, kind: "production" },
+      ],
+      configuration_parameters: [
+        {
+          parameter_id: "speed_class",
+          name: "Speed class",
+          allowed_values: ["low", "high"],
+          default: "low",
+        },
+      ],
+      recipes: {
+        parameter_ids: ["speed_class", "ghost_param"],
+        recipes: [
+          { recipe_id: "r1", name: "A", values: { speed_class: "low" } },
+          { recipe_id: "r1", name: "Dup", values: {} },
+          { recipe_id: "r2", name: "B", values: { not_scoped: 1 } },
+          { recipe_id: "r3", name: "C", values: { speed_class: "turbo" } },
+        ],
+        changeover: { allowed_states: ["idle"], allowed_modes: ["ghost_mode"] },
+      },
+    });
+    const issues = validateSpecContractPatch(patch);
+    expect(issues.some((i) => i.includes("duplicate recipe_id"))).toBe(true);
+    expect(issues.some((i) => i.includes("not_scoped"))).toBe(true);
+    expect(issues.some((i) => i.includes("ghost_param"))).toBe(true);
+    expect(issues.some((i) => i.includes("turbo"))).toBe(true);
+    expect(issues.some((i) => i.includes("ghost_mode"))).toBe(true);
+
+    // recipes-only patch: internal checks only, context checks skip
+    const alone = SpecContractPatchSchema.parse({
+      recipes: {
+        parameter_ids: ["ghost_param"],
+        recipes: [{ recipe_id: "r1", name: "A", values: { ghost_param: 1 } }],
+        changeover: { allowed_modes: ["ghost_mode"] },
+      },
+    });
+    expect(validateSpecContractPatch(alone)).toEqual([]);
+
+    // routing to spec_projects.recipes
+    writeCalls.length = 0;
+    await writeSpecContract("00000000-0000-0000-0000-000000000000", {
+      recipes: { parameter_ids: ["p1"], recipes: [] },
+    });
+    const projectsWrite = writeCalls.find((c) => c.table === "spec_projects");
+    expect(projectsWrite?.payload).toMatchObject({ recipes: expect.any(Object) });
+  });
+
   it("validates safety_inventory — duplicates, gate links, targets (G0-13)", () => {
     const patch = SpecContractPatchSchema.parse({
       safety_gates: [

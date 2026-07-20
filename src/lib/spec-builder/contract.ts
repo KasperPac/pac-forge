@@ -35,6 +35,7 @@ import {
   MaintenanceV1Schema,
   AuthorizationV1Schema,
   SafetyInventoryV1Schema,
+  RecipeModelV1Schema,
   type AlarmRow,
   type AlarmTier,
   type EquipmentModuleContract,
@@ -64,6 +65,7 @@ import {
   type AuthorizationV1,
   type WriteAccess,
   type SafetyInventoryV1,
+  type RecipeModelV1,
 } from "@/types/spec-contract-v2";
 import { validateEmStateMachine, validateCommandBehavior } from "@/lib/spec-builder/em-state-machine";
 import { validateUnitCoordination } from "@/lib/spec-builder/unit-coordination";
@@ -114,6 +116,7 @@ export interface SpecContractPatch {
   maintenance?: MaintenanceV1;
   authorization?: AuthorizationV1;
   safety_inventory?: SafetyInventoryV1;
+  recipes?: RecipeModelV1;
 }
 
 export const SpecContractPatchSchema = z.object({
@@ -142,6 +145,7 @@ export const SpecContractPatchSchema = z.object({
   maintenance: MaintenanceV1Schema.optional(),
   authorization: AuthorizationV1Schema.optional(),
   safety_inventory: SafetyInventoryV1Schema.optional(),
+  recipes: RecipeModelV1Schema.optional(),
   configuration_parameters: z.array(ConfigParameterSchema).optional(),
   // section_overrides uses partialRecord because z.record with an enum key in
   // Zod v4 demands all keys be present — overrides are sparse by definition.
@@ -847,6 +851,7 @@ export async function loadSpecContract(
       (projectRow.authorization as AuthorizationV1 | null) ?? undefined,
     safety_inventory:
       (projectRow.safety_inventory as SafetyInventoryV1 | null) ?? undefined,
+    recipes: (projectRow.recipes as RecipeModelV1 | null) ?? undefined,
     configuration_parameters:
       (projectRow.configuration_parameters as ConfigParameter[] | null) ?? undefined,
     section_overrides:
@@ -1042,6 +1047,9 @@ export async function writeSpecContract(
   }
   if (parsed.safety_inventory !== undefined) {
     projectUpdate.safety_inventory = parsed.safety_inventory;
+  }
+  if (parsed.recipes !== undefined) {
+    projectUpdate.recipes = parsed.recipes;
   }
   if (parsed.configuration_parameters !== undefined) {
     projectUpdate.configuration_parameters = parsed.configuration_parameters;
@@ -1464,6 +1472,54 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
           issues.push(
             `safety_inventory[${fn.function_id}]: effect target ${eff.target_id} not found in hierarchy`,
           );
+        }
+      }
+    }
+  }
+
+  // G0-14: recipe model — internal checks always; param existence/value
+  // checks only when configuration_parameters / modes ride the same patch.
+  if (patch.recipes) {
+    const paramIds = new Set(patch.recipes.parameter_ids);
+    const seenRecipes = new Set<string>();
+    for (const r of patch.recipes.recipes) {
+      if (seenRecipes.has(r.recipe_id)) {
+        issues.push(`recipes: duplicate recipe_id "${r.recipe_id}"`);
+      }
+      seenRecipes.add(r.recipe_id);
+      for (const key of Object.keys(r.values)) {
+        if (!paramIds.has(key)) {
+          issues.push(
+            `recipes[${r.recipe_id}]: value key "${key}" is not in parameter_ids`,
+          );
+        }
+      }
+    }
+    if (patch.configuration_parameters) {
+      const known = new Map(
+        patch.configuration_parameters.map((p) => [p.parameter_id, p]),
+      );
+      for (const pid of patch.recipes.parameter_ids) {
+        if (!known.has(pid)) {
+          issues.push(`recipes: parameter_id "${pid}" is not a configuration parameter`);
+        }
+      }
+      for (const r of patch.recipes.recipes) {
+        for (const [pid, value] of Object.entries(r.values)) {
+          const param = known.get(pid);
+          if (param && typeof value === "string" && !param.allowed_values.includes(value)) {
+            issues.push(
+              `recipes[${r.recipe_id}]: "${value}" is not an allowed value of "${pid}"`,
+            );
+          }
+        }
+      }
+    }
+    if (patch.modes && patch.recipes.changeover) {
+      const modeIds = new Set(patch.modes.map((m) => m.mode_id));
+      for (const mid of patch.recipes.changeover.allowed_modes) {
+        if (!modeIds.has(mid)) {
+          issues.push(`recipes.changeover: unknown mode "${mid}"`);
         }
       }
     }

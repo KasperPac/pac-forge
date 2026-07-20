@@ -67,7 +67,7 @@ full A–O inventory, and the G0-7…G0-15 additions below.
 | G0-11 | Appliance model: inventory + ISA-88 placement, handshake interfaces, data-payload signal kind + data-comparison criteria, telegram/GSDML engineering data | 🔴 | P1 | L | — | boundary doc §K; Interroll/KUKA/RFID/barcode; drives = first instance |
 | G0-12 | Upstream comms interface model (SCADA/MES/historian: systems + data crossing; endpoints/exposure engineering data) | 🔴 | P1 | M | G0-9 | boundary doc §L |
 | G0-13 | Safety layer inventory (functions, zones, PL/SIL, reset policy, effect-on-control) — record + DOCX, **never generated** | ✅ | P1 | M | — | SHIPPED 2026-07-20: safety_inventory project key (+migration 20260720000003) — functions with initiators/actuation/rating/reset/effects + gate_id links, patch validation; DOCX rendering = exporter wave |
-| G0-14 | Recipe/format model: named parameter sets over config params + selection/changeover policy | 🔴 | P1 | M | G0-4 | boundary doc §N; Unified native recipe control |
+| G0-14 | Recipe/format model: named parameter sets over config params + selection/changeover policy | ✅ | P1 | M | G0-4 | SHIPPED 2026-07-20: recipes project key (+migration 20260720000004) — parameter_ids scope, per-product values, PackML-typed changeover gating; recipe DB + HMI screen stay derived (Unified native) |
 | G0-15 | Diagnostics & condition-monitoring model (runtime/cycle/service metrics; platform diagnostics derived) | 🔴 | P2 | M | — | boundary doc §O |
 
 ---
