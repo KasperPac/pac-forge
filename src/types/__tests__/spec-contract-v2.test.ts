@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   ConfigParameterSchema,
+  ControlModuleV2Schema,
+  DriveModelV1Schema,
   ExpressionSchema,
   ModeKindSchema,
   OperatorModeSchema,
@@ -396,5 +398,45 @@ describe("UnitCoordinationV1 (G0-9)", () => {
     const withCoord = { ...c, unit_coordination: { unit_1: minimalCoord } };
     const parsedWithCoord = SpecContractV2Schema.parse(withCoord);
     expect(parsedWithCoord.unit_coordination?.unit_1.unit_id).toBe("unit_1");
+  });
+});
+
+describe("DriveModelV1 (G0-1)", () => {
+  const goldenDrive = {
+    family: "sinamics_g120",
+    telegram: 1,
+    speed_ref: { unit: "percent_ref_speed", signed: true },
+    enable_policy: "enable_on_nonzero_ref",
+  };
+
+  it("parses the golden-master drive model", () => {
+    expect(DriveModelV1Schema.parse(goldenDrive)).toEqual(goldenDrive);
+  });
+
+  it("telegram is optional (assembly/vendor-profile families)", () => {
+    const abb = { ...goldenDrive, family: "abb_acs880" } as Record<string, unknown>;
+    delete abb.telegram;
+    expect(DriveModelV1Schema.parse(abb).telegram).toBeUndefined();
+  });
+
+  it("rejects unknown enable_policy", () => {
+    expect(() =>
+      DriveModelV1Schema.parse({ ...goldenDrive, enable_policy: "always_on" }),
+    ).toThrow();
+  });
+
+  it("ControlModuleV2 accepts an optional drive key and parses without one", () => {
+    const cm = {
+      control_module_id: "00000000-0000-4000-8000-000000000001",
+      control_module_name: "VSD1",
+      control_module_class: "drive",
+      is_safety: false,
+      description: "Rail motors VSD",
+      io_signals: [],
+    };
+    expect(ControlModuleV2Schema.parse(cm).drive).toBeUndefined();
+    expect(ControlModuleV2Schema.parse({ ...cm, drive: goldenDrive }).drive).toEqual(
+      goldenDrive,
+    );
   });
 });

@@ -251,6 +251,38 @@ export const NetworkConfigSchema = z.object({
 export type NetworkConfig = z.infer<typeof NetworkConfigSchema>;
 
 // ============================================================
+// Drive/VSD model (G0-1) — tier-1 signable FDS content.
+// Tier-2 record-only commissioning values (HW ids, RefSpeed=p2000,
+// ConfigAxis) live in EngineeringDataV1.drives, keyed by CM id.
+// Design: Docs/superpowers/specs/2026-07-20-g0-1-drive-model-design.md
+// ============================================================
+
+// "percent_ref_speed": setpoints/feedback are percent of the tier-2
+// ref_speed_rpm (drive p2000) — the golden-master convention. "rpm"/"hz"
+// mean raw engineering units (writer emits no scaling).
+export const SpeedRefUnitSchema = z.enum(["percent_ref_speed", "rpm", "hz"]);
+export type SpeedRefUnit = z.infer<typeof SpeedRefUnitSchema>;
+
+export const DriveEnablePolicySchema = z.enum([
+  "enable_on_nonzero_ref", // EnableAxis := ref <> 0
+  "explicit_enable", // enable pin driven by the EM command seam
+]);
+export type DriveEnablePolicy = z.infer<typeof DriveEnablePolicySchema>;
+
+export const DriveModelV1Schema = z.object({
+  family: VfdFamilySchema,
+  // PROFINET-telegram families (Siemens) carry it; assembly/vendor-profile
+  // families (ABB EtherNet/IP, SEW) must not — enforced in drive-model.ts.
+  telegram: TelegramStandardSchema.optional(),
+  speed_ref: z.object({
+    unit: SpeedRefUnitSchema,
+    signed: z.boolean(),
+  }),
+  enable_policy: DriveEnablePolicySchema,
+});
+export type DriveModelV1 = z.infer<typeof DriveModelV1Schema>;
+
+// ============================================================
 // IO signals / control modules / equipment modules / units
 // ============================================================
 
@@ -288,6 +320,7 @@ export const ControlModuleV2Schema = z.object({
   description: z.string(),
   io_signals: z.array(IoSignalV2Schema),
   network_config: NetworkConfigSchema.optional(),
+  drive: DriveModelV1Schema.optional(),
 });
 export type ControlModuleV2 = z.infer<typeof ControlModuleV2Schema>;
 
