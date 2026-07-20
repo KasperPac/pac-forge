@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { validateDriveModels } from "@/lib/spec-builder/drive-model";
+import { validateIoSignals } from "@/lib/spec-builder/io-signal-model";
 import {
   AnalogScalingSchema,
   ConfigParameterSchema,
@@ -597,5 +598,43 @@ describe("G0-1 golden fixture — HRE Carriage Drive", () => {
     expect(warnings).toEqual([]);
     // the writer's %→rpm factor is derivable: 1500 / 100 = 15.0
     expect((engineering.drives[0].ref_speed_rpm ?? 0) / 100).toBe(15.0);
+  });
+});
+
+describe("G0-2 golden fixture — HRE N/C inputs + generic analog", () => {
+  it("expresses the MAP-layer signal treatment hand-authored on HRE", () => {
+    const signals = [
+      { tag: "CM1_Therm", io_address: "%I1.1" },
+      { tag: "VSD1_CB_Trip", io_address: "%I0.4" },
+      { tag: "BR1_Fault", io_address: "%I0.3" },
+    ].map((s) =>
+      IoSignalV2Schema.parse({
+        ...s,
+        signal_type: "DI",
+        description: "N/C fail-safe input",
+        source: "wired",
+        polarity: "nc",
+      }),
+    );
+    const analog = IoSignalV2Schema.parse({
+      tag: "PT01",
+      signal_type: "AI",
+      io_address: "%IW96",
+      description: "Pressure transmitter",
+      source: "wired",
+      scaling: {
+        raw: { min: 4, max: 20, unit: "mA" },
+        eu: { min: 0, max: 10, unit: "bar" },
+      },
+    });
+    const out = validateIoSignals([
+      {
+        control_module_id: "00000000-0000-4000-8000-000000000c02",
+        control_module_name: "Carriage_Drive_VSD",
+        io_signals: [...signals, analog],
+      },
+    ]);
+    expect(out.errors).toEqual([]);
+    expect(out.warnings).toEqual([]);
   });
 });

@@ -53,7 +53,7 @@ full A–O inventory, and the G0-7…G0-15 additions below.
 | ID | Task | State | Pri | Eff | Depends | Evidence / notes |
 |---|---|---|---|---|---|---|
 | G0-1 | Drive/VSD parameter model on CM/EM: family (G120/S210…), telegram type, HW identifiers (HWIDSTW/ZSW), RefSpeed/p2000, speed units, signed/unsigned | ✅ | P0 | M | — | SHIPPED 2026-07-20 ec29d42..4a28f63: DriveModelV1 (tier-1 on CM) + EngineeringDataV1.drives (tier-2), drive-model.ts validator + network_config seeding, migration 20260720000000_engineering_data |
-| G0-2 | Per-IO signal model: polarity (N/C vs N/O) + optional conditioning (debounce/filter times, analog scaling block {raw range ↔ EU range, unit}) | 🔴 | P0 | M | — | MAP inversions "N/C fail-safe … inverted 2026-07-07"; broadened per boundary doc §B |
+| G0-2 | Per-IO signal model: polarity (N/C vs N/O) + optional conditioning (debounce/filter times, analog scaling block {raw range ↔ EU range, unit}) | ✅ | P0 | M | — | SHIPPED 2026-07-20 9bd53b6..bdc5ada: polarity/conditioning/scaling on IoSignalV2 (placement amends boundary §B — spec 2026-07-20), io_conditioning_defaults tier-2, io-signal-model.ts validator, deriveIoList rendering; no migration |
 | G0-3 | Coordination / signal-routing intent: physical input → EM `ilk_` pin, two-detent pendant relationships, mode gating | 🔴 | P0 | L | — | UC_*.scl hand-authored routing |
 | G0-4 | Envelope geometry & scaling: encoder mm/rev, counts/360, rail-length growth, ramp zone, end margin, home/straight windows | 🔴 | P0 | M | — | `Rail_Config.db`, `UC_Carriage.scl` scaling |
 | G0-5 | Maintenance config: maintenance/seq-test flags, output-override list, encoder-preset channels + control/status IO | 🔴 | P1 | M | — | `Maintenance_CMD.db`, MAINT_*.scl |
