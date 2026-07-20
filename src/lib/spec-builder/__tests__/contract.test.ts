@@ -64,6 +64,24 @@ describe("writeSpecContract patch routing — new keys", () => {
     });
   });
 
+  it("routes engineering patch to spec_projects.engineering", async () => {
+    await writeSpecContract("00000000-0000-0000-0000-000000000000", {
+      engineering: {
+        drives: [
+          {
+            control_module_id: "00000000-0000-4000-8000-000000000001",
+            ref_speed_rpm: 1500.0,
+            config_axis: 0x003f,
+          },
+        ],
+      },
+    });
+    const projectsWrite = writeCalls.find((c) => c.table === "spec_projects");
+    expect(projectsWrite?.payload).toMatchObject({
+      engineering: expect.any(Object),
+    });
+  });
+
   it("routes section_overrides patch to spec_projects.section_overrides", async () => {
     await writeSpecContract("00000000-0000-0000-0000-000000000000", {
       section_overrides: {
