@@ -291,6 +291,49 @@ export const IoSignalDirectionOverlaySchema = z.enum([
   "from_drive",
 ]);
 
+// ============================================================
+// Per-IO signal model (G0-2) — tier-1 signable FDS content.
+// Blanket no-meaning conditioning defaults are tier 2
+// (EngineeringDataV1.io_conditioning_defaults).
+// Design: Docs/superpowers/specs/2026-07-20-g0-2-io-signal-model-design.md
+// ============================================================
+
+// Digital wiring polarity. "nc" = normally-closed fail-safe wiring: the
+// healthy/untripped state reads TRUE at the terminal, so the MAP writer
+// (G1-4) emits a NOT inversion to hand the EM a TRUE=abnormal signal —
+// the golden master's `:= NOT "IO_Cond".CM1_Therm` lines.
+export const IoPolaritySchema = z.enum(["no", "nc"]);
+export type IoPolarity = z.infer<typeof IoPolaritySchema>;
+
+// Functionally significant conditioning ONLY (e.g. "absent 5 s before
+// fault" => off_delay_ms: 5000). Blanket filter times belong in
+// engineering.io_conditioning_defaults (tier 2), not here.
+export const IoConditioningSchema = z.object({
+  on_delay_ms: z.number().int().nonnegative().optional(),
+  off_delay_ms: z.number().int().nonnegative().optional(),
+});
+export type IoConditioning = z.infer<typeof IoConditioningSchema>;
+
+export const RawSignalUnitSchema = z.enum(["mA", "V", "counts"]);
+export type RawSignalUnit = z.infer<typeof RawSignalUnitSchema>;
+
+// Raw electrical range ↔ engineering-unit range. Signable: FDS behavior
+// (alarm setpoints, permissives, envelope limits) is written in eu units.
+// EU range may be inverted; raw min≠max enforced in io-signal-model.ts.
+export const AnalogScalingSchema = z.object({
+  raw: z.object({
+    min: z.number(),
+    max: z.number(),
+    unit: RawSignalUnitSchema,
+  }),
+  eu: z.object({
+    min: z.number(),
+    max: z.number(),
+    unit: z.string().min(1), // °C, bar, %, mm …
+  }),
+});
+export type AnalogScaling = z.infer<typeof AnalogScalingSchema>;
+
 /**
  * `tier` distinguishes signals that exist at the wired instrument layer
  * (from the hardware IO register — always present) from those that only
@@ -309,6 +352,10 @@ export const IoSignalV2Schema = z.object({
   tier: IoSignalTierSchema.optional(),
   telegram_offset: TelegramOffsetSchema.optional(),
   direction_overlay: IoSignalDirectionOverlaySchema.optional(),
+  // G0-2 per-signal model — kind constraints enforced in io-signal-model.ts.
+  polarity: IoPolaritySchema.optional(),
+  conditioning: IoConditioningSchema.optional(),
+  scaling: AnalogScalingSchema.optional(),
 });
 export type IoSignalV2 = z.infer<typeof IoSignalV2Schema>;
 

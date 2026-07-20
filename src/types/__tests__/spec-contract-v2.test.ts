@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { validateDriveModels } from "@/lib/spec-builder/drive-model";
 import {
+  AnalogScalingSchema,
   ConfigParameterSchema,
   ControlModuleV2Schema,
   DriveModelV1Schema,
   EngineeringDataV1Schema,
+  IoSignalV2Schema,
   ExpressionSchema,
   ModeKindSchema,
   OperatorModeSchema,
@@ -485,6 +487,64 @@ describe("EngineeringDataV1 (G0-1)", () => {
     expect(SpecContractV2Schema.parse(c).engineering).toBeUndefined();
     const withEng = { ...c, engineering: { drives: [] } };
     expect(SpecContractV2Schema.parse(withEng).engineering?.drives).toEqual([]);
+  });
+});
+
+describe("IoSignalV2 per-signal model (G0-2)", () => {
+  const baseSig = {
+    tag: "CM1_Therm",
+    signal_type: "DI",
+    io_address: "%I1.1",
+    description: "Motor 1 thermistor",
+    source: "wired",
+  };
+
+  it("parses a signal without any G0-2 field (back-compat)", () => {
+    const parsed = IoSignalV2Schema.parse(baseSig);
+    expect(parsed.polarity).toBeUndefined();
+    expect(parsed.conditioning).toBeUndefined();
+    expect(parsed.scaling).toBeUndefined();
+  });
+
+  it("parses an N/C fail-safe digital input with conditioning", () => {
+    const parsed = IoSignalV2Schema.parse({
+      ...baseSig,
+      polarity: "nc",
+      conditioning: { off_delay_ms: 5000 },
+    });
+    expect(parsed.polarity).toBe("nc");
+    expect(parsed.conditioning?.off_delay_ms).toBe(5000);
+  });
+
+  it("parses an analog signal with raw↔EU scaling (inverted EU allowed)", () => {
+    const parsed = IoSignalV2Schema.parse({
+      ...baseSig,
+      tag: "PT01",
+      signal_type: "AI",
+      scaling: {
+        raw: { min: 4, max: 20, unit: "mA" },
+        eu: { min: 10, max: 0, unit: "bar" },
+      },
+    });
+    expect(parsed.scaling?.eu.unit).toBe("bar");
+  });
+
+  it("rejects unknown polarity and empty eu unit", () => {
+    expect(() =>
+      IoSignalV2Schema.parse({ ...baseSig, polarity: "inverted" }),
+    ).toThrow();
+    expect(() =>
+      AnalogScalingSchema.parse({
+        raw: { min: 4, max: 20, unit: "mA" },
+        eu: { min: 0, max: 100, unit: "" },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects negative conditioning delays", () => {
+    expect(() =>
+      IoSignalV2Schema.parse({ ...baseSig, conditioning: { on_delay_ms: -1 } }),
+    ).toThrow();
   });
 });
 
