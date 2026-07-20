@@ -663,6 +663,40 @@ describe("G0-1 golden fixture — HRE Carriage Drive", () => {
   });
 });
 
+describe("EngineeringDataV1.fb_assignments (G0-8)", () => {
+  it("parses assignments with pin bindings and defaults", () => {
+    const parsed = EngineeringDataV1Schema.parse({
+      fb_assignments: [
+        {
+          target_kind: "control_module",
+          target_id: "00000000-0000-4000-8000-000000000001",
+          template_id: "tpl-123",
+          template_version: "1.2.0",
+          pin_bindings: [{ pin: "ilk_Permissive", tag: "Gate_Closed" }],
+        },
+        {
+          target_kind: "equipment_module",
+          target_id: "00000000-0000-4000-8000-000000000bbb",
+          template_id: "tpl-456",
+        },
+      ],
+    });
+    expect(parsed.fb_assignments[0].pin_bindings).toHaveLength(1);
+    expect(parsed.fb_assignments[1].pin_bindings).toEqual([]);
+    expect(EngineeringDataV1Schema.parse({}).fb_assignments).toEqual([]);
+  });
+
+  it("rejects unknown target_kind", () => {
+    expect(() =>
+      EngineeringDataV1Schema.parse({
+        fb_assignments: [
+          { target_kind: "unit", target_id: "x", template_id: "tpl" },
+        ],
+      }),
+    ).toThrow();
+  });
+});
+
 describe("Maintenance config model (G0-5)", () => {
   it("parses overridable outputs with wire_check_only default", () => {
     const m = MaintenanceV1Schema.parse({

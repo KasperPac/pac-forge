@@ -1414,12 +1414,34 @@ export const EncoderPresetEntrySchema = z.object({
 });
 export type EncoderPresetEntry = z.infer<typeof EncoderPresetEntrySchema>;
 
+// Device-FB assignment (G0-8, boundary §I): which library template each
+// CM/EM instantiates + explicit pin bindings where wiring is ambiguous.
+// Tier 2 — customers sign behavior, never template IDs; the behavior
+// appendix is DERIVED from the template at DOCX time, never stored.
+export const FbPinBindingSchema = z.object({
+  pin: z.string().min(1), // FbInterfacePin.name in the template's contract
+  tag: z.string().min(1), // FDS tag / DB member it binds to
+  notes: z.string().optional(),
+});
+export type FbPinBinding = z.infer<typeof FbPinBindingSchema>;
+
+export const FbAssignmentSchema = z.object({
+  target_kind: z.enum(["control_module", "equipment_module"]),
+  target_id: z.string().min(1),
+  template_id: z.string().min(1), // fb_templates row id
+  template_version: z.string().optional(),
+  pin_bindings: z.array(FbPinBindingSchema).default([]),
+  notes: z.string().optional(),
+});
+export type FbAssignment = z.infer<typeof FbAssignmentSchema>;
+
 export const EngineeringDataV1Schema = z.object({
   drives: z.array(DriveEngineeringEntrySchema).default([]),
   io_conditioning_defaults: IoConditioningDefaultsSchema.optional(),
   axis_constants: z.array(AxisConstantEntrySchema).default([]),
   commissioning_pack: CommissioningPackSchema.optional(),
   encoder_presets: z.array(EncoderPresetEntrySchema).default([]),
+  fb_assignments: z.array(FbAssignmentSchema).default([]),
 });
 export type EngineeringDataV1 = z.infer<typeof EngineeringDataV1Schema>;
 

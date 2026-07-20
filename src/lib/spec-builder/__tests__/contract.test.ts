@@ -672,6 +672,83 @@ describe("validateSpecContractPatch + deriveIoList — per-IO model (G0-2)", () 
     ).toBe(true);
   });
 
+  it("validates fb_assignments — duplicates and unknown targets (G0-8)", () => {
+    const hierarchy = {
+      units: [
+        {
+          unit_id: "00000000-0000-4000-8000-000000000aaa",
+          unit_name: "U",
+          equipment_type: "cell",
+          description: "",
+          excluded: false,
+          equipment_modules: [
+            {
+              equipment_module_id: "00000000-0000-4000-8000-000000000bbb",
+              equipment_module_name: "EM",
+              description: "",
+              control_modules: [
+                {
+                  control_module_id: "00000000-0000-4000-8000-000000000001",
+                  control_module_name: "CM",
+                  control_module_class: "io",
+                  is_safety: false,
+                  description: "",
+                  io_signals: [],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const patch = SpecContractPatchSchema.parse({
+      hierarchy,
+      engineering: {
+        fb_assignments: [
+          {
+            target_kind: "control_module",
+            target_id: "00000000-0000-4000-8000-000000000001",
+            template_id: "tpl-1",
+            pin_bindings: [
+              { pin: "cmd_Run", tag: "A" },
+              { pin: "cmd_Run", tag: "B" },
+            ],
+          },
+          {
+            target_kind: "control_module",
+            target_id: "00000000-0000-4000-8000-000000000001",
+            template_id: "tpl-2",
+          },
+          {
+            target_kind: "equipment_module",
+            target_id: "00000000-0000-4000-8000-00000000dead",
+            template_id: "tpl-3",
+          },
+        ],
+      },
+    });
+    const issues = validateSpecContractPatch(patch);
+    expect(issues.some((i) => i.includes("duplicate pin"))).toBe(true);
+    expect(issues.some((i) => i.includes("duplicate assignment"))).toBe(true);
+    expect(issues.some((i) => i.includes("dead"))).toBe(true);
+
+    // engineering-only patch skips the target check
+    const engOnly = SpecContractPatchSchema.parse({
+      engineering: {
+        fb_assignments: [
+          {
+            target_kind: "equipment_module",
+            target_id: "00000000-0000-4000-8000-00000000dead",
+            template_id: "tpl-3",
+          },
+        ],
+      },
+    });
+    expect(
+      validateSpecContractPatch(engOnly).some((i) => i.includes("dead")),
+    ).toBe(false);
+  });
+
   it("deriveIoList renders N/C polarity into normal_state/failsafe_state", () => {
     const hierarchy = {
       units: [

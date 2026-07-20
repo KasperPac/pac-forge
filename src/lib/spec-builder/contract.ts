@@ -1412,6 +1412,55 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
     }
   }
 
+  // G0-8: FB assignments — duplicate checks always; target existence only
+  // with hierarchy context (same convention as the blocks above). Template
+  // and pin existence against the FB library is G6's DB-time concern.
+  if (patch.engineering?.fb_assignments?.length) {
+    let cmIds: Set<string> | undefined;
+    let emIds: Set<string> | undefined;
+    if (patch.hierarchy) {
+      cmIds = new Set(
+        patch.hierarchy.units.flatMap((u) =>
+          u.equipment_modules.flatMap((em) =>
+            em.control_modules.map((c) => c.control_module_id),
+          ),
+        ),
+      );
+      emIds = new Set(
+        patch.hierarchy.units.flatMap((u) =>
+          u.equipment_modules.map((em) => em.equipment_module_id),
+        ),
+      );
+    }
+    const seenTargets = new Set<string>();
+    for (const a of patch.engineering.fb_assignments) {
+      const key = `${a.target_kind}::${a.target_id}`;
+      if (seenTargets.has(key)) {
+        issues.push(
+          `engineering.fb_assignments: duplicate assignment for ${a.target_kind} ${a.target_id}`,
+        );
+      }
+      seenTargets.add(key);
+
+      const pins = new Set<string>();
+      for (const b of a.pin_bindings) {
+        if (pins.has(b.pin)) {
+          issues.push(
+            `engineering.fb_assignments[${a.target_id}]: duplicate pin binding "${b.pin}"`,
+          );
+        }
+        pins.add(b.pin);
+      }
+
+      const pool = a.target_kind === "control_module" ? cmIds : emIds;
+      if (pool && !pool.has(a.target_id)) {
+        issues.push(
+          `engineering.fb_assignments: ${a.target_kind} ${a.target_id} not found in hierarchy`,
+        );
+      }
+    }
+  }
+
   // FDS Engine Phase 1: parameter_ref expressions must reference a known
   // configuration parameter. Within-patch only — cross-patch resolution
   // (when the parameter sits in the persisted contract but not in the patch)
