@@ -65,6 +65,7 @@ import {
   validateDriveModels,
 } from "@/lib/spec-builder/drive-model";
 import { validateIoSignals } from "@/lib/spec-builder/io-signal-model";
+import { validateSignalRouting } from "@/lib/spec-builder/signal-routing";
 import { z } from "zod";
 
 // ============================================================
@@ -1294,6 +1295,15 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
       }
       issues.push(
         ...validateUnitCoordination(coord, { modes: patch.modes, memberEmIds }),
+      );
+      // G0-3: the routing layer rides the same per-unit construct.
+      issues.push(
+        ...validateSignalRouting(coord, {
+          memberEmIds,
+          safetyGateIds: patch.safety_gates
+            ? new Set(patch.safety_gates.map((g) => g.gate_id))
+            : undefined,
+        }),
       );
     }
   }

@@ -415,6 +415,59 @@ describe("validateSpecContractPatch + deriveIoList — per-IO model (G0-2)", () 
     ).toBe(true);
   });
 
+  it("rejects a unit_coordination patch with a duplicate routing target pin (G0-3)", () => {
+    const patch = SpecContractPatchSchema.parse({
+      unit_coordination: {
+        u1: {
+          unit_id: "u1",
+          states: [{ state_id: "idle", allowed_modes: [], mode_change_allowed: true }],
+          transitions: [],
+          signal_routing: {
+            routing_rows: [
+              {
+                row_id: "r1",
+                target: { equipment_module_id: "em1", pin: "ilk_X" },
+                source: { kind: "io_tag", tag: "A" },
+              },
+              {
+                row_id: "r2",
+                target: { equipment_module_id: "em1", pin: "ilk_X" },
+                source: { kind: "io_tag", tag: "B" },
+              },
+            ],
+          },
+        },
+      },
+    });
+    expect(
+      validateSpecContractPatch(patch).some((i) => i.includes("duplicate target")),
+    ).toBe(true);
+  });
+
+  it("cross-checks signal_routing safety gates when the patch carries them (G0-3)", () => {
+    const patch = SpecContractPatchSchema.parse({
+      safety_gates: [
+        {
+          gate_id: "estop",
+          name: "E-Stop",
+          condition: [{ tag: "EStop_Healthy", operator: "=", value: true }],
+          scope: "all",
+        },
+      ],
+      unit_coordination: {
+        u1: {
+          unit_id: "u1",
+          states: [{ state_id: "idle", allowed_modes: [], mode_change_allowed: true }],
+          transitions: [],
+          signal_routing: { safety_healthy: { gate_ids: ["ghost"] } },
+        },
+      },
+    });
+    expect(validateSpecContractPatch(patch).some((i) => i.includes("ghost"))).toBe(
+      true,
+    );
+  });
+
   it("deriveIoList renders N/C polarity into normal_state/failsafe_state", () => {
     const hierarchy = {
       units: [
