@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { validateDriveModels } from "@/lib/spec-builder/drive-model";
 import {
   ConfigParameterSchema,
   ControlModuleV2Schema,
@@ -484,5 +485,38 @@ describe("EngineeringDataV1 (G0-1)", () => {
     expect(SpecContractV2Schema.parse(c).engineering).toBeUndefined();
     const withEng = { ...c, engineering: { drives: [] } };
     expect(SpecContractV2Schema.parse(withEng).engineering?.drives).toEqual([]);
+  });
+});
+
+describe("G0-1 golden fixture — HRE Carriage Drive", () => {
+  it("expresses everything MAP_Carriage_Drive.scl hand-authored", () => {
+    const cmId = "00000000-0000-4000-8000-000000000c01";
+    const drive = DriveModelV1Schema.parse({
+      family: "sinamics_g120",
+      telegram: 1,
+      speed_ref: { unit: "percent_ref_speed", signed: true },
+      enable_policy: "enable_on_nonzero_ref",
+    });
+    const engineering = EngineeringDataV1Schema.parse({
+      drives: [
+        {
+          control_module_id: cmId,
+          hw_id_stw: 322,
+          hw_id_zsw: 322,
+          ref_speed_rpm: 1500.0,
+          config_axis: 0x003f,
+        },
+      ],
+    });
+    const { errors, warnings } = validateDriveModels({
+      control_modules: [
+        { control_module_id: cmId, control_module_name: "Carriage_Drive_VSD", drive },
+      ],
+      engineering,
+    });
+    expect(errors).toEqual([]);
+    expect(warnings).toEqual([]);
+    // the writer's %→rpm factor is derivable: 1500 / 100 = 15.0
+    expect((engineering.drives[0].ref_speed_rpm ?? 0) / 100).toBe(15.0);
   });
 });

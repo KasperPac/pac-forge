@@ -14,7 +14,7 @@
     { "key": "G0", "name": "FDS schema (SpecContractV2) — FOUNDATION",
       "note": "Prerequisite. Deterministic writers can only emit what the contract models; today it models none of this.",
       "tasks": [
-        { "id": "G0-1", "title": "Drive/VSD parameter model (family, telegram, HW ids, RefSpeed/p2000, units, sign)", "state": "NOT_STARTED", "priority": "P0", "effort": "M", "depends": [], "evidence": "vfd-fb-family.ts AI-only; MAP_*_Drive.scl hand-authored" },
+        { "id": "G0-1", "title": "Drive/VSD parameter model (family, telegram, HW ids, RefSpeed/p2000, units, sign)", "state": "DONE", "priority": "P0", "effort": "M", "depends": [], "evidence": "SHIPPED 2026-07-20 ec29d42..4a28f63: DriveModelV1 + EngineeringDataV1.drives, drive-model.ts validator + seeding, migration 20260720000000_engineering_data" },
         { "id": "G0-2", "title": "Per-IO signal model: polarity (N/C vs N/O) + conditioning (debounce/filter, analog scaling {raw<->EU, unit})", "state": "NOT_STARTED", "priority": "P0", "effort": "M", "depends": [], "evidence": "MAP N/C inversions; boundary doc B" },
         { "id": "G0-3", "title": "Coordination / signal-routing intent model (input->EM ilk_ pin, two-detent, mode gating)", "state": "NOT_STARTED", "priority": "P0", "effort": "L", "depends": [], "evidence": "UC_*.scl routing" },
         { "id": "G0-4", "title": "Envelope geometry & scaling model (encoder scaling, rail length, ramp zone, margins, home windows)", "state": "NOT_STARTED", "priority": "P0", "effort": "M", "depends": [], "evidence": "Rail_Config.db, UC_Carriage.scl" },
