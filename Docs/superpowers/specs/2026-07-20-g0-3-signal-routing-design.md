@@ -50,7 +50,9 @@ export const SignalSourceRefSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("io_tag"), tag: z.string().min(1) }),
   z.object({
     kind: z.literal("em_status"),
-    equipment_module_id: UuidSchema,
+    // Plain string, not UuidSchema — matches UnitCoordinationV1.unit_id's
+    // convention (amended 2026-07-20 during planning).
+    equipment_module_id: z.string().min(1),
     member: z.string().min(1), // e.g. "permit_travel"
   }),
   z.object({ kind: z.literal("named_gate"), gate_id: z.string().min(1) }),
@@ -58,7 +60,7 @@ export const SignalSourceRefSchema = z.discriminatedUnion("kind", [
 export type SignalSourceRef = z.infer<typeof SignalSourceRefSchema>;
 
 export const RoutingTargetSchema = z.object({
-  equipment_module_id: UuidSchema,
+  equipment_module_id: z.string().min(1), // same convention note as above
   pin: z.string().min(1), // e.g. "ilk_Fwd_Fast_Carriage"
 });
 export type RoutingTarget = z.infer<typeof RoutingTargetSchema>;
