@@ -4,6 +4,7 @@ import { validateIoSignals } from "@/lib/spec-builder/io-signal-model";
 import { validateSignalRouting } from "@/lib/spec-builder/signal-routing";
 import {
   AnalogScalingSchema,
+  AxisV1Schema,
   ConfigParameterSchema,
   ControlModuleV2Schema,
   DriveModelV1Schema,
@@ -657,6 +658,74 @@ describe("G0-1 golden fixture — HRE Carriage Drive", () => {
     expect(warnings).toEqual([]);
     // the writer's %→rpm factor is derivable: 1500 / 100 = 15.0
     expect((engineering.drives[0].ref_speed_rpm ?? 0) / 100).toBe(15.0);
+  });
+});
+
+describe("AxisV1 + axis_constants (G0-4)", () => {
+  const rail = {
+    axis_id: "rail",
+    kind: "linear",
+    encoder_tag: "Carriage_Encoder_Pos",
+    eu_unit: "mm",
+    scale: { db_member: "mm_per_rev_x10" },
+    length: { db_member: "rail_length_mm", operator_settable: true },
+    end_margin: { db_member: "end_margin_mm", default: 500 },
+    ramp_zone: { db_member: "ramp_zone_mm", default: 2000 },
+    gates: { fwd_ok: "fwd_ok", fwd_fast_ok: "fwd_fast_ok" },
+  };
+  const rotator = {
+    axis_id: "rotator",
+    kind: "rotary",
+    encoder_tag: "Rotator_Encoder_Pos",
+    counts_per_rev: { db_member: "rot_counts_per_360", default: 0 },
+    preset_offset: 500000,
+    home_windows: [
+      { center_deg10: 0, band_deg10: 20 },
+      { center_deg10: 1800, band_deg10: 20 },
+    ],
+    gates: { at_home: "rot_at_home" },
+  };
+
+  it("parses linear + rotary axes with defaults", () => {
+    const lin = AxisV1Schema.parse(rail);
+    expect(lin.kind).toBe("linear");
+    if (lin.kind === "linear") {
+      expect(lin.scale.retain).toBe(true);
+      expect(lin.scale.operator_settable).toBe(false);
+      expect(lin.unconfigured_open).toBe(true);
+    }
+    const rot = AxisV1Schema.parse(rotator);
+    if (rot.kind === "rotary") {
+      expect(rot.home_windows).toHaveLength(2);
+      expect(rot.preset_offset).toBe(500000);
+    }
+  });
+
+  it("rejects unknown axis kind and empty home_windows", () => {
+    expect(() => AxisV1Schema.parse({ ...rail, kind: "belt" })).toThrow();
+    expect(() => AxisV1Schema.parse({ ...rotator, home_windows: [] })).toThrow();
+  });
+
+  it("UnitCoordinationV1 accepts optional axes (back-compat)", () => {
+    const coord = {
+      unit_id: "u1",
+      states: [{ state_id: "idle", allowed_modes: [], mode_change_allowed: true }],
+      transitions: [],
+    };
+    expect(UnitCoordinationV1Schema.parse(coord).axes).toBeUndefined();
+    expect(
+      UnitCoordinationV1Schema.parse({ ...coord, axes: [rail] }).axes,
+    ).toHaveLength(1);
+  });
+
+  it("EngineeringDataV1 carries axis_constants with empty default", () => {
+    expect(EngineeringDataV1Schema.parse({}).axis_constants).toEqual([]);
+    const parsed = EngineeringDataV1Schema.parse({
+      axis_constants: [
+        { unit_id: "u1", axis_id: "rotator", values: { rot_counts_per_360: 40960 } },
+      ],
+    });
+    expect(parsed.axis_constants[0].values.rot_counts_per_360).toBe(40960);
   });
 });
 

@@ -1107,6 +1107,79 @@ export const EmCommandOverrideSchema = z.object({
 export type EmCommandOverride = z.infer<typeof EmCommandOverrideSchema>;
 
 // ============================================================
+// Envelope geometry & scaling (G0-4) — per-unit axes with fixed
+// semantic roles (evidenced by UC_Carriage.scl + Rail_Config.db).
+// Gate ids defined here are the registry G0-3 named_gate refs resolve
+// against. Scaling math / gate logic / config-DB emission are derived
+// (G2-5 writer). Generic zones[] is v2 if a pilot machine needs it.
+// Design: Docs/superpowers/specs/2026-07-20-g0-4-axis-geometry-design.md
+// ============================================================
+
+// One emitted config-DB member: name, seed default, retention, who sets
+// it. The runtime VALUE lives in the PLC (operator/commissioning); the
+// commissioned constant is recorded tier-2 (engineering.axis_constants).
+export const GeometryParamDefSchema = z.object({
+  db_member: z.string().min(1), // e.g. "rail_length_mm"
+  default: z.number().optional(), // seed in the DB begin-block
+  retain: z.boolean().default(true),
+  operator_settable: z.boolean().default(false), // dashboard/HMI-writable
+  description: z.string().optional(),
+});
+export type GeometryParamDef = z.infer<typeof GeometryParamDefSchema>;
+
+// Role-named gate ids this axis defines (the G0-3 named_gate registry).
+// Absent role = axis doesn't expose that gate.
+export const LinearAxisGatesSchema = z.object({
+  fwd_ok: z.string().min(1).optional(),
+  fwd_fast_ok: z.string().min(1).optional(),
+  rev_ok: z.string().min(1).optional(),
+  rev_fast_ok: z.string().min(1).optional(),
+});
+
+export const LinearAxisSchema = z.object({
+  axis_id: z.string().min(1),
+  kind: z.literal("linear"),
+  encoder_tag: z.string().min(1),
+  eu_unit: z.string().min(1), // "mm"
+  scale: GeometryParamDefSchema, // EU-per-rev ×10 (fixed physics, set once)
+  length: GeometryParamDefSchema, // envelope length — may GROW in service
+  end_margin: GeometryParamDefSchema, // soft limit; hard limit stays wired
+  ramp_zone: GeometryParamDefSchema, // fast→jog fallback distance from ends
+  gates: LinearAxisGatesSchema.default({}),
+  // Evidenced policy: scale/length = 0 ⇒ gates stay open (pre-commissioning).
+  unconfigured_open: z.boolean().default(true),
+});
+export type LinearAxis = z.infer<typeof LinearAxisSchema>;
+
+export const HomeWindowSchema = z.object({
+  center_deg10: z.number().int().min(-1799).max(1800),
+  band_deg10: z.number().int().positive(), // ± band; ≤1800 enforced in validator
+});
+export type HomeWindow = z.infer<typeof HomeWindowSchema>;
+
+export const RotaryAxisSchema = z.object({
+  axis_id: z.string().min(1),
+  kind: z.literal("rotary"),
+  encoder_tag: z.string().min(1),
+  // Calibration constant K (counts per 360°). default 0 = uncalibrated ⇒
+  // raw treated as direct 0.1° (legacy direct-mount).
+  counts_per_rev: GeometryParamDefSchema,
+  // Raw preset applied at "straight" so the unsigned encoder never
+  // underflows. Writer subtracts it before scaling.
+  preset_offset: z.number().int().nonnegative().default(0),
+  // Multi-window covers "straight at 0° OR 180°".
+  home_windows: z.array(HomeWindowSchema).min(1),
+  gates: z.object({ at_home: z.string().min(1).optional() }).default({}),
+});
+export type RotaryAxis = z.infer<typeof RotaryAxisSchema>;
+
+export const AxisV1Schema = z.discriminatedUnion("kind", [
+  LinearAxisSchema,
+  RotaryAxisSchema,
+]);
+export type AxisV1 = z.infer<typeof AxisV1Schema>;
+
+// ============================================================
 // Signal-routing intent (G0-3) — the unit coordinator's other half.
 // Declarative model of UC_*.scl: routing rows, two-detent, safety-healthy
 // term, PackML command routing, first-out capture. EM↔EM handshakes and
@@ -1202,6 +1275,8 @@ export const UnitCoordinationV1Schema = z.object({
   ),
   // G0-3: the routing layer. Absent until authored.
   signal_routing: SignalRoutingV1Schema.optional(),
+  // G0-4: envelope geometry. Absent until authored.
+  axes: z.array(AxisV1Schema).optional(),
 });
 export type UnitCoordinationV1 = z.infer<typeof UnitCoordinationV1Schema>;
 
@@ -1230,9 +1305,21 @@ export const IoConditioningDefaultsSchema = z.object({
 });
 export type IoConditioningDefaults = z.infer<typeof IoConditioningDefaultsSchema>;
 
+// Commissioned axis constants (G0-4 tier 2): db_member → measured value
+// (e.g. rot_counts_per_360 after on-site calibration). Keys must be
+// members the axis declares — cross-checked in the patch gate.
+export const AxisConstantEntrySchema = z.object({
+  unit_id: z.string().min(1),
+  axis_id: z.string().min(1),
+  values: z.record(z.string(), z.number()),
+  notes: z.string().optional(),
+});
+export type AxisConstantEntry = z.infer<typeof AxisConstantEntrySchema>;
+
 export const EngineeringDataV1Schema = z.object({
   drives: z.array(DriveEngineeringEntrySchema).default([]),
   io_conditioning_defaults: IoConditioningDefaultsSchema.optional(),
+  axis_constants: z.array(AxisConstantEntrySchema).default([]),
 });
 export type EngineeringDataV1 = z.infer<typeof EngineeringDataV1Schema>;
 
