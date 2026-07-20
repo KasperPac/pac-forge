@@ -16,7 +16,11 @@ vi.mock("@/lib/supabase", () => ({
   },
 }));
 
-import { writeSpecContract, validateSpecContractPatch } from "../contract";
+import {
+  writeSpecContract,
+  validateSpecContractPatch,
+  SpecContractPatchSchema,
+} from "../contract";
 
 describe("writeSpecContract patch routing — new keys", () => {
   beforeEach(() => {
@@ -273,5 +277,75 @@ describe("loadSpecContract — confirmation_status branching (smoke)", () => {
   it("imports without throwing", async () => {
     const { loadSpecContract } = await import("../contract");
     expect(typeof loadSpecContract).toBe("function");
+  });
+});
+
+describe("validateSpecContractPatch — drive models (G0-1)", () => {
+  const CM_ID = "00000000-0000-4000-8000-000000000001";
+  const hierarchyWithDrive = (drive: object | undefined) => ({
+    units: [
+      {
+        unit_id: "00000000-0000-4000-8000-000000000aaa",
+        unit_name: "Unit",
+        equipment_type: "cell",
+        description: "",
+        excluded: false,
+        equipment_modules: [
+          {
+            equipment_module_id: "00000000-0000-4000-8000-000000000bbb",
+            equipment_module_name: "Drive EM",
+            description: "",
+            control_modules: [
+              {
+                control_module_id: CM_ID,
+                control_module_name: "VSD1",
+                control_module_class: "drive",
+                is_safety: false,
+                description: "",
+                io_signals: [],
+                ...(drive ? { drive } : {}),
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+
+  it("rejects a hierarchy patch whose drive telegram mismatches its family", () => {
+    const patch = SpecContractPatchSchema.parse({
+      hierarchy: hierarchyWithDrive({
+        family: "sinamics_g120",
+        telegram: 105,
+        speed_ref: { unit: "percent_ref_speed", signed: true },
+        enable_policy: "enable_on_nonzero_ref",
+      }),
+    });
+    expect(
+      validateSpecContractPatch(patch).some((i) => i.includes("telegram 105")),
+    ).toBe(true);
+  });
+
+  it("rejects engineering entries referencing unknown CMs when hierarchy present", () => {
+    const patch = SpecContractPatchSchema.parse({
+      hierarchy: hierarchyWithDrive(undefined),
+      engineering: {
+        drives: [{ control_module_id: "00000000-0000-4000-8000-00000000dead" }],
+      },
+    });
+    expect(
+      validateSpecContractPatch(patch).some((i) =>
+        i.includes("unknown control module"),
+      ),
+    ).toBe(true);
+  });
+
+  it("engineering-only patch skips referential checks (context absent)", () => {
+    const patch = SpecContractPatchSchema.parse({
+      engineering: {
+        drives: [{ control_module_id: "00000000-0000-4000-8000-00000000dead" }],
+      },
+    });
+    expect(validateSpecContractPatch(patch)).toEqual([]);
   });
 });
