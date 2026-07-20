@@ -9,7 +9,12 @@ import type { UnitCoordinationV1 } from "@/types/spec-contract-v2";
 
 export function validateSignalRouting(
   coord: Pick<UnitCoordinationV1, "unit_id" | "signal_routing">,
-  ctx: { memberEmIds?: Set<string>; safetyGateIds?: Set<string> },
+  ctx: {
+    memberEmIds?: Set<string>;
+    safetyGateIds?: Set<string>;
+    /** The unit's axis gate registry (G0-4). Absent = check skipped. */
+    namedGateIds?: Set<string>;
+  },
 ): string[] {
   const sr = coord.signal_routing;
   if (!sr) return [];
@@ -37,13 +42,25 @@ export function validateSignalRouting(
         `${where}[${row.row_id}]: target EM ${row.target.equipment_module_id} is not a member of this unit`,
       );
     }
-    if (ctx.memberEmIds) {
-      for (const ref of [row.source, ...row.gates]) {
-        if (ref.kind === "em_status" && !ctx.memberEmIds.has(ref.equipment_module_id)) {
-          issues.push(
-            `${where}[${row.row_id}]: em_status source ${ref.equipment_module_id} is not a member of this unit (cross-unit reads are v2)`,
-          );
-        }
+    for (const ref of [row.source, ...row.gates]) {
+      if (
+        ctx.memberEmIds &&
+        ref.kind === "em_status" &&
+        !ctx.memberEmIds.has(ref.equipment_module_id)
+      ) {
+        issues.push(
+          `${where}[${row.row_id}]: em_status source ${ref.equipment_module_id} is not a member of this unit (cross-unit reads are v2)`,
+        );
+      }
+      // G0-4 activation: check refs against the unit's axis gate registry.
+      if (
+        ctx.namedGateIds &&
+        ref.kind === "named_gate" &&
+        !ctx.namedGateIds.has(ref.gate_id)
+      ) {
+        issues.push(
+          `${where}[${row.row_id}]: named_gate "${ref.gate_id}" is not defined by this unit's axes`,
+        );
       }
     }
   }

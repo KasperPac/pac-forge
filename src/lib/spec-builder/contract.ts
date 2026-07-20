@@ -66,6 +66,7 @@ import {
 } from "@/lib/spec-builder/drive-model";
 import { validateIoSignals } from "@/lib/spec-builder/io-signal-model";
 import { validateSignalRouting } from "@/lib/spec-builder/signal-routing";
+import { collectGateIds, validateAxes } from "@/lib/spec-builder/axis-model";
 import { z } from "zod";
 
 // ============================================================
@@ -1296,6 +1297,9 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
       issues.push(
         ...validateUnitCoordination(coord, { modes: patch.modes, memberEmIds }),
       );
+      // G0-4: envelope geometry rides the same per-unit construct, and its
+      // gate ids form the registry the routing refs resolve against.
+      issues.push(...validateAxes(coord));
       // G0-3: the routing layer rides the same per-unit construct.
       issues.push(
         ...validateSignalRouting(coord, {
@@ -1303,8 +1307,36 @@ export function validateSpecContractPatch(patch: ParsedPatch): string[] {
           safetyGateIds: patch.safety_gates
             ? new Set(patch.safety_gates.map((g) => g.gate_id))
             : undefined,
+          namedGateIds: coord.axes ? collectGateIds(coord.axes) : undefined,
         }),
       );
+    }
+
+    // G0-4 tier-2 cross-check: constants must land on declared members.
+    for (const entry of patch.engineering?.axis_constants ?? []) {
+      const coord = patch.unit_coordination[entry.unit_id];
+      if (!coord) continue; // unit not in this patch — context absent
+      const axis = coord.axes?.find((a) => a.axis_id === entry.axis_id);
+      if (!axis) {
+        issues.push(
+          `engineering.axis_constants: axis "${entry.axis_id}" not found on unit "${entry.unit_id}"`,
+        );
+        continue;
+      }
+      const members = new Set(
+        axis.kind === "linear"
+          ? [axis.scale, axis.length, axis.end_margin, axis.ramp_zone].map(
+              (p) => p.db_member,
+            )
+          : [axis.counts_per_rev.db_member],
+      );
+      for (const key of Object.keys(entry.values)) {
+        if (!members.has(key)) {
+          issues.push(
+            `engineering.axis_constants[${entry.axis_id}]: "${key}" is not a declared db_member of the axis`,
+          );
+        }
+      }
     }
   }
 

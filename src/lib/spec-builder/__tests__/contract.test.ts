@@ -468,6 +468,77 @@ describe("validateSpecContractPatch + deriveIoList — per-IO model (G0-2)", () 
     );
   });
 
+  it("rejects a named_gate ref not defined by the unit's axes (G0-4)", () => {
+    const patch = SpecContractPatchSchema.parse({
+      unit_coordination: {
+        u1: {
+          unit_id: "u1",
+          states: [{ state_id: "idle", allowed_modes: [], mode_change_allowed: true }],
+          transitions: [],
+          axes: [
+            {
+              axis_id: "rail",
+              kind: "linear",
+              encoder_tag: "Enc1",
+              eu_unit: "mm",
+              scale: { db_member: "scale" },
+              length: { db_member: "length" },
+              end_margin: { db_member: "end_margin" },
+              ramp_zone: { db_member: "ramp_zone" },
+              gates: { fwd_ok: "fwd_ok" },
+            },
+          ],
+          signal_routing: {
+            routing_rows: [
+              {
+                row_id: "r1",
+                target: { equipment_module_id: "em1", pin: "ilk_X" },
+                source: { kind: "io_tag", tag: "A" },
+                gates: [{ kind: "named_gate", gate_id: "ghost_gate" }],
+              },
+            ],
+          },
+        },
+      },
+    });
+    expect(
+      validateSpecContractPatch(patch).some((i) => i.includes("ghost_gate")),
+    ).toBe(true);
+  });
+
+  it("rejects axis_constants for unknown axis or undeclared member (G0-4)", () => {
+    const patch = SpecContractPatchSchema.parse({
+      unit_coordination: {
+        u1: {
+          unit_id: "u1",
+          states: [{ state_id: "idle", allowed_modes: [], mode_change_allowed: true }],
+          transitions: [],
+          axes: [
+            {
+              axis_id: "rail",
+              kind: "linear",
+              encoder_tag: "Enc1",
+              eu_unit: "mm",
+              scale: { db_member: "scale" },
+              length: { db_member: "length" },
+              end_margin: { db_member: "end_margin" },
+              ramp_zone: { db_member: "ramp_zone" },
+            },
+          ],
+        },
+      },
+      engineering: {
+        axis_constants: [
+          { unit_id: "u1", axis_id: "ghost_axis", values: { scale: 1 } },
+          { unit_id: "u1", axis_id: "rail", values: { not_a_member: 5 } },
+        ],
+      },
+    });
+    const issues = validateSpecContractPatch(patch);
+    expect(issues.some((i) => i.includes("ghost_axis"))).toBe(true);
+    expect(issues.some((i) => i.includes("not_a_member"))).toBe(true);
+  });
+
   it("deriveIoList renders N/C polarity into normal_state/failsafe_state", () => {
     const hierarchy = {
       units: [

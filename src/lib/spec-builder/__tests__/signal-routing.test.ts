@@ -111,3 +111,28 @@ describe("validateSignalRouting", () => {
     expect(validateSignalRouting({ unit_id: "u1" } as never, {})).toEqual([]);
   });
 });
+
+describe("validateSignalRouting — named_gate registry (G0-4 activation)", () => {
+  const rowWithGate: SignalRoutingV1["routing_rows"][number] = {
+    row_id: "r1",
+    target: { equipment_module_id: "em_drive", pin: "ilk_X" },
+    source: { kind: "io_tag", tag: "A" },
+    gates: [{ kind: "named_gate", gate_id: "ghost_gate" }],
+  };
+
+  it("errors on unknown named_gate when registry provided", () => {
+    const issues = validateSignalRouting(
+      coord({ routing_rows: [rowWithGate], two_detent: [] } as never),
+      { memberEmIds: ems, namedGateIds: new Set(["fwd_ok"]) },
+    );
+    expect(issues.some((i) => i.includes("ghost_gate"))).toBe(true);
+  });
+
+  it("skips named_gate check without registry (pre-G0-4 behavior)", () => {
+    const issues = validateSignalRouting(
+      coord({ routing_rows: [rowWithGate], two_detent: [] } as never),
+      { memberEmIds: ems },
+    );
+    expect(issues).toEqual([]);
+  });
+});
