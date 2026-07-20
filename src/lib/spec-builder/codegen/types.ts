@@ -144,5 +144,8 @@ export interface EmSequence {
   sensors: EmPin[];
   /** Actuator command outputs (carry their physical address for the MAP FC). */
   actuators: EmPin[];
+  /** Drive CMs detected from the G0-1 model (G1-1); consumed by the MAP
+   *  writer's telegram-FB emission (G1-2/G1-3). */
+  drives: import("./drive-detect").DriveInstance[];
   warnings: string[];
 }

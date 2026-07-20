@@ -38,7 +38,7 @@
     { "key": "G1", "name": "Drive integration (MAP layer)",
       "note": "Biggest single codegen gap. writeMapFc emits only symbolic IO copies + // TODO wire.",
       "tasks": [
-        { "id": "G1-1", "title": "Detect analog/VSD control modules; select drive FB family from metadata", "state": "NOT_STARTED", "priority": "P0", "effort": "M", "depends": ["G0-1"], "evidence": "" },
+        { "id": "G1-1", "title": "Detect analog/VSD control modules; select drive FB family from metadata", "state": "DONE", "priority": "P0", "effort": "M", "depends": ["G0-1"], "evidence": "SHIPPED 2026-07-20: codegen/drive-detect.ts + EmSequence.drives; family table G120->SINA_SPEED, S210->SINA_POS; tier-2 join; fb_assignments override lands with G6-2" },
         { "id": "G1-2", "title": "Emit telegram FB call (SINA_SPEED/SINA_POS) + instance DB into MAP FC", "state": "NOT_STARTED", "priority": "P0", "effort": "M", "depends": ["G1-1"], "evidence": "MAP_Carriage_Drive.scl SinaSpeed_Rail_DB(...)" },
         { "id": "G1-3", "title": "Emit %<->rpm scaling from RefSpeed/p2000", "state": "NOT_STARTED", "priority": "P0", "effort": "S", "depends": ["G1-2"], "evidence": "SpeedSp := INT_TO_REAL(#ref_pct)*15.0" },
         { "id": "G1-4", "title": "IO signal conditioning: N/C inversion + debounce/filter emission + analog EU scaling (NORM_X/SCALE_X)", "state": "NOT_STARTED", "priority": "P0", "effort": "M", "depends": ["G0-2"], "evidence": ":= NOT \"BR1_Fault\"; boundary doc B" },

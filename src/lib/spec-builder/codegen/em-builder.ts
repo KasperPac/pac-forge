@@ -1,7 +1,9 @@
 import type {
   EquipmentModuleV2, EquipmentModuleContract, IoSignalV2,
   PhaseStep, CompletionCriterion, ControlModuleStateEntry,
+  EngineeringDataV1,
 } from "@/types/spec-contract-v2";
+import { detectDrives } from "./drive-detect";
 import { orderStates } from "./step-order";
 import { packmlStateBySlug } from "../packml-states";
 import { sclIdent, isActiveCommand, staticEntries } from "./sa-builder";
@@ -38,6 +40,7 @@ function stepCriteria(s: PhaseStep): CompletionCriterion[] {
 export function buildEmSequence(
   em: EquipmentModuleV2,
   contract: EquipmentModuleContract,
+  engineering?: EngineeringDataV1,
 ): EmSequence {
   const warnings: string[] = [];
 
@@ -236,6 +239,11 @@ export function buildEmSequence(
     );
   }
 
+  // G1-1: detect drive CMs (G0-1 model + tier-2 join); their warnings
+  // surface alongside the EM's own.
+  const drives = detectDrives(em, engineering);
+  for (const d of drives) warnings.push(...d.warnings);
+
   return {
     emId: em.equipment_module_id,
     emName: em.equipment_module_name,
@@ -246,6 +254,7 @@ export function buildEmSequence(
     interlockPins: [...interlocks.keys()],
     sensors: [...sensors.values()],
     actuators: [...actuators.values()],
+    drives,
     warnings,
   };
 }

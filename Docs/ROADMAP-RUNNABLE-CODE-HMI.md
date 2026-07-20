@@ -84,7 +84,7 @@ to full IO signal conditioning.*
 
 | ID | Task | State | Pri | Eff | Depends | Evidence / notes |
 |---|---|---|---|---|---|---|
-| G1-1 | Detect analog/VSD control modules and select drive FB family from G0-1 metadata | 🔴 | P0 | M | G0-1 | — |
+| G1-1 | Detect analog/VSD control modules and select drive FB family from G0-1 metadata | ✅ | P0 | M | G0-1 | SHIPPED 2026-07-20: drive-detect.ts (detectDrives + family→FB table G120→SINA_SPEED/S210→SINA_POS, tier-2 join, warn-don't-throw), EmSequence.drives on the IR |
 | G1-2 | Emit telegram FB call (SINA_SPEED / SINA_POS) + its instance DB into the MAP FC | 🔴 | P0 | M | G1-1 | export `MAP_Carriage_Drive.scl` `SinaSpeed_Rail_DB(...)` |
 | G1-3 | Emit %↔rpm (engineering-unit) scaling from RefSpeed/p2000 | 🔴 | P0 | S | G1-2 | `SpeedSp := INT_TO_REAL(#ref_pct) * 15.0` |
 | G1-4 | IO signal conditioning: N/C inversion per polarity + debounce/filter emission + analog EU scaling (`NORM_X`/`SCALE_X`) | 🔴 | P0 | M | G0-2 | `:= NOT "BR1_Fault"`; broadened per boundary doc §B |
