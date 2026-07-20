@@ -662,6 +662,48 @@ describe("G0-1 golden fixture — HRE Carriage Drive", () => {
   });
 });
 
+describe("EngineeringDataV1.commissioning_pack (G0-7)", () => {
+  it("parses a filled pack and applies row defaults", () => {
+    const parsed = EngineeringDataV1Schema.parse({
+      commissioning_pack: {
+        drive_checklist: [
+          { drive_name: "VSD1", parameter: "p2000", value: "1500.0 rpm" },
+        ],
+        network_plan: [
+          { device_name: "plc1", ip_address: "192.168.0.1", role: "PLC" },
+        ],
+        tag_table: [{ tag: "EStop_Healthy", address: "%I0.0" }],
+        panel_accounts: [{ username: "operator1", role: "Operator" }],
+        time_sync: { ntp_servers: ["192.168.0.250"], timezone: "Australia/Brisbane" },
+      },
+    });
+    const pack = parsed.commissioning_pack;
+    expect(pack?.drive_checklist[0].verified).toBe(false);
+    expect(pack?.network_plan[0].set_on_site).toBe(false);
+    expect(pack?.time_sync?.ntp_servers).toHaveLength(1);
+  });
+
+  it("defaults all section arrays and stays optional (back-compat)", () => {
+    expect(EngineeringDataV1Schema.parse({}).commissioning_pack).toBeUndefined();
+    const pack = EngineeringDataV1Schema.parse({ commissioning_pack: {} })
+      .commissioning_pack;
+    expect(pack?.drive_checklist).toEqual([]);
+    expect(pack?.tag_table).toEqual([]);
+    expect(pack?.panel_accounts).toEqual([]);
+  });
+
+  it("panel_accounts has no password field — secrets are stripped", () => {
+    const pack = EngineeringDataV1Schema.parse({
+      commissioning_pack: {
+        panel_accounts: [
+          { username: "eng1", role: "Engineer", password: "hunter2" },
+        ],
+      },
+    }).commissioning_pack;
+    expect(pack?.panel_accounts[0]).toEqual({ username: "eng1", role: "Engineer" });
+  });
+});
+
 describe("AxisV1 + axis_constants (G0-4)", () => {
   const rail = {
     axis_id: "rail",

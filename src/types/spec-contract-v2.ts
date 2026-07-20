@@ -1316,10 +1316,67 @@ export const AxisConstantEntrySchema = z.object({
 });
 export type AxisConstantEntry = z.infer<typeof AxisConstantEntrySchema>;
 
+// Commissioning-pack sections (G0-7, boundary §H) — pure record, no
+// automation committed. Humans execute; the app documents.
+export const DriveChecklistRowSchema = z.object({
+  drive_name: z.string().min(1),
+  parameter: z.string().min(1), // e.g. "p2000"
+  value: z.string().min(1), // string — units/expressions vary
+  verified: z.boolean().default(false),
+  control_module_id: z.string().min(1).optional(), // link when known
+  notes: z.string().optional(),
+});
+export type DriveChecklistRow = z.infer<typeof DriveChecklistRowSchema>;
+
+export const NetworkPlanRowSchema = z.object({
+  device_name: z.string().min(1), // PROFINET station / device name
+  ip_address: z.string().optional(),
+  subnet_mask: z.string().optional(),
+  role: z.string().optional(), // PLC / HMI / drive / IO-Link master …
+  set_on_site: z.boolean().default(false),
+  notes: z.string().optional(),
+});
+export type NetworkPlanRow = z.infer<typeof NetworkPlanRowSchema>;
+
+export const TagTableRowSchema = z.object({
+  tag: z.string().min(1),
+  address: z.string().min(1), // absolute %I/%Q/%M
+  data_type: z.string().optional(),
+  comment: z.string().optional(),
+});
+export type TagTableRow = z.infer<typeof TagTableRowSchema>;
+
+// Records WHO exists and their role (maps onto the G0-10 ladder later).
+// Deliberately no password/secret field — documentation, never a vault.
+export const PanelAccountRowSchema = z.object({
+  username: z.string().min(1),
+  role: z.string().min(1),
+  notes: z.string().optional(),
+});
+export type PanelAccountRow = z.infer<typeof PanelAccountRowSchema>;
+
+export const TimeSyncPlanSchema = z.object({
+  ntp_servers: z.array(z.string().min(1)).default([]),
+  timezone: z.string().optional(),
+  dst_rule: z.string().optional(),
+  notes: z.string().optional(),
+});
+export type TimeSyncPlan = z.infer<typeof TimeSyncPlanSchema>;
+
+export const CommissioningPackSchema = z.object({
+  drive_checklist: z.array(DriveChecklistRowSchema).default([]),
+  network_plan: z.array(NetworkPlanRowSchema).default([]),
+  tag_table: z.array(TagTableRowSchema).default([]),
+  panel_accounts: z.array(PanelAccountRowSchema).default([]),
+  time_sync: TimeSyncPlanSchema.optional(),
+});
+export type CommissioningPack = z.infer<typeof CommissioningPackSchema>;
+
 export const EngineeringDataV1Schema = z.object({
   drives: z.array(DriveEngineeringEntrySchema).default([]),
   io_conditioning_defaults: IoConditioningDefaultsSchema.optional(),
   axis_constants: z.array(AxisConstantEntrySchema).default([]),
+  commissioning_pack: CommissioningPackSchema.optional(),
 });
 export type EngineeringDataV1 = z.infer<typeof EngineeringDataV1Schema>;
 
