@@ -668,6 +668,44 @@ describe("G0-1 golden fixture — HRE Carriage Drive", () => {
   });
 });
 
+describe("Diagnostics capabilities (G0-15)", () => {
+  it("parses flags with defaults on a CM and stays optional", () => {
+    const cm = {
+      control_module_id: "00000000-0000-4000-8000-000000000001",
+      control_module_name: "M01",
+      control_module_class: "motor",
+      is_safety: false,
+      description: "",
+      io_signals: [],
+    };
+    expect(ControlModuleV2Schema.parse(cm).diagnostics).toBeUndefined();
+    const withDiag = ControlModuleV2Schema.parse({
+      ...cm,
+      diagnostics: {
+        runtime_hours: true,
+        service_interval: { metric: "runtime_hours", threshold: 5000 },
+      },
+    });
+    expect(withDiag.diagnostics?.runtime_hours).toBe(true);
+    expect(withDiag.diagnostics?.cycle_counter).toBe(false);
+    expect(withDiag.diagnostics?.service_interval?.threshold).toBe(5000);
+  });
+
+  it("rejects a non-positive service threshold", () => {
+    expect(() =>
+      ControlModuleV2Schema.parse({
+        control_module_id: "00000000-0000-4000-8000-000000000001",
+        control_module_name: "M01",
+        control_module_class: "motor",
+        is_safety: false,
+        description: "",
+        io_signals: [],
+        diagnostics: { service_interval: { metric: "cycles", threshold: 0 } },
+      }),
+    ).toThrow();
+  });
+});
+
 describe("Upstream comms (G0-12)", () => {
   it("parses systems with data crossings and defaults", () => {
     const uc = UpstreamCommsV1Schema.parse({

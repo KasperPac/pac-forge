@@ -30,7 +30,7 @@
         { "id": "G0-12", "title": "Upstream comms interface model (SCADA/MES/historian: systems + data crossing; endpoints/exposure)", "state": "DONE", "priority": "P1", "effort": "M", "depends": ["G0-9"], "evidence": "SHIPPED 2026-07-20: upstream_comms key + engineering.upstream_endpoints + migration 20260720000005 + patch validation" },
         { "id": "G0-13", "title": "Safety layer inventory (functions, zones, PL/SIL, reset policy, effect-on-control) — record + DOCX, never generated", "state": "DONE", "priority": "P1", "effort": "M", "depends": [], "evidence": "SHIPPED 2026-07-20: safety_inventory key + migration 20260720000003 + patch validation; DOCX = exporter wave" },
         { "id": "G0-14", "title": "Recipe/format model: named parameter sets over config params + selection/changeover policy", "state": "DONE", "priority": "P1", "effort": "M", "depends": ["G0-4"], "evidence": "SHIPPED 2026-07-20: recipes key + migration 20260720000004 + patch validation; recipe DB/HMI derived (Unified native)" },
-        { "id": "G0-15", "title": "Diagnostics & condition-monitoring model (runtime/cycle/service metrics; platform diagnostics derived)", "state": "NOT_STARTED", "priority": "P2", "effort": "M", "depends": [], "evidence": "boundary doc O" }
+        { "id": "G0-15", "title": "Diagnostics & condition-monitoring model (runtime/cycle/service metrics; platform diagnostics derived)", "state": "DONE", "priority": "P2", "effort": "M", "depends": [], "evidence": "SHIPPED 2026-07-20: DiagnosticsCapability flags on CM+EM; platform diags/counter DB/HMI view derived; no migration" }
       ]
     },
     { "key": "G1", "name": "Drive integration (MAP layer)",

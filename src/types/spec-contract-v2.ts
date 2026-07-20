@@ -382,6 +382,26 @@ export const AnalogScalingSchema = z.object({
 });
 export type AnalogScaling = z.infer<typeof AnalogScalingSchema>;
 
+// ============================================================
+// Diagnostics & condition monitoring (G0-15, boundary §O) — per-CM/EM
+// capability flags. Platform diagnostics (OB82/86 → alarm rows), the
+// counter/hour DB, and the HMI diagnostics view are all derived.
+// Design: Docs/superpowers/specs/2026-07-20-g0-15-diagnostics-design.md
+// ============================================================
+
+export const DiagnosticsCapabilitySchema = z.object({
+  runtime_hours: z.boolean().default(false),
+  cycle_counter: z.boolean().default(false),
+  start_counter: z.boolean().default(false),
+  service_interval: z
+    .object({
+      metric: z.enum(["runtime_hours", "cycles", "starts"]),
+      threshold: z.number().positive(), // "service due" warning point
+    })
+    .optional(),
+});
+export type DiagnosticsCapability = z.infer<typeof DiagnosticsCapabilitySchema>;
+
 /**
  * `tier` distinguishes signals that exist at the wired instrument layer
  * (from the hardware IO register — always present) from those that only
@@ -416,6 +436,7 @@ export const ControlModuleV2Schema = z.object({
   io_signals: z.array(IoSignalV2Schema),
   network_config: NetworkConfigSchema.optional(),
   drive: DriveModelV1Schema.optional(),
+  diagnostics: DiagnosticsCapabilitySchema.optional(), // G0-15
 });
 export type ControlModuleV2 = z.infer<typeof ControlModuleV2Schema>;
 
@@ -424,6 +445,7 @@ export const EquipmentModuleV2Schema = z.object({
   equipment_module_name: z.string(),
   description: z.string(),
   control_modules: z.array(ControlModuleV2Schema),
+  diagnostics: DiagnosticsCapabilitySchema.optional(), // G0-15
 });
 export type EquipmentModuleV2 = z.infer<typeof EquipmentModuleV2Schema>;
 
