@@ -6,7 +6,9 @@
  */
 import type {
   ControlModuleV2,
+  DriveModelV1,
   EngineeringDataV1,
+  SpecContractV2,
   VfdFamily,
 } from "@/types/spec-contract-v2";
 
@@ -91,4 +93,39 @@ export function validateDriveModels(view: DriveModelSpecView): DriveModelIssues 
   }
 
   return { errors, warnings };
+}
+
+/**
+ * Loader shim (design §5): seed an in-memory tier-1 drive model from legacy
+ * network_config.vfd_family when `drive` is absent. Pure — returns a new
+ * object only when something was seeded (callers may rely on reference
+ * equality for the no-op path). Defaults are the company convention
+ * evidenced by the golden master; authors can override. Never persisted by
+ * itself: the seeded value round-trips like any authored value on the next
+ * write.
+ */
+export function seedDrivesFromNetworkConfig(
+  contract: SpecContractV2,
+): SpecContractV2 {
+  let changed = false;
+  const units = contract.hierarchy.units.map((unit) => ({
+    ...unit,
+    equipment_modules: unit.equipment_modules.map((em) => ({
+      ...em,
+      control_modules: em.control_modules.map((cm) => {
+        if (cm.drive || !cm.network_config?.vfd_family) return cm;
+        changed = true;
+        const drive: DriveModelV1 = {
+          family: cm.network_config.vfd_family,
+          ...(cm.network_config.telegram
+            ? { telegram: cm.network_config.telegram.standard }
+            : {}),
+          speed_ref: { unit: "percent_ref_speed", signed: true },
+          enable_policy: "enable_on_nonzero_ref",
+        };
+        return { ...cm, drive };
+      }),
+    })),
+  }));
+  return changed ? { ...contract, hierarchy: { units } } : contract;
 }

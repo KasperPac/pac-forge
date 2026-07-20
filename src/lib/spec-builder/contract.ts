@@ -60,7 +60,10 @@ import {
 } from "@/types/spec-contract-v2";
 import { validateEmStateMachine, validateCommandBehavior } from "@/lib/spec-builder/em-state-machine";
 import { validateUnitCoordination } from "@/lib/spec-builder/unit-coordination";
-import { validateDriveModels } from "@/lib/spec-builder/drive-model";
+import {
+  seedDrivesFromNetworkConfig,
+  validateDriveModels,
+} from "@/lib/spec-builder/drive-model";
 import { z } from "zod";
 
 // ============================================================
@@ -808,8 +811,10 @@ export async function loadSpecContract(
 
   // FDS Engine Phase 1: populate new top-level fields from spec_projects.
   // Re-parse so SpecContractV2Schema.confirmation_status default + the new
-  // optional fields are normalised.
-  return SpecContractV2Schema.parse({
+  // optional fields are normalised. G0-1: seed drive models from legacy
+  // network_config after parse (pure in-memory shim, see drive-model.ts).
+  return seedDrivesFromNetworkConfig(
+    SpecContractV2Schema.parse({
     ...baseContract,
     modes: (projectRow.confirmed_modes as OperatorMode[] | null) ?? undefined,
     unit_coordination:
@@ -825,7 +830,8 @@ export async function loadSpecContract(
     confirmation_status: confirmationStatus,
     process_model:
       (projectRow.process_model as ProcessModelV2 | null) ?? undefined,
-  });
+    }),
+  );
 }
 
 export async function loadAssemblyStates(

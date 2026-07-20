@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  seedDrivesFromNetworkConfig,
   validateDriveModels,
   type DriveModelSpecView,
 } from "@/lib/spec-builder/drive-model";
-import type { DriveModelV1 } from "@/types/spec-contract-v2";
+import type { DriveModelV1, SpecContractV2 } from "@/types/spec-contract-v2";
 
 const CM_ID = "00000000-0000-4000-8000-000000000001";
 
@@ -100,5 +101,88 @@ describe("validateDriveModels — engineering cross-refs", () => {
   it("no engineering context at all → warnings only, no errors", () => {
     const v = view({ engineering: undefined });
     expect(validateDriveModels(v).errors).toEqual([]);
+  });
+});
+
+describe("seedDrivesFromNetworkConfig (G0-1 back-compat)", () => {
+  const baseCm = {
+    control_module_id: CM_ID,
+    control_module_name: "VSD1",
+    control_module_class: "drive",
+    is_safety: false,
+    description: "",
+    io_signals: [],
+  };
+  const contractWith = (cm: object) =>
+    ({
+      hierarchy: {
+        units: [
+          {
+            unit_id: "00000000-0000-4000-8000-000000000aaa",
+            unit_name: "U",
+            equipment_type: "cell",
+            description: "",
+            excluded: false,
+            equipment_modules: [
+              {
+                equipment_module_id: "00000000-0000-4000-8000-000000000bbb",
+                equipment_module_name: "EM",
+                description: "",
+                control_modules: [cm],
+              },
+            ],
+          },
+        ],
+      },
+      // structural subset — seeding only touches hierarchy
+    }) as unknown as SpecContractV2;
+
+  it("seeds drive from network_config.vfd_family with golden-master defaults", () => {
+    const out = seedDrivesFromNetworkConfig(
+      contractWith({
+        ...baseCm,
+        network_config: {
+          protocol: "profinet",
+          ip_address: "192.168.0.10",
+          station_name: "vsd1",
+          update_cycle_ms: 4,
+          vfd_family: "sinamics_g120",
+          telegram: { standard: 1 },
+        },
+      }),
+    );
+    const seeded =
+      out.hierarchy.units[0].equipment_modules[0].control_modules[0].drive;
+    expect(seeded).toEqual({
+      family: "sinamics_g120",
+      telegram: 1,
+      speed_ref: { unit: "percent_ref_speed", signed: true },
+      enable_policy: "enable_on_nonzero_ref",
+    });
+  });
+
+  it("omits telegram when network_config has none", () => {
+    const out = seedDrivesFromNetworkConfig(
+      contractWith({
+        ...baseCm,
+        network_config: {
+          protocol: "profinet",
+          ip_address: "192.168.0.10",
+          station_name: "vsd1",
+          update_cycle_ms: 4,
+          vfd_family: "sinamics_g120",
+        },
+      }),
+    );
+    expect(
+      out.hierarchy.units[0].equipment_modules[0].control_modules[0].drive?.telegram,
+    ).toBeUndefined();
+  });
+
+  it("never overwrites an authored drive and returns same ref when no-op", () => {
+    const authored = contractWith({ ...baseCm, drive: g120 });
+    expect(seedDrivesFromNetworkConfig(authored)).toBe(authored);
+    const noVfd = contractWith(baseCm);
+    expect(seedDrivesFromNetworkConfig(noVfd)).toBe(noVfd);
   });
 });
