@@ -1106,6 +1106,89 @@ export const EmCommandOverrideSchema = z.object({
 });
 export type EmCommandOverride = z.infer<typeof EmCommandOverrideSchema>;
 
+// ============================================================
+// Signal-routing intent (G0-3) — the unit coordinator's other half.
+// Declarative model of UC_*.scl: routing rows, two-detent, safety-healthy
+// term, PackML command routing, first-out capture. EM↔EM handshakes and
+// product tracking are G0-3b.
+// Design: Docs/superpowers/specs/2026-07-20-g0-3-signal-routing-design.md
+// ============================================================
+
+// Discriminated source reference for routing rows and gates.
+//  io_tag     — conditioned physical/dashboard input (IO_Cond layer)
+//  em_status  — one-way read of a member EM's status DB member (ISA-88
+//               §5.4: EMs never talk directly; the UC routes)
+//  named_gate — computed gate defined elsewhere (G0-4 envelope gates like
+//               fwd_fast_ok / rot_at_home). Reference-only seam until G0-4
+//               ships the registry; no existence check yet.
+export const SignalSourceRefSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("io_tag"), tag: z.string().min(1) }),
+  z.object({
+    kind: z.literal("em_status"),
+    equipment_module_id: z.string().min(1),
+    member: z.string().min(1), // e.g. "permit_travel"
+  }),
+  z.object({ kind: z.literal("named_gate"), gate_id: z.string().min(1) }),
+]);
+export type SignalSourceRef = z.infer<typeof SignalSourceRefSchema>;
+
+export const RoutingTargetSchema = z.object({
+  equipment_module_id: z.string().min(1),
+  pin: z.string().min(1), // e.g. "ilk_Fwd_Fast_Carriage"
+});
+export type RoutingTarget = z.infer<typeof RoutingTargetSchema>;
+
+// One `target.pin := source AND gates...` row.
+export const RoutingRowSchema = z.object({
+  row_id: z.string().min(1),
+  target: RoutingTargetSchema,
+  source: SignalSourceRefSchema,
+  gates: z.array(SignalSourceRefSchema).default([]),
+  description: z.string().optional(),
+});
+export type RoutingRow = z.infer<typeof RoutingRowSchema>;
+
+// Declared two-detent relationship: fast wins; a fast request that fails
+// its gates falls back to the jog row (fallback=true). The writer emits
+// the suppression pattern from this — never hand-authored.
+export const TwoDetentSchema = z.object({
+  jog_row_id: z.string().min(1),
+  fast_row_id: z.string().min(1),
+  fallback: z.boolean().default(true),
+});
+export type TwoDetent = z.infer<typeof TwoDetentSchema>;
+
+// The `#ok` aggregation term: AND of the referenced safety-gate outputs,
+// optionally excluding maintenance mode. References the existing
+// safety_gates model — deterministic, no free expressions.
+export const SafetyHealthySchema = z.object({
+  gate_ids: z.array(z.string().min(1)).min(1), // SafetyGateV2.gate_id refs
+  exclude_maintenance: z.boolean().default(true),
+});
+export type SafetyHealthy = z.infer<typeof SafetyHealthySchema>;
+
+// v1 ships the single canonical policy the golden master runs: while
+// safety-healthy, walk all member EMs to Execute; on unhealthy, STOP.
+// seq_test_release skips command routing in seq-test mode.
+export const CommandRoutingPolicySchema = z.enum([
+  "walk_to_execute_stop_on_unhealthy",
+]);
+export const CommandRoutingSchema = z.object({
+  policy: CommandRoutingPolicySchema,
+  seq_test_release: z.boolean().default(true),
+});
+export type CommandRouting = z.infer<typeof CommandRoutingSchema>;
+
+export const SignalRoutingV1Schema = z.object({
+  safety_healthy: SafetyHealthySchema.optional(),
+  routing_rows: z.array(RoutingRowSchema).default([]),
+  two_detent: z.array(TwoDetentSchema).default([]),
+  command_routing: CommandRoutingSchema.optional(),
+  // First-out fault capture — writer emits first-trip latch logic.
+  first_out: z.object({ enabled: z.boolean() }).optional(),
+});
+export type SignalRoutingV1 = z.infer<typeof SignalRoutingV1Schema>;
+
 export const UnitCoordinationV1Schema = z.object({
   unit_id: z.string().min(1),
   states: z.array(UnitStateV1Schema).min(1),
@@ -1117,6 +1200,8 @@ export const UnitCoordinationV1Schema = z.object({
   em_command_overrides: nullableOptional(
     z.partialRecord(UnitPackMLStateSchema, z.array(EmCommandOverrideSchema)),
   ),
+  // G0-3: the routing layer. Absent until authored.
+  signal_routing: SignalRoutingV1Schema.optional(),
 });
 export type UnitCoordinationV1 = z.infer<typeof UnitCoordinationV1Schema>;
 

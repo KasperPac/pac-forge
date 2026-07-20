@@ -14,6 +14,7 @@ import {
   ProjectSectionContentSchema,
   ProjectSectionTypeSchema,
   SequentialStateV2Schema,
+  SignalRoutingV1Schema,
   SpecContractV2Schema,
   UNIT_PACKML_STATES,
   UnitCoordinationV1Schema,
@@ -564,6 +565,63 @@ describe("IoSignalV2 per-signal model (G0-2)", () => {
   it("rejects negative conditioning delays", () => {
     expect(() =>
       IoSignalV2Schema.parse({ ...baseSig, conditioning: { on_delay_ms: -1 } }),
+    ).toThrow();
+  });
+});
+
+describe("SignalRoutingV1 (G0-3)", () => {
+  const row = {
+    row_id: "r1",
+    target: { equipment_module_id: "em_drive", pin: "ilk_Fwd_Fast" },
+    source: { kind: "io_tag", tag: "Fwd_Fast" },
+    gates: [
+      { kind: "named_gate", gate_id: "fwd_fast_ok" },
+      { kind: "em_status", equipment_module_id: "em_ind", member: "permit_travel" },
+    ],
+  };
+
+  it("parses a full routing model and applies defaults", () => {
+    const parsed = SignalRoutingV1Schema.parse({
+      safety_healthy: { gate_ids: ["estop"] },
+      routing_rows: [row],
+      two_detent: [{ jog_row_id: "r2", fast_row_id: "r1" }],
+      command_routing: { policy: "walk_to_execute_stop_on_unhealthy" },
+      first_out: { enabled: false },
+    });
+    expect(parsed.safety_healthy?.exclude_maintenance).toBe(true);
+    expect(parsed.two_detent[0].fallback).toBe(true);
+    expect(parsed.command_routing?.seq_test_release).toBe(true);
+    expect(parsed.routing_rows[0].gates).toHaveLength(2);
+  });
+
+  it("defaults arrays and rejects unknown source kind", () => {
+    const parsed = SignalRoutingV1Schema.parse({});
+    expect(parsed.routing_rows).toEqual([]);
+    expect(parsed.two_detent).toEqual([]);
+    expect(() =>
+      SignalRoutingV1Schema.parse({
+        routing_rows: [{ ...row, source: { kind: "plc_tag", tag: "X" } }],
+      }),
+    ).toThrow();
+  });
+
+  it("UnitCoordinationV1 accepts optional signal_routing (back-compat)", () => {
+    const coord = {
+      unit_id: "u1",
+      states: [{ state_id: "idle", allowed_modes: [], mode_change_allowed: true }],
+      transitions: [],
+    };
+    expect(UnitCoordinationV1Schema.parse(coord).signal_routing).toBeUndefined();
+    const withRouting = UnitCoordinationV1Schema.parse({
+      ...coord,
+      signal_routing: { routing_rows: [row] },
+    });
+    expect(withRouting.signal_routing?.routing_rows[0].row_id).toBe("r1");
+  });
+
+  it("rejects empty safety_healthy.gate_ids", () => {
+    expect(() =>
+      SignalRoutingV1Schema.parse({ safety_healthy: { gate_ids: [] } }),
     ).toThrow();
   });
 });
