@@ -177,19 +177,25 @@ function routingLine(row: RoutingRowIr): string {
   return `   "EM_${row.emName}_DB".${row.pin} := ${expr};${todo}`;
 }
 
-/** All gate temps an axes IR declares (deduped, declaration order). */
-function axisGateTemps(ir: UnitSequenceIr): string[] {
+/** All declared axis gates (deduped by temp, declaration order). */
+function axisGateIrs(ir: UnitSequenceIr): AxisGateIr[] {
   const ax = ir.axes;
   if (!ax) return [];
-  const temps = [
+  const gates = [
     ...ax.linear.flatMap((a) =>
       [a.gates.fwdOk, a.gates.fwdFastOk, a.gates.revOk, a.gates.revFastOk].flatMap((g) =>
-        g ? [g.temp] : [],
+        g ? [g] : [],
       ),
     ),
-    ...ax.rotary.flatMap((a) => (a.atHome ? [a.atHome.temp] : [])),
+    ...ax.rotary.flatMap((a) => (a.atHome ? [a.atHome] : [])),
   ];
-  return [...new Set(temps)];
+  const seen = new Set<string>();
+  return gates.filter((g) => (seen.has(g.temp) ? false : (seen.add(g.temp), true)));
+}
+
+/** All gate temps an axes IR declares (deduped, declaration order). */
+function axisGateTemps(ir: UnitSequenceIr): string[] {
+  return axisGateIrs(ir).map((g) => g.temp);
 }
 
 /** G2-5: envelope geometry — encoder scaling + gate computation per axis.
@@ -251,6 +257,76 @@ function axisLines(ir: UnitSequenceIr): string[] {
     }
   }
   return lines;
+}
+
+/** G4-2: per-scan envelope status writes into STAT_<Unit> — positions,
+ *  configured-gated distances to the soft ends, ramp-zone flag, and one Bool
+ *  mirror per declared gate (the HMI's envelope telemetry). */
+function statusLines(ir: UnitSequenceIr): string[] {
+  const ax = ir.axes;
+  if (!ax) return [];
+  const db = ax.configDbName;
+  const stat = ax.statusDbName;
+  const lines: string[] = [``, `   // --- envelope status readbacks (${stat}) ---`];
+  for (const a of ax.linear) {
+    lines.push(
+      `   "${stat}".${a.ident}_position_${a.euUnit} := #pos_${a.ident};`,
+      `   IF ("${db}".${a.cfg.scale} > 0) AND ("${db}".${a.cfg.length} > 0) THEN`,
+      `      "${stat}".${a.ident}_dist_to_fwd_end_${a.euUnit} := "${db}".${a.cfg.length} - "${db}".${a.cfg.endMargin} - #pos_${a.ident};`,
+      `      "${stat}".${a.ident}_dist_to_rev_end_${a.euUnit} := #pos_${a.ident} - "${db}".${a.cfg.endMargin};`,
+      `   ELSE`,
+      `      "${stat}".${a.ident}_dist_to_fwd_end_${a.euUnit} := 0;`,
+      `      "${stat}".${a.ident}_dist_to_rev_end_${a.euUnit} := 0;`,
+      `   END_IF;`,
+    );
+    const fastGates = [a.gates.fwdFastOk, a.gates.revFastOk].flatMap((g) => (g ? [g.temp] : []));
+    if (fastGates.length) {
+      lines.push(
+        `   "${stat}".${a.ident}_in_ramp_zone := ${fastGates.map((t) => `(NOT #${t})`).join(" OR ")};`,
+      );
+    }
+  }
+  for (const a of ax.rotary) {
+    lines.push(`   "${stat}".${a.ident}_position_deg10 := #deg10_${a.ident};`);
+  }
+  for (const g of axisGateIrs(ir)) {
+    lines.push(`   "${stat}".${sclIdent(g.gateId).toLowerCase()} := #${g.temp};`);
+  }
+  return lines;
+}
+
+/** STAT_<Unit> DB — the envelope readback interface the UC writes (G4-2). */
+function writeStatusDb(ir: UnitSequenceIr): CodegenArtifact[] {
+  const ax = ir.axes;
+  if (!ax) return [];
+  const members = [
+    ...ax.linear.flatMap((a) => [
+      `      ${a.ident}_position_${a.euUnit} : DInt;`,
+      `      ${a.ident}_dist_to_fwd_end_${a.euUnit} : DInt;`,
+      `      ${a.ident}_dist_to_rev_end_${a.euUnit} : DInt;`,
+      ...(a.gates.fwdFastOk || a.gates.revFastOk ? [`      ${a.ident}_in_ramp_zone : Bool;`] : []),
+    ]),
+    ...ax.rotary.map((a) => `      ${a.ident}_position_deg10 : DInt;`),
+    ...axisGateIrs(ir).map((g) => `      ${sclIdent(g.gateId).toLowerCase()} : Bool;`),
+  ];
+  const content = [
+    `DATA_BLOCK "${ax.statusDbName}"`,
+    `{ S7_Optimized_Access := 'TRUE' }`,
+    `VERSION : 0.1`,
+    `   STRUCT`,
+    ...members,
+    `   END_STRUCT;`,
+    `BEGIN`,
+    `END_DATA_BLOCK`,
+    ``,
+  ].join("\n");
+  return [
+    {
+      name: ax.statusDbName, type: "DB", filename: `${ax.statusDbName}.db`, content,
+      dependencies: [], folder: PROGRAM, layer: "unit",
+      ownerId: ir.unitId, ownerName: ir.unitName,
+    },
+  ];
 }
 
 /** CFG_<Unit> DB — RETAIN geometry params + seeded defaults (G2-5). Runtime
@@ -514,6 +590,7 @@ export function writeUnitArtifacts(ir: UnitSequenceIr): {
     `BEGIN`,
     ...mirror,
     ...axisLines(ir),
+    ...statusLines(ir),
     ...okLines,
     ...modeManagerLines(ir, unName),
     ...smLines,
@@ -541,7 +618,7 @@ export function writeUnitArtifacts(ir: UnitSequenceIr): {
   };
 
   return {
-    artifacts: [fb, writeInstanceDb(name, ir), writeUnDb(ir), ...writeConfigDb(ir)],
+    artifacts: [fb, writeInstanceDb(name, ir), writeUnDb(ir), ...writeConfigDb(ir), ...writeStatusDb(ir)],
     callLine: `   "${name}_DB"();`,
   };
 }

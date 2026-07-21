@@ -153,9 +153,12 @@ export interface RotaryAxisIr {
   atHome?: AxisGateIr;
 }
 
-/** G2-5: the unit's envelope geometry, resolved for emission. */
+/** G2-5: the unit's envelope geometry, resolved for emission. `statusDbName`
+ *  is the G4-2 readback DB the UC writes each scan (positions, distances,
+ *  zone flags, gate mirrors — the HMI's envelope telemetry). */
 export interface UnitAxesIr {
   configDbName: string;
+  statusDbName: string;
   params: ConfigParamIr[];
   linear: LinearAxisIr[];
   rotary: RotaryAxisIr[];
@@ -376,7 +379,13 @@ export function buildUnitSequence(input: UnitBuildInput): UnitSequenceIr {
         });
       }
     }
-    axesIr = { configDbName: `CFG_${sclIdent(unitName)}`, params, linear, rotary };
+    axesIr = {
+      configDbName: `CFG_${sclIdent(unitName)}`,
+      statusDbName: `STAT_${sclIdent(unitName)}`,
+      params,
+      linear,
+      rotary,
+    };
   }
 
   // G2-4: resolve routing rows + two-detent suppression.

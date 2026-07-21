@@ -588,3 +588,69 @@ describe("writeUnitArtifacts — envelope geometry emission (G2-5)", () => {
     expect(c.indexOf("#pos_travel :=")).toBeLessThan(c.indexOf('"EM_Drive_DB".ilk_Fwd_Fast :='));
   });
 });
+
+describe("writeUnitArtifacts — STAT_<Unit> status readbacks (G4-2)", () => {
+  function statIr() {
+    const members: UnitMemberEm[] = [{ emId: "em-a", emName: "Drive", states: [] }];
+    const coord: UnitCoordinationV1 = {
+      unit_id: "unit-1",
+      states: [{ state_id: "idle", allowed_modes: [], mode_change_allowed: true }],
+      transitions: [],
+      em_command_overrides: null,
+      axes: [
+        { axis_id: "travel", kind: "linear", encoder_tag: "Enc_Travel", eu_unit: "mm",
+          scale: { db_member: "mm_per_rev_x10", retain: true, operator_settable: false },
+          length: { db_member: "length_mm", retain: true, operator_settable: true },
+          end_margin: { db_member: "end_margin_mm", default: 500, retain: true, operator_settable: false },
+          ramp_zone: { db_member: "ramp_zone_mm", default: 2000, retain: true, operator_settable: false },
+          gates: { fwd_ok: "g-fwd", fwd_fast_ok: "g-fwd-fast", rev_fast_ok: "g-rev-fast" },
+          unconfigured_open: true },
+        { axis_id: "rot", kind: "rotary", encoder_tag: "Enc_Rot",
+          counts_per_rev: { db_member: "counts_per_360", default: 0, retain: true, operator_settable: false },
+          preset_offset: 0,
+          home_windows: [{ center_deg10: 0, band_deg10: 20 }],
+          gates: { at_home: "g-at-home" } },
+      ],
+    };
+    return buildUnitSequence({ unitId: "unit-1", unitName: "Carriage", coord, members, modes: [] });
+  }
+
+  it("emits the STAT_<Unit> DB with position, distance, zone, and gate members", () => {
+    const db = writeUnitArtifacts(statIr()).artifacts.find((a) => a.name === "STAT_Carriage")!;
+    expect(db.type).toBe("DB");
+    expect(db.layer).toBe("unit");
+    expect(db.content).toContain("travel_position_mm : DInt;");
+    expect(db.content).toContain("travel_dist_to_fwd_end_mm : DInt;");
+    expect(db.content).toContain("travel_dist_to_rev_end_mm : DInt;");
+    expect(db.content).toContain("travel_in_ramp_zone : Bool;");
+    expect(db.content).toContain("rot_position_deg10 : DInt;");
+    expect(db.content).toContain("g_fwd : Bool;");
+    expect(db.content).toContain("g_fwd_fast : Bool;");
+    expect(db.content).toContain("g_at_home : Bool;");
+  });
+
+  it("writes positions, configured-gated distances, ramp-zone flag, and gate mirrors each scan", () => {
+    const fb = writeUnitArtifacts(statIr()).artifacts.find((a) => a.name === "UC_Carriage")!.content;
+    expect(fb).toContain('"STAT_Carriage".travel_position_mm := #pos_travel;');
+    expect(fb).toContain(
+      '"STAT_Carriage".travel_dist_to_fwd_end_mm := "CFG_Carriage".length_mm - "CFG_Carriage".end_margin_mm - #pos_travel;',
+    );
+    expect(fb).toContain(
+      '"STAT_Carriage".travel_dist_to_rev_end_mm := #pos_travel - "CFG_Carriage".end_margin_mm;',
+    );
+    // unconfigured -> distances read 0
+    expect(fb).toContain('"STAT_Carriage".travel_dist_to_fwd_end_mm := 0;');
+    // ramp zone from the declared fast gates
+    expect(fb).toContain(
+      '"STAT_Carriage".travel_in_ramp_zone := (NOT #gate_g_fwd_fast) OR (NOT #gate_g_rev_fast);',
+    );
+    expect(fb).toContain('"STAT_Carriage".rot_position_deg10 := #deg10_rot;');
+    expect(fb).toContain('"STAT_Carriage".g_fwd := #gate_g_fwd;');
+    expect(fb).toContain('"STAT_Carriage".g_at_home := #gate_g_at_home;');
+  });
+
+  it("emits no STAT DB when the unit declares no axes", () => {
+    const arts = writeUnitArtifacts(twoStateIr()).artifacts;
+    expect(arts.find((a) => a.name.startsWith("STAT_"))).toBeUndefined();
+  });
+});
