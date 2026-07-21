@@ -20,8 +20,30 @@ export interface UnitMemberEm {
   emId: string;
   /** SCL identifier stem for `EM_<name>_DB` references (already sclIdent-ed by caller). */
   emName: string;
-  /** EM-local states in dispatch order: slug → index (for em_aggregate guards). */
-  states: { slug: string; index: number }[];
+  /** EM-local states in dispatch order: slug → index (for em_aggregate guards).
+   *  `allowedModes` = the EM state's allowed mode_ids (G0-9 EmStateV2.allowed_modes;
+   *  empty/undefined = all modes) — drives mode-change legality (G2-1). */
+  states: { slug: string; index: number; allowedModes?: string[] }[];
+}
+
+/** Compile-time expansion of `isModeChangeLegal` for one target mode (G2-1).
+ *  `null` index lists mean "unrestricted — omit the term". */
+export interface UnitModeIr {
+  name: string;
+  index: number;
+  /** Unit states in which this mode may be entered (null = all declared states). */
+  unitStateIndices: number[] | null;
+  /** Per member EM: EM state indices legal in this mode. Members whose every
+   *  state allows the mode contribute no term (omitted from the list). */
+  emTerms: { emName: string; stateIndices: number[] }[];
+}
+
+export interface UnitModeManagerIr {
+  modes: UnitModeIr[];
+  /** Cur_St indices whose state has mode_change_allowed (Mode_Change_Legal mirror). */
+  modeChangeAllowedIndices: number[];
+  /** Cur_Mode init value (index of the is_default mode; 0 when none flagged). */
+  defaultModeIndex: number;
 }
 
 /** The command the unit asserts to one member EM while in a given unit state. */
@@ -91,10 +113,21 @@ export interface UnitSequenceIr {
   members: { emId: string; emName: string }[];
   states: UnitStateIr[];
   transitions: UnitTransitionIr[];
-  /** G2-2: the serialized `#ok` term (AND of referenced safety gates). */
-  safetyHealthy?: { expr: string; excludeMaintenance: boolean };
+  /** G2-2: the serialized `#ok` term (AND of referenced safety gates).
+   *  G2-1: `overrideTargetIndex` — the Cur_St the writer forces on NOT #ok
+   *  (declared aborting, else aborted, else stopped; undefined = none declared,
+   *  override skipped with a warning). `overrideExcludeIndices` — declared
+   *  aborting/aborted indices the override must not fire from. */
+  safetyHealthy?: {
+    expr: string;
+    excludeMaintenance: boolean;
+    overrideTargetIndex?: number;
+    overrideExcludeIndices: number[];
+  };
   /** G2-2: command-routing policy flags from signal_routing (G0-3). */
   commandRouting?: { seqTestRelease: boolean };
+  /** G2-1: mode manager — compile-time legality expansion (absent when no modes). */
+  modeManager?: UnitModeManagerIr;
   warnings: string[];
 }
 
@@ -107,29 +140,6 @@ export function buildUnitSequence(input: UnitBuildInput): UnitSequenceIr {
   const { unitId, unitName, coord, members, modes, safetyGates } = input;
   const warnings: string[] = [];
   const modeIndex = new Map(modes.map((m, i) => [m.mode_id, i]));
-
-  // G2-2: resolve the safety-healthy term against the machine safety gates.
-  const sh = coord.signal_routing?.safety_healthy;
-  let safetyHealthy: UnitSequenceIr["safetyHealthy"];
-  if (sh) {
-    const conditions: PermissiveCondition[] = [];
-    let missing = false;
-    for (const gid of sh.gate_ids) {
-      const gate = safetyGates?.find((g) => g.gate_id === gid);
-      if (!gate) {
-        missing = true;
-        warnings.push(
-          `unit ${unitName}: safety_healthy references gate "${gid}" not found in safety_gates — #ok renders FALSE`,
-        );
-        continue;
-      }
-      conditions.push(...gate.condition);
-    }
-    safetyHealthy = {
-      expr: missing ? "FALSE" : serializeGuard(conditions, (t) => `"${t}"`),
-      excludeMaintenance: sh.exclude_maintenance,
-    };
-  }
 
   const cr = coord.signal_routing?.command_routing;
   const commandRouting = cr ? { seqTestRelease: cr.seq_test_release } : undefined;
@@ -153,6 +163,42 @@ export function buildUnitSequence(input: UnitBuildInput): UnitSequenceIr {
 
   const indexByState = new Map(states.map((s) => [s.stateId, s.index]));
 
+  // G2-2: resolve the safety-healthy term against the machine safety gates.
+  // G2-1: resolve the NOT-#ok override target (aborting → aborted → stopped).
+  const sh = coord.signal_routing?.safety_healthy;
+  let safetyHealthy: UnitSequenceIr["safetyHealthy"];
+  if (sh) {
+    const conditions: PermissiveCondition[] = [];
+    let missing = false;
+    for (const gid of sh.gate_ids) {
+      const gate = safetyGates?.find((g) => g.gate_id === gid);
+      if (!gate) {
+        missing = true;
+        warnings.push(
+          `unit ${unitName}: safety_healthy references gate "${gid}" not found in safety_gates — #ok renders FALSE`,
+        );
+        continue;
+      }
+      conditions.push(...gate.condition);
+    }
+    const overrideTargetIndex = (["aborting", "aborted", "stopped"] as const)
+      .map((s) => indexByState.get(s))
+      .find((i) => i !== undefined);
+    if (overrideTargetIndex === undefined) {
+      warnings.push(
+        `unit ${unitName}: no aborting/aborted/stopped state declared — safety override skipped (EM-level force-to-safe still applies)`,
+      );
+    }
+    safetyHealthy = {
+      expr: missing ? "FALSE" : serializeGuard(conditions, (t) => `"${t}"`),
+      excludeMaintenance: sh.exclude_maintenance,
+      overrideTargetIndex,
+      overrideExcludeIndices: (["aborting", "aborted"] as const)
+        .map((s) => indexByState.get(s))
+        .filter((i): i is number => i !== undefined),
+    };
+  }
+
   const transitions: UnitTransitionIr[] = coord.transitions.map((t) => ({
     transitionId: t.transition_id,
     fromIndex: indexByState.get(t.from_state_id) ?? -1,
@@ -164,6 +210,35 @@ export function buildUnitSequence(input: UnitBuildInput): UnitSequenceIr {
       .filter((n): n is number => n !== undefined),
   }));
 
+  // G2-1: mode manager — expand isModeChangeLegal at compile time per mode.
+  let modeManager: UnitModeManagerIr | undefined;
+  if (modes.length > 0) {
+    modeManager = {
+      modes: modes.map((mode, index) => {
+        const unitAllowed = states
+          .filter((s) => s.allowedModes.length === 0 || s.allowedModes.includes(mode.mode_id))
+          .map((s) => s.index);
+        const emTerms = members.flatMap((m) => {
+          const allowed = m.states
+            .filter((s) => !s.allowedModes || s.allowedModes.length === 0 || s.allowedModes.includes(mode.mode_id))
+            .map((s) => s.index);
+          // every EM state legal → unrestricted, no term
+          return allowed.length === m.states.length
+            ? []
+            : [{ emName: m.emName, stateIndices: allowed }];
+        });
+        return {
+          name: mode.name,
+          index,
+          unitStateIndices: unitAllowed.length === states.length ? null : unitAllowed,
+          emTerms,
+        };
+      }),
+      modeChangeAllowedIndices: states.filter((s) => s.modeChangeAllowed).map((s) => s.index),
+      defaultModeIndex: Math.max(0, modes.findIndex((m) => m.is_default)),
+    };
+  }
+
   return {
     unitId,
     unitName,
@@ -172,6 +247,7 @@ export function buildUnitSequence(input: UnitBuildInput): UnitSequenceIr {
     transitions,
     safetyHealthy,
     commandRouting,
+    modeManager,
     warnings,
   };
 }
