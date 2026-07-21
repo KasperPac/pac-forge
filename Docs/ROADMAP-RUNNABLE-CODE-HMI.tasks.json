@@ -259,14 +259,26 @@
         },
         {
           "id": "G1-4",
-          "title": "IO signal conditioning: N/C inversion + debounce/filter emission + analog EU scaling (NORM_X/SCALE_X)",
-          "state": "IN_PROGRESS",
+          "title": "N/C fail-safe inversion per sensor polarity",
+          "state": "DONE",
           "priority": "P0",
-          "effort": "M",
+          "effort": "S",
           "depends": [
             "G0-2"
           ],
-          "evidence": "N/C inversion shipped d0df905; TON/TOF + NORM_X/SCALE_X emission remaining"
+          "evidence": "SHIPPED 2026-07-21 d0df905: EmPin.polarity -> NOT emission (golden-master pattern)"
+        },
+        {
+          "id": "G1-4b",
+          "title": "Conditioning + analog scaling emission (TON/TOF debounce, NORM_X/SCALE_X EU, io_conditioning_defaults)",
+          "state": "NOT_STARTED",
+          "priority": "P0",
+          "effort": "M",
+          "depends": [
+            "G0-2",
+            "G1-4"
+          ],
+          "evidence": "split 2026-07-21; not evidenced in golden master; Monday subitem 3098977894"
         },
         {
           "id": "G1-5",

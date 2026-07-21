@@ -87,7 +87,8 @@ to full IO signal conditioning.*
 | G1-1 | Detect analog/VSD control modules and select drive FB family from G0-1 metadata | ✅ | P0 | M | G0-1 | SHIPPED 2026-07-20: drive-detect.ts (detectDrives + family→FB table G120→SINA_SPEED/S210→SINA_POS, tier-2 join, warn-don't-throw), EmSequence.drives on the IR |
 | G1-2 | Emit telegram FB call (SINA_SPEED / SINA_POS) + its instance DB into the MAP FC | ✅ | P0 | M | G1-1 | SHIPPED 2026-07-21 000850c: SINA_SPEED call + instance DB from EmSequence.drives; enable policy, HW ids/ConfigAxis from tier-2, TODO-not-guess for gaps; SINA_POS stubs until a position golden example |
 | G1-3 | Emit %↔rpm (engineering-unit) scaling from RefSpeed/p2000 | ✅ | P0 | S | G1-2 | SHIPPED 2026-07-21 000850c: SpeedSp `INT_TO_REAL(#ref) * rpm/100` + inverse feedback scaling; unscaled+TODO when RefSpeed unrecorded |
-| G1-4 | IO signal conditioning: N/C inversion per polarity + debounce/filter emission + analog EU scaling (`NORM_X`/`SCALE_X`) | 🟡 | P0 | M | G0-2 | IN PROGRESS 2026-07-21: N/C inversion SHIPPED (EmPin.polarity → `NOT` emission); debounce/filter (TON/TOF) + analog `NORM_X`/`SCALE_X` emission remaining |
+| G1-4 | N/C fail-safe inversion per sensor polarity | ✅ | P0 | S | G0-2 | SHIPPED 2026-07-21 d0df905: EmPin.polarity → `NOT` emission with fail-safe comment (golden-master pattern) |
+| G1-4b | Conditioning + analog scaling emission: TON/TOF debounce from `conditioning`, `NORM_X`/`SCALE_X` EU from `scaling`, blanket `io_conditioning_defaults` | 🔴 | P0 | M | G0-2, G1-4 | split 2026-07-21; not evidenced in golden master (generic class); Monday subitem 3098977894 |
 | G1-5 | Analog / PROFINET telegram-word addressing (IW/QW offsets); smarter unresolved-address handling | 🟡 | P1 | M | G0-1 | emits `// TODO wire` today |
 | G1-6 | Refactor `vfd-fb-family.ts` so the deterministic compiler can consume it (currently AI-only) | 🔴 | P1 | M | — | imported only by `use-forge-device-generate.ts` |
 
