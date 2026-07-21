@@ -1,5 +1,5 @@
 // Spec Builder types — functional specification document generation
-import type { PermissiveCondition, SequentialStateV2, OperatorMode, SafetyGateV2, EmStateV2, EmTransitionV2, CommandBehaviorV2, AnalogScaling, DriveModelV1, IoConditioning, IoPolarity } from "./spec-contract-v2";
+import type { PermissiveCondition, SequentialStateV2, OperatorMode, SafetyGateV2, EmStateV2, EmTransitionV2, CommandBehaviorV2, AnalogScaling, DriveModelV1, IoConditioning, IoPolarity, UnitCoordinationV1 } from "./spec-contract-v2";
 
 // --- ISA-88 Process Model (§4.3) ---
 // Describes WHAT happens to the product (product-centric), not HOW equipment does it.
@@ -81,6 +81,9 @@ export interface SpecProject {
   confirmation_status: "unconfirmed" | "confirmed";
   // ISA-88 Process Model (migration 091)
   process_model: ProcessModel | null;
+  // G0-3/G0-4 unit coordination layer (jsonb column; authored in the
+  // Controls Data panel via writeSpecContract — G0-16)
+  unit_coordination?: Record<string, UnitCoordinationV1> | null;
   created_at: string;
   updated_at: string;
 }

@@ -5,12 +5,13 @@
  */
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
-import { ArrowLeft, Hammer, Layers, Loader2, MessageSquare } from "lucide-react";
+import { ArrowLeft, Cable, Hammer, Layers, Loader2, MessageSquare } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FdsCoAuthor } from "@/components/spec-builder/fds-co-author";
 import { ProcessModelPanel } from "@/components/spec-builder/process-model-panel";
+import { ControlsDataPanel } from "@/components/spec-builder/controls-data-panel";
 import {
   useSpecProject,
   useInstrumentRegister,
@@ -19,7 +20,7 @@ import { useUnconfirmedLock } from "@/hooks/use-unconfirmed-lock";
 import { UnconfirmedLockBanner } from "@/components/spec-builder/unconfirmed-lock-banner";
 import { migrateUnitConfig } from "@/types/spec-builder";
 
-type CoAuthorView = "fds" | "process-model";
+type CoAuthorView = "fds" | "process-model" | "controls-data";
 
 export default function SpecCoAuthorPage() {
   const { projectId, specId } = useParams<{ projectId: string; specId: string }>();
@@ -111,6 +112,15 @@ export default function SpecCoAuthorPage() {
             <Layers className="h-3 w-3" />
             Process Model
           </Button>
+          <Button
+            variant={view === "controls-data" ? "secondary" : "ghost"}
+            size="sm"
+            className="h-6 text-[10px] gap-1 px-2"
+            onClick={() => setView("controls-data")}
+          >
+            <Cable className="h-3 w-3" />
+            Controls Data
+          </Button>
         </div>
         <Badge variant="outline" className="text-[10px] ml-auto">Phase 3 — Co-Author</Badge>
         <Badge variant="outline" className="text-[10px]">Rev {spec.revision}</Badge>
@@ -150,8 +160,10 @@ export default function SpecCoAuthorPage() {
       <div className="flex-1 min-h-0 overflow-hidden">
         {view === "fds" ? (
           <FdsCoAuthor spec={spec} register={register} fullScreen />
-        ) : (
+        ) : view === "process-model" ? (
           <ProcessModelPanel spec={spec} />
+        ) : (
+          <ControlsDataPanel spec={spec} />
         )}
       </div>
     </div>
