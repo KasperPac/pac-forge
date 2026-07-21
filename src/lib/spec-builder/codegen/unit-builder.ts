@@ -8,10 +8,12 @@ import { UNIT_PACKML_STATES } from "@/types/spec-contract-v2";
 import type {
   OperatorMode,
   PermissiveCondition,
+  SafetyGateV2,
   UnitCoordinationV1,
   UnitPackMLState,
 } from "@/types/spec-contract-v2";
 import { emCommandForState, type EmCommand } from "../unit-coordination";
+import { serializeGuard } from "./serialize-condition";
 
 /** A member EM of the unit, with its EM-local PackML slug → dispatch index map. */
 export interface UnitMemberEm {
@@ -77,6 +79,8 @@ export interface UnitBuildInput {
   members: UnitMemberEm[];
   /** Declared operator modes (for Cur_Mode mask guards). */
   modes: OperatorMode[];
+  /** Machine safety gates — resolves signal_routing.safety_healthy (G2-2). */
+  safetyGates?: SafetyGateV2[];
 }
 
 /** Resolved IR for one unit coordinator. Grows per G2 TDD cycle. */
@@ -87,6 +91,10 @@ export interface UnitSequenceIr {
   members: { emId: string; emName: string }[];
   states: UnitStateIr[];
   transitions: UnitTransitionIr[];
+  /** G2-2: the serialized `#ok` term (AND of referenced safety gates). */
+  safetyHealthy?: { expr: string; excludeMaintenance: boolean };
+  /** G2-2: command-routing policy flags from signal_routing (G0-3). */
+  commandRouting?: { seqTestRelease: boolean };
   warnings: string[];
 }
 
@@ -96,9 +104,35 @@ export interface UnitSequenceIr {
  * rule; G7-1 text lists share this order) — never authoring order.
  */
 export function buildUnitSequence(input: UnitBuildInput): UnitSequenceIr {
-  const { unitId, unitName, coord, members, modes } = input;
+  const { unitId, unitName, coord, members, modes, safetyGates } = input;
   const warnings: string[] = [];
   const modeIndex = new Map(modes.map((m, i) => [m.mode_id, i]));
+
+  // G2-2: resolve the safety-healthy term against the machine safety gates.
+  const sh = coord.signal_routing?.safety_healthy;
+  let safetyHealthy: UnitSequenceIr["safetyHealthy"];
+  if (sh) {
+    const conditions: PermissiveCondition[] = [];
+    let missing = false;
+    for (const gid of sh.gate_ids) {
+      const gate = safetyGates?.find((g) => g.gate_id === gid);
+      if (!gate) {
+        missing = true;
+        warnings.push(
+          `unit ${unitName}: safety_healthy references gate "${gid}" not found in safety_gates — #ok renders FALSE`,
+        );
+        continue;
+      }
+      conditions.push(...gate.condition);
+    }
+    safetyHealthy = {
+      expr: missing ? "FALSE" : serializeGuard(conditions, (t) => `"${t}"`),
+      excludeMaintenance: sh.exclude_maintenance,
+    };
+  }
+
+  const cr = coord.signal_routing?.command_routing;
+  const commandRouting = cr ? { seqTestRelease: cr.seq_test_release } : undefined;
 
   const states: UnitStateIr[] = [...coord.states]
     .sort(
@@ -136,6 +170,8 @@ export function buildUnitSequence(input: UnitBuildInput): UnitSequenceIr {
     members: members.map((m) => ({ emId: m.emId, emName: m.emName })),
     states,
     transitions,
+    safetyHealthy,
+    commandRouting,
     warnings,
   };
 }
