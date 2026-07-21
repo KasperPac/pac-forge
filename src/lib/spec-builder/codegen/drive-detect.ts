@@ -32,6 +32,9 @@ export interface DriveInstance {
   drive: DriveModelV1;
   /** Tier-2 commissioning values when recorded (HW ids, RefSpeed, ConfigAxis). */
   engineering?: DriveEngineeringEntry;
+  /** The CM's signal tags — lets the MAP writer resolve which EM pins are
+   *  this drive's speed reference/feedback (G1-2). */
+  io_tags: string[];
   warnings: string[];
 }
 
@@ -68,6 +71,7 @@ export function detectDrives(
       fb_name,
       drive: cm.drive,
       engineering: eng,
+      io_tags: cm.io_signals.map((s) => s.tag),
       warnings,
     });
   }

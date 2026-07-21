@@ -12,6 +12,7 @@ function seq(): EmSequence {
     interlockPins: ["ilk_rotator_safe"],
     sensors: [{ name: "fb_brake_open", tag: "brake_open", scl_type: "Bool", address: "I0.0" }],
     actuators: [{ name: "cmd_run", tag: "run", scl_type: "Bool", address: "Q0.0" }],
+    drives: [],
     warnings: [],
     states: [
       { stateId: "idle", name: "Idle", index: 0, kind: "static", isSafe: true,
@@ -213,5 +214,88 @@ describe("writeEmArtifacts command-driven states", () => {
     const fb = writeEmArtifacts(s).artifacts[0].content;
     const body = fb.slice(fb.indexOf("1:   // Execute"));
     expect(body).toMatch(/\/\/ Signal only\r?\n\s*;/);
+  });
+});
+
+describe("MAP drive emission (G1-2/G1-3)", () => {
+  function driveSeq(): EmSequence {
+    const s = seq();
+    // the drive CM's telegram pins on the EM seam
+    s.actuators.push({
+      name: "cmd_VSD1_Speed_Ref", tag: "VSD1_Speed_Ref", scl_type: "Int", address: "",
+    });
+    s.sensors.push({
+      name: "fb_VSD1_Speed_Fb", tag: "VSD1_Speed_Fb", scl_type: "Int", address: "",
+    });
+    s.drives = [
+      {
+        control_module_id: "cm-vsd",
+        control_module_name: "Rail Motors VSD",
+        sclName: "Rail_Motors_VSD",
+        fb_name: "SINA_SPEED",
+        io_tags: ["VSD1_Speed_Ref", "VSD1_Speed_Fb"],
+        drive: {
+          family: "sinamics_g120",
+          telegram: 1,
+          speed_ref: { unit: "percent_ref_speed", signed: true },
+          enable_policy: "enable_on_nonzero_ref",
+        },
+        engineering: {
+          control_module_id: "cm-vsd",
+          hw_id_stw: 322,
+          hw_id_zsw: 322,
+          ref_speed_rpm: 1500.0,
+          config_axis: 0x003f,
+        },
+        warnings: [],
+      },
+    ];
+    return s;
+  }
+
+  it("emits the SINA_SPEED call converging on the golden master", () => {
+    const { artifacts } = writeEmArtifacts(driveSeq());
+    const map = artifacts.find((a) => a.name === "MAP_Carriage_Drive")!.content;
+    expect(map).toContain('#ref_Rail_Motors_VSD := "EM_Carriage_Drive_DB".cmd_VSD1_Speed_Ref;');
+    expect(map).toContain('"SINA_SPEED_Rail_Motors_VSD_DB"(');
+    expect(map).toContain("EnableAxis := #ref_Rail_Motors_VSD <> 0");
+    expect(map).toContain("SpeedSp := INT_TO_REAL(#ref_Rail_Motors_VSD) * 15.0");
+    expect(map).toContain("RefSpeed := 1500.0");
+    expect(map).toContain("ConfigAxis := 16#003F");
+    expect(map).toContain("HWIDSTW := 322");
+    expect(map).toContain("HWIDZSW := 322");
+    expect(map).toContain(
+      '"EM_Carriage_Drive_DB".fb_VSD1_Speed_Fb := REAL_TO_INT("SINA_SPEED_Rail_Motors_VSD_DB".ActVelocity / 15.0);',
+    );
+    // telegram pins are excluded from the plain symbolic copy loops
+    expect(map).not.toContain('// TODO wire sensor fb_VSD1_Speed_Fb');
+    expect(map).not.toContain('// TODO wire actuator cmd_VSD1_Speed_Ref');
+    // VAR_TEMP for the ref
+    expect(map).toContain("ref_Rail_Motors_VSD : Int;");
+  });
+
+  it("adds the drive instance DB to the artifact bundle", () => {
+    const { artifacts } = writeEmArtifacts(driveSeq());
+    const db = artifacts.find((a) => a.name === "SINA_SPEED_Rail_Motors_VSD_DB");
+    expect(db?.type).toBe("DB");
+    expect(db?.content).toContain('"SINA_SPEED"');
+  });
+
+  it("emits TODOs instead of guesses when engineering data is missing", () => {
+    const s = driveSeq();
+    s.drives[0].engineering = undefined;
+    const map = writeEmArtifacts(s).artifacts.find((a) => a.name === "MAP_Carriage_Drive")!.content;
+    expect(map).toContain("SpeedSp := INT_TO_REAL(#ref_Rail_Motors_VSD)");
+    expect(map).not.toContain("* 15.0");
+    expect(map).toMatch(/RefSpeed := 0\.0.*TODO/);
+    expect(map).toMatch(/HWIDSTW := 0.*TODO/);
+  });
+
+  it("emits a TODO stub for drives without a deterministic FB", () => {
+    const s = driveSeq();
+    s.drives[0].fb_name = undefined;
+    const map = writeEmArtifacts(s).artifacts.find((a) => a.name === "MAP_Carriage_Drive")!.content;
+    expect(map).toContain("// TODO drive Rail Motors VSD");
+    expect(map).not.toContain("SINA_SPEED_Rail_Motors_VSD_DB");
   });
 });
