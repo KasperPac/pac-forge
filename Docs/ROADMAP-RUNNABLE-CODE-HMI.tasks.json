@@ -321,13 +321,13 @@
         {
           "id": "G2-2",
           "title": "Safety-healthy aggregation (#ok = estop AND relay AND NOT maint)",
-          "state": "NOT_STARTED",
+          "state": "DONE",
           "priority": "P0",
           "effort": "S",
           "depends": [
             "G2-1"
           ],
-          "evidence": ""
+          "evidence": "SHIPPED 2026-07-21 5379a3a: #ok + STOP-on-unhealthy + command assertion + seq-test release + PackTags mirror"
         },
         {
           "id": "G2-3",

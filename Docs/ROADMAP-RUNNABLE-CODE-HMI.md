@@ -102,7 +102,7 @@ were fully hand-authored (`UC_Carriage/Rotator/Indicators.scl`).*
 | ID | Task | State | Pri | Eff | Depends | Evidence / notes |
 |---|---|---|---|---|---|---|
 | G2-1 | UC writer scaffold to replace `unitCoordinationStub` | 🔴 | P0 | M | G0-3 | `compile-contract.ts:148-169` |
-| G2-2 | Safety-healthy aggregation (`#ok = estop AND relay AND NOT maint`) | 🔴 | P0 | S | G2-1 | — |
+| G2-2 | Safety-healthy aggregation (`#ok = estop AND relay AND NOT maint`) | ✅ | P0 | S | G2-1 | SHIPPED 2026-07-21 5379a3a: #ok from G0-3 safety_healthy gate refs + STOP-on-unhealthy policy + per-state command assertion via CMD seam + seq-test release + PackTags mirror; maintenance exclusion TODO'd to G3 |
 | G2-3 | PackML command routing into EM `ilk_CMD_*` gated on `#ok`/maintenance/seq-test | 🔴 | P0 | M | G0-3,G2-1 | seq-test `RETURN` gating |
 | G2-4 | Physical signal → EM `ilk_` routing incl. two-detent jog/fast suppression | 🔴 | P0 | M | G0-3 | `Fwd_Fast AND NOT jog` logic |
 | G2-5 | Envelope/limit-zone logic (position scaling, fwd/rev/fast gates, ramp fallback) | 🔴 | P1 | L | G0-4 | fast→jog fallback in zone |
