@@ -5,144 +5,903 @@
     "golden_master": "exports/SRL-1427-500802-PACKML/",
     "source_of_truth": "Docs/ROADMAP-RUNNABLE-CODE-HMI.md",
     "columns": {
-      "state": ["NOT_STARTED", "IN_PROGRESS", "BLOCKER_RESEARCH", "NEEDS_DESIGN", "DONE"],
-      "priority": ["P0", "P1", "P2"],
-      "effort": ["S", "M", "L"]
+      "state": [
+        "NOT_STARTED",
+        "IN_PROGRESS",
+        "BLOCKER_RESEARCH",
+        "NEEDS_DESIGN",
+        "DONE"
+      ],
+      "priority": [
+        "P0",
+        "P1",
+        "P2"
+      ],
+      "effort": [
+        "S",
+        "M",
+        "L"
+      ]
     }
   },
   "groups": [
-    { "key": "G0", "name": "FDS schema (SpecContractV2) — FOUNDATION",
+    {
+      "key": "G0",
+      "name": "FDS schema (SpecContractV2) — FOUNDATION",
       "note": "Prerequisite. Deterministic writers can only emit what the contract models; today it models none of this.",
       "tasks": [
-        { "id": "G0-1", "title": "Drive/VSD parameter model (family, telegram, HW ids, RefSpeed/p2000, units, sign)", "state": "DONE", "priority": "P0", "effort": "M", "depends": [], "evidence": "SHIPPED 2026-07-20 ec29d42..4a28f63: DriveModelV1 + EngineeringDataV1.drives, drive-model.ts validator + seeding, migration 20260720000000_engineering_data" },
-        { "id": "G0-2", "title": "Per-IO signal model: polarity (N/C vs N/O) + conditioning (debounce/filter, analog scaling {raw<->EU, unit})", "state": "DONE", "priority": "P0", "effort": "M", "depends": [], "evidence": "SHIPPED 2026-07-20 9bd53b6..bdc5ada: polarity/conditioning/scaling on IoSignalV2, io_conditioning_defaults, io-signal-model.ts, deriveIoList rendering; placement amended to IoSignalV2 per spec 2026-07-20" },
-        { "id": "G0-3", "title": "Coordination / signal-routing intent model (input->EM ilk_ pin, two-detent, mode gating)", "state": "DONE", "priority": "P0", "effort": "L", "depends": [], "evidence": "SHIPPED 2026-07-20 f3e3c84..562d2ee: SignalRoutingV1 on UnitCoordinationV1 + signal-routing.ts validator + patch gate; evidenced core, handshakes split to G0-3b; no migration" },
-        { "id": "G0-3b", "title": "EM<->EM handshake links + product-tracking model (split from G0-3; design against G9-4 pilot)", "state": "NOT_STARTED", "priority": "P1", "effort": "M", "depends": ["G0-3", "G9-4"], "evidence": "boundary table C rows not evidenced in golden master; Monday subitem 3096811470" },
-        { "id": "G0-4", "title": "Envelope geometry & scaling model (encoder scaling, rail length, ramp zone, margins, home windows)", "state": "DONE", "priority": "P0", "effort": "M", "depends": [], "evidence": "SHIPPED 2026-07-20 51a428e..64d6611: AxisV1 on UnitCoordinationV1 + axis_constants + axis-model.ts + named-gate activation; G0 P0 critical path complete" },
-        { "id": "G0-5", "title": "Maintenance config model (mode/seq-test flags, override list, preset channels + IO)", "state": "DONE", "priority": "P1", "effort": "M", "depends": [], "evidence": "SHIPPED 2026-07-20: maintenance.overridable_outputs + AxisV1.preset + engineering.encoder_presets + migration 20260720000001_maintenance; mode flags absorbed by G0-9" },
-        { "id": "G0-6", "title": "DECIDE the FDS boundary: commissioning-engineering vs modeled. Write it down.", "state": "DONE", "priority": "P0", "effort": "S", "depends": [], "evidence": "DECIDED 2026-07-07: Docs/superpowers/specs/2026-07-07-g0-fds-boundary-design.md" },
-        { "id": "G0-7", "title": "Engineering Data commissioning-pack sections (record-only): drive params, network/IP plan, tag table, panel accounts, NTP", "state": "DONE", "priority": "P1", "effort": "S", "depends": ["G0-6"], "evidence": "SHIPPED 2026-07-20: engineering.commissioning_pack, 5 sections per boundary H, record-only, no secrets field" },
-        { "id": "G0-8", "title": "Device-FB assignment model (CM/EM -> library template + pin bindings) + derived device-behavior DOCX appendix", "state": "DONE", "priority": "P1", "effort": "M", "depends": [], "evidence": "SHIPPED 2026-07-20: engineering.fb_assignments + patch validation; appendix derived at DOCX time (exporter/G6)" },
-        { "id": "G0-9", "title": "Modes & cell-state model: unit mode set + transition rules, mode x state gating, aggregate state machine/rollup, PackTags exposure", "state": "DONE", "priority": "P0", "effort": "M", "depends": [], "evidence": "SHIPPED 388d696..c20eb8f: UnitCoordinationV1 schema, kind-tagged modes, unit-coordination.ts, migration 20260708000000_unit_coordination; consumed by G2 spec 2026-07-08" },
-        { "id": "G0-9-F1", "title": "Mode-kind backfill for pre-G0-9 projects + writer co-sends modes with unit_coordination", "state": "DONE", "priority": "P1", "effort": "S", "depends": ["G0-9"], "evidence": "SHIPPED 2026-07-20: backfillModeKinds loader shim (all-custom guard) + patch-gate co-send error; random builder already sent kind-tagged modes" },
-        { "id": "G0-10", "title": "Authorization model: role ladder (0 View..4 Engineer) + required_level per item + validity limits & write-state preconditions", "state": "DONE", "priority": "P1", "effort": "M", "depends": [], "evidence": "SHIPPED 2026-07-20: authorization ladder + WriteAccess attachment + migration 20260720000002; sp_ setpoint attachment deferred (no contract setpoint model)" },
-        { "id": "G0-11", "title": "Appliance model: inventory + ISA-88 placement, handshake interfaces, data-payload signal kind + data-comparison criteria, telegram/GSDML", "state": "DONE", "priority": "P1", "effort": "L", "depends": [], "evidence": "SHIPPED 2026-07-20: appliances key + migration 20260720000006 + patch validation; KUKA-shaped fixture; criteria extension split to G0-11b" },
-        { "id": "G0-11b", "title": "Data-comparison criteria in permissive/expression model (split from G0-11; design against G9-4 pilot)", "state": "NOT_STARTED", "priority": "P1", "effort": "M", "depends": ["G0-11", "G9-4"], "evidence": "PermissiveCondition/evaluator/codegen extension; Monday subitem 3097194539" },
-        { "id": "G0-16", "title": "Authoring surface + DOCX rendering for the G0 models: co-author prompts/flows, wizard forms, exporter sections (incl. derived FB-behavior appendix)", "state": "NOT_STARTED", "priority": "P0", "effort": "L", "depends": ["G0-1"], "evidence": "gap surfaced 2026-07-20: contract holds the models, nothing authors/renders them; Monday subitem 3097230769; DB-side: reconcile drift + push 7 authored migrations" },
-        { "id": "G0-12", "title": "Upstream comms interface model (SCADA/MES/historian: systems + data crossing; endpoints/exposure)", "state": "DONE", "priority": "P1", "effort": "M", "depends": ["G0-9"], "evidence": "SHIPPED 2026-07-20: upstream_comms key + engineering.upstream_endpoints + migration 20260720000005 + patch validation" },
-        { "id": "G0-13", "title": "Safety layer inventory (functions, zones, PL/SIL, reset policy, effect-on-control) — record + DOCX, never generated", "state": "DONE", "priority": "P1", "effort": "M", "depends": [], "evidence": "SHIPPED 2026-07-20: safety_inventory key + migration 20260720000003 + patch validation; DOCX = exporter wave" },
-        { "id": "G0-14", "title": "Recipe/format model: named parameter sets over config params + selection/changeover policy", "state": "DONE", "priority": "P1", "effort": "M", "depends": ["G0-4"], "evidence": "SHIPPED 2026-07-20: recipes key + migration 20260720000004 + patch validation; recipe DB/HMI derived (Unified native)" },
-        { "id": "G0-15", "title": "Diagnostics & condition-monitoring model (runtime/cycle/service metrics; platform diagnostics derived)", "state": "DONE", "priority": "P2", "effort": "M", "depends": [], "evidence": "SHIPPED 2026-07-20: DiagnosticsCapability flags on CM+EM; platform diags/counter DB/HMI view derived; no migration" }
+        {
+          "id": "G0-1",
+          "title": "Drive/VSD parameter model (family, telegram, HW ids, RefSpeed/p2000, units, sign)",
+          "state": "DONE",
+          "priority": "P0",
+          "effort": "M",
+          "depends": [],
+          "evidence": "SHIPPED 2026-07-20 ec29d42..4a28f63: DriveModelV1 + EngineeringDataV1.drives, drive-model.ts validator + seeding, migration 20260720000000_engineering_data"
+        },
+        {
+          "id": "G0-2",
+          "title": "Per-IO signal model: polarity (N/C vs N/O) + conditioning (debounce/filter, analog scaling {raw<->EU, unit})",
+          "state": "DONE",
+          "priority": "P0",
+          "effort": "M",
+          "depends": [],
+          "evidence": "SHIPPED 2026-07-20 9bd53b6..bdc5ada: polarity/conditioning/scaling on IoSignalV2, io_conditioning_defaults, io-signal-model.ts, deriveIoList rendering; placement amended to IoSignalV2 per spec 2026-07-20"
+        },
+        {
+          "id": "G0-3",
+          "title": "Coordination / signal-routing intent model (input->EM ilk_ pin, two-detent, mode gating)",
+          "state": "DONE",
+          "priority": "P0",
+          "effort": "L",
+          "depends": [],
+          "evidence": "SHIPPED 2026-07-20 f3e3c84..562d2ee: SignalRoutingV1 on UnitCoordinationV1 + signal-routing.ts validator + patch gate; evidenced core, handshakes split to G0-3b; no migration"
+        },
+        {
+          "id": "G0-3b",
+          "title": "EM<->EM handshake links + product-tracking model (split from G0-3; design against G9-4 pilot)",
+          "state": "NOT_STARTED",
+          "priority": "P1",
+          "effort": "M",
+          "depends": [
+            "G0-3",
+            "G9-4"
+          ],
+          "evidence": "boundary table C rows not evidenced in golden master; Monday subitem 3096811470"
+        },
+        {
+          "id": "G0-4",
+          "title": "Envelope geometry & scaling model (encoder scaling, rail length, ramp zone, margins, home windows)",
+          "state": "DONE",
+          "priority": "P0",
+          "effort": "M",
+          "depends": [],
+          "evidence": "SHIPPED 2026-07-20 51a428e..64d6611: AxisV1 on UnitCoordinationV1 + axis_constants + axis-model.ts + named-gate activation; G0 P0 critical path complete"
+        },
+        {
+          "id": "G0-5",
+          "title": "Maintenance config model (mode/seq-test flags, override list, preset channels + IO)",
+          "state": "DONE",
+          "priority": "P1",
+          "effort": "M",
+          "depends": [],
+          "evidence": "SHIPPED 2026-07-20: maintenance.overridable_outputs + AxisV1.preset + engineering.encoder_presets + migration 20260720000001_maintenance; mode flags absorbed by G0-9"
+        },
+        {
+          "id": "G0-6",
+          "title": "DECIDE the FDS boundary: commissioning-engineering vs modeled. Write it down.",
+          "state": "DONE",
+          "priority": "P0",
+          "effort": "S",
+          "depends": [],
+          "evidence": "DECIDED 2026-07-07: Docs/superpowers/specs/2026-07-07-g0-fds-boundary-design.md"
+        },
+        {
+          "id": "G0-7",
+          "title": "Engineering Data commissioning-pack sections (record-only): drive params, network/IP plan, tag table, panel accounts, NTP",
+          "state": "DONE",
+          "priority": "P1",
+          "effort": "S",
+          "depends": [
+            "G0-6"
+          ],
+          "evidence": "SHIPPED 2026-07-20: engineering.commissioning_pack, 5 sections per boundary H, record-only, no secrets field"
+        },
+        {
+          "id": "G0-8",
+          "title": "Device-FB assignment model (CM/EM -> library template + pin bindings) + derived device-behavior DOCX appendix",
+          "state": "DONE",
+          "priority": "P1",
+          "effort": "M",
+          "depends": [],
+          "evidence": "SHIPPED 2026-07-20: engineering.fb_assignments + patch validation; appendix derived at DOCX time (exporter/G6)"
+        },
+        {
+          "id": "G0-9",
+          "title": "Modes & cell-state model: unit mode set + transition rules, mode x state gating, aggregate state machine/rollup, PackTags exposure",
+          "state": "DONE",
+          "priority": "P0",
+          "effort": "M",
+          "depends": [],
+          "evidence": "SHIPPED 388d696..c20eb8f: UnitCoordinationV1 schema, kind-tagged modes, unit-coordination.ts, migration 20260708000000_unit_coordination; consumed by G2 spec 2026-07-08"
+        },
+        {
+          "id": "G0-9-F1",
+          "title": "Mode-kind backfill for pre-G0-9 projects + writer co-sends modes with unit_coordination",
+          "state": "DONE",
+          "priority": "P1",
+          "effort": "S",
+          "depends": [
+            "G0-9"
+          ],
+          "evidence": "SHIPPED 2026-07-20: backfillModeKinds loader shim (all-custom guard) + patch-gate co-send error; random builder already sent kind-tagged modes"
+        },
+        {
+          "id": "G0-10",
+          "title": "Authorization model: role ladder (0 View..4 Engineer) + required_level per item + validity limits & write-state preconditions",
+          "state": "DONE",
+          "priority": "P1",
+          "effort": "M",
+          "depends": [],
+          "evidence": "SHIPPED 2026-07-20: authorization ladder + WriteAccess attachment + migration 20260720000002; sp_ setpoint attachment deferred (no contract setpoint model)"
+        },
+        {
+          "id": "G0-11",
+          "title": "Appliance model: inventory + ISA-88 placement, handshake interfaces, data-payload signal kind + data-comparison criteria, telegram/GSDML",
+          "state": "DONE",
+          "priority": "P1",
+          "effort": "L",
+          "depends": [],
+          "evidence": "SHIPPED 2026-07-20: appliances key + migration 20260720000006 + patch validation; KUKA-shaped fixture; criteria extension split to G0-11b"
+        },
+        {
+          "id": "G0-11b",
+          "title": "Data-comparison criteria in permissive/expression model (split from G0-11; design against G9-4 pilot)",
+          "state": "NOT_STARTED",
+          "priority": "P1",
+          "effort": "M",
+          "depends": [
+            "G0-11",
+            "G9-4"
+          ],
+          "evidence": "PermissiveCondition/evaluator/codegen extension; Monday subitem 3097194539"
+        },
+        {
+          "id": "G0-16",
+          "title": "Authoring surface + DOCX rendering for the G0 models: co-author prompts/flows, wizard forms, exporter sections (incl. derived FB-behavior appendix)",
+          "state": "NOT_STARTED",
+          "priority": "P0",
+          "effort": "L",
+          "depends": [
+            "G0-1"
+          ],
+          "evidence": "gap surfaced 2026-07-20: contract holds the models, nothing authors/renders them; Monday subitem 3097230769; DB-side: reconcile drift + push 7 authored migrations"
+        },
+        {
+          "id": "G0-12",
+          "title": "Upstream comms interface model (SCADA/MES/historian: systems + data crossing; endpoints/exposure)",
+          "state": "DONE",
+          "priority": "P1",
+          "effort": "M",
+          "depends": [
+            "G0-9"
+          ],
+          "evidence": "SHIPPED 2026-07-20: upstream_comms key + engineering.upstream_endpoints + migration 20260720000005 + patch validation"
+        },
+        {
+          "id": "G0-13",
+          "title": "Safety layer inventory (functions, zones, PL/SIL, reset policy, effect-on-control) — record + DOCX, never generated",
+          "state": "DONE",
+          "priority": "P1",
+          "effort": "M",
+          "depends": [],
+          "evidence": "SHIPPED 2026-07-20: safety_inventory key + migration 20260720000003 + patch validation; DOCX = exporter wave"
+        },
+        {
+          "id": "G0-14",
+          "title": "Recipe/format model: named parameter sets over config params + selection/changeover policy",
+          "state": "DONE",
+          "priority": "P1",
+          "effort": "M",
+          "depends": [
+            "G0-4"
+          ],
+          "evidence": "SHIPPED 2026-07-20: recipes key + migration 20260720000004 + patch validation; recipe DB/HMI derived (Unified native)"
+        },
+        {
+          "id": "G0-15",
+          "title": "Diagnostics & condition-monitoring model (runtime/cycle/service metrics; platform diagnostics derived)",
+          "state": "DONE",
+          "priority": "P2",
+          "effort": "M",
+          "depends": [],
+          "evidence": "SHIPPED 2026-07-20: DiagnosticsCapability flags on CM+EM; platform diags/counter DB/HMI view derived; no migration"
+        }
       ]
     },
-    { "key": "G1", "name": "Drive integration (MAP layer)",
+    {
+      "key": "G1",
+      "name": "Drive integration (MAP layer)",
       "note": "Biggest single codegen gap. writeMapFc emits only symbolic IO copies + // TODO wire.",
       "tasks": [
-        { "id": "G1-1", "title": "Detect analog/VSD control modules; select drive FB family from metadata", "state": "DONE", "priority": "P0", "effort": "M", "depends": ["G0-1"], "evidence": "SHIPPED 2026-07-20: codegen/drive-detect.ts + EmSequence.drives; family table G120->SINA_SPEED, S210->SINA_POS; tier-2 join; fb_assignments override lands with G6-2" },
-        { "id": "G1-2", "title": "Emit telegram FB call (SINA_SPEED/SINA_POS) + instance DB into MAP FC", "state": "NOT_STARTED", "priority": "P0", "effort": "M", "depends": ["G1-1"], "evidence": "MAP_Carriage_Drive.scl SinaSpeed_Rail_DB(...)" },
-        { "id": "G1-3", "title": "Emit %<->rpm scaling from RefSpeed/p2000", "state": "NOT_STARTED", "priority": "P0", "effort": "S", "depends": ["G1-2"], "evidence": "SpeedSp := INT_TO_REAL(#ref_pct)*15.0" },
-        { "id": "G1-4", "title": "IO signal conditioning: N/C inversion + debounce/filter emission + analog EU scaling (NORM_X/SCALE_X)", "state": "NOT_STARTED", "priority": "P0", "effort": "M", "depends": ["G0-2"], "evidence": ":= NOT \"BR1_Fault\"; boundary doc B" },
-        { "id": "G1-5", "title": "Analog/PROFINET telegram-word addressing (IW/QW); smarter unresolved-address handling", "state": "IN_PROGRESS", "priority": "P1", "effort": "M", "depends": ["G0-1"], "evidence": "emits // TODO wire today" },
-        { "id": "G1-6", "title": "Refactor vfd-fb-family.ts so deterministic compiler can consume it (AI-only today)", "state": "NOT_STARTED", "priority": "P1", "effort": "M", "depends": [], "evidence": "imported only by use-forge-device-generate.ts" }
+        {
+          "id": "G1-1",
+          "title": "Detect analog/VSD control modules; select drive FB family from metadata",
+          "state": "DONE",
+          "priority": "P0",
+          "effort": "M",
+          "depends": [
+            "G0-1"
+          ],
+          "evidence": "SHIPPED 2026-07-20: codegen/drive-detect.ts + EmSequence.drives; family table G120->SINA_SPEED, S210->SINA_POS; tier-2 join; fb_assignments override lands with G6-2"
+        },
+        {
+          "id": "G1-2",
+          "title": "Emit telegram FB call (SINA_SPEED/SINA_POS) + instance DB into MAP FC",
+          "state": "DONE",
+          "priority": "P0",
+          "effort": "M",
+          "depends": [
+            "G1-1"
+          ],
+          "evidence": "SHIPPED 2026-07-21 000850c: SINA_SPEED emission + instance DB from EmSequence.drives"
+        },
+        {
+          "id": "G1-3",
+          "title": "Emit %<->rpm scaling from RefSpeed/p2000",
+          "state": "DONE",
+          "priority": "P0",
+          "effort": "S",
+          "depends": [
+            "G1-2"
+          ],
+          "evidence": "SHIPPED 2026-07-21 000850c: percent-rpm scaling + inverse feedback"
+        },
+        {
+          "id": "G1-4",
+          "title": "IO signal conditioning: N/C inversion + debounce/filter emission + analog EU scaling (NORM_X/SCALE_X)",
+          "state": "IN_PROGRESS",
+          "priority": "P0",
+          "effort": "M",
+          "depends": [
+            "G0-2"
+          ],
+          "evidence": "N/C inversion shipped d0df905; TON/TOF + NORM_X/SCALE_X emission remaining"
+        },
+        {
+          "id": "G1-5",
+          "title": "Analog/PROFINET telegram-word addressing (IW/QW); smarter unresolved-address handling",
+          "state": "IN_PROGRESS",
+          "priority": "P1",
+          "effort": "M",
+          "depends": [
+            "G0-1"
+          ],
+          "evidence": "emits // TODO wire today"
+        },
+        {
+          "id": "G1-6",
+          "title": "Refactor vfd-fb-family.ts so deterministic compiler can consume it (AI-only today)",
+          "state": "NOT_STARTED",
+          "priority": "P1",
+          "effort": "M",
+          "depends": [],
+          "evidence": "imported only by use-forge-device-generate.ts"
+        }
       ]
     },
-    { "key": "G2", "name": "Unit coordinators",
+    {
+      "key": "G2",
+      "name": "Unit coordinators",
       "note": "unitCoordinationStub emits comments only; real coordinators fully hand-authored.",
       "tasks": [
-        { "id": "G2-1", "title": "UC writer scaffold to replace unitCoordinationStub", "state": "NOT_STARTED", "priority": "P0", "effort": "M", "depends": ["G0-3"], "evidence": "compile-contract.ts:148-169" },
-        { "id": "G2-2", "title": "Safety-healthy aggregation (#ok = estop AND relay AND NOT maint)", "state": "NOT_STARTED", "priority": "P0", "effort": "S", "depends": ["G2-1"], "evidence": "" },
-        { "id": "G2-3", "title": "PackML command routing into EM ilk_CMD_* gated on #ok/maintenance/seq-test", "state": "NOT_STARTED", "priority": "P0", "effort": "M", "depends": ["G0-3", "G2-1"], "evidence": "seq-test RETURN gating" },
-        { "id": "G2-4", "title": "Physical signal -> EM ilk_ routing incl. two-detent jog/fast suppression", "state": "NOT_STARTED", "priority": "P0", "effort": "M", "depends": ["G0-3"], "evidence": "Fwd_Fast AND NOT jog" },
-        { "id": "G2-5", "title": "Envelope/limit-zone logic (position scaling, fwd/rev/fast gates, ramp fallback)", "state": "NOT_STARTED", "priority": "P1", "effort": "L", "depends": ["G0-4"], "evidence": "fast->jog fallback in zone" },
-        { "id": "G2-6", "title": "Closed-loop one-shots (e.g. Straighten-Up) — may stay hand-authored", "state": "NEEDS_DESIGN", "priority": "P2", "effort": "L", "depends": ["G2-5"], "evidence": "UC_Rotator.scl straighten block" }
+        {
+          "id": "G2-1",
+          "title": "UC writer scaffold to replace unitCoordinationStub",
+          "state": "NOT_STARTED",
+          "priority": "P0",
+          "effort": "M",
+          "depends": [
+            "G0-3"
+          ],
+          "evidence": "compile-contract.ts:148-169"
+        },
+        {
+          "id": "G2-2",
+          "title": "Safety-healthy aggregation (#ok = estop AND relay AND NOT maint)",
+          "state": "NOT_STARTED",
+          "priority": "P0",
+          "effort": "S",
+          "depends": [
+            "G2-1"
+          ],
+          "evidence": ""
+        },
+        {
+          "id": "G2-3",
+          "title": "PackML command routing into EM ilk_CMD_* gated on #ok/maintenance/seq-test",
+          "state": "NOT_STARTED",
+          "priority": "P0",
+          "effort": "M",
+          "depends": [
+            "G0-3",
+            "G2-1"
+          ],
+          "evidence": "seq-test RETURN gating"
+        },
+        {
+          "id": "G2-4",
+          "title": "Physical signal -> EM ilk_ routing incl. two-detent jog/fast suppression",
+          "state": "NOT_STARTED",
+          "priority": "P0",
+          "effort": "M",
+          "depends": [
+            "G0-3"
+          ],
+          "evidence": "Fwd_Fast AND NOT jog"
+        },
+        {
+          "id": "G2-5",
+          "title": "Envelope/limit-zone logic (position scaling, fwd/rev/fast gates, ramp fallback)",
+          "state": "NOT_STARTED",
+          "priority": "P1",
+          "effort": "L",
+          "depends": [
+            "G0-4"
+          ],
+          "evidence": "fast->jog fallback in zone"
+        },
+        {
+          "id": "G2-6",
+          "title": "Closed-loop one-shots (e.g. Straighten-Up) — may stay hand-authored",
+          "state": "NEEDS_DESIGN",
+          "priority": "P2",
+          "effort": "L",
+          "depends": [
+            "G2-5"
+          ],
+          "evidence": "UC_Rotator.scl straighten block"
+        }
       ]
     },
-    { "key": "G3", "name": "Maintenance layer",
+    {
+      "key": "G3",
+      "name": "Maintenance layer",
       "note": "Nothing emitted; MAINT_*.scl + Maintenance_CMD.db hand-authored.",
       "tasks": [
-        { "id": "G3-1", "title": "Emit Maintenance_CMD seam DB (mode flags, override bools, preset channels)", "state": "NOT_STARTED", "priority": "P1", "effort": "S", "depends": ["G0-5"], "evidence": "" },
-        { "id": "G3-2", "title": "Emit output-override FC (per DO, gated on maintenance_mode, OB1-last)", "state": "NOT_STARTED", "priority": "P1", "effort": "M", "depends": ["G0-5"], "evidence": "MAINT_Output_Override.scl" },
-        { "id": "G3-3", "title": "Emit encoder-preset sequencer FC (one-shot pulse, state-guarded)", "state": "NOT_STARTED", "priority": "P2", "effort": "M", "depends": ["G0-5"], "evidence": "MAINT_Encoder_Preset.scl" }
+        {
+          "id": "G3-1",
+          "title": "Emit Maintenance_CMD seam DB (mode flags, override bools, preset channels)",
+          "state": "NOT_STARTED",
+          "priority": "P1",
+          "effort": "S",
+          "depends": [
+            "G0-5"
+          ],
+          "evidence": ""
+        },
+        {
+          "id": "G3-2",
+          "title": "Emit output-override FC (per DO, gated on maintenance_mode, OB1-last)",
+          "state": "NOT_STARTED",
+          "priority": "P1",
+          "effort": "M",
+          "depends": [
+            "G0-5"
+          ],
+          "evidence": "MAINT_Output_Override.scl"
+        },
+        {
+          "id": "G3-3",
+          "title": "Emit encoder-preset sequencer FC (one-shot pulse, state-guarded)",
+          "state": "NOT_STARTED",
+          "priority": "P2",
+          "effort": "M",
+          "depends": [
+            "G0-5"
+          ],
+          "evidence": "MAINT_Encoder_Preset.scl"
+        }
       ]
     },
-    { "key": "G4", "name": "Config / Status DBs",
+    {
+      "key": "G4",
+      "name": "Config / Status DBs",
       "note": "Only per-EM CMD DBs emitted today.",
       "tasks": [
-        { "id": "G4-1", "title": "Emit project config DB(s) from envelope/scaling params, retentive", "state": "NOT_STARTED", "priority": "P1", "effort": "S", "depends": ["G0-4"], "evidence": "Rail_Config.db VAR RETAIN" },
-        { "id": "G4-2", "title": "Emit status readback DB(s) (positions, distances, zone flags) written by UC", "state": "NOT_STARTED", "priority": "P1", "effort": "S", "depends": ["G0-4", "G2-5"], "evidence": "Rail_Status.db" },
-        { "id": "G4-3", "title": "RETAIN handling on operative fields", "state": "NOT_STARTED", "priority": "P2", "effort": "S", "depends": ["G4-1"], "evidence": "HMI writes lost on power cycle otherwise" }
+        {
+          "id": "G4-1",
+          "title": "Emit project config DB(s) from envelope/scaling params, retentive",
+          "state": "NOT_STARTED",
+          "priority": "P1",
+          "effort": "S",
+          "depends": [
+            "G0-4"
+          ],
+          "evidence": "Rail_Config.db VAR RETAIN"
+        },
+        {
+          "id": "G4-2",
+          "title": "Emit status readback DB(s) (positions, distances, zone flags) written by UC",
+          "state": "NOT_STARTED",
+          "priority": "P1",
+          "effort": "S",
+          "depends": [
+            "G0-4",
+            "G2-5"
+          ],
+          "evidence": "Rail_Status.db"
+        },
+        {
+          "id": "G4-3",
+          "title": "RETAIN handling on operative fields",
+          "state": "NOT_STARTED",
+          "priority": "P2",
+          "effort": "S",
+          "depends": [
+            "G4-1"
+          ],
+          "evidence": "HMI writes lost on power cycle otherwise"
+        }
       ]
     },
-    { "key": "G5", "name": "OB1 orchestration",
+    {
+      "key": "G5",
+      "name": "OB1 orchestration",
       "note": "writeOb1(deviceCallLines, []) emits EM+MAP only; export OB1 hand-reordered.",
       "tasks": [
-        { "id": "G5-1", "title": "writeOb1 accepts units -> emit UC calls BEFORE EMs", "state": "NOT_STARTED", "priority": "P0", "effort": "S", "depends": ["G2-1"], "evidence": "ob1-writer.ts" },
-        { "id": "G5-2", "title": "Inject MAINT preset call (pre-EM) + output-override call (last)", "state": "NOT_STARTED", "priority": "P1", "effort": "S", "depends": ["G3-2", "G3-3"], "evidence": "Main.ob:14,39" },
-        { "id": "G5-3", "title": "Guard: override FC is always the final call", "state": "NOT_STARTED", "priority": "P2", "effort": "S", "depends": ["G5-2"], "evidence": "" }
+        {
+          "id": "G5-1",
+          "title": "writeOb1 accepts units -> emit UC calls BEFORE EMs",
+          "state": "NOT_STARTED",
+          "priority": "P0",
+          "effort": "S",
+          "depends": [
+            "G2-1"
+          ],
+          "evidence": "ob1-writer.ts"
+        },
+        {
+          "id": "G5-2",
+          "title": "Inject MAINT preset call (pre-EM) + output-override call (last)",
+          "state": "NOT_STARTED",
+          "priority": "P1",
+          "effort": "S",
+          "depends": [
+            "G3-2",
+            "G3-3"
+          ],
+          "evidence": "Main.ob:14,39"
+        },
+        {
+          "id": "G5-3",
+          "title": "Guard: override FC is always the final call",
+          "state": "NOT_STARTED",
+          "priority": "P2",
+          "effort": "S",
+          "depends": [
+            "G5-2"
+          ],
+          "evidence": ""
+        }
       ]
     },
-    { "key": "G6", "name": "Reusable FB library",
+    {
+      "key": "G6",
+      "name": "Reusable FB library",
       "note": "Storage/contracts/states-UI/coverage-gate LANDED. Gap: matched template emits ref DB only; synthesize is default.",
       "tasks": [
-        { "id": "G6-1", "title": "Emit matched template SCL body into artifact set (dep-order + de-dup), not just instance DB", "state": "NOT_STARTED", "priority": "P0", "effort": "M", "depends": [], "evidence": "fb-instantiate.ts:170-174 — biggest FB gap" },
-        { "id": "G6-2", "title": "Make instantiate the default over synthesize (widen match or explicit 'use library')", "state": "NOT_STARTED", "priority": "P1", "effort": "M", "depends": ["G6-1"], "evidence": "compile-contract.ts:49-56 default=synthesize" },
-        { "id": "G6-3", "title": "Name-based role wiring (replace positional contractWiringLines)", "state": "NOT_STARTED", "priority": "P1", "effort": "M", "depends": [], "evidence": "fb-instantiate.ts:72-98" },
-        { "id": "G6-4", "title": "Per-instance binding layer (Phase 3.5 Device FB Binding)", "state": "NOT_STARTED", "priority": "P1", "effort": "L", "depends": ["G6-3"], "evidence": "fb-interface.ts:19,37" },
-        { "id": "G6-5", "title": "Verified CM-block instantiation (not empty stub / wiring shell)", "state": "NOT_STARTED", "priority": "P2", "effort": "M", "depends": ["G6-1"], "evidence": "fb-instantiate.ts:132-149" },
-        { "id": "G6-6", "title": "Structured per-state behavior model on templates (today opaque SCL)", "state": "NEEDS_DESIGN", "priority": "P2", "effort": "L", "depends": [], "evidence": "states is coverage-only {slug,name,is_safe}" }
+        {
+          "id": "G6-1",
+          "title": "Emit matched template SCL body into artifact set (dep-order + de-dup), not just instance DB",
+          "state": "NOT_STARTED",
+          "priority": "P0",
+          "effort": "M",
+          "depends": [],
+          "evidence": "fb-instantiate.ts:170-174 — biggest FB gap"
+        },
+        {
+          "id": "G6-2",
+          "title": "Make instantiate the default over synthesize (widen match or explicit 'use library')",
+          "state": "NOT_STARTED",
+          "priority": "P1",
+          "effort": "M",
+          "depends": [
+            "G6-1"
+          ],
+          "evidence": "compile-contract.ts:49-56 default=synthesize"
+        },
+        {
+          "id": "G6-3",
+          "title": "Name-based role wiring (replace positional contractWiringLines)",
+          "state": "NOT_STARTED",
+          "priority": "P1",
+          "effort": "M",
+          "depends": [],
+          "evidence": "fb-instantiate.ts:72-98"
+        },
+        {
+          "id": "G6-4",
+          "title": "Per-instance binding layer (Phase 3.5 Device FB Binding)",
+          "state": "NOT_STARTED",
+          "priority": "P1",
+          "effort": "L",
+          "depends": [
+            "G6-3"
+          ],
+          "evidence": "fb-interface.ts:19,37"
+        },
+        {
+          "id": "G6-5",
+          "title": "Verified CM-block instantiation (not empty stub / wiring shell)",
+          "state": "NOT_STARTED",
+          "priority": "P2",
+          "effort": "M",
+          "depends": [
+            "G6-1"
+          ],
+          "evidence": "fb-instantiate.ts:132-149"
+        },
+        {
+          "id": "G6-6",
+          "title": "Structured per-state behavior model on templates (today opaque SCL)",
+          "state": "NEEDS_DESIGN",
+          "priority": "P2",
+          "effort": "L",
+          "depends": [],
+          "evidence": "states is coverage-only {slug,name,is_safe}"
+        }
       ]
     },
-    { "key": "G7", "name": "FDS -> HMI compiler",
+    {
+      "key": "G7",
+      "name": "FDS -> HMI compiler",
       "note": "Bridge covers ~70% mechanics; missing layer is FDS->HMI content derivation. Target: HMI-BUILD-PACK.md.",
       "tasks": [
-        { "id": "G7-1", "title": "Text-list generator: EM states -> index->text lists", "state": "NOT_STARTED", "priority": "P0", "effort": "S", "depends": [], "evidence": "no generator; build-pack §5" },
-        { "id": "G7-2", "title": "Alarm generator: fault fan-in / contract alarms[] -> discrete alarm defs", "state": "NOT_STARTED", "priority": "P0", "effort": "M", "depends": [], "evidence": "spec-contract-v2.ts:937-939 unused" },
-        { "id": "G7-3", "title": "Setpoints screen: CMD sp_ pins -> IO fields with limits", "state": "NOT_STARTED", "priority": "P1", "effort": "S", "depends": [], "evidence": "build-pack §2" },
-        { "id": "G7-4", "title": "DB-member tag-binding mapper (EM_*_DB.state, config-DB members) vs Inst<Dev>.hmi.*", "state": "NOT_STARTED", "priority": "P0", "effort": "M", "depends": [], "evidence": "hmi-tag-mapper.ts:42" },
-        { "id": "G7-5", "title": "Access-level roles model (Operator/Supervisor/Maintenance) + per-screen assignment", "state": "NOT_STARTED", "priority": "P1", "effort": "M", "depends": [], "evidence": "build-pack §6" },
-        { "id": "G7-6", "title": "Alarm-class model (Fault/Warning)", "state": "NOT_STARTED", "priority": "P1", "effort": "S", "depends": [], "evidence": "build-pack §3" },
-        { "id": "G7-7", "title": "Maintenance screen generator (mode toggle, overrides, presets)", "state": "NOT_STARTED", "priority": "P2", "effort": "M", "depends": ["G3"], "evidence": "build-pack §4" },
-        { "id": "G7-8", "title": "Assemble full /tia/hmi/build spec from the above", "state": "NOT_STARTED", "priority": "P0", "effort": "M", "depends": ["G7-1", "G7-2", "G7-3", "G7-4", "G7-5", "G7-6", "G8-1"], "evidence": "integration point" }
+        {
+          "id": "G7-1",
+          "title": "Text-list generator: EM states -> index->text lists",
+          "state": "NOT_STARTED",
+          "priority": "P0",
+          "effort": "S",
+          "depends": [],
+          "evidence": "no generator; build-pack §5"
+        },
+        {
+          "id": "G7-2",
+          "title": "Alarm generator: fault fan-in / contract alarms[] -> discrete alarm defs",
+          "state": "NOT_STARTED",
+          "priority": "P0",
+          "effort": "M",
+          "depends": [],
+          "evidence": "spec-contract-v2.ts:937-939 unused"
+        },
+        {
+          "id": "G7-3",
+          "title": "Setpoints screen: CMD sp_ pins -> IO fields with limits",
+          "state": "NOT_STARTED",
+          "priority": "P1",
+          "effort": "S",
+          "depends": [],
+          "evidence": "build-pack §2"
+        },
+        {
+          "id": "G7-4",
+          "title": "DB-member tag-binding mapper (EM_*_DB.state, config-DB members) vs Inst<Dev>.hmi.*",
+          "state": "NOT_STARTED",
+          "priority": "P0",
+          "effort": "M",
+          "depends": [],
+          "evidence": "hmi-tag-mapper.ts:42"
+        },
+        {
+          "id": "G7-5",
+          "title": "Access-level roles model (Operator/Supervisor/Maintenance) + per-screen assignment",
+          "state": "NOT_STARTED",
+          "priority": "P1",
+          "effort": "M",
+          "depends": [],
+          "evidence": "build-pack §6"
+        },
+        {
+          "id": "G7-6",
+          "title": "Alarm-class model (Fault/Warning)",
+          "state": "NOT_STARTED",
+          "priority": "P1",
+          "effort": "S",
+          "depends": [],
+          "evidence": "build-pack §3"
+        },
+        {
+          "id": "G7-7",
+          "title": "Maintenance screen generator (mode toggle, overrides, presets)",
+          "state": "NOT_STARTED",
+          "priority": "P2",
+          "effort": "M",
+          "depends": [
+            "G3"
+          ],
+          "evidence": "build-pack §4"
+        },
+        {
+          "id": "G7-8",
+          "title": "Assemble full /tia/hmi/build spec from the above",
+          "state": "NOT_STARTED",
+          "priority": "P0",
+          "effort": "M",
+          "depends": [
+            "G7-1",
+            "G7-2",
+            "G7-3",
+            "G7-4",
+            "G7-5",
+            "G7-6",
+            "G8-1"
+          ],
+          "evidence": "integration point"
+        }
       ]
     },
-    { "key": "G8", "name": "HMI bridge wiring",
+    {
+      "key": "G8",
+      "name": "HMI bridge wiring",
       "note": "BuildHmi engine capable but zero callers in src/ and uncommitted.",
       "tasks": [
-        { "id": "G8-1", "title": "Wire /tia/hmi/build into the app (producer + hook)", "state": "NOT_STARTED", "priority": "P0", "effort": "M", "depends": [], "evidence": "hmi/build absent from src/" },
-        { "id": "G8-2", "title": "Bridge: create alarm classes (today only assigns existing)", "state": "NOT_STARTED", "priority": "P1", "effort": "S", "depends": [], "evidence": "HmiUnified.cs:468" },
-        { "id": "G8-3", "title": "Bridge: user-role / access-level creation (UserAdministration)", "state": "BLOCKER_RESEARCH", "priority": "P1", "effort": "M", "depends": [], "evidence": "Openness support unverified" },
-        { "id": "G8-4", "title": "Bridge: Unified text-list creation (only Comfort SimaticML path today)", "state": "BLOCKER_RESEARCH", "priority": "P0", "effort": "M", "depends": [], "evidence": "TiaPortalService.cs:2439; Openness support unverified" },
-        { "id": "G8-5", "title": "Basic-panel family (MTP700 Unified Basic) — app only has Comfort", "state": "NOT_STARTED", "priority": "P1", "effort": "S", "depends": [], "evidence": "hmi-panel.ts:68" },
-        { "id": "G8-6", "title": "Commit HmiUnified.cs bridge extension + BridgeServer routes", "state": "IN_PROGRESS", "priority": "P0", "effort": "S", "depends": [], "evidence": "uncommitted (git status)" },
-        { "id": "G8-7", "title": "PackML faceplate model (state/mode/PackTag)", "state": "NEEDS_DESIGN", "priority": "P2", "effort": "L", "depends": [], "evidence": "faceplates device-type/Open-Library today" },
-        { "id": "G8-8", "title": "Bridge: internal HMI tag creation (no PLC connection) via /tia/hmi/build tags[].internal", "state": "NOT_STARTED", "priority": "P1", "effort": "S", "depends": [], "evidence": "board subitem 3058195949" },
-        { "id": "G8-9", "title": "Bridge: edit existing item Text/AlternateText/Content via editItems.set (MultilingualText)", "state": "NOT_STARTED", "priority": "P1", "effort": "S", "depends": [], "evidence": "board subitem 3058121975" }
+        {
+          "id": "G8-1",
+          "title": "Wire /tia/hmi/build into the app (producer + hook)",
+          "state": "NOT_STARTED",
+          "priority": "P0",
+          "effort": "M",
+          "depends": [],
+          "evidence": "hmi/build absent from src/"
+        },
+        {
+          "id": "G8-2",
+          "title": "Bridge: create alarm classes (today only assigns existing)",
+          "state": "NOT_STARTED",
+          "priority": "P1",
+          "effort": "S",
+          "depends": [],
+          "evidence": "HmiUnified.cs:468"
+        },
+        {
+          "id": "G8-3",
+          "title": "Bridge: user-role / access-level creation (UserAdministration)",
+          "state": "BLOCKER_RESEARCH",
+          "priority": "P1",
+          "effort": "M",
+          "depends": [],
+          "evidence": "Openness support unverified"
+        },
+        {
+          "id": "G8-4",
+          "title": "Bridge: Unified text-list creation (only Comfort SimaticML path today)",
+          "state": "BLOCKER_RESEARCH",
+          "priority": "P0",
+          "effort": "M",
+          "depends": [],
+          "evidence": "TiaPortalService.cs:2439; Openness support unverified"
+        },
+        {
+          "id": "G8-5",
+          "title": "Basic-panel family (MTP700 Unified Basic) — app only has Comfort",
+          "state": "NOT_STARTED",
+          "priority": "P1",
+          "effort": "S",
+          "depends": [],
+          "evidence": "hmi-panel.ts:68"
+        },
+        {
+          "id": "G8-6",
+          "title": "Commit HmiUnified.cs bridge extension + BridgeServer routes",
+          "state": "IN_PROGRESS",
+          "priority": "P0",
+          "effort": "S",
+          "depends": [],
+          "evidence": "uncommitted (git status)"
+        },
+        {
+          "id": "G8-7",
+          "title": "PackML faceplate model (state/mode/PackTag)",
+          "state": "NEEDS_DESIGN",
+          "priority": "P2",
+          "effort": "L",
+          "depends": [],
+          "evidence": "faceplates device-type/Open-Library today"
+        },
+        {
+          "id": "G8-8",
+          "title": "Bridge: internal HMI tag creation (no PLC connection) via /tia/hmi/build tags[].internal",
+          "state": "NOT_STARTED",
+          "priority": "P1",
+          "effort": "S",
+          "depends": [],
+          "evidence": "board subitem 3058195949"
+        },
+        {
+          "id": "G8-9",
+          "title": "Bridge: edit existing item Text/AlternateText/Content via editItems.set (MultilingualText)",
+          "state": "NOT_STARTED",
+          "priority": "P1",
+          "effort": "S",
+          "depends": [],
+          "evidence": "board subitem 3058121975"
+        }
       ]
     },
-    { "key": "G9", "name": "Prove it generalizes on a new project (round-trip & run)",
+    {
+      "key": "G9",
+      "name": "Prove it generalizes on a new project (round-trip & run)",
       "note": "Prove the app produces this quality for a DIFFERENT/unseen project — compiles, downloads, runs, with ~zero hand-authoring. Golden master = quality bar, not target.",
       "tasks": [
-        { "id": "G9-1", "title": "End-to-end on a FRESH/unseen project: FDS -> import -> compile -> download -> run (PLC-SIM/hardware)", "state": "NOT_STARTED", "priority": "P0", "effort": "L", "depends": ["G1", "G2", "G5"], "evidence": "definition of runnable" },
-        { "id": "G9-2", "title": "Generalization acceptance: pipeline on a DIFFERENT machine, hand-authoring delta ~= 0 (golden master = quality bar/regression fixture, not target)", "state": "NEEDS_DESIGN", "priority": "P0", "effort": "M", "depends": ["G9-1"], "evidence": "the real definition of done" },
-        { "id": "G9-3", "title": "Post-gen edit strategy: how regeneration does not clobber hand-added EM pins", "state": "NEEDS_DESIGN", "priority": "P0", "effort": "L", "depends": [], "evidence": "ilk_Straighten, sp_STRAIGHTEN_SPEED, cfg_Pre_Travel_Horn never emitted — round-trip problem" },
-        { "id": "G9-4", "title": "Second-project pilot: unrelated machine type (filling/stamping/conveyor) -> author FDS -> generate -> measure hand-authoring gaps -> feed back as new tasks", "state": "NOT_STARTED", "priority": "P0", "effort": "L", "depends": ["G9-1"], "evidence": "generalization proof; turns gaps into backlog" }
+        {
+          "id": "G9-1",
+          "title": "End-to-end on a FRESH/unseen project: FDS -> import -> compile -> download -> run (PLC-SIM/hardware)",
+          "state": "NOT_STARTED",
+          "priority": "P0",
+          "effort": "L",
+          "depends": [
+            "G1",
+            "G2",
+            "G5"
+          ],
+          "evidence": "definition of runnable"
+        },
+        {
+          "id": "G9-2",
+          "title": "Generalization acceptance: pipeline on a DIFFERENT machine, hand-authoring delta ~= 0 (golden master = quality bar/regression fixture, not target)",
+          "state": "NEEDS_DESIGN",
+          "priority": "P0",
+          "effort": "M",
+          "depends": [
+            "G9-1"
+          ],
+          "evidence": "the real definition of done"
+        },
+        {
+          "id": "G9-3",
+          "title": "Post-gen edit strategy: how regeneration does not clobber hand-added EM pins",
+          "state": "NEEDS_DESIGN",
+          "priority": "P0",
+          "effort": "L",
+          "depends": [],
+          "evidence": "ilk_Straighten, sp_STRAIGHTEN_SPEED, cfg_Pre_Travel_Horn never emitted — round-trip problem"
+        },
+        {
+          "id": "G9-4",
+          "title": "Second-project pilot: unrelated machine type (filling/stamping/conveyor) -> author FDS -> generate -> measure hand-authoring gaps -> feed back as new tasks",
+          "state": "NOT_STARTED",
+          "priority": "P0",
+          "effort": "L",
+          "depends": [
+            "G9-1"
+          ],
+          "evidence": "generalization proof; turns gaps into backlog"
+        }
       ]
     },
-    { "key": "G10", "name": "WinCC Unified Openness — commissioning gaps",
+    {
+      "key": "G10",
+      "name": "WinCC Unified Openness — commissioning gaps",
       "note": "HMI-gen + bridge gaps found during HRE commissioning. Source: Docs/WINCC-UNIFIED-OPENNESS-DISCOVERY.md. Backfilled from Monday board 2026-07-09.",
       "tasks": [
-        { "id": "G10-1", "title": "Bridge: ResourceListDynamization + text-list authoring (EM state int->name fields)", "state": "NOT_STARTED", "priority": "P0", "effort": "M", "depends": [], "evidence": "board subitem 3056369510" },
-        { "id": "G10-2", "title": "Bridge: ScriptDynamization / FlashingDynamization / movement animations spec support", "state": "NOT_STARTED", "priority": "P1", "effort": "M", "depends": [], "evidence": "board subitem 3056362954" },
-        { "id": "G10-3", "title": "Bridge: access-level assignment on items, per-item roles (see G7-5, G8-3)", "state": "NOT_STARTED", "priority": "P1", "effort": "M", "depends": ["G8-3"], "evidence": "board subitem 3056362692" },
-        { "id": "G10-4", "title": "Bridge: global script modules, graphic lists, faceplate instances, parameter sets", "state": "NOT_STARTED", "priority": "P2", "effort": "L", "depends": [], "evidence": "board subitem 3056369511" },
-        { "id": "G10-5", "title": "Bridge: recipe/UserArchive + trend/f(x) controls", "state": "NOT_STARTED", "priority": "P2", "effort": "L", "depends": [], "evidence": "board subitem 3056362887" },
-        { "id": "G10-6", "title": "HMI-gen: operator diagnostic screens (VSD diag, machine state, motor/pendant detail)", "state": "NOT_STARTED", "priority": "P0", "effort": "L", "depends": [], "evidence": "board subitem 3056362365" },
-        { "id": "G10-7", "title": "HMI-gen: full IO status page from FDS IO register (address + description + lamp)", "state": "NOT_STARTED", "priority": "P0", "effort": "M", "depends": [], "evidence": "board subitem 3056362488" },
-        { "id": "G10-8", "title": "HMI-gen: correctly-bound ProcessValue dynamizations + single-bit lamp colour mapping", "state": "NOT_STARTED", "priority": "P0", "effort": "M", "depends": [], "evidence": "board subitem 3056368994" },
-        { "id": "G10-9", "title": "Retentivity classification of DB fields (settings retentive; modes/cmds volatile) (see G4-3)", "state": "NOT_STARTED", "priority": "P1", "effort": "S", "depends": ["G4-3"], "evidence": "board subitem 3056362489" },
-        { "id": "G10-10", "title": "FDS/codegen vocabulary for command-driven auto functions: pre-travel horn, straighten-up (see G0, G2-6, G9-3)", "state": "NOT_STARTED", "priority": "P1", "effort": "L", "depends": ["G9-3"], "evidence": "board subitem 3056368993" },
-        { "id": "G10-11", "title": "Status/readback DBs for HMI consumption (Rail_Status envelope telemetry) (see G4-2)", "state": "NOT_STARTED", "priority": "P1", "effort": "M", "depends": ["G4-2"], "evidence": "board subitem 3056368996" },
-        { "id": "G10-12", "title": "Discovery method as tooling: XML-catalogue grep -> hand-config -> props=1 diff -> bridge spec", "state": "NOT_STARTED", "priority": "P2", "effort": "S", "depends": [], "evidence": "board subitem 3056368995" }
+        {
+          "id": "G10-1",
+          "title": "Bridge: ResourceListDynamization + text-list authoring (EM state int->name fields)",
+          "state": "NOT_STARTED",
+          "priority": "P0",
+          "effort": "M",
+          "depends": [],
+          "evidence": "board subitem 3056369510"
+        },
+        {
+          "id": "G10-2",
+          "title": "Bridge: ScriptDynamization / FlashingDynamization / movement animations spec support",
+          "state": "NOT_STARTED",
+          "priority": "P1",
+          "effort": "M",
+          "depends": [],
+          "evidence": "board subitem 3056362954"
+        },
+        {
+          "id": "G10-3",
+          "title": "Bridge: access-level assignment on items, per-item roles (see G7-5, G8-3)",
+          "state": "NOT_STARTED",
+          "priority": "P1",
+          "effort": "M",
+          "depends": [
+            "G8-3"
+          ],
+          "evidence": "board subitem 3056362692"
+        },
+        {
+          "id": "G10-4",
+          "title": "Bridge: global script modules, graphic lists, faceplate instances, parameter sets",
+          "state": "NOT_STARTED",
+          "priority": "P2",
+          "effort": "L",
+          "depends": [],
+          "evidence": "board subitem 3056369511"
+        },
+        {
+          "id": "G10-5",
+          "title": "Bridge: recipe/UserArchive + trend/f(x) controls",
+          "state": "NOT_STARTED",
+          "priority": "P2",
+          "effort": "L",
+          "depends": [],
+          "evidence": "board subitem 3056362887"
+        },
+        {
+          "id": "G10-6",
+          "title": "HMI-gen: operator diagnostic screens (VSD diag, machine state, motor/pendant detail)",
+          "state": "NOT_STARTED",
+          "priority": "P0",
+          "effort": "L",
+          "depends": [],
+          "evidence": "board subitem 3056362365"
+        },
+        {
+          "id": "G10-7",
+          "title": "HMI-gen: full IO status page from FDS IO register (address + description + lamp)",
+          "state": "NOT_STARTED",
+          "priority": "P0",
+          "effort": "M",
+          "depends": [],
+          "evidence": "board subitem 3056362488"
+        },
+        {
+          "id": "G10-8",
+          "title": "HMI-gen: correctly-bound ProcessValue dynamizations + single-bit lamp colour mapping",
+          "state": "NOT_STARTED",
+          "priority": "P0",
+          "effort": "M",
+          "depends": [],
+          "evidence": "board subitem 3056368994"
+        },
+        {
+          "id": "G10-9",
+          "title": "Retentivity classification of DB fields (settings retentive; modes/cmds volatile) (see G4-3)",
+          "state": "NOT_STARTED",
+          "priority": "P1",
+          "effort": "S",
+          "depends": [
+            "G4-3"
+          ],
+          "evidence": "board subitem 3056362489"
+        },
+        {
+          "id": "G10-10",
+          "title": "FDS/codegen vocabulary for command-driven auto functions: pre-travel horn, straighten-up (see G0, G2-6, G9-3)",
+          "state": "NOT_STARTED",
+          "priority": "P1",
+          "effort": "L",
+          "depends": [
+            "G9-3"
+          ],
+          "evidence": "board subitem 3056368993"
+        },
+        {
+          "id": "G10-11",
+          "title": "Status/readback DBs for HMI consumption (Rail_Status envelope telemetry) (see G4-2)",
+          "state": "NOT_STARTED",
+          "priority": "P1",
+          "effort": "M",
+          "depends": [
+            "G4-2"
+          ],
+          "evidence": "board subitem 3056368996"
+        },
+        {
+          "id": "G10-12",
+          "title": "Discovery method as tooling: XML-catalogue grep -> hand-config -> props=1 diff -> bridge spec",
+          "state": "NOT_STARTED",
+          "priority": "P2",
+          "effort": "S",
+          "depends": [],
+          "evidence": "board subitem 3056368995"
+        }
       ]
     }
   ]
