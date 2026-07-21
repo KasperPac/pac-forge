@@ -16,6 +16,7 @@ import type {
 } from "./unit-builder";
 import { serializeGuard } from "./serialize-condition";
 import { sclIdent } from "./sa-builder";
+import { MAINTENANCE_DB } from "./maintenance-writer";
 
 const PROGRAM = "Program blocks";
 
@@ -497,11 +498,16 @@ export function writeUnitArtifacts(ir: UnitSequenceIr): {
     : [];
 
   // G2-2: safety-healthy term + walk-to-Execute/STOP-on-unhealthy policy.
+  // G3: the maintenance exclusion joins the term once the seam DB exists.
+  const maintExclusion =
+    ir.safetyHealthy?.excludeMaintenance && ir.maintenanceSeam
+      ? ` AND NOT "${MAINTENANCE_DB}".maintenance_mode`
+      : "";
   const okLines = ir.safetyHealthy
     ? [
         ``,
-        `   #ok := ${ir.safetyHealthy.expr};`,
-        ...(ir.safetyHealthy.excludeMaintenance
+        `   #ok := ${ir.safetyHealthy.expr}${maintExclusion};`,
+        ...(ir.safetyHealthy.excludeMaintenance && !ir.maintenanceSeam
           ? [`   // TODO exclude maintenance mode (G3 maintenance DB)`]
           : []),
         // G2-1: structural "safety gate -> aborting" rule (G0-9) — enforced by
@@ -561,7 +567,7 @@ export function writeUnitArtifacts(ir: UnitSequenceIr): {
     ...(ir.commandRouting?.seqTestRelease
       ? [
           `   VAR_INPUT`,
-          `      i_Seq_Test : Bool;   // TODO wire from the maintenance seam (G3)`,
+          `      i_Seq_Test : Bool;${ir.maintenanceSeam ? `   // wired from "${MAINTENANCE_DB}".seq_test_mode in OB1` : `   // TODO wire from the maintenance seam (G3)`}`,
           `   END_VAR`,
         ]
       : []),
@@ -619,6 +625,9 @@ export function writeUnitArtifacts(ir: UnitSequenceIr): {
 
   return {
     artifacts: [fb, writeInstanceDb(name, ir), writeUnDb(ir), ...writeConfigDb(ir), ...writeStatusDb(ir)],
-    callLine: `   "${name}_DB"();`,
+    callLine:
+      ir.commandRouting?.seqTestRelease && ir.maintenanceSeam
+        ? `   "${name}_DB"(i_Seq_Test := "${MAINTENANCE_DB}".seq_test_mode);`
+        : `   "${name}_DB"();`,
   };
 }

@@ -379,3 +379,98 @@ describe("compileContract — real unit coordinator when unit_coordination exist
     expect(stubRes.warnings.some((w) => w.includes("no unit_coordination"))).toBe(true);
   });
 });
+
+/* ------------------------------------------------------------------ *
+ * Maintenance layer (G3) + OB1 ordering (G5-2/G5-3)
+ * ------------------------------------------------------------------ */
+
+describe("compileContract — maintenance layer emission", () => {
+  function maintFixture(): SpecContractV2 {
+    const c = fixture() as unknown as Record<string, unknown>;
+    c.modes = [{ mode_id: "prod", name: "Production", is_default: true, kind: "production" }];
+    c.safety_gates = [
+      { gate_id: "estop", name: "E-Stop", condition: [{ tag: "EStop_OK", operator: "=", value: true }], scope: "all" },
+    ];
+    c.maintenance = {
+      overridable_outputs: [
+        { tag: "M01_Run", wire_check_only: false, description: "carriage motor" },
+      ],
+    };
+    c.unit_coordination = {
+      "unit-1": {
+        unit_id: "unit-1",
+        states: [
+          { state_id: "idle", allowed_modes: [], mode_change_allowed: true },
+          { state_id: "stopped", allowed_modes: [], mode_change_allowed: true },
+        ],
+        transitions: [],
+        em_command_overrides: null,
+        signal_routing: {
+          safety_healthy: { gate_ids: ["estop"], exclude_maintenance: true },
+          routing_rows: [],
+          two_detent: [],
+          command_routing: { policy: "walk_to_execute_stop_on_unhealthy", seq_test_release: true },
+        },
+        axes: [
+          { axis_id: "rot", kind: "rotary", encoder_tag: "Enc_Rot",
+            counts_per_rev: { db_member: "counts_per_360", default: 0, retain: true, operator_settable: false },
+            preset_offset: 500000,
+            home_windows: [{ center_deg10: 0, band_deg10: 20 }],
+            gates: {},
+            preset: { blocked_while_em_execute: "em-carriage" } },
+        ],
+      },
+    };
+    c.engineering = {
+      drives: [], axis_constants: [], encoder_presets: [
+        { unit_id: "unit-1", axis_id: "rot", ctrl_address: "QB70", value_address: "QD71", status_address: "IB78" },
+      ], fb_assignments: [], upstream_endpoints: [],
+    };
+    return c as unknown as SpecContractV2;
+  }
+
+  const res = compileContract(maintFixture(), []);
+  const names = res.artifacts.map((a) => a.name);
+
+  it("emits the seam DB, override FC, and preset FC", () => {
+    expect(names).toContain("Maintenance_CMD");
+    expect(names).toContain("MAINT_Output_Override");
+    expect(names).toContain("MAINT_Encoder_Preset");
+    const db = res.artifacts.find((a) => a.name === "Maintenance_CMD")!;
+    expect(db.content).toContain("ov_M01_Run : Bool;");
+    expect(db.content).toContain("rot_preset_execute : Bool;");
+  });
+
+  it("orders OB1: preset FC before EMs, override FC last (G5-2/G5-3)", () => {
+    const ob = res.artifacts.find((a) => a.type === "OB")!.content;
+    const preset = ob.indexOf('"MAINT_Encoder_Preset"();');
+    const override = ob.indexOf('"MAINT_Output_Override"();');
+    expect(preset).toBeGreaterThan(-1);
+    expect(preset).toBeLessThan(ob.indexOf('"EM_Carriage_DB"('));
+    expect(override).toBeGreaterThan(ob.lastIndexOf('"MAP_'));
+    expect(override).toBeGreaterThan(ob.indexOf('"UC_Carriage_Unit_DB"'));
+  });
+
+  it("guards the preset on the blocking EM's Execute dispatch index", () => {
+    const fc = res.artifacts.find((a) => a.name === "MAINT_Encoder_Preset")!;
+    // em-carriage declares idle(0)/active(1) — no canonical execute slug, so
+    // the writer arms unguarded with a TODO instead of guessing an index
+    expect(fc.content).toContain("// TODO no run-interlock");
+  });
+
+  it("resolves the UC's maintenance TODOs: #ok exclusion + i_Seq_Test binding", () => {
+    const uc = res.artifacts.find((a) => a.name === "UC_Carriage_Unit")!;
+    expect(uc.content).toContain('AND NOT "Maintenance_CMD".maintenance_mode');
+    expect(uc.content).not.toContain("TODO exclude maintenance mode");
+    const ob = res.artifacts.find((a) => a.type === "OB")!.content;
+    expect(ob).toContain('"UC_Carriage_Unit_DB"(i_Seq_Test := "Maintenance_CMD".seq_test_mode);');
+  });
+
+  it("emits no maintenance layer when the contract declares none", () => {
+    const bare = compileContract(fixture(), []);
+    const bn = bare.artifacts.map((a) => a.name);
+    expect(bn).not.toContain("Maintenance_CMD");
+    expect(bn).not.toContain("MAINT_Output_Override");
+    expect(bn).not.toContain("MAINT_Encoder_Preset");
+  });
+});

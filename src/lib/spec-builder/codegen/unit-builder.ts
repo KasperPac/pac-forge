@@ -187,6 +187,9 @@ export interface UnitBuildInput {
   modes: OperatorMode[];
   /** Machine safety gates — resolves signal_routing.safety_healthy (G2-2). */
   safetyGates?: SafetyGateV2[];
+  /** G3: TRUE when the project emits the Maintenance_CMD seam — the writer
+   *  then wires the #ok maintenance exclusion and the i_Seq_Test binding. */
+  maintenanceSeam?: boolean;
 }
 
 /** Resolved IR for one unit coordinator. Grows per G2 TDD cycle. */
@@ -219,6 +222,8 @@ export interface UnitSequenceIr {
   routingRows?: RoutingRowIr[];
   /** G2-5: envelope geometry (absent when the unit declares no axes). */
   axes?: UnitAxesIr;
+  /** G3: the project emits the Maintenance_CMD seam. */
+  maintenanceSeam?: boolean;
   warnings: string[];
 }
 
@@ -228,7 +233,7 @@ export interface UnitSequenceIr {
  * rule; G7-1 text lists share this order) — never authoring order.
  */
 export function buildUnitSequence(input: UnitBuildInput): UnitSequenceIr {
-  const { unitId, unitName, coord, members, modes, safetyGates } = input;
+  const { unitId, unitName, coord, members, modes, safetyGates, maintenanceSeam } = input;
   const warnings: string[] = [];
   const modeIndex = new Map(modes.map((m, i) => [m.mode_id, i]));
 
@@ -494,6 +499,7 @@ export function buildUnitSequence(input: UnitBuildInput): UnitSequenceIr {
     commandGating,
     routingRows,
     axes: axesIr,
+    maintenanceSeam,
     warnings,
   };
 }

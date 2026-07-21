@@ -12,6 +12,7 @@ import { buildCommandSeam, type CommandSeamPin } from "./em-command-seam";
 import { buildEmCmLinks, type CmLinkInfo } from "./matched-em-builder";
 import { buildUnitSequence, type UnitMemberEm } from "./unit-builder";
 import { writeUnitArtifacts } from "./unit-writer";
+import { writeMaintenanceArtifacts, type PresetChannelInput } from "./maintenance-writer";
 
 /**
  * Compile a confirmed FDS into deterministic SCL.
@@ -37,6 +38,19 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
     seenArtifact.add(a.name);
     artifacts.push(a);
   };
+
+  // G3: the maintenance layer is project-level. Decide seam existence up
+  // front (the unit writers wire #ok / i_Seq_Test against it); preset EM
+  // interlocks are resolved per unit as members become known.
+  const overridableOutputs = contract.maintenance?.overridable_outputs ?? [];
+  const presetChannels = contract.engineering?.encoder_presets ?? [];
+  const presetPlanned = contract.hierarchy.units.some((u) =>
+    (contract.unit_coordination?.[u.unit_id]?.axes ?? []).some(
+      (a) => a.preset && presetChannels.some((e) => e.unit_id === u.unit_id && e.axis_id === a.axis_id),
+    ),
+  );
+  const maintenanceSeam = overridableOutputs.length > 0 || presetPlanned;
+  const presets: PresetChannelInput[] = [];
 
   for (const unit of contract.hierarchy.units) {
     if (unit.excluded) continue;
@@ -161,6 +175,37 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
     // G2-1: real coordinator when the FDS carries unit_coordination for this
     // unit; typed stub + warning otherwise (never silently neither).
     const coord = contract.unit_coordination?.[unit.unit_id];
+
+    // G3-3: presettable axes with recorded TR channels, run-interlock resolved
+    // against this unit's members (canonical "execute" slug; TODO otherwise).
+    for (const axis of coord?.axes ?? []) {
+      if (!axis.preset) continue;
+      const chan = presetChannels.find((e) => e.unit_id === unit.unit_id && e.axis_id === axis.axis_id);
+      if (!chan) {
+        warnings.push(
+          `unit ${unit.unit_name}: axis ${axis.axis_id} declares an encoder preset but no channels are recorded (engineering.encoder_presets) — sequencer skipped`,
+        );
+        continue;
+      }
+      const blockEmId = axis.preset.blocked_while_em_execute;
+      const member = blockEmId ? unitMembers.find((m) => m.emId === blockEmId) : undefined;
+      const execState = member?.states.find((s) => s.slug === "execute");
+      if (blockEmId && !execState) {
+        warnings.push(
+          `unit ${unit.unit_name}: axis ${axis.axis_id} preset run-interlock EM "${blockEmId}" has no resolvable execute state — preset armed without an EM guard (TODO emitted)`,
+        );
+      }
+      presets.push({
+        axisId: axis.axis_id,
+        ident: sclIdent(axis.axis_id).toLowerCase(),
+        ctrlAddress: chan.ctrl_address,
+        valueAddress: chan.value_address,
+        statusAddress: chan.status_address,
+        blockedWhileEmExecute:
+          member && execState ? { emName: member.emName, executeIndex: execState.index } : undefined,
+      });
+    }
+
     if (coord) {
       const ir = buildUnitSequence({
         unitId: unit.unit_id,
@@ -169,6 +214,7 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
         members: unitMembers,
         modes: contract.modes ?? [],
         safetyGates: contract.safety_gates ?? [],
+        maintenanceSeam,
       });
       const { artifacts: unitArts, callLine } = writeUnitArtifacts(ir);
       unitArts.forEach(push);
@@ -180,6 +226,35 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
       );
       push(unitCoordinationStub(unit.unit_id, unit.unit_name, unit.equipment_modules.map((e) => e.equipment_module_name)));
     }
+  }
+
+  // G3: maintenance layer + OB1 ordering — preset FC before the EMs (G5-2),
+  // override FC as the FINAL call so its writes win over the MAP FCs (G5-3).
+  if (maintenanceSeam) {
+    const io = new Map(
+      contract.hierarchy.units.flatMap((u) =>
+        u.equipment_modules.flatMap((em) =>
+          em.control_modules.flatMap((cm) => cm.io_signals.map((s) => [s.tag, s.io_address] as const)),
+        ),
+      ),
+    );
+    for (const o of overridableOutputs) {
+      if (!io.has(o.tag)) {
+        warnings.push(`maintenance: overridable output "${o.tag}" not found among hierarchy IO signals`);
+      }
+    }
+    const maint = writeMaintenanceArtifacts({
+      overridableOutputs: overridableOutputs.map((o) => ({
+        tag: o.tag,
+        address: io.get(o.tag),
+        wireCheckOnly: o.wire_check_only,
+        description: o.description,
+      })),
+      presets,
+    });
+    maint.artifacts.forEach(push);
+    if (maint.presetCallLine) deviceCallLines.unshift(maint.presetCallLine);
+    if (maint.overrideCallLine) deviceCallLines.push(maint.overrideCallLine);
   }
 
   // Pass [] units: OB1 must not call per-unit sequencer DBs (they no longer
