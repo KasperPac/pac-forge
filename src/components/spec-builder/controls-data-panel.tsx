@@ -22,13 +22,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useSaveUnitCoordination } from "@/hooks/use-controls-data";
-import { ContractValidationError } from "@/lib/spec-builder/contract";
+import { useSaveSpecContract } from "@/hooks/use-controls-data";
+import { ContractValidationError, type SpecContractPatch } from "@/lib/spec-builder/contract";
 import { freshAuthoredId, seedCoordination } from "@/lib/spec-builder/unit-coordination-seed";
 import { RoutingCard } from "./controls-data/routing-card";
 import { AxesCard } from "./controls-data/axes-card";
+import { MaintenanceCard } from "./controls-data/maintenance-card";
+import { EngineeringCard, type DriveCmRef, type UnitAxisRef } from "./controls-data/engineering-card";
 import {
   UNIT_PACKML_STATES,
+  type EngineeringDataV1,
+  type MaintenanceV1,
   type PermissiveCondition,
   type UnitCoordinationV1,
   type UnitPackMLState,
@@ -137,18 +141,38 @@ interface Props {
   spec: SpecProject;
 }
 
+type ControlsSection = "coordination" | "maintenance" | "engineering";
+
 export function ControlsDataPanel({ spec }: Props) {
   const units = (spec.confirmed_units ?? []).filter((u) => !u.excluded);
   const modes = spec.confirmed_modes ?? [];
   const gates = spec.safety_gates ?? [];
-  const save = useSaveUnitCoordination();
+  const save = useSaveSpecContract();
 
+  const [section, setSection] = useState<ControlsSection>("coordination");
   const [coordMap, setCoordMap] = useState<Record<string, UnitCoordinationV1>>(
     () => spec.unit_coordination ?? {},
   );
+  const [maintenance, setMaintenance] = useState<MaintenanceV1>(
+    () => spec.maintenance ?? { overridable_outputs: [] },
+  );
+  const [engineering, setEngineering] = useState<EngineeringDataV1>(
+    () =>
+      spec.engineering ?? {
+        drives: [],
+        axis_constants: [],
+        encoder_presets: [],
+        fb_assignments: [],
+        upstream_endpoints: [],
+      },
+  );
   const [selectedUnitId, setSelectedUnitId] = useState<string | undefined>(units[0]?.unit_id);
-  const [dirty, setDirty] = useState(false);
+  const [dirtyKeys, setDirtyKeys] = useState<Set<ControlsSection>>(new Set());
   const [issues, setIssues] = useState<string[]>([]);
+
+  const dirty = dirtyKeys.size > 0;
+  const markDirty = (key: ControlsSection) =>
+    setDirtyKeys((prev) => new Set([...prev, key]));
 
   const coord = selectedUnitId ? coordMap[selectedUnitId] : undefined;
 
@@ -158,7 +182,7 @@ export function ControlsDataPanel({ spec }: Props) {
       ...prev,
       [selectedUnitId]: { ...prev[selectedUnitId], ...patch },
     }));
-    setDirty(true);
+    markDirty("coordination");
   };
 
   const declaredStates = new Map((coord?.states ?? []).map((s) => [s.state_id, s]));
@@ -173,15 +197,43 @@ export function ControlsDataPanel({ spec }: Props) {
     Object.values(a.gates).filter((g): g is string => typeof g === "string"),
   );
 
+  // DO tags across the hierarchy — the legal override targets (G0-5)
+  const doTags = units.flatMap((u) =>
+    u.equipment_modules.flatMap((em) =>
+      em.control_modules.flatMap((cm) =>
+        cm.io_signals.filter((s) => s.signal_type === "DO" && s.tag).map((s) => s.tag),
+      ),
+    ),
+  );
+  // CMs carrying a tier-1 drive model — the legal tier-2 drive entries (G0-1)
+  const driveCms: DriveCmRef[] = units.flatMap((u) =>
+    u.equipment_modules.flatMap((em) =>
+      em.control_modules
+        .filter((cm) => cm.drive)
+        .map((cm) => ({ cmId: cm.control_module_id, cmName: cm.control_module_name, family: cm.drive!.family })),
+    ),
+  );
+  // every declared axis across the (edited) coordination map
+  const unitAxes: UnitAxisRef[] = units.flatMap((u) =>
+    (coordMap[u.unit_id]?.axes ?? []).map((axis) => ({
+      unitId: u.unit_id,
+      unitName: u.unit_name,
+      axis,
+    })),
+  );
+
   const handleSave = async () => {
     setIssues([]);
     try {
-      await save.mutateAsync({
-        specId: spec.id,
-        unitCoordination: coordMap,
-        modes,
-      });
-      setDirty(false);
+      const patch: SpecContractPatch = {};
+      if (dirtyKeys.has("coordination")) {
+        patch.unit_coordination = coordMap;
+        if (modes.length) patch.modes = modes;
+      }
+      if (dirtyKeys.has("maintenance")) patch.maintenance = maintenance;
+      if (dirtyKeys.has("engineering")) patch.engineering = engineering;
+      await save.mutateAsync({ specId: spec.id, patch });
+      setDirtyKeys(new Set());
     } catch (e) {
       if (e instanceof ContractValidationError) setIssues(e.issues);
       else setIssues([e instanceof Error ? e.message : String(e)]);
@@ -204,20 +256,40 @@ export function ControlsDataPanel({ spec }: Props) {
     <div className="flex h-full flex-col">
       {/* Toolbar */}
       <div className="flex items-center gap-2 border-b px-4 h-10 shrink-0">
-        <span className="text-xs font-semibold">Unit Coordination</span>
-        <Select value={selectedUnitId} onValueChange={setSelectedUnitId}>
-          <SelectTrigger className="h-6 w-56 text-xs" aria-label="Unit">
-            <SelectValue placeholder="Select unit..." />
-          </SelectTrigger>
-          <SelectContent>
-            {units.map((u) => (
-              <SelectItem key={u.unit_id} value={u.unit_id} className="text-xs">
-                {u.unit_name}
-                {coordMap[u.unit_id] ? "" : "  (not coordinated)"}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-0.5 bg-muted rounded-md p-0.5">
+          {(
+            [
+              ["coordination", "Unit Coordination"],
+              ["maintenance", "Maintenance"],
+              ["engineering", "Engineering Data"],
+            ] as const
+          ).map(([key, label]) => (
+            <Button
+              key={key}
+              variant={section === key ? "secondary" : "ghost"}
+              size="sm"
+              className="h-6 text-[10px] px-2"
+              onClick={() => setSection(key)}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+        {section === "coordination" && (
+          <Select value={selectedUnitId} onValueChange={setSelectedUnitId}>
+            <SelectTrigger className="h-6 w-56 text-xs" aria-label="Unit">
+              <SelectValue placeholder="Select unit..." />
+            </SelectTrigger>
+            <SelectContent>
+              {units.map((u) => (
+                <SelectItem key={u.unit_id} value={u.unit_id} className="text-xs">
+                  {u.unit_name}
+                  {coordMap[u.unit_id] ? "" : "  (not coordinated)"}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
         {dirty && (
           <Badge variant="outline" className="text-[10px] text-amber-500 border-amber-400/40">
             unsaved
@@ -230,7 +302,7 @@ export function ControlsDataPanel({ spec }: Props) {
           disabled={!dirty || save.isPending}
         >
           <Save className="h-3.5 w-3.5" />
-          {save.isPending ? "Saving…" : "Save coordination"}
+          {save.isPending ? "Saving…" : "Save controls data"}
         </Button>
       </div>
 
@@ -247,7 +319,28 @@ export function ControlsDataPanel({ spec }: Props) {
 
       <ScrollArea className="flex-1 min-h-0">
         <div className="p-4 space-y-4 max-w-3xl">
-          {!coord ? (
+          {section === "maintenance" && (
+            <MaintenanceCard
+              maintenance={maintenance}
+              doTags={doTags}
+              onChange={(next) => {
+                setMaintenance(next);
+                markDirty("maintenance");
+              }}
+            />
+          )}
+          {section === "engineering" && (
+            <EngineeringCard
+              engineering={engineering}
+              driveCms={driveCms}
+              unitAxes={unitAxes}
+              onChange={(next) => {
+                setEngineering(next);
+                markDirty("engineering");
+              }}
+            />
+          )}
+          {section === "coordination" && (!coord ? (
             <Card className="p-4 space-y-3">
               <p className="text-xs text-muted-foreground">
                 This unit has no coordination authored — the compiler emits a
@@ -263,7 +356,7 @@ export function ControlsDataPanel({ spec }: Props) {
                     ...prev,
                     [selectedUnitId]: seedCoordination(selectedUnitId, gates),
                   }));
-                  setDirty(true);
+                  markDirty("coordination");
                 }}
               >
                 Enable coordination for this unit
@@ -523,7 +616,7 @@ export function ControlsDataPanel({ spec }: Props) {
               {/* --- Axes / envelope geometry (G0-4) --- */}
               <AxesCard coord={coord} ems={ems} patchCoord={patchCoord} />
             </>
-          )}
+          ))}
         </div>
       </ScrollArea>
     </div>

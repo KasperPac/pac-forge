@@ -91,7 +91,7 @@ describe("ControlsDataPanel", () => {
   it("saves through writeSpecContract with the modes co-sent (G0-9-F1 rule)", async () => {
     renderPanel(fixtureSpec());
     fireEvent.click(screen.getByText("Enable coordination for this unit"));
-    fireEvent.click(screen.getByText("Save coordination"));
+    fireEvent.click(screen.getByText("Save controls data"));
 
     await waitFor(() => expect(writeSpecContract).toHaveBeenCalledTimes(1));
     const [specId, patch] = vi.mocked(writeSpecContract).mock.calls[0];
@@ -104,7 +104,7 @@ describe("ControlsDataPanel", () => {
     renderPanel(fixtureSpec());
     fireEvent.click(screen.getByText("Enable coordination for this unit"));
     fireEvent.click(screen.getByLabelText("Declare state held"));
-    fireEvent.click(screen.getByText("Save coordination"));
+    fireEvent.click(screen.getByText("Save controls data"));
 
     await waitFor(() => expect(writeSpecContract).toHaveBeenCalled());
     const patch = vi.mocked(writeSpecContract).mock.calls[0][1];
@@ -115,7 +115,7 @@ describe("ControlsDataPanel", () => {
     renderPanel(fixtureSpec());
     fireEvent.click(screen.getByText("Enable coordination for this unit"));
     fireEvent.click(screen.getByText("Add transition"));
-    fireEvent.click(screen.getByText("Save coordination"));
+    fireEvent.click(screen.getByText("Save controls data"));
 
     await waitFor(() => expect(writeSpecContract).toHaveBeenCalled());
     const patch = vi.mocked(writeSpecContract).mock.calls[0][1];
@@ -155,7 +155,7 @@ describe("ControlsDataPanel — routing rows + axes (W1 slice 3)", () => {
     fireEvent.click(screen.getByText("Add row"));
     fireEvent.change(screen.getByLabelText("Row 1 target pin"), { target: { value: "ilk_Fwd" } });
     fireEvent.change(screen.getByLabelText("Row 1 source tag"), { target: { value: "Fwd_PB" } });
-    fireEvent.click(screen.getByText("Save coordination"));
+    fireEvent.click(screen.getByText("Save controls data"));
 
     await waitFor(() => expect(writeSpecContract).toHaveBeenCalled());
     const patch = vi.mocked(writeSpecContract).mock.calls[0][1];
@@ -168,7 +168,7 @@ describe("ControlsDataPanel — routing rows + axes (W1 slice 3)", () => {
     renderPanel(specWithEm());
     fireEvent.click(screen.getByText("Enable coordination for this unit"));
     fireEvent.click(screen.getByText("Linear"));
-    fireEvent.click(screen.getByText("Save coordination"));
+    fireEvent.click(screen.getByText("Save controls data"));
 
     await waitFor(() => expect(writeSpecContract).toHaveBeenCalled());
     const patch = vi.mocked(writeSpecContract).mock.calls[0][1];
@@ -198,7 +198,7 @@ describe("ControlsDataPanel — routing rows + axes (W1 slice 3)", () => {
     fireEvent.click(screen.getByText("Add row"));
     fireEvent.click(screen.getByText("Add row"));
     fireEvent.click(screen.getByText("pair"));
-    fireEvent.click(screen.getByText("Save coordination"));
+    fireEvent.click(screen.getByText("Save controls data"));
 
     await waitFor(() => expect(writeSpecContract).toHaveBeenCalled());
     const patch = vi.mocked(writeSpecContract).mock.calls[0][1];
@@ -206,5 +206,98 @@ describe("ControlsDataPanel — routing rows + axes (W1 slice 3)", () => {
     expect(detent?.fallback).toBe(true);
     expect(detent?.jog_row_id).toBeDefined();
     expect(detent?.jog_row_id).not.toBe(detent?.fast_row_id);
+  });
+});
+
+describe("ControlsDataPanel — maintenance + engineering (W1 slice 4)", () => {
+  function specWithDrive(): SpecProject {
+    const s = fixtureSpec();
+    s.confirmed_units![0].equipment_modules = [
+      {
+        equipment_module_id: "em-a",
+        equipment_module_name: "Drive EM",
+        description: "",
+        control_modules: [
+          {
+            control_module_id: "cm-1",
+            control_module_name: "M01",
+            control_module_class: "motor",
+            description: "",
+            is_safety: false,
+            drive: {
+              family: "sinamics_g120",
+              telegram: 1,
+              speed_ref: { unit: "percent_ref_speed", signed: true },
+              enable_policy: "enable_on_nonzero_ref",
+            },
+            io_signals: [
+              { tag: "M01_Run", signal_type: "DO", io_address: "Q0.0", description: "run" },
+            ],
+          },
+        ],
+      },
+    ];
+    return s;
+  }
+
+  it("adds an overridable output constrained to hierarchy DO tags", async () => {
+    renderPanel(specWithDrive());
+    fireEvent.click(screen.getByText("Maintenance"));
+    fireEvent.click(screen.getByText("Add output"));
+    fireEvent.click(screen.getByText("Save controls data"));
+
+    await waitFor(() => expect(writeSpecContract).toHaveBeenCalled());
+    const patch = vi.mocked(writeSpecContract).mock.calls[0][1];
+    expect(patch.maintenance?.overridable_outputs[0]).toEqual({
+      tag: "M01_Run",
+      wire_check_only: false,
+    });
+    // maintenance-only edit — no coordination key in the patch
+    expect(patch.unit_coordination).toBeUndefined();
+  });
+
+  it("records tier-2 drive commissioning values keyed by the drive-carrying CM", async () => {
+    renderPanel(specWithDrive());
+    fireEvent.click(screen.getByText("Engineering Data"));
+    fireEvent.change(screen.getByLabelText("M01 ref speed rpm"), { target: { value: "1500" } });
+    fireEvent.click(screen.getByText("Save controls data"));
+
+    await waitFor(() => expect(writeSpecContract).toHaveBeenCalled());
+    const patch = vi.mocked(writeSpecContract).mock.calls[0][1];
+    expect(patch.engineering?.drives[0]).toMatchObject({
+      control_module_id: "cm-1",
+      ref_speed_rpm: 1500,
+    });
+  });
+
+  it("clearing the only drive value removes the tier-2 entry", async () => {
+    renderPanel(specWithDrive());
+    fireEvent.click(screen.getByText("Engineering Data"));
+    fireEvent.change(screen.getByLabelText("M01 ref speed rpm"), { target: { value: "1500" } });
+    fireEvent.change(screen.getByLabelText("M01 ref speed rpm"), { target: { value: "" } });
+    fireEvent.click(screen.getByText("Save controls data"));
+
+    await waitFor(() => expect(writeSpecContract).toHaveBeenCalled());
+    const patch = vi.mocked(writeSpecContract).mock.calls[0][1];
+    expect(patch.engineering?.drives).toEqual([]);
+  });
+
+  it("derives axis-constant rows from axes declared under coordination", async () => {
+    renderPanel(specWithDrive());
+    fireEvent.click(screen.getByText("Enable coordination for this unit"));
+    fireEvent.click(screen.getByText("Linear"));
+    fireEvent.click(screen.getByText("Engineering Data"));
+    fireEvent.change(screen.getByLabelText("axis_1 scale_x10 constant"), { target: { value: "157" } });
+    fireEvent.click(screen.getByText("Save controls data"));
+
+    await waitFor(() => expect(writeSpecContract).toHaveBeenCalled());
+    const patch = vi.mocked(writeSpecContract).mock.calls[0][1];
+    expect(patch.engineering?.axis_constants[0]).toMatchObject({
+      unit_id: "u1",
+      axis_id: "axis_1",
+      values: { scale_x10: 157 },
+    });
+    // coordination was also edited this session — both keys ride one patch
+    expect(patch.unit_coordination?.u1.axes?.length).toBe(1);
   });
 });
