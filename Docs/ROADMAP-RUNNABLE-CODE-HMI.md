@@ -117,9 +117,9 @@ were fully hand-authored (`UC_Carriage/Rotator/Indicators.scl`).*
 
 | ID | Task | State | Pri | Eff | Depends | Evidence / notes |
 |---|---|---|---|---|---|---|
-| G3-1 | Emit `Maintenance_CMD` seam DB (mode flags, override bools, preset channels) | 🔴 | P1 | S | G0-5 | — |
-| G3-2 | Emit output-override FC (per DO, gated on maintenance_mode, must be OB1-last) | 🔴 | P1 | M | G0-5 | `MAINT_Output_Override.scl` |
-| G3-3 | Emit encoder-preset sequencer FC (one-shot pulse, state-guarded) | 🔴 | P2 | M | G0-5 | `MAINT_Encoder_Preset.scl` |
+| G3-1 | Emit `Maintenance_CMD` seam DB (mode flags, override bools, preset channels) | ✅ | P1 | S | G0-5 | SHIPPED 2026-07-21 e8f180d: maintenance-writer.ts — flags + per-axis preset channels + `ov_<tag>` per overridable output (IO address joined); UC TODOs resolved: `#ok AND NOT maintenance_mode`, `i_Seq_Test := seq_test_mode` bound in OB1 |
+| G3-2 | Emit output-override FC (per DO, gated on maintenance_mode, must be OB1-last) | ✅ | P1 | M | G0-5 | SHIPPED 2026-07-21 e8f180d: RETURN unless maintenance mode, per-DO writes, appended as the final OB1 call (G5-3) |
+| G3-3 | Emit encoder-preset sequencer FC (one-shot pulse, state-guarded) | ✅ | P2 | M | G0-5 | SHIPPED 2026-07-21 e8f180d: 3-step one-shot (~100-scan pulse), trigger bytes zeroed each scan, reset outside maintenance, armed only while the blocking EM ≠ Execute (unresolvable → unguarded + TODO + warning, never a guessed index); called pre-EM (G5-2) |
 
 ---
 
@@ -141,8 +141,8 @@ was hand-reordered: UC-first, MAINT preset, override-last.*
 | ID | Task | State | Pri | Eff | Depends | Evidence / notes |
 |---|---|---|---|---|---|---|
 | G5-1 | `writeOb1` accepts units → emit UC calls **before** EMs | ✅ | P0 | S | G2-1 | SHIPPED 2026-07-21 179e012: UC call spliced before the unit's EM calls via compile-contract call-line ordering (writeOb1 unchanged; its legacy `units` param stays unused) |
-| G5-2 | Inject MAINT preset call (pre-EM) + output-override call (mandated last) | 🔴 | P1 | S | G3-2,G3-3 | `Main.ob:14,39` |
-| G5-3 | Guard: override FC is always the final call | 🔴 | P2 | S | G5-2 | — |
+| G5-2 | Inject MAINT preset call (pre-EM) + output-override call (mandated last) | ✅ | P1 | S | G3-2,G3-3 | SHIPPED 2026-07-21 e8f180d: preset FC unshifted before all EM calls, override FC appended last |
+| G5-3 | Guard: override FC is always the final call | ✅ | P2 | S | G5-2 | SHIPPED 2026-07-21 e8f180d: override appended after every device/UC line with a MUST-stay-last comment; regression test asserts final position |
 
 ---
 
