@@ -127,9 +127,9 @@ were fully hand-authored (`UC_Carriage/Rotator/Indicators.scl`).*
 
 | ID | Task | State | Pri | Eff | Depends | Evidence / notes |
 |---|---|---|---|---|---|---|
-| G4-1 | Emit project config DB(s) from envelope/scaling params, retentive | 🔴 | P1 | S | G0-4 | `Rail_Config.db` VAR RETAIN |
-| G4-2 | Emit status readback DB(s) (positions, distances, zone flags) written by UC | 🔴 | P1 | S | G0-4,G2-5 | `Rail_Status.db` |
-| G4-3 | RETAIN handling on operative fields | 🔴 | P2 | S | G4-1 | HMI writes pointless without retain |
+| G4-1 | Emit project config DB(s) from envelope/scaling params, retentive | ✅ | P1 | S | G0-4 | SHIPPED 2026-07-21 b80b3dd (with G2-5): `CFG_<Unit>` DB from GeometryParamDefs — VAR RETAIN section + seeded defaults in BEGIN |
+| G4-2 | Emit status readback DB(s) (positions, distances, zone flags) written by UC | ✅ | P1 | S | G0-4,G2-5 | SHIPPED 2026-07-21 80a87c8: `STAT_<Unit>` — linear position/dist-to-ends (0 unconfigured)/in_ramp_zone, rotary position_deg10, Bool mirror per declared gate; written right after the geometry block |
+| G4-3 | RETAIN handling on operative fields | ✅ | P2 | S | G4-1 | SHIPPED with G4-1 (b80b3dd): `GeometryParamDef.retain` honored per member (RETAIN/plain split in `CFG_<Unit>`) |
 
 ---
 
