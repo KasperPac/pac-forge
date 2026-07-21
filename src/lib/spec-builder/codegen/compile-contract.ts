@@ -10,6 +10,8 @@ import { writeOb1 } from "./ob1-writer";
 import { checkStateCoverage, normSlug } from "./em-state-coverage";
 import { buildCommandSeam, type CommandSeamPin } from "./em-command-seam";
 import { buildEmCmLinks, type CmLinkInfo } from "./matched-em-builder";
+import { buildUnitSequence, type UnitMemberEm } from "./unit-builder";
+import { writeUnitArtifacts } from "./unit-writer";
 
 /**
  * Compile a confirmed FDS into deterministic SCL.
@@ -39,6 +41,12 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
   for (const unit of contract.hierarchy.units) {
     if (unit.excluded) continue;
 
+    // G2-1: member EMs (declaration order) for the real unit coordinator; the
+    // UC call is spliced in BEFORE this unit's EM calls (UC writes CMD seams
+    // the EMs consume in the same scan).
+    const unitMembers: UnitMemberEm[] = [];
+    const unitCallStart = deviceCallLines.length;
+
     for (const em of unit.equipment_modules) {
       const emContract = contract.equipment_modules[em.equipment_module_id];
       const emRes = instantiateEquipmentModule(em, templates);
@@ -52,6 +60,16 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
         emArts.forEach(push);
         deviceCallLines.push(...callLines);
         warnings.push(...seq.warnings);
+        // dispatch-order states + FDS allowed_modes drive the unit coordinator
+        unitMembers.push({
+          emId: em.equipment_module_id,
+          emName: seq.sclName,
+          states: seq.states.map((s) => ({
+            slug: s.stateId,
+            index: s.index,
+            allowedModes: emContract.states.find((cs) => cs.state_id === s.stateId)?.allowed_modes,
+          })),
+        });
         continue;
       }
 
@@ -61,6 +79,8 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
         emRes.artifacts.forEach(push);
         deviceCallLines.push(...emRes.callLines);
         stubs.equipmentModules.push(emRes.stub);
+        // no state contract: em_aggregate refs against it render FALSE + warn
+        unitMembers.push({ emId: em.equipment_module_id, emName: sclIdent(em.equipment_module_name), states: [] });
         continue;
       }
 
@@ -127,10 +147,39 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
       deviceCallLines.push(`   "${links.linkIn.name}"();`);
       deviceCallLines.push(`   "${emRes.instanceDb}"(${seam.callBindings.join(", ")});`);
       deviceCallLines.push(`   "${links.linkOut.name}"();`);
+
+      // G2-3: matched library EM — no command-role pins in its interface
+      // contract yet, so the unit routes commands to it as a marked TODO.
+      unitMembers.push({
+        emId: em.equipment_module_id,
+        emName: sclName,
+        states: (emRes.contract?.states ?? []).map((s, i) => ({ slug: s.slug, index: i })),
+        librarySeam: emRes.contract?.block_name ?? sclName,
+      });
     }
 
-    // Coordination stub replaces the flattened per-Unit sequencer.
-    push(unitCoordinationStub(unit.unit_id, unit.unit_name, unit.equipment_modules.map((e) => e.equipment_module_name)));
+    // G2-1: real coordinator when the FDS carries unit_coordination for this
+    // unit; typed stub + warning otherwise (never silently neither).
+    const coord = contract.unit_coordination?.[unit.unit_id];
+    if (coord) {
+      const ir = buildUnitSequence({
+        unitId: unit.unit_id,
+        unitName: unit.unit_name,
+        coord,
+        members: unitMembers,
+        modes: contract.modes ?? [],
+        safetyGates: contract.safety_gates ?? [],
+      });
+      const { artifacts: unitArts, callLine } = writeUnitArtifacts(ir);
+      unitArts.forEach(push);
+      warnings.push(...ir.warnings);
+      deviceCallLines.splice(unitCallStart, 0, callLine);
+    } else {
+      warnings.push(
+        `unit ${unit.unit_name}: no unit_coordination authored — UC coordination stub emitted`,
+      );
+      push(unitCoordinationStub(unit.unit_id, unit.unit_name, unit.equipment_modules.map((e) => e.equipment_module_name)));
+    }
   }
 
   // Pass [] units: OB1 must not call per-unit sequencer DBs (they no longer

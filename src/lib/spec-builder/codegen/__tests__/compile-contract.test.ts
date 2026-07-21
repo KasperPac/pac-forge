@@ -298,3 +298,84 @@ describe("compile-contract — verified matched EM", () => {
     });
   });
 });
+
+/* ------------------------------------------------------------------ *
+ * Real unit coordinator path (G2-1/G2-3 integration)
+ * ------------------------------------------------------------------ */
+
+describe("compileContract — real unit coordinator when unit_coordination exists", () => {
+  function coordFixture(): SpecContractV2 {
+    const c = fixture() as unknown as Record<string, unknown>;
+    c.modes = [
+      { mode_id: "prod", name: "Production", is_default: true, kind: "production" },
+      { mode_id: "eng", name: "Seq Test", is_default: false, kind: "engineering" },
+    ];
+    c.safety_gates = [
+      { gate_id: "estop", name: "E-Stop", condition: [{ tag: "EStop_OK", operator: "=", value: true }], scope: "all" },
+    ];
+    c.unit_coordination = {
+      "unit-1": {
+        unit_id: "unit-1",
+        states: [
+          { state_id: "idle", allowed_modes: [], mode_change_allowed: true },
+          { state_id: "execute", allowed_modes: [], mode_change_allowed: false },
+          { state_id: "stopped", allowed_modes: [], mode_change_allowed: true },
+        ],
+        transitions: [
+          { transition_id: "t1", from_state_id: "idle", to_state_id: "execute",
+            trigger: { type: "command", command: "start" }, guard: [], allowed_modes: [] },
+          { transition_id: "t2", from_state_id: "execute", to_state_id: "idle",
+            trigger: { type: "em_aggregate", em_scope: "all", em_state: "idle" }, guard: [], allowed_modes: [] },
+        ],
+        em_command_overrides: null,
+        signal_routing: {
+          safety_healthy: { gate_ids: ["estop"], exclude_maintenance: false },
+          routing_rows: [],
+          two_detent: [],
+          command_routing: { policy: "walk_to_execute_stop_on_unhealthy", seq_test_release: true },
+        },
+      },
+    };
+    return c as unknown as SpecContractV2;
+  }
+
+  const res = compileContract(coordFixture(), []);
+  const names = res.artifacts.map((a) => a.name);
+
+  it("emits the UC FB + instance DB + UN PackTags DB instead of the stub FC", () => {
+    const uc = res.artifacts.find((a) => a.name === "UC_Carriage_Unit");
+    expect(uc?.type).toBe("FB");
+    expect(uc?.content).toContain('FUNCTION_BLOCK "UC_Carriage_Unit"');
+    expect(names).toContain("UC_Carriage_Unit_DB");
+    expect(names).toContain("UN_Carriage_Unit");
+  });
+
+  it("routes commands to the member EM command seams", () => {
+    const uc = res.artifacts.find((a) => a.name === "UC_Carriage_Unit")!;
+    expect(uc.content).toContain('"Carriage_CMD".cmd_start');
+    expect(uc.content).toContain('"Clamp_CMD".cmd_stop');
+  });
+
+  it("resolves em_aggregate against each member EM's own dispatch indices", () => {
+    const uc = res.artifacts.find((a) => a.name === "UC_Carriage_Unit")!;
+    // both EMs declare idle at dispatch index 0
+    expect(uc.content).toContain('"EM_Carriage_DB".state = 0 AND "EM_Clamp_DB".state = 0');
+    expect(res.warnings.filter((w) => w.includes("em_aggregate"))).toHaveLength(0);
+  });
+
+  it("calls the UC instance in OB1 before the unit's EM instances", () => {
+    const ob = res.artifacts.find((a) => a.type === "OB")!;
+    const uc = ob.content.indexOf('"UC_Carriage_Unit_DB"();');
+    expect(uc).toBeGreaterThan(-1);
+    expect(uc).toBeLessThan(ob.content.indexOf('"EM_Carriage_DB"('));
+    expect(uc).toBeLessThan(ob.content.indexOf('"EM_Clamp_DB"('));
+  });
+
+  it("keeps the stub (with a warning) for units without unit_coordination", () => {
+    const stubRes = compileContract(fixture(), []);
+    const uc = stubRes.artifacts.find((a) => a.name === "UC_Carriage_Unit");
+    expect(uc?.type).toBe("FC");
+    expect(uc?.content).toContain("placeholder");
+    expect(stubRes.warnings.some((w) => w.includes("no unit_coordination"))).toBe(true);
+  });
+});
