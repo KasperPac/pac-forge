@@ -101,9 +101,9 @@ were fully hand-authored (`UC_Carriage/Rotator/Indicators.scl`).*
 
 | ID | Task | State | Pri | Eff | Depends | Evidence / notes |
 |---|---|---|---|---|---|---|
-| G2-1 | UC writer scaffold to replace `unitCoordinationStub` | 🔴 | P0 | M | G0-3 | `compile-contract.ts:148-169` |
+| G2-1 | UC writer scaffold to replace `unitCoordinationStub` | ✅ | P0 | M | G0-3 | SHIPPED 2026-07-21 380d19d/c9b4949/95cfc17 (skeleton, DBs, IR) + 76feccf (SM transition lowering, mode manager w/ compile-time isModeChangeLegal expansion, NOT-#ok override to aborting/aborted/stopped) + 179e012 (compile-contract emits real UC when `unit_coordination` present; stub+warning otherwise) |
 | G2-2 | Safety-healthy aggregation (`#ok = estop AND relay AND NOT maint`) | ✅ | P0 | S | G2-1 | SHIPPED 2026-07-21 5379a3a: #ok from G0-3 safety_healthy gate refs + STOP-on-unhealthy policy + per-state command assertion via CMD seam + seq-test release + PackTags mirror; maintenance exclusion TODO'd to G3 |
-| G2-3 | PackML command routing into EM `ilk_CMD_*` gated on `#ok`/maintenance/seq-test | 🔴 | P0 | M | G0-3,G2-1 | seq-test `RETURN` gating |
+| G2-3 | PackML command routing into EM `ilk_CMD_*` gated on `#ok`/maintenance/seq-test | ✅ | P0 | M | G0-3,G2-1 | SHIPPED 2026-07-21 a1e816c: mode-kind gating — engineering-kind release (OR'd with seq-test input, RETURN after mirror/safety/SM), maintenance-kind STOP-all (overrides ignored), library-FB members → marked TODO + warning (command roles on FbInterfaceContract still parked) |
 | G2-4 | Physical signal → EM `ilk_` routing incl. two-detent jog/fast suppression | 🔴 | P0 | M | G0-3 | `Fwd_Fast AND NOT jog` logic |
 | G2-5 | Envelope/limit-zone logic (position scaling, fwd/rev/fast gates, ramp fallback) | 🔴 | P1 | L | G0-4 | fast→jog fallback in zone |
 | G2-6 | Closed-loop one-shots (e.g. Straighten-Up) — may stay hand-authored | 💡 | P2 | L | G2-5 | `UC_Rotator.scl` straighten block |
@@ -140,7 +140,7 @@ was hand-reordered: UC-first, MAINT preset, override-last.*
 
 | ID | Task | State | Pri | Eff | Depends | Evidence / notes |
 |---|---|---|---|---|---|---|
-| G5-1 | `writeOb1` accepts units → emit UC calls **before** EMs | 🔴 | P0 | S | G2-1 | `ob1-writer.ts` |
+| G5-1 | `writeOb1` accepts units → emit UC calls **before** EMs | ✅ | P0 | S | G2-1 | SHIPPED 2026-07-21 179e012: UC call spliced before the unit's EM calls via compile-contract call-line ordering (writeOb1 unchanged; its legacy `units` param stays unused) |
 | G5-2 | Inject MAINT preset call (pre-EM) + output-override call (mandated last) | 🔴 | P1 | S | G3-2,G3-3 | `Main.ob:14,39` |
 | G5-3 | Guard: override FC is always the final call | 🔴 | P2 | S | G5-2 | — |
 
