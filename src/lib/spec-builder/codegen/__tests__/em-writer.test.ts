@@ -299,3 +299,20 @@ describe("MAP drive emission (G1-2/G1-3)", () => {
     expect(map).not.toContain("SINA_SPEED_Rail_Motors_VSD_DB");
   });
 });
+
+describe("MAP N/C inversion (G1-4)", () => {
+  it("emits NOT for nc-polarity sensors and plain copies otherwise", () => {
+    const s = seq();
+    s.sensors = [
+      { name: "fb_CM1_Therm", tag: "CM1_Therm", scl_type: "Bool", address: "I1.1", polarity: "nc" },
+      { name: "fb_brake_open", tag: "brake_open", scl_type: "Bool", address: "I0.0", polarity: "no" },
+      { name: "fb_plain", tag: "plain", scl_type: "Bool", address: "I0.2" },
+    ];
+    const map = writeEmArtifacts(s).artifacts.find((a) => a.name === "MAP_Carriage_Drive")!.content;
+    expect(map).toContain(
+      '"EM_Carriage_Drive_DB".fb_CM1_Therm := NOT "CM1_Therm";   // %I1.1 N/C fail-safe (healthy = TRUE), inverted',
+    );
+    expect(map).toContain('"EM_Carriage_Drive_DB".fb_brake_open := "brake_open";   // %I0.0');
+    expect(map).toContain('"EM_Carriage_Drive_DB".fb_plain := "plain";   // %I0.2');
+  });
+});

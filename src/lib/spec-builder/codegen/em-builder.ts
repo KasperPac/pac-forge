@@ -66,6 +66,7 @@ export function buildEmSequence(
         name, tag,
         scl_type: sig && ANALOG_TYPES.has(sig.signal_type) ? "Int" : "Bool",
         address: sig?.io_address ?? "",
+        polarity: sig?.polarity, // G0-2 → G1-4 inversion
       });
     }
     return name;

@@ -71,6 +71,8 @@ export interface EmPin {
   scl_type: "Bool" | "Int";
   /** Physical IO address for the MAP FC (empty when none is known). */
   address: string;
+  /** G0-2 wiring polarity; "nc" makes the MAP writer emit a NOT (G1-4). */
+  polarity?: import("@/types/spec-contract-v2").IoPolarity;
 }
 
 /** One linear SFC step inside a sequential EM state. */

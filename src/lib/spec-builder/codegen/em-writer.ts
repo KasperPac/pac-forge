@@ -299,11 +299,14 @@ function writeMapFc(seq: EmSequence): { artifact: CodegenArtifact; driveDbs: Cod
   // as a comment — the tag table owns the physical binding
   const sensorLines = seq.sensors
     .filter((p) => !consumed.has(p.name))
-    .map((p) =>
-      p.address
-        ? `   "${inst}".${p.name} := "${p.tag}";   // %${p.address}`
-        : `   // TODO wire sensor ${p.name} (no address in spec)`,
-    );
+    .map((p) => {
+      if (!p.address) return `   // TODO wire sensor ${p.name} (no address in spec)`;
+      // G1-4: N/C fail-safe wiring reads TRUE when healthy — invert so the
+      // EM sees TRUE = abnormal (the golden master's hand-authored pattern).
+      return p.polarity === "nc"
+        ? `   "${inst}".${p.name} := NOT "${p.tag}";   // %${p.address} N/C fail-safe (healthy = TRUE), inverted`
+        : `   "${inst}".${p.name} := "${p.tag}";   // %${p.address}`;
+    });
   const actuatorLines = seq.actuators
     .filter((p) => !consumed.has(p.name))
     .map((p) =>
