@@ -24,7 +24,9 @@ import {
 } from "@/components/ui/select";
 import { useSaveUnitCoordination } from "@/hooks/use-controls-data";
 import { ContractValidationError } from "@/lib/spec-builder/contract";
-import { seedCoordination } from "@/lib/spec-builder/unit-coordination-seed";
+import { freshAuthoredId, seedCoordination } from "@/lib/spec-builder/unit-coordination-seed";
+import { RoutingCard } from "./controls-data/routing-card";
+import { AxesCard } from "./controls-data/axes-card";
 import {
   UNIT_PACKML_STATES,
   type PermissiveCondition,
@@ -160,6 +162,16 @@ export function ControlsDataPanel({ spec }: Props) {
   };
 
   const declaredStates = new Map((coord?.states ?? []).map((s) => [s.state_id, s]));
+
+  const selectedUnit = units.find((u) => u.unit_id === selectedUnitId);
+  const ems = (selectedUnit?.equipment_modules ?? []).map((em) => ({
+    id: em.equipment_module_id,
+    name: em.equipment_module_name,
+  }));
+  // the named-gate registry: every gate id this unit's axes declare
+  const declaredGateIds = (coord?.axes ?? []).flatMap((a) =>
+    Object.values(a.gates).filter((g): g is string => typeof g === "string"),
+  );
 
   const handleSave = async () => {
     setIssues([]);
@@ -458,7 +470,7 @@ export function ControlsDataPanel({ spec }: Props) {
                         transitions: [
                           ...coord.transitions,
                           {
-                            transition_id: `t_${Date.now()}`,
+                            transition_id: freshAuthoredId("t"),
                             from_state_id: coord.states[0].state_id,
                             to_state_id: coord.states[1].state_id,
                             trigger: { type: "command", command: "start" },
@@ -499,6 +511,17 @@ export function ControlsDataPanel({ spec }: Props) {
                   </div>
                 )}
               </Card>
+
+              {/* --- Signal routing + two-detent (G0-3) --- */}
+              <RoutingCard
+                coord={coord}
+                ems={ems}
+                declaredGateIds={declaredGateIds}
+                patchCoord={patchCoord}
+              />
+
+              {/* --- Axes / envelope geometry (G0-4) --- */}
+              <AxesCard coord={coord} ems={ems} patchCoord={patchCoord} />
             </>
           )}
         </div>

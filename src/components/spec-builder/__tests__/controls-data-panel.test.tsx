@@ -134,3 +134,77 @@ describe("ControlsDataPanel", () => {
     expect(screen.getByLabelText("Declare state idle")).toBeChecked();
   });
 });
+
+describe("ControlsDataPanel — routing rows + axes (W1 slice 3)", () => {
+  function specWithEm(): SpecProject {
+    const s = fixtureSpec();
+    s.confirmed_units![0].equipment_modules = [
+      {
+        equipment_module_id: "em-a",
+        equipment_module_name: "Drive EM",
+        description: "",
+        control_modules: [],
+      },
+    ];
+    return s;
+  }
+
+  it("adds a routing row targeting an EM pin and saves it", async () => {
+    renderPanel(specWithEm());
+    fireEvent.click(screen.getByText("Enable coordination for this unit"));
+    fireEvent.click(screen.getByText("Add row"));
+    fireEvent.change(screen.getByLabelText("Row 1 target pin"), { target: { value: "ilk_Fwd" } });
+    fireEvent.change(screen.getByLabelText("Row 1 source tag"), { target: { value: "Fwd_PB" } });
+    fireEvent.click(screen.getByText("Save coordination"));
+
+    await waitFor(() => expect(writeSpecContract).toHaveBeenCalled());
+    const patch = vi.mocked(writeSpecContract).mock.calls[0][1];
+    const row = patch.unit_coordination?.u1.signal_routing?.routing_rows?.[0];
+    expect(row?.target).toEqual({ equipment_module_id: "em-a", pin: "ilk_Fwd" });
+    expect(row?.source).toEqual({ kind: "io_tag", tag: "Fwd_PB" });
+  });
+
+  it("seeds a linear axis with the schema defaults and saves it", async () => {
+    renderPanel(specWithEm());
+    fireEvent.click(screen.getByText("Enable coordination for this unit"));
+    fireEvent.click(screen.getByText("Linear"));
+    fireEvent.click(screen.getByText("Save coordination"));
+
+    await waitFor(() => expect(writeSpecContract).toHaveBeenCalled());
+    const patch = vi.mocked(writeSpecContract).mock.calls[0][1];
+    const axis = patch.unit_coordination?.u1.axes?.[0];
+    expect(axis?.kind).toBe("linear");
+    if (axis?.kind === "linear") {
+      expect(axis.end_margin.default).toBe(500);
+      expect(axis.ramp_zone.default).toBe(2000);
+      expect(axis.unconfigured_open).toBe(true);
+    }
+  });
+
+  it("declaring a linear gate id feeds the named-gate registry hint", () => {
+    renderPanel(specWithEm());
+    fireEvent.click(screen.getByText("Enable coordination for this unit"));
+    fireEvent.click(screen.getByText("Linear"));
+    fireEvent.change(screen.getByLabelText("fwd fast ok gate id"), { target: { value: "g-fwd-fast" } });
+    // add a routing row and a named-gate gate on it — placeholder should hint the declared id
+    fireEvent.click(screen.getByText("Add row"));
+    fireEvent.click(screen.getByText("gate"));
+    expect(screen.getByLabelText("Row 1 gate 1 gate id")).toHaveValue("g-fwd-fast");
+  });
+
+  it("pairs two routing rows as two-detent with fallback", async () => {
+    renderPanel(specWithEm());
+    fireEvent.click(screen.getByText("Enable coordination for this unit"));
+    fireEvent.click(screen.getByText("Add row"));
+    fireEvent.click(screen.getByText("Add row"));
+    fireEvent.click(screen.getByText("pair"));
+    fireEvent.click(screen.getByText("Save coordination"));
+
+    await waitFor(() => expect(writeSpecContract).toHaveBeenCalled());
+    const patch = vi.mocked(writeSpecContract).mock.calls[0][1];
+    const detent = patch.unit_coordination?.u1.signal_routing?.two_detent?.[0];
+    expect(detent?.fallback).toBe(true);
+    expect(detent?.jog_row_id).toBeDefined();
+    expect(detent?.jog_row_id).not.toBe(detent?.fast_row_id);
+  });
+});
