@@ -1098,3 +1098,47 @@ describe("validateSpecContractPatch + deriveIoList — per-IO model (G0-2)", () 
     expect(rows[2].normal_state).toBe("");
   });
 });
+
+describe("buildHierarchyFromLegacy — G0-1/G0-2/G0-15 field pass-through (G0-16)", () => {
+  it("preserves polarity/conditioning/scaling on signals and drive/diagnostics on CMs", async () => {
+    const { buildHierarchyFromLegacy } = await import("../contract");
+    const hierarchy = buildHierarchyFromLegacy({
+      confirmed_units: [
+        {
+          unit_id: "u1", unit_name: "Unit", equipment_type: "cell", description: "", excluded: false,
+          equipment_modules: [
+            {
+              equipment_module_id: "em1", equipment_module_name: "Drive EM", description: "",
+              control_modules: [
+                {
+                  control_module_id: "cm1", control_module_name: "M01", control_module_class: "motor",
+                  is_safety: false, description: "",
+                  drive: {
+                    family: "sinamics_g120", telegram: 1,
+                    speed_ref: { unit: "percent_ref_speed", signed: true },
+                    enable_policy: "enable_on_nonzero_ref",
+                  },
+                  diagnostics: { runtime_hours: true, cycle_counter: false, start_counter: false },
+                  io_signals: [
+                    { tag: "M01_Therm", signal_type: "DI", io_address: "I0.0", description: "thermistor",
+                      source: "wired", polarity: "nc", conditioning: { off_delay_ms: 5000 } },
+                    { tag: "PT01", signal_type: "AI", io_address: "IW100", description: "pressure",
+                      source: "wired",
+                      scaling: { raw: { min: 5530, max: 27648, unit: "counts" }, eu: { min: 0, max: 10, unit: "bar" } } },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    const cm = hierarchy.units[0].equipment_modules[0].control_modules[0];
+    expect(cm.drive?.family).toBe("sinamics_g120");
+    expect(cm.diagnostics?.runtime_hours).toBe(true);
+    expect(cm.io_signals[0].polarity).toBe("nc");
+    expect(cm.io_signals[0].conditioning).toEqual({ off_delay_ms: 5000 });
+    expect(cm.io_signals[1].scaling?.eu.unit).toBe("bar");
+  });
+});

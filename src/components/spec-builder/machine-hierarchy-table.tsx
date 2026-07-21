@@ -18,10 +18,12 @@ import {
   Cable,
   Sparkles,
   Loader2,
+  SlidersHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -47,6 +49,12 @@ import type {
   EquipmentType,
   ControlModuleClass,
 } from "@/types/spec-builder";
+import type {
+  DriveModelV1,
+  IoPolarity,
+  TelegramStandard,
+  VfdFamily,
+} from "@/types/spec-contract-v2";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -86,6 +94,16 @@ const DEVICE_CLASSES: ControlModuleClass[] = [
   "emergency_stop",
   "other",
 ];
+
+// G0-1 drive/VSD families (labels only — behavior keys off the contract enum).
+const VFD_FAMILIES: { value: VfdFamily; label: string; short: string; siemens: boolean }[] = [
+  { value: "sinamics_g120", label: "SINAMICS G120", short: "G120", siemens: true },
+  { value: "sinamics_s210", label: "SINAMICS S210", short: "S210", siemens: true },
+  { value: "abb_acs880", label: "ABB ACS880", short: "ACS880", siemens: false },
+  { value: "sew_movidrive", label: "SEW MOVIDRIVE", short: "SEW", siemens: false },
+  { value: "other", label: "Other / generic", short: "VSD", siemens: false },
+];
+const TELEGRAM_STANDARDS: TelegramStandard[] = [1, 20, 102, 105, 350, 352, 353];
 
 // ---------------------------------------------------------------------------
 // Flat row type for rendering the tree
@@ -481,6 +499,7 @@ export function MachineHierarchyTable({
                         availableTags={availableTags}
                         assignedTags={assignedTags}
                         onAssignTag={assignTagToSignal}
+                        onUpdateSignal={updateIoSignal}
                         onRemove={removeIoSignal}
                       />
                     );
@@ -619,6 +638,7 @@ function HierarchyRow({
     <button
       onClick={() => onToggle(row.key)}
       className="p-0.5 hover:bg-muted rounded"
+      aria-label={row.expanded ? "Collapse" : "Expand"}
     >
       {row.expanded ? (
         <ChevronDown className="h-3.5 w-3.5" />
@@ -819,7 +839,14 @@ function HierarchyRow({
           </SelectContent>
         </Select>
       </TableCell>
-      <TableCell className="px-1 py-1" />
+      <TableCell className="px-1 py-1 text-center">
+        <DriveEditor
+          drive={dev.drive}
+          onChange={(drive) =>
+            onUpdateDevice(row.unitIdx, row.equipment_moduleIdx!, row.deviceIdx!, { drive })
+          }
+        />
+      </TableCell>
       <TableCell className="px-1 py-1">
         <Input
           value={dev.description}
@@ -871,6 +898,180 @@ function HierarchyRow({
 }
 
 // ---------------------------------------------------------------------------
+// Drive/VSD editor (G0-1 tier-1 model on the control module)
+// ---------------------------------------------------------------------------
+
+function DriveEditor({
+  drive,
+  onChange,
+}: {
+  drive?: DriveModelV1;
+  onChange: (drive: DriveModelV1 | undefined) => void;
+}) {
+  const family = VFD_FAMILIES.find((f) => f.value === drive?.family);
+  const fieldRow = "flex items-center justify-between gap-2";
+  const fieldLabel = "text-[10px] text-muted-foreground";
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant={drive ? "outline" : "ghost"}
+          size="sm"
+          title={drive ? "Edit drive/VSD model" : "Model as drive/VSD-controlled"}
+          className={cn(
+            "h-5 px-1.5 text-[10px] font-mono",
+            !drive && "opacity-0 group-hover:opacity-100 text-muted-foreground",
+          )}
+        >
+          {drive ? (family?.short ?? "VSD") : "+ VSD"}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 p-3 space-y-2" align="start">
+        {!drive ? (
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Model this control module as VSD-controlled. Commissioning values
+              (HW ids, RefSpeed) are recorded separately in Engineering Data.
+            </p>
+            <Button
+              size="sm"
+              className="w-full h-7 text-xs"
+              onClick={() =>
+                onChange({
+                  family: "sinamics_g120",
+                  telegram: 1,
+                  speed_ref: { unit: "percent_ref_speed", signed: true },
+                  enable_policy: "enable_on_nonzero_ref",
+                })
+              }
+            >
+              Add drive model
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className={fieldRow}>
+              <span className={fieldLabel}>Family</span>
+              <Select
+                value={drive.family}
+                onValueChange={(v) => {
+                  const fam = VFD_FAMILIES.find((f) => f.value === v)!;
+                  onChange({
+                    ...drive,
+                    family: fam.value,
+                    // telegram only exists for PROFINET-telegram (Siemens) families
+                    telegram: fam.siemens ? (drive.telegram ?? 1) : undefined,
+                  });
+                }}
+              >
+                <SelectTrigger className="h-6 w-40 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {VFD_FAMILIES.map((f) => (
+                    <SelectItem key={f.value} value={f.value} className="text-xs">
+                      {f.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {family?.siemens && (
+              <div className={fieldRow}>
+                <span className={fieldLabel}>Telegram</span>
+                <Select
+                  value={String(drive.telegram ?? 1)}
+                  onValueChange={(v) =>
+                    onChange({ ...drive, telegram: Number(v) as TelegramStandard })
+                  }
+                >
+                  <SelectTrigger className="h-6 w-40 text-xs font-mono">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TELEGRAM_STANDARDS.map((t) => (
+                      <SelectItem key={t} value={String(t)} className="text-xs font-mono">
+                        Standard Telegram {t}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className={fieldRow}>
+              <span className={fieldLabel}>Speed ref unit</span>
+              <Select
+                value={drive.speed_ref.unit}
+                onValueChange={(v) =>
+                  onChange({
+                    ...drive,
+                    speed_ref: { ...drive.speed_ref, unit: v as DriveModelV1["speed_ref"]["unit"] },
+                  })
+                }
+              >
+                <SelectTrigger className="h-6 w-40 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="percent_ref_speed" className="text-xs">
+                    % of ref speed (p2000)
+                  </SelectItem>
+                  <SelectItem value="rpm" className="text-xs">rpm</SelectItem>
+                  <SelectItem value="hz" className="text-xs">Hz</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className={fieldRow}>
+              <span className={fieldLabel}>Signed (bidirectional)</span>
+              <input
+                type="checkbox"
+                aria-label="Signed speed reference"
+                checked={drive.speed_ref.signed}
+                onChange={(e) =>
+                  onChange({
+                    ...drive,
+                    speed_ref: { ...drive.speed_ref, signed: e.target.checked },
+                  })
+                }
+              />
+            </div>
+            <div className={fieldRow}>
+              <span className={fieldLabel}>Enable policy</span>
+              <Select
+                value={drive.enable_policy}
+                onValueChange={(v) =>
+                  onChange({ ...drive, enable_policy: v as DriveModelV1["enable_policy"] })
+                }
+              >
+                <SelectTrigger className="h-6 w-40 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="enable_on_nonzero_ref" className="text-xs">
+                    Enable on non-zero ref
+                  </SelectItem>
+                  <SelectItem value="explicit_enable" className="text-xs">
+                    Explicit enable pin
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full h-6 text-xs text-destructive"
+              onClick={() => onChange(undefined)}
+            >
+              Remove drive model
+            </Button>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // IO Signal row — tag selector from instrument register
 // ---------------------------------------------------------------------------
 
@@ -880,6 +1081,7 @@ interface IoSignalRowProps {
   availableTags: InstrumentTag[];
   assignedTags: Set<string>;
   onAssignTag: (si: number, ai: number, di: number, sigIdx: number, tagName: string) => void;
+  onUpdateSignal: (si: number, ai: number, di: number, sigIdx: number, patch: Partial<IoSignal>) => void;
   onRemove: (si: number, ai: number, di: number, sigIdx: number) => void;
 }
 
@@ -889,11 +1091,16 @@ function IoSignalRow({
   availableTags,
   assignedTags,
   onAssignTag,
+  onUpdateSignal,
   onRemove,
 }: IoSignalRowProps) {
   const sig =
     units[row.unitIdx].equipment_modules[row.equipment_moduleIdx!].control_modules[row.deviceIdx!]
       .io_signals[row.signalIdx!];
+  const patchSignal = (patch: Partial<IoSignal>) =>
+    onUpdateSignal(row.unitIdx, row.equipment_moduleIdx!, row.deviceIdx!, row.signalIdx!, patch);
+  const isDigitalSig = sig.signal_type === "DI" || sig.signal_type === "DO";
+  const isAnalogSig = sig.signal_type === "AI" || sig.signal_type === "AO";
 
   const indent = 72; // device(48) + extra indent for signals
 
@@ -985,7 +1192,198 @@ function IoSignalRow({
           <span className="text-muted-foreground/50 text-[10px] italic">N/A</span>
         )}
       </TableCell>
-      <TableCell className="px-1 py-0.5" />
+      {/* G0-2 per-signal model: polarity (digital) + conditioning/scaling popover */}
+      <TableCell className="px-1 py-0.5">
+        {isAssigned && isDigitalSig && (
+          <div className="flex items-center gap-0.5 justify-center">
+            <Select
+              value={sig.polarity ?? "no"}
+              onValueChange={(v) => patchSignal({ polarity: v as IoPolarity })}
+            >
+              <SelectTrigger
+                title="Wiring polarity"
+                aria-label="Wiring polarity"
+                className={cn(
+                  "h-5 w-[52px] px-1 text-[10px] font-mono",
+                  sig.polarity === "nc"
+                    ? "border-amber-400/40 text-amber-500"
+                    : "border-transparent hover:border-border text-muted-foreground",
+                )}
+              >
+                <SelectValue>{sig.polarity === "nc" ? "N/C" : "N/O"}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="no" className="text-xs">
+                  N/O — normally open
+                </SelectItem>
+                <SelectItem value="nc" className="text-xs">
+                  N/C — fail-safe wiring (writer inverts)
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  title="Signal conditioning (functional delays)"
+                  aria-label="Signal conditioning"
+                  className={cn(
+                    "h-5 w-5",
+                    sig.conditioning ? "text-amber-500" : "text-muted-foreground opacity-0 group-hover:opacity-100",
+                  )}
+                >
+                  <SlidersHorizontal className="h-3 w-3" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-56 p-3 space-y-2" align="end">
+                <p className="text-[10px] text-muted-foreground">
+                  Functionally significant delays only — blanket filter times are
+                  a tier-2 engineering default.
+                </p>
+                {(["on_delay_ms", "off_delay_ms"] as const).map((k) => (
+                  <div key={k} className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] text-muted-foreground">
+                      {k === "on_delay_ms" ? "On delay (ms)" : "Off delay (ms)"}
+                    </span>
+                    <Input
+                      type="number"
+                      min={0}
+                      aria-label={k === "on_delay_ms" ? "On delay ms" : "Off delay ms"}
+                      value={sig.conditioning?.[k] ?? ""}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const next = {
+                          ...sig.conditioning,
+                          [k]: raw === "" ? undefined : Math.max(0, Math.floor(Number(raw))),
+                        };
+                        const empty = next.on_delay_ms === undefined && next.off_delay_ms === undefined;
+                        patchSignal({ conditioning: empty ? undefined : next });
+                      }}
+                      className="h-6 w-24 text-xs font-mono"
+                    />
+                  </div>
+                ))}
+              </PopoverContent>
+            </Popover>
+          </div>
+        )}
+        {isAssigned && isAnalogSig && (
+          <div className="flex justify-center">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant={sig.scaling ? "outline" : "ghost"}
+                  size="sm"
+                  title="Analog scaling (raw ↔ engineering units)"
+                  aria-label="Analog scaling"
+                  className={cn(
+                    "h-5 px-1.5 text-[10px] font-mono",
+                    !sig.scaling && "text-muted-foreground opacity-0 group-hover:opacity-100",
+                  )}
+                >
+                  {sig.scaling ? sig.scaling.eu.unit : "+ scale"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-64 p-3 space-y-2" align="end">
+                {!sig.scaling ? (
+                  <Button
+                    size="sm"
+                    className="w-full h-7 text-xs"
+                    onClick={() =>
+                      patchSignal({
+                        scaling: {
+                          raw: { min: 4, max: 20, unit: "mA" },
+                          eu: { min: 0, max: 100, unit: "%" },
+                        },
+                      })
+                    }
+                  >
+                    Add scaling (edit ranges after)
+                  </Button>
+                ) : (
+                  <div className="space-y-2">
+                    {(["raw", "eu"] as const).map((side) => (
+                      <div key={side} className="space-y-1">
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase">
+                          {side === "raw" ? "Raw signal" : "Engineering units"}
+                        </p>
+                        <div className="flex items-center gap-1">
+                          {(["min", "max"] as const).map((b) => (
+                            <Input
+                              key={b}
+                              type="number"
+                              aria-label={`${side} ${b}`}
+                              value={sig.scaling![side][b]}
+                              onChange={(e) =>
+                                patchSignal({
+                                  scaling: {
+                                    ...sig.scaling!,
+                                    [side]: {
+                                      ...sig.scaling![side],
+                                      [b]: Number(e.target.value),
+                                    },
+                                  },
+                                })
+                              }
+                              className="h-6 w-16 text-xs font-mono"
+                            />
+                          ))}
+                          {side === "raw" ? (
+                            <Select
+                              value={sig.scaling!.raw.unit}
+                              onValueChange={(v) =>
+                                patchSignal({
+                                  scaling: {
+                                    ...sig.scaling!,
+                                    raw: { ...sig.scaling!.raw, unit: v as "mA" | "V" | "counts" },
+                                  },
+                                })
+                              }
+                            >
+                              <SelectTrigger className="h-6 w-20 text-xs font-mono" aria-label="Raw unit">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="mA" className="text-xs">mA</SelectItem>
+                                <SelectItem value="V" className="text-xs">V</SelectItem>
+                                <SelectItem value="counts" className="text-xs">counts</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Input
+                              aria-label="EU unit"
+                              value={sig.scaling!.eu.unit}
+                              onChange={(e) =>
+                                patchSignal({
+                                  scaling: {
+                                    ...sig.scaling!,
+                                    eu: { ...sig.scaling!.eu, unit: e.target.value },
+                                  },
+                                })
+                              }
+                              placeholder="unit"
+                              className="h-6 w-20 text-xs font-mono"
+                            />
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full h-6 text-xs text-destructive"
+                      onClick={() => patchSignal({ scaling: undefined })}
+                    >
+                      Remove scaling
+                    </Button>
+                  </div>
+                )}
+              </PopoverContent>
+            </Popover>
+          </div>
+        )}
+      </TableCell>
       {/* Remove */}
       <TableCell className="px-1 py-0.5">
         <div className="opacity-0 group-hover:opacity-100 transition-opacity">

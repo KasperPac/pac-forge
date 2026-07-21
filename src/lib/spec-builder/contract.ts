@@ -319,9 +319,9 @@ function sharedPrefixLength(a: string, b: string): number {
 
 /**
  * Build the hierarchy sub-tree from legacy `confirmed_units` + ensure
- * every IoSignal signal_type is canonical IEC.
+ * every IoSignal signal_type is canonical IEC. Exported for unit tests (pure).
  */
-function buildHierarchyFromLegacy(
+export function buildHierarchyFromLegacy(
   projectRow: Record<string, unknown>,
 ): Hierarchy {
   const subs = (projectRow.confirmed_units ?? []) as Record<string, unknown>[];
@@ -340,6 +340,11 @@ function buildHierarchyFromLegacy(
           telegram_offset: (sig.telegram_offset as IoSignalV2["telegram_offset"]) ?? undefined,
           direction_overlay:
             (sig.direction_overlay as IoSignalV2["direction_overlay"]) ?? undefined,
+          // G0-2 per-signal model — must survive the legacy round-trip or the
+          // MAP writer never sees polarity/conditioning/scaling (G0-16 fix).
+          polarity: (sig.polarity as IoSignalV2["polarity"]) ?? undefined,
+          conditioning: (sig.conditioning as IoSignalV2["conditioning"]) ?? undefined,
+          scaling: (sig.scaling as IoSignalV2["scaling"]) ?? undefined,
         }));
         return {
           control_module_id: String(d.control_module_id ?? ""),
@@ -349,6 +354,9 @@ function buildHierarchyFromLegacy(
           description: String(d.description ?? ""),
           io_signals,
           network_config: (d.network_config as ControlModuleV2["network_config"]) ?? undefined,
+          // G0-1/G0-15 models ride the same rows (G0-16 fix).
+          drive: (d.drive as ControlModuleV2["drive"]) ?? undefined,
+          diagnostics: (d.diagnostics as ControlModuleV2["diagnostics"]) ?? undefined,
         };
       });
       return {

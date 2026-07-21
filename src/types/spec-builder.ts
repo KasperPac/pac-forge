@@ -1,5 +1,5 @@
 // Spec Builder types — functional specification document generation
-import type { PermissiveCondition, SequentialStateV2, OperatorMode, SafetyGateV2, EmStateV2, EmTransitionV2, CommandBehaviorV2 } from "./spec-contract-v2";
+import type { PermissiveCondition, SequentialStateV2, OperatorMode, SafetyGateV2, EmStateV2, EmTransitionV2, CommandBehaviorV2, AnalogScaling, DriveModelV1, IoConditioning, IoPolarity } from "./spec-contract-v2";
 
 // --- ISA-88 Process Model (§4.3) ---
 // Describes WHAT happens to the product (product-centric), not HOW equipment does it.
@@ -231,6 +231,11 @@ export interface IoSignal {
   signal_type: string;
   io_address: string;
   description: string;
+  // G0-2 per-signal model (optional; rides confirmed_units into the contract —
+  // digital-only polarity/conditioning, analog-only scaling per io-signal-model.ts)
+  polarity?: IoPolarity;
+  conditioning?: IoConditioning;
+  scaling?: AnalogScaling;
 }
 
 export interface ControlModuleConfig {
@@ -240,6 +245,9 @@ export interface ControlModuleConfig {
   description: string;
   is_safety: boolean;
   io_signals: IoSignal[];
+  // G0-1 tier-1 drive/VSD model (optional; tier-2 commissioning values live
+  // in engineering.drives, keyed by CM id)
+  drive?: DriveModelV1;
 }
 
 export interface EquipmentModuleConfig {
