@@ -406,3 +406,72 @@ describe("writeUnitArtifacts — mode-kind command gating (G2-3)", () => {
     expect(fb).toContain("IF #Cur_Mode = 2 THEN");
   });
 });
+
+describe("writeUnitArtifacts — signal routing rows + two-detent (G2-4)", () => {
+  function routedIr() {
+    const members: UnitMemberEm[] = [
+      { emId: "em-a", emName: "Drive", states: [] },
+      { emId: "em-b", emName: "Indicators", states: [] },
+    ];
+    const coord: UnitCoordinationV1 = {
+      unit_id: "unit-1",
+      states: [{ state_id: "idle", allowed_modes: [], mode_change_allowed: true }],
+      transitions: [],
+      em_command_overrides: null,
+      signal_routing: {
+        routing_rows: [
+          { row_id: "r-fast", target: { equipment_module_id: "em-a", pin: "ilk_Fwd_Fast" },
+            source: { kind: "io_tag", tag: "Fwd_Fast_PB" },
+            gates: [
+              { kind: "named_gate", gate_id: "g-fwd-fast" },
+              { kind: "em_status", equipment_module_id: "em-b", member: "permit_travel" },
+            ] },
+          { row_id: "r-jog", target: { equipment_module_id: "em-a", pin: "ilk_Fwd" },
+            source: { kind: "io_tag", tag: "Fwd_PB" },
+            gates: [{ kind: "em_status", equipment_module_id: "em-b", member: "permit_travel" }] },
+          { row_id: "r-plain", target: { equipment_module_id: "em-a", pin: "ilk_Limit_Stop" },
+            source: { kind: "io_tag", tag: "Long_Limit_Stop" }, gates: [] },
+        ],
+        two_detent: [{ jog_row_id: "r-jog", fast_row_id: "r-fast", fallback: true }],
+        command_routing: { policy: "walk_to_execute_stop_on_unhealthy", seq_test_release: true },
+      },
+      axes: [
+        { axis_id: "ax1", kind: "linear", encoder_tag: "Enc", eu_unit: "mm",
+          scale: { db_member: "scale", retain: true, operator_settable: false },
+          length: { db_member: "len", retain: true, operator_settable: false },
+          end_margin: { db_member: "margin", retain: true, operator_settable: false },
+          ramp_zone: { db_member: "ramp", retain: true, operator_settable: false },
+          gates: { fwd_fast_ok: "g-fwd-fast" }, unconfigured_open: true },
+      ],
+    };
+    return buildUnitSequence({ unitId: "unit-1", unitName: "Carriage", coord, members, modes: [] });
+  }
+
+  it("emits a plain row as target := source", () => {
+    const fb = writeUnitArtifacts(routedIr()).artifacts.find((a) => a.name === "UC_Carriage")!.content;
+    expect(fb).toContain('"EM_Drive_DB".ilk_Limit_Stop := "Long_Limit_Stop";');
+  });
+
+  it("emits the fast row with pending gates held FALSE plus a TODO trailer", () => {
+    const fb = writeUnitArtifacts(routedIr()).artifacts.find((a) => a.name === "UC_Carriage")!.content;
+    expect(fb).toContain(
+      '"EM_Drive_DB".ilk_Fwd_Fast := "Fwd_Fast_PB" AND FALSE AND "EM_Indicators_DB".permit_travel;   // TODO gate g-fwd-fast held FALSE pending G2-5',
+    );
+  });
+
+  it("emits the jog row with fallback OR and NOT(fast expr) suppression", () => {
+    const fb = writeUnitArtifacts(routedIr()).artifacts.find((a) => a.name === "UC_Carriage")!.content;
+    expect(fb).toContain(
+      '"EM_Drive_DB".ilk_Fwd := ("Fwd_PB" OR "Fwd_Fast_PB") AND NOT ("Fwd_Fast_PB" AND FALSE AND "EM_Indicators_DB".permit_travel) AND "EM_Indicators_DB".permit_travel;',
+    );
+  });
+
+  it("keeps routing rows running in seq-test mode (emitted before the release RETURN)", () => {
+    const fb = writeUnitArtifacts(routedIr()).artifacts.find((a) => a.name === "UC_Carriage")!.content;
+    const routing = fb.indexOf('"EM_Drive_DB".ilk_Fwd_Fast');
+    const release = fb.indexOf("IF #i_Seq_Test");
+    expect(routing).toBeGreaterThan(-1);
+    expect(release).toBeGreaterThan(-1);
+    expect(routing).toBeLessThan(release);
+  });
+});

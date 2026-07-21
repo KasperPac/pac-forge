@@ -9,6 +9,7 @@ import type {
   OperatorMode,
   PermissiveCondition,
   SafetyGateV2,
+  SignalSourceRef,
   UnitCoordinationV1,
   UnitPackMLState,
 } from "@/types/spec-contract-v2";
@@ -96,6 +97,26 @@ export interface UnitTransitionIr {
   modeMask: number[];
 }
 
+/** A routing-row signal reference resolved against the member EMs and the
+ *  G0-4 axis gate registry (G2-4). `gatePending` = a named envelope gate whose
+ *  computed value only ships with G2-5 — rendered FALSE (fail-safe) + TODO. */
+export type ResolvedSignalRef =
+  | { kind: "tag"; tag: string }
+  | { kind: "emStatus"; emName: string; member: string }
+  | { kind: "gatePending"; gateId: string; declared: boolean };
+
+/** One resolved `target.pin := source AND gates` row (G0-3 routing_rows).
+ *  `suppressedBy` set on a jog row that participates in a two-detent pair:
+ *  the fast row's terms plus the fallback policy. */
+export interface RoutingRowIr {
+  rowId: string;
+  emName: string;
+  pin: string;
+  source: ResolvedSignalRef;
+  gates: ResolvedSignalRef[];
+  suppressedBy?: { source: ResolvedSignalRef; gates: ResolvedSignalRef[]; fallback: boolean };
+}
+
 /** Inputs to the unit IR builder. */
 export interface UnitBuildInput {
   unitId: string;
@@ -135,6 +156,8 @@ export interface UnitSequenceIr {
   /** G2-3: Cur_Mode index sets by semantic mode kind (absent when no modes) —
    *  engineering releases the command assertion, maintenance forces STOP. */
   commandGating?: { engineeringModeIndices: number[]; maintenanceModeIndices: number[] };
+  /** G2-4: resolved signal-routing rows (absent when signal_routing has none). */
+  routingRows?: RoutingRowIr[];
   warnings: string[];
 }
 
@@ -246,6 +269,81 @@ export function buildUnitSequence(input: UnitBuildInput): UnitSequenceIr {
     };
   }
 
+  // G2-4: resolve routing rows + two-detent suppression.
+  let routingRows: RoutingRowIr[] | undefined;
+  const rawRows = coord.signal_routing?.routing_rows ?? [];
+  if (rawRows.length) {
+    // the G0-4 axis gate registry: every gate id any unit axis declares
+    const declaredGates = new Set(
+      (coord.axes ?? []).flatMap((a) =>
+        Object.values(a.gates).filter((g): g is string => typeof g === "string"),
+      ),
+    );
+    const memberByEmId = new Map(members.map((m) => [m.emId, m]));
+    const resolveRef = (ref: SignalSourceRef, rowId: string): ResolvedSignalRef | null => {
+      switch (ref.kind) {
+        case "io_tag":
+          return { kind: "tag", tag: ref.tag };
+        case "em_status": {
+          const m = memberByEmId.get(ref.equipment_module_id);
+          if (!m) {
+            warnings.push(
+              `unit ${unitName}: routing row ${rowId} reads em_status of unknown EM "${ref.equipment_module_id}" — row skipped`,
+            );
+            return null;
+          }
+          return { kind: "emStatus", emName: m.emName, member: ref.member };
+        }
+        case "named_gate": {
+          const declared = declaredGates.has(ref.gate_id);
+          warnings.push(
+            declared
+              ? `unit ${unitName}: routing row ${rowId} gate "${ref.gate_id}" awaits envelope-gate emission (G2-5) — held FALSE (fail-safe)`
+              : `unit ${unitName}: routing row ${rowId} gate "${ref.gate_id}" not declared by any unit axis — held FALSE (fail-safe)`,
+          );
+          return { kind: "gatePending", gateId: ref.gate_id, declared };
+        }
+      }
+    };
+
+    const resolved = new Map<string, RoutingRowIr>();
+    for (const row of rawRows) {
+      const target = memberByEmId.get(row.target.equipment_module_id);
+      if (!target) {
+        warnings.push(
+          `unit ${unitName}: routing row ${row.row_id} targets unknown EM "${row.target.equipment_module_id}" — row skipped`,
+        );
+        continue;
+      }
+      const source = resolveRef(row.source, row.row_id);
+      if (!source) continue;
+      const gates: ResolvedSignalRef[] = [];
+      let bad = false;
+      for (const g of row.gates) {
+        const r = resolveRef(g, row.row_id);
+        if (!r) { bad = true; break; }
+        gates.push(r);
+      }
+      if (bad) continue;
+      resolved.set(row.row_id, {
+        rowId: row.row_id, emName: target.emName, pin: row.target.pin, source, gates,
+      });
+    }
+
+    for (const td of coord.signal_routing?.two_detent ?? []) {
+      const jog = resolved.get(td.jog_row_id);
+      const fast = resolved.get(td.fast_row_id);
+      if (!jog || !fast) {
+        warnings.push(
+          `unit ${unitName}: two_detent pair (${td.jog_row_id}, ${td.fast_row_id}) references a missing/skipped row — suppression not emitted`,
+        );
+        continue;
+      }
+      jog.suppressedBy = { source: fast.source, gates: fast.gates, fallback: td.fallback };
+    }
+    routingRows = [...resolved.values()];
+  }
+
   // G2-3: semantic mode kinds → Cur_Mode index sets for command gating.
   const commandGating =
     modes.length > 0
@@ -274,6 +372,7 @@ export function buildUnitSequence(input: UnitBuildInput): UnitSequenceIr {
     commandRouting,
     modeManager,
     commandGating,
+    routingRows,
     warnings,
   };
 }

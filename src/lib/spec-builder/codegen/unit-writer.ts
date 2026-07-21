@@ -6,7 +6,13 @@
 // land in later G2-1/G2-2/G2-3 cycles.
 // Design: Docs/superpowers/specs/2026-07-08-g2-unit-fb-writer-design.md
 import type { CodegenArtifact } from "./types";
-import type { UnitSequenceIr, UnitStateIr, UnitTransitionIr } from "./unit-builder";
+import type {
+  ResolvedSignalRef,
+  RoutingRowIr,
+  UnitSequenceIr,
+  UnitStateIr,
+  UnitTransitionIr,
+} from "./unit-builder";
 import { serializeGuard } from "./serialize-condition";
 import { sclIdent } from "./sa-builder";
 
@@ -125,6 +131,47 @@ function stateBranch(st: UnitStateIr, ir: UnitSequenceIr): string[] {
     `${pad(6)}${st.index}:   // ${st.stateId}`,
     ...(body.length ? body : [`${pad(9)};`]),
   ];
+}
+
+/** One routing-row signal term. Pending envelope gates render FALSE — motion
+ *  stays blocked (fail-safe) until G2-5 emits the computed gate. */
+function refExpr(r: ResolvedSignalRef): string {
+  switch (r.kind) {
+    case "tag":
+      return `"${r.tag}"`;
+    case "emStatus":
+      return `"EM_${r.emName}_DB".${r.member}`;
+    case "gatePending":
+      return "FALSE";
+  }
+}
+
+/** source AND gates for one row (the golden master's full fast/jog expression). */
+function rowExpr(source: ResolvedSignalRef, gates: ResolvedSignalRef[]): string {
+  return [refExpr(source), ...gates.map(refExpr)].join(" AND ");
+}
+
+/** G2-4: one `"EM_x_DB".pin := ...` routing line. Two-detent jog rows emit the
+ *  evidenced suppression pattern: (jog OR fast) AND NOT (<full fast expr>)
+ *  AND jogGates — the fast request wins; with fallback, a fast request whose
+ *  gates fail still drives the jog pin. */
+function routingLine(row: RoutingRowIr): string {
+  const pending = [row.source, ...row.gates, ...(row.suppressedBy ? [row.suppressedBy.source, ...row.suppressedBy.gates] : [])]
+    .flatMap((r) => (r.kind === "gatePending" ? [r.gateId] : []));
+  const todo = pending.length
+    ? `   // TODO gate ${[...new Set(pending)].join(", ")} held FALSE pending G2-5`
+    : "";
+  let expr: string;
+  if (row.suppressedBy) {
+    const fast = rowExpr(row.suppressedBy.source, row.suppressedBy.gates);
+    const src = row.suppressedBy.fallback
+      ? `(${refExpr(row.source)} OR ${refExpr(row.suppressedBy.source)})`
+      : refExpr(row.source);
+    expr = [src, `NOT (${fast})`, ...row.gates.map(refExpr)].join(" AND ");
+  } else {
+    expr = rowExpr(row.source, row.gates);
+  }
+  return `   "EM_${row.emName}_DB".${row.pin} := ${expr};${todo}`;
 }
 
 /** OR-chain over #Cur_St for a set of state indices ("FALSE" when empty). */
@@ -352,6 +399,11 @@ export function writeUnitArtifacts(ir: UnitSequenceIr): {
     ...okLines,
     ...modeManagerLines(ir, unName),
     ...smLines,
+    // G2-4: routing rows run every scan, incl. seq-test (only command routing
+    // is released) — matches the golden master's section ordering.
+    ...(ir.routingRows?.length
+      ? [``, `   // --- signal routing (ilk_) ---`, ...ir.routingRows.map(routingLine)]
+      : []),
     ...seqTest,
     ...commandBlock,
     `END_FUNCTION_BLOCK`,

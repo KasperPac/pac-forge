@@ -328,3 +328,81 @@ describe("buildUnitSequence — mode-kind command gating (G2-3)", () => {
     expect(ir.warnings.some((w) => w.includes("Lifter") && w.includes("FB_Lift_Std"))).toBe(true);
   });
 });
+
+describe("buildUnitSequence — signal routing rows + two-detent (G2-4)", () => {
+  function routedCoord(): UnitCoordinationV1 {
+    return {
+      unit_id: "unit-1",
+      states: [{ state_id: "idle", allowed_modes: [], mode_change_allowed: true }],
+      transitions: [],
+      em_command_overrides: null,
+      signal_routing: {
+        routing_rows: [
+          { row_id: "r-fast", target: { equipment_module_id: "em-a", pin: "ilk_Fwd_Fast" },
+            source: { kind: "io_tag", tag: "Fwd_Fast_PB" },
+            gates: [
+              { kind: "named_gate", gate_id: "g-fwd-fast" },
+              { kind: "em_status", equipment_module_id: "em-b", member: "permit_travel" },
+            ] },
+          { row_id: "r-jog", target: { equipment_module_id: "em-a", pin: "ilk_Fwd" },
+            source: { kind: "io_tag", tag: "Fwd_PB" },
+            gates: [{ kind: "em_status", equipment_module_id: "em-b", member: "permit_travel" }] },
+          { row_id: "r-orphan", target: { equipment_module_id: "em-gone", pin: "ilk_X" },
+            source: { kind: "io_tag", tag: "X" }, gates: [] },
+        ],
+        two_detent: [{ jog_row_id: "r-jog", fast_row_id: "r-fast", fallback: true }],
+      },
+      axes: [
+        { axis_id: "ax1", kind: "linear", encoder_tag: "Enc",
+          eu_unit: "mm",
+          scale: { db_member: "scale", retain: true, operator_settable: false },
+          length: { db_member: "len", retain: true, operator_settable: false },
+          end_margin: { db_member: "margin", retain: true, operator_settable: false },
+          ramp_zone: { db_member: "ramp", retain: true, operator_settable: false },
+          gates: { fwd_fast_ok: "g-fwd-fast" },
+          unconfigured_open: true },
+      ],
+    };
+  }
+
+  const members: UnitMemberEm[] = [
+    { emId: "em-a", emName: "Drive", states: [] },
+    { emId: "em-b", emName: "Indicators", states: [] },
+  ];
+
+  it("resolves rows: tag sources, em_status refs to member EM DB names, named gates as pending", () => {
+    const ir = buildUnitSequence({ unitId: "unit-1", unitName: "Carriage", coord: routedCoord(), members, modes: [] });
+    const fast = ir.routingRows!.find((r) => r.rowId === "r-fast")!;
+    expect(fast.emName).toBe("Drive");
+    expect(fast.pin).toBe("ilk_Fwd_Fast");
+    expect(fast.source).toEqual({ kind: "tag", tag: "Fwd_Fast_PB" });
+    expect(fast.gates).toEqual([
+      { kind: "gatePending", gateId: "g-fwd-fast", declared: true },
+      { kind: "emStatus", emName: "Indicators", member: "permit_travel" },
+    ]);
+    expect(ir.warnings.some((w) => w.includes("g-fwd-fast") && w.includes("G2-5"))).toBe(true);
+  });
+
+  it("marks the jog row suppressed by its fast row with the fallback flag", () => {
+    const ir = buildUnitSequence({ unitId: "unit-1", unitName: "Carriage", coord: routedCoord(), members, modes: [] });
+    const jog = ir.routingRows!.find((r) => r.rowId === "r-jog")!;
+    expect(jog.suppressedBy).toBeDefined();
+    expect(jog.suppressedBy!.fallback).toBe(true);
+    expect(jog.suppressedBy!.source).toEqual({ kind: "tag", tag: "Fwd_Fast_PB" });
+  });
+
+  it("skips rows targeting unknown EMs with a warning", () => {
+    const ir = buildUnitSequence({ unitId: "unit-1", unitName: "Carriage", coord: routedCoord(), members, modes: [] });
+    expect(ir.routingRows!.find((r) => r.rowId === "r-orphan")).toBeUndefined();
+    expect(ir.warnings.some((w) => w.includes("r-orphan"))).toBe(true);
+  });
+
+  it("warns on undeclared named gates too", () => {
+    const coord = routedCoord();
+    coord.axes = [];
+    const ir = buildUnitSequence({ unitId: "unit-1", unitName: "Carriage", coord, members, modes: [] });
+    const fast = ir.routingRows!.find((r) => r.rowId === "r-fast")!;
+    expect(fast.gates[0]).toEqual({ kind: "gatePending", gateId: "g-fwd-fast", declared: false });
+    expect(ir.warnings.some((w) => w.includes("g-fwd-fast") && w.includes("not declared"))).toBe(true);
+  });
+});
