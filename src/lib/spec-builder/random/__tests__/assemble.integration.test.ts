@@ -202,3 +202,144 @@ describe("assembleRandomFds — patch passes validator", () => {
     expect(new Set(tags).size).toBe(tags.length);
   });
 });
+
+describe("assembleRandomFds — controls-data seeding (G0-16 W3)", () => {
+  function controlsTheme(): RandomFdsTheme {
+    return {
+      title: "Seeded", system_description: "x", plc_model: "S7-1500", hmi_type: "TP1200",
+      fault_philosophy: "x", design_principles: ["x"], machine_theme: "x", safety_classification: null,
+      units: [
+        {
+          unit_name: "Infeed", equipment_type: "Conveyor", description: "",
+          equipment_modules: [
+            {
+              equipment_module_name: "Belt", description: "",
+              control_modules: [
+                { control_module_name: "CV1", control_module_class: "conveyor", description: "", is_safety: false },
+                { control_module_name: "ES1", control_module_class: "emergency_stop", description: "", is_safety: true },
+                { control_module_name: "PT1", control_module_class: "transmitter", description: "", is_safety: false },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  const result = assembleRandomFds(controlsTheme(), { projectId: "00000000-0000-0000-0000-000000000002" });
+  const patch = result.patch;
+  const cm = (cls: string) =>
+    patch.hierarchy!.units[0].equipment_modules[0].control_modules.find(
+      (c) => c.control_module_class === cls,
+    )!;
+
+  it("still passes the full patch gate with every seed path active", () => {
+    const parsed = SpecContractPatchSchema.safeParse(patch);
+    expect(parsed.success, parsed.success ? "" : JSON.stringify(parsed.error.format(), null, 2)).toBe(true);
+    if (parsed.success) {
+      const issues = validateSpecContractPatch(parsed.data);
+      expect(issues, issues.join("\n")).toEqual([]);
+    }
+  });
+
+  it("models conveyor CMs as VSDs with a tier-2 commissioning entry (HW ids left as TODOs)", () => {
+    const conveyor = cm("conveyor");
+    expect(conveyor.drive?.family).toBe("sinamics_g120");
+    expect(conveyor.io_signals.some((s) => s.signal_type === "AO")).toBe(true);
+    const entry = patch.engineering?.drives.find((d) => d.control_module_id === conveyor.control_module_id);
+    expect(entry?.ref_speed_rpm).toBe(1500);
+    expect(entry?.hw_id_stw).toBeUndefined();
+  });
+
+  it("wires safety DIs N/C fail-safe and scales every AI to the S7 ADC default", () => {
+    const estop = cm("emergency_stop");
+    expect(estop.io_signals.filter((s) => s.signal_type === "DI").every((s) => s.polarity === "nc")).toBe(true);
+    const ai = cm("transmitter").io_signals.find((s) => s.signal_type === "AI")!;
+    expect(ai.scaling?.raw).toEqual({ min: 5530, max: 27648, unit: "counts" });
+  });
+
+  it("seeds per-unit coordination: canonical states, EM-aggregate transitions, safety-healthy, axis from the transmitter", () => {
+    const unitId = patch.hierarchy!.units[0].unit_id;
+    const coord = patch.unit_coordination![unitId];
+    expect(coord.states.map((s) => s.state_id)).toContain("aborting");
+    expect(coord.transitions.some((t) => t.trigger.type === "em_aggregate" && t.trigger.em_state === "execute")).toBe(true);
+    expect(coord.signal_routing?.safety_healthy?.gate_ids.length).toBeGreaterThan(0);
+    expect(coord.axes?.[0].kind).toBe("linear");
+    expect(coord.axes?.[0].encoder_tag).toContain("PT1");
+  });
+
+  it("marks the first DO tags overridable for the maintenance layer", () => {
+    expect(patch.maintenance?.overridable_outputs.length).toBeGreaterThan(0);
+    const doTags = patch.hierarchy!.units.flatMap((u) =>
+      u.equipment_modules.flatMap((em) =>
+        em.control_modules.flatMap((c) => c.io_signals.filter((s) => s.signal_type === "DO").map((s) => s.tag)),
+      ),
+    );
+    for (const o of patch.maintenance!.overridable_outputs) {
+      expect(doTags).toContain(o.tag);
+    }
+  });
+});
+
+describe("assembleRandomFds — end-to-end through the deterministic compiler (G0-16 W3)", () => {
+  it("a seeded random spec exercises the G1–G5 writers: drive telegram, real UC, CFG/STAT, maintenance layer", async () => {
+    const { compileContract } = await import("@/lib/spec-builder/codegen/compile-contract");
+    const theme: RandomFdsTheme = {
+      title: "E2E", system_description: "x", plc_model: "S7-1500", hmi_type: "TP1200",
+      fault_philosophy: "x", design_principles: ["x"], machine_theme: "x", safety_classification: null,
+      units: [
+        {
+          unit_name: "Infeed", equipment_type: "Conveyor", description: "",
+          equipment_modules: [
+            {
+              equipment_module_name: "Belt", description: "",
+              control_modules: [
+                { control_module_name: "CV1", control_module_class: "conveyor", description: "", is_safety: false },
+                { control_module_name: "ES1", control_module_class: "emergency_stop", description: "", is_safety: true },
+                { control_module_name: "PT1", control_module_class: "transmitter", description: "", is_safety: false },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const { patch } = assembleRandomFds(theme, { projectId: "00000000-0000-0000-0000-000000000003" });
+    const contract = {
+      schema_version: 3,
+      project: {},
+      hierarchy: patch.hierarchy!,
+      alarm_tiers: patch.alarm_tiers!,
+      equipment_modules: patch.equipment_modules!,
+      safety_gates: patch.safety_gates!,
+      modes: patch.modes!,
+      unit_coordination: patch.unit_coordination!,
+      maintenance: patch.maintenance!,
+      engineering: patch.engineering!,
+      alarms: [], io_list: [], faults: [], sections: {},
+      confirmation_status: "confirmed",
+    } as unknown as import("@/types/spec-contract-v2").SpecContractV2;
+
+    const res = compileContract(contract, []);
+    const names = res.artifacts.map((a) => a.name);
+    const all = res.artifacts.map((a) => a.content).join("\n");
+
+    // G1: conveyor drive → SINA_SPEED telegram call + %→rpm scaling from ref_speed 1500
+    expect(names.some((n) => n.startsWith("SINA_SPEED_"))).toBe(true);
+    expect(all).toContain("* 15.0");
+    // G1-3: speed feedback joined back through the inverse scaling
+    expect(all).toContain("ActVelocity");
+    // G2: real UC FB (not the stub), SM + mode manager + safety aggregation
+    expect(names).toContain("UC_Infeed");
+    expect(all).toContain('"UN_Infeed".St_Cmd');
+    expect(all).toContain("#ok :=");
+    // G2-5/G4: envelope geometry DBs from the transmitter-derived axis
+    expect(names).toContain("CFG_Infeed");
+    expect(names).toContain("STAT_Infeed");
+    // G3/G5: maintenance layer present, override FC last in OB1
+    expect(names).toContain("Maintenance_CMD");
+    expect(names).toContain("MAINT_Output_Override");
+    const ob = res.artifacts.find((a) => a.type === "OB")!.content;
+    const lastCall = ob.trimEnd().split("\n").filter((l) => l.includes('"')).pop() ?? "";
+    expect(lastCall).toContain("MAINT_Output_Override");
+  });
+});

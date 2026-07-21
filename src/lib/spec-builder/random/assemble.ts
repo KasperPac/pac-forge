@@ -25,6 +25,14 @@ import { computeSubsystemBases, createIoAllocator, type IoSignalKind } from "./i
 import { DEVICE_TEMPLATES } from "./device-templates";
 import { buildEquipmentModuleContracts, type ResolvedAssembly, type ResolvedDevice, type ResolvedIoSignal } from "./sequence-builder";
 import { renderSequentialContentJson, renderStaticContentJson } from "./section-renderer";
+import {
+  buildEngineering,
+  buildMaintenance,
+  buildUnitCoordination,
+  driveForClass,
+  polarityFor,
+  scalingFor,
+} from "./controls-data-builder";
 import type { RandomFdsTheme } from "./theme-schema";
 
 export interface AssembleOptions {
@@ -206,6 +214,8 @@ function buildHierarchy(resolved: ResolvedHierarchy): Hierarchy {
         control_module_class: d.control_module_class,
         is_safety: d.is_safety,
         description: d.description,
+        // G0-16 W3: drive-class CMs carry the tier-1 VSD model
+        drive: driveForClass(d.control_module_class),
         io_signals: d.io_signals.map<IoSignalV2>((s) => ({
           tag: s.tag,
           signal_type: s.kind,
@@ -213,6 +223,9 @@ function buildHierarchy(resolved: ResolvedHierarchy): Hierarchy {
           description: s.description,
           source: "wired",
           tier: "wired",
+          // G0-16 W3: fail-safe polarity on safety/fault DIs, S7 ADC scaling on AIs
+          polarity: polarityFor(d, s.kind, s.suffix),
+          scaling: scalingFor(s.kind),
         })),
       })),
     })),
@@ -299,13 +312,21 @@ export function assembleRandomFds(theme: RandomFdsTheme, opts: AssembleOptions):
   const flatAssemblies: ResolvedAssembly[] = resolved.units.flatMap((s) => s.equipment_modules);
   const equipment_modules = buildEquipmentModuleContracts(flatAssemblies);
 
+  const safetyGates = buildSafetyGates(resolved);
+  const engineering = buildEngineering(resolved.units);
+  const maintenance = buildMaintenance(resolved.units);
   const patch: SpecContractPatch = {
     hierarchy: buildHierarchy(resolved),
     alarm_tiers: buildAlarmTiers(),
     alarms: buildAlarms(resolved),
     modes: [{ mode_id: "auto", name: "Auto", description: "Single default mode", is_default: true, kind: "production" }],
-    safety_gates: buildSafetyGates(resolved),
+    safety_gates: safetyGates,
     equipment_modules,
+    // G0-16 W3: controls-data seeding so random specs exercise the G1–G5
+    // deterministic writers end-to-end
+    unit_coordination: buildUnitCoordination(resolved.units, safetyGates),
+    ...(engineering ? { engineering } : {}),
+    ...(maintenance ? { maintenance } : {}),
     confirmation_status: "confirmed",
   };
 

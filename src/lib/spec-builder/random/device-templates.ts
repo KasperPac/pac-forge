@@ -102,6 +102,10 @@ const conveyor: DeviceTemplate = {
     { suffix: "CMD", kind: "DO", description: "Belt run command" },
     { suffix: "FB_RUN", kind: "DI", description: "Belt running feedback" },
     { suffix: "FAULT", kind: "DI", description: "Drive fault" },
+    // VSD telegram seam (G0-16 W3): conveyors model as drive-controlled so
+    // random specs exercise the G1 drive writers end-to-end.
+    { suffix: "SPEED_REF", kind: "AO", description: "VSD speed reference" },
+    { suffix: "SPEED_FB", kind: "AI", description: "VSD speed feedback" },
   ],
   stepTemplates: {
     STARTING: [

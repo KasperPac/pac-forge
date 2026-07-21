@@ -69,7 +69,7 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
       // sequencing and its CMs' IO (via MAP_<EM>); CMs are not instantiated
       // separately here.
       if (emRes.stub && emContract) {
-        const seq = buildEmSequence(em, emContract);
+        const seq = buildEmSequence(em, emContract, contract.engineering);
         const { artifacts: emArts, callLines } = writeEmArtifacts(seq);
         emArts.forEach(push);
         deviceCallLines.push(...callLines);

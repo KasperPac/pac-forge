@@ -245,6 +245,17 @@ export function buildEmSequence(
   const drives = detectDrives(em, engineering);
   for (const d of drives) warnings.push(...d.warnings);
 
+  // G1-2: the telegram FB owns a drive's analog speed signals, so state
+  // logic typically never references them — force their pins into existence
+  // here or the emission cannot resolve a speed-ref/feedback pin.
+  for (const d of drives) {
+    const cm = em.control_modules.find((c) => c.control_module_id === d.control_module_id);
+    for (const s of cm?.io_signals ?? []) {
+      if (s.signal_type === "AO") actuatorPin(s.tag);
+      else if (s.signal_type === "AI") sensorPin(s.tag);
+    }
+  }
+
   return {
     emId: em.equipment_module_id,
     emName: em.equipment_module_name,
