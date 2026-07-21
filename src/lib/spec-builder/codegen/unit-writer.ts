@@ -7,6 +7,7 @@
 // Design: Docs/superpowers/specs/2026-07-08-g2-unit-fb-writer-design.md
 import type { CodegenArtifact } from "./types";
 import type {
+  AxisGateIr,
   ResolvedSignalRef,
   RoutingRowIr,
   UnitSequenceIr,
@@ -141,6 +142,8 @@ function refExpr(r: ResolvedSignalRef): string {
       return `"${r.tag}"`;
     case "emStatus":
       return `"EM_${r.emName}_DB".${r.member}`;
+    case "gateTemp":
+      return `#${r.temp}`;
     case "gatePending":
       return "FALSE";
   }
@@ -172,6 +175,111 @@ function routingLine(row: RoutingRowIr): string {
     expr = rowExpr(row.source, row.gates);
   }
   return `   "EM_${row.emName}_DB".${row.pin} := ${expr};${todo}`;
+}
+
+/** All gate temps an axes IR declares (deduped, declaration order). */
+function axisGateTemps(ir: UnitSequenceIr): string[] {
+  const ax = ir.axes;
+  if (!ax) return [];
+  const temps = [
+    ...ax.linear.flatMap((a) =>
+      [a.gates.fwdOk, a.gates.fwdFastOk, a.gates.revOk, a.gates.revFastOk].flatMap((g) =>
+        g ? [g.temp] : [],
+      ),
+    ),
+    ...ax.rotary.flatMap((a) => (a.atHome ? [a.atHome.temp] : [])),
+  ];
+  return [...new Set(temps)];
+}
+
+/** G2-5: envelope geometry — encoder scaling + gate computation per axis.
+ *  Evidence: UC_Carriage.scl geometry section; formulas generalized, all
+ *  constants from CFG_<Unit> members / axis params. */
+function axisLines(ir: UnitSequenceIr): string[] {
+  const ax = ir.axes;
+  if (!ax) return [];
+  const db = ax.configDbName;
+  const lines: string[] = [];
+  for (const a of ax.linear) {
+    lines.push(
+      ``,
+      `   // --- envelope geometry: axis "${a.axisId}" (linear, ${a.euUnit}) ---`,
+      `   #pos_${a.ident} := LINT_TO_DINT(DINT_TO_LINT("${a.encoderTag}") * "${db}".${a.cfg.scale} / 10000);   // EU-per-rev x10, encoder 1000 units/rev (G0-4 convention)`,
+    );
+    const gatePairs: [AxisGateIr | undefined, string][] = [
+      [a.gates.fwdOk, `#pos_${a.ident} < ("${db}".${a.cfg.length} - "${db}".${a.cfg.endMargin})`],
+      [a.gates.fwdFastOk, `#pos_${a.ident} < ("${db}".${a.cfg.length} - "${db}".${a.cfg.rampZone})`],
+      [a.gates.revOk, `#pos_${a.ident} > "${db}".${a.cfg.endMargin}`],
+      [a.gates.revFastOk, `#pos_${a.ident} > "${db}".${a.cfg.rampZone}`],
+    ];
+    const declared = gatePairs.filter((p): p is [AxisGateIr, string] => p[0] !== undefined);
+    if (declared.length) {
+      const open = a.unconfiguredOpen;
+      lines.push(
+        `   IF ("${db}".${a.cfg.scale} > 0) AND ("${db}".${a.cfg.length} > 0) THEN`,
+        ...declared.map(([g, expr]) => `      #${g.temp} := ${expr};`),
+        `   ELSE`,
+        `      // unconfigured (scale or length = 0) -> gates ${open ? "open (pre-commissioning policy)" : "closed"}`,
+        ...declared.map(([g]) => `      #${g.temp} := ${open ? "TRUE" : "FALSE"};`),
+        `   END_IF;`,
+      );
+    }
+  }
+  for (const a of ax.rotary) {
+    lines.push(
+      ``,
+      `   // --- envelope geometry: axis "${a.axisId}" (rotary, deg x10) ---`,
+      `   IF "${db}".${a.cfg.countsPerRev} > 0 THEN`,
+      `      #raw_${a.ident} := DINT_TO_LINT("${a.encoderTag}") - ${a.presetOffset};`,
+      `      #deg10_${a.ident} := LINT_TO_DINT(#raw_${a.ident} * 3600 / DINT_TO_LINT("${db}".${a.cfg.countsPerRev}));`,
+      `   ELSE`,
+      `      #deg10_${a.ident} := "${a.encoderTag}";   // uncalibrated: raw is direct 0.1 deg`,
+      `   END_IF;`,
+      `   // normalize to -1799..+1800 (tolerates full turns either way)`,
+      `   #deg10_${a.ident} := ((#deg10_${a.ident} MOD 3600) + 3600) MOD 3600;`,
+      `   IF #deg10_${a.ident} > 1800 THEN`,
+      `      #deg10_${a.ident} := #deg10_${a.ident} - 3600;`,
+      `   END_IF;`,
+    );
+    if (a.atHome) {
+      // wrapped angular distance to each window center; +5400-c keeps the
+      // MOD dividend positive for any deg10 in -1799..+1800
+      const windows = a.homeWindows.map(
+        (w) => `(ABS(((#deg10_${a.ident} + ${5400 - w.center}) MOD 3600) - 1800) < ${w.band})`,
+      );
+      lines.push(`   #${a.atHome.temp} := ${windows.join(" OR ")};`);
+    }
+  }
+  return lines;
+}
+
+/** CFG_<Unit> DB — RETAIN geometry params + seeded defaults (G2-5). Runtime
+ *  values live in the PLC; commissioned constants are recorded tier-2. */
+function writeConfigDb(ir: UnitSequenceIr): CodegenArtifact[] {
+  const ax = ir.axes;
+  if (!ax || !ax.params.length) return [];
+  const line = (p: (typeof ax.params)[number]) =>
+    `      ${p.member} : DInt;${p.description ? `   // ${p.description}` : ""}`;
+  const retained = ax.params.filter((p) => p.retain);
+  const plain = ax.params.filter((p) => !p.retain);
+  const content = [
+    `DATA_BLOCK "${ax.configDbName}"`,
+    `{ S7_Optimized_Access := 'TRUE' }`,
+    `VERSION : 0.1`,
+    ...(retained.length ? [`   VAR RETAIN`, ...retained.map(line), `   END_VAR`] : []),
+    ...(plain.length ? [`   VAR`, ...plain.map(line), `   END_VAR`] : []),
+    `BEGIN`,
+    ...ax.params.filter((p) => p.seed !== undefined).map((p) => `   ${p.member} := ${p.seed};`),
+    `END_DATA_BLOCK`,
+    ``,
+  ].join("\n");
+  return [
+    {
+      name: ax.configDbName, type: "DB", filename: `${ax.configDbName}.db`, content,
+      dependencies: [], folder: PROGRAM, layer: "unit",
+      ownerId: ir.unitId, ownerName: ir.unitName,
+    },
+  ];
 }
 
 /** OR-chain over #Cur_St for a set of state indices ("FALSE" when empty). */
@@ -390,12 +498,22 @@ export function writeUnitArtifacts(ir: UnitSequenceIr): {
     };`,
     ...(ir.safetyHealthy ? [`      ok : Bool;`] : []),
     `   END_VAR`,
-    ...(ir.transitions.length
-      ? [`   VAR_TEMP`, `      cmd : Int;`, `   END_VAR`]
-      : []),
+    ...(() => {
+      const temps = [
+        ...(ir.transitions.length ? [`      cmd : Int;`] : []),
+        ...(ir.axes?.linear ?? []).map((a) => `      pos_${a.ident} : DInt;`),
+        ...(ir.axes?.rotary ?? []).flatMap((a) => [
+          `      raw_${a.ident} : LInt;`,
+          `      deg10_${a.ident} : DInt;`,
+        ]),
+        ...axisGateTemps(ir).map((t) => `      ${t} : Bool;`),
+      ];
+      return temps.length ? [`   VAR_TEMP`, ...temps, `   END_VAR`] : [];
+    })(),
     ``,
     `BEGIN`,
     ...mirror,
+    ...axisLines(ir),
     ...okLines,
     ...modeManagerLines(ir, unName),
     ...smLines,
@@ -423,7 +541,7 @@ export function writeUnitArtifacts(ir: UnitSequenceIr): {
   };
 
   return {
-    artifacts: [fb, writeInstanceDb(name, ir), writeUnDb(ir)],
+    artifacts: [fb, writeInstanceDb(name, ir), writeUnDb(ir), ...writeConfigDb(ir)],
     callLine: `   "${name}_DB"();`,
   };
 }

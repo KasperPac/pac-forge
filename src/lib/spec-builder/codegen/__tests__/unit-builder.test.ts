@@ -370,17 +370,17 @@ describe("buildUnitSequence — signal routing rows + two-detent (G2-4)", () => 
     { emId: "em-b", emName: "Indicators", states: [] },
   ];
 
-  it("resolves rows: tag sources, em_status refs to member EM DB names, named gates as pending", () => {
+  it("resolves rows: tag sources, em_status refs to member EM DB names, declared gates live (G2-5)", () => {
     const ir = buildUnitSequence({ unitId: "unit-1", unitName: "Carriage", coord: routedCoord(), members, modes: [] });
     const fast = ir.routingRows!.find((r) => r.rowId === "r-fast")!;
     expect(fast.emName).toBe("Drive");
     expect(fast.pin).toBe("ilk_Fwd_Fast");
     expect(fast.source).toEqual({ kind: "tag", tag: "Fwd_Fast_PB" });
     expect(fast.gates).toEqual([
-      { kind: "gatePending", gateId: "g-fwd-fast", declared: true },
+      { kind: "gateTemp", gateId: "g-fwd-fast", temp: "gate_g_fwd_fast" },
       { kind: "emStatus", emName: "Indicators", member: "permit_travel" },
     ]);
-    expect(ir.warnings.some((w) => w.includes("g-fwd-fast") && w.includes("G2-5"))).toBe(true);
+    expect(ir.warnings.some((w) => w.includes("g-fwd-fast"))).toBe(false);
   });
 
   it("marks the jog row suppressed by its fast row with the fallback flag", () => {
@@ -404,5 +404,73 @@ describe("buildUnitSequence — signal routing rows + two-detent (G2-4)", () => 
     const fast = ir.routingRows!.find((r) => r.rowId === "r-fast")!;
     expect(fast.gates[0]).toEqual({ kind: "gatePending", gateId: "g-fwd-fast", declared: false });
     expect(ir.warnings.some((w) => w.includes("g-fwd-fast") && w.includes("not declared"))).toBe(true);
+  });
+});
+
+describe("buildUnitSequence — axes IR + live gate resolution (G2-5)", () => {
+  function axedCoord(): UnitCoordinationV1 {
+    return {
+      unit_id: "unit-1",
+      states: [{ state_id: "idle", allowed_modes: [], mode_change_allowed: true }],
+      transitions: [],
+      em_command_overrides: null,
+      signal_routing: {
+        routing_rows: [
+          { row_id: "r-fast", target: { equipment_module_id: "em-a", pin: "ilk_Fwd_Fast" },
+            source: { kind: "io_tag", tag: "Fwd_Fast_PB" },
+            gates: [
+              { kind: "named_gate", gate_id: "g-fwd-fast" },
+              { kind: "named_gate", gate_id: "g-at-home" },
+            ] },
+        ],
+        two_detent: [],
+      },
+      axes: [
+        { axis_id: "travel", kind: "linear", encoder_tag: "Enc_Travel", eu_unit: "mm",
+          scale: { db_member: "mm_per_rev_x10", retain: true, operator_settable: false },
+          length: { db_member: "length_mm", default: 0, retain: true, operator_settable: true },
+          end_margin: { db_member: "end_margin_mm", default: 500, retain: true, operator_settable: false },
+          ramp_zone: { db_member: "ramp_zone_mm", default: 2000, retain: true, operator_settable: false },
+          gates: { fwd_ok: "g-fwd", fwd_fast_ok: "g-fwd-fast" }, unconfigured_open: true },
+        { axis_id: "rot", kind: "rotary", encoder_tag: "Enc_Rot",
+          counts_per_rev: { db_member: "counts_per_360", default: 0, retain: true, operator_settable: false },
+          preset_offset: 500000,
+          home_windows: [{ center_deg10: 0, band_deg10: 20 }, { center_deg10: 1800, band_deg10: 20 }],
+          gates: { at_home: "g-at-home" } },
+      ],
+    };
+  }
+  const members: UnitMemberEm[] = [{ emId: "em-a", emName: "Drive", states: [] }];
+
+  it("resolves the axes block: config DB name, param defs, gate temp names", () => {
+    const ir = buildUnitSequence({ unitId: "unit-1", unitName: "Carriage", coord: axedCoord(), members, modes: [] });
+    const ax = ir.axes!;
+    expect(ax.configDbName).toBe("CFG_Carriage");
+    expect(ax.params.map((p) => p.member)).toEqual(
+      ["mm_per_rev_x10", "length_mm", "end_margin_mm", "ramp_zone_mm", "counts_per_360"],
+    );
+    expect(ax.params.every((p) => p.retain)).toBe(true);
+    expect(ax.params.find((p) => p.member === "end_margin_mm")?.seed).toBe(500);
+
+    const lin = ax.linear[0];
+    expect(lin.ident).toBe("travel");
+    expect(lin.encoderTag).toBe("Enc_Travel");
+    expect(lin.gates.fwdFastOk).toEqual({ gateId: "g-fwd-fast", temp: "gate_g_fwd_fast" });
+    expect(lin.unconfiguredOpen).toBe(true);
+
+    const rot = ax.rotary[0];
+    expect(rot.presetOffset).toBe(500000);
+    expect(rot.homeWindows).toEqual([{ center: 0, band: 20 }, { center: 1800, band: 20 }]);
+    expect(rot.atHome).toEqual({ gateId: "g-at-home", temp: "gate_g_at_home" });
+  });
+
+  it("resolves declared named gates in routing rows to live gate temps (no pending warning)", () => {
+    const ir = buildUnitSequence({ unitId: "unit-1", unitName: "Carriage", coord: axedCoord(), members, modes: [] });
+    const fast = ir.routingRows!.find((r) => r.rowId === "r-fast")!;
+    expect(fast.gates).toEqual([
+      { kind: "gateTemp", gateId: "g-fwd-fast", temp: "gate_g_fwd_fast" },
+      { kind: "gateTemp", gateId: "g-at-home", temp: "gate_g_at_home" },
+    ]);
+    expect(ir.warnings.filter((w) => w.includes("G2-5"))).toEqual([]);
   });
 });

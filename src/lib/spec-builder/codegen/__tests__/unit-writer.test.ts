@@ -452,17 +452,27 @@ describe("writeUnitArtifacts — signal routing rows + two-detent (G2-4)", () =>
     expect(fb).toContain('"EM_Drive_DB".ilk_Limit_Stop := "Long_Limit_Stop";');
   });
 
-  it("emits the fast row with pending gates held FALSE plus a TODO trailer", () => {
+  it("emits the fast row with the declared gate live (G2-5) and em_status gate", () => {
     const fb = writeUnitArtifacts(routedIr()).artifacts.find((a) => a.name === "UC_Carriage")!.content;
     expect(fb).toContain(
-      '"EM_Drive_DB".ilk_Fwd_Fast := "Fwd_Fast_PB" AND FALSE AND "EM_Indicators_DB".permit_travel;   // TODO gate g-fwd-fast held FALSE pending G2-5',
+      '"EM_Drive_DB".ilk_Fwd_Fast := "Fwd_Fast_PB" AND #gate_g_fwd_fast AND "EM_Indicators_DB".permit_travel;',
     );
   });
 
   it("emits the jog row with fallback OR and NOT(fast expr) suppression", () => {
     const fb = writeUnitArtifacts(routedIr()).artifacts.find((a) => a.name === "UC_Carriage")!.content;
     expect(fb).toContain(
-      '"EM_Drive_DB".ilk_Fwd := ("Fwd_PB" OR "Fwd_Fast_PB") AND NOT ("Fwd_Fast_PB" AND FALSE AND "EM_Indicators_DB".permit_travel) AND "EM_Indicators_DB".permit_travel;',
+      '"EM_Drive_DB".ilk_Fwd := ("Fwd_PB" OR "Fwd_Fast_PB") AND NOT ("Fwd_Fast_PB" AND #gate_g_fwd_fast AND "EM_Indicators_DB".permit_travel) AND "EM_Indicators_DB".permit_travel;',
+    );
+  });
+
+  it("holds an undeclared named gate FALSE with a TODO trailer", () => {
+    const ir = routedIr();
+    const row = ir.routingRows!.find((r) => r.rowId === "r-plain")!;
+    row.gates = [{ kind: "gatePending", gateId: "g-mystery", declared: false }];
+    const fb = writeUnitArtifacts(ir).artifacts.find((a) => a.name === "UC_Carriage")!.content;
+    expect(fb).toContain(
+      '"EM_Drive_DB".ilk_Limit_Stop := "Long_Limit_Stop" AND FALSE;   // TODO gate g-mystery held FALSE pending G2-5',
     );
   });
 
@@ -473,5 +483,108 @@ describe("writeUnitArtifacts — signal routing rows + two-detent (G2-4)", () =>
     expect(routing).toBeGreaterThan(-1);
     expect(release).toBeGreaterThan(-1);
     expect(routing).toBeLessThan(release);
+  });
+});
+
+describe("writeUnitArtifacts — envelope geometry emission (G2-5)", () => {
+  function axedIr() {
+    const members: UnitMemberEm[] = [{ emId: "em-a", emName: "Drive", states: [] }];
+    const coord: UnitCoordinationV1 = {
+      unit_id: "unit-1",
+      states: [{ state_id: "idle", allowed_modes: [], mode_change_allowed: true }],
+      transitions: [],
+      em_command_overrides: null,
+      signal_routing: {
+        routing_rows: [
+          { row_id: "r-fast", target: { equipment_module_id: "em-a", pin: "ilk_Fwd_Fast" },
+            source: { kind: "io_tag", tag: "Fwd_Fast_PB" },
+            gates: [
+              { kind: "named_gate", gate_id: "g-fwd-fast" },
+              { kind: "named_gate", gate_id: "g-at-home" },
+            ] },
+        ],
+        two_detent: [],
+      },
+      axes: [
+        { axis_id: "travel", kind: "linear", encoder_tag: "Enc_Travel", eu_unit: "mm",
+          scale: { db_member: "mm_per_rev_x10", retain: true, operator_settable: false, description: "mm per encoder rev x10" },
+          length: { db_member: "length_mm", default: 0, retain: true, operator_settable: true },
+          end_margin: { db_member: "end_margin_mm", default: 500, retain: true, operator_settable: false },
+          ramp_zone: { db_member: "ramp_zone_mm", default: 2000, retain: true, operator_settable: false },
+          gates: { fwd_ok: "g-fwd", fwd_fast_ok: "g-fwd-fast", rev_ok: "g-rev", rev_fast_ok: "g-rev-fast" },
+          unconfigured_open: true },
+        { axis_id: "rot", kind: "rotary", encoder_tag: "Enc_Rot",
+          counts_per_rev: { db_member: "counts_per_360", default: 0, retain: true, operator_settable: false },
+          preset_offset: 500000,
+          home_windows: [{ center_deg10: 0, band_deg10: 20 }, { center_deg10: 1800, band_deg10: 20 }],
+          gates: { at_home: "g-at-home" } },
+      ],
+    };
+    return buildUnitSequence({ unitId: "unit-1", unitName: "Carriage", coord, members, modes: [] });
+  }
+  const fb = () => writeUnitArtifacts(axedIr()).artifacts.find((a) => a.name === "UC_Carriage")!.content;
+
+  it("emits the CFG_<Unit> DB with RETAIN params and seeded defaults", () => {
+    const db = writeUnitArtifacts(axedIr()).artifacts.find((a) => a.name === "CFG_Carriage")!;
+    expect(db.type).toBe("DB");
+    expect(db.layer).toBe("unit");
+    expect(db.content).toContain('DATA_BLOCK "CFG_Carriage"');
+    expect(db.content).toContain("VAR RETAIN");
+    expect(db.content).toContain("mm_per_rev_x10 : DInt;   // mm per encoder rev x10");
+    const begin = db.content.slice(db.content.indexOf("BEGIN"));
+    expect(begin).toContain("length_mm := 0;");
+    expect(begin).toContain("end_margin_mm := 500;");
+    expect(begin).toContain("ramp_zone_mm := 2000;");
+    expect(begin).toContain("counts_per_360 := 0;");
+    expect(begin).not.toContain("mm_per_rev_x10 :="); // no default declared
+  });
+
+  it("declares per-axis and per-gate VAR_TEMPs", () => {
+    const c = fb();
+    expect(c).toContain("pos_travel : DInt;");
+    expect(c).toContain("raw_rot : LInt;");
+    expect(c).toContain("deg10_rot : DInt;");
+    expect(c).toContain("gate_g_fwd_fast : Bool;");
+    expect(c).toContain("gate_g_at_home : Bool;");
+  });
+
+  it("emits linear scaling and the four envelope gates with the unconfigured-open policy", () => {
+    const c = fb();
+    expect(c).toContain(
+      '#pos_travel := LINT_TO_DINT(DINT_TO_LINT("Enc_Travel") * "CFG_Carriage".mm_per_rev_x10 / 10000);',
+    );
+    expect(c).toContain('IF ("CFG_Carriage".mm_per_rev_x10 > 0) AND ("CFG_Carriage".length_mm > 0) THEN');
+    expect(c).toContain('#gate_g_fwd := #pos_travel < ("CFG_Carriage".length_mm - "CFG_Carriage".end_margin_mm);');
+    expect(c).toContain('#gate_g_fwd_fast := #pos_travel < ("CFG_Carriage".length_mm - "CFG_Carriage".ramp_zone_mm);');
+    expect(c).toContain('#gate_g_rev := #pos_travel > "CFG_Carriage".end_margin_mm;');
+    expect(c).toContain('#gate_g_rev_fast := #pos_travel > "CFG_Carriage".ramp_zone_mm;');
+    const elseBranch = c.slice(c.indexOf("ELSE", c.indexOf("#gate_g_fwd :=")));
+    expect(elseBranch).toContain("#gate_g_fwd := TRUE;");
+  });
+
+  it("emits rotary preset/scaling, wrap-normalization, and the OR'd home-window gate", () => {
+    const c = fb();
+    expect(c).toContain('IF "CFG_Carriage".counts_per_360 > 0 THEN');
+    expect(c).toContain('#raw_rot := DINT_TO_LINT("Enc_Rot") - 500000;');
+    expect(c).toContain(
+      '#deg10_rot := LINT_TO_DINT(#raw_rot * 3600 / DINT_TO_LINT("CFG_Carriage".counts_per_360));',
+    );
+    expect(c).toContain("#deg10_rot := ((#deg10_rot MOD 3600) + 3600) MOD 3600;");
+    expect(c).toContain("IF #deg10_rot > 1800 THEN");
+    expect(c).toContain(
+      "#gate_g_at_home := (ABS(((#deg10_rot + 5400) MOD 3600) - 1800) < 20) OR (ABS(((#deg10_rot + 3600) MOD 3600) - 1800) < 20);",
+    );
+  });
+
+  it("routing rows consume the live gate temps", () => {
+    const c = fb();
+    expect(c).toContain(
+      '"EM_Drive_DB".ilk_Fwd_Fast := "Fwd_Fast_PB" AND #gate_g_fwd_fast AND #gate_g_at_home;',
+    );
+  });
+
+  it("computes geometry before the routing rows", () => {
+    const c = fb();
+    expect(c.indexOf("#pos_travel :=")).toBeLessThan(c.indexOf('"EM_Drive_DB".ilk_Fwd_Fast :='));
   });
 });

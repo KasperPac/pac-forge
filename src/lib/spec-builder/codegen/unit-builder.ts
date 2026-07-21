@@ -15,6 +15,7 @@ import type {
 } from "@/types/spec-contract-v2";
 import { emCommandForState, type EmCommand } from "../unit-coordination";
 import { serializeGuard } from "./serialize-condition";
+import { sclIdent } from "./sa-builder";
 
 /** A member EM of the unit, with its EM-local PackML slug → dispatch index map. */
 export interface UnitMemberEm {
@@ -98,12 +99,67 @@ export interface UnitTransitionIr {
 }
 
 /** A routing-row signal reference resolved against the member EMs and the
- *  G0-4 axis gate registry (G2-4). `gatePending` = a named envelope gate whose
- *  computed value only ships with G2-5 — rendered FALSE (fail-safe) + TODO. */
+ *  G0-4 axis gate registry (G2-4/G2-5).
+ *  `gateTemp`    — a declared axis gate, computed by the G2-5 envelope block
+ *                  into the named VAR_TEMP.
+ *  `gatePending` — a named gate NOT declared by any unit axis — rendered
+ *                  FALSE (fail-safe) + TODO. */
 export type ResolvedSignalRef =
   | { kind: "tag"; tag: string }
   | { kind: "emStatus"; emName: string; member: string }
+  | { kind: "gateTemp"; gateId: string; temp: string }
   | { kind: "gatePending"; gateId: string; declared: boolean };
+
+/** A declared axis gate: its registry id + the writer's VAR_TEMP name. */
+export interface AxisGateIr {
+  gateId: string;
+  temp: string;
+}
+
+/** One CFG_<Unit> DB member (G0-4 GeometryParamDef, lowered). */
+export interface ConfigParamIr {
+  member: string;
+  retain: boolean;
+  seed?: number;
+  description?: string;
+}
+
+export interface LinearAxisIr {
+  kind: "linear";
+  axisId: string;
+  /** SCL identifier stem for temp names. */
+  ident: string;
+  encoderTag: string;
+  euUnit: string;
+  /** Config-DB member names by role. */
+  cfg: { scale: string; length: string; endMargin: string; rampZone: string };
+  gates: {
+    fwdOk?: AxisGateIr;
+    fwdFastOk?: AxisGateIr;
+    revOk?: AxisGateIr;
+    revFastOk?: AxisGateIr;
+  };
+  unconfiguredOpen: boolean;
+}
+
+export interface RotaryAxisIr {
+  kind: "rotary";
+  axisId: string;
+  ident: string;
+  encoderTag: string;
+  cfg: { countsPerRev: string };
+  presetOffset: number;
+  homeWindows: { center: number; band: number }[];
+  atHome?: AxisGateIr;
+}
+
+/** G2-5: the unit's envelope geometry, resolved for emission. */
+export interface UnitAxesIr {
+  configDbName: string;
+  params: ConfigParamIr[];
+  linear: LinearAxisIr[];
+  rotary: RotaryAxisIr[];
+}
 
 /** One resolved `target.pin := source AND gates` row (G0-3 routing_rows).
  *  `suppressedBy` set on a jog row that participates in a two-detent pair:
@@ -158,6 +214,8 @@ export interface UnitSequenceIr {
   commandGating?: { engineeringModeIndices: number[]; maintenanceModeIndices: number[] };
   /** G2-4: resolved signal-routing rows (absent when signal_routing has none). */
   routingRows?: RoutingRowIr[];
+  /** G2-5: envelope geometry (absent when the unit declares no axes). */
+  axes?: UnitAxesIr;
   warnings: string[];
 }
 
@@ -269,6 +327,58 @@ export function buildUnitSequence(input: UnitBuildInput): UnitSequenceIr {
     };
   }
 
+  // G2-5: lower the axes to their emission IR. Gate temp names are derived
+  // from the registry gate ids — the routing resolver below links to them.
+  const gateTemp = (gateId: string): string => `gate_${sclIdent(gateId).toLowerCase()}`;
+  let axesIr: UnitAxesIr | undefined;
+  if (coord.axes?.length) {
+    const params: ConfigParamIr[] = [];
+    const lowerParam = (p: { db_member: string; default?: number; retain: boolean; description?: string }) => {
+      params.push({ member: p.db_member, retain: p.retain, seed: p.default, description: p.description });
+      return p.db_member;
+    };
+    const gate = (id: string | undefined): AxisGateIr | undefined =>
+      id === undefined ? undefined : { gateId: id, temp: gateTemp(id) };
+    const linear: LinearAxisIr[] = [];
+    const rotary: RotaryAxisIr[] = [];
+    for (const a of coord.axes) {
+      if (a.kind === "linear") {
+        linear.push({
+          kind: "linear",
+          axisId: a.axis_id,
+          ident: sclIdent(a.axis_id).toLowerCase(),
+          encoderTag: a.encoder_tag,
+          euUnit: a.eu_unit,
+          cfg: {
+            scale: lowerParam(a.scale),
+            length: lowerParam(a.length),
+            endMargin: lowerParam(a.end_margin),
+            rampZone: lowerParam(a.ramp_zone),
+          },
+          gates: {
+            fwdOk: gate(a.gates.fwd_ok),
+            fwdFastOk: gate(a.gates.fwd_fast_ok),
+            revOk: gate(a.gates.rev_ok),
+            revFastOk: gate(a.gates.rev_fast_ok),
+          },
+          unconfiguredOpen: a.unconfigured_open,
+        });
+      } else {
+        rotary.push({
+          kind: "rotary",
+          axisId: a.axis_id,
+          ident: sclIdent(a.axis_id).toLowerCase(),
+          encoderTag: a.encoder_tag,
+          cfg: { countsPerRev: lowerParam(a.counts_per_rev) },
+          presetOffset: a.preset_offset,
+          homeWindows: a.home_windows.map((w) => ({ center: w.center_deg10, band: w.band_deg10 })),
+          atHome: gate(a.gates.at_home),
+        });
+      }
+    }
+    axesIr = { configDbName: `CFG_${sclIdent(unitName)}`, params, linear, rotary };
+  }
+
   // G2-4: resolve routing rows + two-detent suppression.
   let routingRows: RoutingRowIr[] | undefined;
   const rawRows = coord.signal_routing?.routing_rows ?? [];
@@ -295,13 +405,14 @@ export function buildUnitSequence(input: UnitBuildInput): UnitSequenceIr {
           return { kind: "emStatus", emName: m.emName, member: ref.member };
         }
         case "named_gate": {
-          const declared = declaredGates.has(ref.gate_id);
+          // G2-5: declared axis gates are computed live into VAR_TEMPs.
+          if (declaredGates.has(ref.gate_id)) {
+            return { kind: "gateTemp", gateId: ref.gate_id, temp: gateTemp(ref.gate_id) };
+          }
           warnings.push(
-            declared
-              ? `unit ${unitName}: routing row ${rowId} gate "${ref.gate_id}" awaits envelope-gate emission (G2-5) — held FALSE (fail-safe)`
-              : `unit ${unitName}: routing row ${rowId} gate "${ref.gate_id}" not declared by any unit axis — held FALSE (fail-safe)`,
+            `unit ${unitName}: routing row ${rowId} gate "${ref.gate_id}" not declared by any unit axis — held FALSE (fail-safe)`,
           );
-          return { kind: "gatePending", gateId: ref.gate_id, declared };
+          return { kind: "gatePending", gateId: ref.gate_id, declared: false };
         }
       }
     };
@@ -373,6 +484,7 @@ export function buildUnitSequence(input: UnitBuildInput): UnitSequenceIr {
     modeManager,
     commandGating,
     routingRows,
+    axes: axesIr,
     warnings,
   };
 }
