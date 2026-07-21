@@ -24,17 +24,26 @@ const CMD_PIN_BY_COMMAND: Record<string, string> = {
 };
 const SEAM_PINS = ["cmd_start", "cmd_stop", "cmd_hold", "cmd_reset"];
 
+type MemberIr = UnitSequenceIr["members"][number];
+
 /** Level-style anti-latch command writes for one member: the asserted pin
  *  TRUE, every other seam pin FALSE. NONE asserts nothing (all FALSE);
- *  CLEAR/ABORT have no seam pin — all FALSE + TODO (never invented pins). */
-function memberCommandLines(emName: string, command: string, indent: number): string[] {
+ *  CLEAR/ABORT have no seam pin — all FALSE + TODO (never invented pins).
+ *  G2-3: matched library-FB members have no command-role contract yet —
+ *  emit a clearly marked TODO instead of inventing pins. */
+function memberCommandLines(member: MemberIr, command: string, indent: number): string[] {
+  if (member.librarySeam) {
+    return [
+      `${pad(indent)}// TODO: wire unit command to ${member.emName} (library FB ${member.librarySeam} — no command-role pins in its interface contract yet)`,
+    ];
+  }
   const asserted = CMD_PIN_BY_COMMAND[command];
   const lines = SEAM_PINS.map(
-    (p) => `${pad(indent)}"${emName}_CMD".${p} := ${p === asserted ? "TRUE" : "FALSE"};`,
+    (p) => `${pad(indent)}"${member.emName}_CMD".${p} := ${p === asserted ? "TRUE" : "FALSE"};`,
   );
   if (!asserted && command !== "NONE") {
     lines.push(
-      `${pad(indent)}// TODO ${command} for ${emName}: EM command seam has no ${command.toLowerCase()} pin`,
+      `${pad(indent)}// TODO ${command} for ${member.emName}: EM command seam has no ${command.toLowerCase()} pin`,
     );
   }
   return lines;
@@ -108,9 +117,9 @@ function smBranch(st: UnitStateIr, ir: UnitSequenceIr): string[] {
 /** Lower one resolved unit state to its Cur_St CASE branch (G2-2: per-member
  *  command assertion from the canonical map + overrides). */
 function stateBranch(st: UnitStateIr, ir: UnitSequenceIr): string[] {
-  const emNameById = new Map(ir.members.map((m) => [m.emId, m.emName]));
+  const memberById = new Map(ir.members.map((m) => [m.emId, m]));
   const body = st.commands.flatMap((c) =>
-    memberCommandLines(emNameById.get(c.emId) ?? c.emId, c.command, 9),
+    memberCommandLines(memberById.get(c.emId) ?? { emId: c.emId, emName: c.emId }, c.command, 9),
   );
   return [
     `${pad(6)}${st.index}:   // ${st.stateId}`,
@@ -239,14 +248,19 @@ export function writeUnitArtifacts(ir: UnitSequenceIr): {
     ),
   ];
 
-  // G2-2: seq-test release — dashboard drives the command pins (G0-3). Placed
-  // AFTER safety aggregation + SM so those still run in seq-test mode (design
-  // item 5); only the command assertion below is released.
-  const seqTest = ir.commandRouting?.seqTestRelease
+  // G2-2/G2-3: command-routing release — seq-test input OR any engineering-kind
+  // mode (design item 5; the HRE seq_test_mode pattern). Placed AFTER safety
+  // aggregation + mode manager + SM so those still run while released; only
+  // the command assertion below is skipped.
+  const releaseTerms = [
+    ...(ir.commandRouting?.seqTestRelease ? ["#i_Seq_Test"] : []),
+    ...(ir.commandGating?.engineeringModeIndices ?? []).map((i) => `#Cur_Mode = ${i}`),
+  ];
+  const seqTest = releaseTerms.length
     ? [
         ``,
-        `   IF #i_Seq_Test THEN`,
-        `      RETURN;   // seq-test mode: command routing released`,
+        `   IF ${releaseTerms.join(" OR ")} THEN`,
+        `      RETURN;   // engineering/seq-test release: command routing handed to the dashboard`,
         `   END_IF;`,
       ]
     : [];
@@ -288,12 +302,18 @@ export function writeUnitArtifacts(ir: UnitSequenceIr): {
         `   END_CASE;`,
       ]
     : [];
-  const stopAll = ir.members.flatMap((m) => memberCommandLines(m.emName, "STOP", 6));
-  const commandBlock = ir.safetyHealthy
+  // G2-2/G2-3: STOP-everywhere gate — safety unhealthy OR any maintenance-kind
+  // mode (design rule "drives commanded to Stopped", overrides ignored).
+  const stopTerms = [
+    ...(ir.safetyHealthy ? ["NOT #ok"] : []),
+    ...(ir.commandGating?.maintenanceModeIndices ?? []).map((i) => `#Cur_Mode = ${i}`),
+  ];
+  const stopAll = ir.members.flatMap((m) => memberCommandLines(m, "STOP", 6));
+  const commandBlock = stopTerms.length
     ? [
         ``,
-        `   IF NOT #ok THEN`,
-        `      // safety unhealthy -> STOP everywhere (policy: walk_to_execute_stop_on_unhealthy)`,
+        `   IF ${stopTerms.join(" OR ")} THEN`,
+        `      // safety unhealthy / maintenance -> STOP everywhere (policy: walk_to_execute_stop_on_unhealthy)`,
         ...stopAll,
         `   ELSE`,
         `   CASE #Cur_St OF`,

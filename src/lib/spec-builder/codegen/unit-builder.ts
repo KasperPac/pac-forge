@@ -24,6 +24,10 @@ export interface UnitMemberEm {
    *  `allowedModes` = the EM state's allowed mode_ids (G0-9 EmStateV2.allowed_modes;
    *  empty/undefined = all modes) — drives mode-change legality (G2-1). */
   states: { slug: string; index: number; allowedModes?: string[] }[];
+  /** G2-3: set to the library FB template name for matched library EMs (C5
+   *  path) — no command-role pins in FbInterfaceContract yet, so the writer
+   *  emits a TODO instead of seam writes. Absent = canonical `<EM>_CMD` seam. */
+  librarySeam?: string;
 }
 
 /** Compile-time expansion of `isModeChangeLegal` for one target mode (G2-1).
@@ -110,7 +114,7 @@ export interface UnitSequenceIr {
   unitId: string;
   unitName: string;
   /** Member EMs in declaration order (drives EM_St[] and command assertion). */
-  members: { emId: string; emName: string }[];
+  members: { emId: string; emName: string; librarySeam?: string }[];
   states: UnitStateIr[];
   transitions: UnitTransitionIr[];
   /** G2-2: the serialized `#ok` term (AND of referenced safety gates).
@@ -128,6 +132,9 @@ export interface UnitSequenceIr {
   commandRouting?: { seqTestRelease: boolean };
   /** G2-1: mode manager — compile-time legality expansion (absent when no modes). */
   modeManager?: UnitModeManagerIr;
+  /** G2-3: Cur_Mode index sets by semantic mode kind (absent when no modes) —
+   *  engineering releases the command assertion, maintenance forces STOP. */
+  commandGating?: { engineeringModeIndices: number[]; maintenanceModeIndices: number[] };
   warnings: string[];
 }
 
@@ -239,15 +246,34 @@ export function buildUnitSequence(input: UnitBuildInput): UnitSequenceIr {
     };
   }
 
+  // G2-3: semantic mode kinds → Cur_Mode index sets for command gating.
+  const commandGating =
+    modes.length > 0
+      ? {
+          engineeringModeIndices: modes.flatMap((m, i) => (m.kind === "engineering" ? [i] : [])),
+          maintenanceModeIndices: modes.flatMap((m, i) => (m.kind === "maintenance" ? [i] : [])),
+        }
+      : undefined;
+
+  // G2-3: library-seam members have no command-role contract yet — warn once.
+  for (const m of members) {
+    if (m.librarySeam) {
+      warnings.push(
+        `unit ${unitName}: EM ${m.emName} is a matched library FB (${m.librarySeam}) with no command-role pins in its interface contract — unit command routing emitted as TODO`,
+      );
+    }
+  }
+
   return {
     unitId,
     unitName,
-    members: members.map((m) => ({ emId: m.emId, emName: m.emName })),
+    members: members.map((m) => ({ emId: m.emId, emName: m.emName, librarySeam: m.librarySeam })),
     states,
     transitions,
     safetyHealthy,
     commandRouting,
     modeManager,
+    commandGating,
     warnings,
   };
 }

@@ -340,3 +340,69 @@ describe("writeUnitArtifacts — #ok, command assertion, PackTags mirror (G2-2)"
     expect(fb).not.toContain("i_Seq_Test");
   });
 });
+
+describe("writeUnitArtifacts — mode-kind command gating (G2-3)", () => {
+  function gatedIr(memberOverrides?: Partial<UnitMemberEm>) {
+    const members: UnitMemberEm[] = [
+      { emId: "em-a", emName: "Drive", states: [] },
+      { emId: "em-b", emName: "Lifter", states: [], ...memberOverrides },
+    ];
+    const coord: UnitCoordinationV1 = {
+      unit_id: "unit-1",
+      states: [
+        { state_id: "idle", allowed_modes: [], mode_change_allowed: true },
+        { state_id: "execute", allowed_modes: [], mode_change_allowed: false },
+      ],
+      transitions: [],
+      em_command_overrides: null,
+      signal_routing: {
+        safety_healthy: { gate_ids: ["estop"], exclude_maintenance: true },
+        routing_rows: [],
+        two_detent: [],
+        command_routing: { policy: "walk_to_execute_stop_on_unhealthy", seq_test_release: true },
+      },
+    };
+    return buildUnitSequence({
+      unitId: "unit-1", unitName: "Carriage", coord, members,
+      modes: [
+        { mode_id: "prod", name: "Production", is_default: true, kind: "production" },
+        { mode_id: "maint", name: "Maintenance", is_default: false, kind: "maintenance" },
+        { mode_id: "eng", name: "Seq Test", is_default: false, kind: "engineering" },
+      ],
+      safetyGates: [
+        { gate_id: "estop", name: "E-Stop", condition: [{ tag: "EStop_OK", operator: "=", value: true }], scope: "all" },
+      ],
+    });
+  }
+
+  it("releases command assertion in engineering-kind modes (OR'd with the seq-test input)", () => {
+    const fb = writeUnitArtifacts(gatedIr()).artifacts.find((a) => a.name === "UC_Carriage")!.content;
+    expect(fb).toContain("IF #i_Seq_Test OR #Cur_Mode = 2 THEN");
+    expect(fb.slice(fb.indexOf("IF #i_Seq_Test OR #Cur_Mode = 2 THEN"))).toContain("RETURN;");
+  });
+
+  it("forces STOP to every member in maintenance-kind modes, same as safety-unhealthy", () => {
+    const fb = writeUnitArtifacts(gatedIr()).artifacts.find((a) => a.name === "UC_Carriage")!.content;
+    expect(fb).toContain("IF NOT #ok OR #Cur_Mode = 1 THEN");
+    const stop = fb.slice(fb.indexOf("IF NOT #ok OR #Cur_Mode = 1 THEN"));
+    expect(stop).toContain('"Drive_CMD".cmd_stop := TRUE;');
+    expect(stop).toContain('"Lifter_CMD".cmd_stop := TRUE;');
+  });
+
+  it("emits a TODO instead of seam writes for library-FB members", () => {
+    const fb = writeUnitArtifacts(gatedIr({ librarySeam: "FB_Lift_Std" }))
+      .artifacts.find((a) => a.name === "UC_Carriage")!.content;
+    expect(fb).toContain(
+      "// TODO: wire unit command to Lifter (library FB FB_Lift_Std — no command-role pins in its interface contract yet)",
+    );
+    expect(fb).not.toContain('"Lifter_CMD".cmd_stop');
+  });
+
+  it("engineering release still emits without a seq-test input when seq_test_release is off", () => {
+    const ir = gatedIr();
+    ir.commandRouting = { seqTestRelease: false };
+    const fb = writeUnitArtifacts(ir).artifacts.find((a) => a.name === "UC_Carriage")!.content;
+    expect(fb).not.toContain("i_Seq_Test");
+    expect(fb).toContain("IF #Cur_Mode = 2 THEN");
+  });
+});

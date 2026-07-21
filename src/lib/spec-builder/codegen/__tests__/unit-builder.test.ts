@@ -290,3 +290,41 @@ describe("buildUnitSequence — mode manager legality expansion (G2-1)", () => {
     expect(ir.modeManager).toBeUndefined();
   });
 });
+
+describe("buildUnitSequence — mode-kind command gating (G2-3)", () => {
+  const kindModes: OperatorMode[] = [
+    { mode_id: "prod", name: "Production", is_default: true, kind: "production" },
+    { mode_id: "maint", name: "Maintenance", is_default: false, kind: "maintenance" },
+    { mode_id: "eng", name: "Seq Test", is_default: false, kind: "engineering" },
+  ];
+
+  it("resolves engineering- and maintenance-kind modes to Cur_Mode index sets", () => {
+    const coord: UnitCoordinationV1 = {
+      unit_id: "unit-1",
+      states: [{ state_id: "idle", allowed_modes: [], mode_change_allowed: true }],
+      transitions: [],
+      em_command_overrides: null,
+    };
+    const ir = buildUnitSequence({ unitId: "unit-1", unitName: "Carriage", coord, members: [], modes: kindModes });
+    expect(ir.commandGating).toEqual({
+      engineeringModeIndices: [2],
+      maintenanceModeIndices: [1],
+    });
+  });
+
+  it("flags library-seam members with a warning (no command-role contract yet)", () => {
+    const members: UnitMemberEm[] = [
+      { emId: "em-a", emName: "Drive", states: [] },
+      { emId: "em-b", emName: "Lifter", states: [], librarySeam: "FB_Lift_Std" },
+    ];
+    const coord: UnitCoordinationV1 = {
+      unit_id: "unit-1",
+      states: [{ state_id: "idle", allowed_modes: [], mode_change_allowed: true }],
+      transitions: [],
+      em_command_overrides: null,
+    };
+    const ir = buildUnitSequence({ unitId: "unit-1", unitName: "Carriage", coord, members, modes: [] });
+    expect(ir.members.find((m) => m.emName === "Lifter")?.librarySeam).toBe("FB_Lift_Std");
+    expect(ir.warnings.some((w) => w.includes("Lifter") && w.includes("FB_Lift_Std"))).toBe(true);
+  });
+});
