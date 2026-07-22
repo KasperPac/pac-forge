@@ -16,6 +16,7 @@ import { ArtifactViewer } from "@/components/code-builder/artifact-viewer";
 import { ArtifactPanel } from "@/components/code-builder/artifact-panel";
 import { FbQualityGates } from "@/components/code-builder/fb-quality-gates";
 import { FbVersionHistory } from "@/components/code-builder/fb-version-history";
+import { HmiBuildPanel } from "@/components/code-builder/hmi-build-panel";
 import { useCodeBuilderVersions } from "@/hooks/use-code-builder-versions";
 import { useEmStandardsReview, type EmReviewArtifact } from "@/hooks/use-em-standards-review";
 import { evaluateSafetyGate } from "@/lib/spec-builder/fb-quality-gate";
@@ -102,9 +103,12 @@ export default function CodeBuilderPage() {
             }}
           />
         </div>
-        <Badge variant="outline" className="ml-auto text-[10px]">
-          Phase 4 — Code Builder
-        </Badge>
+        <div className="ml-auto flex items-center gap-2">
+          {specId && <HmiBuildPanel specId={specId} projectName={spec?.title} />}
+          <Badge variant="outline" className="text-[10px]">
+            Phase 4 — Code Builder
+          </Badge>
+        </div>
       </div>
 
       <div className="grid min-h-0 flex-1 grid-cols-[28%_44%_28%]">
