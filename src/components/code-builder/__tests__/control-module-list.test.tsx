@@ -30,6 +30,16 @@ describe("ControlModuleList — device layer", () => {
   });
 });
 
+describe("ControlModuleList — device layer empty state", () => {
+  it("explains WHY the device layer is empty for fully-synthesized projects", () => {
+    render(<ControlModuleList artifacts={[]} layer="device" selected={null} onSelect={() => {}} />);
+    // not a bare "No artifacts." — must point the user at the EM step and the
+    // library-assignment path that produces standalone device FBs
+    expect(screen.getByText(/inlined into their EM blocks/i)).toBeInTheDocument();
+    expect(screen.getByText(/EM step/i)).toBeInTheDocument();
+  });
+});
+
 describe("ControlModuleList — EM layer", () => {
   it("groups EM rows under a collapsible Unit header", () => {
     render(

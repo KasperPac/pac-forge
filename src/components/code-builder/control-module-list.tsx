@@ -95,7 +95,17 @@ export function ControlModuleList({
           <RowButton key={row.rep.artifact_name} row={row} selected={selected} onSelect={onSelect} />
         ))}
         {rows.length === 0 && (
-          <div className="px-3 py-6 text-center text-[11px] text-muted-foreground">No artifacts.</div>
+          <div className="space-y-1.5 px-3 py-6 text-center text-[11px] text-muted-foreground">
+            <p>No standalone device FBs in this project.</p>
+            <p>
+              All control modules are basic control inlined into their EM blocks
+              and MAP_* FCs — see the <span className="font-semibold">EM step</span>.
+            </p>
+            <p>
+              To get a standalone device FB, assign a library template in
+              Controls Data → Engineering (fb_assignments).
+            </p>
+          </div>
         )}
       </div>
     );

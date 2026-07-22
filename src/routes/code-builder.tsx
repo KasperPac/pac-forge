@@ -34,6 +34,15 @@ export default function CodeBuilderPage() {
   const [draft, setDraft] = useState<string>("");
 
   const views = artifacts.data ?? [];
+
+  // Fully-synthesized projects have no device-layer artifacts (basic control
+  // is inlined into the EM blocks) — land the user on the EM step instead of
+  // an empty default tab. One-shot: a deliberate later click on Device stays.
+  const [autoAdvanced, setAutoAdvanced] = useState(false);
+  if (artifacts.isSuccess && activeLayer === "device" && views.length === 0 && !autoAdvanced) {
+    setAutoAdvanced(true);
+    setActiveLayer("em");
+  }
   const current = useMemo(
     () => views.find((v) => v.artifact_name === selected) ?? null,
     [views, selected],
