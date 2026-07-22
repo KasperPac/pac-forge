@@ -29,6 +29,7 @@ import {
   buildNetworkDeviceTable,
   buildNetworkTableCaption,
 } from "./docx-network-table";
+import { buildControlsDataSections } from "./docx-controls-data";
 import {
   buildMachineDataAppendix,
   type RevisionMeta,
@@ -1144,6 +1145,11 @@ export async function buildSpecDocx(
     // Section 8 — Testing / FAT
     const testingFat = sections.find((s) => s.section_type === "testing_fat");
     if (testingFat) children.push(...renderTestingFat(testingFat));
+
+    // Section 9 — Controls Engineering Data (G0-16 W4; render-if-present)
+    if (opts?.contract) {
+      children.push(...buildControlsDataSections(opts.contract));
+    }
 
   } else {
     // ===== V1 legacy rendering =====

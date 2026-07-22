@@ -69,13 +69,22 @@ tags/addresses; dense 4px grid; validation errors surfaced verbatim from
 `ContractValidationError.issues`; every panel works generically for any machine
 (no HRE assumptions — HRE values only ever appear as user-entered data).
 
-## Decision 2 — Co-author enumeration (Stage B prompt additions)
+## Decision 2 — Co-author boundary (AMENDED 2026-07-22)
 
-`fds-prompts.ts` gains a "controls-data models" section enumerating the tier-1
-models the AI may propose (`unit_coordination`, drive model, polarity), with the
-patch-key contract and the rule "propose sparingly; the engineer confirms in the
-Controls Data panels". Tier-2 `engineering` stays human-only (commissioned
-constants are measured, not inferred). Stage A untouched.
+Original intent (AI proposes tier-1 controls models from the conversation)
+**does not fit the co-author architecture**: Stage B's emission contract is
+per-EM state-table JSON (`use-fds-conversation` wraps those into synthetic
+patches solely for validation) — there is no general contract-patch channel,
+and `unit_coordination` is unit-scoped while the conversation is EM-scoped.
+
+Amended scope: Stage B gains an **out-of-scope models** rule — the AI
+acknowledges drive/polarity/coordination/maintenance content in prose and
+directs the engineer to the Controls Data panel, never encoding it in state
+JSON. AI *proposal* of coordination (a unit-level co-author surface emitting
+`unit_coordination` patches through the existing gate) is deferred to its own
+follow-up task — it is a new conversational surface, not authoring parity.
+Tier-2 `engineering` stays human-only regardless (commissioned constants are
+measured, not inferred).
 
 ## Decision 3 — Random FDS seeding
 
