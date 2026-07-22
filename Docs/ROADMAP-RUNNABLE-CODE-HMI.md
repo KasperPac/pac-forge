@@ -175,10 +175,10 @@ existing in the contract. Target deliverable: `HMI-BUILD-PACK.md`.*
 | G7-2 | Alarm generator: fault fan-in / contract `alarms[]` → discrete alarm defs (tag, trigger, class, text) | ✅ | P0 | M | — | SHIPPED 2026-07-22 4320838: tier-derived classes; fail-safe trigger polarity (healthy-signal + N/C tags alarm on 0); derived per-drive `<SINA DB>.Error` faults |
 | G7-3 | Setpoints screen: CMD `sp_` pins → IO fields with limits | ✅ | P1 | S | — | SHIPPED 2026-07-22 4320838: sp_ pins via shared buildEmSequence + operator-settable CFG members w/ G0-10 level+limits; sp_ pins have no modeled limits (emitted without, TODO-not-guess) |
 | G7-4 | DB-member tag-binding mapper (`EM_*_DB.state`, config-DB members) vs current `Inst<Dev>.hmi.*` convention | ✅ | P0 | M | — | SHIPPED 2026-07-22 4320838: symbolic-only deduped HMI tag defs (dots→underscores) from naming.ts helpers; legacy `Inst<Dev>.hmi.*` untouched (old forge path) |
-| G7-5 | Access-level roles model (Operator/Supervisor/Maintenance) + per-screen assignment | 🔴 | P1 | M | — | build-pack §6 |
+| G7-5 | Access-level roles model (Operator/Supervisor/Maintenance) + per-screen assignment | ✅ | P1 | M | — | SHIPPED 2026-07-22 e878343: roles from the G0-10 ladder; screen level = max item level (G0-10 derivation rule); role creation itself stays G8-3 |
 | G7-6 | Alarm-class model (Fault/Warning) | ✅ | P1 | S | — | SHIPPED 2026-07-22 50ec3f4: tiers → Fault (ack) / Warning via generic critical|fault rule, deduped |
-| G7-7 | Maintenance screen generator (mode toggle, overrides, presets) | 🔴 | P2 | M | G3 | build-pack §4 |
-| G7-8 | Assemble a full `/tia/hmi/build` spec from the above | 🔴 | P0 | M | G7-1..6,G8-1 | integration point |
+| G7-7 | Maintenance screen generator (mode toggle, overrides, presets) | ✅ | P2 | M | G3 | SHIPPED 2026-07-22 e878343: mode toggle, leveled ov_ switches, preset value/EXECUTE/done trio per presettable axis w/ channels, raw encoder readouts; seq-test off-panel by rule |
+| G7-8 | Assemble a full `/tia/hmi/build` spec from the above | ✅ | P0 | M | G7-1..6 | SHIPPED 2026-07-22 e878343: dual lowering — exact bridge JSON (verified OnRising/OnFallingEdge trigger modes, singleBit lamps) + build-pack markdown carrying every non-automatable step (text lists/roles/levels/events/alarm control); app wiring is G8-1 |
 
 ---
 
