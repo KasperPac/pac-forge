@@ -195,7 +195,7 @@ callers in `src/`** and is uncommitted.*
 | G8-3 | Bridge: user-role / access-level creation (UserAdministration) | ⛔ | P1 | M | — | no role code; **Openness support unverified** |
 | G8-4 | Bridge: Unified text-list creation (only Comfort SimaticML path today) | ⛔ | P0 | M | — | `TiaPortalService.cs:2439`; **Openness support unverified** |
 | G8-5 | Basic-panel family (MTP700 Unified Basic) — app only has Comfort | 🔴 | P1 | S | — | `hmi-panel.ts:68` |
-| G8-6 | Commit the HmiUnified.cs bridge extension + BridgeServer routes | 🟡 | P0 | S | — | uncommitted (git status / memory) |
+| G8-6 | Commit the HmiUnified.cs bridge extension + BridgeServer routes | ✅ | P0 | S | — | RESOLVED: committed d4a1a2e (bridge v1.2.0) — row was stale |
 | G8-7 | PackML faceplate model (state/mode/PackTag) | 💡 | P2 | L | — | faceplates are device-type/Open-Library today |
 
 ---
