@@ -71,6 +71,9 @@ export interface EmPin {
   scl_type: "Bool" | "Int";
   /** Physical IO address for the MAP FC (empty when none is known). */
   address: string;
+  /** G1-5: set when a network_telegram signal's absolute address is
+   *  unresolvable (IW/QW base unrecorded) — the MAP TODO names word/bit/type. */
+  telegramNote?: string;
   /** G1-4b: TRUE when the signal is conditioned — the MAP writer reads the
    *  IO_Cond conditioned value instead of the raw tag. */
   conditioned?: boolean;

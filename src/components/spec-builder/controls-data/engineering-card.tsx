@@ -77,7 +77,9 @@ export function EngineeringCard({
     const empty =
       next.ref_speed_rpm === undefined &&
       next.hw_id_stw === undefined &&
-      next.hw_id_zsw === undefined;
+      next.hw_id_zsw === undefined &&
+      next.io_in_start_byte === undefined &&
+      next.io_out_start_byte === undefined;
     onChange({
       ...engineering,
       drives: empty
@@ -154,6 +156,8 @@ export function EngineeringCard({
               <span className="w-24">RefSpeed rpm</span>
               <span className="w-24">HWIDSTW</span>
               <span className="w-24">HWIDZSW</span>
+              <span className="w-24">IW start</span>
+              <span className="w-24">QW start</span>
             </div>
             {driveCms.map((cm) => {
               const e = driveEntry(cm.cmId);
@@ -170,6 +174,12 @@ export function EngineeringCard({
                   )}
                   {numInput(`${cm.cmName} HWIDZSW`, e?.hw_id_zsw, (v) =>
                     patchDrive(cm.cmId, { hw_id_zsw: v }),
+                  )}
+                  {numInput(`${cm.cmName} IW start byte`, e?.io_in_start_byte, (v) =>
+                    patchDrive(cm.cmId, { io_in_start_byte: v }),
+                  )}
+                  {numInput(`${cm.cmName} QW start byte`, e?.io_out_start_byte, (v) =>
+                    patchDrive(cm.cmId, { io_out_start_byte: v }),
                   )}
                 </div>
               );

@@ -312,7 +312,7 @@ function writeMapFc(seq: EmSequence): { artifact: CodegenArtifact; driveDbs: Cod
   const sensorLines = seq.sensors
     .filter((p) => !consumed.has(p.name))
     .map((p) => {
-      if (!p.address) return `   // TODO wire sensor ${p.name} (no address in spec)`;
+      if (!p.address) return `   // TODO wire sensor ${p.name} (${p.telegramNote ?? "no address in spec"})`;
       // G1-4b: analog EU scaling — electrical range converted to S7 counts by
       // platform physics (0–20 mA / 0–10 V spans = 0..27648), EU emitted as
       // Int (behaviour is written in EU units per G0-2; fractional EU truncates).
@@ -336,7 +336,7 @@ function writeMapFc(seq: EmSequence): { artifact: CodegenArtifact; driveDbs: Cod
     .map((p) =>
       p.address
         ? `   "${p.tag}" := "${inst}".${p.name};   // %${p.address}`
-        : `   // TODO wire actuator ${p.name} (no address in spec)`,
+        : `   // TODO wire actuator ${p.name} (${p.telegramNote ?? "no address in spec"})`,
     );
   const content = [
     `FUNCTION "${name}" : Void`,

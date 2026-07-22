@@ -1571,6 +1571,11 @@ export const DriveEngineeringEntrySchema = z.object({
   hw_id_zsw: z.number().int().nonnegative().optional(), // HWIDZSW
   ref_speed_rpm: z.number().positive().optional(), // MUST equal drive p2000
   config_axis: z.number().int().nonnegative().default(0x003f),
+  // G1-5: telegram IO start byte addresses from the TIA HW config (record-only,
+  // same class as the HW ids). With these, network_telegram signals carrying a
+  // telegram_offset resolve to absolute %I/%Q addresses at compile time.
+  io_in_start_byte: z.number().int().nonnegative().optional(),
+  io_out_start_byte: z.number().int().nonnegative().optional(),
   notes: z.string().optional(),
 });
 export type DriveEngineeringEntry = z.infer<typeof DriveEngineeringEntrySchema>;

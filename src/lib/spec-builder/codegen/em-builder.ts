@@ -44,8 +44,38 @@ export function buildEmSequence(
 ): EmSequence {
   const warnings: string[] = [];
 
-  // classify own IO
-  const io: IoSignalV2[] = em.control_modules.flatMap((c) => c.io_signals);
+  // G1-5: resolve telegram-word addresses per CM. With the HW-config start
+  // bytes recorded (tier 2), a network_telegram signal's offset lowers to an
+  // absolute %I/%Q address (Siemens word layout: %IWb = high byte b, bits
+  // 8..15 / low byte b+1, bits 0..7). Unresolvable → a specific note the MAP
+  // TODO carries (never a bare "no address").
+  const engByCm = new Map((engineering?.drives ?? []).map((d) => [d.control_module_id, d]));
+  const telegramNotes = new Map<string, string>();
+  const io: IoSignalV2[] = em.control_modules.flatMap((cm) => {
+    const eng = engByCm.get(cm.control_module_id);
+    return cm.io_signals.map((sig) => {
+      if (sig.io_address || sig.source !== "network_telegram" || !sig.telegram_offset) return sig;
+      const isInput = INPUT_TYPES.has(sig.signal_type);
+      const base = isInput ? eng?.io_in_start_byte : eng?.io_out_start_byte;
+      const t = sig.telegram_offset;
+      if (base === undefined) {
+        telegramNotes.set(
+          sig.tag,
+          `telegram word ${t.word}${t.bit !== undefined ? ` bit ${t.bit}` : ""} (${t.data_type}) — %${isInput ? "I" : "Q"}W base pending HW config (engineering.drives.io_${isInput ? "in" : "out"}_start_byte)`,
+        );
+        return sig;
+      }
+      const area = isInput ? "I" : "Q";
+      const wordByte = base + t.word * 2;
+      const address =
+        t.data_type === "BOOL" && t.bit !== undefined
+          ? `${area}${wordByte + (t.bit < 8 ? 1 : 0)}.${t.bit % 8}`
+          : t.data_type === "REAL"
+            ? `${area}D${wordByte}`
+            : `${area}W${wordByte}`;
+      return { ...sig, io_address: address };
+    });
+  });
   const ownInput = new Map<string, IoSignalV2>();
   const ownOutput = new Map<string, IoSignalV2>();
   for (const s of io) {
@@ -72,6 +102,7 @@ export function buildEmSequence(
         name, tag,
         scl_type: sig && ANALOG_TYPES.has(sig.signal_type) ? "Int" : "Bool",
         address: sig?.io_address ?? "",
+        telegramNote: telegramNotes.get(tag),
         conditioned: conditioned || undefined,
         scaling: sig?.scaling, // G1-4b analog EU scaling
         polarity: sig?.polarity, // G0-2 → G1-4 inversion
@@ -87,6 +118,7 @@ export function buildEmSequence(
         name, tag,
         scl_type: sig && ANALOG_TYPES.has(sig.signal_type) ? "Int" : "Bool",
         address: sig?.io_address ?? "",
+        telegramNote: telegramNotes.get(tag),
       });
     }
     return name;

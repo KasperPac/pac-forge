@@ -283,3 +283,61 @@ describe("buildEmSequence command_behavior lowering", () => {
     expect(seq.warnings.some((w) => w.includes("ghost") && w.includes("not an output"))).toBe(true);
   });
 });
+
+describe("buildEmSequence — telegram-word addressing (G1-5)", () => {
+  function telegramEm() {
+    return {
+      equipment_module_id: "em1", equipment_module_name: "Feeder", description: "",
+      control_modules: [
+        {
+          control_module_id: "cm-uuid-tg", control_module_name: "VFD1", control_module_class: "motor",
+          is_safety: false, description: "",
+          io_signals: [
+            { tag: "VFD1_ZSW_Ready", signal_type: "DI", io_address: "", description: "", source: "network_telegram",
+              telegram_offset: { word: 0, bit: 9, data_type: "BOOL" } },
+            { tag: "VFD1_Act_Speed", signal_type: "AI", io_address: "", description: "", source: "network_telegram",
+              telegram_offset: { word: 1, data_type: "INT" } },
+            { tag: "VFD1_STW_Enable", signal_type: "DO", io_address: "", description: "", source: "network_telegram",
+              telegram_offset: { word: 0, bit: 3, data_type: "BOOL" } },
+          ],
+        },
+      ],
+    } as unknown as Parameters<typeof buildEmSequence>[0];
+  }
+  const contract = {
+    equipment_module_id: "em1", unit_id: "u1",
+    states: [
+      { state_id: "idle", name: "Idle", kind: "static", allowed_modes: [], is_safe_state: true },
+      { state_id: "execute", name: "Execute", kind: "static", allowed_modes: [], is_safe_state: false },
+    ],
+    transitions: [
+      { transition_id: "t1", from_state_id: "idle", to_state_id: "execute",
+        trigger: { kind: "command", expr: { tag: "VFD1_ZSW_Ready", operator: "=", value: true } },
+        guard: [{ tag: "VFD1_Act_Speed", operator: ">", value: 0 }] },
+    ],
+    static_states: { idle: [{ tag: "VFD1_STW_Enable", description: "", state: "STOP" }] },
+    sequential_states: {},
+  } as unknown as Parameters<typeof buildEmSequence>[1];
+
+  it("computes absolute addresses from the recorded HW-config start bytes", () => {
+    const seq = buildEmSequence(telegramEm(), contract, {
+      drives: [{ control_module_id: "cm-uuid-tg", config_axis: 63, io_in_start_byte: 100, io_out_start_byte: 64 }],
+      io_conditioning_defaults: undefined,
+      axis_constants: [], encoder_presets: [], fb_assignments: [], upstream_endpoints: [],
+    } as Parameters<typeof buildEmSequence>[2]);
+    const byTag = new Map([...seq.sensors, ...seq.actuators].map((p) => [p.tag, p]));
+    // Siemens word layout: %IW<b> = high byte I<b> (word bits 8..15) + low
+    // byte I<b+1> (word bits 0..7)
+    expect(byTag.get("VFD1_ZSW_Ready")?.address).toBe("I100.1"); // word 0 bit 9 → high byte, bit 1
+    expect(byTag.get("VFD1_Act_Speed")?.address).toBe("IW102"); // word 1 → byte 100+2
+    expect(byTag.get("VFD1_STW_Enable")?.address).toBe("Q65.3"); // word 0 bit 3 → low byte 64+1, bit 3
+  });
+
+  it("carries a specific telegram note when the base is unrecorded (never a bare TODO)", () => {
+    const seq = buildEmSequence(telegramEm(), contract, undefined);
+    const p = seq.sensors.find((s) => s.tag === "VFD1_Act_Speed")!;
+    expect(p.address).toBe("");
+    expect(p.telegramNote).toContain("telegram word 1");
+    expect(p.telegramNote).toContain("INT");
+  });
+});
