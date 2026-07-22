@@ -154,7 +154,7 @@ synthesize-from-scratch is the default.*
 
 | ID | Task | State | Pri | Eff | Depends | Evidence / notes |
 |---|---|---|---|---|---|---|
-| G6-1 | Emit matched template's SCL body into the artifact set (dep-order + de-dup) — not just an instance DB | 🔴 | P0 | M | — | `fb-instantiate.ts:170-174` **biggest FB gap** |
+| G6-1 | Emit matched template's SCL body into the artifact set (dep-order + de-dup) — not just an instance DB | ✅ | P0 | M | — | SHIPPED 2026-07-22 681e087: template blocks emitted in sort order w/ chained deps, name de-dup across instances; standard-instruction templates reference-only; sourceless (LAD/XML) blocks skip + warn |
 | G6-2 | Make *instantiate* the default over *synthesize* (widen match or explicit "use library" selection) | 🔴 | P1 | M | G6-1 | `compile-contract.ts:49-56` default = synthesize |
 | G6-3 | Name-based role wiring (replace positional `contractWiringLines` that mis-wires on order) | 🔴 | P1 | M | — | `fb-instantiate.ts:72-98` |
 | G6-4 | Per-instance binding layer ("Phase 3.5 Device FB Binding") | 🔴 | P1 | L | G6-3 | `fb-interface.ts:19,37` |
