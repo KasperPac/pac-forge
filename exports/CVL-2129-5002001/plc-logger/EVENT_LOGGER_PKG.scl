@@ -1,0 +1,431 @@
+// ============================================================================
+// EVENT LOGGER PACKAGE — CVL-2129-5002001   (rev 2)
+// Scan-accurate event capture into a PLC-side ring buffer, drained by the
+// plc-dash server over the S7-1500 Web API (read-only).
+//
+// Generates (in dependency order):
+//   UDT_EventLogEntry  — one log entry
+//   EVENT_LOG_DB       — ring buffer (500 entries) + monotonic Head
+//   EVENT_PUSH         — FC: stamp + append one entry
+//   EVENT_LOGGER       — FB: edge detection on all monitored signals
+//   EVENT_LOGGER_DB    — instance DB
+//
+// Call once per scan from Main (OB1):  "EVENT_LOGGER"("EVENT_LOGGER_DB")
+// Optional: Enable_ConveyorTrail := FALSE drops the per-position pallet trail
+// (~70% of volume) if ring depth matters more than trail detail.
+//
+// Categories (Cat):  1=SYSTEM  2=LIFT_A  3=LIFT_B  4=CONVEYOR  5=DEVICE
+//                    6=SAFETY  7=COMMS
+// Codes (Code):
+//   SYSTEM   1 Manual  2 SemiAuto  3 Auto  4 Running  5 Stopped  6 PLC error
+//            7 logger started (download or PLC restart)
+//   LIFT_x  10 mode change (Val=Mode_Actual)
+//           11 fault active     12 fault cleared (Val2=active ms)
+//           13 encoder flt bit  14 motor-sync flt bit   15 stop-prox flt bit
+//           16 encoder code     17 locking-pin code     18 chain code
+//           19 stop-prox code   (A only — ELV_A_Faults, Val=code)
+//           20 pallet ENTERED infeed/outfeed (Val=level, Info=barcode A)
+//           21 pallet LEFT  infeed/outfeed   (Val=level)
+//           22 pallet onto carriage (Val=level, Info=barcode)   (A only)
+//           23 pallet off  carriage (Val=level)                 (A only)
+//           24 barcode validated (Info=barcode)                 (A only)
+//           25 barcode read FAIL                                (A only)
+//           26 pallet-on-infeed fault (F38)                     (A only)
+//           27 task received   (Val=TaskNo,  Val2=TaskStepID, Info=start>target)
+//           28 task status sent(Val=TaskID,  Info=status)
+//           29 task step reason(Val=Reason,  Val2=TaskStepID, Info=reason text)
+//           33 elevator sequence step (Val=new step, Val2=prev step dwell ms)
+//           34 carriage-conveyor step (Val=new step, Val2=prev step dwell ms)
+//   CONVEYOR 30 pallet ON position (Val=index)  31 pallet OFF (Val=index)
+//   DEVICE  40 drive status change (Val=new status, Info=device tag)
+//   SAFETY  50 safety tripped  51 restored (Val2=tripped ms)  52 major fault
+//   COMMS   60 comms error active  61 cleared (Val2=active ms)
+//
+// Timestamps: PLC local time. DateNum=YYYYMMDD, TimeNum=HHMMSSmmm.
+// Durations (Val2) use TIME_TCK — wrap-safe for faults shorter than ~24 days.
+// NON_RETAIN: the log clears on a PLC cold restart (change to RETAIN if the
+// retentive budget allows and survival across power cycles is wanted).
+// ============================================================================
+
+TYPE "UDT_EventLogEntry"
+VERSION : 0.2
+   STRUCT
+      Seq : DInt;        // monotonic sequence no. (0 = slot never written)
+      DateNum : DInt;    // local date as YYYYMMDD
+      TimeNum : DInt;    // local time as HHMMSSmmm
+      Cat : Int;         // category — see header
+      Code : Int;        // event code — see header
+      Val : DInt;        // value / level / fault code / position index
+      Val2 : DInt;       // duration ms / task step id / secondary value
+      Info : String[32]; // barcode / device tag / reason (truncated to 32)
+   END_STRUCT;
+END_TYPE
+
+DATA_BLOCK "EVENT_LOG_DB"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.2
+NON_RETAIN
+   VAR
+      Head : DInt;   // total events ever logged; last entry sits at (Head-1) MOD 500
+      Size : Int := 500;
+      Entries : Array[0..499] of "UDT_EventLogEntry";
+   END_VAR
+BEGIN
+END_DATA_BLOCK
+
+FUNCTION "EVENT_PUSH" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.2
+VAR_INPUT
+   Cat : Int;
+   Code : Int;
+   Val : DInt;
+   Val2 : DInt;
+   Info : String;
+END_VAR
+VAR_TEMP
+   Loc : DTL;
+   RetLoc : Int;
+   Idx : DInt;
+END_VAR
+
+BEGIN
+   #RetLoc := RD_LOC_T(OUT => #Loc);
+   "EVENT_LOG_DB".Head := "EVENT_LOG_DB".Head + 1;
+   #Idx := ("EVENT_LOG_DB".Head - 1) MOD 500;
+   "EVENT_LOG_DB".Entries[#Idx].Seq := "EVENT_LOG_DB".Head;
+   "EVENT_LOG_DB".Entries[#Idx].DateNum := UINT_TO_DINT(#Loc.YEAR) * 10000
+      + USINT_TO_DINT(#Loc.MONTH) * 100 + USINT_TO_DINT(#Loc.DAY);
+   "EVENT_LOG_DB".Entries[#Idx].TimeNum := USINT_TO_DINT(#Loc.HOUR) * 10000000
+      + USINT_TO_DINT(#Loc.MINUTE) * 100000 + USINT_TO_DINT(#Loc.SECOND) * 1000
+      + UDINT_TO_DINT(#Loc.NANOSECOND / 1000000);
+   "EVENT_LOG_DB".Entries[#Idx].Cat := #Cat;
+   "EVENT_LOG_DB".Entries[#Idx].Code := #Code;
+   "EVENT_LOG_DB".Entries[#Idx].Val := #Val;
+   "EVENT_LOG_DB".Entries[#Idx].Val2 := #Val2;
+   "EVENT_LOG_DB".Entries[#Idx].Info := #Info;
+END_FUNCTION
+
+FUNCTION_BLOCK "EVENT_LOGGER"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.2
+VAR_INPUT
+   Enable_ConveyorTrail : Bool := TRUE;   // FALSE = skip Cat-4 position trail
+END_VAR
+VAR
+   FirstScan : Bool := TRUE;   // snapshot-only pass after download/restart
+   // previous-scan snapshots
+   pManual : Bool;
+   pSemi : Bool;
+   pAuto : Bool;
+   pRunning : Bool;
+   pStopped : Bool;
+   pPlcErr : Bool;
+   pSafety : Bool;
+   pMajor : Bool;
+   pComm : Bool;
+   pInfeedF38 : Bool;
+   pElvAOk : Bool;
+   pElvBOk : Bool;
+   pElvAEnc : Bool;
+   pElvASync : Bool;
+   pElvAProx : Bool;
+   pElvBEnc : Bool;
+   pElvBSync : Bool;
+   pElvBProx : Bool;
+   pElvAMode : Int;
+   pElvBMode : Int;
+   pFltEnc : Int;
+   pFltPins : Int;
+   pFltChain : Int;
+   pFltProx : Int;
+   pPalA : Bool;
+   pPalB : Bool;
+   pLiftA_S1 : Bool;
+   pLiftA_S2 : Bool;
+   pBarcodeOk : Bool;
+   pBarcodeFail : Bool;
+   // task message edges
+   pT03RcvA : Bool;
+   pT04SndA : Bool;
+   pT05RcvA : Bool;
+   pT03RcvB : Bool;
+   pT04SndB : Bool;
+   pT05RcvB : Bool;
+   // sequence steppers + dwell start ticks
+   pStepA : Int;
+   pConvStepA : Int;
+   pStepB : Int;
+   pConvStepB : Int;
+   tStepA : DInt;
+   tConvStepA : DInt;
+   tStepB : DInt;
+   tConvStepB : DInt;
+   // fault raise ticks (duration on clear)
+   tElvAFlt : DInt;
+   tElvBFlt : DInt;
+   tSafety : DInt;
+   tComm : DInt;
+   pPallet : Array[0..50] of Bool;
+   pDevStat : Array[0..50] of Int;
+END_VAR
+VAR_TEMP
+   t : Int;
+   nowTick : DInt;
+END_VAR
+
+BEGIN
+   #nowTick := TIME_TO_DINT(TIME_TCK());
+
+   // ---- restart marker + snapshot-only first pass --------------------------
+   IF #FirstScan THEN
+      "EVENT_PUSH"(Cat := 1, Code := 7, Val := 0, Val2 := 0, Info := '');
+      #tStepA := #nowTick; #tConvStepA := #nowTick;
+      #tStepB := #nowTick; #tConvStepB := #nowTick;
+   END_IF;
+
+   // ---- scalar edge detection (skipped on the snapshot-only first scan) ----
+   IF NOT #FirstScan THEN
+      // system modes (Cat 1)
+      IF "DB_HMI_SYS".HMI_SYS_Manual AND NOT #pManual THEN
+         "EVENT_PUSH"(Cat := 1, Code := 1, Val := 0, Val2 := 0, Info := '');
+      END_IF;
+      IF "DB_HMI_SYS".HMI_SYS_SemiAutomatic AND NOT #pSemi THEN
+         "EVENT_PUSH"(Cat := 1, Code := 2, Val := 0, Val2 := 0, Info := '');
+      END_IF;
+      IF "DB_HMI_SYS".HMI_SYS_Automatic AND NOT #pAuto THEN
+         "EVENT_PUSH"(Cat := 1, Code := 3, Val := 0, Val2 := 0, Info := '');
+      END_IF;
+      IF "DB_HMI_SYS".HMI_SYS_Running AND NOT #pRunning THEN
+         "EVENT_PUSH"(Cat := 1, Code := 4, Val := 0, Val2 := 0, Info := '');
+      END_IF;
+      IF "DB_HMI_SYS".HMI_SYS_Stopped AND NOT #pStopped THEN
+         "EVENT_PUSH"(Cat := 1, Code := 5, Val := 0, Val2 := 0, Info := '');
+      END_IF;
+      IF "DB_HMI_SYS".HMI_PLC_Error_Status AND NOT #pPlcErr THEN
+         "EVENT_PUSH"(Cat := 1, Code := 6, Val := 0, Val2 := 0, Info := '');
+      END_IF;
+
+      // lift A (Cat 2)
+      IF "mk10_elevator_DB_A".Mode_Actual <> #pElvAMode THEN
+         "EVENT_PUSH"(Cat := 2, Code := 10, Val := INT_TO_DINT("mk10_elevator_DB_A".Mode_Actual), Val2 := 0, Info := '');
+      END_IF;
+      IF NOT "DB_HMI_SYS".HMI_SYS_Elevator01_Fault_Status_Ok AND #pElvAOk THEN
+         #tElvAFlt := #nowTick;
+         "EVENT_PUSH"(Cat := 2, Code := 11, Val := 0, Val2 := 0, Info := '');
+      END_IF;
+      IF "DB_HMI_SYS".HMI_SYS_Elevator01_Fault_Status_Ok AND NOT #pElvAOk THEN
+         "EVENT_PUSH"(Cat := 2, Code := 12, Val := 0, Val2 := #nowTick - #tElvAFlt, Info := '');
+      END_IF;
+      IF "mk10_elevator_DB_A".EncoderFault AND NOT #pElvAEnc THEN
+         "EVENT_PUSH"(Cat := 2, Code := 13, Val := 0, Val2 := 0, Info := '');
+      END_IF;
+      IF "mk10_elevator_DB_A".MotorSyncOutFault AND NOT #pElvASync THEN
+         "EVENT_PUSH"(Cat := 2, Code := 14, Val := 0, Val2 := 0, Info := '');
+      END_IF;
+      IF "mk10_elevator_DB_A".StopProxFault AND NOT #pElvAProx THEN
+         "EVENT_PUSH"(Cat := 2, Code := 15, Val := 0, Val2 := 0, Info := '');
+      END_IF;
+      IF "ELV_A_Faults".EncoerFault <> #pFltEnc AND "ELV_A_Faults".EncoerFault <> 0 THEN
+         "EVENT_PUSH"(Cat := 2, Code := 16, Val := INT_TO_DINT("ELV_A_Faults".EncoerFault), Val2 := 0, Info := '');
+      END_IF;
+      IF "ELV_A_Faults".LockingPins <> #pFltPins AND "ELV_A_Faults".LockingPins <> 0 THEN
+         "EVENT_PUSH"(Cat := 2, Code := 17, Val := INT_TO_DINT("ELV_A_Faults".LockingPins), Val2 := 0, Info := '');
+      END_IF;
+      IF "ELV_A_Faults".ChainFault <> #pFltChain AND "ELV_A_Faults".ChainFault <> 0 THEN
+         "EVENT_PUSH"(Cat := 2, Code := 18, Val := INT_TO_DINT("ELV_A_Faults".ChainFault), Val2 := 0, Info := '');
+      END_IF;
+      IF "ELV_A_Faults".StopProxFault <> #pFltProx AND "ELV_A_Faults".StopProxFault <> 0 THEN
+         "EVENT_PUSH"(Cat := 2, Code := 19, Val := INT_TO_DINT("ELV_A_Faults".StopProxFault), Val2 := 0, Info := '');
+      END_IF;
+
+      // lift A pallets (Cat 2) — barcode from the PTF02 validation message
+      IF "DB_HMI_SYS".HMI_INFEEDOUTFEED_EL_A_PalletOnConveyor AND NOT #pPalA THEN
+         "EVENT_PUSH"(Cat := 2, Code := 20, Val := INT_TO_DINT("DB_HMI_SYS".HMI_SYS_Elevator01CurrentLevel), Val2 := 0, Info := "PTF02_DB_ELV_A".CheckedBarcodeStr);
+      END_IF;
+      IF NOT "DB_HMI_SYS".HMI_INFEEDOUTFEED_EL_A_PalletOnConveyor AND #pPalA THEN
+         "EVENT_PUSH"(Cat := 2, Code := 21, Val := INT_TO_DINT("DB_HMI_SYS".HMI_SYS_Elevator01CurrentLevel), Val2 := 0, Info := '');
+      END_IF;
+      IF "Lift_A_mk10_conveyor_DB".S1 AND NOT #pLiftA_S1 THEN
+         "EVENT_PUSH"(Cat := 2, Code := 22, Val := INT_TO_DINT("DB_HMI_SYS".HMI_SYS_Elevator01CurrentLevel), Val2 := 0, Info := "PTF02_DB_ELV_A".CheckedBarcodeStr);
+      END_IF;
+      IF NOT "Lift_A_mk10_conveyor_DB".S2 AND #pLiftA_S2 THEN
+         "EVENT_PUSH"(Cat := 2, Code := 23, Val := INT_TO_DINT("DB_HMI_SYS".HMI_SYS_Elevator01CurrentLevel), Val2 := 0, Info := '');
+      END_IF;
+      IF "PTF02_DB_ELV_A".BarcodeChecked AND NOT #pBarcodeOk THEN
+         "EVENT_PUSH"(Cat := 2, Code := 24, Val := 0, Val2 := 0, Info := "PTF02_DB_ELV_A".CheckedBarcodeStr);
+      END_IF;
+      IF "DB_HMI_SYS".HMI_DIMENSION_A_BARCODE_FAIL AND NOT #pBarcodeFail THEN
+         "EVENT_PUSH"(Cat := 2, Code := 25, Val := 0, Val2 := 0, Info := '');
+      END_IF;
+      IF "INFEED_A_PALLET_ON_INFEED" AND NOT #pInfeedF38 THEN
+         "EVENT_PUSH"(Cat := 2, Code := 26, Val := 0, Val2 := 0, Info := '');
+      END_IF;
+
+      // lift A task lifecycle (Cat 2) — PTF03 in, PTF04 status out, PTF05 reason
+      IF "PTF03_DB_ELV_A".Rcv AND NOT #pT03RcvA THEN
+         "EVENT_PUSH"(Cat := 2, Code := 27, Val := INT_TO_DINT("PTF03_DB_ELV_A".TaskNo), Val2 := LINT_TO_DINT("PTF03_DB_ELV_A".TaskStepID),
+                      Info := CONCAT(IN1 := "PTF03_DB_ELV_A".StartPosition, IN2 := '>', IN3 := "PTF03_DB_ELV_A".TargetPosition));
+      END_IF;
+      IF "PTF04_DB_ELV_A".Snd AND NOT #pT04SndA THEN
+         "EVENT_PUSH"(Cat := 2, Code := 28, Val := LINT_TO_DINT("PTF04_DB_ELV_A".TaskID), Val2 := 0, Info := "PTF04_DB_ELV_A".Status);
+      END_IF;
+      IF "PTF05_DB_ELV_A".Rcv AND NOT #pT05RcvA THEN
+         "EVENT_PUSH"(Cat := 2, Code := 29, Val := INT_TO_DINT("PTF05_DB_ELV_A".Reason), Val2 := LINT_TO_DINT("PTF05_DB_ELV_A".TaskStepID), Info := "PTF05_DB_ELV_A".ReasonFlt);
+      END_IF;
+
+      // lift A sequence steppers (Cat 2) — dwell of the step just left in Val2
+      IF "mk10_elevator_DB_A".Stepper <> #pStepA THEN
+         "EVENT_PUSH"(Cat := 2, Code := 33, Val := INT_TO_DINT("mk10_elevator_DB_A".Stepper), Val2 := #nowTick - #tStepA, Info := '');
+         #tStepA := #nowTick;
+      END_IF;
+      IF "mk10_elevator_DB_A".ConveyorStepper <> #pConvStepA THEN
+         "EVENT_PUSH"(Cat := 2, Code := 34, Val := INT_TO_DINT("mk10_elevator_DB_A".ConveyorStepper), Val2 := #nowTick - #tConvStepA, Info := '');
+         #tConvStepA := #nowTick;
+      END_IF;
+
+      // lift B (Cat 3)
+      IF "mk10_elevator_DB_B".Mode_Actual <> #pElvBMode THEN
+         "EVENT_PUSH"(Cat := 3, Code := 10, Val := INT_TO_DINT("mk10_elevator_DB_B".Mode_Actual), Val2 := 0, Info := '');
+      END_IF;
+      IF NOT "DB_HMI_SYS".HMI_SYS_Elevator02_Fault_Status_Ok AND #pElvBOk THEN
+         #tElvBFlt := #nowTick;
+         "EVENT_PUSH"(Cat := 3, Code := 11, Val := 0, Val2 := 0, Info := '');
+      END_IF;
+      IF "DB_HMI_SYS".HMI_SYS_Elevator02_Fault_Status_Ok AND NOT #pElvBOk THEN
+         "EVENT_PUSH"(Cat := 3, Code := 12, Val := 0, Val2 := #nowTick - #tElvBFlt, Info := '');
+      END_IF;
+      IF "mk10_elevator_DB_B".EncoderFault AND NOT #pElvBEnc THEN
+         "EVENT_PUSH"(Cat := 3, Code := 13, Val := 0, Val2 := 0, Info := '');
+      END_IF;
+      IF "mk10_elevator_DB_B".MotorSyncOutFault AND NOT #pElvBSync THEN
+         "EVENT_PUSH"(Cat := 3, Code := 14, Val := 0, Val2 := 0, Info := '');
+      END_IF;
+      IF "mk10_elevator_DB_B".StopProxFault AND NOT #pElvBProx THEN
+         "EVENT_PUSH"(Cat := 3, Code := 15, Val := 0, Val2 := 0, Info := '');
+      END_IF;
+      IF "DB_HMI_SYS".HMI_INFEEDOUTFEED_EL_B_PalletOnConveyor AND NOT #pPalB THEN
+         "EVENT_PUSH"(Cat := 3, Code := 20, Val := INT_TO_DINT("DB_HMI_SYS".HMI_SYS_Elevator02CurrentLevel), Val2 := 0, Info := '');
+      END_IF;
+      IF NOT "DB_HMI_SYS".HMI_INFEEDOUTFEED_EL_B_PalletOnConveyor AND #pPalB THEN
+         "EVENT_PUSH"(Cat := 3, Code := 21, Val := INT_TO_DINT("DB_HMI_SYS".HMI_SYS_Elevator02CurrentLevel), Val2 := 0, Info := '');
+      END_IF;
+
+      // lift B task lifecycle (Cat 3) — note B's TaskID/TaskStepID types differ
+      IF "PTF03_DB_ELV_B".Rcv AND NOT #pT03RcvB THEN
+         "EVENT_PUSH"(Cat := 3, Code := 27, Val := INT_TO_DINT("PTF03_DB_ELV_B".TaskNo), Val2 := "PTF03_DB_ELV_B".TaskStepID,
+                      Info := CONCAT(IN1 := "PTF03_DB_ELV_B".StartPosition, IN2 := '>', IN3 := "PTF03_DB_ELV_B".TargetPosition));
+      END_IF;
+      IF "PTF04_DB_ELV_B".Snd AND NOT #pT04SndB THEN
+         "EVENT_PUSH"(Cat := 3, Code := 28, Val := LINT_TO_DINT("PTF04_DB_ELV_B".TaskID), Val2 := 0, Info := "PTF04_DB_ELV_B".Status);
+      END_IF;
+      IF "PTF05_DB_ELV_B".Rcv AND NOT #pT05RcvB THEN
+         "EVENT_PUSH"(Cat := 3, Code := 29, Val := INT_TO_DINT("PTF05_DB_ELV_B".Reason), Val2 := LINT_TO_DINT("PTF05_DB_ELV_B".TaskStepID), Info := "PTF05_DB_ELV_B".ReasonFlt);
+      END_IF;
+
+      // lift B sequence steppers (Cat 3)
+      IF "mk10_elevator_DB_B".Stepper <> #pStepB THEN
+         "EVENT_PUSH"(Cat := 3, Code := 33, Val := INT_TO_DINT("mk10_elevator_DB_B".Stepper), Val2 := #nowTick - #tStepB, Info := '');
+         #tStepB := #nowTick;
+      END_IF;
+      IF "mk10_elevator_DB_B".ConveyorStepper <> #pConvStepB THEN
+         "EVENT_PUSH"(Cat := 3, Code := 34, Val := INT_TO_DINT("mk10_elevator_DB_B".ConveyorStepper), Val2 := #nowTick - #tConvStepB, Info := '');
+         #tConvStepB := #nowTick;
+      END_IF;
+
+      // safety / comms (Cat 6 / 7) — durations on clear
+      IF NOT "DB_HMI_SYS".HMI_SYS_Safety_Healthy AND #pSafety THEN
+         #tSafety := #nowTick;
+         "EVENT_PUSH"(Cat := 6, Code := 50, Val := 0, Val2 := 0, Info := '');
+      END_IF;
+      IF "DB_HMI_SYS".HMI_SYS_Safety_Healthy AND NOT #pSafety THEN
+         "EVENT_PUSH"(Cat := 6, Code := 51, Val := 0, Val2 := #nowTick - #tSafety, Info := '');
+      END_IF;
+      IF "DB_HMI_SYS".HMI_MajorFault AND NOT #pMajor THEN
+         "EVENT_PUSH"(Cat := 6, Code := 52, Val := 0, Val2 := 0, Info := '');
+      END_IF;
+      IF "DB_HMI_SYS".HMI_COMM_Error AND NOT #pComm THEN
+         #tComm := #nowTick;
+         "EVENT_PUSH"(Cat := 7, Code := 60, Val := 0, Val2 := 0, Info := '');
+      END_IF;
+      IF NOT "DB_HMI_SYS".HMI_COMM_Error AND #pComm THEN
+         "EVENT_PUSH"(Cat := 7, Code := 61, Val := 0, Val2 := #nowTick - #tComm, Info := '');
+      END_IF;
+   END_IF;
+
+   // ---- array edge detection (snapshot updates inline) ---------------------
+   // conveyor occupancy trail (Cat 4) — Feed_Control position array
+   FOR #t := 0 TO 50 DO
+      IF "Feed_Control".PalletOnConveyor[#t] <> #pPallet[#t] THEN
+         IF NOT #FirstScan AND #Enable_ConveyorTrail THEN
+            IF "Feed_Control".PalletOnConveyor[#t] THEN
+               "EVENT_PUSH"(Cat := 4, Code := 30, Val := INT_TO_DINT(#t), Val2 := 0, Info := '');
+            ELSE
+               "EVENT_PUSH"(Cat := 4, Code := 31, Val := INT_TO_DINT(#t), Val2 := 0, Info := '');
+            END_IF;
+         END_IF;
+         #pPallet[#t] := "Feed_Control".PalletOnConveyor[#t];
+      END_IF;
+   END_FOR;
+
+   // drive status transitions (Cat 5) — HMI device status/name arrays
+   FOR #t := 1 TO 50 DO
+      IF "DB_HMI_SYS".HMI_DEV_VSD_MOT_STATUS[#t] <> #pDevStat[#t] THEN
+         IF NOT #FirstScan AND "DB_HMI_SYS".HMI_DEV_VSD_MOT_TAG[#t] <> '' THEN
+            "EVENT_PUSH"(Cat := 5, Code := 40, Val := INT_TO_DINT("DB_HMI_SYS".HMI_DEV_VSD_MOT_STATUS[#t]), Val2 := 0, Info := "DB_HMI_SYS".HMI_DEV_VSD_MOT_TAG[#t]);
+         END_IF;
+         #pDevStat[#t] := "DB_HMI_SYS".HMI_DEV_VSD_MOT_STATUS[#t];
+      END_IF;
+   END_FOR;
+
+   // ---- snapshots ----------------------------------------------------------
+   #pManual := "DB_HMI_SYS".HMI_SYS_Manual;
+   #pSemi := "DB_HMI_SYS".HMI_SYS_SemiAutomatic;
+   #pAuto := "DB_HMI_SYS".HMI_SYS_Automatic;
+   #pRunning := "DB_HMI_SYS".HMI_SYS_Running;
+   #pStopped := "DB_HMI_SYS".HMI_SYS_Stopped;
+   #pPlcErr := "DB_HMI_SYS".HMI_PLC_Error_Status;
+   #pSafety := "DB_HMI_SYS".HMI_SYS_Safety_Healthy;
+   #pMajor := "DB_HMI_SYS".HMI_MajorFault;
+   #pComm := "DB_HMI_SYS".HMI_COMM_Error;
+   #pInfeedF38 := "INFEED_A_PALLET_ON_INFEED";
+   #pElvAOk := "DB_HMI_SYS".HMI_SYS_Elevator01_Fault_Status_Ok;
+   #pElvBOk := "DB_HMI_SYS".HMI_SYS_Elevator02_Fault_Status_Ok;
+   #pElvAEnc := "mk10_elevator_DB_A".EncoderFault;
+   #pElvASync := "mk10_elevator_DB_A".MotorSyncOutFault;
+   #pElvAProx := "mk10_elevator_DB_A".StopProxFault;
+   #pElvBEnc := "mk10_elevator_DB_B".EncoderFault;
+   #pElvBSync := "mk10_elevator_DB_B".MotorSyncOutFault;
+   #pElvBProx := "mk10_elevator_DB_B".StopProxFault;
+   #pElvAMode := "mk10_elevator_DB_A".Mode_Actual;
+   #pElvBMode := "mk10_elevator_DB_B".Mode_Actual;
+   #pFltEnc := "ELV_A_Faults".EncoerFault;
+   #pFltPins := "ELV_A_Faults".LockingPins;
+   #pFltChain := "ELV_A_Faults".ChainFault;
+   #pFltProx := "ELV_A_Faults".StopProxFault;
+   #pPalA := "DB_HMI_SYS".HMI_INFEEDOUTFEED_EL_A_PalletOnConveyor;
+   #pPalB := "DB_HMI_SYS".HMI_INFEEDOUTFEED_EL_B_PalletOnConveyor;
+   #pLiftA_S1 := "Lift_A_mk10_conveyor_DB".S1;
+   #pLiftA_S2 := "Lift_A_mk10_conveyor_DB".S2;
+   #pBarcodeOk := "PTF02_DB_ELV_A".BarcodeChecked;
+   #pBarcodeFail := "DB_HMI_SYS".HMI_DIMENSION_A_BARCODE_FAIL;
+   #pT03RcvA := "PTF03_DB_ELV_A".Rcv;
+   #pT04SndA := "PTF04_DB_ELV_A".Snd;
+   #pT05RcvA := "PTF05_DB_ELV_A".Rcv;
+   #pT03RcvB := "PTF03_DB_ELV_B".Rcv;
+   #pT04SndB := "PTF04_DB_ELV_B".Snd;
+   #pT05RcvB := "PTF05_DB_ELV_B".Rcv;
+   #pStepA := "mk10_elevator_DB_A".Stepper;
+   #pConvStepA := "mk10_elevator_DB_A".ConveyorStepper;
+   #pStepB := "mk10_elevator_DB_B".Stepper;
+   #pConvStepB := "mk10_elevator_DB_B".ConveyorStepper;
+   #FirstScan := FALSE;
+END_FUNCTION_BLOCK
+
+DATA_BLOCK "EVENT_LOGGER_DB"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.2
+NON_RETAIN
+"EVENT_LOGGER"
+BEGIN
+END_DATA_BLOCK

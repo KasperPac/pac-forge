@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>{{fds.doc.code}} Rev {{fds.doc.revision}} — {{fds.doc.title}}</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      {{{_tokensCss}}}
+      {{{_fdsCss}}}
+    </style>
+  </head>
+  <body class="fds">
+    {{> fdsCover}}
+
+    <div class="fds-body">
+      <!-- Table of contents -->
+      <div style="break-after: page">
+        <div class="fds-kicker">Contents</div>
+        <h2 class="fds-h2" style="border-bottom: none">Table of contents</h2>
+        <table class="fds-toc">
+          <tbody>
+            {{#each fds.toc}}
+              <tr><td class="num">{{this.num}}</td><td class="title">{{this.title}}</td></tr>
+            {{/each}}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 1 Document control -->
+      <div>
+        <div class="fds-kicker">Section 1</div>
+        <h2 class="fds-h2">1&nbsp;&nbsp;Document control</h2>
+        <h3 class="fds-h3">1.1&nbsp;&nbsp;Revision history</h3>
+        <table class="fds-table">
+          <thead>
+            <tr><th style="width: 60px">Rev</th><th style="width: 110px">Date</th><th style="width: 160px">Author</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            {{#each fds.revisions}}
+              <tr class="fds-row"><td class="mono">{{this.rev}}</td><td>{{this.date}}</td><td>{{this.author}}</td><td>{{this.note}}</td></tr>
+            {{/each}}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 2 Introduction & scope -->
+      <div class="fds-section">
+        <div class="fds-kicker">Section 2</div>
+        <h2 class="fds-h2">2&nbsp;&nbsp;Introduction &amp; scope</h2>
+        {{#if fds.overview.description}}
+          <h3 class="fds-h3">2.1&nbsp;&nbsp;System overview</h3>
+          {{markdown fds.overview.description}}
+        {{/if}}
+        {{#if fds.overview.design_principles.length}}
+          <h3 class="fds-h3">2.2&nbsp;&nbsp;Design principles</h3>
+          <ul>
+            {{#each fds.overview.design_principles}}<li>{{this}}</li>{{/each}}
+          </ul>
+        {{/if}}
+        {{#if fds.overview.exclusions.length}}
+          <h3 class="fds-h3">2.3&nbsp;&nbsp;Exclusions</h3>
+          <ul>
+            {{#each fds.overview.exclusions}}<li>{{this}}</li>{{/each}}
+          </ul>
+        {{/if}}
+      </div>
+
+      <!-- 3 System architecture -->
+      <div class="fds-section">
+        <div class="fds-kicker">Section 3</div>
+        <h2 class="fds-h2">3&nbsp;&nbsp;System architecture</h2>
+        {{#if fds.architecture.devices.length}}
+          <h3 class="fds-h3">3.1&nbsp;&nbsp;Network devices</h3>
+          <table class="fds-table">
+            <thead>
+              <tr><th style="width: 26%">Device</th><th style="width: 20%">Catalog / type</th><th style="width: 16%">Address</th><th>Role</th></tr>
+            </thead>
+            <tbody>
+              {{#each fds.architecture.devices}}
+                <tr class="fds-row"><td>{{this.name}}</td><td class="mono">{{this.catalog}}</td><td class="mono">{{this.ip}}</td><td>{{this.role}}</td></tr>
+              {{/each}}
+            </tbody>
+          </table>
+        {{else}}
+          <div class="fds-note">
+            <div class="fds-kicker">System architecture</div>
+            <div class="fds-note-body">Network architecture drawing and hardware summary to be inserted.</div>
+          </div>
+        {{/if}}
+      </div>
+
+      <!-- 4 Control philosophy -->
+      <div class="fds-section">
+        <div class="fds-kicker">Section 4</div>
+        <h2 class="fds-h2">4&nbsp;&nbsp;Control philosophy &amp; modes of operation</h2>
+        {{#if fds.philosophy.modes.length}}
+          <h3 class="fds-h3">4.1&nbsp;&nbsp;Operating modes</h3>
+          <table class="fds-table">
+            <thead>
+              <tr><th style="width: 22%">Mode</th><th style="width: 18%">Kind</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              {{#each fds.philosophy.modes}}
+                <tr class="fds-row">
+                  <td>{{this.name}}{{#if this.default}} <span class="fds-chip fds-chip--ok">default</span>{{/if}}</td>
+                  <td class="mono">{{this.kind}}</td>
+                  <td>{{this.desc}}</td>
+                </tr>
+              {{/each}}
+            </tbody>
+          </table>
+        {{/if}}
+        {{#if fds.philosophy.fault_philosophy}}
+          <h3 class="fds-h3">4.2&nbsp;&nbsp;Fault philosophy</h3>
+          {{markdown fds.philosophy.fault_philosophy}}
+        {{/if}}
+        {{#if fds.philosophy.safety}}
+          <h3 class="fds-h3">4.3&nbsp;&nbsp;Safety</h3>
+          {{markdown fds.philosophy.safety}}
+        {{/if}}
+      </div>
+
+      <!-- 5 I/O schedule -->
+      <div class="fds-section">
+        <div class="fds-kicker">Section 5</div>
+        <h2 class="fds-h2">5&nbsp;&nbsp;I/O schedule</h2>
+        {{#if fds.io.length}}
+          <table class="fds-table">
+            <thead>
+              <tr><th style="width: 15%">Tag</th><th style="width: 13%">Type</th><th style="width: 8%">Signal</th><th style="width: 22%">Address</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              {{#each fds.io}}
+                <tr class="fds-row"><td class="mono">{{this.tag}}</td><td>{{this.device_type}}</td><td class="mono">{{this.signal_type}}</td><td class="mono">{{this.io_address}}</td><td>{{this.description}}</td></tr>
+              {{/each}}
+            </tbody>
+          </table>
+        {{else}}
+          <div class="fds-note">
+            <div class="fds-kicker">I/O schedule</div>
+            <div class="fds-note-body">Instrument register not yet attached to this specification.</div>
+          </div>
+        {{/if}}
+      </div>
+
+      <!-- 6 Functional descriptions -->
+      <div class="fds-section">
+        <div class="fds-kicker">Section 6</div>
+        <h2 class="fds-h2">6&nbsp;&nbsp;Functional descriptions</h2>
+        {{#each fds.functional}}
+          {{> fdsFunctional this}}
+        {{/each}}
+      </div>
+
+      <!-- 7 Alarms & interlocks -->
+      <div class="fds-section">
+        <div class="fds-kicker">Section 7</div>
+        <h2 class="fds-h2">7&nbsp;&nbsp;Alarms &amp; interlocks</h2>
+        {{#if fds.alarms.length}}
+          <table class="fds-table">
+            <thead>
+              <tr><th style="width: 24%">Trigger</th><th style="width: 12%">Severity</th><th style="width: 32%">Description</th><th>Action / response</th></tr>
+            </thead>
+            <tbody>
+              {{#each fds.alarms}}
+                <tr class="fds-row">
+                  <td class="mono">{{this.tag}}</td>
+                  <td><span class="fds-sev fds-sev--{{this.sev}}">{{this.sev_label}}</span></td>
+                  <td>{{this.description}}</td>
+                  <td>{{this.action}}</td>
+                </tr>
+              {{/each}}
+            </tbody>
+          </table>
+        {{else}}
+          <div class="fds-note">
+            <div class="fds-kicker">Alarm specification</div>
+            <div class="fds-note-body">Alarm and interlock schedule to be authored.</div>
+          </div>
+        {{/if}}
+      </div>
+
+      <!-- 8 Approval & sign-off -->
+      <div class="fds-section">
+        <div class="fds-kicker">Section 8</div>
+        <h2 class="fds-h2">8&nbsp;&nbsp;Approval &amp; sign-off</h2>
+        <table class="fds-table">
+          <thead>
+            <tr><th style="width: 24%">Role</th><th style="width: 28%">Name</th><th style="width: 24%">Signature</th><th>Date</th></tr>
+          </thead>
+          <tbody>
+            {{#each fds.signoff}}
+              <tr class="fds-row"><td>{{this.role}}</td><td>{{this.name}}</td><td class="muted">&nbsp;</td><td class="muted">&nbsp;</td></tr>
+            {{/each}}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="fds-endline">
+        Pac Technologies Pty Ltd · Process Automation Control · Document {{fds.doc.code}} Rev {{fds.doc.revision}} · {{fds.doc.date_display}}
+      </div>
+    </div>
+  </body>
+</html>

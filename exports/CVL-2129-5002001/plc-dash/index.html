@@ -1,0 +1,253 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>CVL-2129-5002001 — Live Data</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  /* ISA-101 high-performance: grey canvas, muted equipment, color = abnormal only. */
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; margin: 0; }
+  body { font: 13px/1.45 "Segoe UI", system-ui, sans-serif; background: #c9cdd1; color: #232b33; }
+  .hdr { background: #3b444d; color: #e8eaec; padding: 8px 16px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  .hdr h1 { font-size: 15px; font-weight: 600; letter-spacing: .02em; }
+  .pill { padding: 2px 10px; border-radius: 3px; font-weight: 600; font-size: 12px; }
+  .pill.ok { background: #4a545e; color: #cfd6dc; } .pill.bad { background: #b71c1c; color: #fff; }
+  .err { color: #ffb4a8; font-size: 12px; margin-left: auto; }
+  .nav { display: flex; gap: 2px; background: #59636d; padding: 4px 12px 0; flex-wrap: wrap; }
+  .nav button { font: inherit; border: 0; border-radius: 4px 4px 0 0; background: #6b757f; color: #d7dce0; padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .nav button.active { background: #c9cdd1; color: #232b33; }
+  .nav button .badge { background: #b71c1c; color: #fff; border-radius: 99px; padding: 0 6px; font-size: 11px; margin-left: 6px; }
+  .sev { font-weight: 700; border-radius: 3px; padding: 1px 8px; font-size: 11px; }
+  .sev.info { background: #dde0e3; color: #3b444d; }
+  .sev.warn { background: #e6a817; color: #232b33; }
+  .sev.fault { background: #b71c1c; color: #fff; }
+  .evctx { color: #59636d; font-size: 11px; font-family: Consolas, monospace; }
+  .page { padding: 14px 16px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #59636d; margin: 16px 0 8px; }
+  h2:first-child { margin-top: 0; }
+  .tiles { display: flex; gap: 8px; flex-wrap: wrap; }
+  .tile { background: #e8eaec; border: 1px solid #a8b0b8; border-radius: 4px; padding: 8px 14px; min-width: 120px; text-align: center; }
+  .tile .tl { font-size: 11px; color: #59636d; text-transform: uppercase; letter-spacing: .05em; }
+  .tile .tv { font-weight: 700; font-size: 14px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .tile.red { background: #b71c1c; border-color: #7f1d1d; } .tile.red .tl, .tile.red .tv { color: #fff; }
+  .iot { width: 100%; border-collapse: collapse; background: #e8eaec; border: 1px solid #a8b0b8; }
+  .iot th { text-align: left; font-size: 11px; text-transform: uppercase; color: #59636d; padding: 6px 8px; border-bottom: 1px solid #a8b0b8; position: sticky; top: 0; background: #e8eaec; }
+  .iot td { padding: 4px 8px; border-bottom: 1px solid #d4d8db; font-variant-numeric: tabular-nums; }
+  .iot .mono { font-family: Consolas, monospace; font-size: 12px; }
+  .iot td.num { text-align: right; font-family: Consolas, monospace; }
+  .lamp { width: 12px; height: 12px; border-radius: 50%; background: #f2f3f4; border: 1.5px solid #8a939c; }
+  .lamp.on { background: #2e9e46; border-color: #1e7a33; }
+  .lamp.nul { background: repeating-linear-gradient(45deg,#d4d8db,#d4d8db 2px,#f2f3f4 2px,#f2f3f4 4px); }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(480px, 1fr)); gap: 12px; align-items: start; }
+  .card { background: #e8eaec; border: 1px solid #a8b0b8; border-radius: 4px; padding: 12px; }
+  .card .ct { font-weight: 600; color: #3b444d; margin-bottom: 8px; font-size: 13px; }
+  button { font: inherit; border: 1px solid #8a939c; background: #f2f3f4; color: #232b33; border-radius: 3px; padding: 5px 12px; cursor: pointer; }
+  button:hover { background: #fff; }
+  input[type=text] { font: 13px Consolas, monospace; background: #fff; color: #232b33; border: 1px solid #8a939c; border-radius: 3px; padding: 5px 8px; width: 360px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .note { font-size: 11px; color: #59636d; }
+  .rerr { color: #b71c1c; font-size: 11px; }
+  .search { margin-bottom: 10px; }
+</style>
+</head>
+<body>
+  <div class="hdr">
+    <h1 id="title">CVL-2129-5002001 — LIVE DATA</h1>
+    <span id="conn" class="pill bad">connecting…</span>
+    <span class="pill ok">READ-ONLY</span>
+    <span id="poll" class="pill ok">—</span>
+    <span id="err" class="err"></span>
+  </div>
+  <div class="nav" id="nav">
+    <button data-p="overview" class="active">Overview</button>
+    <button data-p="di">Digital In</button>
+    <button data-p="do">Digital Out</button>
+    <button data-p="an">Analog</button>
+    <button data-p="watch">Watch</button>
+    <button data-p="events">Events<span class="badge" id="nav_ev_badge" style="display:none"></span></button>
+  </div>
+
+  <div class="page" id="page_overview">
+    <div class="tiles" id="ov_tiles"></div>
+    <h2>Watch list (live)</h2>
+    <table class="iot"><thead><tr><th>Tag</th><th style="text-align:right">Value</th></tr></thead><tbody id="ov_watch"></tbody></table>
+  </div>
+
+  <div class="page" id="page_di" style="display:none">
+    <div class="search row"><input type="text" id="q_di" placeholder="filter by tag / address / comment…"></div>
+    <div class="grid2" id="di_cards"></div>
+  </div>
+
+  <div class="page" id="page_do" style="display:none">
+    <div class="search row"><input type="text" id="q_do" placeholder="filter by tag / address / comment…"></div>
+    <div class="grid2" id="do_cards"></div>
+  </div>
+
+  <div class="page" id="page_an" style="display:none">
+    <div class="search row"><input type="text" id="q_an" placeholder="filter by tag / address / comment…"></div>
+    <div class="grid2" id="an_cards"></div>
+  </div>
+
+  <div class="page" id="page_events" style="display:none">
+    <div class="row" style="margin-bottom:10px">
+      <input type="text" id="q_ev" placeholder="filter events…" style="width:260px">
+      <label><input type="checkbox" class="evcat" value="mode" checked> mode</label>
+      <label><input type="checkbox" class="evcat" value="pallet" checked> pallet</label>
+      <label><input type="checkbox" class="evcat" value="fault" checked> fault</label>
+      <label><input type="checkbox" class="evcat" value="device" checked> device</label>
+      <button id="ev_dl">DOWNLOAD TODAY (.jsonl)</button>
+      <span class="note" id="ev_counts"></span>
+    </div>
+    <table class="iot"><thead><tr><th>Time</th><th></th><th>Category</th><th>Event</th><th>Detail</th></tr></thead><tbody id="ev_rows"></tbody></table>
+    <p class="note" style="margin-top:8px">Newest first, last 150 shown live — full history in <span class="evctx">plc-dash/logs/events-YYYY-MM-DD.jsonl</span>.
+      Poll-based (~1 s resolution): pulses shorter than a poll cycle can be missed; latching faults and pallet moves are safely above that.</p>
+  </div>
+
+  <div class="page" id="page_watch" style="display:none">
+    <div class="row" style="margin-bottom:10px">
+      <input type="text" id="watch_id" placeholder='DbName.member.sub  (e.g. TCP_1.Status)'>
+      <button id="watch_add">ADD</button>
+      <span class="note">reads any DB member or tag by name — read-only, persisted server-side</span>
+    </div>
+    <table class="iot"><thead><tr><th>Tag</th><th style="text-align:right">Value</th><th></th><th></th></tr></thead><tbody id="watch_rows"></tbody></table>
+  </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let S = null;
+let built = false;
+
+// nav
+document.querySelectorAll("#nav button").forEach((b) => b.onclick = () => {
+  document.querySelectorAll("#nav button").forEach((x) => x.classList.toggle("active", x === b));
+  document.querySelectorAll(".page").forEach((p) => p.style.display = "none");
+  $("page_" + b.dataset.p).style.display = "";
+});
+
+const fmt = (v) => v == null ? "—" : typeof v === "boolean" ? (v ? "TRUE" : "FALSE")
+  : typeof v === "number" ? (Number.isInteger(v) ? v : v.toFixed(3)) : String(v);
+
+// build static structure once (cards per tag table), then only update values
+function buildIoPages() {
+  const groups = { di: {}, do: {}, an: {} };
+  for (const t of S.io) {
+    const g = t.kind === "di" ? "di" : t.kind === "do" ? "do" : "an";
+    (groups[g][t.table] ??= []).push(t);
+  }
+  for (const [g, byTable] of Object.entries(groups)) {
+    $(g === "an" ? "an_cards" : g + "_cards").innerHTML = Object.entries(byTable).map(([table, tags]) => `
+      <div class="card"><div class="ct">${table}</div>
+      <table class="iot"><thead><tr>${g === "an"
+        ? "<th>Tag</th><th>Addr</th><th>Comment</th><th style='text-align:right'>Value</th>"
+        : "<th></th><th>Tag</th><th>Addr</th><th>Comment</th>"}</tr></thead><tbody>${
+      tags.map((t) => g === "an"
+        ? `<tr data-tag="${t.name}" data-search="${(t.name + " " + t.addr + " " + (t.comment ?? "")).toLowerCase()}">
+             <td class="mono">${t.name}</td><td class="mono">${t.addr}</td><td>${t.comment ?? ""}</td><td class="num" id="v_${t.name}">—</td></tr>`
+        : `<tr data-tag="${t.name}" data-search="${(t.name + " " + t.addr + " " + (t.comment ?? "")).toLowerCase()}">
+             <td><div class="lamp nul" id="l_${t.name}"></div></td><td class="mono">${t.name}</td><td class="mono">${t.addr}</td><td>${t.comment ?? ""}</td></tr>`
+      ).join("")}</tbody></table></div>`).join("");
+  }
+  for (const g of ["di", "do", "an"]) {
+    $("q_" + g).oninput = (e) => {
+      const q = e.target.value.toLowerCase();
+      document.querySelectorAll(`#${g === "an" ? "an_cards" : g + "_cards"} tr[data-search]`)
+        .forEach((r) => r.style.display = !q || r.dataset.search.includes(q) ? "" : "none");
+    };
+  }
+}
+
+function render() {
+  $("conn").className = "pill " + (S.connected ? "ok" : "bad");
+  $("conn").textContent = S.connected ? "PLC CONNECTED" : "PLC OFFLINE";
+  $("poll").textContent = S.lastPollMs + " ms";
+  $("err").textContent = S.error ?? "";
+  if (!built && S.io) { buildIoPages(); built = true; }
+
+  const V = S.values;
+  // lamps + analog values
+  for (const t of S.io) {
+    if (t.kind === "di" || t.kind === "do") {
+      const l = $("l_" + t.name);
+      if (l) l.className = "lamp" + (V[t.name] === true ? " on" : V[t.name] == null ? " nul" : "");
+    } else {
+      const c = $("v_" + t.name);
+      if (c) c.textContent = fmt(V[t.name]);
+    }
+  }
+
+  // overview tiles
+  const counts = { di: 0, do: 0, an: 0 };
+  let diOn = 0, doOn = 0;
+  for (const t of S.io) {
+    if (t.kind === "di") { counts.di++; if (V[t.name] === true) diOn++; }
+    else if (t.kind === "do") { counts.do++; if (V[t.name] === true) doOn++; }
+    else counts.an++;
+  }
+  $("ov_tiles").innerHTML = `
+    <div class="tile ${S.connected ? "" : "red"}"><div class="tl">PLC</div><div class="tv">${S.connected ? "ONLINE" : "OFFLINE"}</div></div>
+    <div class="tile"><div class="tl">CPU</div><div class="tv">${S.project?.cpu ?? "—"}</div></div>
+    <div class="tile"><div class="tl">Digital in</div><div class="tv">${diOn} / ${counts.di} ON</div></div>
+    <div class="tile"><div class="tl">Digital out</div><div class="tv">${doOn} / ${counts.do} ON</div></div>
+    <div class="tile"><div class="tl">Analog</div><div class="tv">${counts.an}</div></div>
+    <div class="tile"><div class="tl">Watch</div><div class="tv">${S.watch.length}</div></div>
+    <div class="tile ${(S.events?.counts?.fault ?? 0) > 0 ? "red" : ""}"><div class="tl">Events (session)</div><div class="tv">${S.events?.counts?.total ?? 0} · ${S.events?.counts?.fault ?? 0} fault</div></div>`;
+
+  renderEvents();
+
+  // watch tables (overview mirror + full page)
+  const wrow = (id) => `<tr><td class="mono">${id}</td><td class="num">${fmt(V[id])}</td>`;
+  $("ov_watch").innerHTML = S.watch.length
+    ? S.watch.map((id) => wrow(id) + "</tr>").join("")
+    : `<tr><td colspan="2" class="note">no watch tags — add DB members on the Watch tab</td></tr>`;
+  $("watch_rows").innerHTML = S.watch.length
+    ? S.watch.map((id) => wrow(id) +
+        `<td class="rerr">${S.errors?.[id] ?? ""}</td>
+         <td style="text-align:right"><button data-rm="${id}">remove</button></td></tr>`).join("")
+    : `<tr><td colspan="4" class="note">empty — add a tag above</td></tr>`;
+  document.querySelectorAll("[data-rm]").forEach((b) => b.onclick = () =>
+    fetch("/watch/remove", { method: "POST", body: JSON.stringify({ id: b.dataset.rm }) }));
+}
+
+const fmtTs = (iso) => new Date(iso).toLocaleTimeString("en-AU", { hour12: false }) + "." + String(new Date(iso).getMilliseconds()).padStart(3, "0").slice(0, 1);
+function renderEvents() {
+  const ev = S.events?.recent ?? [];
+  const c = S.events?.counts ?? {};
+  $("ev_counts").textContent = `session: ${c.total ?? 0} events · ${c.fault ?? 0} fault · ${c.warn ?? 0} warn · source: ${S.events?.plcLog ? "PLC ring buffer (scan-accurate, gap-free)" : "polling (~1 s)"}`;
+  const badge = $("nav_ev_badge");
+  if ((c.fault ?? 0) > 0) { badge.textContent = c.fault; badge.style.display = ""; } else badge.style.display = "none";
+  const cats = new Set([...document.querySelectorAll(".evcat:checked")].map((x) => x.value));
+  const q = ($("q_ev").value ?? "").toLowerCase();
+  $("ev_rows").innerHTML = ev.slice().reverse()
+    .filter((e) => cats.has(e.cat) && (!q || e.text.toLowerCase().includes(q)))
+    .map((e) => `<tr><td class="mono">${fmtTs(e.ts)}</td><td><span class="sev ${e.sev}">${e.sev.toUpperCase()}</span></td>
+      <td>${e.cat}</td><td>${e.text}</td>
+      <td class="evctx">${e.ctx ? Object.entries(e.ctx).map(([k, v]) => `${k.split(".").pop()}=${v}`).join("  ") : ""}</td></tr>`)
+    .join("") || `<tr><td colspan="5" class="note">no events yet this session</td></tr>`;
+}
+$("ev_dl").onclick = () => location.href = "/events/download";
+$("q_ev").oninput = renderEvents;
+document.querySelectorAll(".evcat").forEach((x) => x.onchange = renderEvents);
+
+$("watch_add").onclick = () => {
+  const id = $("watch_id").value.trim();
+  if (!id) return;
+  fetch("/watch/add", { method: "POST", body: JSON.stringify({ id }) }).then(() => $("watch_id").value = "");
+};
+$("watch_id").addEventListener("keydown", (e) => { if (e.key === "Enter") $("watch_add").click(); });
+
+async function loop() {
+  for (;;) {
+    try {
+      S = await (await fetch("/state")).json();
+      render();
+    } catch {
+      $("conn").className = "pill bad"; $("conn").textContent = "SERVER OFFLINE";
+    }
+    await new Promise((r) => setTimeout(r, 750));
+  }
+}
+loop();
+</script>
+</body>
+</html>

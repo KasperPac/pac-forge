@@ -1,0 +1,27 @@
+<div class="fds-cover">
+  <img class="fds-cover-logo" src="{{_logoFull}}" alt="Pac Technologies" />
+  <div class="fds-kicker fds-kicker--cover">Functional Design Specification</div>
+  <h1 class="fds-cover-title">{{fds.doc.title}}</h1>
+  <div class="fds-cover-subtitle">{{fds.doc.subtitle}}</div>
+
+  <div class="fds-card">
+    <table>
+      <tbody>
+        <tr class="fds-row"><td class="k">Document number</td><td class="mono">{{fds.doc.code}}</td></tr>
+        <tr class="fds-row"><td class="k">Revision</td><td class="mono">{{fds.doc.revision}}</td></tr>
+        <tr class="fds-row"><td class="k">Date</td><td>{{fds.doc.date_display}}</td></tr>
+        <tr class="fds-row"><td class="k">Prepared for</td><td>{{fds.doc.client}}</td></tr>
+        <tr class="fds-row"><td class="k">Prepared by</td><td>Pac Technologies Pty Ltd</td></tr>
+        {{#if fds.doc.platform}}
+          <tr class="fds-row"><td class="k">Control platform</td><td class="mono">{{fds.doc.platform}}</td></tr>
+        {{/if}}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="fds-cover-confidential">
+    This document is issued to {{fds.doc.client}} for review and approval. It remains
+    commercial in confidence and may not be reproduced or distributed outside the
+    recipient organisation without the written consent of Pac Technologies Pty Ltd.
+  </div>
+</div>

@@ -140,7 +140,7 @@ export async function renderSnapshotToHtml(snapshot: unknown): Promise<string> {
   });
 }
 
-async function launchBrowser(): Promise<Browser> {
+export async function launchBrowser(): Promise<Browser> {
   const explicitPath = process.env.CHROMIUM_PATH;
   const executablePath = explicitPath || (await chromium.executablePath());
   return puppeteer.launch({

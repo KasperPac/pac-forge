@@ -1,0 +1,633 @@
+/**
+ * TEMPORARY one-shot builder (delete after run).
+ * Constructs a Spec Contract V2 (schema_version 3) for the Sun Metals Z20
+ * KUKA_ROBOT cell, reverse-engineered from Sun_Metals_Z20_20260708.L5K,
+ * validates against the real schema + EM-state-machine invariants, and
+ * writes the JSON next to the L5K in test-data/.
+ */
+import { describe, it, expect } from "vitest";
+import { randomUUID } from "node:crypto";
+import { writeFileSync } from "node:fs";
+import { SpecContractV2Schema, SpecSectionTypeSchema } from "@/types/spec-contract-v2";
+import { validateEmStateMachine } from "@/lib/spec-builder/em-state-machine";
+
+const uid = () => randomUUID();
+
+// ---- modes ----
+const AUTO = "automatic";
+const MAN = "manual";
+const MAINT = "maintenance";
+
+// ---- primitive factories ----
+type Perm = { tag: string; operator: string; value: unknown };
+const perm = (tag: string, operator: string, value: unknown): Perm => ({ tag, operator, value });
+
+const io = (
+  tag: string,
+  signal_type: string,
+  io_address: string,
+  description: string,
+  source: "wired" | "network_telegram" = "wired",
+) => ({ tag, signal_type, io_address, description, source, tier: source === "wired" ? "wired" : "fb_instance" });
+
+const cmEntry = (tag: string, description: string, state: string) => ({ tag, description, state });
+
+const staticState = (control_modules: ReturnType<typeof cmEntry>[], notes: string | null = null) => ({
+  control_modules,
+  notes,
+});
+
+const crit = {
+  tagEq: (tag: string, value: unknown) => ({ kind: "tag_equals", tag, value }),
+  expr: (text: string, referenced_tags: string[]) => ({ kind: "expression", text, referenced_tags }),
+  ack: (prompt: string) => ({ kind: "manual_ack", prompt }),
+};
+
+const act = {
+  prose: (action_id: string, text: string, referenced_tags: string[]) => ({
+    kind: "manual_prose",
+    action_id,
+    text,
+    referenced_tags,
+    prose: text,
+  }),
+  assign: (action_id: string, target_tag: string, litValue: unknown, prose: string) => ({
+    kind: "assign",
+    action_id,
+    target_tag,
+    source:
+      typeof litValue === "string"
+        ? { kind: "literal", value: litValue, value_type: "string" }
+        : typeof litValue === "boolean"
+          ? { kind: "literal", value: litValue, value_type: "boolean" }
+          : { kind: "literal", value: litValue, value_type: "number" },
+    prose,
+  }),
+};
+
+const step = (
+  n: number,
+  name: string,
+  action: string,
+  completion_criteria_text: string,
+  completion_criteria: unknown[] = [],
+  actions: unknown[] = [],
+) => ({
+  step_id: `s${n}`,
+  branch_id: "main",
+  name,
+  actions,
+  monitors: [],
+  transitions: [],
+  step: n,
+  action,
+  completion_criteria,
+  completion_criteria_text,
+  on_fail: undefined,
+});
+
+const seqState = (permissives: Perm[], steps: unknown[], notes: string | null = null) => ({
+  permissives,
+  steps,
+  branches: [{ branch_id: "main", name: "Main", kind: "main", fork_step_id: "s1" }],
+  state_monitors: [],
+  sequence_model_version: 2,
+  notes,
+});
+
+// Standard PackML-aligned EM state set (safe state = "aborted") + transitions.
+const stdStates = () => [
+  { state_id: "idle", name: "Idle", kind: "static", allowed_modes: [], is_safe_state: false },
+  { state_id: "execute", name: "Execute", kind: "sequential", allowed_modes: [], is_safe_state: false },
+  { state_id: "aborted", name: "Aborted", kind: "static", allowed_modes: [], is_safe_state: true },
+];
+const stdTransitions = (startTag = "TOP.CTRL.Automatic_Run") => [
+  { transition_id: "idle_to_execute", from_state_id: "idle", to_state_id: "execute", trigger: { kind: "command", expr: perm(startTag, "=", true) }, guard: [] },
+  { transition_id: "execute_to_idle", from_state_id: "execute", to_state_id: "idle", trigger: { kind: "completion" }, guard: [] },
+  { transition_id: "execute_to_aborted", from_state_id: "execute", to_state_id: "aborted", trigger: { kind: "command", expr: perm("TOP.CTRL.Fault[0].MajorFault", "=", true) }, guard: [] },
+  { transition_id: "idle_to_aborted", from_state_id: "idle", to_state_id: "aborted", trigger: { kind: "command", expr: perm("TOP.CTRL.Fault[0].MajorFault", "=", true) }, guard: [] },
+  { transition_id: "aborted_to_idle", from_state_id: "aborted", to_state_id: "idle", trigger: { kind: "command", expr: perm("TOP.CTRL.Fault_Reset_Request", "=", true) }, guard: [] },
+];
+
+// ---- network device CM configs ----
+const eip = (ip: string, station: string) => ({
+  protocol: "ethernet_ip",
+  ip_address: ip,
+  station_name: station,
+  update_cycle_ms: 20,
+});
+
+const cm = (
+  name: string,
+  cls: string,
+  is_safety: boolean,
+  description: string,
+  io_signals: unknown[],
+  network_config?: unknown,
+) => ({
+  control_module_id: uid(),
+  control_module_name: name,
+  control_module_class: cls,
+  is_safety,
+  description,
+  io_signals,
+  ...(network_config ? { network_config } : {}),
+});
+
+// ============================================================
+// Build
+// ============================================================
+const UNIT_ID = uid();
+const PROJECT_ID = uid();
+
+// ---------- Equipment Modules ----------
+// Each entry: { id, hier (EquipmentModuleV2), contract (EquipmentModuleContract) }
+function makeEm(opts: {
+  name: string;
+  description: string;
+  cms: unknown[];
+  states?: unknown[];
+  transitions?: unknown[];
+  staticStates: Record<string, unknown>;
+  seqStates: Record<string, unknown>;
+  commandBehavior?: Record<string, unknown>;
+}) {
+  const id = uid();
+  const states = opts.states ?? stdStates();
+  const transitions = opts.transitions ?? stdTransitions();
+  return {
+    id,
+    hier: { equipment_module_id: id, equipment_module_name: opts.name, description: opts.description, control_modules: opts.cms },
+    contract: {
+      equipment_module_id: id,
+      unit_id: UNIT_ID,
+      states,
+      transitions,
+      static_states: opts.staticStates,
+      sequential_states: opts.seqStates,
+      ...(opts.commandBehavior ? { command_behavior: opts.commandBehavior } : {}),
+    },
+  };
+}
+
+// EM-INFEED — infeed queue & ingot detection
+const emInfeed = makeEm({
+  name: "Infeed Queue & Detection",
+  description:
+    "Detects ingots at 4 conveyor pickup positions, classifies Foot/Standard/Top/Flip, maintains the FIFO infeed queue and tracking array, deletes picked ingots and drives the turn-over flipper. Source: R201/R202/R203 + FB_INGOT_DETECTION, FB_IngotDetect_Scan.",
+  cms: [
+    cm("Infeed Top Sensor", "digital_input_sensor", false, "Infeed top-level ingot presence (FB_DI_SensorData[21]).", [io("INFEED_TopSensor", "DI", "K_RIO2:I.Data.8", "Infeed top sensor")]),
+    cm("Infeed Lower Sensor", "digital_input_sensor", false, "Infeed lower-level ingot presence (FB_DI_SensorData[22]).", [io("INFEED_LowerSensor", "DI", "K_RIO2:I.Data.9", "Infeed lower sensor")]),
+    cm("Position 1 Top Sensor", "digital_input_sensor", false, "Pickup position 1 top-detection (FB_DI_SensorData[13]).", [io("POS1_TopSensor", "DI", "K_RIO2:I.Data.0", "Pos1 top sensor")]),
+    cm("Position 1 Foot Sensor", "digital_input_sensor", false, "Pickup position 1 foot-detection (FB_DI_SensorData[17]).", [io("POS1_FootSensor", "DI", "K_RIO2:I.Data.4", "Pos1 foot sensor")]),
+  ],
+  staticStates: {
+    idle: staticState([cmEntry("INFEED_Queue", "Infeed queue held; no insert/delete", "frozen")], "Queue frozen while system not running (RunSYS false)."),
+    aborted: staticState([cmEntry("INFEED_Queue", "Queue cleared on abort", "cleared")], null),
+  },
+  seqStates: {
+    execute: seqState(
+      [perm("RunSYS", "=", true)],
+      [
+        step(1, "Detect & classify", "Read per-position top/foot sensors + laser scan; FB_INGOT_DETECTION classifies each position as Foot(1)/Standard(2)/Top/Flip(3).", "Ingot type resolved for each active position", [crit.expr("Detection debounced via INFEED_Detection_delay.DN", ["INFEED_Detection_delay"])], [act.prose("a1", "Classify ingot per position via FB_INGOT_DETECTION and laser height scan.", ["CONVEYOR_D_IngotLogicDetection"])]),
+        step(2, "Insert into queue", "Insert classified ingot type into INFEED_Queue at the insert index; append to tracking array; raise INFEED_Alarm_Ingot_unexpected if type != expected.", "Ingot appended to queue", [crit.tagEq("INFEED_Insert_InfeedQueue", true)], [act.prose("a2", "Append ingot type to INFEED_Queue and INFEED_INGOT_TRAKING.", ["INFEED_Queue"])]),
+        step(3, "Delete on pick", "When a stack section signals ACTIONS.7 (picked), delete taken ingots from the queue and compact (R202 FOR loop).", "Queue compacted after pick", [crit.tagEq("INFEED_Delete_InfeedQueue", true)], []),
+      ],
+      "Turn-over flipper path (INFEED_KUKA_Turn_Over_Flipper, triggered after 36 tracked / every 4 tops) is heuristic — confirm intended rule.",
+    ),
+  },
+});
+
+// EM-ROBOT — robot interface & task executor
+const emRobot = makeEm({
+  name: "Robot Interface & Task Executor",
+  description:
+    "Maps the full KUKA KRC5 EtherNet/IP handshake, selects and dispatches the robot task via the PGNO program-number interface, enforces ready/interlock conditions and reflects robot status to PLC/HMI. Source: R004/R204 + FB_EXECUTE_R_STEPS_ACTIONS, AOI_KRC5_KUKA.",
+  cms: [
+    cm(
+      "KUKA KRC5 Robot",
+      "robot_controller",
+      false,
+      "KUKA KRC5 robot controller — PGNO task dispatch, drives/enable handshake, gripper ops, stack/makeup reflections.",
+      [
+        io("KUKA_ROBOT.In.Data", "internal", "192.168.1.24:I1", "Robot→PLC status telegram (UDT_IO_KUKA_ROBOT_INPUT_V2)", "network_telegram"),
+        io("KUKA_ROBOT.Out.Data", "internal", "192.168.1.24:O1", "PLC→Robot command telegram (UDT_IO_KUKA_ROBOT_OUTPUT_V2)", "network_telegram"),
+      ],
+      eip("192.168.1.24", "KUKA_ROBOT"),
+    ),
+  ],
+  staticStates: {
+    idle: staticState([cmEntry("KUKA_ROBOT.Out.PGNO", "No program selected", "0"), cmEntry("KUKA_ROBOT.Out.MOVE_ENABLE", "Move enable low", "off")], "Awaiting a task request; robot at home / PERI_RDY."),
+    aborted: staticState([cmEntry("KUKA_ROBOT.Out.DRIVES_OFF", "Drives commanded off", "on"), cmEntry("KUKA_ROBOT.Out.MOVE_ENABLE", "Move enable removed", "off")], "Robot ALARM_STOP or major fault."),
+  },
+  seqStates: {
+    execute: seqState(
+      [perm("TOP.CTRL.Automatic_Run", "=", true), perm("KUKA_ROBOT.In.PERI_RDY", "=", true), perm("KUKA_ROBOT.In.STOPMESS", "=", false)],
+      [
+        step(1, "Select task", "Latch the requested task number (1..8) into Task_Request from the active stack section / HMI IN_TASK_n_EXE.", "Task_Request != 0", [crit.expr("Task_Request <> 0", ["Task_Request"])], [act.prose("a1", "Move selected task number to KUKA_ROBOT.Out.PGNO.", ["KUKA_ROBOT.Out.PGNO"])]),
+        step(2, "Handshake PGNO", "On KUKA_ROBOT.In.PGNO_REQ, assert PGNO_VALID; robot acknowledges and starts the program.", "Robot PRO_ACT && APPL_RUN", [crit.tagEq("KUKA_ROBOT.In.PGNO_REQ", true)], [act.assign("a2", "KUKA_ROBOT.Out.PGNO_VALID", true, "Assert PGNO valid to release the robot program.")]),
+        step(3, "Await completion", "Robot runs task (move/pick/place/dump). Wait for task-completed handshake (PGNO_REQ low & APPL_RUN).", "Task completed", [crit.expr("NOT PGNO_REQ AND APPL_RUN", ["KUKA_ROBOT.In.PGNO_REQ", "KUKA_ROBOT.In.APPL_RUN"])], []),
+        step(4, "Clear request", "Clear Task_Request; update Last_Run_Task; hand back to the calling stack section.", "Task_Request cleared", [crit.tagEq("Task_Request", 0)], [act.assign("a4", "Task_Request", 0, "Clear the task request.")]),
+      ],
+      "Task map (PGNO): 1=move-to-pick, 2=stack-with-makeup, 3/4=stack variants, 5=send-data, 6=conveytech-release, 7=maintenance. Tasks 3/4 motion detail lives in the KUKA .src — [ASSUMPTION].",
+    ),
+  },
+});
+
+// EM stack sequences (Foot / Regular / Top) — share shape
+function stackEm(kind: "Foot" | "Regular" | "Top", sasTag: string, sectionTag: string, taskNote: string) {
+  return makeEm({
+    name: `Stack Builder — ${kind} Ingots`,
+    description: `Step/action sequence placing ${kind.toLowerCase()} ingots onto the active stack; assigns active stack, dispatches robot tasks, advances CurrentLayer/NextLayer. Source: ${sasTag}/${sectionTag} step-action FB.`,
+    cms: [],
+    staticStates: {
+      idle: staticState([cmEntry(`${sectionTag}.ACTIONS`, "No action asserted", "0")], "Awaiting a full pickup queue for this ingot type."),
+      aborted: staticState([cmEntry("Task_Request", "Task request cleared", "0")], null),
+    },
+    seqStates: {
+      execute: seqState(
+        [perm("TOP.CTRL.Automatic_Run", "=", true), perm(`${sasTag}.QUEUE_FULL`, "=", true)],
+        [
+          step(1, "Request pick", "Assert ACTIONS.2 → robot Task 1 (move to position); activate grippers per LOCn_PICK.", "Robot picked ingots from conveyor", [crit.tagEq(`${sectionTag}.ACTIONS.2`, true)], [act.assign("a1", "Task_Request", 1, "Request robot move-to-pick task.")]),
+          step(2, "Place on stack", "Robot places ingots on the active stack at CurrentLayer; ACTIONS.4 sends stack data to robot.", "Layer placed", [crit.tagEq(`${sectionTag}.ACTIONS.4`, true)], []),
+          step(3, "Update layer", "ACTIONS.7 marks layer complete, deletes picked ingots from the infeed queue, advances NextLayer; rotate active stack when CurrentLayer >= 10.", "Layer count advanced", [crit.tagEq(`${sectionTag}.ACTIONS.7`, true)], [act.prose("a3", "Advance NextLayer and mark Foot/Reg/Top layer complete on the active stack.", ["STACKS"])]),
+        ],
+        taskNote,
+      ),
+    },
+  });
+}
+const emFoot = stackEm("Foot", "FOOT_SAS", "FOOT_SECTION", "Foot layer is the bottom layer; ACTIONS map: 2=pick,4=send-data,7=update,11=Task2,20=Task3,26=Task4.");
+const emReg = stackEm("Regular", "REGULAR_SAS", "REGULAR_SECTION", "Regular (mid) layers between foot and top.");
+const emTop = stackEm("Top", "TOP_SAS", "TOP_SECTION", "Top layer uses flip-detected ingots; gated by CurrentLayer==9 & laser slot==1.");
+
+// EM-STACKMGMT — stack bookkeeping + outfeed index tracking
+const emStackMgmt = makeEm({
+  name: "Stack Management & Outfeed Index",
+  description:
+    "Per-stack layer/quantity counting, active-stack rotation, stack-off-conveyor shift to the strapper, and X-position tracking via the SICK encoder. Source: R301 + STACK_COUNT, MAKEUP_COUNT, FB_OUTFEED_ENC_TRACK.",
+  cms: [
+    cm(
+      "SICK Outfeed Encoder",
+      "encoder",
+      false,
+      "SICK AFM60A EtherNet/IP absolute encoder — tracks stack X-position during indexing (read via explicit MSG).",
+      [io("SickAFX_Enc1_xyz:I1.Data[1]", "AI", "192.168.1.25:I1", "Encoder position word", "network_telegram")],
+      eip("192.168.1.25", "SickAFX_Enc1_xyz"),
+    ),
+  ],
+  staticStates: {
+    idle: staticState([cmEntry("STACKS.STACK[1].In_Progress", "No index in progress", "off")], "Counts held; awaiting stack completion."),
+    aborted: staticState([cmEntry("STACK1_INDEX_TRACK.ResetError", "Index tracker reset", "on")], null),
+  },
+  seqStates: {
+    execute: seqState(
+      [perm("TOP.CTRL.Run", "=", true)],
+      [
+        step(1, "Count layers", "STACK_COUNT per stack maintains CurrentLayer/counts; mark Complete when CurrentLayer >= 10.", "Stack marked complete", [crit.expr("STACKS.STACK[n].CurrentLayer >= 10", ["STACKS"])], []),
+        step(2, "Rotate on off-conveyor", "On StackOffConeyor, shift STACK[2]→[1], [3]→[2] (backups forward).", "Stacks rotated", [crit.tagEq("STACKS.STACK[1].StackOffConeyor", true)], []),
+        step(3, "Track index position", "FB_OUTFEED_ENC_TRACK integrates encoder delta into STACK[n].X_Position_Act during index.", "Index distance reached", [crit.expr("X_Position_Act >= IndexDistance", ["STACK1_INDEX_TRACK.IndexDistance"])], []),
+      ],
+      null,
+    ),
+  },
+});
+
+// EM-MAKEUP — makeup table (partial-layer buffer)
+const emMakeup = makeEm({
+  name: "Makeup Table",
+  description:
+    "Partial-layer buffer holding top/mid/btm racks with required quantity per option; fills when no stack is active. Source: MAKEUP_TABLE/MAKEUP_1 + makeup fill logic in R203.",
+  cms: [],
+  staticStates: {
+    idle: staticState([cmEntry("MAKEUP_TABLE.Active", "Makeup inactive", "off")], "Only active when all 3 stacks inactive or a fill is requested."),
+    aborted: staticState([cmEntry("MAKEUP_TABLE.Active", "Makeup deactivated", "off")], null),
+  },
+  seqStates: {
+    execute: seqState(
+      [perm("MAKEUP_TABLE.Enabled", "=", true)],
+      [
+        step(1, "Fill racks", "Accumulate ingots to RequiredFeet/RequiredRegular per MAKEUP_TABLE.Option (1: 11 feet/3 reg; 2: 4 feet/10 reg).", "Makeup quantities reached", [crit.expr("MAKEUP_1.UpdateComplete", ["MAKEUP_1.UpdateComplete"])], []),
+      ],
+      "Required quantities per option are constants in R301 — confirm whether product-configurable.",
+    ),
+  },
+});
+
+// EM-GRIPPER — gripper & pneumatics (command-conditional, no autonomous sequence)
+const emGripper = makeEm({
+  name: "Gripper & Pneumatics",
+  description:
+    "4 gripper solenoids (extend/retract with reed-switch feedback) + laser air-blast, driven by the robot's gripper open/close ops via the SMC EX260 valve manifold. Source: R003/R008 + FB_D_Solenoid.",
+  cms: [
+    cm(
+      "SMC Valve Manifold",
+      "valve_manifold",
+      false,
+      "SMC EX260-SEN1 EtherNet/IP valve manifold — 5 solenoid points: grippers A–D + air-blast.",
+      [
+        io("K_VALVE_MANIFOLD:O1.OutputArea", "DO", "192.168.1.23:O1", "Solenoid output word", "network_telegram"),
+        io("K_VALVE_MANIFOLD:I1.SOLV_Status", "DI", "192.168.1.23:I1", "Manifold status/fault", "network_telegram"),
+      ],
+      eip("192.168.1.23", "K_VALVE_MANIFOLD"),
+    ),
+    cm("Gripper A Solenoid", "double_solenoid", false, "Gripper A extend/retract (FB_DO_SolenoidData[1]) with reed-switch feedback.", [io("GRIP_A_EXT", "DO", "K_VALVE_MANIFOLD.Point[4].B", "Gripper A extend"), io("GRIP_A_RET", "DO", "K_VALVE_MANIFOLD.Point[4].A", "Gripper A retract")]),
+    cm("Laser Air-Blast Solenoid", "single_solenoid", false, "Laser lens air-blast (FB_DO_SolenoidData[5]).", [io("LASER_AIRBLAST", "DO", "K_VALVE_MANIFOLD.Point[3].A", "Air-blast")]),
+  ],
+  staticStates: {
+    idle: staticState([cmEntry("FB_DO_SolenoidData[1..4].OutRetract", "Grippers retracted (safe)", "retracted")], "Default hold when robot issues no gripper op."),
+    aborted: staticState([cmEntry("FB_DO_SolenoidData[1..4]", "Solenoids de-energised", "off")], null),
+  },
+  seqStates: {
+    execute: seqState(
+      [perm("TOP.CTRL.Automatic_Request", "=", true)],
+      [step(1, "Follow robot ops", "Grippers extend/retract following KUKA_ROBOT.In.GRIPPER_x_OPN/CLS_OP; feedback echoed back as reed-switch status.", "Gripper feedback matches command", [crit.ack("Gripper motion follows robot open/close ops")], [])],
+      null,
+    ),
+  },
+  commandBehavior: {
+    execute: {
+      branches: [
+        { branch_id: "grip_a_close", label: "Gripper A close", when: [perm("KUKA_ROBOT.In.GRIPPER_A_CLS_OP", "=", true)], control_modules: [cmEntry("FB_DO_SolenoidData[1].OutRetract", "Gripper A closes", "retract")] },
+        { branch_id: "grip_a_open", label: "Gripper A open", when: [perm("KUKA_ROBOT.In.GRIPPER_A_OPN_OP", "=", true)], control_modules: [cmEntry("FB_DO_SolenoidData[1].OutExtend", "Gripper A opens", "extend")] },
+      ],
+      default_hold: [cmEntry("FB_DO_SolenoidData[1..4]", "Grippers hold last commanded position", "hold")],
+    },
+  },
+});
+
+// EM-CONVEYTECH — downstream conveyor handshake (6-step machine, fully traced from R305)
+const emConveytech = makeEm({
+  name: "ConveyTech Interface",
+  description:
+    "6-step handshake (via robot Task 6) releasing a completed stack to the downstream ConveyTech conveyor / strapper. Mediated through the robot (KUKA_ROBOT.In.CONVEYOR_*). Source: R305.",
+  cms: [],
+  staticStates: {
+    idle: staticState([cmEntry("Step_CONVE_INT", "Handshake step 0 (no tracking)", "0")], "Awaiting a completed stack (StackOffConeyor) or robot CONVEYOR_INT."),
+    aborted: staticState([cmEntry("Output_CONVE_INT", "Interface output off", "off")], null),
+  },
+  seqStates: {
+    execute: seqState(
+      [perm("Enable_CONVE_INT", "=", true), perm("Healthy_CONVE_INT", "=", false)],
+      [
+        step(1, "Trigger", "Step 0→1 on Triger_CONVE_INT (robot CONVEYOR_INT or StackOffConeyor).", "Step 1", [crit.tagEq("Triger_CONVE_INT", true)], []),
+        step(2, "Call Task 6", "Step 1→2: request robot Task 6 (MOV 6 → Task_Request).", "Robot CONVEYOR_SIGNAL_REQ", [crit.tagEq("Task_Request", 6)], [act.assign("a2", "Task_Request", 6, "Call robot Task 6.")]),
+        step(3, "Output on", "Step 2→3→4: assert Output_CONVE_INT to the downstream conveyor.", "Output acknowledged", [crit.tagEq("Output_CONVE_INT", true)], []),
+        step(4, "Output off & finish", "Step 5→6→31→0: drop output, complete handshake, return to idle.", "Handshake complete", [crit.expr("Step_CONVE_INT = 0", ["Step_CONVE_INT"])], []),
+      ],
+      null,
+    ),
+  },
+});
+
+const EMS = [emInfeed, emRobot, emFoot, emReg, emTop, emStackMgmt, emMakeup, emGripper, emConveytech];
+
+// ---------- Unit-level network CMs (shared IO-Link masters) attach to the unit's first EM ----
+emInfeed.hier.control_modules.push(
+  cm(
+    "Balluff IO-Link Master 1 (K_RIO1)",
+    "io_link_master",
+    false,
+    "Balluff BNI006A EtherNet/IP IO-Link master — 8 ports: P1–P4 IO-Link (laser + DI), P5–P8 DI.",
+    [io("K_RIO1:I.Data", "internal", "192.168.1.21:I", "IO-Link master input area", "network_telegram")],
+    eip("192.168.1.21", "K_RIO1"),
+  ),
+  cm(
+    "Balluff IO-Link Master 2 (K_RIO2)",
+    "io_link_master",
+    false,
+    "Balluff BNI006A EtherNet/IP IO-Link master — 8 ports DI (sensors 13–22).",
+    [io("K_RIO2:I.Data", "internal", "192.168.1.22:I", "IO-Link master input area", "network_telegram")],
+    eip("192.168.1.22", "K_RIO2"),
+  ),
+);
+
+// ---------- Hierarchy ----------
+const hierarchy = {
+  units: [
+    {
+      unit_id: UNIT_ID,
+      unit_name: "Robotic Stacking Cell",
+      equipment_type: "robotic_palletiser",
+      description:
+        "KUKA KRC5 robot cell palletising cast aluminium ingots into layered, strapped stacks. One Unit within the Z20 strapping line (controller Sun_Metals_Z20).",
+      excluded: false,
+      equipment_modules: EMS.map((e) => e.hier),
+    },
+  ],
+};
+
+// ---------- equipment_modules record ----------
+const equipment_modules: Record<string, unknown> = {};
+for (const e of EMS) equipment_modules[e.id] = e.contract;
+
+// ---------- modes ----------
+const modes = [
+  { mode_id: AUTO, name: "Automatic", description: "Normal production — full authored state model.", is_default: true, kind: "production" },
+  { mode_id: MAN, name: "Manual", description: "Operator-paced jogging of grippers/robot via HMI.", is_default: false, kind: "manual" },
+  { mode_id: MAINT, name: "Maintenance", description: "Robot to maintenance position (Task 7); drives commanded to stopped.", is_default: false, kind: "maintenance" },
+];
+
+// ---------- safety gates ----------
+const safety_gates = [
+  {
+    gate_id: "estop_major",
+    name: "E-Stop / Major Fault",
+    condition: [perm("TOP.CTRL.Fault[0].F.30", "=", true), perm("TOP.CTRL.Fault[0].F.31", "=", true)],
+    scope: "all",
+  },
+];
+
+// ---------- alarm tiers ----------
+const alarm_tiers = [
+  { tier_id: "warning", tier_name: "Warning", description: "Advisory; no automatic stop." },
+  { tier_id: "fault", tier_name: "Fault", description: "Minor fault; latches until reset, may stop the cycle." },
+  { tier_id: "critical", tier_name: "Critical", description: "Major fault / E-Stop; forces EMs to safe (aborted)." },
+];
+
+// ---------- faults (from R102_SYS_Fault) ----------
+const faults = [
+  { fault_code: "F0.1", description: "K_RIO1 (IO-Link master 1) connection faulted", triggered_by_tag: "K_RIO1.BNI006A_ConnectionFaulted", severity: "fault", affected_control_modules: [], action_text: "Latch until Fault_Reset_Request; investigate EtherNet/IP link." },
+  { fault_code: "F0.2", description: "K_RIO2 connection faulted", triggered_by_tag: "K_RIO2.BNI006A_ConnectionFaulted", severity: "fault", affected_control_modules: [], action_text: "Latch until reset." },
+  { fault_code: "F0.3", description: "KUKA robot connection faulted", triggered_by_tag: "KUKA_ROBOT.ConnectionFaulted", severity: "fault", affected_control_modules: [], action_text: "Cell stops; check robot EtherNet/IP." },
+  { fault_code: "F0.4", description: "Valve manifold status fault", triggered_by_tag: "K_VALVE_MANIFOLD.SOLV_Status", severity: "fault", affected_control_modules: [], action_text: "Latch until reset." },
+  { fault_code: "F0.5", description: "SICK encoder connection faulted", triggered_by_tag: "SickAFX_Enc1_xyz:I1.ConnectionFaulted", severity: "fault", affected_control_modules: [], action_text: "Latch until reset." },
+  { fault_code: "F0.8", description: "Robot ALARM_STOP", triggered_by_tag: "KUKA_ROBOT.In.ALARM_STOP", severity: "fault", affected_control_modules: [], action_text: "Robot alarm; clear at robot + reset." },
+  { fault_code: "F0.9", description: "Valve manifold under-voltage", triggered_by_tag: "K_VALVE_MANIFOLD.SOLV_Undervoltage_Error", severity: "fault", affected_control_modules: [], action_text: "Check 24V supply to manifold." },
+  { fault_code: "F0.30", description: "E-Stop 1 (pushbutton) — MAJOR", triggered_by_tag: "FB_DI_PushButtonData[1].OutPushButton_On", severity: "critical", affected_control_modules: [], action_text: "Major fault; all EMs forced to aborted. Reset e-stop then Fault_Reset." },
+  { fault_code: "F0.31", description: "E-Stop 1 (safety input) — MAJOR", triggered_by_tag: "FB_DI_SensorData[23].OutSignal", severity: "critical", affected_control_modules: [], action_text: "Major fault; all EMs forced to aborted." },
+];
+
+// ---------- alarms ----------
+const alarms = faults.map((f) => ({
+  id: uid(),
+  tier_id: f.severity === "critical" ? "critical" : "fault",
+  control_module_id: null,
+  equipment_module_id: null,
+  unit_id: UNIT_ID,
+  tag: f.triggered_by_tag,
+  description: f.description,
+  action: f.action_text,
+}));
+
+// ---------- io_list ----------
+const io_list = [
+  { tag: "ESTOP_1", device_type: "pushbutton", description: "E-Stop 1", signal_type: "DI", io_address: "K_RIO1:I.Data.x", normal_state: "closed(1)", failsafe_state: "open(0)", equipment_module_id: emGripper.id },
+  { tag: "PB_START", device_type: "pushbutton", description: "Start pushbutton", signal_type: "DI", io_address: "K_RIO1:I.Data.x", normal_state: "open", failsafe_state: "open" },
+  { tag: "PB_STOP", device_type: "pushbutton", description: "Stop pushbutton", signal_type: "DI", io_address: "K_RIO1:I.Data.x", normal_state: "closed", failsafe_state: "open" },
+  { tag: "PB_PAUSE", device_type: "pushbutton", description: "Pause pushbutton", signal_type: "DI", io_address: "K_RIO1:I.Data.x", normal_state: "open", failsafe_state: "open" },
+  { tag: "INFEED_TopSensor", device_type: "photoelectric", description: "Infeed top sensor", signal_type: "DI", io_address: "K_RIO2:I.Data.8", normal_state: "clear", failsafe_state: "clear", equipment_module_id: emInfeed.id },
+  { tag: "INFEED_LowerSensor", device_type: "photoelectric", description: "Infeed lower sensor", signal_type: "DI", io_address: "K_RIO2:I.Data.9", normal_state: "clear", failsafe_state: "clear", equipment_module_id: emInfeed.id },
+  { tag: "LASER_A", device_type: "laser_distance", description: "Position 1 laser height scanner", signal_type: "AI", io_address: "K_RIO1:P1 (IO-Link)", normal_state: "0", failsafe_state: "0", equipment_module_id: emInfeed.id },
+  { tag: "LASER_B", device_type: "laser_distance", description: "Position 2 laser height scanner", signal_type: "AI", io_address: "K_RIO1:P2 (IO-Link)", normal_state: "0", failsafe_state: "0", equipment_module_id: emInfeed.id },
+  { tag: "LASER_C", device_type: "laser_distance", description: "Position 3 laser height scanner", signal_type: "AI", io_address: "K_RIO1:P3 (IO-Link)", normal_state: "0", failsafe_state: "0", equipment_module_id: emInfeed.id },
+  { tag: "LASER_D", device_type: "laser_distance", description: "Position 4 laser height scanner", signal_type: "AI", io_address: "K_RIO1:P4 (IO-Link)", normal_state: "0", failsafe_state: "0", equipment_module_id: emInfeed.id },
+  { tag: "GRIP_A_EXT", device_type: "solenoid", description: "Gripper A extend", signal_type: "DO", io_address: "K_VALVE_MANIFOLD.Point[4].B", normal_state: "off", failsafe_state: "off", equipment_module_id: emGripper.id },
+  { tag: "LASER_AIRBLAST", device_type: "solenoid", description: "Laser air-blast", signal_type: "DO", io_address: "K_VALVE_MANIFOLD.Point[3].A", normal_state: "off", failsafe_state: "off", equipment_module_id: emGripper.id },
+];
+
+// ---------- configuration parameters ----------
+const configuration_parameters = [
+  { parameter_id: "makeup_option", name: "Makeup table option", allowed_values: ["1", "2"], default: "1", description: "Option 1 = 11 feet/3 regular; Option 2 = 4 feet/10 regular." },
+  { parameter_id: "stack_layers", name: "Required layers per stack", allowed_values: ["9", "10"], default: "10", description: "Layers before a stack is Complete." },
+];
+
+// ---------- unit coordination (PackML unit SM) ----------
+const unit_coordination = {
+  [UNIT_ID]: {
+    unit_id: UNIT_ID,
+    states: [
+      { state_id: "idle", allowed_modes: [], mode_change_allowed: true },
+      { state_id: "starting", allowed_modes: [], mode_change_allowed: false },
+      { state_id: "execute", allowed_modes: [], mode_change_allowed: false },
+      { state_id: "holding", allowed_modes: [], mode_change_allowed: false },
+      { state_id: "held", allowed_modes: [], mode_change_allowed: false },
+      { state_id: "stopped", allowed_modes: [], mode_change_allowed: true },
+      { state_id: "aborting", allowed_modes: [], mode_change_allowed: false },
+      { state_id: "aborted", allowed_modes: [], mode_change_allowed: true },
+      { state_id: "resetting", allowed_modes: [], mode_change_allowed: false },
+    ],
+    transitions: [
+      { transition_id: "t_start", from_state_id: "idle", to_state_id: "starting", trigger: { type: "command", command: "start" }, guard: [], allowed_modes: [] },
+      { transition_id: "t_started", from_state_id: "starting", to_state_id: "execute", trigger: { type: "condition", expr: [perm("TOP.CTRL.Run", "=", true)] }, guard: [], allowed_modes: [] },
+      { transition_id: "t_pause", from_state_id: "execute", to_state_id: "holding", trigger: { type: "command", command: "hold" }, guard: [], allowed_modes: [] },
+      { transition_id: "t_held", from_state_id: "holding", to_state_id: "held", trigger: { type: "condition", expr: [perm("TOP.CTRL.Paused", "=", true)] }, guard: [], allowed_modes: [] },
+      { transition_id: "t_unhold", from_state_id: "held", to_state_id: "execute", trigger: { type: "command", command: "unhold" }, guard: [], allowed_modes: [] },
+      { transition_id: "t_stop", from_state_id: "execute", to_state_id: "stopped", trigger: { type: "command", command: "stop" }, guard: [], allowed_modes: [] },
+      { transition_id: "t_abort", from_state_id: "execute", to_state_id: "aborting", trigger: { type: "command", command: "abort" }, guard: [], allowed_modes: [] },
+      { transition_id: "t_aborted", from_state_id: "aborting", to_state_id: "aborted", trigger: { type: "em_aggregate", em_scope: "all", em_state: "aborted" }, guard: [], allowed_modes: [] },
+      { transition_id: "t_reset", from_state_id: "aborted", to_state_id: "resetting", trigger: { type: "command", command: "reset" }, guard: [], allowed_modes: [] },
+      { transition_id: "t_reset_done", from_state_id: "resetting", to_state_id: "idle", trigger: { type: "em_aggregate", em_scope: "all", em_state: "idle" }, guard: [], allowed_modes: [] },
+      { transition_id: "t_stop_reset", from_state_id: "stopped", to_state_id: "resetting", trigger: { type: "command", command: "reset" }, guard: [], allowed_modes: [] },
+    ],
+  },
+};
+
+// ---------- process model (ISA-88 §4.3) ----------
+const process_model = {
+  process_name: "Ingot Palletising",
+  process_description: "Classify infeed ingots, robot-pick, build layered stacks, index completed stacks to the strapper.",
+  stages: [
+    {
+      stage_id: "st_infeed",
+      stage_name: "Infeed & Classify",
+      description: "Detect and classify ingots at the 4 pickup positions; maintain the queue.",
+      unit_id: UNIT_ID,
+      order: 1,
+      operations: [
+        { operation_id: "op_classify", operation_name: "Classify ingots", description: "Foot/Standard/Top/Flip via sensors + laser scan.", equipment_module_id: emInfeed.id, actions: [{ action_id: "ac_detect", action_name: "Detect", description: "FB_INGOT_DETECTION per position." }] },
+      ],
+    },
+    {
+      stage_id: "st_stack",
+      stage_name: "Robot Stack Build",
+      description: "Robot picks and places ingots to build layered stacks (foot → regular → top).",
+      unit_id: UNIT_ID,
+      order: 2,
+      operations: [
+        { operation_id: "op_pick", operation_name: "Pick & place", description: "Robot Task 1 pick, place on active stack.", equipment_module_id: emRobot.id, actions: [{ action_id: "ac_pick", action_name: "Pick", description: "Grippers pick per LOCn_PICK." }] },
+        { operation_id: "op_layer", operation_name: "Build layers", description: "Foot/Regular/Top layer sequences advance the stack.", equipment_module_id: emFoot.id, actions: [{ action_id: "ac_layer", action_name: "Advance layer", description: "Advance NextLayer, mark layer complete." }] },
+      ],
+    },
+    {
+      stage_id: "st_outfeed",
+      stage_name: "Outfeed & Release",
+      description: "Index the completed stack off-conveyor and hand off to the strapper.",
+      unit_id: UNIT_ID,
+      order: 3,
+      operations: [
+        { operation_id: "op_release", operation_name: "Release stack", description: "ConveyTech Task 6 handshake; encoder tracks X-position.", equipment_module_id: emConveytech.id, actions: [{ action_id: "ac_release", action_name: "Release", description: "Assert Output_CONVE_INT to downstream conveyor." }] },
+      ],
+    },
+  ],
+};
+
+// ---------- project header ----------
+const project = {
+  id: PROJECT_ID,
+  doc_code: "SUN-Z20-KUKA-FDS",
+  title: "Sun Metals Z20 — Robotic Ingot-Stacking Cell",
+  client_name: "Sun Metals",
+  project_number: "Z20",
+  plc_model: "Allen-Bradley CompactLogix 5069-L310ERM",
+  hmi_type: "KUKA_HMI (PLC-mediated) + line HMI",
+  comms_protocol: "EtherNet/IP",
+  safety_classification: "E-Stop major-fault path (site safety controller scope not in this program)",
+  fault_philosophy:
+    "14-word fault table (TOP.CTRL.Fault[0..13]). E-Stop (F0.30/F0.31) = MajorFault forcing all EMs to aborted; other conditions latch as minor faults until Fault_Reset_Request.",
+  design_principles: [
+    "PackML-style unit state model (custom BASE_CONTROL on the TOP tag).",
+    "Reusable device AOIs (FB_DI_Sensor / FB_AI_Sensor / FB_DI_PushButton / FB_D_Solenoid) as control modules.",
+    "PGNO program-number handshake to the KUKA robot for all motion.",
+    "Reverse-engineered from L5K; robot motion detail resides in the KUKA .src.",
+  ],
+  scope_exclusions: [
+    "Strapping_Machine / OLD_Strapping_Machine / Channel1Program (other units on the same controller).",
+    "Slab_1_M580 CIP bridge (not referenced by KUKA_ROBOT program).",
+    "KUKA .src robot motion programs (referenced by PGNO only).",
+    "Functional safety design (safety controller / GuardLogix).",
+  ],
+};
+
+// ---------- assemble ----------
+const contract = {
+  schema_version: 3,
+  project,
+  hierarchy,
+  alarm_tiers,
+  equipment_modules,
+  safety_gates,
+  alarms,
+  io_list,
+  faults,
+  // z.record over an enum is exhaustive in zod v4 — every section type must be present.
+  sections: Object.fromEntries(SpecSectionTypeSchema.options.map((k) => [k, []])),
+  modes,
+  unit_coordination,
+  configuration_parameters,
+  confirmation_status: "unconfirmed",
+  process_model,
+};
+
+describe("Sun Metals Z20 KUKA_ROBOT — Spec Contract V2 build", () => {
+  it("validates against SpecContractV2Schema and EM invariants, then writes JSON", () => {
+    // EM state-machine invariants (one safe state, unique ids, valid transitions)
+    const emIssues: string[] = [];
+    for (const e of EMS) emIssues.push(...validateEmStateMachine(e.contract as never));
+    expect(emIssues, `EM state-machine issues:\n${emIssues.join("\n")}`).toEqual([]);
+
+    const parsed = SpecContractV2Schema.safeParse(contract);
+    if (!parsed.success) {
+      // Surface the first handful of issues clearly.
+      const msg = parsed.error.issues
+        .slice(0, 25)
+        .map((i) => `${i.path.join(".")}: ${i.message}`)
+        .join("\n");
+      throw new Error(`Contract failed schema validation:\n${msg}`);
+    }
+
+    const out = "C:/dev/pac-forge/test-data/Sun_Metals_Z20_KUKA_ROBOT.spec-v2.json";
+    writeFileSync(out, JSON.stringify(parsed.data, null, 2), "utf8");
+    expect(parsed.success).toBe(true);
+  });
+});

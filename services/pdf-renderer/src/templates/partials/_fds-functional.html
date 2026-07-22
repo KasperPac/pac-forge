@@ -1,0 +1,72 @@
+<div class="fds-h3-wrap">
+  <h3 class="fds-h3">{{num}}&nbsp;&nbsp;{{name}}</h3>
+  {{#if description}}<div>{{markdown description}}</div>{{/if}}
+
+  {{#if control_modules.length}}
+    <table class="fds-table">
+      <thead>
+        <tr>
+          <th style="width: 30%">Control module</th>
+          <th style="width: 22%">Class</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each control_modules}}
+          <tr class="fds-row">
+            <td>{{this.name}}{{#if this.safety}} <span class="fds-sev fds-sev--critical">SAFETY</span>{{/if}}</td>
+            <td class="mono">{{this.cls}}</td>
+            <td>{{this.desc}}</td>
+          </tr>
+        {{/each}}
+      </tbody>
+    </table>
+  {{/if}}
+
+  {{#if states.length}}
+    <table class="fds-table">
+      <thead>
+        <tr>
+          <th style="width: 24%">State</th>
+          <th style="width: 18%">Pattern</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each states}}
+          <tr class="fds-row">
+            <td class="mono">{{this.name}}</td>
+            <td>{{this.kind}}</td>
+            <td class="muted">{{#if this.safe}}Safe state — forced on safety-gate violation{{else}}&mdash;{{/if}}</td>
+          </tr>
+        {{/each}}
+      </tbody>
+    </table>
+  {{/if}}
+
+  {{#each sequences}}
+    <div class="fds-kicker" style="margin-top: 18px">{{this.state_name}} sequence</div>
+    {{#if this.permissives.length}}
+      <p><strong>Permissives:</strong> <span class="mono" style="font-family: var(--font-mono); font-size: 12px">{{#each this.permissives}}{{this}}{{#unless @last}} &nbsp;AND&nbsp; {{/unless}}{{/each}}</span></p>
+    {{/if}}
+    <table class="fds-table">
+      <thead>
+        <tr>
+          <th style="width: 44px">Step</th>
+          <th style="width: 42%">Action</th>
+          <th>Completion criteria</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each this.steps}}
+          <tr class="fds-row">
+            <td class="mono">{{this.n}}</td>
+            <td>{{this.action}}</td>
+            <td>{{this.criteria}}</td>
+          </tr>
+        {{/each}}
+      </tbody>
+    </table>
+    {{#if this.notes}}<p class="muted" style="color: var(--fds-ink-muted); font-size: 12px"><em>{{this.notes}}</em></p>{{/if}}
+  {{/each}}
+</div>

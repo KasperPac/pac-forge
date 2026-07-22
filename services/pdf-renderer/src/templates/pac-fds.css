@@ -1,0 +1,320 @@
+/*
+ * Pac Technologies FDS document styles.
+ * Codifies Templates/Functional Design Specification.html (the approved
+ * design reference) into classes. Normative spec: Docs/FDS-DOC-DESIGN-SYSTEM.md.
+ * Document palette is the cool "fds" family — deliberately distinct from the
+ * warm --pac-ink UI greys in tokens.css; both share Pac Blue 600.
+ */
+
+:root {
+  --fds-ink-strong: #0f1e3d;
+  --fds-ink: #3a434e;
+  --fds-ink-muted: #6b7785;
+  --fds-blue: #3050a0;
+  --fds-blue-deep: #1f3878;
+  --fds-blue-tint: #e5ebf6;
+  --fds-line: #e8ebf0;
+  --fds-line-soft: #d9dee5;
+  --fds-surface: #f4f6fa;
+  --fds-surface-faint: #fafbfd;
+  --fds-crit: #b83227;
+  --fds-warn: #c7821b;
+  --fds-ok: #5fcf8a;
+}
+
+body.fds {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fds-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+.fds h1,
+.fds h2,
+.fds h3,
+.fds h4 {
+  color: var(--fds-ink-strong);
+  margin: 0;
+}
+
+.fds a {
+  color: var(--fds-blue);
+  text-decoration: none;
+}
+
+.fds table {
+  border-collapse: collapse;
+}
+
+.fds thead {
+  display: table-header-group;
+}
+
+/* ---- signature kicker ---- */
+.fds-kicker {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fds-blue);
+  margin: 0 0 6px;
+}
+
+.fds-kicker--cover {
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  margin-bottom: 20px;
+}
+
+/* ---- cover ---- */
+.fds-cover {
+  padding: 34mm 22mm 22mm;
+  min-height: 240mm;
+  display: flex;
+  flex-direction: column;
+  break-after: page;
+  box-sizing: border-box;
+}
+
+.fds-cover-logo {
+  height: 30px;
+  width: auto;
+  margin-bottom: 64px;
+  align-self: flex-start;
+}
+
+.fds-cover-title {
+  font-size: 40px;
+  line-height: 1.12;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  max-width: 16ch;
+  margin-bottom: 16px;
+}
+
+.fds-cover-subtitle {
+  font-size: 19px;
+  line-height: 1.4;
+  color: var(--fds-ink);
+  font-weight: 400;
+  max-width: 34ch;
+  margin-bottom: auto;
+}
+
+.fds-cover-confidential {
+  margin-top: 28px;
+  font-size: 11px;
+  color: var(--fds-ink-muted);
+  line-height: 1.6;
+}
+
+/* ---- document-control / key-value card ---- */
+.fds-card {
+  border: 1px solid var(--fds-line);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 48px;
+  break-inside: avoid;
+}
+
+.fds-card table {
+  width: 100%;
+  font-size: 12.5px;
+}
+
+.fds-card td {
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--fds-line);
+}
+
+.fds-card tr:last-child td {
+  border-bottom: none;
+}
+
+.fds-card td.k {
+  background: var(--fds-surface);
+  font-weight: 600;
+  color: var(--fds-blue-deep);
+  width: 38%;
+}
+
+.fds-card td.mono {
+  font-family: var(--font-mono);
+}
+
+/* ---- body & sections ---- */
+.fds-body {
+  padding: 6mm 22mm 10mm;
+}
+
+.fds-section {
+  break-before: page;
+}
+
+.fds-section:first-child {
+  break-before: auto;
+}
+
+.fds-h2 {
+  font-size: 24px;
+  font-weight: 600;
+  border-bottom: 2px solid var(--fds-blue);
+  padding-bottom: 10px;
+  margin-bottom: 20px;
+}
+
+.fds-h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 24px 0 10px;
+}
+
+.fds p {
+  margin: 0 0 12px;
+}
+
+/* ---- TOC ---- */
+.fds-toc {
+  width: 100%;
+  font-size: 13.5px;
+  line-height: 2;
+}
+
+.fds-toc td.num {
+  width: 42px;
+  font-family: var(--font-mono);
+  color: var(--fds-blue);
+  font-weight: 600;
+  vertical-align: top;
+}
+
+.fds-toc td.title {
+  color: var(--fds-ink-strong);
+  font-weight: 500;
+}
+
+/* ---- data tables ---- */
+.fds-table {
+  width: 100%;
+  font-size: 12px;
+  margin: 10px 0 18px;
+}
+
+.fds-table th {
+  text-align: left;
+  padding: 9px 12px;
+  color: var(--fds-blue-deep);
+  font-weight: 600;
+  border: 1px solid var(--fds-line-soft);
+  background: var(--fds-surface);
+}
+
+.fds-table td {
+  padding: 8px 12px;
+  border: 1px solid var(--fds-line);
+  vertical-align: top;
+}
+
+.fds-table td.mono,
+.fds-table th.mono {
+  font-family: var(--font-mono);
+}
+
+.fds-table td.muted {
+  color: var(--fds-ink-muted);
+}
+
+.fds-row {
+  break-inside: avoid;
+}
+
+/* ---- severity ---- */
+.fds-sev {
+  font-weight: 600;
+}
+
+.fds-sev--critical {
+  color: var(--fds-crit);
+}
+
+.fds-sev--fault,
+.fds-sev--warning {
+  color: var(--fds-warn);
+}
+
+.fds-chip {
+  display: inline-block;
+  border-radius: 6px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #ffffff;
+}
+
+.fds-chip--critical {
+  background: var(--fds-crit);
+}
+
+.fds-chip--fault,
+.fds-chip--warning {
+  background: var(--fds-warn);
+}
+
+.fds-chip--ok {
+  background: var(--fds-ok);
+}
+
+/* ---- placeholder / note blocks ---- */
+.fds-note {
+  border: 1px dashed var(--fds-line-soft);
+  border-radius: 8px;
+  padding: 44px 22px;
+  text-align: center;
+  color: var(--fds-ink-muted);
+  background: var(--fds-surface-faint);
+  break-inside: avoid;
+  margin: 14px 0;
+}
+
+.fds-note .fds-kicker {
+  margin-bottom: 8px;
+}
+
+.fds-note-body {
+  font-size: 13.5px;
+  line-height: 1.6;
+  max-width: 52ch;
+  margin: 0 auto;
+}
+
+/* ---- lists ---- */
+.fds ul {
+  margin: 0 0 12px;
+  padding-left: 20px;
+}
+
+.fds li {
+  margin-bottom: 4px;
+}
+
+/* ---- end line ---- */
+.fds-endline {
+  margin-top: 40px;
+  padding-top: 16px;
+  border-top: 1px solid var(--fds-line);
+  font-size: 11px;
+  color: var(--fds-ink-muted);
+  text-align: center;
+}
+
+@media print {
+  .fds-note,
+  .fds-row,
+  .fds-card {
+    break-inside: avoid;
+  }
+}

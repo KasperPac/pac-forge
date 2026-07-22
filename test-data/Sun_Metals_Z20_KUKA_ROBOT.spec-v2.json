@@ -1,0 +1,2944 @@
+{
+  "schema_version": 3,
+  "project": {
+    "id": "d560c269-5a45-4d53-ba42-861f3c0d9d3b",
+    "doc_code": "SUN-Z20-KUKA-FDS",
+    "title": "Sun Metals Z20 — Robotic Ingot-Stacking Cell",
+    "client_name": "Sun Metals",
+    "project_number": "Z20",
+    "plc_model": "Allen-Bradley CompactLogix 5069-L310ERM",
+    "hmi_type": "KUKA_HMI (PLC-mediated) + line HMI",
+    "comms_protocol": "EtherNet/IP",
+    "safety_classification": "E-Stop major-fault path (site safety controller scope not in this program)",
+    "fault_philosophy": "14-word fault table (TOP.CTRL.Fault[0..13]). E-Stop (F0.30/F0.31) = MajorFault forcing all EMs to aborted; other conditions latch as minor faults until Fault_Reset_Request.",
+    "design_principles": [
+      "PackML-style unit state model (custom BASE_CONTROL on the TOP tag).",
+      "Reusable device AOIs (FB_DI_Sensor / FB_AI_Sensor / FB_DI_PushButton / FB_D_Solenoid) as control modules.",
+      "PGNO program-number handshake to the KUKA robot for all motion.",
+      "Reverse-engineered from L5K; robot motion detail resides in the KUKA .src."
+    ],
+    "scope_exclusions": [
+      "Strapping_Machine / OLD_Strapping_Machine / Channel1Program (other units on the same controller).",
+      "Slab_1_M580 CIP bridge (not referenced by KUKA_ROBOT program).",
+      "KUKA .src robot motion programs (referenced by PGNO only).",
+      "Functional safety design (safety controller / GuardLogix)."
+    ]
+  },
+  "hierarchy": {
+    "units": [
+      {
+        "unit_id": "c3499cc8-4401-437f-bf23-45ef18afc893",
+        "unit_name": "Robotic Stacking Cell",
+        "equipment_type": "robotic_palletiser",
+        "description": "KUKA KRC5 robot cell palletising cast aluminium ingots into layered, strapped stacks. One Unit within the Z20 strapping line (controller Sun_Metals_Z20).",
+        "excluded": false,
+        "equipment_modules": [
+          {
+            "equipment_module_id": "0a477175-0d25-4306-a45e-0d7687bdf1b8",
+            "equipment_module_name": "Infeed Queue & Detection",
+            "description": "Detects ingots at 4 conveyor pickup positions, classifies Foot/Standard/Top/Flip, maintains the FIFO infeed queue and tracking array, deletes picked ingots and drives the turn-over flipper. Source: R201/R202/R203 + FB_INGOT_DETECTION, FB_IngotDetect_Scan.",
+            "control_modules": [
+              {
+                "control_module_id": "10987935-0d6d-49d5-a04e-3cab6b8e37b2",
+                "control_module_name": "Infeed Top Sensor",
+                "control_module_class": "digital_input_sensor",
+                "is_safety": false,
+                "description": "Infeed top-level ingot presence (FB_DI_SensorData[21]).",
+                "io_signals": [
+                  {
+                    "tag": "INFEED_TopSensor",
+                    "signal_type": "DI",
+                    "io_address": "K_RIO2:I.Data.8",
+                    "description": "Infeed top sensor",
+                    "source": "wired",
+                    "tier": "wired"
+                  }
+                ]
+              },
+              {
+                "control_module_id": "c3cf2f55-5ca4-4c1a-8931-8d0680fc2e21",
+                "control_module_name": "Infeed Lower Sensor",
+                "control_module_class": "digital_input_sensor",
+                "is_safety": false,
+                "description": "Infeed lower-level ingot presence (FB_DI_SensorData[22]).",
+                "io_signals": [
+                  {
+                    "tag": "INFEED_LowerSensor",
+                    "signal_type": "DI",
+                    "io_address": "K_RIO2:I.Data.9",
+                    "description": "Infeed lower sensor",
+                    "source": "wired",
+                    "tier": "wired"
+                  }
+                ]
+              },
+              {
+                "control_module_id": "7b3ef3e1-83b9-4b11-b9b6-3836f5832b5e",
+                "control_module_name": "Position 1 Top Sensor",
+                "control_module_class": "digital_input_sensor",
+                "is_safety": false,
+                "description": "Pickup position 1 top-detection (FB_DI_SensorData[13]).",
+                "io_signals": [
+                  {
+                    "tag": "POS1_TopSensor",
+                    "signal_type": "DI",
+                    "io_address": "K_RIO2:I.Data.0",
+                    "description": "Pos1 top sensor",
+                    "source": "wired",
+                    "tier": "wired"
+                  }
+                ]
+              },
+              {
+                "control_module_id": "2337d473-dec3-4fce-aceb-59f5e4502709",
+                "control_module_name": "Position 1 Foot Sensor",
+                "control_module_class": "digital_input_sensor",
+                "is_safety": false,
+                "description": "Pickup position 1 foot-detection (FB_DI_SensorData[17]).",
+                "io_signals": [
+                  {
+                    "tag": "POS1_FootSensor",
+                    "signal_type": "DI",
+                    "io_address": "K_RIO2:I.Data.4",
+                    "description": "Pos1 foot sensor",
+                    "source": "wired",
+                    "tier": "wired"
+                  }
+                ]
+              },
+              {
+                "control_module_id": "6a1dcfd2-17a5-48a6-9aa8-6241c1511f53",
+                "control_module_name": "Balluff IO-Link Master 1 (K_RIO1)",
+                "control_module_class": "io_link_master",
+                "is_safety": false,
+                "description": "Balluff BNI006A EtherNet/IP IO-Link master — 8 ports: P1–P4 IO-Link (laser + DI), P5–P8 DI.",
+                "io_signals": [
+                  {
+                    "tag": "K_RIO1:I.Data",
+                    "signal_type": "internal",
+                    "io_address": "192.168.1.21:I",
+                    "description": "IO-Link master input area",
+                    "source": "network_telegram",
+                    "tier": "fb_instance"
+                  }
+                ],
+                "network_config": {
+                  "protocol": "ethernet_ip",
+                  "ip_address": "192.168.1.21",
+                  "station_name": "K_RIO1",
+                  "update_cycle_ms": 20
+                }
+              },
+              {
+                "control_module_id": "93409567-8a7f-4eee-bd12-41d3700c30ce",
+                "control_module_name": "Balluff IO-Link Master 2 (K_RIO2)",
+                "control_module_class": "io_link_master",
+                "is_safety": false,
+                "description": "Balluff BNI006A EtherNet/IP IO-Link master — 8 ports DI (sensors 13–22).",
+                "io_signals": [
+                  {
+                    "tag": "K_RIO2:I.Data",
+                    "signal_type": "internal",
+                    "io_address": "192.168.1.22:I",
+                    "description": "IO-Link master input area",
+                    "source": "network_telegram",
+                    "tier": "fb_instance"
+                  }
+                ],
+                "network_config": {
+                  "protocol": "ethernet_ip",
+                  "ip_address": "192.168.1.22",
+                  "station_name": "K_RIO2",
+                  "update_cycle_ms": 20
+                }
+              }
+            ]
+          },
+          {
+            "equipment_module_id": "9faa0cbe-8c78-4a0a-bc4d-30e9e96c5317",
+            "equipment_module_name": "Robot Interface & Task Executor",
+            "description": "Maps the full KUKA KRC5 EtherNet/IP handshake, selects and dispatches the robot task via the PGNO program-number interface, enforces ready/interlock conditions and reflects robot status to PLC/HMI. Source: R004/R204 + FB_EXECUTE_R_STEPS_ACTIONS, AOI_KRC5_KUKA.",
+            "control_modules": [
+              {
+                "control_module_id": "d4be4cd5-6dfa-4bc7-87e3-da974d747e68",
+                "control_module_name": "KUKA KRC5 Robot",
+                "control_module_class": "robot_controller",
+                "is_safety": false,
+                "description": "KUKA KRC5 robot controller — PGNO task dispatch, drives/enable handshake, gripper ops, stack/makeup reflections.",
+                "io_signals": [
+                  {
+                    "tag": "KUKA_ROBOT.In.Data",
+                    "signal_type": "internal",
+                    "io_address": "192.168.1.24:I1",
+                    "description": "Robot→PLC status telegram (UDT_IO_KUKA_ROBOT_INPUT_V2)",
+                    "source": "network_telegram",
+                    "tier": "fb_instance"
+                  },
+                  {
+                    "tag": "KUKA_ROBOT.Out.Data",
+                    "signal_type": "internal",
+                    "io_address": "192.168.1.24:O1",
+                    "description": "PLC→Robot command telegram (UDT_IO_KUKA_ROBOT_OUTPUT_V2)",
+                    "source": "network_telegram",
+                    "tier": "fb_instance"
+                  }
+                ],
+                "network_config": {
+                  "protocol": "ethernet_ip",
+                  "ip_address": "192.168.1.24",
+                  "station_name": "KUKA_ROBOT",
+                  "update_cycle_ms": 20
+                }
+              }
+            ]
+          },
+          {
+            "equipment_module_id": "fc144a3e-2152-4f18-9064-356eec72b920",
+            "equipment_module_name": "Stack Builder — Foot Ingots",
+            "description": "Step/action sequence placing foot ingots onto the active stack; assigns active stack, dispatches robot tasks, advances CurrentLayer/NextLayer. Source: FOOT_SAS/FOOT_SECTION step-action FB.",
+            "control_modules": []
+          },
+          {
+            "equipment_module_id": "234f3e3a-0ce0-421d-a438-c4042bff750c",
+            "equipment_module_name": "Stack Builder — Regular Ingots",
+            "description": "Step/action sequence placing regular ingots onto the active stack; assigns active stack, dispatches robot tasks, advances CurrentLayer/NextLayer. Source: REGULAR_SAS/REGULAR_SECTION step-action FB.",
+            "control_modules": []
+          },
+          {
+            "equipment_module_id": "252ccfbd-bebc-4731-afd2-146eab1b50d0",
+            "equipment_module_name": "Stack Builder — Top Ingots",
+            "description": "Step/action sequence placing top ingots onto the active stack; assigns active stack, dispatches robot tasks, advances CurrentLayer/NextLayer. Source: TOP_SAS/TOP_SECTION step-action FB.",
+            "control_modules": []
+          },
+          {
+            "equipment_module_id": "18b21733-313c-41b0-9623-419f51a13577",
+            "equipment_module_name": "Stack Management & Outfeed Index",
+            "description": "Per-stack layer/quantity counting, active-stack rotation, stack-off-conveyor shift to the strapper, and X-position tracking via the SICK encoder. Source: R301 + STACK_COUNT, MAKEUP_COUNT, FB_OUTFEED_ENC_TRACK.",
+            "control_modules": [
+              {
+                "control_module_id": "3d766075-075f-4591-aebc-5b4a14df15b0",
+                "control_module_name": "SICK Outfeed Encoder",
+                "control_module_class": "encoder",
+                "is_safety": false,
+                "description": "SICK AFM60A EtherNet/IP absolute encoder — tracks stack X-position during indexing (read via explicit MSG).",
+                "io_signals": [
+                  {
+                    "tag": "SickAFX_Enc1_xyz:I1.Data[1]",
+                    "signal_type": "AI",
+                    "io_address": "192.168.1.25:I1",
+                    "description": "Encoder position word",
+                    "source": "network_telegram",
+                    "tier": "fb_instance"
+                  }
+                ],
+                "network_config": {
+                  "protocol": "ethernet_ip",
+                  "ip_address": "192.168.1.25",
+                  "station_name": "SickAFX_Enc1_xyz",
+                  "update_cycle_ms": 20
+                }
+              }
+            ]
+          },
+          {
+            "equipment_module_id": "dfd7772f-1aee-41b4-9aca-dcd98a58a166",
+            "equipment_module_name": "Makeup Table",
+            "description": "Partial-layer buffer holding top/mid/btm racks with required quantity per option; fills when no stack is active. Source: MAKEUP_TABLE/MAKEUP_1 + makeup fill logic in R203.",
+            "control_modules": []
+          },
+          {
+            "equipment_module_id": "93c3d80c-2ac5-412d-9caa-0c9aa3d97419",
+            "equipment_module_name": "Gripper & Pneumatics",
+            "description": "4 gripper solenoids (extend/retract with reed-switch feedback) + laser air-blast, driven by the robot's gripper open/close ops via the SMC EX260 valve manifold. Source: R003/R008 + FB_D_Solenoid.",
+            "control_modules": [
+              {
+                "control_module_id": "47a1104c-1a16-4a9a-96c0-1b8b186fdbe8",
+                "control_module_name": "SMC Valve Manifold",
+                "control_module_class": "valve_manifold",
+                "is_safety": false,
+                "description": "SMC EX260-SEN1 EtherNet/IP valve manifold — 5 solenoid points: grippers A–D + air-blast.",
+                "io_signals": [
+                  {
+                    "tag": "K_VALVE_MANIFOLD:O1.OutputArea",
+                    "signal_type": "DO",
+                    "io_address": "192.168.1.23:O1",
+                    "description": "Solenoid output word",
+                    "source": "network_telegram",
+                    "tier": "fb_instance"
+                  },
+                  {
+                    "tag": "K_VALVE_MANIFOLD:I1.SOLV_Status",
+                    "signal_type": "DI",
+                    "io_address": "192.168.1.23:I1",
+                    "description": "Manifold status/fault",
+                    "source": "network_telegram",
+                    "tier": "fb_instance"
+                  }
+                ],
+                "network_config": {
+                  "protocol": "ethernet_ip",
+                  "ip_address": "192.168.1.23",
+                  "station_name": "K_VALVE_MANIFOLD",
+                  "update_cycle_ms": 20
+                }
+              },
+              {
+                "control_module_id": "a6272fbb-e60d-483b-9360-c6ef8c1cf74e",
+                "control_module_name": "Gripper A Solenoid",
+                "control_module_class": "double_solenoid",
+                "is_safety": false,
+                "description": "Gripper A extend/retract (FB_DO_SolenoidData[1]) with reed-switch feedback.",
+                "io_signals": [
+                  {
+                    "tag": "GRIP_A_EXT",
+                    "signal_type": "DO",
+                    "io_address": "K_VALVE_MANIFOLD.Point[4].B",
+                    "description": "Gripper A extend",
+                    "source": "wired",
+                    "tier": "wired"
+                  },
+                  {
+                    "tag": "GRIP_A_RET",
+                    "signal_type": "DO",
+                    "io_address": "K_VALVE_MANIFOLD.Point[4].A",
+                    "description": "Gripper A retract",
+                    "source": "wired",
+                    "tier": "wired"
+                  }
+                ]
+              },
+              {
+                "control_module_id": "276ed8cf-ff0a-4e7b-b7df-a11acdfbfc0a",
+                "control_module_name": "Laser Air-Blast Solenoid",
+                "control_module_class": "single_solenoid",
+                "is_safety": false,
+                "description": "Laser lens air-blast (FB_DO_SolenoidData[5]).",
+                "io_signals": [
+                  {
+                    "tag": "LASER_AIRBLAST",
+                    "signal_type": "DO",
+                    "io_address": "K_VALVE_MANIFOLD.Point[3].A",
+                    "description": "Air-blast",
+                    "source": "wired",
+                    "tier": "wired"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "equipment_module_id": "0f44dc13-ca7f-4a69-b753-d3b3fe15cd0d",
+            "equipment_module_name": "ConveyTech Interface",
+            "description": "6-step handshake (via robot Task 6) releasing a completed stack to the downstream ConveyTech conveyor / strapper. Mediated through the robot (KUKA_ROBOT.In.CONVEYOR_*). Source: R305.",
+            "control_modules": []
+          }
+        ]
+      }
+    ]
+  },
+  "alarm_tiers": [
+    {
+      "tier_id": "warning",
+      "tier_name": "Warning",
+      "description": "Advisory; no automatic stop."
+    },
+    {
+      "tier_id": "fault",
+      "tier_name": "Fault",
+      "description": "Minor fault; latches until reset, may stop the cycle."
+    },
+    {
+      "tier_id": "critical",
+      "tier_name": "Critical",
+      "description": "Major fault / E-Stop; forces EMs to safe (aborted)."
+    }
+  ],
+  "equipment_modules": {
+    "0a477175-0d25-4306-a45e-0d7687bdf1b8": {
+      "equipment_module_id": "0a477175-0d25-4306-a45e-0d7687bdf1b8",
+      "unit_id": "c3499cc8-4401-437f-bf23-45ef18afc893",
+      "states": [
+        {
+          "state_id": "idle",
+          "name": "Idle",
+          "kind": "static",
+          "allowed_modes": [],
+          "is_safe_state": false
+        },
+        {
+          "state_id": "execute",
+          "name": "Execute",
+          "kind": "sequential",
+          "allowed_modes": [],
+          "is_safe_state": false
+        },
+        {
+          "state_id": "aborted",
+          "name": "Aborted",
+          "kind": "static",
+          "allowed_modes": [],
+          "is_safe_state": true
+        }
+      ],
+      "transitions": [
+        {
+          "transition_id": "idle_to_execute",
+          "from_state_id": "idle",
+          "to_state_id": "execute",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Automatic_Run",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "execute_to_idle",
+          "from_state_id": "execute",
+          "to_state_id": "idle",
+          "trigger": {
+            "kind": "completion"
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "execute_to_aborted",
+          "from_state_id": "execute",
+          "to_state_id": "aborted",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault[0].MajorFault",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "idle_to_aborted",
+          "from_state_id": "idle",
+          "to_state_id": "aborted",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault[0].MajorFault",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "aborted_to_idle",
+          "from_state_id": "aborted",
+          "to_state_id": "idle",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault_Reset_Request",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        }
+      ],
+      "static_states": {
+        "idle": {
+          "control_modules": [
+            {
+              "tag": "INFEED_Queue",
+              "description": "Infeed queue held; no insert/delete",
+              "state": "frozen"
+            }
+          ],
+          "notes": "Queue frozen while system not running (RunSYS false)."
+        },
+        "aborted": {
+          "control_modules": [
+            {
+              "tag": "INFEED_Queue",
+              "description": "Queue cleared on abort",
+              "state": "cleared"
+            }
+          ],
+          "notes": null
+        }
+      },
+      "sequential_states": {
+        "execute": {
+          "permissives": [
+            {
+              "tag": "RunSYS",
+              "operator": "=",
+              "value": true
+            }
+          ],
+          "steps": [
+            {
+              "step_id": "s1",
+              "branch_id": "main",
+              "name": "Detect & classify",
+              "actions": [
+                {
+                  "kind": "manual_prose",
+                  "action_id": "a1",
+                  "text": "Classify ingot per position via FB_INGOT_DETECTION and laser height scan.",
+                  "referenced_tags": [
+                    "CONVEYOR_D_IngotLogicDetection"
+                  ],
+                  "prose": "Classify ingot per position via FB_INGOT_DETECTION and laser height scan."
+                }
+              ],
+              "monitors": [],
+              "transitions": [],
+              "step": 1,
+              "action": "Read per-position top/foot sensors + laser scan; FB_INGOT_DETECTION classifies each position as Foot(1)/Standard(2)/Top/Flip(3).",
+              "completion_criteria": [
+                {
+                  "kind": "expression",
+                  "text": "Detection debounced via INFEED_Detection_delay.DN",
+                  "referenced_tags": [
+                    "INFEED_Detection_delay"
+                  ]
+                }
+              ],
+              "completion_criteria_text": "Ingot type resolved for each active position"
+            },
+            {
+              "step_id": "s2",
+              "branch_id": "main",
+              "name": "Insert into queue",
+              "actions": [
+                {
+                  "kind": "manual_prose",
+                  "action_id": "a2",
+                  "text": "Append ingot type to INFEED_Queue and INFEED_INGOT_TRAKING.",
+                  "referenced_tags": [
+                    "INFEED_Queue"
+                  ],
+                  "prose": "Append ingot type to INFEED_Queue and INFEED_INGOT_TRAKING."
+                }
+              ],
+              "monitors": [],
+              "transitions": [],
+              "step": 2,
+              "action": "Insert classified ingot type into INFEED_Queue at the insert index; append to tracking array; raise INFEED_Alarm_Ingot_unexpected if type != expected.",
+              "completion_criteria": [
+                {
+                  "kind": "tag_equals",
+                  "tag": "INFEED_Insert_InfeedQueue",
+                  "value": true
+                }
+              ],
+              "completion_criteria_text": "Ingot appended to queue"
+            },
+            {
+              "step_id": "s3",
+              "branch_id": "main",
+              "name": "Delete on pick",
+              "actions": [],
+              "monitors": [],
+              "transitions": [],
+              "step": 3,
+              "action": "When a stack section signals ACTIONS.7 (picked), delete taken ingots from the queue and compact (R202 FOR loop).",
+              "completion_criteria": [
+                {
+                  "kind": "tag_equals",
+                  "tag": "INFEED_Delete_InfeedQueue",
+                  "value": true
+                }
+              ],
+              "completion_criteria_text": "Queue compacted after pick"
+            }
+          ],
+          "branches": [
+            {
+              "branch_id": "main",
+              "name": "Main",
+              "kind": "main",
+              "fork_step_id": "s1"
+            }
+          ],
+          "state_monitors": [],
+          "sequence_model_version": 2,
+          "notes": "Turn-over flipper path (INFEED_KUKA_Turn_Over_Flipper, triggered after 36 tracked / every 4 tops) is heuristic — confirm intended rule."
+        }
+      }
+    },
+    "9faa0cbe-8c78-4a0a-bc4d-30e9e96c5317": {
+      "equipment_module_id": "9faa0cbe-8c78-4a0a-bc4d-30e9e96c5317",
+      "unit_id": "c3499cc8-4401-437f-bf23-45ef18afc893",
+      "states": [
+        {
+          "state_id": "idle",
+          "name": "Idle",
+          "kind": "static",
+          "allowed_modes": [],
+          "is_safe_state": false
+        },
+        {
+          "state_id": "execute",
+          "name": "Execute",
+          "kind": "sequential",
+          "allowed_modes": [],
+          "is_safe_state": false
+        },
+        {
+          "state_id": "aborted",
+          "name": "Aborted",
+          "kind": "static",
+          "allowed_modes": [],
+          "is_safe_state": true
+        }
+      ],
+      "transitions": [
+        {
+          "transition_id": "idle_to_execute",
+          "from_state_id": "idle",
+          "to_state_id": "execute",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Automatic_Run",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "execute_to_idle",
+          "from_state_id": "execute",
+          "to_state_id": "idle",
+          "trigger": {
+            "kind": "completion"
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "execute_to_aborted",
+          "from_state_id": "execute",
+          "to_state_id": "aborted",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault[0].MajorFault",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "idle_to_aborted",
+          "from_state_id": "idle",
+          "to_state_id": "aborted",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault[0].MajorFault",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "aborted_to_idle",
+          "from_state_id": "aborted",
+          "to_state_id": "idle",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault_Reset_Request",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        }
+      ],
+      "static_states": {
+        "idle": {
+          "control_modules": [
+            {
+              "tag": "KUKA_ROBOT.Out.PGNO",
+              "description": "No program selected",
+              "state": "0"
+            },
+            {
+              "tag": "KUKA_ROBOT.Out.MOVE_ENABLE",
+              "description": "Move enable low",
+              "state": "off"
+            }
+          ],
+          "notes": "Awaiting a task request; robot at home / PERI_RDY."
+        },
+        "aborted": {
+          "control_modules": [
+            {
+              "tag": "KUKA_ROBOT.Out.DRIVES_OFF",
+              "description": "Drives commanded off",
+              "state": "on"
+            },
+            {
+              "tag": "KUKA_ROBOT.Out.MOVE_ENABLE",
+              "description": "Move enable removed",
+              "state": "off"
+            }
+          ],
+          "notes": "Robot ALARM_STOP or major fault."
+        }
+      },
+      "sequential_states": {
+        "execute": {
+          "permissives": [
+            {
+              "tag": "TOP.CTRL.Automatic_Run",
+              "operator": "=",
+              "value": true
+            },
+            {
+              "tag": "KUKA_ROBOT.In.PERI_RDY",
+              "operator": "=",
+              "value": true
+            },
+            {
+              "tag": "KUKA_ROBOT.In.STOPMESS",
+              "operator": "=",
+              "value": false
+            }
+          ],
+          "steps": [
+            {
+              "step_id": "s1",
+              "branch_id": "main",
+              "name": "Select task",
+              "actions": [
+                {
+                  "kind": "manual_prose",
+                  "action_id": "a1",
+                  "text": "Move selected task number to KUKA_ROBOT.Out.PGNO.",
+                  "referenced_tags": [
+                    "KUKA_ROBOT.Out.PGNO"
+                  ],
+                  "prose": "Move selected task number to KUKA_ROBOT.Out.PGNO."
+                }
+              ],
+              "monitors": [],
+              "transitions": [],
+              "step": 1,
+              "action": "Latch the requested task number (1..8) into Task_Request from the active stack section / HMI IN_TASK_n_EXE.",
+              "completion_criteria": [
+                {
+                  "kind": "expression",
+                  "text": "Task_Request <> 0",
+                  "referenced_tags": [
+                    "Task_Request"
+                  ]
+                }
+              ],
+              "completion_criteria_text": "Task_Request != 0"
+            },
+            {
+              "step_id": "s2",
+              "branch_id": "main",
+              "name": "Handshake PGNO",
+              "actions": [
+                {
+                  "kind": "assign",
+                  "action_id": "a2",
+                  "target_tag": "KUKA_ROBOT.Out.PGNO_VALID",
+                  "source": {
+                    "kind": "literal",
+                    "value": true,
+                    "value_type": "boolean"
+                  },
+                  "prose": "Assert PGNO valid to release the robot program."
+                }
+              ],
+              "monitors": [],
+              "transitions": [],
+              "step": 2,
+              "action": "On KUKA_ROBOT.In.PGNO_REQ, assert PGNO_VALID; robot acknowledges and starts the program.",
+              "completion_criteria": [
+                {
+                  "kind": "tag_equals",
+                  "tag": "KUKA_ROBOT.In.PGNO_REQ",
+                  "value": true
+                }
+              ],
+              "completion_criteria_text": "Robot PRO_ACT && APPL_RUN"
+            },
+            {
+              "step_id": "s3",
+              "branch_id": "main",
+              "name": "Await completion",
+              "actions": [],
+              "monitors": [],
+              "transitions": [],
+              "step": 3,
+              "action": "Robot runs task (move/pick/place/dump). Wait for task-completed handshake (PGNO_REQ low & APPL_RUN).",
+              "completion_criteria": [
+                {
+                  "kind": "expression",
+                  "text": "NOT PGNO_REQ AND APPL_RUN",
+                  "referenced_tags": [
+                    "KUKA_ROBOT.In.PGNO_REQ",
+                    "KUKA_ROBOT.In.APPL_RUN"
+                  ]
+                }
+              ],
+              "completion_criteria_text": "Task completed"
+            },
+            {
+              "step_id": "s4",
+              "branch_id": "main",
+              "name": "Clear request",
+              "actions": [
+                {
+                  "kind": "assign",
+                  "action_id": "a4",
+                  "target_tag": "Task_Request",
+                  "source": {
+                    "kind": "literal",
+                    "value": 0,
+                    "value_type": "number"
+                  },
+                  "prose": "Clear the task request."
+                }
+              ],
+              "monitors": [],
+              "transitions": [],
+              "step": 4,
+              "action": "Clear Task_Request; update Last_Run_Task; hand back to the calling stack section.",
+              "completion_criteria": [
+                {
+                  "kind": "tag_equals",
+                  "tag": "Task_Request",
+                  "value": 0
+                }
+              ],
+              "completion_criteria_text": "Task_Request cleared"
+            }
+          ],
+          "branches": [
+            {
+              "branch_id": "main",
+              "name": "Main",
+              "kind": "main",
+              "fork_step_id": "s1"
+            }
+          ],
+          "state_monitors": [],
+          "sequence_model_version": 2,
+          "notes": "Task map (PGNO): 1=move-to-pick, 2=stack-with-makeup, 3/4=stack variants, 5=send-data, 6=conveytech-release, 7=maintenance. Tasks 3/4 motion detail lives in the KUKA .src — [ASSUMPTION]."
+        }
+      }
+    },
+    "fc144a3e-2152-4f18-9064-356eec72b920": {
+      "equipment_module_id": "fc144a3e-2152-4f18-9064-356eec72b920",
+      "unit_id": "c3499cc8-4401-437f-bf23-45ef18afc893",
+      "states": [
+        {
+          "state_id": "idle",
+          "name": "Idle",
+          "kind": "static",
+          "allowed_modes": [],
+          "is_safe_state": false
+        },
+        {
+          "state_id": "execute",
+          "name": "Execute",
+          "kind": "sequential",
+          "allowed_modes": [],
+          "is_safe_state": false
+        },
+        {
+          "state_id": "aborted",
+          "name": "Aborted",
+          "kind": "static",
+          "allowed_modes": [],
+          "is_safe_state": true
+        }
+      ],
+      "transitions": [
+        {
+          "transition_id": "idle_to_execute",
+          "from_state_id": "idle",
+          "to_state_id": "execute",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Automatic_Run",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "execute_to_idle",
+          "from_state_id": "execute",
+          "to_state_id": "idle",
+          "trigger": {
+            "kind": "completion"
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "execute_to_aborted",
+          "from_state_id": "execute",
+          "to_state_id": "aborted",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault[0].MajorFault",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "idle_to_aborted",
+          "from_state_id": "idle",
+          "to_state_id": "aborted",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault[0].MajorFault",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "aborted_to_idle",
+          "from_state_id": "aborted",
+          "to_state_id": "idle",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault_Reset_Request",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        }
+      ],
+      "static_states": {
+        "idle": {
+          "control_modules": [
+            {
+              "tag": "FOOT_SECTION.ACTIONS",
+              "description": "No action asserted",
+              "state": "0"
+            }
+          ],
+          "notes": "Awaiting a full pickup queue for this ingot type."
+        },
+        "aborted": {
+          "control_modules": [
+            {
+              "tag": "Task_Request",
+              "description": "Task request cleared",
+              "state": "0"
+            }
+          ],
+          "notes": null
+        }
+      },
+      "sequential_states": {
+        "execute": {
+          "permissives": [
+            {
+              "tag": "TOP.CTRL.Automatic_Run",
+              "operator": "=",
+              "value": true
+            },
+            {
+              "tag": "FOOT_SAS.QUEUE_FULL",
+              "operator": "=",
+              "value": true
+            }
+          ],
+          "steps": [
+            {
+              "step_id": "s1",
+              "branch_id": "main",
+              "name": "Request pick",
+              "actions": [
+                {
+                  "kind": "assign",
+                  "action_id": "a1",
+                  "target_tag": "Task_Request",
+                  "source": {
+                    "kind": "literal",
+                    "value": 1,
+                    "value_type": "number"
+                  },
+                  "prose": "Request robot move-to-pick task."
+                }
+              ],
+              "monitors": [],
+              "transitions": [],
+              "step": 1,
+              "action": "Assert ACTIONS.2 → robot Task 1 (move to position); activate grippers per LOCn_PICK.",
+              "completion_criteria": [
+                {
+                  "kind": "tag_equals",
+                  "tag": "FOOT_SECTION.ACTIONS.2",
+                  "value": true
+                }
+              ],
+              "completion_criteria_text": "Robot picked ingots from conveyor"
+            },
+            {
+              "step_id": "s2",
+              "branch_id": "main",
+              "name": "Place on stack",
+              "actions": [],
+              "monitors": [],
+              "transitions": [],
+              "step": 2,
+              "action": "Robot places ingots on the active stack at CurrentLayer; ACTIONS.4 sends stack data to robot.",
+              "completion_criteria": [
+                {
+                  "kind": "tag_equals",
+                  "tag": "FOOT_SECTION.ACTIONS.4",
+                  "value": true
+                }
+              ],
+              "completion_criteria_text": "Layer placed"
+            },
+            {
+              "step_id": "s3",
+              "branch_id": "main",
+              "name": "Update layer",
+              "actions": [
+                {
+                  "kind": "manual_prose",
+                  "action_id": "a3",
+                  "text": "Advance NextLayer and mark Foot/Reg/Top layer complete on the active stack.",
+                  "referenced_tags": [
+                    "STACKS"
+                  ],
+                  "prose": "Advance NextLayer and mark Foot/Reg/Top layer complete on the active stack."
+                }
+              ],
+              "monitors": [],
+              "transitions": [],
+              "step": 3,
+              "action": "ACTIONS.7 marks layer complete, deletes picked ingots from the infeed queue, advances NextLayer; rotate active stack when CurrentLayer >= 10.",
+              "completion_criteria": [
+                {
+                  "kind": "tag_equals",
+                  "tag": "FOOT_SECTION.ACTIONS.7",
+                  "value": true
+                }
+              ],
+              "completion_criteria_text": "Layer count advanced"
+            }
+          ],
+          "branches": [
+            {
+              "branch_id": "main",
+              "name": "Main",
+              "kind": "main",
+              "fork_step_id": "s1"
+            }
+          ],
+          "state_monitors": [],
+          "sequence_model_version": 2,
+          "notes": "Foot layer is the bottom layer; ACTIONS map: 2=pick,4=send-data,7=update,11=Task2,20=Task3,26=Task4."
+        }
+      }
+    },
+    "234f3e3a-0ce0-421d-a438-c4042bff750c": {
+      "equipment_module_id": "234f3e3a-0ce0-421d-a438-c4042bff750c",
+      "unit_id": "c3499cc8-4401-437f-bf23-45ef18afc893",
+      "states": [
+        {
+          "state_id": "idle",
+          "name": "Idle",
+          "kind": "static",
+          "allowed_modes": [],
+          "is_safe_state": false
+        },
+        {
+          "state_id": "execute",
+          "name": "Execute",
+          "kind": "sequential",
+          "allowed_modes": [],
+          "is_safe_state": false
+        },
+        {
+          "state_id": "aborted",
+          "name": "Aborted",
+          "kind": "static",
+          "allowed_modes": [],
+          "is_safe_state": true
+        }
+      ],
+      "transitions": [
+        {
+          "transition_id": "idle_to_execute",
+          "from_state_id": "idle",
+          "to_state_id": "execute",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Automatic_Run",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "execute_to_idle",
+          "from_state_id": "execute",
+          "to_state_id": "idle",
+          "trigger": {
+            "kind": "completion"
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "execute_to_aborted",
+          "from_state_id": "execute",
+          "to_state_id": "aborted",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault[0].MajorFault",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "idle_to_aborted",
+          "from_state_id": "idle",
+          "to_state_id": "aborted",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault[0].MajorFault",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "aborted_to_idle",
+          "from_state_id": "aborted",
+          "to_state_id": "idle",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault_Reset_Request",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        }
+      ],
+      "static_states": {
+        "idle": {
+          "control_modules": [
+            {
+              "tag": "REGULAR_SECTION.ACTIONS",
+              "description": "No action asserted",
+              "state": "0"
+            }
+          ],
+          "notes": "Awaiting a full pickup queue for this ingot type."
+        },
+        "aborted": {
+          "control_modules": [
+            {
+              "tag": "Task_Request",
+              "description": "Task request cleared",
+              "state": "0"
+            }
+          ],
+          "notes": null
+        }
+      },
+      "sequential_states": {
+        "execute": {
+          "permissives": [
+            {
+              "tag": "TOP.CTRL.Automatic_Run",
+              "operator": "=",
+              "value": true
+            },
+            {
+              "tag": "REGULAR_SAS.QUEUE_FULL",
+              "operator": "=",
+              "value": true
+            }
+          ],
+          "steps": [
+            {
+              "step_id": "s1",
+              "branch_id": "main",
+              "name": "Request pick",
+              "actions": [
+                {
+                  "kind": "assign",
+                  "action_id": "a1",
+                  "target_tag": "Task_Request",
+                  "source": {
+                    "kind": "literal",
+                    "value": 1,
+                    "value_type": "number"
+                  },
+                  "prose": "Request robot move-to-pick task."
+                }
+              ],
+              "monitors": [],
+              "transitions": [],
+              "step": 1,
+              "action": "Assert ACTIONS.2 → robot Task 1 (move to position); activate grippers per LOCn_PICK.",
+              "completion_criteria": [
+                {
+                  "kind": "tag_equals",
+                  "tag": "REGULAR_SECTION.ACTIONS.2",
+                  "value": true
+                }
+              ],
+              "completion_criteria_text": "Robot picked ingots from conveyor"
+            },
+            {
+              "step_id": "s2",
+              "branch_id": "main",
+              "name": "Place on stack",
+              "actions": [],
+              "monitors": [],
+              "transitions": [],
+              "step": 2,
+              "action": "Robot places ingots on the active stack at CurrentLayer; ACTIONS.4 sends stack data to robot.",
+              "completion_criteria": [
+                {
+                  "kind": "tag_equals",
+                  "tag": "REGULAR_SECTION.ACTIONS.4",
+                  "value": true
+                }
+              ],
+              "completion_criteria_text": "Layer placed"
+            },
+            {
+              "step_id": "s3",
+              "branch_id": "main",
+              "name": "Update layer",
+              "actions": [
+                {
+                  "kind": "manual_prose",
+                  "action_id": "a3",
+                  "text": "Advance NextLayer and mark Foot/Reg/Top layer complete on the active stack.",
+                  "referenced_tags": [
+                    "STACKS"
+                  ],
+                  "prose": "Advance NextLayer and mark Foot/Reg/Top layer complete on the active stack."
+                }
+              ],
+              "monitors": [],
+              "transitions": [],
+              "step": 3,
+              "action": "ACTIONS.7 marks layer complete, deletes picked ingots from the infeed queue, advances NextLayer; rotate active stack when CurrentLayer >= 10.",
+              "completion_criteria": [
+                {
+                  "kind": "tag_equals",
+                  "tag": "REGULAR_SECTION.ACTIONS.7",
+                  "value": true
+                }
+              ],
+              "completion_criteria_text": "Layer count advanced"
+            }
+          ],
+          "branches": [
+            {
+              "branch_id": "main",
+              "name": "Main",
+              "kind": "main",
+              "fork_step_id": "s1"
+            }
+          ],
+          "state_monitors": [],
+          "sequence_model_version": 2,
+          "notes": "Regular (mid) layers between foot and top."
+        }
+      }
+    },
+    "252ccfbd-bebc-4731-afd2-146eab1b50d0": {
+      "equipment_module_id": "252ccfbd-bebc-4731-afd2-146eab1b50d0",
+      "unit_id": "c3499cc8-4401-437f-bf23-45ef18afc893",
+      "states": [
+        {
+          "state_id": "idle",
+          "name": "Idle",
+          "kind": "static",
+          "allowed_modes": [],
+          "is_safe_state": false
+        },
+        {
+          "state_id": "execute",
+          "name": "Execute",
+          "kind": "sequential",
+          "allowed_modes": [],
+          "is_safe_state": false
+        },
+        {
+          "state_id": "aborted",
+          "name": "Aborted",
+          "kind": "static",
+          "allowed_modes": [],
+          "is_safe_state": true
+        }
+      ],
+      "transitions": [
+        {
+          "transition_id": "idle_to_execute",
+          "from_state_id": "idle",
+          "to_state_id": "execute",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Automatic_Run",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "execute_to_idle",
+          "from_state_id": "execute",
+          "to_state_id": "idle",
+          "trigger": {
+            "kind": "completion"
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "execute_to_aborted",
+          "from_state_id": "execute",
+          "to_state_id": "aborted",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault[0].MajorFault",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "idle_to_aborted",
+          "from_state_id": "idle",
+          "to_state_id": "aborted",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault[0].MajorFault",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "aborted_to_idle",
+          "from_state_id": "aborted",
+          "to_state_id": "idle",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault_Reset_Request",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        }
+      ],
+      "static_states": {
+        "idle": {
+          "control_modules": [
+            {
+              "tag": "TOP_SECTION.ACTIONS",
+              "description": "No action asserted",
+              "state": "0"
+            }
+          ],
+          "notes": "Awaiting a full pickup queue for this ingot type."
+        },
+        "aborted": {
+          "control_modules": [
+            {
+              "tag": "Task_Request",
+              "description": "Task request cleared",
+              "state": "0"
+            }
+          ],
+          "notes": null
+        }
+      },
+      "sequential_states": {
+        "execute": {
+          "permissives": [
+            {
+              "tag": "TOP.CTRL.Automatic_Run",
+              "operator": "=",
+              "value": true
+            },
+            {
+              "tag": "TOP_SAS.QUEUE_FULL",
+              "operator": "=",
+              "value": true
+            }
+          ],
+          "steps": [
+            {
+              "step_id": "s1",
+              "branch_id": "main",
+              "name": "Request pick",
+              "actions": [
+                {
+                  "kind": "assign",
+                  "action_id": "a1",
+                  "target_tag": "Task_Request",
+                  "source": {
+                    "kind": "literal",
+                    "value": 1,
+                    "value_type": "number"
+                  },
+                  "prose": "Request robot move-to-pick task."
+                }
+              ],
+              "monitors": [],
+              "transitions": [],
+              "step": 1,
+              "action": "Assert ACTIONS.2 → robot Task 1 (move to position); activate grippers per LOCn_PICK.",
+              "completion_criteria": [
+                {
+                  "kind": "tag_equals",
+                  "tag": "TOP_SECTION.ACTIONS.2",
+                  "value": true
+                }
+              ],
+              "completion_criteria_text": "Robot picked ingots from conveyor"
+            },
+            {
+              "step_id": "s2",
+              "branch_id": "main",
+              "name": "Place on stack",
+              "actions": [],
+              "monitors": [],
+              "transitions": [],
+              "step": 2,
+              "action": "Robot places ingots on the active stack at CurrentLayer; ACTIONS.4 sends stack data to robot.",
+              "completion_criteria": [
+                {
+                  "kind": "tag_equals",
+                  "tag": "TOP_SECTION.ACTIONS.4",
+                  "value": true
+                }
+              ],
+              "completion_criteria_text": "Layer placed"
+            },
+            {
+              "step_id": "s3",
+              "branch_id": "main",
+              "name": "Update layer",
+              "actions": [
+                {
+                  "kind": "manual_prose",
+                  "action_id": "a3",
+                  "text": "Advance NextLayer and mark Foot/Reg/Top layer complete on the active stack.",
+                  "referenced_tags": [
+                    "STACKS"
+                  ],
+                  "prose": "Advance NextLayer and mark Foot/Reg/Top layer complete on the active stack."
+                }
+              ],
+              "monitors": [],
+              "transitions": [],
+              "step": 3,
+              "action": "ACTIONS.7 marks layer complete, deletes picked ingots from the infeed queue, advances NextLayer; rotate active stack when CurrentLayer >= 10.",
+              "completion_criteria": [
+                {
+                  "kind": "tag_equals",
+                  "tag": "TOP_SECTION.ACTIONS.7",
+                  "value": true
+                }
+              ],
+              "completion_criteria_text": "Layer count advanced"
+            }
+          ],
+          "branches": [
+            {
+              "branch_id": "main",
+              "name": "Main",
+              "kind": "main",
+              "fork_step_id": "s1"
+            }
+          ],
+          "state_monitors": [],
+          "sequence_model_version": 2,
+          "notes": "Top layer uses flip-detected ingots; gated by CurrentLayer==9 & laser slot==1."
+        }
+      }
+    },
+    "18b21733-313c-41b0-9623-419f51a13577": {
+      "equipment_module_id": "18b21733-313c-41b0-9623-419f51a13577",
+      "unit_id": "c3499cc8-4401-437f-bf23-45ef18afc893",
+      "states": [
+        {
+          "state_id": "idle",
+          "name": "Idle",
+          "kind": "static",
+          "allowed_modes": [],
+          "is_safe_state": false
+        },
+        {
+          "state_id": "execute",
+          "name": "Execute",
+          "kind": "sequential",
+          "allowed_modes": [],
+          "is_safe_state": false
+        },
+        {
+          "state_id": "aborted",
+          "name": "Aborted",
+          "kind": "static",
+          "allowed_modes": [],
+          "is_safe_state": true
+        }
+      ],
+      "transitions": [
+        {
+          "transition_id": "idle_to_execute",
+          "from_state_id": "idle",
+          "to_state_id": "execute",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Automatic_Run",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "execute_to_idle",
+          "from_state_id": "execute",
+          "to_state_id": "idle",
+          "trigger": {
+            "kind": "completion"
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "execute_to_aborted",
+          "from_state_id": "execute",
+          "to_state_id": "aborted",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault[0].MajorFault",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "idle_to_aborted",
+          "from_state_id": "idle",
+          "to_state_id": "aborted",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault[0].MajorFault",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "aborted_to_idle",
+          "from_state_id": "aborted",
+          "to_state_id": "idle",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault_Reset_Request",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        }
+      ],
+      "static_states": {
+        "idle": {
+          "control_modules": [
+            {
+              "tag": "STACKS.STACK[1].In_Progress",
+              "description": "No index in progress",
+              "state": "off"
+            }
+          ],
+          "notes": "Counts held; awaiting stack completion."
+        },
+        "aborted": {
+          "control_modules": [
+            {
+              "tag": "STACK1_INDEX_TRACK.ResetError",
+              "description": "Index tracker reset",
+              "state": "on"
+            }
+          ],
+          "notes": null
+        }
+      },
+      "sequential_states": {
+        "execute": {
+          "permissives": [
+            {
+              "tag": "TOP.CTRL.Run",
+              "operator": "=",
+              "value": true
+            }
+          ],
+          "steps": [
+            {
+              "step_id": "s1",
+              "branch_id": "main",
+              "name": "Count layers",
+              "actions": [],
+              "monitors": [],
+              "transitions": [],
+              "step": 1,
+              "action": "STACK_COUNT per stack maintains CurrentLayer/counts; mark Complete when CurrentLayer >= 10.",
+              "completion_criteria": [
+                {
+                  "kind": "expression",
+                  "text": "STACKS.STACK[n].CurrentLayer >= 10",
+                  "referenced_tags": [
+                    "STACKS"
+                  ]
+                }
+              ],
+              "completion_criteria_text": "Stack marked complete"
+            },
+            {
+              "step_id": "s2",
+              "branch_id": "main",
+              "name": "Rotate on off-conveyor",
+              "actions": [],
+              "monitors": [],
+              "transitions": [],
+              "step": 2,
+              "action": "On StackOffConeyor, shift STACK[2]→[1], [3]→[2] (backups forward).",
+              "completion_criteria": [
+                {
+                  "kind": "tag_equals",
+                  "tag": "STACKS.STACK[1].StackOffConeyor",
+                  "value": true
+                }
+              ],
+              "completion_criteria_text": "Stacks rotated"
+            },
+            {
+              "step_id": "s3",
+              "branch_id": "main",
+              "name": "Track index position",
+              "actions": [],
+              "monitors": [],
+              "transitions": [],
+              "step": 3,
+              "action": "FB_OUTFEED_ENC_TRACK integrates encoder delta into STACK[n].X_Position_Act during index.",
+              "completion_criteria": [
+                {
+                  "kind": "expression",
+                  "text": "X_Position_Act >= IndexDistance",
+                  "referenced_tags": [
+                    "STACK1_INDEX_TRACK.IndexDistance"
+                  ]
+                }
+              ],
+              "completion_criteria_text": "Index distance reached"
+            }
+          ],
+          "branches": [
+            {
+              "branch_id": "main",
+              "name": "Main",
+              "kind": "main",
+              "fork_step_id": "s1"
+            }
+          ],
+          "state_monitors": [],
+          "sequence_model_version": 2,
+          "notes": null
+        }
+      }
+    },
+    "dfd7772f-1aee-41b4-9aca-dcd98a58a166": {
+      "equipment_module_id": "dfd7772f-1aee-41b4-9aca-dcd98a58a166",
+      "unit_id": "c3499cc8-4401-437f-bf23-45ef18afc893",
+      "states": [
+        {
+          "state_id": "idle",
+          "name": "Idle",
+          "kind": "static",
+          "allowed_modes": [],
+          "is_safe_state": false
+        },
+        {
+          "state_id": "execute",
+          "name": "Execute",
+          "kind": "sequential",
+          "allowed_modes": [],
+          "is_safe_state": false
+        },
+        {
+          "state_id": "aborted",
+          "name": "Aborted",
+          "kind": "static",
+          "allowed_modes": [],
+          "is_safe_state": true
+        }
+      ],
+      "transitions": [
+        {
+          "transition_id": "idle_to_execute",
+          "from_state_id": "idle",
+          "to_state_id": "execute",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Automatic_Run",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "execute_to_idle",
+          "from_state_id": "execute",
+          "to_state_id": "idle",
+          "trigger": {
+            "kind": "completion"
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "execute_to_aborted",
+          "from_state_id": "execute",
+          "to_state_id": "aborted",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault[0].MajorFault",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "idle_to_aborted",
+          "from_state_id": "idle",
+          "to_state_id": "aborted",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault[0].MajorFault",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "aborted_to_idle",
+          "from_state_id": "aborted",
+          "to_state_id": "idle",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault_Reset_Request",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        }
+      ],
+      "static_states": {
+        "idle": {
+          "control_modules": [
+            {
+              "tag": "MAKEUP_TABLE.Active",
+              "description": "Makeup inactive",
+              "state": "off"
+            }
+          ],
+          "notes": "Only active when all 3 stacks inactive or a fill is requested."
+        },
+        "aborted": {
+          "control_modules": [
+            {
+              "tag": "MAKEUP_TABLE.Active",
+              "description": "Makeup deactivated",
+              "state": "off"
+            }
+          ],
+          "notes": null
+        }
+      },
+      "sequential_states": {
+        "execute": {
+          "permissives": [
+            {
+              "tag": "MAKEUP_TABLE.Enabled",
+              "operator": "=",
+              "value": true
+            }
+          ],
+          "steps": [
+            {
+              "step_id": "s1",
+              "branch_id": "main",
+              "name": "Fill racks",
+              "actions": [],
+              "monitors": [],
+              "transitions": [],
+              "step": 1,
+              "action": "Accumulate ingots to RequiredFeet/RequiredRegular per MAKEUP_TABLE.Option (1: 11 feet/3 reg; 2: 4 feet/10 reg).",
+              "completion_criteria": [
+                {
+                  "kind": "expression",
+                  "text": "MAKEUP_1.UpdateComplete",
+                  "referenced_tags": [
+                    "MAKEUP_1.UpdateComplete"
+                  ]
+                }
+              ],
+              "completion_criteria_text": "Makeup quantities reached"
+            }
+          ],
+          "branches": [
+            {
+              "branch_id": "main",
+              "name": "Main",
+              "kind": "main",
+              "fork_step_id": "s1"
+            }
+          ],
+          "state_monitors": [],
+          "sequence_model_version": 2,
+          "notes": "Required quantities per option are constants in R301 — confirm whether product-configurable."
+        }
+      }
+    },
+    "93c3d80c-2ac5-412d-9caa-0c9aa3d97419": {
+      "equipment_module_id": "93c3d80c-2ac5-412d-9caa-0c9aa3d97419",
+      "unit_id": "c3499cc8-4401-437f-bf23-45ef18afc893",
+      "states": [
+        {
+          "state_id": "idle",
+          "name": "Idle",
+          "kind": "static",
+          "allowed_modes": [],
+          "is_safe_state": false
+        },
+        {
+          "state_id": "execute",
+          "name": "Execute",
+          "kind": "sequential",
+          "allowed_modes": [],
+          "is_safe_state": false
+        },
+        {
+          "state_id": "aborted",
+          "name": "Aborted",
+          "kind": "static",
+          "allowed_modes": [],
+          "is_safe_state": true
+        }
+      ],
+      "transitions": [
+        {
+          "transition_id": "idle_to_execute",
+          "from_state_id": "idle",
+          "to_state_id": "execute",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Automatic_Run",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "execute_to_idle",
+          "from_state_id": "execute",
+          "to_state_id": "idle",
+          "trigger": {
+            "kind": "completion"
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "execute_to_aborted",
+          "from_state_id": "execute",
+          "to_state_id": "aborted",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault[0].MajorFault",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "idle_to_aborted",
+          "from_state_id": "idle",
+          "to_state_id": "aborted",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault[0].MajorFault",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "aborted_to_idle",
+          "from_state_id": "aborted",
+          "to_state_id": "idle",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault_Reset_Request",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        }
+      ],
+      "static_states": {
+        "idle": {
+          "control_modules": [
+            {
+              "tag": "FB_DO_SolenoidData[1..4].OutRetract",
+              "description": "Grippers retracted (safe)",
+              "state": "retracted"
+            }
+          ],
+          "notes": "Default hold when robot issues no gripper op."
+        },
+        "aborted": {
+          "control_modules": [
+            {
+              "tag": "FB_DO_SolenoidData[1..4]",
+              "description": "Solenoids de-energised",
+              "state": "off"
+            }
+          ],
+          "notes": null
+        }
+      },
+      "sequential_states": {
+        "execute": {
+          "permissives": [
+            {
+              "tag": "TOP.CTRL.Automatic_Request",
+              "operator": "=",
+              "value": true
+            }
+          ],
+          "steps": [
+            {
+              "step_id": "s1",
+              "branch_id": "main",
+              "name": "Follow robot ops",
+              "actions": [],
+              "monitors": [],
+              "transitions": [],
+              "step": 1,
+              "action": "Grippers extend/retract following KUKA_ROBOT.In.GRIPPER_x_OPN/CLS_OP; feedback echoed back as reed-switch status.",
+              "completion_criteria": [
+                {
+                  "kind": "manual_ack",
+                  "prompt": "Gripper motion follows robot open/close ops"
+                }
+              ],
+              "completion_criteria_text": "Gripper feedback matches command"
+            }
+          ],
+          "branches": [
+            {
+              "branch_id": "main",
+              "name": "Main",
+              "kind": "main",
+              "fork_step_id": "s1"
+            }
+          ],
+          "state_monitors": [],
+          "sequence_model_version": 2,
+          "notes": null
+        }
+      },
+      "command_behavior": {
+        "execute": {
+          "branches": [
+            {
+              "branch_id": "grip_a_close",
+              "label": "Gripper A close",
+              "when": [
+                {
+                  "tag": "KUKA_ROBOT.In.GRIPPER_A_CLS_OP",
+                  "operator": "=",
+                  "value": true
+                }
+              ],
+              "control_modules": [
+                {
+                  "tag": "FB_DO_SolenoidData[1].OutRetract",
+                  "description": "Gripper A closes",
+                  "state": "retract"
+                }
+              ]
+            },
+            {
+              "branch_id": "grip_a_open",
+              "label": "Gripper A open",
+              "when": [
+                {
+                  "tag": "KUKA_ROBOT.In.GRIPPER_A_OPN_OP",
+                  "operator": "=",
+                  "value": true
+                }
+              ],
+              "control_modules": [
+                {
+                  "tag": "FB_DO_SolenoidData[1].OutExtend",
+                  "description": "Gripper A opens",
+                  "state": "extend"
+                }
+              ]
+            }
+          ],
+          "default_hold": [
+            {
+              "tag": "FB_DO_SolenoidData[1..4]",
+              "description": "Grippers hold last commanded position",
+              "state": "hold"
+            }
+          ]
+        }
+      }
+    },
+    "0f44dc13-ca7f-4a69-b753-d3b3fe15cd0d": {
+      "equipment_module_id": "0f44dc13-ca7f-4a69-b753-d3b3fe15cd0d",
+      "unit_id": "c3499cc8-4401-437f-bf23-45ef18afc893",
+      "states": [
+        {
+          "state_id": "idle",
+          "name": "Idle",
+          "kind": "static",
+          "allowed_modes": [],
+          "is_safe_state": false
+        },
+        {
+          "state_id": "execute",
+          "name": "Execute",
+          "kind": "sequential",
+          "allowed_modes": [],
+          "is_safe_state": false
+        },
+        {
+          "state_id": "aborted",
+          "name": "Aborted",
+          "kind": "static",
+          "allowed_modes": [],
+          "is_safe_state": true
+        }
+      ],
+      "transitions": [
+        {
+          "transition_id": "idle_to_execute",
+          "from_state_id": "idle",
+          "to_state_id": "execute",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Automatic_Run",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "execute_to_idle",
+          "from_state_id": "execute",
+          "to_state_id": "idle",
+          "trigger": {
+            "kind": "completion"
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "execute_to_aborted",
+          "from_state_id": "execute",
+          "to_state_id": "aborted",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault[0].MajorFault",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "idle_to_aborted",
+          "from_state_id": "idle",
+          "to_state_id": "aborted",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault[0].MajorFault",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        },
+        {
+          "transition_id": "aborted_to_idle",
+          "from_state_id": "aborted",
+          "to_state_id": "idle",
+          "trigger": {
+            "kind": "command",
+            "expr": {
+              "tag": "TOP.CTRL.Fault_Reset_Request",
+              "operator": "=",
+              "value": true
+            }
+          },
+          "guard": []
+        }
+      ],
+      "static_states": {
+        "idle": {
+          "control_modules": [
+            {
+              "tag": "Step_CONVE_INT",
+              "description": "Handshake step 0 (no tracking)",
+              "state": "0"
+            }
+          ],
+          "notes": "Awaiting a completed stack (StackOffConeyor) or robot CONVEYOR_INT."
+        },
+        "aborted": {
+          "control_modules": [
+            {
+              "tag": "Output_CONVE_INT",
+              "description": "Interface output off",
+              "state": "off"
+            }
+          ],
+          "notes": null
+        }
+      },
+      "sequential_states": {
+        "execute": {
+          "permissives": [
+            {
+              "tag": "Enable_CONVE_INT",
+              "operator": "=",
+              "value": true
+            },
+            {
+              "tag": "Healthy_CONVE_INT",
+              "operator": "=",
+              "value": false
+            }
+          ],
+          "steps": [
+            {
+              "step_id": "s1",
+              "branch_id": "main",
+              "name": "Trigger",
+              "actions": [],
+              "monitors": [],
+              "transitions": [],
+              "step": 1,
+              "action": "Step 0→1 on Triger_CONVE_INT (robot CONVEYOR_INT or StackOffConeyor).",
+              "completion_criteria": [
+                {
+                  "kind": "tag_equals",
+                  "tag": "Triger_CONVE_INT",
+                  "value": true
+                }
+              ],
+              "completion_criteria_text": "Step 1"
+            },
+            {
+              "step_id": "s2",
+              "branch_id": "main",
+              "name": "Call Task 6",
+              "actions": [
+                {
+                  "kind": "assign",
+                  "action_id": "a2",
+                  "target_tag": "Task_Request",
+                  "source": {
+                    "kind": "literal",
+                    "value": 6,
+                    "value_type": "number"
+                  },
+                  "prose": "Call robot Task 6."
+                }
+              ],
+              "monitors": [],
+              "transitions": [],
+              "step": 2,
+              "action": "Step 1→2: request robot Task 6 (MOV 6 → Task_Request).",
+              "completion_criteria": [
+                {
+                  "kind": "tag_equals",
+                  "tag": "Task_Request",
+                  "value": 6
+                }
+              ],
+              "completion_criteria_text": "Robot CONVEYOR_SIGNAL_REQ"
+            },
+            {
+              "step_id": "s3",
+              "branch_id": "main",
+              "name": "Output on",
+              "actions": [],
+              "monitors": [],
+              "transitions": [],
+              "step": 3,
+              "action": "Step 2→3→4: assert Output_CONVE_INT to the downstream conveyor.",
+              "completion_criteria": [
+                {
+                  "kind": "tag_equals",
+                  "tag": "Output_CONVE_INT",
+                  "value": true
+                }
+              ],
+              "completion_criteria_text": "Output acknowledged"
+            },
+            {
+              "step_id": "s4",
+              "branch_id": "main",
+              "name": "Output off & finish",
+              "actions": [],
+              "monitors": [],
+              "transitions": [],
+              "step": 4,
+              "action": "Step 5→6→31→0: drop output, complete handshake, return to idle.",
+              "completion_criteria": [
+                {
+                  "kind": "expression",
+                  "text": "Step_CONVE_INT = 0",
+                  "referenced_tags": [
+                    "Step_CONVE_INT"
+                  ]
+                }
+              ],
+              "completion_criteria_text": "Handshake complete"
+            }
+          ],
+          "branches": [
+            {
+              "branch_id": "main",
+              "name": "Main",
+              "kind": "main",
+              "fork_step_id": "s1"
+            }
+          ],
+          "state_monitors": [],
+          "sequence_model_version": 2,
+          "notes": null
+        }
+      }
+    }
+  },
+  "safety_gates": [
+    {
+      "gate_id": "estop_major",
+      "name": "E-Stop / Major Fault",
+      "condition": [
+        {
+          "tag": "TOP.CTRL.Fault[0].F.30",
+          "operator": "=",
+          "value": true
+        },
+        {
+          "tag": "TOP.CTRL.Fault[0].F.31",
+          "operator": "=",
+          "value": true
+        }
+      ],
+      "scope": "all"
+    }
+  ],
+  "alarms": [
+    {
+      "id": "24d2054f-bb43-45b5-ace0-b91a9a575e6c",
+      "tier_id": "fault",
+      "control_module_id": null,
+      "equipment_module_id": null,
+      "unit_id": "c3499cc8-4401-437f-bf23-45ef18afc893",
+      "tag": "K_RIO1.BNI006A_ConnectionFaulted",
+      "description": "K_RIO1 (IO-Link master 1) connection faulted",
+      "action": "Latch until Fault_Reset_Request; investigate EtherNet/IP link."
+    },
+    {
+      "id": "61fa588a-9e8a-4533-82e3-e71f5cf24e09",
+      "tier_id": "fault",
+      "control_module_id": null,
+      "equipment_module_id": null,
+      "unit_id": "c3499cc8-4401-437f-bf23-45ef18afc893",
+      "tag": "K_RIO2.BNI006A_ConnectionFaulted",
+      "description": "K_RIO2 connection faulted",
+      "action": "Latch until reset."
+    },
+    {
+      "id": "4c931c04-6f25-43b2-9233-a6ad3a49cb98",
+      "tier_id": "fault",
+      "control_module_id": null,
+      "equipment_module_id": null,
+      "unit_id": "c3499cc8-4401-437f-bf23-45ef18afc893",
+      "tag": "KUKA_ROBOT.ConnectionFaulted",
+      "description": "KUKA robot connection faulted",
+      "action": "Cell stops; check robot EtherNet/IP."
+    },
+    {
+      "id": "88217a75-cd53-4068-a061-2605efb1202e",
+      "tier_id": "fault",
+      "control_module_id": null,
+      "equipment_module_id": null,
+      "unit_id": "c3499cc8-4401-437f-bf23-45ef18afc893",
+      "tag": "K_VALVE_MANIFOLD.SOLV_Status",
+      "description": "Valve manifold status fault",
+      "action": "Latch until reset."
+    },
+    {
+      "id": "ca5d45e3-39c4-4efc-aef7-410cbbcf0b32",
+      "tier_id": "fault",
+      "control_module_id": null,
+      "equipment_module_id": null,
+      "unit_id": "c3499cc8-4401-437f-bf23-45ef18afc893",
+      "tag": "SickAFX_Enc1_xyz:I1.ConnectionFaulted",
+      "description": "SICK encoder connection faulted",
+      "action": "Latch until reset."
+    },
+    {
+      "id": "ee1eb78a-ac31-4a2d-a8f5-f6769fa0de8e",
+      "tier_id": "fault",
+      "control_module_id": null,
+      "equipment_module_id": null,
+      "unit_id": "c3499cc8-4401-437f-bf23-45ef18afc893",
+      "tag": "KUKA_ROBOT.In.ALARM_STOP",
+      "description": "Robot ALARM_STOP",
+      "action": "Robot alarm; clear at robot + reset."
+    },
+    {
+      "id": "3e41115c-827b-4c68-ba11-940de73aa378",
+      "tier_id": "fault",
+      "control_module_id": null,
+      "equipment_module_id": null,
+      "unit_id": "c3499cc8-4401-437f-bf23-45ef18afc893",
+      "tag": "K_VALVE_MANIFOLD.SOLV_Undervoltage_Error",
+      "description": "Valve manifold under-voltage",
+      "action": "Check 24V supply to manifold."
+    },
+    {
+      "id": "63f1169a-52ce-4434-bda2-494639f11583",
+      "tier_id": "critical",
+      "control_module_id": null,
+      "equipment_module_id": null,
+      "unit_id": "c3499cc8-4401-437f-bf23-45ef18afc893",
+      "tag": "FB_DI_PushButtonData[1].OutPushButton_On",
+      "description": "E-Stop 1 (pushbutton) — MAJOR",
+      "action": "Major fault; all EMs forced to aborted. Reset e-stop then Fault_Reset."
+    },
+    {
+      "id": "747131b6-0783-4688-8e81-b56c5cb03cd1",
+      "tier_id": "critical",
+      "control_module_id": null,
+      "equipment_module_id": null,
+      "unit_id": "c3499cc8-4401-437f-bf23-45ef18afc893",
+      "tag": "FB_DI_SensorData[23].OutSignal",
+      "description": "E-Stop 1 (safety input) — MAJOR",
+      "action": "Major fault; all EMs forced to aborted."
+    }
+  ],
+  "io_list": [
+    {
+      "tag": "ESTOP_1",
+      "device_type": "pushbutton",
+      "description": "E-Stop 1",
+      "signal_type": "DI",
+      "io_address": "K_RIO1:I.Data.x",
+      "normal_state": "closed(1)",
+      "failsafe_state": "open(0)",
+      "equipment_module_id": "93c3d80c-2ac5-412d-9caa-0c9aa3d97419"
+    },
+    {
+      "tag": "PB_START",
+      "device_type": "pushbutton",
+      "description": "Start pushbutton",
+      "signal_type": "DI",
+      "io_address": "K_RIO1:I.Data.x",
+      "normal_state": "open",
+      "failsafe_state": "open"
+    },
+    {
+      "tag": "PB_STOP",
+      "device_type": "pushbutton",
+      "description": "Stop pushbutton",
+      "signal_type": "DI",
+      "io_address": "K_RIO1:I.Data.x",
+      "normal_state": "closed",
+      "failsafe_state": "open"
+    },
+    {
+      "tag": "PB_PAUSE",
+      "device_type": "pushbutton",
+      "description": "Pause pushbutton",
+      "signal_type": "DI",
+      "io_address": "K_RIO1:I.Data.x",
+      "normal_state": "open",
+      "failsafe_state": "open"
+    },
+    {
+      "tag": "INFEED_TopSensor",
+      "device_type": "photoelectric",
+      "description": "Infeed top sensor",
+      "signal_type": "DI",
+      "io_address": "K_RIO2:I.Data.8",
+      "normal_state": "clear",
+      "failsafe_state": "clear",
+      "equipment_module_id": "0a477175-0d25-4306-a45e-0d7687bdf1b8"
+    },
+    {
+      "tag": "INFEED_LowerSensor",
+      "device_type": "photoelectric",
+      "description": "Infeed lower sensor",
+      "signal_type": "DI",
+      "io_address": "K_RIO2:I.Data.9",
+      "normal_state": "clear",
+      "failsafe_state": "clear",
+      "equipment_module_id": "0a477175-0d25-4306-a45e-0d7687bdf1b8"
+    },
+    {
+      "tag": "LASER_A",
+      "device_type": "laser_distance",
+      "description": "Position 1 laser height scanner",
+      "signal_type": "AI",
+      "io_address": "K_RIO1:P1 (IO-Link)",
+      "normal_state": "0",
+      "failsafe_state": "0",
+      "equipment_module_id": "0a477175-0d25-4306-a45e-0d7687bdf1b8"
+    },
+    {
+      "tag": "LASER_B",
+      "device_type": "laser_distance",
+      "description": "Position 2 laser height scanner",
+      "signal_type": "AI",
+      "io_address": "K_RIO1:P2 (IO-Link)",
+      "normal_state": "0",
+      "failsafe_state": "0",
+      "equipment_module_id": "0a477175-0d25-4306-a45e-0d7687bdf1b8"
+    },
+    {
+      "tag": "LASER_C",
+      "device_type": "laser_distance",
+      "description": "Position 3 laser height scanner",
+      "signal_type": "AI",
+      "io_address": "K_RIO1:P3 (IO-Link)",
+      "normal_state": "0",
+      "failsafe_state": "0",
+      "equipment_module_id": "0a477175-0d25-4306-a45e-0d7687bdf1b8"
+    },
+    {
+      "tag": "LASER_D",
+      "device_type": "laser_distance",
+      "description": "Position 4 laser height scanner",
+      "signal_type": "AI",
+      "io_address": "K_RIO1:P4 (IO-Link)",
+      "normal_state": "0",
+      "failsafe_state": "0",
+      "equipment_module_id": "0a477175-0d25-4306-a45e-0d7687bdf1b8"
+    },
+    {
+      "tag": "GRIP_A_EXT",
+      "device_type": "solenoid",
+      "description": "Gripper A extend",
+      "signal_type": "DO",
+      "io_address": "K_VALVE_MANIFOLD.Point[4].B",
+      "normal_state": "off",
+      "failsafe_state": "off",
+      "equipment_module_id": "93c3d80c-2ac5-412d-9caa-0c9aa3d97419"
+    },
+    {
+      "tag": "LASER_AIRBLAST",
+      "device_type": "solenoid",
+      "description": "Laser air-blast",
+      "signal_type": "DO",
+      "io_address": "K_VALVE_MANIFOLD.Point[3].A",
+      "normal_state": "off",
+      "failsafe_state": "off",
+      "equipment_module_id": "93c3d80c-2ac5-412d-9caa-0c9aa3d97419"
+    }
+  ],
+  "faults": [
+    {
+      "fault_code": "F0.1",
+      "description": "K_RIO1 (IO-Link master 1) connection faulted",
+      "triggered_by_tag": "K_RIO1.BNI006A_ConnectionFaulted",
+      "severity": "fault",
+      "affected_control_modules": [],
+      "action_text": "Latch until Fault_Reset_Request; investigate EtherNet/IP link."
+    },
+    {
+      "fault_code": "F0.2",
+      "description": "K_RIO2 connection faulted",
+      "triggered_by_tag": "K_RIO2.BNI006A_ConnectionFaulted",
+      "severity": "fault",
+      "affected_control_modules": [],
+      "action_text": "Latch until reset."
+    },
+    {
+      "fault_code": "F0.3",
+      "description": "KUKA robot connection faulted",
+      "triggered_by_tag": "KUKA_ROBOT.ConnectionFaulted",
+      "severity": "fault",
+      "affected_control_modules": [],
+      "action_text": "Cell stops; check robot EtherNet/IP."
+    },
+    {
+      "fault_code": "F0.4",
+      "description": "Valve manifold status fault",
+      "triggered_by_tag": "K_VALVE_MANIFOLD.SOLV_Status",
+      "severity": "fault",
+      "affected_control_modules": [],
+      "action_text": "Latch until reset."
+    },
+    {
+      "fault_code": "F0.5",
+      "description": "SICK encoder connection faulted",
+      "triggered_by_tag": "SickAFX_Enc1_xyz:I1.ConnectionFaulted",
+      "severity": "fault",
+      "affected_control_modules": [],
+      "action_text": "Latch until reset."
+    },
+    {
+      "fault_code": "F0.8",
+      "description": "Robot ALARM_STOP",
+      "triggered_by_tag": "KUKA_ROBOT.In.ALARM_STOP",
+      "severity": "fault",
+      "affected_control_modules": [],
+      "action_text": "Robot alarm; clear at robot + reset."
+    },
+    {
+      "fault_code": "F0.9",
+      "description": "Valve manifold under-voltage",
+      "triggered_by_tag": "K_VALVE_MANIFOLD.SOLV_Undervoltage_Error",
+      "severity": "fault",
+      "affected_control_modules": [],
+      "action_text": "Check 24V supply to manifold."
+    },
+    {
+      "fault_code": "F0.30",
+      "description": "E-Stop 1 (pushbutton) — MAJOR",
+      "triggered_by_tag": "FB_DI_PushButtonData[1].OutPushButton_On",
+      "severity": "critical",
+      "affected_control_modules": [],
+      "action_text": "Major fault; all EMs forced to aborted. Reset e-stop then Fault_Reset."
+    },
+    {
+      "fault_code": "F0.31",
+      "description": "E-Stop 1 (safety input) — MAJOR",
+      "triggered_by_tag": "FB_DI_SensorData[23].OutSignal",
+      "severity": "critical",
+      "affected_control_modules": [],
+      "action_text": "Major fault; all EMs forced to aborted."
+    }
+  ],
+  "sections": {
+    "document_control": [],
+    "system_overview": [],
+    "control_philosophy": [],
+    "functional_description": [],
+    "io_list": [],
+    "alarm_specification": [],
+    "hmi_specification": [],
+    "interfaces": [],
+    "testing_fat": [],
+    "audit_report": [],
+    "introduction": [],
+    "equipment_description": [],
+    "functional_state": [],
+    "alarm_table": [],
+    "settings_table": []
+  },
+  "modes": [
+    {
+      "mode_id": "automatic",
+      "name": "Automatic",
+      "description": "Normal production — full authored state model.",
+      "is_default": true,
+      "kind": "production"
+    },
+    {
+      "mode_id": "manual",
+      "name": "Manual",
+      "description": "Operator-paced jogging of grippers/robot via HMI.",
+      "is_default": false,
+      "kind": "manual"
+    },
+    {
+      "mode_id": "maintenance",
+      "name": "Maintenance",
+      "description": "Robot to maintenance position (Task 7); drives commanded to stopped.",
+      "is_default": false,
+      "kind": "maintenance"
+    }
+  ],
+  "unit_coordination": {
+    "c3499cc8-4401-437f-bf23-45ef18afc893": {
+      "unit_id": "c3499cc8-4401-437f-bf23-45ef18afc893",
+      "states": [
+        {
+          "state_id": "idle",
+          "allowed_modes": [],
+          "mode_change_allowed": true
+        },
+        {
+          "state_id": "starting",
+          "allowed_modes": [],
+          "mode_change_allowed": false
+        },
+        {
+          "state_id": "execute",
+          "allowed_modes": [],
+          "mode_change_allowed": false
+        },
+        {
+          "state_id": "holding",
+          "allowed_modes": [],
+          "mode_change_allowed": false
+        },
+        {
+          "state_id": "held",
+          "allowed_modes": [],
+          "mode_change_allowed": false
+        },
+        {
+          "state_id": "stopped",
+          "allowed_modes": [],
+          "mode_change_allowed": true
+        },
+        {
+          "state_id": "aborting",
+          "allowed_modes": [],
+          "mode_change_allowed": false
+        },
+        {
+          "state_id": "aborted",
+          "allowed_modes": [],
+          "mode_change_allowed": true
+        },
+        {
+          "state_id": "resetting",
+          "allowed_modes": [],
+          "mode_change_allowed": false
+        }
+      ],
+      "transitions": [
+        {
+          "transition_id": "t_start",
+          "from_state_id": "idle",
+          "to_state_id": "starting",
+          "trigger": {
+            "type": "command",
+            "command": "start"
+          },
+          "guard": [],
+          "allowed_modes": []
+        },
+        {
+          "transition_id": "t_started",
+          "from_state_id": "starting",
+          "to_state_id": "execute",
+          "trigger": {
+            "type": "condition",
+            "expr": [
+              {
+                "tag": "TOP.CTRL.Run",
+                "operator": "=",
+                "value": true
+              }
+            ]
+          },
+          "guard": [],
+          "allowed_modes": []
+        },
+        {
+          "transition_id": "t_pause",
+          "from_state_id": "execute",
+          "to_state_id": "holding",
+          "trigger": {
+            "type": "command",
+            "command": "hold"
+          },
+          "guard": [],
+          "allowed_modes": []
+        },
+        {
+          "transition_id": "t_held",
+          "from_state_id": "holding",
+          "to_state_id": "held",
+          "trigger": {
+            "type": "condition",
+            "expr": [
+              {
+                "tag": "TOP.CTRL.Paused",
+                "operator": "=",
+                "value": true
+              }
+            ]
+          },
+          "guard": [],
+          "allowed_modes": []
+        },
+        {
+          "transition_id": "t_unhold",
+          "from_state_id": "held",
+          "to_state_id": "execute",
+          "trigger": {
+            "type": "command",
+            "command": "unhold"
+          },
+          "guard": [],
+          "allowed_modes": []
+        },
+        {
+          "transition_id": "t_stop",
+          "from_state_id": "execute",
+          "to_state_id": "stopped",
+          "trigger": {
+            "type": "command",
+            "command": "stop"
+          },
+          "guard": [],
+          "allowed_modes": []
+        },
+        {
+          "transition_id": "t_abort",
+          "from_state_id": "execute",
+          "to_state_id": "aborting",
+          "trigger": {
+            "type": "command",
+            "command": "abort"
+          },
+          "guard": [],
+          "allowed_modes": []
+        },
+        {
+          "transition_id": "t_aborted",
+          "from_state_id": "aborting",
+          "to_state_id": "aborted",
+          "trigger": {
+            "type": "em_aggregate",
+            "em_scope": "all",
+            "em_state": "aborted"
+          },
+          "guard": [],
+          "allowed_modes": []
+        },
+        {
+          "transition_id": "t_reset",
+          "from_state_id": "aborted",
+          "to_state_id": "resetting",
+          "trigger": {
+            "type": "command",
+            "command": "reset"
+          },
+          "guard": [],
+          "allowed_modes": []
+        },
+        {
+          "transition_id": "t_reset_done",
+          "from_state_id": "resetting",
+          "to_state_id": "idle",
+          "trigger": {
+            "type": "em_aggregate",
+            "em_scope": "all",
+            "em_state": "idle"
+          },
+          "guard": [],
+          "allowed_modes": []
+        },
+        {
+          "transition_id": "t_stop_reset",
+          "from_state_id": "stopped",
+          "to_state_id": "resetting",
+          "trigger": {
+            "type": "command",
+            "command": "reset"
+          },
+          "guard": [],
+          "allowed_modes": []
+        }
+      ]
+    }
+  },
+  "configuration_parameters": [
+    {
+      "parameter_id": "makeup_option",
+      "name": "Makeup table option",
+      "allowed_values": [
+        "1",
+        "2"
+      ],
+      "default": "1",
+      "description": "Option 1 = 11 feet/3 regular; Option 2 = 4 feet/10 regular."
+    },
+    {
+      "parameter_id": "stack_layers",
+      "name": "Required layers per stack",
+      "allowed_values": [
+        "9",
+        "10"
+      ],
+      "default": "10",
+      "description": "Layers before a stack is Complete."
+    }
+  ],
+  "confirmation_status": "unconfirmed",
+  "process_model": {
+    "process_name": "Ingot Palletising",
+    "process_description": "Classify infeed ingots, robot-pick, build layered stacks, index completed stacks to the strapper.",
+    "stages": [
+      {
+        "stage_id": "st_infeed",
+        "stage_name": "Infeed & Classify",
+        "description": "Detect and classify ingots at the 4 pickup positions; maintain the queue.",
+        "unit_id": "c3499cc8-4401-437f-bf23-45ef18afc893",
+        "operations": [
+          {
+            "operation_id": "op_classify",
+            "operation_name": "Classify ingots",
+            "description": "Foot/Standard/Top/Flip via sensors + laser scan.",
+            "equipment_module_id": "0a477175-0d25-4306-a45e-0d7687bdf1b8",
+            "actions": [
+              {
+                "action_id": "ac_detect",
+                "action_name": "Detect",
+                "description": "FB_INGOT_DETECTION per position."
+              }
+            ]
+          }
+        ],
+        "order": 1
+      },
+      {
+        "stage_id": "st_stack",
+        "stage_name": "Robot Stack Build",
+        "description": "Robot picks and places ingots to build layered stacks (foot → regular → top).",
+        "unit_id": "c3499cc8-4401-437f-bf23-45ef18afc893",
+        "operations": [
+          {
+            "operation_id": "op_pick",
+            "operation_name": "Pick & place",
+            "description": "Robot Task 1 pick, place on active stack.",
+            "equipment_module_id": "9faa0cbe-8c78-4a0a-bc4d-30e9e96c5317",
+            "actions": [
+              {
+                "action_id": "ac_pick",
+                "action_name": "Pick",
+                "description": "Grippers pick per LOCn_PICK."
+              }
+            ]
+          },
+          {
+            "operation_id": "op_layer",
+            "operation_name": "Build layers",
+            "description": "Foot/Regular/Top layer sequences advance the stack.",
+            "equipment_module_id": "fc144a3e-2152-4f18-9064-356eec72b920",
+            "actions": [
+              {
+                "action_id": "ac_layer",
+                "action_name": "Advance layer",
+                "description": "Advance NextLayer, mark layer complete."
+              }
+            ]
+          }
+        ],
+        "order": 2
+      },
+      {
+        "stage_id": "st_outfeed",
+        "stage_name": "Outfeed & Release",
+        "description": "Index the completed stack off-conveyor and hand off to the strapper.",
+        "unit_id": "c3499cc8-4401-437f-bf23-45ef18afc893",
+        "operations": [
+          {
+            "operation_id": "op_release",
+            "operation_name": "Release stack",
+            "description": "ConveyTech Task 6 handshake; encoder tracks X-position.",
+            "equipment_module_id": "0f44dc13-ca7f-4a69-b753-d3b3fe15cd0d",
+            "actions": [
+              {
+                "action_id": "ac_release",
+                "action_name": "Release",
+                "description": "Assert Output_CONVE_INT to downstream conveyor."
+              }
+            ]
+          }
+        ],
+        "order": 3
+      }
+    ]
+  }
+}
