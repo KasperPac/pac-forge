@@ -190,7 +190,7 @@ callers in `src/`** and is uncommitted.*
 
 | ID | Task | State | Pri | Eff | Depends | Evidence / notes |
 |---|---|---|---|---|---|---|
-| G8-1 | Wire `/tia/hmi/build` into the app (producer + hook) | 🔴 | P0 | M | — | `hmi/build` absent from `src/` |
+| G8-1 | Wire `/tia/hmi/build` into the app (producer + hook) | ✅ | P0 | M | — | SHIPPED 2026-07-22 ba7a15d: use-hmi-build hook (contract → G7 compiler → bridge POST) + Code Builder HMI panel (generate, spec/build-pack downloads, manual steps, Build in TIA, bridge result log) |
 | G8-2 | Bridge: create alarm classes (today only assigns existing) | 🔴 | P1 | S | — | `HmiUnified.cs:468` |
 | G8-3 | Bridge: user-role / access-level creation (UserAdministration) | ⛔ | P1 | M | — | no role code; **Openness support unverified** |
 | G8-4 | Bridge: Unified text-list creation (only Comfort SimaticML path today) | ⛔ | P0 | M | — | `TiaPortalService.cs:2439`; **Openness support unverified** |
