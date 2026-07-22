@@ -107,7 +107,7 @@ were fully hand-authored (`UC_Carriage/Rotator/Indicators.scl`).*
 | G2-4 | Physical signal → EM `ilk_` routing incl. two-detent jog/fast suppression | ✅ | P0 | M | G0-3 | SHIPPED 2026-07-21 ac18fc7: routing_rows resolved (io_tag/em_status/named_gate; unknown-EM skip+warn) and emitted before the seq-test release; two-detent jog = `(jog OR fast) AND NOT(fastExpr) AND jogGates` per golden master; named envelope gates held FALSE (fail-safe) + TODO + warning until G2-5 emits computed gates |
 | G2-5 | Envelope/limit-zone logic (position scaling, fwd/rev/fast gates, ramp fallback) | ✅ | P1 | L | G0-4 | SHIPPED 2026-07-21: CFG_<Unit> DB (RETAIN + seeded defaults), linear scaling + fwd/rev×ok/fast gates w/ unconfigured-open policy, rotary preset/counts→deg10 + generic wrapped home-window test; routing-row named gates now live `#gate_*` temps (fast→jog fallback = G2-4 two-detent × these gates); status readbacks → G4-2 |
 | G2-6 | Closed-loop one-shots (e.g. Straighten-Up) — may stay hand-authored | 💡 | P2 | L | G2-5 | `UC_Rotator.scl` straighten block |
-| G2-7 | UC routing rows read the `IO_Cond` conditioned layer (parity w/ golden master) | 🔴 | P2 | S | G1-4b, G2-4 | follow-up from G1-4b (fd021a0): io_tag sources still read raw tags; Monday subitem 3103064611 |
+| G2-7 | UC routing rows read the `IO_Cond` conditioned layer (parity w/ golden master) | ✅ | P2 | S | G1-4b, G2-4 | SHIPPED 2026-07-22: conditioned io_tag refs emit `"IO_Cond".<tag>` reads; raw tags unchanged |
 
 ---
 
