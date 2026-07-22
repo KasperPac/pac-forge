@@ -156,7 +156,7 @@ synthesize-from-scratch is the default.*
 |---|---|---|---|---|---|---|
 | G6-1 | Emit matched template's SCL body into the artifact set (dep-order + de-dup) — not just an instance DB | ✅ | P0 | M | — | SHIPPED 2026-07-22 681e087: template blocks emitted in sort order w/ chained deps, name de-dup across instances; standard-instruction templates reference-only; sourceless (LAD/XML) blocks skip + warn |
 | G6-2 | Make *instantiate* the default over *synthesize* (widen match or explicit "use library" selection) | 🔴 | P1 | M | G6-1 | `compile-contract.ts:49-56` default = synthesize |
-| G6-3 | Name-based role wiring (replace positional `contractWiringLines` that mis-wires on order) | 🔴 | P1 | M | — | `fb-instantiate.ts:72-98` |
+| G6-3 | Name-based role wiring (replace positional `contractWiringLines` that mis-wires on order) | ✅ | P1 | M | — | SHIPPED 2026-07-22 2d4d0d2: precedence = explicit fb_assignment pin_bindings (assignment template_id forces template) → directional name-token match; no-match/ambiguous pins left unbound + warned, never guessed |
 | G6-4 | Per-instance binding layer ("Phase 3.5 Device FB Binding") | 🔴 | P1 | L | G6-3 | `fb-interface.ts:19,37` |
 | G6-5 | Verified CM-block instantiation (not empty stub / wiring shell) | 🔴 | P2 | M | G6-1 | `fb-instantiate.ts:132-149` |
 | G6-6 | Structured per-state behavior model on templates (today opaque SCL) | 💡 | P2 | L | — | `states` is coverage-only `{slug,name,is_safe}` |
