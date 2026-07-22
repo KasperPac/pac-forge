@@ -1,7 +1,7 @@
 import type { CodegenArtifact, EmSeqState, EmSeqStep, EmSequence } from "./types";
 import { regionId, renderRegion, defaultStub } from "./em-fill-regions";
 import { buildCommandSeam, type CommandSeamPin } from "./em-command-seam";
-import { emDbName, emFbName, mapFcName } from "./naming";
+import { driveDbName, emDbName, emFbName, mapFcName } from "./naming";
 
 const PROGRAM = "Program blocks";
 const DATA = "PLC data types";
@@ -209,7 +209,7 @@ function buildDriveEmission(
   if (fbPin) consumedPins.add(fbPin.name);
 
   const ref = `ref_${d.sclName}`;
-  const dbName = `${d.fb_name}_${d.sclName}_DB`;
+  const dbName = driveDbName(d.fb_name, d.sclName);
   const eng = d.engineering;
   const percent = d.drive.speed_ref.unit === "percent_ref_speed";
   const factor = percent && eng?.ref_speed_rpm !== undefined ? eng.ref_speed_rpm / 100 : undefined;

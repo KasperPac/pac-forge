@@ -5,11 +5,31 @@
 // writers use (orderStates / codegen/naming.ts), so the HMI can never
 // desynchronize from the generated code. No AI in this path.
 // Design: Docs/superpowers/specs/2026-07-22-g7-hmi-compiler-design.md
-import { UNIT_PACKML_STATES, type AlarmTier, type SpecContractV2 } from "@/types/spec-contract-v2";
+import {
+  UNIT_PACKML_STATES,
+  type AlarmTier,
+  type IoSignalV2,
+  type SpecContractV2,
+} from "@/types/spec-contract-v2";
 import { orderStates } from "@/lib/spec-builder/codegen/step-order";
 import { sclIdent } from "@/lib/spec-builder/codegen/sa-builder";
-import { emDbName, unDbName } from "@/lib/spec-builder/codegen/naming";
-import type { HmiAlarmClass, HmiIr, HmiTextList } from "./hmi-ir";
+import { buildEmSequence } from "@/lib/spec-builder/codegen/em-builder";
+import { detectDrives } from "@/lib/spec-builder/codegen/drive-detect";
+import {
+  cfgDbName,
+  driveDbName,
+  emCmdDbName,
+  emDbName,
+  unDbName,
+} from "@/lib/spec-builder/codegen/naming";
+import type {
+  HmiAlarmClass,
+  HmiDiscreteAlarm,
+  HmiIr,
+  HmiSetpointField,
+  HmiTag,
+  HmiTextList,
+} from "./hmi-ir";
 
 /** Display text for a PackML slug: "unholding" → "Unholding". */
 function slugText(slug: string): string {
@@ -62,6 +82,124 @@ function buildTextLists(contract: SpecContractV2): HmiTextList[] {
   return lists;
 }
 
+/** Every IO signal in the hierarchy, keyed by tag (polarity lookups). */
+function ioByTag(contract: SpecContractV2): Map<string, IoSignalV2> {
+  const map = new Map<string, IoSignalV2>();
+  for (const u of contract.hierarchy.units)
+    for (const em of u.equipment_modules)
+      for (const cm of em.control_modules)
+        for (const s of cm.io_signals) map.set(s.tag, s);
+  return map;
+}
+
+/** Tags whose TRUE means "healthy" — any tag a safety gate's healthy
+ *  condition compares = true. Alarms on these trigger at 0. */
+function healthyTags(contract: SpecContractV2): Set<string> {
+  const out = new Set<string>();
+  for (const g of contract.safety_gates)
+    for (const c of g.condition)
+      if (c.operator === "=" && c.value === true) out.add(c.tag);
+  return out;
+}
+
+/** G7-2: contract alarms → discrete defs + one derived fault per detected
+ *  drive (`<SINA DB>.Error`). Trigger polarity respects fail-safe wiring. */
+function buildAlarms(contract: SpecContractV2): HmiDiscreteAlarm[] {
+  const tiers = new Map(contract.alarm_tiers.map((t) => [t.tier_id, t]));
+  const healthy = healthyTags(contract);
+  const io = ioByTag(contract);
+  const alarms: HmiDiscreteAlarm[] = contract.alarms.map((a) => {
+    const tier = tiers.get(a.tier_id);
+    const cls = tier ? alarmClassForTier(tier) : { name: "Fault", acknowledgement: true };
+    // fail-safe semantics: healthy-signals and N/C wired inputs read TRUE
+    // when OK, so their alarm fires on 0
+    const inverted = healthy.has(a.tag) || io.get(a.tag)?.polarity === "nc";
+    return {
+      tag: a.tag,
+      triggerValue: inverted ? 0 : 1,
+      className: cls.name,
+      text: a.description,
+    };
+  });
+  // derived drive faults — same detection the MAP writer uses
+  for (const u of contract.hierarchy.units) {
+    if (u.excluded) continue;
+    for (const em of u.equipment_modules) {
+      for (const d of detectDrives(em, contract.engineering)) {
+        if (!d.fb_name) continue;
+        alarms.push({
+          tag: `${driveDbName(d.fb_name, d.sclName)}.Error`,
+          triggerValue: 1,
+          className: "Fault",
+          text: `${d.control_module_name} drive fault — press reset`,
+        });
+      }
+    }
+  }
+  return alarms;
+}
+
+/** G7-3: setpoint fields — EM command-seam sp_ pins (via the same
+ *  buildEmSequence the compiler uses) + operator-settable CFG members with
+ *  their G0-10 access levels. */
+function buildSetpoints(contract: SpecContractV2): HmiSetpointField[] {
+  const fields: HmiSetpointField[] = [];
+  for (const unit of contract.hierarchy.units) {
+    if (unit.excluded) continue;
+    for (const em of unit.equipment_modules) {
+      const emContract = contract.equipment_modules[em.equipment_module_id];
+      if (!emContract) continue;
+      const seq = buildEmSequence(em, emContract, contract.engineering);
+      for (const sp of seq.setpointPins) {
+        fields.push({
+          tag: `${emCmdDbName(seq.sclName)}.${sp}`,
+          label: sp.replace(/^sp_/, "").replace(/_/g, " "),
+          group: em.equipment_module_name,
+        });
+      }
+    }
+    const coord = contract.unit_coordination?.[unit.unit_id];
+    for (const axis of coord?.axes ?? []) {
+      const params =
+        axis.kind === "linear"
+          ? [axis.scale, axis.length, axis.end_margin, axis.ramp_zone]
+          : [axis.counts_per_rev];
+      for (const p of params) {
+        if (!p.operator_settable) continue;
+        fields.push({
+          tag: `${cfgDbName(sclIdent(unit.unit_name))}.${p.db_member}`,
+          label: p.description ?? p.db_member.replace(/_/g, " "),
+          group: unit.unit_name,
+          requiredLevel: p.access?.required_level,
+          limits: p.access?.limits,
+        });
+      }
+    }
+  }
+  return fields;
+}
+
+/** G7-4: every binding referenced anywhere, deduped, dots → underscores. */
+function buildTags(
+  textLists: HmiTextList[],
+  alarms: HmiDiscreteAlarm[],
+  setpoints: HmiSetpointField[],
+): HmiTag[] {
+  const plcTags = [
+    ...textLists.map((l) => l.stateTag),
+    ...alarms.map((a) => a.tag),
+    ...setpoints.map((s) => s.tag),
+  ];
+  const seen = new Set<string>();
+  const tags: HmiTag[] = [];
+  for (const plcTag of plcTags) {
+    if (seen.has(plcTag)) continue;
+    seen.add(plcTag);
+    tags.push({ name: plcTag.replace(/\./g, "_"), plcTag });
+  }
+  return tags;
+}
+
 /** Build the full HMI IR from a confirmed contract. */
 export function buildHmiIr(contract: SpecContractV2): HmiIr {
   const seen = new Set<string>();
@@ -72,8 +210,14 @@ export function buildHmiIr(contract: SpecContractV2): HmiIr {
     seen.add(cls.name);
     alarmClasses.push(cls);
   }
+  const textLists = buildTextLists(contract);
+  const alarms = buildAlarms(contract);
+  const setpoints = buildSetpoints(contract);
   return {
-    textLists: buildTextLists(contract),
+    tags: buildTags(textLists, alarms, setpoints),
+    textLists,
     alarmClasses,
+    alarms,
+    setpoints,
   };
 }

@@ -24,7 +24,39 @@ export interface HmiAlarmClass {
   acknowledgement: boolean;
 }
 
+/** A discrete alarm (G7-2). `triggerValue` respects fail-safe semantics:
+ *  healthy-signal tags (safety-gate healthy conditions) and N/C wired inputs
+ *  alarm on 0; everything else on 1. */
+export interface HmiDiscreteAlarm {
+  /** Symbolic PLC binding (plain tag or DB.member). */
+  tag: string;
+  triggerValue: 0 | 1;
+  className: string;
+  text: string;
+}
+
+/** A writable numeric field on the Setpoints screen (G7-3). */
+export interface HmiSetpointField {
+  /** Symbolic PLC binding, e.g. "Belt_CMD.sp_RUN_SPEED" / "CFG_Unit.length_mm". */
+  tag: string;
+  label: string;
+  /** Grouping header (owning EM or unit name). */
+  group: string;
+  /** G0-10 access: minimum role level; absent = lowest writable level. */
+  requiredLevel?: number;
+  limits?: { min?: number; max?: number };
+}
+
+/** One HMI tag definition (G7-4): symbolic binding, dots → underscores. */
+export interface HmiTag {
+  name: string;
+  plcTag: string;
+}
+
 export interface HmiIr {
+  tags: HmiTag[];
   textLists: HmiTextList[];
   alarmClasses: HmiAlarmClass[];
+  alarms: HmiDiscreteAlarm[];
+  setpoints: HmiSetpointField[];
 }

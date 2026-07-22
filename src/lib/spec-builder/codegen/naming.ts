@@ -25,3 +25,6 @@ export const unDbName = (unitScl: string): string => `UN_${unitScl}`;
 /** Unit envelope config / status DBs (G2-5 / G4-2). */
 export const cfgDbName = (unitScl: string): string => `CFG_${unitScl}`;
 export const statDbName = (unitScl: string): string => `STAT_${unitScl}`;
+
+/** Drive telegram-FB instance DB (G1-2), e.g. "SINA_SPEED_M1_DB". */
+export const driveDbName = (fbName: string, cmScl: string): string => `${fbName}_${cmScl}_DB`;
