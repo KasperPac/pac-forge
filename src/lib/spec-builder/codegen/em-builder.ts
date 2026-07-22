@@ -14,7 +14,9 @@ import type { EmPin, EmSeqState, EmSeqStep, EmSequence, EmCommandBranch } from "
 const INPUT_TYPES = new Set<string>(["DI", "AI"]);
 const OUTPUT_TYPES = new Set<string>(["DO", "AO"]);
 const ANALOG_TYPES = new Set<string>(["AI", "AO"]);
-const CMD_PINS = ["cmd_start", "cmd_stop", "cmd_hold", "cmd_reset"];
+// G0-9/G2 seam: 6 command pins (the G2 design's full set) — clear/abort
+// let the coordinator's aborting/clearing states command members for real.
+const CMD_PINS = ["cmd_start", "cmd_stop", "cmd_hold", "cmd_reset", "cmd_clear", "cmd_abort"];
 
 /** Pick legacy action prose, else the first structured action's prose. */
 function stepProse(s: PhaseStep): string {
@@ -164,6 +166,30 @@ export function buildEmSequence(
     return { pin, value: isActiveCommand(entry.state) ? "TRUE" : "FALSE" };
   };
 
+  /** Lower a step's structured actions to SCL. All-or-nothing per step: any
+   *  non-assign action or unlowerable expression keeps the whole step on the
+   *  AI-fill stub path (partial lowering would silently drop behaviour). */
+  const lowerStepActions = (actions: PhaseStep["actions"]): string[] | undefined => {
+    if (!actions?.length) return undefined;
+    const lines: string[] = [];
+    for (const a of actions) {
+      if (a.kind !== "assign") return undefined;
+      const src = a.source;
+      let value: string | null = null;
+      if (src.kind === "literal") {
+        value =
+          typeof src.value === "boolean" ? (src.value ? "TRUE" : "FALSE")
+          : typeof src.value === "number" ? String(src.value)
+          : null; // string literals have no typed SCL lowering
+      } else if (src.kind === "tag_ref") {
+        value = pinRef(src.tag);
+      }
+      if (value === null) return undefined;
+      lines.push(`${pinRef(a.target_tag)} := ${value};`);
+    }
+    return lines.length ? lines : undefined;
+  };
+
   /** Inactive value for a pin: FALSE for Bool, 0 for Int. */
   const inactiveValue = (pin: string): string =>
     actuators.get(pin)?.scl_type === "Int" ? "0" : "FALSE";
@@ -216,6 +242,7 @@ export function buildEmSequence(
           step: i + 1,
           fillId: `${st.state_id}.${i + 1}`,
           actionProse: stepProse(ps),
+          lowered: lowerStepActions(ps.actions),
           advance: serializeCompletionGuard(criteria, pinRef),
           manual,
         });

@@ -11,16 +11,9 @@ import type {
   DriveModelV1,
   EngineeringDataV1,
   EquipmentModuleV2,
-  VfdFamily,
 } from "@/types/spec-contract-v2";
 import { sclIdent } from "./sa-builder";
-
-/** Deterministic driver-FB per family. Absent = no deterministic template
- *  (vendor blocks come via the FB library / fb_assignments). */
-const FAMILY_FB: Partial<Record<VfdFamily, string>> = {
-  sinamics_g120: "SINA_SPEED",
-  sinamics_s210: "SINA_POS",
-};
+import { deterministicDriveFb } from "../vfd-fb-family";
 
 export interface DriveInstance {
   control_module_id: string;
@@ -50,7 +43,7 @@ export function detectDrives(
   for (const cm of em.control_modules) {
     if (!cm.drive) continue;
     const warnings: string[] = [];
-    const fb_name = FAMILY_FB[cm.drive.family];
+    const fb_name = deterministicDriveFb(cm.drive.family);
     if (!fb_name) {
       warnings.push(
         `drive CM ${cm.control_module_name}: no deterministic driver FB for family "${cm.drive.family}" — assign a library template (fb_assignments) or the MAP emission stays a TODO`,

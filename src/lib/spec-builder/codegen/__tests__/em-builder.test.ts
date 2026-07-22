@@ -341,3 +341,65 @@ describe("buildEmSequence — telegram-word addressing (G1-5)", () => {
     expect(p.telegramNote).toContain("INT");
   });
 });
+
+describe("buildEmSequence — deterministic step-action lowering (G6/codegen-complete)", () => {
+  it("lowers structured assign actions to SCL statements; prose-only steps keep the AI-fill stub", () => {
+    const em = {
+      equipment_module_id: "em1", equipment_module_name: "Filler", description: "",
+      control_modules: [
+        {
+          control_module_id: "cm1", control_module_name: "V1", control_module_class: "valve",
+          is_safety: false, description: "",
+          io_signals: [
+            { tag: "V1_CMD", signal_type: "DO", io_address: "Q0.0", description: "", source: "wired" },
+            { tag: "V1_OPEN", signal_type: "DI", io_address: "I0.0", description: "", source: "wired" },
+          ],
+        },
+      ],
+    } as unknown as Parameters<typeof buildEmSequence>[0];
+    const contract = {
+      equipment_module_id: "em1", unit_id: "u1",
+      states: [
+        { state_id: "idle", name: "Idle", kind: "static", allowed_modes: [], is_safe_state: true },
+        { state_id: "execute", name: "Execute", kind: "sequential", allowed_modes: [], is_safe_state: false },
+      ],
+      transitions: [
+        { transition_id: "t1", from_state_id: "idle", to_state_id: "execute",
+          trigger: { kind: "command", expr: { tag: "cmd_start", operator: "=", value: true } }, guard: [] },
+      ],
+      static_states: {},
+      sequential_states: {
+        execute: {
+          steps: [
+            {
+              step: 1, action: "Open the valve",
+              actions: [
+                { kind: "assign", action_id: "a1", target_tag: "V1_CMD",
+                  source: { kind: "literal", value: true }, prose: "Open the valve" },
+              ],
+              completion_criteria: [
+                { kind: "tag_equals", tag: "V1_OPEN", value: true, within_ms: 2000,
+                  on_fail: { fault_code: "F1", severity: "fault" } },
+              ],
+              completion_criteria_text: "",
+            },
+            {
+              step: 2, action: "Operator tops up manually",
+              actions: [
+                { kind: "manual_prose", action_id: "a2", text: "Operator tops up", referenced_tags: [], prose: "Operator tops up manually" },
+              ],
+              completion_criteria: [], completion_criteria_text: "",
+            },
+          ],
+        },
+      },
+    } as unknown as Parameters<typeof buildEmSequence>[1];
+
+    const seq = buildEmSequence(em, contract);
+    const exec = seq.states.find((s) => s.stateId === "execute")!;
+    // structured assign → real SCL, no AI-fill TODO
+    expect(exec.steps[0].lowered).toEqual(["#cmd_V1_CMD := TRUE;"]);
+    // manual prose → no lowering, stub path stays
+    expect(exec.steps[1].lowered).toBeUndefined();
+  });
+});

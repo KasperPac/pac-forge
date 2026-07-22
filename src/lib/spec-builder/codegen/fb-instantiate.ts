@@ -231,11 +231,30 @@ function instanceDb(instanceName: string, blockName: string): CodegenArtifact {
   };
 }
 
-/** Emit a stub FB with the device's IO as a typed interface and an empty body. */
+/** G6-5: an unmatched device emits a functional direct-control FB, not an
+ *  empty shell — each output follows its `cmd_` input while `enable` is TRUE
+ *  and forces the zero/safe state otherwise. Unwired cmd/enable inputs
+ *  default FALSE, so an untouched instance is safe by construction; the block
+ *  is hand-drivable during commissioning and replaceable by a library FB
+ *  (fb_assignments) without changing callers. */
 function stubFb(prefix: string, name: string, io: IoSignalV2[]): CodegenArtifact {
   const fbName = `${prefix}_${sclIdent(name)}`;
-  const inputs = io.filter((s) => INPUTS.has(s.signal_type)).map((s) => `      ${s.tag} : ${sclType(s)};`);
-  const outputs = io.filter((s) => !INPUTS.has(s.signal_type)).map((s) => `      ${s.tag} : ${sclType(s)};`);
+  const outSigs = io.filter((s) => !INPUTS.has(s.signal_type));
+  const inputs = [
+    `      enable : Bool;`,
+    ...outSigs.map((s) => `      cmd_${sclIdent(s.tag)} : ${sclType(s)};`),
+    ...io.filter((s) => INPUTS.has(s.signal_type)).map((s) => `      ${s.tag} : ${sclType(s)};`),
+  ];
+  const outputs = outSigs.map((s) => `      ${s.tag} : ${sclType(s)};`);
+  const body = outSigs.length
+    ? [
+        `   IF #enable THEN`,
+        ...outSigs.map((s) => `      #${s.tag} := #cmd_${sclIdent(s.tag)};`),
+        `   ELSE`,
+        ...outSigs.map((s) => `      #${s.tag} := ${sclType(s) === "Int" ? "0" : "FALSE"};`),
+        `   END_IF;`,
+      ]
+    : [`   ;   // sensor-only device — no outputs to drive`];
   const content = [
     `FUNCTION_BLOCK "${fbName}"`,
     `{ S7_Optimized_Access := 'TRUE' }`,
@@ -243,7 +262,11 @@ function stubFb(prefix: string, name: string, io: IoSignalV2[]): CodegenArtifact
     `   VAR_INPUT`, ...inputs, `   END_VAR`,
     `   VAR_OUTPUT`, ...outputs, `   END_VAR`,
     `BEGIN`,
-    `   // Stub - body to be implemented (no library FB matched this device).`,
+    `   // Generated direct control (no library FB matched this device):`,
+    `   // outputs follow their cmd_ inputs while enabled; disable forces the`,
+    `   // safe (zero) state. Assign a library template via fb_assignments to`,
+    `   // replace this block.`,
+    ...body,
     `END_FUNCTION_BLOCK`,
     ``,
   ].join("\n");

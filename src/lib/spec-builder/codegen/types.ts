@@ -91,6 +91,9 @@ export interface EmSeqStep {
   fillId: string;
   /** Action prose (deterministic stub body + AI brief). */
   actionProse: string;
+  /** Deterministically lowered SCL statements for the step body (structured
+   *  assign actions). Absent = not fully lowerable → AI-fill stub. */
+  lowered?: string[];
   /** SCL boolean that advances PAST this step; `TRUE` when none. */
   advance: string;
   /** True when any completion criterion is manual/placeholder. */

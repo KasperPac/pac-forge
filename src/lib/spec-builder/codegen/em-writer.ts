@@ -61,7 +61,17 @@ function stateBranch(seq: EmSequence, st: EmSeqState, states: EmSeqState[]): str
     out.push(`${pad(9)}CASE #step OF`);
     st.steps.forEach((step, i) => {
       out.push(`${pad(12)}${step.step}:`);
-      out.push(renderRegion(regionId(seq.sclName, step.fillId), defaultStub(step.actionProse, pad(15)), pad(15)));
+      out.push(
+        renderRegion(
+          regionId(seq.sclName, step.fillId),
+          // deterministically lowered body when the FDS carries structured
+          // actions; AI-fill stub otherwise
+          step.lowered?.length
+            ? [`${pad(15)}// ${step.actionProse}`, ...step.lowered.map((l) => `${pad(15)}${l}`)].join("\n")
+            : defaultStub(step.actionProse, pad(15)),
+          pad(15),
+        ),
+      );
       out.push(advanceLine(step, i === st.steps.length - 1, 15));
     });
     out.push(`${pad(9)}END_CASE;`);
@@ -254,7 +264,7 @@ function buildDriveEmission(
     `   #${ref} := "${inst}".${refPin.name};`,
     `   "${dbName}"(`,
     `      ${enable}`,
-    `      AckError := FALSE,   // TODO fault-ack routing (G0-3 coordination row)`,
+    `      AckError := "${inst}".cmd_reset,   // EM reset command acks drive faults (golden-master pattern)`,
     `      ${speedSp}`,
     `      ${refSpeed}`,
     `      ${configAxis}`,

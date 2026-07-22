@@ -29,8 +29,10 @@ const CMD_PIN_BY_COMMAND: Record<string, string> = {
   STOP: "cmd_stop",
   HOLD: "cmd_hold",
   RESET: "cmd_reset",
+  CLEAR: "cmd_clear",
+  ABORT: "cmd_abort",
 };
-const SEAM_PINS = ["cmd_start", "cmd_stop", "cmd_hold", "cmd_reset"];
+const SEAM_PINS = ["cmd_start", "cmd_stop", "cmd_hold", "cmd_reset", "cmd_clear", "cmd_abort"];
 
 type MemberIr = UnitSequenceIr["members"][number];
 

@@ -115,16 +115,29 @@ function buildSteps(equipment_module: ResolvedAssembly, stateKey: StateKey): Pha
       return io ? io.tag : `{${suf}}`;
     });
 
-    // Build a single ActionV2 (manual_prose flavour — keeps the AI out of action structure)
-    const action: ActionV2 = {
-      kind: "manual_prose",
-      action_id: `a-${stateId}-${stepNumber}-1`,
-      text: actionText,
-      referenced_tags: tpl.referencedSuffixes
-        .map((s) => findIo(c.device, s)?.tag)
-        .filter((t): t is string => Boolean(t)),
-      prose: actionText,
-    };
+    // Structured assign when the template action follows the canonical
+    // "Set {SUFFIX} = TRUE|FALSE" form — the deterministic compiler lowers it
+    // to real SCL (codegen-complete gate); anything else stays manual_prose.
+    const setMatch = /^Set \{([A-Z_]+)\} = (TRUE|FALSE)$/.exec(tpl.action);
+    const setIo = setMatch ? findIo(c.device, setMatch[1]) : null;
+    const action: ActionV2 =
+      setMatch && setIo
+        ? {
+            kind: "assign",
+            action_id: `a-${stateId}-${stepNumber}-1`,
+            target_tag: setIo.tag,
+            source: { kind: "literal", value: setMatch[2] === "TRUE", value_type: "boolean" },
+            prose: actionText,
+          }
+        : {
+            kind: "manual_prose",
+            action_id: `a-${stateId}-${stepNumber}-1`,
+            text: actionText,
+            referenced_tags: tpl.referencedSuffixes
+              .map((s) => findIo(c.device, s)?.tag)
+              .filter((t): t is string => Boolean(t)),
+            prose: actionText,
+          };
 
     return {
       // v2 SFC fields

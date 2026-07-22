@@ -343,3 +343,91 @@ describe("assembleRandomFds — end-to-end through the deterministic compiler (G
     expect(lastCall).toContain("MAINT_Output_Override");
   });
 });
+
+describe("FULL project audit — FDS to code with nothing blocking (codegen-complete gate)", () => {
+  it("a seeded 2-unit project compiles with zero stubs/blocks, well-formed artifacts, and only commissioning-pending TODOs", async () => {
+    const { compileContract } = await import("@/lib/spec-builder/codegen/compile-contract");
+    const theme: RandomFdsTheme = {
+      title: "Full Audit", system_description: "x", plc_model: "S7-1500", hmi_type: "TP1200",
+      fault_philosophy: "x", design_principles: ["x"], machine_theme: "x", safety_classification: null,
+      units: [
+        {
+          unit_name: "Infeed", equipment_type: "Conveyor", description: "",
+          equipment_modules: [
+            { equipment_module_name: "Belt", description: "",
+              control_modules: [
+                { control_module_name: "CV1", control_module_class: "conveyor", description: "", is_safety: false },
+                { control_module_name: "ES1", control_module_class: "emergency_stop", description: "", is_safety: true },
+                { control_module_name: "PT1", control_module_class: "transmitter", description: "", is_safety: false },
+              ] },
+            { equipment_module_name: "Gate", description: "",
+              control_modules: [
+                { control_module_name: "SOL1", control_module_class: "valve", description: "", is_safety: false },
+              ] },
+          ],
+        },
+        {
+          unit_name: "Process", equipment_type: "Dryer", description: "",
+          equipment_modules: [
+            { equipment_module_name: "Heater", description: "",
+              control_modules: [
+                { control_module_name: "HT1", control_module_class: "dryer", description: "", is_safety: false },
+                { control_module_name: "M2", control_module_class: "motor", description: "", is_safety: false },
+              ] },
+          ],
+        },
+      ],
+    };
+    const { patch } = assembleRandomFds(theme, { projectId: "00000000-0000-0000-0000-000000000009" });
+    const contract = {
+      schema_version: 3, project: {},
+      hierarchy: patch.hierarchy!, alarm_tiers: patch.alarm_tiers!,
+      equipment_modules: patch.equipment_modules!, safety_gates: patch.safety_gates!,
+      modes: patch.modes!, unit_coordination: patch.unit_coordination!,
+      maintenance: patch.maintenance!, engineering: patch.engineering!,
+      alarms: [], io_list: [], faults: [], sections: {}, confirmation_status: "confirmed",
+    } as unknown as import("@/types/spec-contract-v2").SpecContractV2;
+
+    const res = compileContract(contract, []);
+
+    // 1. Nothing stubbed or blocked
+    expect(res.stubs.controlModules).toEqual([]);
+    expect(res.stubs.equipmentModules).toEqual([]);
+
+    // 2. Every artifact is well-formed SCL of its declared type
+    const HEAD: Record<string, string> = {
+      FB: "FUNCTION_BLOCK", FC: "FUNCTION ", DB: "DATA_BLOCK", UDT: "TYPE", OB: "ORGANIZATION_BLOCK",
+    };
+    for (const a of res.artifacts) {
+      expect(a.content.trim().length, `${a.name} empty`).toBeGreaterThan(0);
+      expect(a.content.startsWith(HEAD[a.type]), `${a.name} malformed head`).toBe(true);
+    }
+
+    // 3. TODOs are ONLY the commissioning-pending set (values that can't exist
+    //    before TIA HW config / site commissioning) — nothing structural
+    const todos = res.artifacts
+      .flatMap((a) => a.content.split("\n"))
+      .filter((l) => l.includes("TODO"));
+    const allowed = [
+      /HWIDSTW|HWIDZSW|HW config/, // drive HW ids pend TIA hardware config
+      /wire from the maintenance seam/, // absent maintenance layer only
+    ];
+    for (const t of todos) {
+      expect(allowed.some((rx) => rx.test(t)), `unexpected TODO: ${t.trim()}`).toBe(true);
+    }
+
+    // 4. The full program shape is present
+    const names = res.artifacts.map((a) => a.name);
+    for (const expected of [
+      "EM_Belt", "MAP_Belt", "Belt_CMD", "EM_Gate", "EM_Heater",
+      "UC_Infeed", "UN_Infeed", "CFG_Infeed", "STAT_Infeed",
+      "UC_Process", "UN_Process",
+      "Maintenance_CMD", "MAINT_Output_Override", "Main",
+    ]) {
+      expect(names, `missing ${expected}`).toContain(expected);
+    }
+    // drive telegram emitted with fault-ack wired (no TODO on AckError)
+    const belt = res.artifacts.find((a) => a.name === "MAP_Belt")!.content;
+    expect(belt).toContain('AckError := "EM_Belt_DB".cmd_reset');
+  });
+});

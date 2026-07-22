@@ -86,3 +86,13 @@ describe("detectDrives (G1-1)", () => {
     expect(detectDrives(em(undefined), engineering)).toEqual([]);
   });
 });
+
+describe("family registry (G1-6)", () => {
+  it("consumes the shared vfd-fb-family registry as the single FB source", async () => {
+    const { deterministicDriveFb } = await import("@/lib/spec-builder/vfd-fb-family");
+    expect(deterministicDriveFb("sinamics_g120")).toBe("SINA_SPEED");
+    expect(deterministicDriveFb("sinamics_s210")).toBe("SINA_POS");
+    expect(deterministicDriveFb("abb_acs880")).toBeUndefined(); // library territory
+    expect(deterministicDriveFb("other")).toBeUndefined();
+  });
+});

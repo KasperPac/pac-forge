@@ -267,3 +267,16 @@ describe("contract wiring — name-based roles (G6-3)", () => {
     expect(r.warnings.some((w) => w.includes("fb_run") && w.includes("ambiguous"))).toBe(true);
   });
 });
+
+describe("stub FB — functional direct control (G6-5)", () => {
+  it("drives each output from a cmd_ input gated on enable, safe when disabled", () => {
+    const r = instantiateControlModule(motorCm, []);
+    const fb = r.artifacts.find((a) => a.type === "FB")!;
+    expect(fb.content).toContain("enable : Bool;");
+    expect(fb.content).toContain("cmd_M01_Run : Bool;");
+    expect(fb.content).toContain("IF #enable THEN");
+    expect(fb.content).toContain("#M01_Run := #cmd_M01_Run;");
+    expect(fb.content).toContain("#M01_Run := FALSE;");
+    expect(fb.content).not.toContain("Stub - body to be implemented");
+  });
+});
