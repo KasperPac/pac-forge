@@ -66,11 +66,11 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
       const emContract = contract.equipment_modules[em.equipment_module_id];
       const emRes = instantiateEquipmentModule(em, templates, fbAssignments);
 
-      // Case C: synthesized (unmatched + contract). The generated EM FB owns
-      // sequencing and its CMs' IO (via MAP_<EM>); CMs are not instantiated
-      // separately here.
-      if (emRes.stub && emContract) {
-        const seq = buildEmSequence(em, emContract, contract.engineering);
+      // Synthesize path (Case C + the G6-2 coverage-fallback): the generated
+      // EM FB owns sequencing and its CMs' IO (via MAP_<EM>); CMs are not
+      // instantiated separately.
+      const synthesizeEm = (contractForEm: NonNullable<typeof emContract>) => {
+        const seq = buildEmSequence(em, contractForEm, contract.engineering);
         const { artifacts: emArts, callLines } = writeEmArtifacts(seq);
         emArts.forEach(push);
         deviceCallLines.push(...callLines);
@@ -82,9 +82,14 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
           states: seq.states.map((s) => ({
             slug: s.stateId,
             index: s.index,
-            allowedModes: emContract.states.find((cs) => cs.state_id === s.stateId)?.allowed_modes,
+            allowedModes: contractForEm.states.find((cs) => cs.state_id === s.stateId)?.allowed_modes,
           })),
         });
+      };
+
+      // Case C: unmatched + contract.
+      if (emRes.stub && emContract) {
+        synthesizeEm(emContract);
         continue;
       }
 
@@ -108,6 +113,17 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
         const cov = checkStateCoverage(emContract.states, emRes.contract?.states ?? []);
         if (!cov.ok) {
           const missing = cov.missing.map((s) => s.name).join(", ");
+          // G6-2: an AUTO-matched library FB that fails coverage falls back to
+          // the synthesized EM (the contract can express what the library
+          // can't). Only an explicit fb_assignment stays a hard block — the
+          // engineer asked for that template, so the mismatch must surface.
+          if (!emRes.forcedByAssignment) {
+            warnings.push(
+              `EM ${em.equipment_module_name}: auto-matched library FB "${emRes.contract?.block_name ?? sclName}" missing states: ${missing} — falling back to synthesized EM`,
+            );
+            synthesizeEm(emContract);
+            continue;
+          }
           stubs.equipmentModules.push({
             id: em.equipment_module_id,
             name: em.equipment_module_name,

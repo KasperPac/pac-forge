@@ -236,21 +236,57 @@ describe("compile-contract — verified matched EM", () => {
     });
   });
 
-  describe("Case A — coverage fail (library FB missing a state)", () => {
+  describe("Case A — coverage fail on an AUTO-match falls back to synthesis (G6-2)", () => {
     const res = compileContract(matchedFixture(), [emTemplate([{ slug: "idle", name: "Idle", is_safe: true }])]);
     const names = res.artifacts.map((a) => a.name);
 
-    it("blocks the EM with a 'missing states' reason naming the missing state", () => {
+    it("synthesizes the EM instead of blocking, with a fallback warning naming the missing state", () => {
+      expect(res.stubs.equipmentModules).toHaveLength(0);
+      expect(names).toContain("EM_Carriage"); // synthesized bundle
+      expect(names).toContain("MAP_Carriage");
+      expect(
+        res.warnings.some((w) => w.includes("falling back to synthesized") && w.includes("Active")),
+      ).toBe(true);
+    });
+
+    it("emits no library link FCs for the fallen-back EM", () => {
+      expect(names).not.toContain("LINK_Carriage_IN");
+      expect(names).not.toContain("LINK_Carriage_OUT");
+    });
+  });
+
+  describe("Case A — coverage fail on an ASSIGNED template stays a hard block (G6-2)", () => {
+    it("blocks with the missing-states reason when the engineer explicitly chose the template", () => {
+      const c = matchedFixture();
+      (c as unknown as Record<string, unknown>).engineering = {
+        drives: [], axis_constants: [], encoder_presets: [], upstream_endpoints: [],
+        fb_assignments: [
+          { target_kind: "equipment_module", target_id: "em-carriage", template_id: "tmpl-carriage", pin_bindings: [] },
+        ],
+      };
+      const res = compileContract(c, [emTemplate([{ slug: "idle", name: "Idle", is_safe: true }])]);
       const stub = res.stubs.equipmentModules.find((s) => s.id === "em-carriage");
       expect(stub).toBeDefined();
       expect(stub!.reason).toContain("missing states");
-      expect(stub!.reason).toContain("Active");
+      expect(res.artifacts.map((a) => a.name)).not.toContain("EM_Carriage");
     });
+  });
 
-    it("emits no command seam or link FCs for the blocked EM", () => {
-      expect(names).not.toContain("Carriage_CMD");
-      expect(names).not.toContain("LINK_Carriage_IN");
-      expect(names).not.toContain("LINK_Carriage_OUT");
+  describe("explicit assignment flips a synthesizable EM to instantiate (G6-2)", () => {
+    it("takes the library path over synthesis when the assignment names a coverage-passing template", () => {
+      const c = matchedFixture();
+      // rename the EM so score-matching would NOT pick the template on its own
+      c.hierarchy.units[0].equipment_modules[0].equipment_module_name = "Unrelated Name";
+      (c as unknown as Record<string, unknown>).engineering = {
+        drives: [], axis_constants: [], encoder_presets: [], upstream_endpoints: [],
+        fb_assignments: [
+          { target_kind: "equipment_module", target_id: "em-carriage", template_id: "tmpl-carriage", pin_bindings: [] },
+        ],
+      };
+      const res = compileContract(c, [emTemplate(FULL_STATES)]);
+      const names = res.artifacts.map((a) => a.name);
+      expect(names).not.toContain("EM_Unrelated_Name"); // no synthesized bundle
+      expect(names.some((n) => n.startsWith("EM_LibCarriage_"))).toBe(true); // library instance DB
     });
   });
 

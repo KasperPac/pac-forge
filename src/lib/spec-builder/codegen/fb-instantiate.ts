@@ -23,6 +23,9 @@ export interface InstantiateResult {
   instanceDb: string;
   /** The matched template's interface contract, or null for a stub. */
   contract: FbInterfaceContract | null;
+  /** TRUE when an explicit fb_assignment forced this template (G6-2: such a
+   *  match never silently falls back — its failures surface as hard blocks). */
+  forcedByAssignment: boolean;
 }
 
 /** Score-pick the best library FB for a device. Category/class match dominates,
@@ -276,9 +279,10 @@ function instantiate(
       artifacts: [fb, instanceDb(instanceName, fb.name)].map(tag),
       callLines: wiringLines(instanceName, io),
       stub: { id, name, reason: `no ${isEm ? "EM" : "CM"} template matched "${deviceClass}"` },
-      warnings: [],
+      warnings: assignmentWarnings,
       instanceDb: instanceName,
       contract: null,
+      forcedByAssignment: false,
     };
   }
   const block = templateBlockName(t);
@@ -295,6 +299,7 @@ function instantiate(
     warnings: [...assignmentWarnings, ...body.warnings, ...w.warnings],
     instanceDb: instance,
     contract: t.interface_contract,
+    forcedByAssignment: !!assignment && t.id === assignment.template_id,
   };
 }
 
