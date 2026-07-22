@@ -17,6 +17,7 @@ import { ArtifactPanel } from "@/components/code-builder/artifact-panel";
 import { FbQualityGates } from "@/components/code-builder/fb-quality-gates";
 import { FbVersionHistory } from "@/components/code-builder/fb-version-history";
 import { HmiBuildPanel } from "@/components/code-builder/hmi-build-panel";
+import { PromoteLibraryPanel } from "@/components/code-builder/promote-library-panel";
 import { SendToTiaPanel } from "@/components/code-builder/send-to-tia-panel";
 import { useCodeBuilderVersions } from "@/hooks/use-code-builder-versions";
 import { useEmStandardsReview, type EmReviewArtifact } from "@/hooks/use-em-standards-review";
@@ -159,6 +160,16 @@ export default function CodeBuilderPage() {
               approve.mutate(current.artifact_name);
             }}
           />
+          {current?.type === "FB" && (
+            <div className="border-t p-2">
+              <PromoteLibraryPanel
+                artifact={current}
+                related={related}
+                grain={activeLayer === "em" ? "em" : "cm"}
+                states={emInfo?.states}
+              />
+            </div>
+          )}
           {isEmFb && current && (
             <>
               <FbQualityGates
