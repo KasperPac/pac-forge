@@ -61,6 +61,16 @@ describe("composeFdsToSections — command-driven state (SP-3c)", () => {
     expect(content.steps).toBeUndefined();
   });
 
+  it("writes only V2 granularity values (the DB CHECK rejects legacy 'subsystem'/'assembly_state')", async () => {
+    await composeFdsToSections("proj", unit, [session]);
+    const rows = writeCalls.filter((c) => c.table === "spec_sections" && c.op === "insert");
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) {
+      const g = (r.payload as { granularity?: string }).granularity;
+      expect(["equipment_module_state", "unit", "project"]).toContain(g);
+    }
+  });
+
   it("still skips sequential states with neither steps nor command_behavior", async () => {
     const bare = { ...session, command_behavior: undefined } as unknown as OperationSession;
     await composeFdsToSections("proj", unit, [bare]);
