@@ -90,7 +90,7 @@ to full IO signal conditioning.*
 | G1-4 | N/C fail-safe inversion per sensor polarity | ✅ | P0 | S | G0-2 | SHIPPED 2026-07-21 d0df905: EmPin.polarity → `NOT` emission with fail-safe comment (golden-master pattern) |
 | G1-4b | Conditioning + analog scaling emission: TON/TOF debounce from `conditioning`, `NORM_X`/`SCALE_X` EU from `scaling`, blanket `io_conditioning_defaults` | ✅ | P0 | M | G0-2, G1-4 | SHIPPED 2026-07-22 fd021a0: FB_IO_Conditioning (TON/TOF multi-instances) → IO_Cond DB, first in OB1; per-signal overrides blanket; MAP reads conditioned DIs (N/C stacks on top) + REAL_TO_INT(SCALE_X(NORM_X)) w/ platform mA/V→counts conversion, EU as Int |
 | G1-5 | Analog / PROFINET telegram-word addressing (IW/QW offsets); smarter unresolved-address handling | ✅ | P1 | M | G0-1 | SHIPPED 2026-07-22: telegram_offset + tier-2 io_in/out_start_byte → absolute %I/%Q (Siemens word layout); unresolved → TODO naming word/bit/type + the missing engineering field |
-| G1-6 | Refactor `vfd-fb-family.ts` so the deterministic compiler can consume it (currently AI-only) | 🔴 | P1 | M | — | imported only by `use-forge-device-generate.ts` |
+| G1-6 | Refactor `vfd-fb-family.ts` so the deterministic compiler can consume it (currently AI-only) | ✅ | P1 | M | — | SHIPPED 2026-07-22 4513622: single family registry w/ `deterministic_fb`; drive-detect consumes it (parallel table removed); forge path unchanged |
 
 ---
 
@@ -159,7 +159,7 @@ synthesize-from-scratch is the default.*
 | G6-2 | Make *instantiate* the default over *synthesize* (widen match or explicit "use library" selection) | ✅ | P1 | M | G6-1 | SHIPPED 2026-07-22 4195cff: precedence = explicit fb_assignment (hard block on coverage fail) > auto-match passing coverage (fail → synthesize fallback w/ warning, no more silent BLOCK) > synthesize > stub; assignment flips synthesizable EMs onto the library path |
 | G6-3 | Name-based role wiring (replace positional `contractWiringLines` that mis-wires on order) | ✅ | P1 | M | — | SHIPPED 2026-07-22 2d4d0d2: precedence = explicit fb_assignment pin_bindings (assignment template_id forces template) → directional name-token match; no-match/ambiguous pins left unbound + warned, never guessed |
 | G6-4 | Per-instance binding layer ("Phase 3.5 Device FB Binding") | 🔴 | P1 | L | G6-3 | `fb-interface.ts:19,37` |
-| G6-5 | Verified CM-block instantiation (not empty stub / wiring shell) | 🔴 | P2 | M | G6-1 | `fb-instantiate.ts:132-149` |
+| G6-5 | Verified CM-block instantiation (not empty stub / wiring shell) | ✅ | P2 | M | G6-1 | SHIPPED 2026-07-22 4513622: unmatched devices emit functional direct-control FBs (cmd_ inputs gated on enable, safe when disabled, hand-drivable at commissioning) |
 | G6-6 | Structured per-state behavior model on templates (today opaque SCL) | 💡 | P2 | L | — | `states` is coverage-only `{slug,name,is_safe}` |
 
 ---
