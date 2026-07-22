@@ -9,6 +9,7 @@
 // comes from the G0-5 contract data.
 import type { CodegenArtifact } from "./types";
 import { sclIdent } from "./sa-builder";
+import { MAINTENANCE_DB } from "./naming";
 
 const PROGRAM = "Program blocks";
 
@@ -38,7 +39,7 @@ export interface MaintenanceInput {
   presets: PresetChannelInput[];
 }
 
-export const MAINTENANCE_DB = "Maintenance_CMD";
+export { MAINTENANCE_DB } from "./naming";
 
 /** Ensure a leading % on a recorded IO address. */
 function addr(a: string): string {

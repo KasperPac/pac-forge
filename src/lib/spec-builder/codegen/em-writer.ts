@@ -1,6 +1,7 @@
 import type { CodegenArtifact, EmSeqState, EmSeqStep, EmSequence } from "./types";
 import { regionId, renderRegion, defaultStub } from "./em-fill-regions";
 import { buildCommandSeam, type CommandSeamPin } from "./em-command-seam";
+import { emDbName, emFbName, mapFcName } from "./naming";
 
 const PROGRAM = "Program blocks";
 const DATA = "PLC data types";
@@ -79,7 +80,7 @@ function stateBranch(seq: EmSequence, st: EmSeqState, states: EmSeqState[]): str
 /** The procedural EM Function Block: typed interface + CASE state/step skeleton
  *  with AI-fill regions for the step bodies. */
 function writeFb(seq: EmSequence): CodegenArtifact {
-  const name = `EM_${seq.sclName}`;
+  const name = emFbName(seq.sclName);
   const inputs = [
     `      enable : Bool;`,
     `      mode : Int;`,
@@ -167,7 +168,7 @@ function buildDriveEmission(
   seq: EmSequence,
   d: EmSequence["drives"][number],
 ): { lines: string[]; tempVars: string[]; consumedPins: Set<string>; dbName?: string } {
-  const inst = `EM_${seq.sclName}_DB`;
+  const inst = emDbName(seq.sclName);
   const consumedPins = new Set<string>();
 
   if (!d.fb_name) {
@@ -282,8 +283,8 @@ function writeDriveDb(seq: EmSequence, fbName: string, dbName: string): CodegenA
 
 /** MAP FC — the IO seam between physical addresses and the instance DB. */
 function writeMapFc(seq: EmSequence): { artifact: CodegenArtifact; driveDbs: CodegenArtifact[] } {
-  const inst = `EM_${seq.sclName}_DB`;
-  const name = `MAP_${seq.sclName}`;
+  const inst = emDbName(seq.sclName);
+  const name = mapFcName(seq.sclName);
 
   // G1-2/G1-3: telegram-FB emissions per detected drive
   const emissions = seq.drives.map((d) => buildDriveEmission(seq, d));
@@ -336,8 +337,8 @@ function writeMapFc(seq: EmSequence): { artifact: CodegenArtifact; driveDbs: Cod
 
 /** Instance DB for the EM FB. */
 function writeInstanceDb(seq: EmSequence): CodegenArtifact {
-  const fbName = `EM_${seq.sclName}`;
-  const name = `EM_${seq.sclName}_DB`;
+  const fbName = emFbName(seq.sclName);
+  const name = emDbName(seq.sclName);
   const content = [
     `DATA_BLOCK "${name}"`,
     `{ S7_Optimized_Access := 'TRUE' }`,
@@ -352,7 +353,7 @@ function writeInstanceDb(seq: EmSequence): CodegenArtifact {
 
 /** OB1 call lines: instantiate the FB from its CMD DB, then run its MAP FC. */
 function buildCallLines(seq: EmSequence): string[] {
-  const inst = `EM_${seq.sclName}_DB`;
+  const inst = emDbName(seq.sclName);
   const { callBindings } = buildCommandSeam(seq.sclName, commandPins(seq));
   return [`   "${inst}"(${callBindings.join(", ")});`, `   "MAP_${seq.sclName}"();`];
 }

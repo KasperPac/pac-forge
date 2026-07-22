@@ -16,6 +16,7 @@ import type {
 import { emCommandForState, type EmCommand } from "../unit-coordination";
 import { serializeGuard } from "./serialize-condition";
 import { sclIdent } from "./sa-builder";
+import { cfgDbName, statDbName } from "./naming";
 
 /** A member EM of the unit, with its EM-local PackML slug → dispatch index map. */
 export interface UnitMemberEm {
@@ -385,8 +386,8 @@ export function buildUnitSequence(input: UnitBuildInput): UnitSequenceIr {
       }
     }
     axesIr = {
-      configDbName: `CFG_${sclIdent(unitName)}`,
-      statusDbName: `STAT_${sclIdent(unitName)}`,
+      configDbName: cfgDbName(sclIdent(unitName)),
+      statusDbName: statDbName(sclIdent(unitName)),
       params,
       linear,
       rotary,

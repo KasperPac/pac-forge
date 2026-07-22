@@ -16,7 +16,7 @@ import type {
 } from "./unit-builder";
 import { serializeGuard } from "./serialize-condition";
 import { sclIdent } from "./sa-builder";
-import { MAINTENANCE_DB } from "./maintenance-writer";
+import { MAINTENANCE_DB, ucFbName, unDbName } from "./naming";
 
 const PROGRAM = "Program blocks";
 
@@ -428,7 +428,7 @@ function writeInstanceDb(fbName: string, ir: UnitSequenceIr): CodegenArtifact {
 
 /** UN_<Unit> global PackTags DB — the HMI/SCADA machine-data interface (G0-9). */
 function writeUnDb(ir: UnitSequenceIr): CodegenArtifact {
-  const name = `UN_${sclIdent(ir.unitName)}`;
+  const name = unDbName(sclIdent(ir.unitName));
   const fields = [
     `      Cur_St : Int;`,
     `      Cur_Mode : Int;`,
@@ -466,8 +466,8 @@ export function writeUnitArtifacts(ir: UnitSequenceIr): {
   artifacts: CodegenArtifact[];
   callLine: string;
 } {
-  const name = `UC_${sclIdent(ir.unitName)}`;
-  const unName = `UN_${sclIdent(ir.unitName)}`;
+  const name = ucFbName(sclIdent(ir.unitName));
+  const unName = unDbName(sclIdent(ir.unitName));
   const body = ir.states.flatMap((st) => stateBranch(st, ir));
 
   // G2-2: PackTags mirror (runs every scan, incl. seq-test mode).
