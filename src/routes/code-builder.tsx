@@ -17,6 +17,7 @@ import { ArtifactPanel } from "@/components/code-builder/artifact-panel";
 import { FbQualityGates } from "@/components/code-builder/fb-quality-gates";
 import { FbVersionHistory } from "@/components/code-builder/fb-version-history";
 import { HmiBuildPanel } from "@/components/code-builder/hmi-build-panel";
+import { SendToTiaPanel } from "@/components/code-builder/send-to-tia-panel";
 import { useCodeBuilderVersions } from "@/hooks/use-code-builder-versions";
 import { useEmStandardsReview, type EmReviewArtifact } from "@/hooks/use-em-standards-review";
 import { evaluateSafetyGate } from "@/lib/spec-builder/fb-quality-gate";
@@ -104,6 +105,7 @@ export default function CodeBuilderPage() {
           />
         </div>
         <div className="ml-auto flex items-center gap-2">
+          {specId && <SendToTiaPanel specId={specId} revision={revision} />}
           {specId && <HmiBuildPanel specId={specId} projectName={spec?.title} />}
           <Badge variant="outline" className="text-[10px]">
             Phase 4 — Code Builder

@@ -267,14 +267,16 @@ describe("useFdsConversation Stage A state-machine authoring", () => {
 \`\`\`json
 {
   "states": [
-    { "state_id": "stopped", "name": "Stopped", "kind": "static", "allowed_modes": [], "is_safe_state": true },
-    { "state_id": "auto_cycle", "name": "Auto Cycle", "kind": "sequential", "allowed_modes": ["auto"], "is_safe_state": false }
+    { "state_id": "aborted", "name": "Aborted", "kind": "static", "allowed_modes": [], "is_safe_state": true },
+    { "state_id": "execute", "name": "Execute", "kind": "sequential", "allowed_modes": ["auto"], "is_safe_state": false }
   ],
   "transitions": [
-    { "transition_id": "t1", "from_state_id": "stopped", "to_state_id": "auto_cycle", "trigger": { "kind": "command", "expr": { "tag": "LFT01_START", "operator": "=", "value": true } }, "guard": [] }
+    { "transition_id": "t1", "from_state_id": "aborted", "to_state_id": "execute", "trigger": { "kind": "command", "expr": { "tag": "LFT01_START", "operator": "=", "value": true } }, "guard": [] }
   ]
 }
 \`\`\``;
+    // NOTE: slugs must be PackML and the safe state must be "aborted" —
+    // the SP-3b conformance gate hard-blocks anything else (by design).
 
     streamMock.mockImplementation(async (_body, _signal, onChunk) => {
       onChunk(proposal);

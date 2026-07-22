@@ -21,6 +21,8 @@ function seq(): EmSequence {
         kind: "sequential",
         isSafe: false,
         staticCommands: [],
+        commandBranches: [], // stale-fixture fix (SP-3c command-behavior fields)
+        commandDefaults: [],
         steps: [
           { step: 1, fillId: "running.1", actionProse: "release brake", advance: "#fb_brake_open", manual: false },
         ],
@@ -31,6 +33,8 @@ function seq(): EmSequence {
     interlockPins: [],
     sensors: [{ name: "fb_brake_open", tag: "fb_brake_open", scl_type: "Bool", address: "I0.0" }],
     actuators: [{ name: "cmd_run", tag: "cmd_run", scl_type: "Bool", address: "Q0.0" }],
+    setpointPins: [], // stale-fixture fixes: fields added after this fixture
+    drives: [],       // was written (setpoints wave / G1-1) — writers map them
     warnings: [],
   };
 }
