@@ -313,7 +313,11 @@ async function callAnthropic(
   }
 
   const result = await response.json();
-  const content = result.content?.[0]?.text ?? "";
+  // find the text block explicitly — models with always-on thinking (Fable 5)
+  // return a thinking block first, so content[0].text would be undefined
+  const content =
+    result.content?.find((b: { type?: string }) => b.type === "text")?.text ??
+    result.content?.[0]?.text ?? "";
   const usage = result.usage ?? {};
 
   if (usage.cache_creation_input_tokens || usage.cache_read_input_tokens) {

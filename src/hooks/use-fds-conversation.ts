@@ -59,6 +59,11 @@ import { SpecContractPatchSchema, validateSpecContractPatch } from "@/lib/spec-b
 import { buildValidationFailureTurn } from "@/lib/spec-builder/validation-failure-turn";
 import { useSourceSectionsForEm } from "@/hooks/use-source-sections";
 
+/** The FDS co-author is the brains of the pipeline — pinned to Fable 5
+ * (always-on thinking; the generate edge function ignores thinking deltas
+ * when streaming and extracts the text block non-streaming). */
+const FDS_CO_AUTHOR_MODEL = "claude-fable-5";
+
 /** Which stage of the co-author interview is active for this EM. */
 export type FdsConversationStage = "state_machine" | "behavior";
 
@@ -484,7 +489,7 @@ export function useFdsConversation({
         const plMeta: PromptLayerMeta = {
           prompt_name: stage === "state_machine" ? "fds_state_machine" : "fds_interview",
           agent_role: "fds_co_author",
-          model: "claude-sonnet-4-6",
+          model: FDS_CO_AUTHOR_MODEL,
         };
 
         // A complete state machine for a complex EM (many states + a fault fan-in
@@ -495,7 +500,7 @@ export function useFdsConversation({
         const maxTokens = stage === "state_machine" ? 32768 : 8192;
         let fullText = "";
         await streamFromEdgeFunction(
-          { system_prompt: systemPrompt, messages, stream: true },
+          { system_prompt: systemPrompt, messages, model: FDS_CO_AUTHOR_MODEL, stream: true },
           abortRef.current.signal,
           (chunk) => {
             fullText += chunk;
@@ -598,12 +603,12 @@ export function useFdsConversation({
       const plMeta: PromptLayerMeta = {
         prompt_name: isStageA ? "fds_state_machine_opening" : "fds_interview_opening",
         agent_role: "fds_co_author",
-        model: "claude-sonnet-4-6",
+        model: FDS_CO_AUTHOR_MODEL,
       };
 
       let fullText = "";
       await streamFromEdgeFunction(
-        { system_prompt: systemPrompt, messages: [{ role: "user", content: openingPrompt }], stream: true },
+        { system_prompt: systemPrompt, messages: [{ role: "user", content: openingPrompt }], model: FDS_CO_AUTHOR_MODEL, stream: true },
         abortRef.current.signal,
         (chunk) => {
           fullText += chunk;
