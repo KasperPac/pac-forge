@@ -474,3 +474,37 @@ describe("compileContract — maintenance layer emission", () => {
     expect(bn).not.toContain("MAINT_Encoder_Preset");
   });
 });
+
+describe("compile-contract — matched template body de-dup (G6-1)", () => {
+  it("emits a matched CM template's SCL body once across multiple instances", () => {
+    const c = matchedFixture();
+    const em = c.hierarchy.units[0].equipment_modules[0];
+    em.control_modules.push({
+      control_module_id: "cm2", control_module_name: "M02", control_module_class: "motor",
+      is_safety: false, description: "M02",
+      io_signals: [
+        { tag: "M02_Run", signal_type: "DO", io_address: "Q0.1", description: "", source: "wired" },
+        { tag: "M02_FB", signal_type: "DI", io_address: "I0.1", description: "", source: "wired" },
+      ],
+    } as SpecContractV2["hierarchy"]["units"][0]["equipment_modules"][0]["control_modules"][0]);
+    const cmTmpl: FbTemplate = {
+      id: "tmpl-motor", name: "Motor_Std", device_category: "motor", plc_brand: "SIEMENS_TIA",
+      description: null, ai_summary: null, diagram_chart: null, diagram_generated_at: null,
+      flow_diagram_json: null, flow_diagram_generated_at: null, version: 1, tags: [],
+      source: "library", library_name: "TestLib", is_enabled: true, is_equipment_module: false,
+      documentation: null, hmi_faceplate_type: null, interface_contract: null,
+      created_by: null, updated_at: "", created_at: "",
+      blocks: [{
+        id: "mb1", template_id: "tmpl-motor", block_name: "CM_LibMotor", block_type: "FB",
+        scl_code: 'FUNCTION_BLOCK "CM_LibMotor"\nEND_FUNCTION_BLOCK\n', block_xml: null,
+        programming_language: "SCL", sort_order: 0, created_at: "",
+      }],
+    };
+    const res = compileContract(c, [emTemplate(FULL_STATES), cmTmpl]);
+    const bodies = res.artifacts.filter((a) => a.name === "CM_LibMotor");
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0].content).toContain('FUNCTION_BLOCK "CM_LibMotor"');
+    const instances = res.artifacts.filter((a) => /^CM_LibMotor_M0\d_DB$/.test(a.name));
+    expect(instances).toHaveLength(2);
+  });
+});

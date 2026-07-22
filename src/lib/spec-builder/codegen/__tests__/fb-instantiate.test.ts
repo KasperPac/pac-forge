@@ -12,7 +12,7 @@ const tmpl = (over: Partial<FbTemplate>): FbTemplate => ({
   source: "library", library_name: null, is_enabled: true, is_equipment_module: false,
   documentation: null, hmi_faceplate_type: null, created_by: null,
   updated_at: "", created_at: "",
-  blocks: [{ id: "b1", template_id: "t1", block_name: "CM_Motor", block_type: "FB", scl_code: "", block_xml: null, programming_language: "SCL", sort_order: 0, created_at: "" }],
+  blocks: [{ id: "b1", template_id: "t1", block_name: "CM_Motor", block_type: "FB", scl_code: 'FUNCTION_BLOCK "CM_Motor"\nEND_FUNCTION_BLOCK\n', block_xml: null, programming_language: "SCL", sort_order: 0, created_at: "" }],
   ...over,
 });
 
@@ -133,5 +133,45 @@ describe("instantiate contract wiring", () => {
     const r = instantiateControlModule(contractCm(), []);
     expect(r.instanceDb).toMatch(/_DB$/);
     expect(r.contract).toBeNull();
+  });
+});
+
+describe("instantiateControlModule — template body emission (G6-1)", () => {
+  const bodied = (over: Partial<FbTemplate> = {}) =>
+    tmpl({
+      blocks: [
+        { id: "b0", template_id: "t1", block_name: "UDT_Motor", block_type: "UDT", scl_code: 'TYPE "UDT_Motor"\nEND_TYPE\n', block_xml: null, programming_language: "SCL", sort_order: 0, created_at: "" },
+        { id: "b1", template_id: "t1", block_name: "CM_Motor", block_type: "FB", scl_code: 'FUNCTION_BLOCK "CM_Motor"\nEND_FUNCTION_BLOCK\n', block_xml: null, programming_language: "SCL", sort_order: 1, created_at: "" },
+      ],
+      ...over,
+    });
+
+  it("emits every template block's SCL body ahead of the instance DB, in sort order with chained deps", () => {
+    const r = instantiateControlModule(motorCm, [bodied()]);
+    const names = r.artifacts.map((a) => a.name);
+    expect(names).toEqual(["UDT_Motor", "CM_Motor", "CM_Motor_M01_DB"]);
+    const fb = r.artifacts.find((a) => a.name === "CM_Motor")!;
+    expect(fb.type).toBe("FB");
+    expect(fb.filename).toBe("CM_Motor.scl");
+    expect(fb.content).toContain('FUNCTION_BLOCK "CM_Motor"');
+    expect(fb.dependencies).toEqual(["UDT_Motor"]);
+    const udt = r.artifacts.find((a) => a.name === "UDT_Motor")!;
+    expect(udt.filename).toBe("UDT_Motor.udt");
+  });
+
+  it("skips standard-instruction templates' bodies (they ship with TIA)", () => {
+    const r = instantiateControlModule(motorCm, [bodied({ source: "standard" })]);
+    expect(r.artifacts.map((a) => a.name)).toEqual(["CM_Motor_M01_DB"]);
+  });
+
+  it("skips non-SCL blocks with a warning (XML import path not wired)", () => {
+    const t = tmpl({
+      blocks: [
+        { id: "b1", template_id: "t1", block_name: "CM_Motor", block_type: "FB", scl_code: "", block_xml: "<FlgNet/>", programming_language: "LAD", sort_order: 0, created_at: "" },
+      ],
+    });
+    const r = instantiateControlModule(motorCm, [t]);
+    expect(r.artifacts.map((a) => a.name)).toEqual(["CM_Motor_M01_DB"]);
+    expect(r.warnings.some((w) => w.includes("LAD") && w.includes("CM_Motor"))).toBe(true);
   });
 });

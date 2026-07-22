@@ -112,6 +112,40 @@ function buildWiring(
   return { lines: wiringLines(instance, io), warnings };
 }
 
+const BLOCK_EXT: Record<string, string> = { FB: "scl", FC: "scl", OB: "ob", UDT: "udt", DB: "db" };
+
+/** G6-1: lower a matched template's blocks into real artifacts (sort order =
+ *  dependency order; each block depends on the ones before it). Standard
+ *  Siemens instructions ship with TIA — reference-only, no bodies. Non-SCL
+ *  blocks (LAD/FBD XML) have no SCL emission path yet → skipped + warning. */
+function templateBodyArtifacts(
+  t: FbTemplate,
+): { artifacts: CodegenArtifact[]; warnings: string[] } {
+  if (t.source === "standard") return { artifacts: [], warnings: [] };
+  const artifacts: CodegenArtifact[] = [];
+  const warnings: string[] = [];
+  const emitted: string[] = [];
+  for (const b of [...(t.blocks ?? [])].sort((x, y) => x.sort_order - y.sort_order)) {
+    if (!b.scl_code.trim()) {
+      warnings.push(
+        `template "${t.name}": block ${b.block_name} is ${b.programming_language} without SCL source — import it manually (XML import path not wired)`,
+      );
+      continue;
+    }
+    artifacts.push({
+      name: b.block_name,
+      type: b.block_type,
+      filename: `${b.block_name}.${BLOCK_EXT[b.block_type] ?? "scl"}`,
+      content: b.scl_code.endsWith("\n") ? b.scl_code : `${b.scl_code}\n`,
+      dependencies: [...emitted],
+      folder: FOLDER,
+      layer: "device",
+    });
+    emitted.push(b.block_name);
+  }
+  return { artifacts, warnings };
+}
+
 /** Build an instance DB artifact for the given FB block name. */
 function instanceDb(instanceName: string, blockName: string): CodegenArtifact {
   return {
@@ -171,7 +205,17 @@ function instantiate(
   const instance = `${block}_${sclIdent(name)}_DB`;
   const db = instanceDb(instance, block);
   const w = buildWiring(instance, t, io);
-  return { artifacts: [db].map(tag), callLines: w.lines, stub: null, warnings: w.warnings, instanceDb: instance, contract: t.interface_contract };
+  // G6-1: the template's SCL bodies enter the artifact set ahead of the
+  // instance DB (compile-contract's name de-dup collapses repeat instances).
+  const body = templateBodyArtifacts(t);
+  return {
+    artifacts: [...body.artifacts, db].map(tag),
+    callLines: w.lines,
+    stub: null,
+    warnings: [...body.warnings, ...w.warnings],
+    instanceDb: instance,
+    contract: t.interface_contract,
+  };
 }
 
 /** Instantiate one Control Module (basic-control FB). */
