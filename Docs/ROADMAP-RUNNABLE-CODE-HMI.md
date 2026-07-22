@@ -89,7 +89,7 @@ to full IO signal conditioning.*
 | G1-3 | Emit %↔rpm (engineering-unit) scaling from RefSpeed/p2000 | ✅ | P0 | S | G1-2 | SHIPPED 2026-07-21 000850c: SpeedSp `INT_TO_REAL(#ref) * rpm/100` + inverse feedback scaling; unscaled+TODO when RefSpeed unrecorded |
 | G1-4 | N/C fail-safe inversion per sensor polarity | ✅ | P0 | S | G0-2 | SHIPPED 2026-07-21 d0df905: EmPin.polarity → `NOT` emission with fail-safe comment (golden-master pattern) |
 | G1-4b | Conditioning + analog scaling emission: TON/TOF debounce from `conditioning`, `NORM_X`/`SCALE_X` EU from `scaling`, blanket `io_conditioning_defaults` | ✅ | P0 | M | G0-2, G1-4 | SHIPPED 2026-07-22 fd021a0: FB_IO_Conditioning (TON/TOF multi-instances) → IO_Cond DB, first in OB1; per-signal overrides blanket; MAP reads conditioned DIs (N/C stacks on top) + REAL_TO_INT(SCALE_X(NORM_X)) w/ platform mA/V→counts conversion, EU as Int |
-| G1-5 | Analog / PROFINET telegram-word addressing (IW/QW offsets); smarter unresolved-address handling | 🟡 | P1 | M | G0-1 | emits `// TODO wire` today |
+| G1-5 | Analog / PROFINET telegram-word addressing (IW/QW offsets); smarter unresolved-address handling | ✅ | P1 | M | G0-1 | SHIPPED 2026-07-22: telegram_offset + tier-2 io_in/out_start_byte → absolute %I/%Q (Siemens word layout); unresolved → TODO naming word/bit/type + the missing engineering field |
 | G1-6 | Refactor `vfd-fb-family.ts` so the deterministic compiler can consume it (currently AI-only) | 🔴 | P1 | M | — | imported only by `use-forge-device-generate.ts` |
 
 ---
