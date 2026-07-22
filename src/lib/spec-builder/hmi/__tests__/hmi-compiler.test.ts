@@ -222,3 +222,77 @@ describe("buildHmiIr — setpoints (G7-3) + tag binding (G7-4)", () => {
     expect(new Set(names).size).toBe(names.length); // deduped
   });
 });
+
+describe("buildHmiIr — roles + screens (G7-5, G7-7, G7-8)", () => {
+  function fullFixture(): SpecContractV2 {
+    const c = fixture();
+    c.authorization = {
+      roles: [
+        { name: "Operator", level: 0 },
+        { name: "Supervisor", level: 2 },
+        { name: "Maintenance", level: 3 },
+      ],
+    } as SpecContractV2["authorization"];
+    c.maintenance = {
+      overridable_outputs: [
+        { tag: "Belt_CMD_Run", wire_check_only: false, access: { required_level: 3 } },
+      ],
+    } as SpecContractV2["maintenance"];
+    c.unit_coordination!.u1.axes = [
+      { axis_id: "travel", kind: "linear", encoder_tag: "Enc_Travel", eu_unit: "mm",
+        scale: { db_member: "scale_x10", retain: true, operator_settable: false },
+        length: { db_member: "length_mm", retain: true, operator_settable: true, access: { required_level: 2 } },
+        end_margin: { db_member: "end_margin_mm", retain: true, operator_settable: false },
+        ramp_zone: { db_member: "ramp_zone_mm", retain: true, operator_settable: false },
+        gates: { fwd_ok: "g_fwd" }, unconfigured_open: true,
+        preset: { access: { required_level: 3 } } },
+    ] as NonNullable<SpecContractV2["unit_coordination"]>["u1"]["axes"];
+    c.engineering = {
+      drives: [], axis_constants: [], fb_assignments: [], upstream_endpoints: [],
+      encoder_presets: [{ unit_id: "u1", axis_id: "travel", ctrl_address: "%QB64", value_address: "%QD65", status_address: "%IB68" }],
+    } as SpecContractV2["engineering"];
+    return c;
+  }
+
+  it("derives Unified roles from the G0-10 ladder sorted by level", () => {
+    const ir = buildHmiIr(fullFixture());
+    expect(ir.roles.map((r) => r.name)).toEqual(["Operator", "Supervisor", "Maintenance"]);
+  });
+
+  it("assembles Overview with unit + EM state fields, STAT telemetry, gate and safety lamps", () => {
+    const c = fullFixture();
+    c.safety_gates = [
+      { gate_id: "estop", name: "E-Stop", condition: [{ tag: "EStop_Healthy", operator: "=", value: true }], scope: "all" },
+    ] as SpecContractV2["safety_gates"];
+    const ir = buildHmiIr(c);
+    const ov = ir.screens.find((s) => s.name === "Overview")!;
+    const tags = ov.items.flatMap((i) => ("tag" in i ? [i.tag] : []));
+    expect(tags).toContain("EM_Belt_Drive_DB.state");
+    expect(tags).toContain("UN_Infeed_Unit.Cur_St");
+    expect(tags).toContain("STAT_Infeed_Unit.travel_position_mm");
+    expect(tags).toContain("STAT_Infeed_Unit.g_fwd");
+    expect(tags).toContain("EStop_Healthy");
+    expect(ov.requiredLevel).toBeUndefined(); // read-only screen stays open
+  });
+
+  it("assembles Maintenance with mode toggle, leveled overrides, and the preset trio; screen level = max item level", () => {
+    const ir = buildHmiIr(fullFixture());
+    const m = ir.screens.find((s) => s.name === "Maintenance")!;
+    const tags = m.items.flatMap((i) => ("tag" in i ? [i.tag] : []));
+    expect(tags).toContain("Maintenance_CMD.maintenance_mode");
+    expect(tags).toContain("Maintenance_CMD.ov_Belt_CMD_Run");
+    expect(tags).toContain("Maintenance_CMD.travel_preset_value");
+    expect(tags).toContain("Maintenance_CMD.travel_preset_execute");
+    expect(tags).toContain("Maintenance_CMD.travel_preset_done");
+    expect(tags).toContain("Enc_Travel");
+    expect(m.requiredLevel).toBe(3);
+  });
+
+  it("omits the Maintenance screen when no maintenance layer exists and collects screen tags into the tag defs", () => {
+    const ir = buildHmiIr(fixture());
+    expect(ir.screens.find((s) => s.name === "Maintenance")).toBeUndefined();
+    expect(ir.screens.map((s) => s.name)).toEqual(["Overview", "Alarms"]);
+    // screen-only bindings (e.g. UN state) are in the tag defs
+    expect(ir.tags.some((t) => t.plcTag === "UN_Infeed_Unit.Cur_St")).toBe(true);
+  });
+});

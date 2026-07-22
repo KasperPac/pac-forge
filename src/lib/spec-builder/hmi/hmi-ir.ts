@@ -53,10 +53,44 @@ export interface HmiTag {
   plcTag: string;
 }
 
+/** A Unified role derived from the G0-10 ladder (G7-5). */
+export interface HmiRole {
+  name: string;
+  level: number;
+}
+
+/** Typed screen items (G7-8). Lowered per-kind by hmi-bridge-spec. */
+export type HmiScreenItem =
+  | { kind: "state_field"; label: string; tag: string; textList: string }
+  | {
+      kind: "numeric_field";
+      label: string;
+      tag: string;
+      writable: boolean;
+      requiredLevel?: number;
+      limits?: { min?: number; max?: number };
+      unit?: string;
+    }
+  | { kind: "lamp"; label: string; tag: string; onValue: 0 | 1 }
+  | { kind: "toggle"; label: string; tag: string; requiredLevel?: number }
+  | { kind: "button_momentary"; label: string; tag: string; requiredLevel?: number }
+  | { kind: "alarm_control"; label: string };
+
+export interface HmiScreen {
+  name: string;
+  title: string;
+  /** Minimum role level = max of the items' required levels (G0-10 rule:
+   *  screens DERIVE from item levels). Absent = open. */
+  requiredLevel?: number;
+  items: HmiScreenItem[];
+}
+
 export interface HmiIr {
   tags: HmiTag[];
   textLists: HmiTextList[];
   alarmClasses: HmiAlarmClass[];
   alarms: HmiDiscreteAlarm[];
   setpoints: HmiSetpointField[];
+  roles: HmiRole[];
+  screens: HmiScreen[];
 }

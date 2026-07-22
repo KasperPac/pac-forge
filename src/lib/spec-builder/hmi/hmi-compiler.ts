@@ -16,16 +16,21 @@ import { sclIdent } from "@/lib/spec-builder/codegen/sa-builder";
 import { buildEmSequence } from "@/lib/spec-builder/codegen/em-builder";
 import { detectDrives } from "@/lib/spec-builder/codegen/drive-detect";
 import {
+  MAINTENANCE_DB,
   cfgDbName,
   driveDbName,
   emCmdDbName,
   emDbName,
+  statDbName,
   unDbName,
 } from "@/lib/spec-builder/codegen/naming";
 import type {
   HmiAlarmClass,
   HmiDiscreteAlarm,
   HmiIr,
+  HmiRole,
+  HmiScreen,
+  HmiScreenItem,
   HmiSetpointField,
   HmiTag,
   HmiTextList,
@@ -184,11 +189,15 @@ function buildTags(
   textLists: HmiTextList[],
   alarms: HmiDiscreteAlarm[],
   setpoints: HmiSetpointField[],
+  screens: HmiScreen[],
 ): HmiTag[] {
   const plcTags = [
     ...textLists.map((l) => l.stateTag),
     ...alarms.map((a) => a.tag),
     ...setpoints.map((s) => s.tag),
+    ...screens.flatMap((s) =>
+      s.items.flatMap((i) => ("tag" in i && i.tag ? [i.tag] : [])),
+    ),
   ];
   const seen = new Set<string>();
   const tags: HmiTag[] = [];
@@ -198,6 +207,133 @@ function buildTags(
     tags.push({ name: plcTag.replace(/\./g, "_"), plcTag });
   }
   return tags;
+}
+
+/** G7-5: Unified roles from the G0-10 ladder (empty = single-user panel). */
+function buildRoles(contract: SpecContractV2): HmiRole[] {
+  return (contract.authorization?.roles ?? [])
+    .map((r) => ({ name: r.name, level: r.level }))
+    .sort((a, b) => a.level - b.level);
+}
+
+/** Screen access = max of its items' required levels (G0-10 derivation rule). */
+function screenLevel(items: HmiScreenItem[]): number | undefined {
+  const max = Math.max(
+    0,
+    ...items.map((i) => ("requiredLevel" in i ? (i.requiredLevel ?? 0) : 0)),
+  );
+  return max > 0 ? max : undefined;
+}
+
+/** G7-8: assemble Overview / Setpoints / Alarms (+ G7-7 Maintenance). */
+function buildScreens(
+  contract: SpecContractV2,
+  textLists: HmiTextList[],
+  setpoints: HmiSetpointField[],
+): HmiScreen[] {
+  const listByTag = new Map(textLists.map((l) => [l.stateTag, l.name]));
+  const screens: HmiScreen[] = [];
+
+  // --- Overview ---
+  const overview: HmiScreenItem[] = [];
+  for (const unit of contract.hierarchy.units) {
+    if (unit.excluded) continue;
+    const unitScl = sclIdent(unit.unit_name);
+    const unTag = `${unDbName(unitScl)}.Cur_St`;
+    if (listByTag.has(unTag)) {
+      overview.push({ kind: "state_field", label: unit.unit_name, tag: unTag, textList: listByTag.get(unTag)! });
+    }
+    for (const em of unit.equipment_modules) {
+      const emTag = `${emDbName(sclIdent(em.equipment_module_name))}.state`;
+      if (listByTag.has(emTag)) {
+        overview.push({
+          kind: "state_field", label: em.equipment_module_name, tag: emTag,
+          textList: listByTag.get(emTag)!,
+        });
+      }
+    }
+    // envelope telemetry (G4-2 STAT mirrors)
+    const coord = contract.unit_coordination?.[unit.unit_id];
+    const stat = statDbName(unitScl);
+    for (const axis of coord?.axes ?? []) {
+      const ident = sclIdent(axis.axis_id).toLowerCase();
+      if (axis.kind === "linear") {
+        overview.push({
+          kind: "numeric_field", label: `${axis.axis_id} position`, writable: false,
+          tag: `${stat}.${ident}_position_${axis.eu_unit}`, unit: axis.eu_unit,
+        });
+      } else {
+        overview.push({
+          kind: "numeric_field", label: `${axis.axis_id} angle (deg ×10)`, writable: false,
+          tag: `${stat}.${ident}_position_deg10`, unit: "deg×10",
+        });
+      }
+      for (const gateId of Object.values(axis.gates).filter((g): g is string => typeof g === "string")) {
+        overview.push({
+          kind: "lamp", label: gateId, onValue: 1,
+          tag: `${stat}.${sclIdent(gateId).toLowerCase()}`,
+        });
+      }
+    }
+  }
+  // safety-chain lamps: healthy-when-TRUE gate tags
+  for (const tag of healthyTags(contract)) {
+    overview.push({ kind: "lamp", label: tag, tag, onValue: 1 });
+  }
+  screens.push({ name: "Overview", title: "Overview", items: overview, requiredLevel: screenLevel(overview) });
+
+  // --- Setpoints ---
+  if (setpoints.length) {
+    const items: HmiScreenItem[] = setpoints.map((s) => ({
+      kind: "numeric_field", label: s.label, tag: s.tag, writable: true,
+      requiredLevel: s.requiredLevel, limits: s.limits,
+    }));
+    screens.push({ name: "Setpoints", title: "Setpoints", items, requiredLevel: screenLevel(items) });
+  }
+
+  // --- Alarms ---
+  screens.push({
+    name: "Alarms", title: "Alarms",
+    items: [{ kind: "alarm_control", label: "Active + logged alarms" }],
+  });
+
+  // --- Maintenance (G7-7) ---
+  const outputs = contract.maintenance?.overridable_outputs ?? [];
+  const presetChannels = contract.engineering?.encoder_presets ?? [];
+  const maint: HmiScreenItem[] = [];
+  if (outputs.length || presetChannels.length) {
+    maint.push({ kind: "toggle", label: "MAINTENANCE MODE", tag: `${MAINTENANCE_DB}.maintenance_mode` });
+    for (const o of outputs) {
+      maint.push({
+        kind: "toggle", label: o.description ?? o.tag,
+        tag: `${MAINTENANCE_DB}.ov_${sclIdent(o.tag)}`,
+        requiredLevel: o.access?.required_level,
+      });
+    }
+    for (const unit of contract.hierarchy.units) {
+      const coord = contract.unit_coordination?.[unit.unit_id];
+      for (const axis of coord?.axes ?? []) {
+        if (!axis.preset) continue;
+        const chan = presetChannels.find(
+          (e) => e.unit_id === unit.unit_id && e.axis_id === axis.axis_id,
+        );
+        if (!chan) continue; // no channels recorded → no sequencer emitted
+        const ident = sclIdent(axis.axis_id).toLowerCase();
+        const lvl = axis.preset.access?.required_level;
+        maint.push(
+          { kind: "numeric_field", label: `${axis.axis_id} preset value`, writable: true, tag: `${MAINTENANCE_DB}.${ident}_preset_value`, requiredLevel: lvl },
+          { kind: "button_momentary", label: `${axis.axis_id} PRESET EXECUTE`, tag: `${MAINTENANCE_DB}.${ident}_preset_execute`, requiredLevel: lvl },
+          { kind: "lamp", label: `${axis.axis_id} preset done`, tag: `${MAINTENANCE_DB}.${ident}_preset_done`, onValue: 1 },
+          { kind: "numeric_field", label: `${axis.axis_id} encoder raw`, writable: false, tag: axis.encoder_tag },
+        );
+      }
+    }
+    screens.push({
+      name: "Maintenance", title: "Maintenance", items: maint, requiredLevel: screenLevel(maint),
+    });
+  }
+
+  return screens;
 }
 
 /** Build the full HMI IR from a confirmed contract. */
@@ -213,11 +349,14 @@ export function buildHmiIr(contract: SpecContractV2): HmiIr {
   const textLists = buildTextLists(contract);
   const alarms = buildAlarms(contract);
   const setpoints = buildSetpoints(contract);
+  const screens = buildScreens(contract, textLists, setpoints);
   return {
-    tags: buildTags(textLists, alarms, setpoints),
+    tags: buildTags(textLists, alarms, setpoints, screens),
     textLists,
     alarmClasses,
     alarms,
     setpoints,
+    roles: buildRoles(contract),
+    screens,
   };
 }
