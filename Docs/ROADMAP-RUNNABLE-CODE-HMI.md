@@ -171,12 +171,12 @@ existing in the contract. Target deliverable: `HMI-BUILD-PACK.md`.*
 
 | ID | Task | State | Pri | Eff | Depends | Evidence / notes |
 |---|---|---|---|---|---|---|
-| G7-1 | Text-list generator: EM states → index→text lists | 🔴 | P0 | S | — | no generator exists; build-pack §5 |
+| G7-1 | Text-list generator: EM states → index→text lists | ✅ | P0 | S | — | SHIPPED 2026-07-22 50ec3f4: hmi-compiler buildHmiIr — per-EM dispatch-order lists (shared orderStates with em-builder) bound to `EM_<x>_DB.state`, per-unit canonical lists bound to `UN_<Unit>.Cur_St`; codegen/naming.ts extracted as the shared name source |
 | G7-2 | Alarm generator: fault fan-in / contract `alarms[]` → discrete alarm defs (tag, trigger, class, text) | 🔴 | P0 | M | — | `spec-contract-v2.ts:937-939` present but unused |
 | G7-3 | Setpoints screen: CMD `sp_` pins → IO fields with limits | 🔴 | P1 | S | — | build-pack §2 |
 | G7-4 | DB-member tag-binding mapper (`EM_*_DB.state`, config-DB members) vs current `Inst<Dev>.hmi.*` convention | 🔴 | P0 | M | — | `hmi-tag-mapper.ts:42` |
 | G7-5 | Access-level roles model (Operator/Supervisor/Maintenance) + per-screen assignment | 🔴 | P1 | M | — | build-pack §6 |
-| G7-6 | Alarm-class model (Fault/Warning) | 🔴 | P1 | S | — | build-pack §3 |
+| G7-6 | Alarm-class model (Fault/Warning) | ✅ | P1 | S | — | SHIPPED 2026-07-22 50ec3f4: tiers → Fault (ack) / Warning via generic critical|fault rule, deduped |
 | G7-7 | Maintenance screen generator (mode toggle, overrides, presets) | 🔴 | P2 | M | G3 | build-pack §4 |
 | G7-8 | Assemble a full `/tia/hmi/build` spec from the above | 🔴 | P0 | M | G7-1..6,G8-1 | integration point |
 
