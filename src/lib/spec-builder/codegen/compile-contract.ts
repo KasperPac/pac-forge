@@ -46,6 +46,32 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
   const overridableOutputs = contract.maintenance?.overridable_outputs ?? [];
   const presetChannels = contract.engineering?.encoder_presets ?? [];
   const fbAssignments = contract.engineering?.fb_assignments ?? [];
+
+  // G1-4b: resolve the conditioned-DI set up front — the unit coordinators
+  // (G2-7) and the MAP layer both key off it. Per-signal conditioning
+  // OVERRIDES the blanket tier-2 DI debounce.
+  const blanketDi = contract.engineering?.io_conditioning_defaults?.di_debounce_ms;
+  const conditionedSignals: ConditionedSignal[] = [];
+  for (const u of contract.hierarchy.units) {
+    if (u.excluded) continue;
+    for (const em of u.equipment_modules) {
+      for (const cm of em.control_modules) {
+        for (const s of cm.io_signals) {
+          if (s.signal_type !== "DI") continue;
+          if (s.conditioning) {
+            conditionedSignals.push({
+              tag: s.tag,
+              onDelayMs: s.conditioning.on_delay_ms,
+              offDelayMs: s.conditioning.off_delay_ms,
+            });
+          } else if (blanketDi !== undefined) {
+            conditionedSignals.push({ tag: s.tag, onDelayMs: blanketDi, offDelayMs: blanketDi });
+          }
+        }
+      }
+    }
+  }
+  const conditionedTags = new Set(conditionedSignals.map((s) => s.tag));
   const presetPlanned = contract.hierarchy.units.some((u) =>
     (contract.unit_coordination?.[u.unit_id]?.axes ?? []).some(
       (a) => a.preset && presetChannels.some((e) => e.unit_id === u.unit_id && e.axis_id === a.axis_id),
@@ -233,6 +259,7 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
         modes: contract.modes ?? [],
         safetyGates: contract.safety_gates ?? [],
         maintenanceSeam,
+        conditionedTags,
       });
       const { artifacts: unitArts, callLine } = writeUnitArtifacts(ir);
       unitArts.forEach(push);
@@ -275,31 +302,8 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
     if (maint.overrideCallLine) deviceCallLines.push(maint.overrideCallLine);
   }
 
-  // G1-4b: IO conditioning layer — per-signal functional delays plus the
-  // blanket tier-2 DI debounce (per-signal conditioning OVERRIDES the
-  // blanket). Its call is unshifted LAST so it lands FIRST in OB1: every
-  // downstream reader sees this scan's conditioned values.
-  const blanketDi = contract.engineering?.io_conditioning_defaults?.di_debounce_ms;
-  const conditionedSignals: ConditionedSignal[] = [];
-  for (const u of contract.hierarchy.units) {
-    if (u.excluded) continue;
-    for (const em of u.equipment_modules) {
-      for (const cm of em.control_modules) {
-        for (const s of cm.io_signals) {
-          if (s.signal_type !== "DI") continue;
-          if (s.conditioning) {
-            conditionedSignals.push({
-              tag: s.tag,
-              onDelayMs: s.conditioning.on_delay_ms,
-              offDelayMs: s.conditioning.off_delay_ms,
-            });
-          } else if (blanketDi !== undefined) {
-            conditionedSignals.push({ tag: s.tag, onDelayMs: blanketDi, offDelayMs: blanketDi });
-          }
-        }
-      }
-    }
-  }
+  // G1-4b: emit the conditioning layer; its call is unshifted LAST so it
+  // lands FIRST in OB1.
   const ioCond = writeIoConditioning(conditionedSignals);
   ioCond.artifacts.forEach(push);
   if (ioCond.callLine) deviceCallLines.unshift(ioCond.callLine);

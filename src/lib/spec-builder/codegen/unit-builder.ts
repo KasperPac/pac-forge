@@ -106,7 +106,7 @@ export interface UnitTransitionIr {
  *  `gatePending` — a named gate NOT declared by any unit axis — rendered
  *                  FALSE (fail-safe) + TODO. */
 export type ResolvedSignalRef =
-  | { kind: "tag"; tag: string }
+  | { kind: "tag"; tag: string; conditioned?: boolean }
   | { kind: "emStatus"; emName: string; member: string }
   | { kind: "gateTemp"; gateId: string; temp: string }
   | { kind: "gatePending"; gateId: string; declared: boolean };
@@ -191,6 +191,9 @@ export interface UnitBuildInput {
   /** G3: TRUE when the project emits the Maintenance_CMD seam — the writer
    *  then wires the #ok maintenance exclusion and the i_Seq_Test binding. */
   maintenanceSeam?: boolean;
+  /** G2-7: tags carried by the IO_Cond conditioning layer — io_tag routing
+   *  refs on these read the conditioned value, not the raw tag. */
+  conditionedTags?: Set<string>;
 }
 
 /** Resolved IR for one unit coordinator. Grows per G2 TDD cycle. */
@@ -234,7 +237,7 @@ export interface UnitSequenceIr {
  * rule; G7-1 text lists share this order) — never authoring order.
  */
 export function buildUnitSequence(input: UnitBuildInput): UnitSequenceIr {
-  const { unitId, unitName, coord, members, modes, safetyGates, maintenanceSeam } = input;
+  const { unitId, unitName, coord, members, modes, safetyGates, maintenanceSeam, conditionedTags } = input;
   const warnings: string[] = [];
   const modeIndex = new Map(modes.map((m, i) => [m.mode_id, i]));
 
@@ -408,7 +411,10 @@ export function buildUnitSequence(input: UnitBuildInput): UnitSequenceIr {
     const resolveRef = (ref: SignalSourceRef, rowId: string): ResolvedSignalRef | null => {
       switch (ref.kind) {
         case "io_tag":
-          return { kind: "tag", tag: ref.tag };
+          // G2-7: conditioned tags read the IO_Cond layer (golden-master parity)
+          return conditionedTags?.has(ref.tag)
+            ? { kind: "tag", tag: ref.tag, conditioned: true }
+            : { kind: "tag", tag: ref.tag };
         case "em_status": {
           const m = memberByEmId.get(ref.equipment_module_id);
           if (!m) {

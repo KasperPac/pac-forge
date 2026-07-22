@@ -654,3 +654,29 @@ describe("writeUnitArtifacts — STAT_<Unit> status readbacks (G4-2)", () => {
     expect(arts.find((a) => a.name.startsWith("STAT_"))).toBeUndefined();
   });
 });
+
+describe("writeUnitArtifacts — conditioned routing reads (G2-7)", () => {
+  it("reads conditioned io_tag refs from IO_Cond, raw tags directly", () => {
+    const coord: UnitCoordinationV1 = {
+      unit_id: "unit-1",
+      states: [{ state_id: "idle", allowed_modes: [], mode_change_allowed: true }],
+      transitions: [],
+      em_command_overrides: null,
+      signal_routing: {
+        routing_rows: [
+          { row_id: "r1", target: { equipment_module_id: "em-a", pin: "ilk_Go" },
+            source: { kind: "io_tag", tag: "Go_PB" },
+            gates: [{ kind: "io_tag", tag: "Guard_Closed" }] },
+        ],
+        two_detent: [],
+      },
+    };
+    const members: UnitMemberEm[] = [{ emId: "em-a", emName: "Drive", states: [] }];
+    const ir = buildUnitSequence({
+      unitId: "unit-1", unitName: "Carriage", coord, members, modes: [],
+      conditionedTags: new Set(["Guard_Closed"]),
+    });
+    const fb = writeUnitArtifacts(ir).artifacts.find((a) => a.name === "UC_Carriage")!.content;
+    expect(fb).toContain('"EM_Drive_DB".ilk_Go := "Go_PB" AND "IO_Cond".Guard_Closed;');
+  });
+});

@@ -16,7 +16,7 @@ import type {
 } from "./unit-builder";
 import { serializeGuard } from "./serialize-condition";
 import { sclIdent } from "./sa-builder";
-import { MAINTENANCE_DB, ucFbName, unDbName } from "./naming";
+import { IO_COND_DB, MAINTENANCE_DB, ucFbName, unDbName } from "./naming";
 
 const PROGRAM = "Program blocks";
 
@@ -140,7 +140,8 @@ function stateBranch(st: UnitStateIr, ir: UnitSequenceIr): string[] {
 function refExpr(r: ResolvedSignalRef): string {
   switch (r.kind) {
     case "tag":
-      return `"${r.tag}"`;
+      // G2-7: conditioned tags read the IO_Cond layer written first in OB1
+      return r.conditioned ? `"${IO_COND_DB}".${sclIdent(r.tag)}` : `"${r.tag}"`;
     case "emStatus":
       return `"EM_${r.emName}_DB".${r.member}`;
     case "gateTemp":

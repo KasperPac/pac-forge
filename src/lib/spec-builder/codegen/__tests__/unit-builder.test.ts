@@ -474,3 +474,30 @@ describe("buildUnitSequence — axes IR + live gate resolution (G2-5)", () => {
     expect(ir.warnings.filter((w) => w.includes("G2-5"))).toEqual([]);
   });
 });
+
+describe("buildUnitSequence — conditioned io_tag sources (G2-7)", () => {
+  it("flags io_tag refs whose tag is conditioned so the writer reads IO_Cond", () => {
+    const coord: UnitCoordinationV1 = {
+      unit_id: "unit-1",
+      states: [{ state_id: "idle", allowed_modes: [], mode_change_allowed: true }],
+      transitions: [],
+      em_command_overrides: null,
+      signal_routing: {
+        routing_rows: [
+          { row_id: "r1", target: { equipment_module_id: "em-a", pin: "ilk_Go" },
+            source: { kind: "io_tag", tag: "Go_PB" },
+            gates: [{ kind: "io_tag", tag: "Guard_Closed" }] },
+        ],
+        two_detent: [],
+      },
+    };
+    const members: UnitMemberEm[] = [{ emId: "em-a", emName: "Drive", states: [] }];
+    const ir = buildUnitSequence({
+      unitId: "unit-1", unitName: "Carriage", coord, members, modes: [],
+      conditionedTags: new Set(["Guard_Closed"]),
+    });
+    const row = ir.routingRows![0];
+    expect(row.source).toEqual({ kind: "tag", tag: "Go_PB" });
+    expect(row.gates[0]).toEqual({ kind: "tag", tag: "Guard_Closed", conditioned: true });
+  });
+});
