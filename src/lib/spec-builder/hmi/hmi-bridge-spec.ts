@@ -132,6 +132,12 @@ export function buildHmiBridgeSpec(ir: HmiIr, opts?: { connection?: string; tagT
   const spec: Record<string, unknown> = {
     ...(opts?.connection ? { connection: opts.connection } : {}),
     ...(opts?.tagTable ? { tagTable: opts.tagTable } : {}),
+    // bridge ≥1.3.0 creates missing classes (G8-2); older bridges ignore
+    // the section and fall back to assign-if-exists
+    alarmClasses: ir.alarmClasses.map((c) => ({
+      name: c.name,
+      acknowledgement: c.acknowledgement,
+    })),
     tags: ir.tags.map((t) => ({ name: t.name, plcTag: t.plcTag })),
     alarms: ir.alarms.map((a, i) => ({
       name: `AL_${String(i + 1).padStart(3, "0")}`,

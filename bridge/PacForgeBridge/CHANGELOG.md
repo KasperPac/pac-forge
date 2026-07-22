@@ -4,6 +4,18 @@ Every bridge change bumps `BridgeVersion` in `TiaPortalService.cs` (semver:
 new capability = minor, fix = patch) and gets an entry here. The running
 version is visible at `GET /tia/status`.
 
+## 1.3.0 — 2026-07-22
+
+Alarm-class creation (G8-2, consumed by the app's generated HMI build):
+
+- `POST /tia/hmi/build` gains an `alarmClasses[]` section, processed before
+  `alarms[]`: `{ "name": "Fault", "acknowledgement": true }` finds-or-creates
+  the class and sets its state machine (`RaiseClearRequiresAcknowledgement`
+  when acknowledgement is true, `RaiseClear` otherwise). Previously the alarms
+  section could only *assign* classes that already existed in the panel, so
+  generated Fault/Warning classes had to be created by hand. API shapes
+  verified against the V20 Openness catalogue.
+
 ## 1.2.0 — 2026-07-08
 
 WinCC Unified authoring extensions (Segment Wagon commissioning — maintenance

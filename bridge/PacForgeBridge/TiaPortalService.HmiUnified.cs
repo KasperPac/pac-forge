@@ -438,6 +438,27 @@ namespace PacForgeBridge
             }
             result["tagsCreated"] = tagOk;
 
+            // ---- alarm classes (G8-2) ----
+            // Created BEFORE alarms so the alarms section's existing
+            // "assign only if the class exists" guard now finds them.
+            // API verified against the V20 Openness catalogue:
+            // HmiAlarmClassComposition.Create(string)/Find(string);
+            // HmiAlarmClass.StateMachine : HmiAlarmStateMachine.
+            foreach (var c in (JArray)spec["alarmClasses"] ?? new JArray())
+            {
+                string cname = (string)c["name"];
+                try
+                {
+                    var cls = hmi.AlarmClasses.Find(cname) ?? hmi.AlarmClasses.Create(cname);
+                    if (c["acknowledgement"] != null)
+                        cls.StateMachine = (bool)c["acknowledgement"]
+                            ? Siemens.Engineering.HmiUnified.HmiAlarm.HmiAlarmCommon.HmiAlarmStateMachine.RaiseClearRequiresAcknowledgement
+                            : Siemens.Engineering.HmiUnified.HmiAlarm.HmiAlarmCommon.HmiAlarmStateMachine.RaiseClear;
+                    Log("alarmClass", cname, true, cls.StateMachine.ToString());
+                }
+                catch (Exception ex) { Log("alarmClass", cname, false, ex.Message); }
+            }
+
             // ---- delete alarms ----
             foreach (var dn in (JArray)spec["deleteAlarms"] ?? new JArray())
             {

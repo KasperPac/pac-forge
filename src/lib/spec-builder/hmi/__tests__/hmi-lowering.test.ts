@@ -43,6 +43,8 @@ describe("buildHmiBridgeSpec", () => {
   it("lowers tags, alarms with verified trigger modes, and screens to the bridge shape", () => {
     const { spec } = buildHmiBridgeSpec(ir(), { connection: "HMI_PLC_1" });
     expect(spec.connection).toBe("HMI_PLC_1");
+    // G8-2: classes ride the spec so bridge >=1.3.0 creates them before alarms
+    expect(spec.alarmClasses).toEqual([{ name: "Fault", acknowledgement: true }]);
     expect((spec.tags as unknown[]).length).toBe(4);
     const alarm = (spec.alarms as Record<string, unknown>[])[0];
     expect(alarm.trigger).toBe("OnFallingEdge"); // triggerValue 0 -> falling edge
