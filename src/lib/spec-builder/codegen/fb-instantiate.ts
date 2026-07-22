@@ -1,5 +1,10 @@
 // src/lib/spec-builder/codegen/fb-instantiate.ts
-import type { ControlModuleV2, EquipmentModuleV2, IoSignalV2 } from "@/types/spec-contract-v2";
+import type {
+  ControlModuleV2,
+  EquipmentModuleV2,
+  FbAssignment,
+  IoSignalV2,
+} from "@/types/spec-contract-v2";
 import type { FbTemplate } from "@/types/fb-template";
 import type { FbInterfacePin, FbInterfaceContract } from "@/types/fb-interface";
 import type { CodegenArtifact, CodegenLayer } from "./types";
@@ -66,34 +71,93 @@ function wiringLines(instance: string, io: IoSignalV2[]): string[] {
   return lines;
 }
 
-/** Wire an instance call by interface_contract role: sensor_in pins read input
- *  addresses, actuator_out pins write output addresses. Positional pairing in
- *  signal order; surplus signals or pins each raise a warning. */
+/** Case-insensitive alphanumeric name tokens ("fb_Running" → [fb, running]). */
+function nameTokens(s: string): string[] {
+  return s.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+/**
+ * G6-3: wire an instance call by NAME, never position. Explicit
+ * `fb_assignments` pin bindings are authoritative; remaining pins match
+ * signals of the correct direction by name-token overlap. A pin with no
+ * match — or an ambiguous tie — stays unbound with a warning (an unbound
+ * input keeps its FB default; a mis-wired one moves the wrong device).
+ */
 function contractWiringLines(
-  instance: string, pins: FbInterfacePin[], io: IoSignalV2[],
+  instance: string,
+  pins: FbInterfacePin[],
+  io: IoSignalV2[],
+  bindings: FbAssignment["pin_bindings"] = [],
 ): { lines: string[]; warnings: string[] } {
   const warnings: string[] = [];
-  const inputs = io.filter((s) => INPUTS.has(s.signal_type));
-  const outputs = io.filter((s) => !INPUTS.has(s.signal_type));
-  const sensorPins = pins.filter((p) => p.role === "sensor_in");
-  const actuatorPins = pins.filter((p) => p.role === "actuator_out");
+  const sigByTag = new Map(io.map((s) => [s.tag, s]));
+  const used = new Set<string>();
+  const bound = new Map<string, IoSignalV2>();
 
-  const params: string[] = [];
-  sensorPins.forEach((p, i) => {
-    const sig = inputs[i];
-    if (sig) params.push(`      ${p.name} := "${sig.io_address}"`);
-    else warnings.push(`${instance}: no input signal for sensor pin "${p.name}"`);
-  });
+  // 1) explicit bindings (G0-8) win
+  const bindingByPin = new Map(bindings.map((b) => [b.pin, b.tag]));
+  for (const p of pins) {
+    const tag = bindingByPin.get(p.name);
+    if (tag === undefined) continue;
+    const sig = sigByTag.get(tag);
+    if (!sig) {
+      warnings.push(`${instance}: pin "${p.name}" bound to unknown tag "${tag}" — left unbound`);
+      continue;
+    }
+    bound.set(p.name, sig);
+    used.add(sig.tag);
+  }
+
+  // 2) directional name-token matching for the rest
+  const roleDir = (p: FbInterfacePin): ((s: IoSignalV2) => boolean) =>
+    p.role === "sensor_in"
+      ? (s) => INPUTS.has(s.signal_type)
+      : (s) => !INPUTS.has(s.signal_type);
+  for (const p of pins) {
+    if (p.role !== "sensor_in" && p.role !== "actuator_out") continue;
+    if (bound.has(p.name)) continue;
+    const pinTokens = new Set(nameTokens(p.name));
+    const candidates = io
+      .filter((s) => !used.has(s.tag) && roleDir(p)(s))
+      .map((s) => ({
+        sig: s,
+        score: nameTokens(s.tag).filter((t) => pinTokens.has(t)).length,
+      }))
+      .filter((c) => c.score > 0)
+      .sort((a, b) => b.score - a.score);
+    if (!candidates.length) {
+      warnings.push(`${instance}: pin "${p.name}" has no name-matching signal — left unbound`);
+      continue;
+    }
+    if (candidates.length > 1 && candidates[0].score === candidates[1].score) {
+      warnings.push(
+        `${instance}: pin "${p.name}" is ambiguous between ${candidates
+          .filter((c) => c.score === candidates[0].score)
+          .map((c) => `"${c.sig.tag}"`)
+          .join(", ")} — left unbound (bind explicitly via fb_assignments)`,
+      );
+      continue;
+    }
+    bound.set(p.name, candidates[0].sig);
+    used.add(candidates[0].sig.tag);
+  }
+
+  // 3) emit call + output copies
+  const params = pins
+    .filter((p) => p.role === "sensor_in" && bound.has(p.name))
+    .map((p) => `      ${p.name} := "${bound.get(p.name)!.io_address}"`);
   const lines = [`   "${instance}"(`, params.join(",\n"), `   );`];
-  actuatorPins.forEach((p, i) => {
-    const sig = outputs[i];
+  for (const p of pins) {
+    if (p.role !== "actuator_out") continue;
+    const sig = bound.get(p.name);
     if (sig) lines.push(`   "${sig.io_address}" := "${instance}".${p.name};`);
-    else warnings.push(`${instance}: no output signal for actuator pin "${p.name}"`);
-  });
-  if (inputs.length > sensorPins.length)
-    warnings.push(`${instance}: ${inputs.length - sensorPins.length} input signal(s) unmapped by contract`);
-  if (outputs.length > actuatorPins.length)
-    warnings.push(`${instance}: ${outputs.length - actuatorPins.length} output signal(s) unmapped by contract`);
+  }
+
+  // 4) leftover signals
+  const leftIn = io.filter((s) => INPUTS.has(s.signal_type) && !used.has(s.tag)).length;
+  const leftOut = io.filter((s) => !INPUTS.has(s.signal_type) && !used.has(s.tag)).length;
+  if (leftIn) warnings.push(`${instance}: ${leftIn} input signal(s) unmapped by contract`);
+  if (leftOut) warnings.push(`${instance}: ${leftOut} output signal(s) unmapped by contract`);
   return { lines, warnings };
 }
 
@@ -101,10 +165,11 @@ function contractWiringLines(
  *  fall back to tag wiring (warning if a contract exists but is unreviewed). */
 function buildWiring(
   instance: string, t: FbTemplate, io: IoSignalV2[],
+  bindings: FbAssignment["pin_bindings"] = [],
 ): { lines: string[]; warnings: string[] } {
   const contract = t.interface_contract;
   if (contract && contract.reviewed && contract.pins.length) {
-    return contractWiringLines(instance, contract.pins, io);
+    return contractWiringLines(instance, contract.pins, io, bindings);
   }
   const warnings = contract && !contract.reviewed
     ? [`${instance}: interface_contract not reviewed; wired by tag name.`]
@@ -186,9 +251,24 @@ function stubFb(prefix: string, name: string, io: IoSignalV2[]): CodegenArtifact
 function instantiate(
   prefix: string, id: string, name: string, deviceClass: string, isEm: boolean,
   io: IoSignalV2[], templates: FbTemplate[], layer: CodegenLayer,
+  assignments: FbAssignment[] = [],
 ): InstantiateResult {
   const tag = (a: CodegenArtifact): CodegenArtifact => ({ ...a, layer, ownerId: id, ownerName: name });
-  const t = pickTemplate(name, deviceClass, isEm, templates);
+  // G6-3/G0-8: an explicit assignment forces the template choice.
+  const assignment = assignments.find(
+    (a) => a.target_kind === (isEm ? "equipment_module" : "control_module") && a.target_id === id,
+  );
+  const assignmentWarnings: string[] = [];
+  let t: FbTemplate | null = null;
+  if (assignment) {
+    t = templates.find((x) => x.id === assignment.template_id && x.is_enabled) ?? null;
+    if (!t) {
+      assignmentWarnings.push(
+        `${name}: fb_assignment references template "${assignment.template_id}" (missing or disabled) — falling back to score matching`,
+      );
+    }
+  }
+  t = t ?? pickTemplate(name, deviceClass, isEm, templates);
   if (!t) {
     const fb = stubFb(prefix, name, io);
     const instanceName = `${fb.name}_DB`;
@@ -204,7 +284,7 @@ function instantiate(
   const block = templateBlockName(t);
   const instance = `${block}_${sclIdent(name)}_DB`;
   const db = instanceDb(instance, block);
-  const w = buildWiring(instance, t, io);
+  const w = buildWiring(instance, t, io, assignment?.pin_bindings ?? []);
   // G6-1: the template's SCL bodies enter the artifact set ahead of the
   // instance DB (compile-contract's name de-dup collapses repeat instances).
   const body = templateBodyArtifacts(t);
@@ -212,20 +292,24 @@ function instantiate(
     artifacts: [...body.artifacts, db].map(tag),
     callLines: w.lines,
     stub: null,
-    warnings: [...body.warnings, ...w.warnings],
+    warnings: [...assignmentWarnings, ...body.warnings, ...w.warnings],
     instanceDb: instance,
     contract: t.interface_contract,
   };
 }
 
 /** Instantiate one Control Module (basic-control FB). */
-export function instantiateControlModule(cm: ControlModuleV2, templates: FbTemplate[]): InstantiateResult {
-  return instantiate("CM", cm.control_module_id, cm.control_module_name, cm.control_module_class, false, cm.io_signals, templates, "device");
+export function instantiateControlModule(
+  cm: ControlModuleV2, templates: FbTemplate[], assignments: FbAssignment[] = [],
+): InstantiateResult {
+  return instantiate("CM", cm.control_module_id, cm.control_module_name, cm.control_module_class, false, cm.io_signals, templates, "device", assignments);
 }
 
 /** Instantiate one Equipment Module (procedural-control FB). EM-level IO is the
  *  union of its control modules' signals. */
-export function instantiateEquipmentModule(em: EquipmentModuleV2, templates: FbTemplate[]): InstantiateResult {
+export function instantiateEquipmentModule(
+  em: EquipmentModuleV2, templates: FbTemplate[], assignments: FbAssignment[] = [],
+): InstantiateResult {
   const io = em.control_modules.flatMap((c) => c.io_signals);
-  return instantiate("EM", em.equipment_module_id, em.equipment_module_name, em.equipment_module_name, true, io, templates, "em");
+  return instantiate("EM", em.equipment_module_id, em.equipment_module_name, em.equipment_module_name, true, io, templates, "em", assignments);
 }

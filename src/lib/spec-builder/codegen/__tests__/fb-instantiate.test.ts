@@ -175,3 +175,95 @@ describe("instantiateControlModule — template body emission (G6-1)", () => {
     expect(r.warnings.some((w) => w.includes("LAD") && w.includes("CM_Motor"))).toBe(true);
   });
 });
+
+describe("contract wiring — name-based roles (G6-3)", () => {
+  const contract: FbInterfaceContract = {
+    block_name: "CM_Motor",
+    pins: [
+      { name: "fb_running", scl_type: "Bool", direction: "input", role: "sensor_in", default_binding: "fb_output", exposed: false, description: "" },
+      { name: "fb_fault", scl_type: "Bool", direction: "input", role: "sensor_in", default_binding: "fb_output", exposed: false, description: "" },
+      { name: "act_run", scl_type: "Bool", direction: "output", role: "actuator_out", default_binding: "io_output", exposed: true, description: "" },
+    ],
+    states: [], reviewed: true, generated_at: "2026-06-30T00:00:00Z",
+  };
+
+  // signals deliberately ordered so POSITIONAL pairing would mis-wire:
+  // fault first, running second
+  const cm: ControlModuleV2 = {
+    control_module_id: "cm-uuid-1", control_module_name: "M01", control_module_class: "motor",
+    is_safety: false, description: "",
+    io_signals: [
+      { tag: "M01_Fault", signal_type: "DI", io_address: "I0.1", description: "", source: "wired" },
+      { tag: "M01_Running", signal_type: "DI", io_address: "I0.0", description: "", source: "wired" },
+      { tag: "M01_Run", signal_type: "DO", io_address: "Q0.0", description: "", source: "wired" },
+    ],
+  };
+
+  it("wires pins to signals by name tokens, not position", () => {
+    const r = instantiateControlModule(cm, [tmpl({ interface_contract: contract })]);
+    const call = r.callLines.join("\n");
+    expect(call).toContain('fb_running := "I0.0"'); // M01_Running, NOT the positional I0.1
+    expect(call).toContain('fb_fault := "I0.1"');
+    expect(call).toContain('"Q0.0" := "CM_Motor_M01_DB".act_run;');
+    expect(r.warnings).toEqual([]);
+  });
+
+  it("explicit fb_assignment pin bindings override name matching and its template_id forces the template", () => {
+    const weirdContract: FbInterfaceContract = {
+      ...contract,
+      pins: [
+        { name: "in_a", scl_type: "Bool", direction: "input", role: "sensor_in", default_binding: "fb_output", exposed: false, description: "" },
+        { name: "out_b", scl_type: "Bool", direction: "output", role: "actuator_out", default_binding: "io_output", exposed: true, description: "" },
+      ],
+    };
+    const templates = [
+      tmpl({ id: "t-wrong", device_category: "motor" }),
+      tmpl({ id: "t-assigned", name: "Special", device_category: "pump", interface_contract: weirdContract }),
+    ];
+    const r = instantiateControlModule(cm, templates, [
+      {
+        target_kind: "control_module", target_id: "cm-uuid-1", template_id: "t-assigned",
+        pin_bindings: [
+          { pin: "in_a", tag: "M01_Fault" },
+          { pin: "out_b", tag: "M01_Run" },
+        ],
+      },
+    ]);
+    const call = r.callLines.join("\n");
+    expect(call).toContain('in_a := "I0.1"');
+    expect(call).toContain('"Q0.0" := "CM_Motor_M01_DB".out_b;');
+    // M01_Running is deliberately left unbound — only the leftover warning fires
+    expect(r.warnings).toEqual(["CM_Motor_M01_DB: 1 input signal(s) unmapped by contract"]);
+  });
+
+  it("warns and leaves a pin unbound instead of guessing when no name matches", () => {
+    const noMatch: FbInterfaceContract = {
+      ...contract,
+      pins: [
+        { name: "fb_pressure", scl_type: "Bool", direction: "input", role: "sensor_in", default_binding: "fb_output", exposed: false, description: "" },
+      ],
+    };
+    const r = instantiateControlModule(cm, [tmpl({ interface_contract: noMatch })]);
+    expect(r.callLines.join("\n")).not.toContain("fb_pressure :=");
+    expect(r.warnings.some((w) => w.includes("fb_pressure") && w.includes("unbound"))).toBe(true);
+  });
+
+  it("warns on ambiguous candidates instead of picking one", () => {
+    const ambiguous: ControlModuleV2 = {
+      ...cm,
+      io_signals: [
+        { tag: "M01_Run_A", signal_type: "DI", io_address: "I0.0", description: "", source: "wired" },
+        { tag: "M01_Run_B", signal_type: "DI", io_address: "I0.1", description: "", source: "wired" },
+      ],
+    };
+    const oneRunPin: FbInterfaceContract = {
+      ...contract,
+      pins: [
+        { name: "fb_run", scl_type: "Bool", direction: "input", role: "sensor_in", default_binding: "fb_output", exposed: false, description: "" },
+      ],
+    };
+    const r = instantiateControlModule(ambiguous, [tmpl({ interface_contract: oneRunPin })]);
+    expect(r.callLines.join("\n")).not.toContain("fb_run :=");
+    expect(r.warnings.some((w) => w.includes("fb_run") && w.includes("ambiguous"))).toBe(true);
+  });
+});

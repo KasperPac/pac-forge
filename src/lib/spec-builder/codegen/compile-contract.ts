@@ -44,6 +44,7 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
   // interlocks are resolved per unit as members become known.
   const overridableOutputs = contract.maintenance?.overridable_outputs ?? [];
   const presetChannels = contract.engineering?.encoder_presets ?? [];
+  const fbAssignments = contract.engineering?.fb_assignments ?? [];
   const presetPlanned = contract.hierarchy.units.some((u) =>
     (contract.unit_coordination?.[u.unit_id]?.axes ?? []).some(
       (a) => a.preset && presetChannels.some((e) => e.unit_id === u.unit_id && e.axis_id === a.axis_id),
@@ -63,7 +64,7 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
 
     for (const em of unit.equipment_modules) {
       const emContract = contract.equipment_modules[em.equipment_module_id];
-      const emRes = instantiateEquipmentModule(em, templates);
+      const emRes = instantiateEquipmentModule(em, templates, fbAssignments);
 
       // Case C: synthesized (unmatched + contract). The generated EM FB owns
       // sequencing and its CMs' IO (via MAP_<EM>); CMs are not instantiated
@@ -130,7 +131,7 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
       const cmLinks: CmLinkInfo[] = [];
       const cmCallLines: string[] = [];
       for (const cm of em.control_modules) {
-        const cmRes = instantiateControlModule(cm, templates);
+        const cmRes = instantiateControlModule(cm, templates, fbAssignments);
         cmRes.artifacts.forEach(push);
         cmCallLines.push(...cmRes.callLines);
         warnings.push(...cmRes.warnings);
