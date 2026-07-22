@@ -1,7 +1,8 @@
 import type { CodegenArtifact, EmSeqState, EmSeqStep, EmSequence } from "./types";
 import { regionId, renderRegion, defaultStub } from "./em-fill-regions";
 import { buildCommandSeam, type CommandSeamPin } from "./em-command-seam";
-import { driveDbName, emDbName, emFbName, mapFcName } from "./naming";
+import { IO_COND_DB, driveDbName, emDbName, emFbName, mapFcName } from "./naming";
+import { sclIdent } from "./sa-builder";
 
 const PROGRAM = "Program blocks";
 const DATA = "PLC data types";
@@ -158,6 +159,16 @@ function wordLit(n: number): string {
   return `16#${n.toString(16).toUpperCase().padStart(4, "0")}`;
 }
 
+/** G1-4b: electrical raw range → S7 ADC counts (platform physics: the full
+ *  0–20 mA / 0–10 V electrical span maps to 0..27648; counts pass through). */
+function countsRange(raw: { min: number; max: number; unit: "mA" | "V" | "counts" }): [number, number] {
+  const toCounts = (v: number): number =>
+    raw.unit === "mA" ? Math.round((v / 20) * 27648)
+    : raw.unit === "V" ? Math.round((v / 10) * 27648)
+    : Math.round(v);
+  return [toCounts(raw.min), toCounts(raw.max)];
+}
+
 /**
  * G1-2/G1-3: one drive's telegram-FB emission inside the MAP FC. Returns the
  * SCL lines plus which EM pins the emission consumed (excluded from the
@@ -302,11 +313,23 @@ function writeMapFc(seq: EmSequence): { artifact: CodegenArtifact; driveDbs: Cod
     .filter((p) => !consumed.has(p.name))
     .map((p) => {
       if (!p.address) return `   // TODO wire sensor ${p.name} (no address in spec)`;
+      // G1-4b: analog EU scaling — electrical range converted to S7 counts by
+      // platform physics (0–20 mA / 0–10 V spans = 0..27648), EU emitted as
+      // Int (behaviour is written in EU units per G0-2; fractional EU truncates).
+      if (p.scaling && p.scl_type === "Int") {
+        const [lo, hi] = countsRange(p.scaling.raw);
+        const s = p.scaling;
+        return `   "${inst}".${p.name} := REAL_TO_INT(SCALE_X(MIN := ${realLit(s.eu.min)}, VALUE := NORM_X(MIN := ${lo}, VALUE := "${p.tag}", MAX := ${hi}), MAX := ${realLit(s.eu.max)}));   // %${p.address} ${s.raw.min}-${s.raw.max} ${s.raw.unit} -> ${s.eu.min}-${s.eu.max} ${s.eu.unit} (EU as Int)`;
+      }
+      // G1-4b: conditioned DIs read the IO_Cond layer (TON/TOF applied first
+      // in OB1) instead of the raw tag.
+      const src = p.conditioned ? `"${IO_COND_DB}".${sclIdent(p.tag)}` : `"${p.tag}"`;
+      const suffix = p.conditioned ? " conditioned" : "";
       // G1-4: N/C fail-safe wiring reads TRUE when healthy — invert so the
       // EM sees TRUE = abnormal (the golden master's hand-authored pattern).
       return p.polarity === "nc"
-        ? `   "${inst}".${p.name} := NOT "${p.tag}";   // %${p.address} N/C fail-safe (healthy = TRUE), inverted`
-        : `   "${inst}".${p.name} := "${p.tag}";   // %${p.address}`;
+        ? `   "${inst}".${p.name} := NOT ${src};   // %${p.address} N/C fail-safe (healthy = TRUE), inverted${suffix}`
+        : `   "${inst}".${p.name} := ${src};   // %${p.address}${suffix}`;
     });
   const actuatorLines = seq.actuators
     .filter((p) => !consumed.has(p.name))

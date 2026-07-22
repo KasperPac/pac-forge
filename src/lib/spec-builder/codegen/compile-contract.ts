@@ -13,6 +13,7 @@ import { buildEmCmLinks, type CmLinkInfo } from "./matched-em-builder";
 import { buildUnitSequence, type UnitMemberEm } from "./unit-builder";
 import { writeUnitArtifacts } from "./unit-writer";
 import { writeMaintenanceArtifacts, type PresetChannelInput } from "./maintenance-writer";
+import { writeIoConditioning, type ConditionedSignal } from "./io-conditioning-writer";
 
 /**
  * Compile a confirmed FDS into deterministic SCL.
@@ -273,6 +274,35 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
     if (maint.presetCallLine) deviceCallLines.unshift(maint.presetCallLine);
     if (maint.overrideCallLine) deviceCallLines.push(maint.overrideCallLine);
   }
+
+  // G1-4b: IO conditioning layer — per-signal functional delays plus the
+  // blanket tier-2 DI debounce (per-signal conditioning OVERRIDES the
+  // blanket). Its call is unshifted LAST so it lands FIRST in OB1: every
+  // downstream reader sees this scan's conditioned values.
+  const blanketDi = contract.engineering?.io_conditioning_defaults?.di_debounce_ms;
+  const conditionedSignals: ConditionedSignal[] = [];
+  for (const u of contract.hierarchy.units) {
+    if (u.excluded) continue;
+    for (const em of u.equipment_modules) {
+      for (const cm of em.control_modules) {
+        for (const s of cm.io_signals) {
+          if (s.signal_type !== "DI") continue;
+          if (s.conditioning) {
+            conditionedSignals.push({
+              tag: s.tag,
+              onDelayMs: s.conditioning.on_delay_ms,
+              offDelayMs: s.conditioning.off_delay_ms,
+            });
+          } else if (blanketDi !== undefined) {
+            conditionedSignals.push({ tag: s.tag, onDelayMs: blanketDi, offDelayMs: blanketDi });
+          }
+        }
+      }
+    }
+  }
+  const ioCond = writeIoConditioning(conditionedSignals);
+  ioCond.artifacts.forEach(push);
+  if (ioCond.callLine) deviceCallLines.unshift(ioCond.callLine);
 
   // Pass [] units: OB1 must not call per-unit sequencer DBs (they no longer
   // exist). The UC_<unit> stub is uncalled until sub-project D wires it.

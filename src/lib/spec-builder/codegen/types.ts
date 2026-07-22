@@ -71,6 +71,11 @@ export interface EmPin {
   scl_type: "Bool" | "Int";
   /** Physical IO address for the MAP FC (empty when none is known). */
   address: string;
+  /** G1-4b: TRUE when the signal is conditioned — the MAP writer reads the
+   *  IO_Cond conditioned value instead of the raw tag. */
+  conditioned?: boolean;
+  /** G1-4b: analog raw↔EU scaling — the MAP writer emits NORM_X/SCALE_X. */
+  scaling?: import("@/types/spec-contract-v2").AnalogScaling;
   /** G0-2 wiring polarity; "nc" makes the MAP writer emit a NOT (G1-4). */
   polarity?: import("@/types/spec-contract-v2").IoPolarity;
 }

@@ -544,3 +544,37 @@ describe("compile-contract — matched template body de-dup (G6-1)", () => {
     expect(instances).toHaveLength(2);
   });
 });
+
+describe("compile-contract — IO conditioning layer (G1-4b)", () => {
+  it("emits the conditioning layer for blanket DI debounce and calls it FIRST in OB1", () => {
+    const c = fixture() as unknown as Record<string, unknown>;
+    c.engineering = {
+      drives: [], axis_constants: [], encoder_presets: [], fb_assignments: [],
+      upstream_endpoints: [], io_conditioning_defaults: { di_debounce_ms: 20 },
+    };
+    // reference the DI in state logic so the EM actually consumes it (pins
+    // are created lazily from references)
+    (c.equipment_modules as Record<string, { transitions: { guard: unknown[] }[] }>)[
+      "em-carriage"
+    ].transitions[0].guard = [{ tag: "M01_FB", operator: "=", value: true }];
+    const res = compileContract(c as unknown as SpecContractV2, []);
+    const names = res.artifacts.map((a) => a.name);
+    expect(names).toContain("IO_Cond");
+    expect(names).toContain("FB_IO_Conditioning");
+    const fb = res.artifacts.find((a) => a.name === "FB_IO_Conditioning")!;
+    // blanket debounce = symmetric TON + TOF on each DI
+    expect(fb.content).toContain("t_on_M01_FB : TON;");
+    expect(fb.content).toContain("t_off_M01_FB : TOF;");
+    const ob = res.artifacts.find((a) => a.type === "OB")!.content;
+    const firstCall = ob.split("\n").find((l) => l.includes('"') && l.includes("("));
+    expect(firstCall).toContain("FB_IO_Conditioning_DB");
+    // the synthesized MAP reads the conditioned layer
+    const map = res.artifacts.find((a) => a.name === "MAP_Carriage")!;
+    expect(map.content).toContain('"IO_Cond".M01_FB');
+  });
+
+  it("emits no conditioning layer when nothing is conditioned", () => {
+    const res = compileContract(fixture(), []);
+    expect(res.artifacts.map((a) => a.name)).not.toContain("IO_Cond");
+  });
+});

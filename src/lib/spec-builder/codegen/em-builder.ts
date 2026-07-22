@@ -62,10 +62,18 @@ export function buildEmSequence(
     const name = `fb_${sclIdent(tag)}`;
     if (!sensors.has(name)) {
       const sig = ownInput.get(tag);
+      // G1-4b: per-signal conditioning, or the blanket tier-2 DI debounce
+      const blanketDi = engineering?.io_conditioning_defaults?.di_debounce_ms;
+      const conditioned =
+        !!sig &&
+        !ANALOG_TYPES.has(sig.signal_type) &&
+        (sig.conditioning !== undefined || blanketDi !== undefined);
       sensors.set(name, {
         name, tag,
         scl_type: sig && ANALOG_TYPES.has(sig.signal_type) ? "Int" : "Bool",
         address: sig?.io_address ?? "",
+        conditioned: conditioned || undefined,
+        scaling: sig?.scaling, // G1-4b analog EU scaling
         polarity: sig?.polarity, // G0-2 → G1-4 inversion
       });
     }

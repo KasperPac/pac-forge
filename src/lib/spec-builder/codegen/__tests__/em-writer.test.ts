@@ -316,3 +316,25 @@ describe("MAP N/C inversion (G1-4)", () => {
     expect(map).toContain('"EM_Carriage_Drive_DB".fb_plain := "plain";   // %I0.2');
   });
 });
+
+describe("writeEmArtifacts — conditioning + scaling at the MAP seam (G1-4b)", () => {
+  it("reads conditioned DIs from IO_Cond (N/C inversion on top) and scales AIs via NORM_X/SCALE_X", () => {
+    const s = seq();
+    s.sensors = [
+      { name: "fb_therm", tag: "M01_Therm", scl_type: "Bool", address: "I0.0", polarity: "nc", conditioned: true },
+      { name: "fb_gate", tag: "Gate_Closed", scl_type: "Bool", address: "I0.1", conditioned: true },
+      { name: "fb_press", tag: "PT01", scl_type: "Int", address: "IW100",
+        scaling: { raw: { min: 4, max: 20, unit: "mA" }, eu: { min: 0, max: 10, unit: "bar" } } },
+      { name: "fb_plain", tag: "LS1", scl_type: "Bool", address: "I0.2" },
+    ];
+    const map = writeEmArtifacts(s).artifacts.find((a) => a.name === "MAP_Carriage_Drive")!.content;
+    expect(map).toContain('"EM_Carriage_Drive_DB".fb_therm := NOT "IO_Cond".M01_Therm;');
+    expect(map).toContain('"EM_Carriage_Drive_DB".fb_gate := "IO_Cond".Gate_Closed;');
+    // 4–20 mA → S7 counts 5530..27648 (platform physics), EU emitted as Int
+    expect(map).toContain(
+      '"EM_Carriage_Drive_DB".fb_press := REAL_TO_INT(SCALE_X(MIN := 0.0, VALUE := NORM_X(MIN := 5530, VALUE := "PT01", MAX := 27648), MAX := 10.0));',
+    );
+    // untreated signal keeps the plain symbolic copy
+    expect(map).toContain('"EM_Carriage_Drive_DB".fb_plain := "LS1";');
+  });
+});

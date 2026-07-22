@@ -28,3 +28,7 @@ export const statDbName = (unitScl: string): string => `STAT_${unitScl}`;
 
 /** Drive telegram-FB instance DB (G1-2), e.g. "SINA_SPEED_M1_DB". */
 export const driveDbName = (fbName: string, cmScl: string): string => `${fbName}_${cmScl}_DB`;
+
+/** Project-level IO conditioning layer (G1-4b). */
+export const IO_COND_DB = "IO_Cond";
+export const IO_COND_FB = "FB_IO_Conditioning";
