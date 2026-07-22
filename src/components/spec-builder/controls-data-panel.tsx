@@ -29,6 +29,8 @@ import { RoutingCard } from "./controls-data/routing-card";
 import { AxesCard } from "./controls-data/axes-card";
 import { MaintenanceCard } from "./controls-data/maintenance-card";
 import { EngineeringCard, type DriveCmRef, type UnitAxisRef } from "./controls-data/engineering-card";
+import { FbAssignmentsCard, type AssignmentTarget } from "./controls-data/fb-assignments-card";
+import { useFbTemplates } from "@/hooks/use-fb-templates";
 import {
   UNIT_PACKML_STATES,
   type EngineeringDataV1,
@@ -221,6 +223,24 @@ export function ControlsDataPanel({ spec }: Props) {
       axis,
     })),
   );
+  // G6-4: assignment targets — every CM and EM with its legal binding tags
+  const { data: fbTemplates = [] } = useFbTemplates();
+  const assignmentTargets: AssignmentTarget[] = units.flatMap((u) =>
+    u.equipment_modules.flatMap((em) => [
+      {
+        kind: "equipment_module" as const,
+        id: em.equipment_module_id,
+        name: em.equipment_module_name,
+        tags: em.control_modules.flatMap((cm) => cm.io_signals.map((s) => s.tag).filter(Boolean)),
+      },
+      ...em.control_modules.map((cm) => ({
+        kind: "control_module" as const,
+        id: cm.control_module_id,
+        name: cm.control_module_name,
+        tags: cm.io_signals.map((s) => s.tag).filter(Boolean),
+      })),
+    ]),
+  );
 
   const handleSave = async () => {
     setIssues([]);
@@ -330,15 +350,26 @@ export function ControlsDataPanel({ spec }: Props) {
             />
           )}
           {section === "engineering" && (
-            <EngineeringCard
-              engineering={engineering}
-              driveCms={driveCms}
-              unitAxes={unitAxes}
-              onChange={(next) => {
-                setEngineering(next);
-                markDirty("engineering");
-              }}
-            />
+            <>
+              <EngineeringCard
+                engineering={engineering}
+                driveCms={driveCms}
+                unitAxes={unitAxes}
+                onChange={(next) => {
+                  setEngineering(next);
+                  markDirty("engineering");
+                }}
+              />
+              <FbAssignmentsCard
+                engineering={engineering}
+                targets={assignmentTargets}
+                templates={fbTemplates}
+                onChange={(next) => {
+                  setEngineering(next);
+                  markDirty("engineering");
+                }}
+              />
+            </>
           )}
           {section === "coordination" && (!coord ? (
             <Card className="p-4 space-y-3">
