@@ -1,5 +1,17 @@
 # Repository Guidelines
 
+## Session Start (Mandatory)
+
+At the start of every agent session, before planning work or using tools, read
+`CLAUDE.md` in full. Treat all repository guidance in `CLAUDE.md` as if it were
+replicated verbatim in this file and follow it alongside the agent-specific
+instructions below.
+
+During that session-start check, compare `CLAUDE.md` with this file. If shared
+repository guidance has been added or changed, update `AGENTS.md` in the same
+session so the agent guidance remains aligned. Preserve agent-specific
+instructions, including the Monday workflow below, when synchronizing.
+
 ## Monday Workflow
 
 Use the `monday-tracker` skill for every non-trivial task in this repository.
