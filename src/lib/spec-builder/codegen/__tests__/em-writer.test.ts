@@ -354,7 +354,7 @@ describe("G5-4 map-line split", () => {
     const { mapLines } = writeEmArtifacts(seq());
     for (const l of mapLines.inputLines) expect(l).toMatch(/"EM_.*_DB"\.\w+ :=|\/\/ TODO wire sensor/);
     for (const l of mapLines.outputLines.filter((x) => x.includes(" := ") && !x.includes("("))) {
-      expect(l).toMatch(/^   "\w+" := "EM_.*_DB"\./); // physical := instanceDB.pin
+      expect(l).toMatch(/^ {3}"\w+" := "EM_.*_DB"\./); // physical := instanceDB.pin
     }
   });
 });
