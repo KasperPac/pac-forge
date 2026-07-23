@@ -4,6 +4,7 @@ import type { CompileResultWithSources } from "@/types/tia";
 
 interface ReimportCompileInput {
   sources: Record<string, string>;
+  folders?: Record<string, string>;
 }
 
 export function useReimportCompile() {
@@ -16,7 +17,7 @@ export function useReimportCompile() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sources: input.sources }),
+          body: JSON.stringify({ sources: input.sources, folders: input.folders ?? {} }),
           // Openness is slow per block (~5-10 s each): a full-program reimport
           // takes minutes. 120 s aborted the fetch while the bridge kept
           // working, losing the compile result (G9-W5).

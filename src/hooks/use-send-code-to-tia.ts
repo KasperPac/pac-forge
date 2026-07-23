@@ -21,6 +21,9 @@ const TYPE_ORDER: Record<string, number> = { UDT: 0, FB: 1, FC: 2, DB: 3, OB: 4 
 export interface CodeSendPlan {
   /** name → SCL, insertion-ordered for import (UDTs first, OB last). */
   sources: Record<string, string>;
+  /** name → folder path, omitted for artifacts that live in the root
+   *  "Program blocks" folder (G5-4). */
+  folders: Record<string, string>;
   countsByType: Record<string, number>;
   /** Block names whose content is a Code Builder edit, not raw generation. */
   editedBlocks: string[];
@@ -86,17 +89,20 @@ export function useSendCodeToTia(specId: string | undefined, revision: number | 
         (a, b) => (TYPE_ORDER[a.type] ?? 9) - (TYPE_ORDER[b.type] ?? 9),
       );
       const sources: Record<string, string> = {};
+      const folders: Record<string, string> = {};
       const countsByType: Record<string, number> = {};
       const editedBlocks: string[] = [];
       for (const a of sorted) {
         const edited = edits.get(a.name);
         sources[a.name] = edited ?? a.content;
+        if (a.folder && a.folder !== "Program blocks") folders[a.name] = a.folder;
         if (edited) editedBlocks.push(a.name);
         countsByType[a.type] = (countsByType[a.type] ?? 0) + 1;
       }
       const ioTagDerivation = deriveIoTags(contract);
       const next: CodeSendPlan = {
         sources,
+        folders,
         countsByType,
         editedBlocks,
         ioTags: ioTagDerivation.tags,
@@ -134,7 +140,9 @@ export function useSendCodeToTia(specId: string | undefined, revision: number | 
       }
       // Reimport errors surface via reimport.error (sendError) — swallow the
       // rejection so the fire-and-forget onClick has no unhandled promise.
-      return reimport.mutateAsync({ sources: sendPlan.sources }).catch(() => null);
+      return reimport
+        .mutateAsync({ sources: sendPlan.sources, folders: sendPlan.folders })
+        .catch(() => null);
     },
     [reimport],
   );
