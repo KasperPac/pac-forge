@@ -62,13 +62,13 @@ describe("compileContract — EM-layer path", () => {
   const res = compileContract(fixture(), []); // no templates → unmatched → generate
   const names = res.artifacts.map((a) => a.name);
 
-  it("emits the 5-artifact bundle for each generated EM", () => {
+  it("emits the 4-artifact bundle for each generated EM (no per-EM MAP FC)", () => {
     for (const em of ["Carriage", "Clamp"]) {
       expect(names).toContain(`EM_${em}`);
       expect(names).toContain(`EM_${em}_State`);
       expect(names).toContain(`EM_${em}_DB`);
       expect(names).toContain(`${em}_CMD`);
-      expect(names).toContain(`MAP_${em}`);
+      expect(names).not.toContain(`MAP_${em}`); // G5-4: IO map moved to the layer FCs
     }
   });
 
@@ -91,18 +91,20 @@ describe("compileContract — EM-layer path", () => {
     expect(res.stubs.equipmentModules).toHaveLength(0);
   });
 
-  it("tags all EM artifacts layer 'em' (5 per EM, 2 FBs)", () => {
+  it("tags all EM artifacts layer 'em' (4 per EM, 2 FBs)", () => {
     const em = filterByLayer(res.artifacts, "em");
-    expect(em).toHaveLength(10);
+    expect(em).toHaveLength(8);
     expect(em.every((a) => a.layer === "em")).toBe(true);
     expect(em.filter((a) => a.type === "FB")).toHaveLength(2);
   });
 
-  it("emits one OB1 that calls the generated EM instances", () => {
+  it("calls the generated EM instances from the unit Management FC", () => {
     const ob = res.artifacts.find((a) => a.type === "OB");
     expect(ob?.layer).toBe("ob1");
-    expect(ob?.content).toContain(`"EM_Carriage_DB"(`);
-    expect(ob?.content).toContain(`"EM_Clamp_DB"(`);
+    // G5-4: EM instances execute in the unit Management FC, not directly in Main.
+    const mgmt = res.artifacts.find((a) => a.name === "FC_Carriage_Unit_Management")!;
+    expect(mgmt.content).toContain(`"EM_Carriage_DB"(`);
+    expect(mgmt.content).toContain(`"EM_Clamp_DB"(`);
   });
 
   it("produces no duplicate artifact names", () => {
@@ -208,10 +210,11 @@ describe("compile-contract — verified matched EM", () => {
       expect(res.stubs.equipmentModules.find((s) => s.id === "em-carriage")).toBeUndefined();
     });
 
-    it("orders OB1 calls LINK_IN < EM instance < LINK_OUT", () => {
-      const ob = res.artifacts.find((a) => a.type === "OB");
-      expect(ob).toBeDefined();
-      const body = ob!.content;
+    it("orders Management-FC calls LINK_IN < EM instance < LINK_OUT", () => {
+      // G5-4: the CM/link/EM instance calls live in the unit Management FC.
+      const mgmt = res.artifacts.find((a) => a.name === "FC_Carriage_Unit_Management");
+      expect(mgmt).toBeDefined();
+      const body = mgmt!.content;
       const idxIn = body.indexOf('"LINK_Carriage_IN"');
       const idxEm = body.indexOf('"Carriage_CMD".cmd_start'); // the EM instance call's seam binding
       const idxOut = body.indexOf('"LINK_Carriage_OUT"');
@@ -230,9 +233,11 @@ describe("compile-contract — verified matched EM", () => {
       }
     });
 
-    it("double-drive: each physical address is written exactly once (in OB1, by the CM)", () => {
-      const ob = res.artifacts.find((a) => a.type === "OB")!.content;
-      expect((ob.match(/"Q0\.0" :=/g) ?? []).length).toBe(1);
+    it("double-drive: each physical address is written exactly once, program-wide (by the CM)", () => {
+      // The write lands in the unit Management FC; no EM-owned artifact also
+      // drives the address — so the count across the whole program is exactly 1.
+      const all = res.artifacts.map((a) => a.content).join("\n");
+      expect((all.match(/"Q0\.0" :=/g) ?? []).length).toBe(1);
     });
   });
 
@@ -243,7 +248,7 @@ describe("compile-contract — verified matched EM", () => {
     it("synthesizes the EM instead of blocking, with a fallback warning naming the missing state", () => {
       expect(res.stubs.equipmentModules).toHaveLength(0);
       expect(names).toContain("EM_Carriage"); // synthesized bundle
-      expect(names).toContain("MAP_Carriage");
+      expect(names).not.toContain("MAP_Carriage"); // G5-4: no per-EM MAP FC
       expect(
         res.warnings.some((w) => w.includes("falling back to synthesized") && w.includes("Active")),
       ).toBe(true);
@@ -307,15 +312,17 @@ describe("compile-contract — verified matched EM", () => {
 
   describe("Case D — stub EM (no template, no contract)", () => {
     const res = compileContract(matchedFixture({ withEmContract: false }), []); // no templates, no FDS machine → EM stub
-    const ob = res.artifacts.find((a) => a.type === "OB")!.content;
+    // G5-4: the stub EM's instance call + its physical IO wiring land in the
+    // unit Management FC (the instance-execution slot).
+    const mgmt = res.artifacts.find((a) => a.name === "FC_Carriage_Unit_Management")!.content;
 
     it("reports the EM as a stub", () => {
       expect(res.stubs.equipmentModules.find((s) => s.id === "em-carriage")).toBeDefined();
     });
 
     it("wires the stub EM directly — it owns its physical IO", () => {
-      expect(ob).toContain('"EM_Carriage_DB"(');
-      expect(ob).toContain('"Q0.0"'); // EM drives the output itself; no separate CM
+      expect(mgmt).toContain('"EM_Carriage_DB"(');
+      expect(mgmt).toContain('"Q0.0"'); // EM drives the output itself; no separate CM
     });
 
     it("instantiates NO separate CM blocks (no orphan, never-called blocks)", () => {
@@ -327,10 +334,11 @@ describe("compile-contract — verified matched EM", () => {
       const names = res.artifacts.map((a) => a.name);
       expect(names).not.toContain("LINK_Carriage_IN");
       expect(names).not.toContain("LINK_Carriage_OUT");
-      // Every EM-owned artifact that IS emitted is referenced in OB1 (no orphans).
+      // Every EM-owned artifact that IS emitted is referenced in the Management
+      // FC (no orphans).
       const emArts = res.artifacts.filter((a) => a.ownerName === "Carriage" && (a.type === "FB" || a.type === "DB"));
       expect(emArts.length).toBeGreaterThan(0);
-      expect(ob).toContain("EM_Carriage_DB");
+      expect(mgmt).toContain("EM_Carriage_DB");
     });
   });
 });
@@ -399,12 +407,19 @@ describe("compileContract — real unit coordinator when unit_coordination exist
     expect(res.warnings.filter((w) => w.includes("em_aggregate"))).toHaveLength(0);
   });
 
-  it("calls the UC instance in OB1 before the unit's EM instances", () => {
-    const ob = res.artifacts.find((a) => a.type === "OB")!;
-    const uc = ob.content.indexOf('"UC_Carriage_Unit_DB"();');
-    expect(uc).toBeGreaterThan(-1);
-    expect(uc).toBeLessThan(ob.content.indexOf('"EM_Carriage_DB"('));
-    expect(uc).toBeLessThan(ob.content.indexOf('"EM_Clamp_DB"('));
+  it("runs the UC brain (Process FC) before the unit's EM instances (Management FC)", () => {
+    // G5-4: the UC instance is the unit's Process-FC brain call; the EM
+    // instances execute in the Management FC. Main threads Process before
+    // Management, so the UC's command-seam writes are consumed the same scan.
+    const proc = res.artifacts.find((a) => a.name === "FC_Carriage_Unit_Process")!;
+    const mgmt = res.artifacts.find((a) => a.name === "FC_Carriage_Unit_Management")!;
+    expect(proc.content).toContain('"UC_Carriage_Unit_DB"();');
+    expect(mgmt.content).toContain('"EM_Carriage_DB"(');
+    expect(mgmt.content).toContain('"EM_Clamp_DB"(');
+    const ob = res.artifacts.find((a) => a.type === "OB")!.content;
+    expect(ob.indexOf('"FC_Carriage_Unit_Process"();')).toBeLessThan(
+      ob.indexOf('"FC_Carriage_Unit_Management"();'),
+    );
   });
 
   it("keeps the stub (with a warning) for units without unit_coordination", () => {
@@ -477,14 +492,21 @@ describe("compileContract — maintenance layer emission", () => {
     expect(db.content).toContain("rot_preset_execute : Bool;");
   });
 
-  it("orders OB1: preset FC before EMs, override FC last (G5-2/G5-3)", () => {
-    const ob = res.artifacts.find((a) => a.type === "OB")!.content;
-    const preset = ob.indexOf('"MAINT_Encoder_Preset"();');
-    const override = ob.indexOf('"MAINT_Output_Override"();');
+  it("routes preset + override into FC_Maintenance with override last, and Main runs it last (G5-2/G5-3)", () => {
+    // G5-4: the maintenance calls live in FC_Maintenance (preset then override,
+    // override structurally last); Main runs FC_Maintenance last of all layers,
+    // so the override write wins over the output mapping.
+    const maint = res.artifacts.find((a) => a.name === "FC_Maintenance")!.content;
+    const preset = maint.indexOf('"MAINT_Encoder_Preset"();');
+    const override = maint.indexOf('"MAINT_Output_Override"();');
     expect(preset).toBeGreaterThan(-1);
-    expect(preset).toBeLessThan(ob.indexOf('"EM_Carriage_DB"('));
-    expect(override).toBeGreaterThan(ob.lastIndexOf('"MAP_'));
-    expect(override).toBeGreaterThan(ob.indexOf('"UC_Carriage_Unit_DB"'));
+    expect(override).toBeGreaterThan(-1);
+    expect(preset).toBeLessThan(override);
+    const maintCalls = maint.split("\n").filter((l) => l.trim().startsWith('"MAINT_'));
+    expect(maintCalls[maintCalls.length - 1]).toContain("MAINT_Output_Override");
+    const ob = res.artifacts.find((a) => a.type === "OB")!.content;
+    const lastCall = ob.trimEnd().split("\n").filter((l) => l.includes('"();')).pop() ?? "";
+    expect(lastCall).toContain("FC_Maintenance");
   });
 
   it("guards the preset on the blocking EM's Execute dispatch index", () => {
@@ -498,8 +520,10 @@ describe("compileContract — maintenance layer emission", () => {
     const uc = res.artifacts.find((a) => a.name === "UC_Carriage_Unit")!;
     expect(uc.content).toContain('AND NOT "Maintenance_CMD".maintenance_mode');
     expect(uc.content).not.toContain("TODO exclude maintenance mode");
-    const ob = res.artifacts.find((a) => a.type === "OB")!.content;
-    expect(ob).toContain('"UC_Carriage_Unit_DB"(i_Seq_Test := "Maintenance_CMD".seq_test_mode);');
+    // G5-4: the UC instance call (with its i_Seq_Test seam binding) is the
+    // unit Process-FC brain call.
+    const proc = res.artifacts.find((a) => a.name === "FC_Carriage_Unit_Process")!.content;
+    expect(proc).toContain('"UC_Carriage_Unit_DB"(i_Seq_Test := "Maintenance_CMD".seq_test_mode);');
   });
 
   it("emits no maintenance layer when the contract declares none", () => {
@@ -565,16 +589,71 @@ describe("compile-contract — IO conditioning layer (G1-4b)", () => {
     // blanket debounce = symmetric TON + TOF on each DI
     expect(fb.content).toContain("t_on_M01_FB : TON;");
     expect(fb.content).toContain("t_off_M01_FB : TOF;");
-    const ob = res.artifacts.find((a) => a.type === "OB")!.content;
-    const firstCall = ob.split("\n").find((l) => l.includes('"') && l.includes("("));
-    expect(firstCall).toContain("FB_IO_Conditioning_DB");
-    // the synthesized MAP reads the conditioned layer
-    const map = res.artifacts.find((a) => a.name === "MAP_Carriage")!;
-    expect(map.content).toContain('"IO_Cond".M01_FB');
+    // G5-4: the conditioning call is the FIRST statement of FC_Inputs, so the
+    // conditioned reads below it are same-scan fresh.
+    const inputs = res.artifacts.find((a) => a.name === "FC_Inputs")!;
+    const firstStmt = inputs.content.split("\n").find((l) => l.includes('"') && l.includes("("));
+    expect(firstStmt).toContain("FB_IO_Conditioning_DB");
+    // the synthesized input map (now routed into FC_Inputs) reads the
+    // conditioned layer, not the raw tag
+    expect(inputs.content).toContain('"IO_Cond".M01_FB');
+    expect(res.artifacts.map((a) => a.name)).not.toContain("MAP_Carriage");
   });
 
   it("emits no conditioning layer when nothing is conditioned", () => {
     const res = compileContract(fixture(), []);
     expect(res.artifacts.map((a) => a.name)).not.toContain("IO_Cond");
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Pac Program Structure Standard v1 — layer skeleton + folder stamping
+ * (G5-4). The old flat MAP_<EM> / OB1-content model is superseded by the
+ * FC_Inputs/FC_Outputs/FC_Maintenance layer FCs and per-unit
+ * Process/Management FCs; every artifact carries its real folder.
+ * ------------------------------------------------------------------ */
+
+describe("G5-4 program structure", () => {
+  const contract = fixture();
+
+  it("emits the layer skeleton and no MAP FCs", () => {
+    const { artifacts } = compileContract(contract, []);
+    const names = artifacts.map((a) => a.name);
+    expect(names).toEqual(expect.arrayContaining(["Main", "FC_Inputs", "FC_Outputs", "FC_Maintenance"]));
+    expect(names.some((n) => n.startsWith("MAP_"))).toBe(false);
+  });
+
+  it("emits Process + Management per non-excluded unit, Process calling the UC", () => {
+    const { artifacts } = compileContract(contract, []);
+    const process = artifacts.filter((a) => /^FC_.*_Process$/.test(a.name));
+    const mgmt = artifacts.filter((a) => /^FC_.*_Management$/.test(a.name));
+    expect(process.length).toBeGreaterThan(0);
+    expect(process.length).toBe(mgmt.length);
+    for (const p of process) expect(p.content).toMatch(/"UC_\w+(_DB)?"\(/);
+    for (const m of mgmt) expect(m.content).toMatch(/"EM_\w+_DB"\(|\/\/ \(no equipment modules\)/);
+  });
+
+  it("stamps folders: unit FCs at unit root, FBs in <U>/FB, DBs in <U>/DB, system in 00_System", () => {
+    const { artifacts } = compileContract(contract, []);
+    const byName = new Map(artifacts.map((a) => [a.name, a]));
+    const anyProcess = artifacts.find((a) => /^FC_.*_Process$/.test(a.name))!;
+    const unitScl = anyProcess.folder; // unit root
+    expect(unitScl).not.toBe("Program blocks");
+    const emFb = artifacts.find((a) => a.type === "FB" && a.name.startsWith("EM_"))!;
+    expect(emFb.folder).toMatch(/\/FB$/);
+    const emDb = artifacts.find((a) => a.type === "DB" && a.name.endsWith("_CMD"))!;
+    expect(emDb.folder).toMatch(/\/DB$/);
+    expect(byName.get("FC_Inputs")!.folder).toBe("00_System");
+    expect(byName.get("Main")!.folder).toBe("Program blocks");
+    const udt = artifacts.find((a) => a.type === "UDT");
+    if (udt) expect(udt.folder).toBe("PLC data types");
+  });
+
+  it("keeps input mapping in FC_Inputs (with IO_Cond first when present) and outputs in FC_Outputs", () => {
+    const { artifacts } = compileContract(contract, []);
+    const inputs = artifacts.find((a) => a.name === "FC_Inputs")!;
+    const outputs = artifacts.find((a) => a.name === "FC_Outputs")!;
+    expect(inputs.content).not.toMatch(/^   "\w+" := "EM_/m);   // no physical-output writes
+    expect(outputs.content).not.toMatch(/"EM_\w+_DB"\.\w+ := "(?!EM_)/); // no input reads
   });
 });

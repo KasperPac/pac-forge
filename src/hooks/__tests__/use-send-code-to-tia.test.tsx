@@ -95,9 +95,9 @@ describe("useSendCodeToTia", () => {
     // import order: UDTs first, OB last
     expect(names[0].endsWith("_State")).toBe(true); // the EM state UDT
     expect(names[names.length - 1]).toBe("Main");
-    // spans layers: EM bundle + unit stub + OB
+    // spans layers: EM bundle + unit stub + system layer FCs + OB
     expect(names).toContain("EM_Belt");
-    expect(names).toContain("MAP_Belt");
+    expect(names).toContain("FC_Inputs");
     expect(names).toContain("UC_Infeed");
     // the Code Builder edit wins over raw generation
     expect(plan.sources.EM_Belt).toContain("hand-tuned");

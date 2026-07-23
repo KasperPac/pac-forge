@@ -9,6 +9,7 @@ import type { FbTemplate } from "@/types/fb-template";
 import type { FbInterfacePin, FbInterfaceContract } from "@/types/fb-interface";
 import type { CodegenArtifact, CodegenLayer } from "./types";
 import { sclIdent } from "./sa-builder";
+import { FOLDER_LIBRARY } from "./naming";
 
 const FOLDER = "Program blocks";
 const ANALOG = new Set<string>(["AI", "AO"]);
@@ -185,7 +186,9 @@ const BLOCK_EXT: Record<string, string> = { FB: "scl", FC: "scl", OB: "ob", UDT:
 /** G6-1: lower a matched template's blocks into real artifacts (sort order =
  *  dependency order; each block depends on the ones before it). Standard
  *  Siemens instructions ship with TIA — reference-only, no bodies. Non-SCL
- *  blocks (LAD/FBD XML) have no SCL emission path yet → skipped + warning. */
+ *  blocks (LAD/FBD XML) have no SCL emission path yet → skipped + warning.
+ *  G5-4: template bodies land in the shared "Library" folder (never re-stamped
+ *  per unit — a library FB reused across units keeps one home). */
 function templateBodyArtifacts(
   t: FbTemplate,
 ): { artifacts: CodegenArtifact[]; warnings: string[] } {
@@ -206,7 +209,7 @@ function templateBodyArtifacts(
       filename: `${b.block_name}.${BLOCK_EXT[b.block_type] ?? "scl"}`,
       content: b.scl_code.endsWith("\n") ? b.scl_code : `${b.scl_code}\n`,
       dependencies: [...emitted],
-      folder: FOLDER,
+      folder: FOLDER_LIBRARY,
       layer: "device",
     });
     emitted.push(b.block_name);

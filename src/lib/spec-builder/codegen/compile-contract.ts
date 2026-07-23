@@ -1,12 +1,15 @@
 // src/lib/spec-builder/codegen/compile-contract.ts
 import type { SpecContractV2 } from "@/types/spec-contract-v2";
 import type { FbTemplate } from "@/types/fb-template";
-import type { CodegenArtifact, CodegenResult, StubReport } from "./types";
+import type { CodegenArtifact, CodegenResult, EmMapLines, StubReport } from "./types";
 import { sclIdent } from "./sa-builder";
 import { buildEmSequence } from "./em-builder";
 import { writeEmArtifacts } from "./em-writer";
 import { instantiateControlModule, instantiateEquipmentModule } from "./fb-instantiate";
 import { writeOb1 } from "./ob1-writer";
+import { writeFcInputs, writeFcMaintenance, writeFcOutputs } from "./layer-fc-writer";
+import { writeUnitManagementFc, writeUnitProcessFc } from "./unit-fc-writer";
+import { FOLDER_LIBRARY, FOLDER_SYSTEM } from "./naming";
 import { checkStateCoverage, normSlug } from "./em-state-coverage";
 import { buildCommandSeam, type CommandSeamPin } from "./em-command-seam";
 import { buildEmCmLinks, type CmLinkInfo } from "./matched-em-builder";
@@ -15,23 +18,64 @@ import { writeUnitArtifacts } from "./unit-writer";
 import { writeMaintenanceArtifacts, type PresetChannelInput } from "./maintenance-writer";
 import { writeIoConditioning, type ConditionedSignal } from "./io-conditioning-writer";
 
+/** One unit's resolved assembly: its Process brain call (the UC), its Management
+ *  instance-call lines, and identity. Assembled per unit, emitted after the loop
+ *  as the per-unit Process/Management FCs (G5-4). */
+interface UnitAssembly {
+  unitScl: string;
+  unitName: string;
+  unitId: string;
+  /** The unit's single brain call — the UC instance (real) or the UC stub. */
+  processCall: string;
+  /** EM/CM/link instance calls, in scan order, for the Management FC. */
+  managementLines: string[];
+}
+
+const DATA_TYPES = "PLC data types";
+
 /**
- * Compile a confirmed FDS into deterministic SCL.
+ * G5-4 folder stamping — a unit-scoped artifact goes under the unit's tree:
+ * FBs → `<unitScl>/FB`, DBs → `<unitScl>/DB`, FCs (LINK_IN/LINK_OUT, the UC
+ * stub) at the unit root. Shared library bodies and PLC data types keep their
+ * one home and are never re-stamped per unit.
+ */
+const stampUnit = (a: CodegenArtifact, unitScl: string): CodegenArtifact => {
+  if (a.folder === FOLDER_LIBRARY || a.folder === DATA_TYPES) return a;
+  if (a.type === "FB") return { ...a, folder: `${unitScl}/FB` };
+  if (a.type === "DB") return { ...a, folder: `${unitScl}/DB` };
+  return { ...a, folder: unitScl }; // FCs (LINK_IN/LINK_OUT, stubs) at unit root
+};
+
+/** G5-4: project-level scaffolding lives under 00_System; UDTs stay put. */
+const stampSystem = (a: CodegenArtifact): CodegenArtifact =>
+  a.folder === DATA_TYPES ? a : { ...a, folder: FOLDER_SYSTEM };
+
+/**
+ * Compile a confirmed FDS into deterministic SCL — the Pac Program Structure
+ * Standard v1 (G5-4).
  *
- * EM-layer model (supersedes the old flattened per-Unit S/A sequence): each EM
- * owns its own procedural control. An unmatched EM that has a state-machine
- * contract is lowered to the hybrid 5-artifact bundle (EM FB + State UDT + CMD
- * DB + MAP FC + instance DB); its control modules' IO is subsumed by MAP_<EM>,
- * so they are NOT instantiated separately. A matched library EM (or an EM with
- * no contract) keeps the device-layer instance + per-CM wiring. Each Unit emits
- * a UC_<unit> coordination stub (the real coordinator is built in sub-project
- * D). Finally one OB1. Pure: no IO, no AI.
+ * EM-layer model: each EM owns its own procedural control. An unmatched EM with
+ * a state-machine contract is lowered to the hybrid 4-artifact bundle (EM FB +
+ * State UDT + CMD DB + instance DB); its IO map is routed into the global
+ * FC_Inputs / FC_Outputs layer FCs (not a per-EM MAP FC), and its control
+ * modules' IO is subsumed, so they are NOT instantiated separately. A matched
+ * library EM (or an EM with no contract) keeps the device-layer instance +
+ * per-CM wiring.
+ *
+ * The program is assembled as a fixed layer skeleton: FC_Inputs (conditioning +
+ * input mapping), one FC_<Unit>_Process (the unit brain / UC call) and one
+ * FC_<Unit>_Management (EM/CM instance calls) per unit, FC_Outputs (output
+ * mapping + drive telegrams) and FC_Maintenance (overrides, structurally last).
+ * Main calls the layers in order; the Process layer precedes the Management
+ * layer, so a UC's command-seam writes are consumed by its EMs the same scan.
+ * Every artifact carries its real folder. Pure: no IO, no AI.
  */
 export function compileContract(contract: SpecContractV2, templates: FbTemplate[]): CodegenResult {
   const artifacts: CodegenArtifact[] = [];
   const warnings: string[] = [];
   const stubs: StubReport = { controlModules: [], equipmentModules: [] };
-  const deviceCallLines: string[] = [];
+  const emMapLines: EmMapLines[] = [];
+  const unitAssemblies: UnitAssembly[] = [];
   const seenArtifact = new Set<string>();
 
   const push = (a: CodegenArtifact) => {
@@ -83,24 +127,28 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
   for (const unit of contract.hierarchy.units) {
     if (unit.excluded) continue;
 
-    // G2-1: member EMs (declaration order) for the real unit coordinator; the
-    // UC call is spliced in BEFORE this unit's EM calls (UC writes CMD seams
-    // the EMs consume in the same scan).
+    const unitScl = sclIdent(unit.unit_name);
+    // G2-1: member EMs (declaration order) for the real unit coordinator. The
+    // UC call runs in this unit's Process FC BEFORE its Management FC (the EM
+    // instances), so the UC's CMD-seam writes are consumed by the EMs the same
+    // scan. Management-layer instance calls accumulate here in scan order.
     const unitMembers: UnitMemberEm[] = [];
-    const unitCallStart = deviceCallLines.length;
+    const managementLines: string[] = [];
 
     for (const em of unit.equipment_modules) {
       const emContract = contract.equipment_modules[em.equipment_module_id];
       const emRes = instantiateEquipmentModule(em, templates, fbAssignments);
 
       // Synthesize path (Case C + the G6-2 coverage-fallback): the generated
-      // EM FB owns sequencing and its CMs' IO (via MAP_<EM>); CMs are not
-      // instantiated separately.
+      // EM FB owns sequencing and its CMs' IO (routed into the FC_Inputs /
+      // FC_Outputs layer FCs via emMapLines); CMs are not instantiated
+      // separately.
       const synthesizeEm = (contractForEm: NonNullable<typeof emContract>) => {
         const seq = buildEmSequence(em, contractForEm, contract.engineering);
-        const { artifacts: emArts, callLines } = writeEmArtifacts(seq);
-        emArts.forEach(push);
-        deviceCallLines.push(...callLines);
+        const { artifacts: emArts, callLines, mapLines } = writeEmArtifacts(seq);
+        emArts.forEach((a) => push(stampUnit(a, unitScl)));
+        managementLines.push(...callLines);
+        emMapLines.push(mapLines);
         warnings.push(...seq.warnings);
         // dispatch-order states + FDS allowed_modes drive the unit coordinator
         unitMembers.push({
@@ -123,8 +171,8 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
       // Case D: stub EM (no template, no contract). Owns its IO directly; no
       // separate CM instantiation (avoids orphan, never-called CM blocks).
       if (emRes.stub) {
-        emRes.artifacts.forEach(push);
-        deviceCallLines.push(...emRes.callLines);
+        emRes.artifacts.forEach((a) => push(stampUnit(a, unitScl)));
+        managementLines.push(...emRes.callLines);
         stubs.equipmentModules.push(emRes.stub);
         // no state contract: em_aggregate refs against it render FALSE + warn
         unitMembers.push({ emId: em.equipment_module_id, emName: sclIdent(em.equipment_module_name), states: [] });
@@ -175,7 +223,7 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
       const cmCallLines: string[] = [];
       for (const cm of em.control_modules) {
         const cmRes = instantiateControlModule(cm, templates, fbAssignments);
-        cmRes.artifacts.forEach(push);
+        cmRes.artifacts.forEach((a) => push(stampUnit(a, unitScl)));
         cmCallLines.push(...cmRes.callLines);
         warnings.push(...cmRes.warnings);
         if (cmRes.stub) stubs.controlModules.push(cmRes.stub);
@@ -186,25 +234,25 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
         });
       }
 
-      emRes.artifacts.forEach(push); // EM instance DB
+      emRes.artifacts.forEach((a) => push(stampUnit(a, unitScl))); // EM instance DB
 
       const cmdPins: CommandSeamPin[] = (emRes.contract?.pins ?? [])
         .filter((p) => p.role === "cmd" || p.role === "mode")
         .map((p) => ({ name: p.name, scl_type: p.scl_type }));
       const seam = buildCommandSeam(sclName, cmdPins);
-      push({ ...seam.cmdDb, ownerId: em.equipment_module_id, ownerName: em.equipment_module_name });
+      push(stampUnit({ ...seam.cmdDb, ownerId: em.equipment_module_id, ownerName: em.equipment_module_name }, unitScl));
       warnings.push(...seam.warnings);
 
       const links = buildEmCmLinks(sclName, emRes.instanceDb, emRes.contract?.pins ?? [], cmLinks);
-      push({ ...links.linkIn, ownerId: em.equipment_module_id, ownerName: em.equipment_module_name });
-      push({ ...links.linkOut, ownerId: em.equipment_module_id, ownerName: em.equipment_module_name });
+      push(stampUnit({ ...links.linkIn, ownerId: em.equipment_module_id, ownerName: em.equipment_module_name }, unitScl));
+      push(stampUnit({ ...links.linkOut, ownerId: em.equipment_module_id, ownerName: em.equipment_module_name }, unitScl));
       warnings.push(...links.warnings);
 
-      // OB1 order: CM calls → LINK_IN (CM status → EM) → EM → LINK_OUT (EM → CM).
-      deviceCallLines.push(...cmCallLines);
-      deviceCallLines.push(`   "${links.linkIn.name}"();`);
-      deviceCallLines.push(`   "${emRes.instanceDb}"(${seam.callBindings.join(", ")});`);
-      deviceCallLines.push(`   "${links.linkOut.name}"();`);
+      // Management-FC order: CM calls → LINK_IN (CM status → EM) → EM → LINK_OUT (EM → CM).
+      managementLines.push(...cmCallLines);
+      managementLines.push(`   "${links.linkIn.name}"();`);
+      managementLines.push(`   "${emRes.instanceDb}"(${seam.callBindings.join(", ")});`);
+      managementLines.push(`   "${links.linkOut.name}"();`);
 
       // G2-3: matched library EM — no command-role pins in its interface
       // contract yet, so the unit routes commands to it as a marked TODO.
@@ -250,6 +298,7 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
       });
     }
 
+    let processCall: string;
     if (coord) {
       const ir = buildUnitSequence({
         unitId: unit.unit_id,
@@ -262,19 +311,28 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
         conditionedTags,
       });
       const { artifacts: unitArts, callLine } = writeUnitArtifacts(ir);
-      unitArts.forEach(push);
+      unitArts.forEach((a) => push(stampUnit(a, unitScl)));
       warnings.push(...ir.warnings);
-      deviceCallLines.splice(unitCallStart, 0, callLine);
+      processCall = callLine;
     } else {
       warnings.push(
         `unit ${unit.unit_name}: no unit_coordination authored — UC coordination stub emitted`,
       );
-      push(unitCoordinationStub(unit.unit_id, unit.unit_name, unit.equipment_modules.map((e) => e.equipment_module_name)));
+      push(stampUnit(
+        unitCoordinationStub(unit.unit_id, unit.unit_name, unit.equipment_modules.map((e) => e.equipment_module_name)),
+        unitScl,
+      ));
+      processCall = `   "UC_${unitScl}"();`;
     }
+
+    unitAssemblies.push({ unitScl, unitName: unit.unit_name, unitId: unit.unit_id, processCall, managementLines });
   }
 
-  // G3: maintenance layer + OB1 ordering — preset FC before the EMs (G5-2),
-  // override FC as the FINAL call so its writes win over the MAP FCs (G5-3).
+  // G3 maintenance layer (artifacts unchanged; both calls land in FC_Maintenance,
+  // which Main runs LAST so the override write wins over the output mapping —
+  // G5-3). Preset runs before the override inside FC_Maintenance (G5-2).
+  let presetCallLine: string | undefined;
+  let overrideCallLine: string | undefined;
   if (maintenanceSeam) {
     const io = new Map(
       contract.hierarchy.units.flatMap((u) =>
@@ -297,20 +355,28 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
       })),
       presets,
     });
-    maint.artifacts.forEach(push);
-    if (maint.presetCallLine) deviceCallLines.unshift(maint.presetCallLine);
-    if (maint.overrideCallLine) deviceCallLines.push(maint.overrideCallLine);
+    maint.artifacts.forEach((a) => push(stampSystem(a)));
+    presetCallLine = maint.presetCallLine;
+    overrideCallLine = maint.overrideCallLine;
   }
 
-  // G1-4b: emit the conditioning layer; its call is unshifted LAST so it
-  // lands FIRST in OB1.
+  // G1-4b conditioning layer (artifacts unchanged; its call lands FIRST in
+  // FC_Inputs so conditioned reads below it are same-scan fresh).
   const ioCond = writeIoConditioning(conditionedSignals);
-  ioCond.artifacts.forEach(push);
-  if (ioCond.callLine) deviceCallLines.unshift(ioCond.callLine);
+  ioCond.artifacts.forEach((a) => push(stampSystem(a)));
 
-  // Pass [] units: OB1 must not call per-unit sequencer DBs (they no longer
-  // exist). The UC_<unit> stub is uncalled until sub-project D wires it.
-  push(writeOb1(deviceCallLines, []));
+  // G5-4 — the fixed layer skeleton + per-unit Process/Management scaffolding.
+  // FC_Inputs (conditioning + input map) → per-unit Process (brains) then
+  // Management (instances) → FC_Outputs (output map + drives) → FC_Maintenance
+  // (overrides last). Main threads them in that order.
+  push(writeFcInputs({ ioCondCallLine: ioCond.callLine, ems: emMapLines }));
+  for (const u of unitAssemblies) {
+    push(writeUnitProcessFc({ unitScl: u.unitScl, unitName: u.unitName, unitId: u.unitId, ucCallLine: u.processCall }));
+    push(writeUnitManagementFc({ unitScl: u.unitScl, unitName: u.unitName, unitId: u.unitId, callLines: u.managementLines }));
+  }
+  push(writeFcOutputs({ ems: emMapLines }));
+  push(writeFcMaintenance({ presetCallLine, overrideCallLine }));
+  push(writeOb1(unitAssemblies.map((u) => ({ sclName: u.unitScl }))));
   return { artifacts, stubs, warnings };
 }
 
@@ -318,7 +384,9 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
  * Minimal Unit coordinator placeholder. EM-owned sequencing supersedes the old
  * per-Unit S/A sequence; the real Unit coordinator (mode arbitration, interlock
  * routing, EM enables — ISA-88 §5.4) is built in sub-project D. Until then emit
- * a typed, parameterless stub so the Unit appears in the block tree.
+ * a typed, parameterless stub so the Unit appears in the block tree. It IS
+ * called — from the unit's Process FC (the brain slot) — so the call tree is
+ * complete before D swaps in the real coordinator.
  */
 function unitCoordinationStub(unitId: string, unitName: string, emNames: string[]): CodegenArtifact {
   const name = `UC_${sclIdent(unitName)}`;

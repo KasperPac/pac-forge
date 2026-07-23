@@ -335,12 +335,16 @@ describe("assembleRandomFds — end-to-end through the deterministic compiler (G
     // G2-5/G4: envelope geometry DBs from the transmitter-derived axis
     expect(names).toContain("CFG_Infeed");
     expect(names).toContain("STAT_Infeed");
-    // G3/G5: maintenance layer present, override FC last in OB1
+    // G3/G5: maintenance layer present; Main runs FC_Maintenance last, and the
+    // override is the final statement inside it (so its writes win last)
     expect(names).toContain("Maintenance_CMD");
     expect(names).toContain("MAINT_Output_Override");
     const ob = res.artifacts.find((a) => a.type === "OB")!.content;
-    const lastCall = ob.trimEnd().split("\n").filter((l) => l.includes('"')).pop() ?? "";
-    expect(lastCall).toContain("MAINT_Output_Override");
+    const lastCall = ob.trimEnd().split("\n").filter((l) => l.includes('"();')).pop() ?? "";
+    expect(lastCall).toContain("FC_Maintenance");
+    const maint = res.artifacts.find((a) => a.name === "FC_Maintenance")!.content;
+    const maintCalls = maint.split("\n").filter((l) => l.trim().startsWith('"MAINT_'));
+    expect(maintCalls[maintCalls.length - 1]).toContain("MAINT_Output_Override");
   });
 });
 
@@ -416,18 +420,25 @@ describe("FULL project audit — FDS to code with nothing blocking (codegen-comp
       expect(allowed.some((rx) => rx.test(t)), `unexpected TODO: ${t.trim()}`).toBe(true);
     }
 
-    // 4. The full program shape is present
+    // 4. The full program shape is present — G5-4 layer skeleton + per-unit
+    //    Process/Management FCs; the per-EM MAP FC is gone (IO map lives in the
+    //    global FC_Inputs / FC_Outputs).
     const names = res.artifacts.map((a) => a.name);
     for (const expected of [
-      "EM_Belt", "MAP_Belt", "Belt_CMD", "EM_Gate", "EM_Heater",
+      "EM_Belt", "Belt_CMD", "EM_Gate", "EM_Heater",
       "UC_Infeed", "UN_Infeed", "CFG_Infeed", "STAT_Infeed",
       "UC_Process", "UN_Process",
       "Maintenance_CMD", "MAINT_Output_Override", "Main",
+      "FC_Inputs", "FC_Outputs", "FC_Maintenance",
+      "FC_Infeed_Process", "FC_Infeed_Management",
+      "FC_Process_Process", "FC_Process_Management",
     ]) {
       expect(names, `missing ${expected}`).toContain(expected);
     }
-    // drive telegram emitted with fault-ack wired (no TODO on AckError)
-    const belt = res.artifacts.find((a) => a.name === "MAP_Belt")!.content;
+    expect(names.some((n) => n.startsWith("MAP_"))).toBe(false);
+    // drive telegram emitted with fault-ack wired (no TODO on AckError) — the
+    // drive emission is now routed into FC_Outputs
+    const belt = res.artifacts.find((a) => a.name === "FC_Outputs")!.content;
     expect(belt).toContain('AckError := "EM_Belt_DB".cmd_reset');
   });
 });
