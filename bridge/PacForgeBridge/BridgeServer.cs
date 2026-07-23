@@ -1150,6 +1150,7 @@ namespace PacForgeBridge
             try
             {
                 Console.WriteLine("[TIA] Exporting sources from TIA Portal...");
+                if (!_tiaService.IsProjectOpen) _tiaService.Connect(preferAttach: true);
                 result = _tiaService.ExportSources();
             }
             catch (Exception ex)
@@ -1283,6 +1284,7 @@ namespace PacForgeBridge
                 }
 
                 Console.WriteLine($"[Tags] Creating {request.Tags.Count} migration tag(s) in '{request.TableName}'...");
+                if (!_tiaService.IsProjectOpen) _tiaService.Connect(preferAttach: true);
                 var result = _tiaService.CreateMigrationTags(request);
                 await WriteJson(res, 200, result);
             }
@@ -1495,6 +1497,7 @@ namespace PacForgeBridge
                 }
 
                 Console.WriteLine($"[TIA] Reimport + compile: {request.Sources.Count} source(s)");
+                if (!_tiaService.IsProjectOpen) _tiaService.Connect(preferAttach: true);
                 var compileResult = _tiaService.ReimportAndCompile(request.Sources);
                 var withSources = new CompileResultWithSourcesDto(compileResult, _tiaService.LastImportedSources);
                 await WriteJson(res, 200, withSources);

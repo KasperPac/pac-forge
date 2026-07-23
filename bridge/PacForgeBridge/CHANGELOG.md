@@ -4,6 +4,23 @@ Every bridge change bumps `BridgeVersion` in `TiaPortalService.cs` (semver:
 new capability = minor, fix = patch) and gets an entry here. The running
 version is visible at `GET /tia/status`.
 
+## 1.3.2 — 2026-07-23
+
+- `POST /tia/migration/create-tags` also lazy-attaches (same fix as 1.3.1) —
+  it is now the FIRST bridge call in the Send-to-TIA flow (G9-W4 creates the
+  IO tag table before importing sources), so it must survive a fresh bridge.
+
+## 1.3.1 — 2026-07-23
+
+Lazy TIA attach on the two remaining user-facing endpoints (G9 warm-up gap):
+
+- `POST /tia/reimport-compile` and `POST /tia/export-sources` now call
+  `Connect(preferAttach: true)` when no project is attached, matching the
+  behavior of `/tia/hmi/build`. Previously the first Send-to-TIA (or source
+  export) on a freshly started bridge always failed with 500
+  "TIA Portal not connected or no project open" — the documented
+  lazy-attach-on-first-call contract was broken for exactly these routes.
+
 ## 1.3.0 — 2026-07-22
 
 Alarm-class creation (G8-2, consumed by the app's generated HMI build):
