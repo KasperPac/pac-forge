@@ -25,7 +25,7 @@ export function SendToTiaPanel({
   specId: string;
   revision: number | undefined;
 }) {
-  const { buildPlan, plan, planning, error, send, sending, compileResult, sendError } =
+  const { buildPlan, plan, planning, error, send, sending, tagResult, compileResult, sendError } =
     useSendCodeToTia(specId, revision);
 
   return (
@@ -60,6 +60,11 @@ export function SendToTiaPanel({
                     {n} {t}
                   </Badge>
                 ))}
+                {plan.ioTags.length > 0 && (
+                  <Badge variant="outline" className="text-[10px]">
+                    {plan.ioTags.length} IO tags
+                  </Badge>
+                )}
                 {plan.editedBlocks.length > 0 && (
                   <Badge variant="secondary" className="text-[10px]">
                     {plan.editedBlocks.length} edited
@@ -71,7 +76,7 @@ export function SendToTiaPanel({
                 className="ml-auto h-7 gap-1 text-xs"
                 disabled={sending}
                 title="TIA must be open and offline; large programs take minutes — a timeout does not necessarily mean failure"
-                onClick={() => send(plan.sources)}
+                onClick={() => void send(plan)}
               >
                 {sending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Hammer className="h-3 w-3" />}
                 Import + compile
@@ -94,6 +99,14 @@ export function SendToTiaPanel({
               ))}
             </ul>
           </ScrollArea>
+        )}
+
+        {tagResult && (
+          <p className="text-xs text-muted-foreground">
+            IO tags: {tagResult.created.length} created
+            {tagResult.skipped.length ? ` · ${tagResult.skipped.length} skipped (already exist)` : ""}
+            {tagResult.errors.length ? ` · ${tagResult.errors.length} failed` : ""}
+          </p>
         )}
 
         {compileResult && (

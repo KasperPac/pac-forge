@@ -17,7 +17,10 @@ export function useReimportCompile() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sources: input.sources }),
-          signal: AbortSignal.timeout(120_000),
+          // Openness is slow per block (~5-10 s each): a full-program reimport
+          // takes minutes. 120 s aborted the fetch while the bridge kept
+          // working, losing the compile result (G9-W5).
+          signal: AbortSignal.timeout(600_000),
         }
       );
 

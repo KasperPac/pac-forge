@@ -9,6 +9,9 @@ import { useCallback, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { loadSpecContract } from "@/lib/spec-builder/contract";
 import { compileContract } from "@/lib/spec-builder/codegen";
+import { deriveIoTags, IO_TAG_TABLE_NAME } from "@/lib/spec-builder/codegen/io-tag-table";
+import { DEFAULT_BRIDGE_CONFIG } from "@/lib/tia-bridge-contract";
+import type { CreateMigrationTagsResponse, MigrationTagDto } from "@/lib/tia-bridge-contract";
 import { useFbTemplates } from "@/hooks/use-fb-templates";
 import { useReimportCompile } from "@/hooks/use-reimport-compile";
 
@@ -20,7 +23,25 @@ export interface CodeSendPlan {
   countsByType: Record<string, number>;
   /** Block names whose content is a Code Builder edit, not raw generation. */
   editedBlocks: string[];
+  /** Physical IO tags to create in TIA before import (G9-W4). */
+  ioTags: MigrationTagDto[];
   warnings: string[];
+}
+
+/** Create the plan's IO tags in TIA's tag table before importing sources. */
+async function createIoTags(tags: MigrationTagDto[]): Promise<CreateMigrationTagsResponse> {
+  const response = await fetch(`${DEFAULT_BRIDGE_CONFIG.baseUrl}/tia/migration/create-tags`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tags, tableName: IO_TAG_TABLE_NAME }),
+    // Per-tag Openness cost adds up on IO-heavy projects (G9-W5 margin).
+    signal: AbortSignal.timeout(300_000),
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`IO tag creation failed (${response.status}): ${body}`);
+  }
+  return (await response.json()) as CreateMigrationTagsResponse;
 }
 
 export function useSendCodeToTia(specId: string | undefined, revision: number | undefined) {
@@ -61,7 +82,14 @@ export function useSendCodeToTia(specId: string | undefined, revision: number | 
         if (edited) editedBlocks.push(a.name);
         countsByType[a.type] = (countsByType[a.type] ?? 0) + 1;
       }
-      const next: CodeSendPlan = { sources, countsByType, editedBlocks, warnings: result.warnings };
+      const ioTagDerivation = deriveIoTags(contract);
+      const next: CodeSendPlan = {
+        sources,
+        countsByType,
+        editedBlocks,
+        ioTags: ioTagDerivation.tags,
+        warnings: [...result.warnings, ...ioTagDerivation.warnings],
+      };
       setPlan(next);
       return next;
     } catch (e) {
@@ -72,8 +100,30 @@ export function useSendCodeToTia(specId: string | undefined, revision: number | 
     }
   }, [specId, revision, templates]);
 
+  const [creatingTags, setCreatingTags] = useState(false);
+  const [tagResult, setTagResult] = useState<CreateMigrationTagsResponse | null>(null);
+
   const send = useCallback(
-    (sources: Record<string, string>) => reimport.mutateAsync({ sources }),
+    async (sendPlan: CodeSendPlan) => {
+      // G9-W4: physical IO tags must exist before the blocks that reference
+      // them compile. A failure here aborts the send — importing without the
+      // tags would fail compile on every physical IO access anyway.
+      if (sendPlan.ioTags.length > 0) {
+        setCreatingTags(true);
+        setTagResult(null);
+        try {
+          setTagResult(await createIoTags(sendPlan.ioTags));
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+          return null;
+        } finally {
+          setCreatingTags(false);
+        }
+      }
+      // Reimport errors surface via reimport.error (sendError) — swallow the
+      // rejection so the fire-and-forget onClick has no unhandled promise.
+      return reimport.mutateAsync({ sources: sendPlan.sources }).catch(() => null);
+    },
     [reimport],
   );
 
@@ -83,7 +133,8 @@ export function useSendCodeToTia(specId: string | undefined, revision: number | 
     planning,
     error,
     send,
-    sending: reimport.isPending,
+    sending: creatingTags || reimport.isPending,
+    tagResult,
     compileResult: reimport.data ?? null,
     sendError: reimport.error ? String(reimport.error) : null,
   };

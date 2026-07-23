@@ -102,26 +102,59 @@ describe("useSendCodeToTia", () => {
     // the Code Builder edit wins over raw generation
     expect(plan.sources.EM_Belt).toContain("hand-tuned");
     expect(plan.editedBlocks).toEqual(["EM_Belt"]);
+    // G9-W4: the plan derives the physical IO tags the writers reference
+    expect(plan.ioTags).toEqual([
+      { name: "M01_Run", dataType: "Bool", address: "%Q0.0" },
+      { name: "M01_FB", dataType: "Bool", address: "%I0.0" },
+    ]);
   });
 
-  it("POSTs the sources to /tia/reimport-compile", async () => {
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ success: true, errors: [], warnings: [], compiled_at: "", sources: {} }),
-    });
+  it("creates IO tags first, then POSTs the sources to /tia/reimport-compile", async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ success: true, message: "", created: ["M01_Run", "M01_FB"], skipped: [], errors: [] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ success: true, errors: [], warnings: [], compiled_at: "", sources: {} }),
+      });
     const { result } = renderHook(() => useSendCodeToTia("spec-1", 1), { wrapper });
     let plan!: Awaited<ReturnType<typeof result.current.buildPlan>>;
     await act(async () => {
       plan = await result.current.buildPlan();
     });
     await act(async () => {
-      await result.current.send(plan.sources);
+      await result.current.send(plan);
     });
-    expect(fetchMock).toHaveBeenCalledWith(
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "http://localhost:5102/tia/migration/create-tags",
+      expect.objectContaining({ method: "POST" }),
+    );
+    const tagsBody = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(tagsBody.tableName).toBe("PacForge IO Tags");
+    expect(tagsBody.tags.map((t: { name: string }) => t.name)).toEqual(["M01_Run", "M01_FB"]);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
       "http://localhost:5102/tia/reimport-compile",
       expect.objectContaining({ method: "POST" }),
     );
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    const body = JSON.parse(fetchMock.mock.calls[1][1].body as string);
     expect(Object.keys(body.sources)).toContain("EM_Belt");
+  });
+
+  it("aborts the send when tag creation fails, surfacing the error", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 500, text: async () => "boom" });
+    const { result } = renderHook(() => useSendCodeToTia("spec-1", 1), { wrapper });
+    let plan!: Awaited<ReturnType<typeof result.current.buildPlan>>;
+    await act(async () => {
+      plan = await result.current.buildPlan();
+    });
+    await act(async () => {
+      await result.current.send(plan);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1); // no reimport call
+    expect(result.current.error).toContain("IO tag creation failed");
   });
 });
