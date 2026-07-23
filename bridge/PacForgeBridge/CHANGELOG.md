@@ -4,6 +4,17 @@ Every bridge change bumps `BridgeVersion` in `TiaPortalService.cs` (semver:
 new capability = minor, fix = patch) and gets an entry here. The running
 version is visible at `GET /tia/status`.
 
+## 1.4.0 — 2026-07-23
+
+G5-4 program-structure standard — folder-aware reimport:
+
+- `POST /tia/reimport-compile` accepts an optional `folders` map (artifact
+  name → block-group path, e.g. `"Unit/DB"`). Blocks import into that group
+  (created on demand, nested paths supported); names not in the map keep the
+  Program blocks root. The pre-import delete now finds blocks RECURSIVELY
+  across user groups — previously a block living in a subfolder was invisible
+  to the root-level delete and every resend duplicated it.
+
 ## 1.3.2 — 2026-07-23
 
 - `POST /tia/migration/create-tags` also lazy-attaches (same fix as 1.3.1) —

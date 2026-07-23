@@ -1498,7 +1498,7 @@ namespace PacForgeBridge
 
                 Console.WriteLine($"[TIA] Reimport + compile: {request.Sources.Count} source(s)");
                 if (!_tiaService.IsProjectOpen) _tiaService.Connect(preferAttach: true);
-                var compileResult = _tiaService.ReimportAndCompile(request.Sources);
+                var compileResult = _tiaService.ReimportAndCompile(request.Sources, request.Folders);
                 var withSources = new CompileResultWithSourcesDto(compileResult, _tiaService.LastImportedSources);
                 await WriteJson(res, 200, withSources);
             }

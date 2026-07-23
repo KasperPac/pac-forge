@@ -192,6 +192,10 @@ namespace PacForgeBridge
     public class ReimportRequest
     {
         public Dictionary<string, string> Sources { get; set; } = new Dictionary<string, string>();
+
+        /// <summary>Optional artifact name → block-group path (e.g. "Unit/DB").
+        /// Missing names import to the Program blocks root (pre-1.4.0 behavior).</summary>
+        public Dictionary<string, string> Folders { get; set; } = new Dictionary<string, string>();
     }
 
     public class ExportSourcesResponse

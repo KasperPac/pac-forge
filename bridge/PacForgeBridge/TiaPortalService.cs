@@ -108,7 +108,7 @@ namespace PacForgeBridge
                 Connected = connected,
                 TiaVersion = tiaVersion,
                 TiaProjectOpen = projectOpen,
-                BridgeVersion = "1.3.2",   // bump on EVERY bridge change + add a CHANGELOG.md entry
+                BridgeVersion = "1.4.0",   // bump on EVERY bridge change + add a CHANGELOG.md entry
                 SourcePlcFamily = sourcePlcFamily,
                 SourceCpuTypeId = sourceCpuTypeId,
             };
@@ -2272,7 +2272,7 @@ END_ORGANIZATION_BLOCK
         /// Reimport corrected SCL sources and recompile.
         /// Used by the compile-fix chat to apply AI-corrected code.
         /// </summary>
-        public CompileResultDto ReimportAndCompile(Dictionary<string, string> sources)
+        public CompileResultDto ReimportAndCompile(Dictionary<string, string> sources, Dictionary<string, string> folders = null)
         {
             if (!IsConnected || !IsProjectOpen)
                 throw new InvalidOperationException("TIA Portal not connected or no project open.");
@@ -2293,8 +2293,9 @@ END_ORGANIZATION_BLOCK
 
                     try
                     {
-                        // Delete existing block so reimport can replace it
-                        PlcBlock existing = plcSoftware.BlockGroup.Blocks.Find(artifactName);
+                        // Delete existing block so reimport can replace it (recursive — the block may
+                        // live in a subfolder created by a prior folder-aware import)
+                        PlcBlock existing = FindBlockRecursive(plcSoftware.BlockGroup, artifactName);
                         if (existing != null)
                         {
                             Console.WriteLine($"[TIA] Deleting existing block: {artifactName}");
@@ -2309,7 +2310,10 @@ END_ORGANIZATION_BLOCK
                             existingType.Delete();
                         }
 
-                        ImportArtifact(plcSoftware, artifactName, filePath, "Program blocks");
+                        string destination = "Program blocks";
+                        if (folders != null && folders.TryGetValue(artifactName, out string mapped) && !string.IsNullOrEmpty(mapped))
+                            destination = mapped;
+                        ImportArtifact(plcSoftware, artifactName, filePath, destination);
                     }
                     catch (Exception ex)
                     {
