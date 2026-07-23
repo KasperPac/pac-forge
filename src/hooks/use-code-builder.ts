@@ -84,7 +84,16 @@ async function compileAndReconcile(
       .upsert(carryOverUpserts, { onConflict: "spec_id,revision,artifact_name" });
     if (error) throw error;
   }
-  return reconcileArtifacts({ specId, revision, compiled, existing, artifactWarnings: carryOver.warningsByArtifact });
+  // G5-4 final-review finding 2: `existing` was loaded BEFORE the carry-over
+  // upsert above, so it can't reflect what was just written. Overlay
+  // carryOver.contents so THIS call's returned views already show the
+  // merged edited_content — otherwise a save in the window before the next
+  // refetch would silently clobber the hand-authored region just persisted.
+  return reconcileArtifacts({
+    specId, revision, compiled, existing,
+    artifactWarnings: carryOver.warningsByArtifact,
+    carryOverContents: carryOver.contents,
+  });
 }
 
 export function useCodeBuilder(specId: string | undefined, layer: CodegenLayer = "device") {

@@ -38,6 +38,12 @@ describe("ControlModuleList — device layer empty state", () => {
     expect(screen.getByText(/inlined into their EM blocks/i)).toBeInTheDocument();
     expect(screen.getByText(/EM step/i)).toBeInTheDocument();
   });
+
+  it("no longer references the retired MAP_* FCs (G5-4 final-review finding 5)", () => {
+    render(<ControlModuleList artifacts={[]} layer="device" selected={null} onSelect={() => {}} />);
+    expect(screen.queryByText(/MAP_\*/)).not.toBeInTheDocument();
+    expect(screen.getByText(/FC_Inputs\/FC_Outputs/i)).toBeInTheDocument();
+  });
 });
 
 describe("ControlModuleList — EM layer", () => {

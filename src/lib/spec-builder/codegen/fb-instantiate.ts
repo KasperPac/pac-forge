@@ -9,7 +9,7 @@ import type { FbTemplate } from "@/types/fb-template";
 import type { FbInterfacePin, FbInterfaceContract } from "@/types/fb-interface";
 import type { CodegenArtifact, CodegenLayer } from "./types";
 import { sclIdent } from "./sa-builder";
-import { FOLDER_LIBRARY } from "./naming";
+import { FOLDER_DATA_TYPES, FOLDER_LIBRARY } from "./naming";
 
 const FOLDER = "Program blocks";
 const ANALOG = new Set<string>(["AI", "AO"]);
@@ -188,7 +188,11 @@ const BLOCK_EXT: Record<string, string> = { FB: "scl", FC: "scl", OB: "ob", UDT:
  *  Siemens instructions ship with TIA — reference-only, no bodies. Non-SCL
  *  blocks (LAD/FBD XML) have no SCL emission path yet → skipped + warning.
  *  G5-4: template bodies land in the shared "Library" folder (never re-stamped
- *  per unit — a library FB reused across units keeps one home). */
+ *  per unit — a library FB reused across units keeps one home) — EXCEPT UDT
+ *  blocks, which TIA requires under its "PLC data types" group (the bridge
+ *  special-cases only "PLC data types"/"Types"; any other non-root folder
+ *  sent for a UDT throws on import, dropping the type and failing the compile
+ *  — G5-4 final-review finding 3). */
 function templateBodyArtifacts(
   t: FbTemplate,
 ): { artifacts: CodegenArtifact[]; warnings: string[] } {
@@ -209,7 +213,7 @@ function templateBodyArtifacts(
       filename: `${b.block_name}.${BLOCK_EXT[b.block_type] ?? "scl"}`,
       content: b.scl_code.endsWith("\n") ? b.scl_code : `${b.scl_code}\n`,
       dependencies: [...emitted],
-      folder: FOLDER_LIBRARY,
+      folder: b.block_type === "UDT" ? FOLDER_DATA_TYPES : FOLDER_LIBRARY,
       layer: "device",
     });
     emitted.push(b.block_name);

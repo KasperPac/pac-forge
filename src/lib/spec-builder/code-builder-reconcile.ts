@@ -14,6 +14,15 @@ export interface ReconcileInput {
   /** Artifact-name → compile-time advisory messages (e.g. custom-region
    *  carry-over failures) to attach to the matching view row's `warnings`. */
   artifactWarnings?: Map<string, string[]>;
+  /** G5-4 final-review finding 2: artifact-name → merged custom-region
+   *  content the CALLER just upserted as this artifact's `edited_content`
+   *  (custom-region carry-over). `existing` was read BEFORE that upsert, so
+   *  without this overlay the first render after a revision bump would show
+   *  the region-blanked generation — a window where a save could silently
+   *  clobber the hand-authored region just persisted. Only applied when the
+   *  matching row has no current-revision edit of its own (never overrides
+   *  an already-saved edit). */
+  carryOverContents?: Map<string, string>;
 }
 
 /**
@@ -30,6 +39,10 @@ export function reconcileArtifacts(input: ReconcileInput): CodeBuilderArtifactVi
     const reviewed = !!prior && (prior.status === "approved" || prior.edited_content !== null);
     const drift = !!prior && reviewed && prior.generated_content !== a.content;
     const regionDrift = drift ? computeRegionDrift(prior!.generated_content, a.content) : [];
+    // A same-call carry-over never overrides an already-saved edit — it only
+    // fills the gap left by a stale `existing` read for a row the caller
+    // just upserted `edited_content` onto.
+    const editedContent = prior?.edited_content ?? input.carryOverContents?.get(a.name) ?? null;
     return {
       artifact_name: a.name,
       layer: a.layer,
@@ -40,7 +53,7 @@ export function reconcileArtifacts(input: ReconcileInput): CodeBuilderArtifactVi
       folder: a.folder,
       dependencies: a.dependencies,
       generated_content: a.content,
-      edited_content: prior?.edited_content ?? null,
+      edited_content: editedContent,
       status: prior?.status ?? "pending",
       drift,
       regionDrift,

@@ -159,6 +159,14 @@ describe("instantiateControlModule — template body emission (G6-1)", () => {
     expect(udt.filename).toBe("UDT_Motor.udt");
   });
 
+  it("stamps a UDT block's folder as 'PLC data types', keeping other blocks in 'Library' (G5-4 final-review finding 3)", () => {
+    const r = instantiateControlModule(motorCm, [bodied()]);
+    const udt = r.artifacts.find((a) => a.name === "UDT_Motor")!;
+    const fb = r.artifacts.find((a) => a.name === "CM_Motor")!;
+    expect(udt.folder).toBe("PLC data types");
+    expect(fb.folder).toBe("Library");
+  });
+
   it("skips standard-instruction templates' bodies (they ship with TIA)", () => {
     const r = instantiateControlModule(motorCm, [bodied({ source: "standard" })]);
     expect(r.artifacts.map((a) => a.name)).toEqual(["CM_Motor_M01_DB"]);

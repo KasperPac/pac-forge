@@ -37,6 +37,17 @@ describe("writeFcOutputs", () => {
     expect(a.content).toContain("// --- Agitator_Module ---");
     expect(a.content).not.toContain("fb_run :=");
   });
+
+  it("dedupes an identical tempVar declaration shared by two EMs (G5-4 final-review finding 4)", () => {
+    const a = writeFcOutputs({
+      ems: [
+        em({ emName: "Agitator_Module", tempVars: [`      ref_M1 : Int;`] }),
+        em({ emName: "Mixer_Module", tempVars: [`      ref_M1 : Int;`] }),
+      ],
+    });
+    const occurrences = a.content.split("ref_M1 : Int;").length - 1;
+    expect(occurrences).toBe(1);
+  });
 });
 
 describe("writeFcMaintenance", () => {

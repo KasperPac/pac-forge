@@ -431,7 +431,7 @@ function writeInstanceDb(fbName: string, ir: UnitSequenceIr): CodegenArtifact {
 
 /** UN_<Unit> global PackTags DB — the HMI/SCADA machine-data interface (G0-9). */
 function writeUnDb(ir: UnitSequenceIr): CodegenArtifact {
-  const name = unDbName(sclIdent(ir.unitName));
+  const name = unDbName(ir.unitScl);
   const fields = [
     `      Cur_St : Int;`,
     `      Cur_Mode : Int;`,
@@ -469,8 +469,8 @@ export function writeUnitArtifacts(ir: UnitSequenceIr): {
   artifacts: CodegenArtifact[];
   callLine: string;
 } {
-  const name = ucFbName(sclIdent(ir.unitName));
-  const unName = unDbName(sclIdent(ir.unitName));
+  const name = ucFbName(ir.unitScl);
+  const unName = unDbName(ir.unitScl);
   const body = ir.states.flatMap((st) => stateBranch(st, ir));
 
   // G2-2: PackTags mirror (runs every scan, incl. seq-test mode).

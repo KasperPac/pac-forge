@@ -99,7 +99,8 @@ export function ControlModuleList({
             <p>No standalone device FBs in this project.</p>
             <p>
               All control modules are basic control inlined into their EM blocks
-              and MAP_* FCs — see the <span className="font-semibold">EM step</span>.
+              and the FC_Inputs/FC_Outputs mapping layers — see the{" "}
+              <span className="font-semibold">EM step</span>.
             </p>
             <p>
               To get a standalone device FB, assign a library template in

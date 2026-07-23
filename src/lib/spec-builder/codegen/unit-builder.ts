@@ -194,12 +194,24 @@ export interface UnitBuildInput {
   /** G2-7: tags carried by the IO_Cond conditioning layer — io_tag routing
    *  refs on these read the conditioned value, not the raw tag. */
   conditionedTags?: Set<string>;
+  /** G5-4 final-review: the caller's already-deduplicated SCL identifier for
+   *  this unit (collision-suffixed when two units' names sanitize to the
+   *  same identifier). Every unit-scoped name the writer emits (UC_/UC_*_DB/
+   *  UN_/CFG_/STAT_) MUST derive from this, never from a fresh
+   *  `sclIdent(unitName)` — recomputing would silently re-collide with the
+   *  sibling unit. Falls back to `sclIdent(unitName)` when the caller has no
+   *  dedup pass (keeps existing callers/tests working unchanged). */
+  unitScl?: string;
 }
 
 /** Resolved IR for one unit coordinator. Grows per G2 TDD cycle. */
 export interface UnitSequenceIr {
   unitId: string;
   unitName: string;
+  /** G5-4 final-review: the resolved (collision-safe) SCL identifier for this
+   *  unit — the writer derives every unit-scoped block/DB name from this,
+   *  never by recomputing `sclIdent(unitName)` (see `UnitBuildInput.unitScl`). */
+  unitScl: string;
   /** Member EMs in declaration order (drives EM_St[] and command assertion). */
   members: { emId: string; emName: string; librarySeam?: string }[];
   states: UnitStateIr[];
@@ -238,6 +250,9 @@ export interface UnitSequenceIr {
  */
 export function buildUnitSequence(input: UnitBuildInput): UnitSequenceIr {
   const { unitId, unitName, coord, members, modes, safetyGates, maintenanceSeam, conditionedTags } = input;
+  // G5-4 final-review: the caller's collision-safe identifier wins; only a
+  // caller with no dedup pass falls back to a fresh sclIdent(unitName).
+  const unitScl = input.unitScl ?? sclIdent(unitName);
   const warnings: string[] = [];
   const modeIndex = new Map(modes.map((m, i) => [m.mode_id, i]));
 
@@ -389,8 +404,8 @@ export function buildUnitSequence(input: UnitBuildInput): UnitSequenceIr {
       }
     }
     axesIr = {
-      configDbName: cfgDbName(sclIdent(unitName)),
-      statusDbName: statDbName(sclIdent(unitName)),
+      configDbName: cfgDbName(unitScl),
+      statusDbName: statDbName(unitScl),
       params,
       linear,
       rotary,
@@ -497,6 +512,7 @@ export function buildUnitSequence(input: UnitBuildInput): UnitSequenceIr {
   return {
     unitId,
     unitName,
+    unitScl,
     members: members.map((m) => ({ emId: m.emId, emName: m.emName, librarySeam: m.librarySeam })),
     states,
     transitions,

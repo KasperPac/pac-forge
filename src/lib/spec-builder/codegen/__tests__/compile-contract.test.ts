@@ -657,3 +657,104 @@ describe("G5-4 program structure", () => {
     expect(outputs.content).not.toMatch(/"EM_\w+_DB"\.\w+ := "(?!EM_)/); // no input reads
   });
 });
+
+/* ------------------------------------------------------------------ *
+ * Unit-name sclIdent collision (G5-4 final-review finding 1) — two units
+ * whose names sanitize to the same identifier must NOT silently collapse
+ * onto one another's Process/Management FCs.
+ * ------------------------------------------------------------------ */
+
+/** Two units, "Infeed-1" and "Infeed 1", both sanitize to the SCL identifier
+ *  "Infeed_1". Each owns one unmatched+contracted EM (generate path). */
+function collidingUnitsFixture(): SpecContractV2 {
+  const io = (tag: string, st: "DI" | "DO", addr: string) => ({
+    tag, signal_type: st, io_address: addr, description: tag, source: "wired",
+  });
+  const cm = (id: string, name: string, cls: string) => ({
+    control_module_id: id, control_module_name: name, control_module_class: cls,
+    is_safety: false, description: name,
+    io_signals: [io(`${name}_Run`, "DO", "Q0.0"), io(`${name}_FB`, "DI", "I0.0")],
+  });
+  const emContract = (emId: string, unitId: string, runTag: string) => ({
+    equipment_module_id: emId, unit_id: unitId,
+    states: [
+      { state_id: "idle", name: "idle", kind: "static", allowed_modes: [], is_safe_state: true },
+      { state_id: "active", name: "active", kind: "static", allowed_modes: [], is_safe_state: false },
+    ],
+    transitions: [
+      { transition_id: `${emId}-t1`, from_state_id: "idle", to_state_id: "active",
+        trigger: { kind: "command", expr: { tag: "cmd_start", operator: "=", value: true } }, guard: [] },
+      { transition_id: `${emId}-t2`, from_state_id: "active", to_state_id: "idle",
+        trigger: { kind: "command", expr: { tag: "cmd_stop", operator: "=", value: true } }, guard: [] },
+    ],
+    static_states: { idle: [{ tag: runTag, description: "run", state: "STOP" }],
+                     active: [{ tag: runTag, description: "run", state: "RUN" }] },
+    sequential_states: {},
+  });
+  return {
+    schema_version: 3,
+    project: {} as SpecContractV2["project"],
+    hierarchy: { units: [
+      {
+        unit_id: "unit-1", unit_name: "Infeed-1", equipment_type: "station",
+        description: "", excluded: false,
+        equipment_modules: [
+          { equipment_module_id: "em-a", equipment_module_name: "Loader", description: "",
+            control_modules: [cm("cm1", "M01", "motor")] },
+        ],
+      },
+      {
+        unit_id: "unit-2", unit_name: "Infeed 1", equipment_type: "station",
+        description: "", excluded: false,
+        equipment_modules: [
+          { equipment_module_id: "em-b", equipment_module_name: "Feeder", description: "",
+            control_modules: [cm("cm2", "M02", "motor")] },
+        ],
+      },
+    ] },
+    alarm_tiers: [],
+    equipment_modules: {
+      "em-a": emContract("em-a", "unit-1", "M01_Run"),
+      "em-b": emContract("em-b", "unit-2", "M02_Run"),
+    },
+    safety_gates: [], alarms: [], io_list: [], faults: [], sections: {},
+    confirmation_status: "confirmed",
+  } as unknown as SpecContractV2;
+}
+
+describe("compileContract — unit-name sclIdent collision", () => {
+  const res = compileContract(collidingUnitsFixture(), []);
+  const names = res.artifacts.map((a) => a.name);
+
+  it("warns naming both colliding units", () => {
+    const w = res.warnings.find((w) => w.includes("collision"));
+    expect(w).toBeDefined();
+    expect(w).toContain("Infeed-1");
+    expect(w).toContain("Infeed 1");
+  });
+
+  it("keeps both units' Process/Management FCs, with distinct names", () => {
+    const processFcs = names.filter((n) => /^FC_.*_Process$/.test(n));
+    const managementFcs = names.filter((n) => /^FC_.*_Management$/.test(n));
+    expect(processFcs).toHaveLength(2);
+    expect(managementFcs).toHaveLength(2);
+    expect(new Set(processFcs).size).toBe(2);
+    expect(new Set(managementFcs).size).toBe(2);
+  });
+
+  it("keeps both units' EM instance calls reachable (never dropped)", () => {
+    const mgmtFcs = res.artifacts.filter((a) => /^FC_.*_Management$/.test(a.name));
+    const combined = mgmtFcs.map((a) => a.content).join("\n");
+    expect(combined).toContain('"EM_Loader_DB"(');
+    expect(combined).toContain('"EM_Feeder_DB"(');
+  });
+
+  it("Main calls both distinct unit Process FCs (never double-steps one UC)", () => {
+    const ob = res.artifacts.find((a) => a.type === "OB")!.content;
+    const processFcs = names.filter((n) => /^FC_.*_Process$/.test(n));
+    for (const n of processFcs) {
+      const re = new RegExp(`"${n}"\\(\\);`, "g");
+      expect(ob.match(re)).toHaveLength(1);
+    }
+  });
+});

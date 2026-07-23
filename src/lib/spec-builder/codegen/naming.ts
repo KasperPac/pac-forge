@@ -37,5 +37,9 @@ export const FC_OUTPUTS = "FC_Outputs";
 export const FC_MAINTENANCE = "FC_Maintenance";
 export const FOLDER_SYSTEM = "00_System";
 export const FOLDER_LIBRARY = "Library";
+/** TIA's PLC data types block group — the bridge special-cases this (and
+ *  "Types") for UDT import; any other non-root folder is treated as a
+ *  Program-blocks subfolder and would throw on a UDT (G5-4 final review). */
+export const FOLDER_DATA_TYPES = "PLC data types";
 export const unitProcessFcName = (unitScl: string): string => `FC_${unitScl}_Process`;
 export const unitManagementFcName = (unitScl: string): string => `FC_${unitScl}_Management`;

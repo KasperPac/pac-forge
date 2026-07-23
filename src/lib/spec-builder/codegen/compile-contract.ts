@@ -9,7 +9,7 @@ import { instantiateControlModule, instantiateEquipmentModule } from "./fb-insta
 import { writeOb1 } from "./ob1-writer";
 import { writeFcInputs, writeFcMaintenance, writeFcOutputs } from "./layer-fc-writer";
 import { writeUnitManagementFc, writeUnitProcessFc } from "./unit-fc-writer";
-import { FOLDER_LIBRARY, FOLDER_SYSTEM } from "./naming";
+import { FOLDER_DATA_TYPES, FOLDER_LIBRARY, FOLDER_SYSTEM } from "./naming";
 import { checkStateCoverage, normSlug } from "./em-state-coverage";
 import { buildCommandSeam, type CommandSeamPin } from "./em-command-seam";
 import { buildEmCmLinks, type CmLinkInfo } from "./matched-em-builder";
@@ -31,8 +31,6 @@ interface UnitAssembly {
   managementLines: string[];
 }
 
-const DATA_TYPES = "PLC data types";
-
 /**
  * G5-4 folder stamping — a unit-scoped artifact goes under the unit's tree:
  * FBs → `<unitScl>/FB`, DBs → `<unitScl>/DB`, FCs (LINK_IN/LINK_OUT, the UC
@@ -40,7 +38,7 @@ const DATA_TYPES = "PLC data types";
  * one home and are never re-stamped per unit.
  */
 const stampUnit = (a: CodegenArtifact, unitScl: string): CodegenArtifact => {
-  if (a.folder === FOLDER_LIBRARY || a.folder === DATA_TYPES) return a;
+  if (a.folder === FOLDER_LIBRARY || a.folder === FOLDER_DATA_TYPES) return a;
   if (a.type === "FB") return { ...a, folder: `${unitScl}/FB` };
   if (a.type === "DB") return { ...a, folder: `${unitScl}/DB` };
   return { ...a, folder: unitScl }; // FCs (LINK_IN/LINK_OUT, stubs) at unit root
@@ -48,7 +46,7 @@ const stampUnit = (a: CodegenArtifact, unitScl: string): CodegenArtifact => {
 
 /** G5-4: project-level scaffolding lives under 00_System; UDTs stay put. */
 const stampSystem = (a: CodegenArtifact): CodegenArtifact =>
-  a.folder === DATA_TYPES ? a : { ...a, folder: FOLDER_SYSTEM };
+  a.folder === FOLDER_DATA_TYPES ? a : { ...a, folder: FOLDER_SYSTEM };
 
 /**
  * Compile a confirmed FDS into deterministic SCL — the Pac Program Structure
@@ -124,10 +122,39 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
   const maintenanceSeam = overridableOutputs.length > 0 || presetPlanned;
   const presets: PresetChannelInput[] = [];
 
+  // G5-4 final-review finding 1: two units whose names sanitize to the same
+  // SCL identifier (e.g. "Infeed-1" and "Infeed 1" both -> "Infeed_1") would
+  // otherwise collide on every unit-scoped artifact name (FC_<U>_Process,
+  // FC_<U>_Management, UC_<U>, ...) — the artifact-name dedup guard (`push`)
+  // would silently drop the second unit's blocks, and Main would call the
+  // survivor's Process FC twice per scan (double-stepping its UC state
+  // machine). Suffix numerically instead, mirroring the em-builder setpoint
+  // name-collision handling (em-builder.ts).
+  const usedUnitScls = new Map<string, string>(); // sclIdent -> claiming unit's raw name
+  const resolveUnitScl = (rawName: string): string => {
+    const base = sclIdent(rawName);
+    const priorName = usedUnitScls.get(base);
+    if (priorName === undefined) {
+      usedUnitScls.set(base, rawName);
+      return base;
+    }
+    let suffix = 2;
+    let candidate = `${base}_${suffix}`;
+    while (usedUnitScls.has(candidate)) {
+      suffix += 1;
+      candidate = `${base}_${suffix}`;
+    }
+    warnings.push(
+      `unit ${rawName}: name collision — "${rawName}" and "${priorName}" both map to SCL identifier "${base}" — renamed to "${candidate}"`,
+    );
+    usedUnitScls.set(candidate, rawName);
+    return candidate;
+  };
+
   for (const unit of contract.hierarchy.units) {
     if (unit.excluded) continue;
 
-    const unitScl = sclIdent(unit.unit_name);
+    const unitScl = resolveUnitScl(unit.unit_name);
     // G2-1: member EMs (declaration order) for the real unit coordinator. The
     // UC call runs in this unit's Process FC BEFORE its Management FC (the EM
     // instances), so the UC's CMD-seam writes are consumed by the EMs the same
@@ -303,6 +330,7 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
       const ir = buildUnitSequence({
         unitId: unit.unit_id,
         unitName: unit.unit_name,
+        unitScl,
         coord,
         members: unitMembers,
         modes: contract.modes ?? [],
@@ -319,7 +347,7 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
         `unit ${unit.unit_name}: no unit_coordination authored — UC coordination stub emitted`,
       );
       push(stampUnit(
-        unitCoordinationStub(unit.unit_id, unit.unit_name, unit.equipment_modules.map((e) => e.equipment_module_name)),
+        unitCoordinationStub(unit.unit_id, unit.unit_name, unitScl, unit.equipment_modules.map((e) => e.equipment_module_name)),
         unitScl,
       ));
       processCall = `   "UC_${unitScl}"();`;
@@ -388,8 +416,8 @@ export function compileContract(contract: SpecContractV2, templates: FbTemplate[
  * called — from the unit's Process FC (the brain slot) — so the call tree is
  * complete before D swaps in the real coordinator.
  */
-function unitCoordinationStub(unitId: string, unitName: string, emNames: string[]): CodegenArtifact {
-  const name = `UC_${sclIdent(unitName)}`;
+function unitCoordinationStub(unitId: string, unitName: string, unitScl: string, emNames: string[]): CodegenArtifact {
+  const name = `UC_${unitScl}`;
   const lines = emNames.length
     ? emNames.map((n) => `   // coordinate ${n}  (mode / enable / interlocks wired in D)`)
     : [`   // no equipment modules`];

@@ -44,7 +44,11 @@ export function writeFcInputs(input: { ioCondCallLine?: string; ems: EmMapLines[
 
 export function writeFcOutputs(input: { ems: EmMapLines[] }): CodegenArtifact {
   const body: string[] = [];
-  const tempVars = input.ems.flatMap((e) => e.tempVars);
+  // G5-4 final-review finding 4: two EMs can declare the SAME-named drive
+  // temp (e.g. same-named CM class in each) — dedupe identical declaration
+  // strings (first occurrence wins) so FC_Outputs never double-declares a
+  // VAR_TEMP (a TIA compile error; each EM used to be its own MAP FC scope).
+  const tempVars = [...new Set(input.ems.flatMap((e) => e.tempVars))];
   for (const em of input.ems) {
     if (!em.outputLines.length) continue;
     body.push(banner(em.emName), ...em.outputLines, ``);

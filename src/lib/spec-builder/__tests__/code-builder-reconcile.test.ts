@@ -120,4 +120,44 @@ describe("reconcileArtifacts", () => {
     const [v] = reconcileArtifacts({ specId: "s1", revision: 2, compiled: [artifact({})], existing: [] });
     expect(v.warnings).toEqual([]);
   });
+
+  // G5-4 final-review finding 2: a custom-region carry-over is upserted as
+  // this artifact's edited_content in the SAME hook call that reads
+  // `existing` — but `existing` was loaded BEFORE that upsert, so without
+  // this overlay the returned view would show the region-blanked generation
+  // for one render cycle. A save during that window would silently clobber
+  // the hand-authored region just persisted.
+  describe("carryOverContents overlay (same-call carry-over visibility)", () => {
+    it("exposes the merged content as edited_content when the row has no current edit", () => {
+      const existing = [row({ edited_content: null, generated_content: "DATA_BLOCK v1" })];
+      const carryOverContents = new Map([["CM_Motor_M01_DB", "DATA_BLOCK v1 -- carried custom region"]]);
+      const [v] = reconcileArtifacts({
+        specId: "s1", revision: 2, compiled: [artifact({ content: "DATA_BLOCK v1" })], existing, carryOverContents,
+      });
+      expect(v.edited_content).toBe("DATA_BLOCK v1 -- carried custom region");
+    });
+
+    it("exposes the merged content when there is no existing row at all yet", () => {
+      const carryOverContents = new Map([["CM_Motor_M01_DB", "DATA_BLOCK v1 -- carried custom region"]]);
+      const [v] = reconcileArtifacts({
+        specId: "s1", revision: 2, compiled: [artifact({ content: "DATA_BLOCK v1" })], existing: [], carryOverContents,
+      });
+      expect(v.edited_content).toBe("DATA_BLOCK v1 -- carried custom region");
+    });
+
+    it("does not overwrite an existing edit with a carry-over for a DIFFERENT artifact", () => {
+      const existing = [row({ edited_content: "DATA_BLOCK hand-edited" })];
+      const carryOverContents = new Map([["SOME_OTHER_FC", "irrelevant"]]);
+      const [v] = reconcileArtifacts({
+        specId: "s1", revision: 2, compiled: [artifact({})], existing, carryOverContents,
+      });
+      expect(v.edited_content).toBe("DATA_BLOCK hand-edited");
+    });
+
+    it("is a no-op when carryOverContents is omitted", () => {
+      const existing = [row({ edited_content: null })];
+      const [v] = reconcileArtifacts({ specId: "s1", revision: 2, compiled: [artifact({})], existing });
+      expect(v.edited_content).toBeNull();
+    });
+  });
 });
