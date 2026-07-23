@@ -32,13 +32,13 @@ function seq(): EmSequence {
 }
 
 describe("writeEmArtifacts", () => {
-  it("emits the 5-artifact bundle with EM ownership and layer", () => {
+  it("emits the 4-artifact bundle (no MAP FC) with EM ownership and layer", () => {
     const { artifacts } = writeEmArtifacts(seq());
     expect(artifacts.map((a) => a.name)).toEqual([
       "EM_Carriage_Drive", "EM_Carriage_Drive_State", "Carriage_Drive_CMD",
-      "MAP_Carriage_Drive", "EM_Carriage_Drive_DB",
+      "EM_Carriage_Drive_DB",
     ]);
-    expect(artifacts.map((a) => a.type)).toEqual(["FB", "UDT", "DB", "FC", "DB"]);
+    expect(artifacts.map((a) => a.type)).toEqual(["FB", "UDT", "DB", "DB"]);
     expect(artifacts.every((a) => a.layer === "em")).toBe(true);
     expect(artifacts.every((a) => a.ownerId === "em-drive")).toBe(true);
   });
@@ -66,32 +66,31 @@ describe("writeEmArtifacts", () => {
     expect(fb).toContain("IF #done THEN #state := 0; #done := FALSE; END_IF;");
   });
 
-  it("wires sensors and actuators through the MAP FC by symbolic tag name", () => {
-    const map = writeEmArtifacts(seq()).artifacts[3];
-    expect(map.content).toContain(`"EM_Carriage_Drive_DB".fb_brake_open := "brake_open";   // %I0.0`);
-    expect(map.content).toContain(`"run" := "EM_Carriage_Drive_DB".cmd_run;   // %Q0.0`);
-    expect(map.dependencies).toContain("EM_Carriage_Drive_DB");
+  it("routes sensor reads to inputLines and actuator writes to outputLines by symbolic tag name", () => {
+    const { mapLines } = writeEmArtifacts(seq());
+    expect(mapLines.inputLines.some((l) => l.includes(`"EM_Carriage_Drive_DB".fb_brake_open := "brake_open";   // %I0.0`))).toBe(true);
+    expect(mapLines.outputLines.some((l) => l.includes(`"run" := "EM_Carriage_Drive_DB".cmd_run;   // %Q0.0`))).toBe(true);
   });
 
   it("comments out wiring when an address is missing", () => {
     const s = seq();
     s.sensors[0].address = "";
-    const map = writeEmArtifacts(s).artifacts[3];
-    expect(map.content).toContain("// TODO wire sensor fb_brake_open");
+    const { mapLines } = writeEmArtifacts(s);
+    expect(mapLines.inputLines.some((l) => l.includes("// TODO wire sensor fb_brake_open"))).toBe(true);
   });
 
   it("references the FB type from the instance DB", () => {
-    const inst = writeEmArtifacts(seq()).artifacts[4];
+    const inst = writeEmArtifacts(seq()).artifacts[3];
     expect(inst.content).toContain(`"EM_Carriage_Drive"`);
     expect(inst.dependencies).toContain("EM_Carriage_Drive");
   });
 
-  it("instantiates the FB from the CMD DB and calls the MAP FC", () => {
+  it("instantiates the FB from the CMD DB as a single call line", () => {
     const { callLines } = writeEmArtifacts(seq());
+    expect(callLines).toHaveLength(1);
     expect(callLines[0]).toContain(`"EM_Carriage_Drive_DB"(`);
     expect(callLines[0]).toContain(`enable := "Carriage_Drive_CMD".enable`);
     expect(callLines[0]).toContain(`cmd_reset := "Carriage_Drive_CMD".cmd_reset`);
-    expect(callLines[1]).toBe(`   "MAP_Carriage_Drive"();`);
   });
 
   it("renders static holds for a step-less sequential state instead of an empty step CASE", () => {
@@ -254,8 +253,8 @@ describe("MAP drive emission (G1-2/G1-3)", () => {
   }
 
   it("emits the SINA_SPEED call converging on the golden master", () => {
-    const { artifacts } = writeEmArtifacts(driveSeq());
-    const map = artifacts.find((a) => a.name === "MAP_Carriage_Drive")!.content;
+    const { mapLines } = writeEmArtifacts(driveSeq());
+    const map = mapLines.outputLines.join("\n");
     expect(map).toContain('#ref_Rail_Motors_VSD := "EM_Carriage_Drive_DB".cmd_VSD1_Speed_Ref;');
     expect(map).toContain('"SINA_SPEED_Rail_Motors_VSD_DB"(');
     expect(map).toContain("EnableAxis := #ref_Rail_Motors_VSD <> 0");
@@ -268,10 +267,11 @@ describe("MAP drive emission (G1-2/G1-3)", () => {
       '"EM_Carriage_Drive_DB".fb_VSD1_Speed_Fb := REAL_TO_INT("SINA_SPEED_Rail_Motors_VSD_DB".ActVelocity / 15.0);',
     );
     // telegram pins are excluded from the plain symbolic copy loops
-    expect(map).not.toContain('// TODO wire sensor fb_VSD1_Speed_Fb');
-    expect(map).not.toContain('// TODO wire actuator cmd_VSD1_Speed_Ref');
+    const allLines = [...mapLines.inputLines, ...mapLines.outputLines].join("\n");
+    expect(allLines).not.toContain('// TODO wire sensor fb_VSD1_Speed_Fb');
+    expect(allLines).not.toContain('// TODO wire actuator cmd_VSD1_Speed_Ref');
     // VAR_TEMP for the ref
-    expect(map).toContain("ref_Rail_Motors_VSD : Int;");
+    expect(mapLines.tempVars.some((l) => l.includes("ref_Rail_Motors_VSD : Int;"))).toBe(true);
   });
 
   it("adds the drive instance DB to the artifact bundle", () => {
@@ -284,7 +284,7 @@ describe("MAP drive emission (G1-2/G1-3)", () => {
   it("emits TODOs instead of guesses when engineering data is missing", () => {
     const s = driveSeq();
     s.drives[0].engineering = undefined;
-    const map = writeEmArtifacts(s).artifacts.find((a) => a.name === "MAP_Carriage_Drive")!.content;
+    const map = writeEmArtifacts(s).mapLines.outputLines.join("\n");
     expect(map).toContain("SpeedSp := INT_TO_REAL(#ref_Rail_Motors_VSD)");
     expect(map).not.toContain("* 15.0");
     expect(map).toMatch(/RefSpeed := 0\.0.*TODO/);
@@ -294,7 +294,7 @@ describe("MAP drive emission (G1-2/G1-3)", () => {
   it("emits a TODO stub for drives without a deterministic FB", () => {
     const s = driveSeq();
     s.drives[0].fb_name = undefined;
-    const map = writeEmArtifacts(s).artifacts.find((a) => a.name === "MAP_Carriage_Drive")!.content;
+    const map = writeEmArtifacts(s).mapLines.outputLines.join("\n");
     expect(map).toContain("// TODO drive Rail Motors VSD");
     expect(map).not.toContain("SINA_SPEED_Rail_Motors_VSD_DB");
   });
@@ -308,7 +308,7 @@ describe("MAP N/C inversion (G1-4)", () => {
       { name: "fb_brake_open", tag: "brake_open", scl_type: "Bool", address: "I0.0", polarity: "no" },
       { name: "fb_plain", tag: "plain", scl_type: "Bool", address: "I0.2" },
     ];
-    const map = writeEmArtifacts(s).artifacts.find((a) => a.name === "MAP_Carriage_Drive")!.content;
+    const map = writeEmArtifacts(s).mapLines.inputLines.join("\n");
     expect(map).toContain(
       '"EM_Carriage_Drive_DB".fb_CM1_Therm := NOT "CM1_Therm";   // %I1.1 N/C fail-safe (healthy = TRUE), inverted',
     );
@@ -327,7 +327,7 @@ describe("writeEmArtifacts — conditioning + scaling at the MAP seam (G1-4b)", 
         scaling: { raw: { min: 4, max: 20, unit: "mA" }, eu: { min: 0, max: 10, unit: "bar" } } },
       { name: "fb_plain", tag: "LS1", scl_type: "Bool", address: "I0.2" },
     ];
-    const map = writeEmArtifacts(s).artifacts.find((a) => a.name === "MAP_Carriage_Drive")!.content;
+    const map = writeEmArtifacts(s).mapLines.inputLines.join("\n");
     expect(map).toContain('"EM_Carriage_Drive_DB".fb_therm := NOT "IO_Cond".M01_Therm;');
     expect(map).toContain('"EM_Carriage_Drive_DB".fb_gate := "IO_Cond".Gate_Closed;');
     // 4–20 mA → S7 counts 5530..27648 (platform physics), EU emitted as Int
@@ -336,5 +336,25 @@ describe("writeEmArtifacts — conditioning + scaling at the MAP seam (G1-4b)", 
     );
     // untreated signal keeps the plain symbolic copy
     expect(map).toContain('"EM_Carriage_Drive_DB".fb_plain := "LS1";');
+  });
+});
+
+describe("G5-4 map-line split", () => {
+  it("writeEmArtifacts emits 4 artifacts (no MAP FC) and a single call line", () => {
+    const { artifacts, callLines, mapLines } = writeEmArtifacts(seq());
+    expect(artifacts.some((a) => a.name.startsWith("MAP_"))).toBe(false);
+    expect(artifacts.map((a) => a.type).sort()).toEqual(["DB", "DB", "FB", "UDT"]); // + drive DBs when fixture has drives
+    expect(callLines).toHaveLength(1);
+    expect(callLines[0]).toContain(`"EM_Carriage_Drive_DB"(`);
+    expect(callLines[0]).not.toContain("MAP_");
+    expect(mapLines.emName).toBe("Carriage_Drive");
+  });
+
+  it("routes sensor reads to inputLines and actuator writes + drive calls to outputLines", () => {
+    const { mapLines } = writeEmArtifacts(seq());
+    for (const l of mapLines.inputLines) expect(l).toMatch(/"EM_.*_DB"\.\w+ :=|\/\/ TODO wire sensor/);
+    for (const l of mapLines.outputLines.filter((x) => x.includes(" := ") && !x.includes("("))) {
+      expect(l).toMatch(/^   "\w+" := "EM_.*_DB"\./); // physical := instanceDB.pin
+    }
   });
 });

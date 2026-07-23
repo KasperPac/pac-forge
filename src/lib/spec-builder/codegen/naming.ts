@@ -14,8 +14,6 @@ export const emFbName = (emScl: string): string => `EM_${emScl}`;
 export const emDbName = (emScl: string): string => `EM_${emScl}_DB`;
 /** EM command-seam DB — `sp_*` members are the HMI setpoint bindings. */
 export const emCmdDbName = (emScl: string): string => `${emScl}_CMD`;
-/** EM IO map FC. */
-export const mapFcName = (emScl: string): string => `MAP_${emScl}`;
 
 /** Unit coordinator FB / instance DB. */
 export const ucFbName = (unitScl: string): string => `UC_${unitScl}`;

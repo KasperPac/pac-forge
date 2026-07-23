@@ -3,7 +3,7 @@ export type CodegenArtifactType = "UDT" | "FB" | "FC" | "DB" | "OB";
 
 /** Which Phase-4 layer produced an artifact. Lets the Code Builder shell
  *  surface one layer at a time. */
-export type CodegenLayer = "device" | "em" | "unit" | "ob1";
+export type CodegenLayer = "device" | "em" | "unit" | "system" | "ob1";
 
 /** A generated SCL source unit, shaped for the TIA export plumbing. */
 export interface CodegenArtifact {
@@ -16,6 +16,20 @@ export interface CodegenArtifact {
   layer: CodegenLayer;
   ownerId?: string;
   ownerName?: string;
+}
+
+/** Per-EM mapping content routed into the layer FCs (G5-4). The writers keep
+ *  producing the same lines the old MAP_<EM> FC held; only the destination
+ *  changed: inputLines -> FC_Inputs, outputLines (+drive calls) -> FC_Outputs. */
+export interface EmMapLines {
+  /** sclIdent'ed EM name — used for the per-EM banner comment. */
+  emName: string;
+  /** Physical/conditioned/scaled reads -> instance-DB input pins. */
+  inputLines: string[];
+  /** Instance-DB actuator pins -> physical outputs, then drive telegram calls. */
+  outputLines: string[];
+  /** VAR_TEMP declarations the drive emissions need (land in FC_Outputs). */
+  tempVars: string[];
 }
 
 /** An edge that activates a step: source step index + the SCL advance condition. */

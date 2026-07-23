@@ -1,7 +1,7 @@
-import type { CodegenArtifact, EmSeqState, EmSeqStep, EmSequence } from "./types";
+import type { CodegenArtifact, EmMapLines, EmSeqState, EmSeqStep, EmSequence } from "./types";
 import { regionId, renderRegion, defaultStub } from "./em-fill-regions";
 import { buildCommandSeam, type CommandSeamPin } from "./em-command-seam";
-import { IO_COND_DB, driveDbName, emDbName, emFbName, mapFcName } from "./naming";
+import { IO_COND_DB, driveDbName, emDbName, emFbName } from "./naming";
 import { sclIdent } from "./sa-builder";
 
 const PROGRAM = "Program blocks";
@@ -180,10 +180,10 @@ function countsRange(raw: { min: number; max: number; unit: "mA" | "V" | "counts
 }
 
 /**
- * G1-2/G1-3: one drive's telegram-FB emission inside the MAP FC. Returns the
- * SCL lines plus which EM pins the emission consumed (excluded from the
- * plain symbolic copy loops — the telegram owns them, not the IO image).
- * Missing tier-2 data emits `// TODO`, never a guess.
+ * G1-2/G1-3: one drive's telegram-FB emission, routed into the map lines'
+ * outputLines (G5-4). Returns the SCL lines plus which EM pins the emission
+ * consumed (excluded from the plain symbolic copy loops — the telegram owns
+ * them, not the IO image). Missing tier-2 data emits `// TODO`, never a guess.
  */
 function buildDriveEmission(
   seq: EmSequence,
@@ -302,10 +302,11 @@ function writeDriveDb(seq: EmSequence, fbName: string, dbName: string): CodegenA
   return { name: dbName, type: "DB", filename: `${dbName}.db`, content, dependencies: [], folder: PROGRAM, layer: "em", ownerId: seq.emId, ownerName: seq.emName };
 }
 
-/** MAP FC — the IO seam between physical addresses and the instance DB. */
-function writeMapFc(seq: EmSequence): { artifact: CodegenArtifact; driveDbs: CodegenArtifact[] } {
+/** The IO seam between physical addresses and the instance DB, as routed
+ *  lines (G5-4): inputs land in FC_Inputs, outputs + drive calls in
+ *  FC_Outputs. Replaces the per-EM MAP FC. */
+function buildEmMapLines(seq: EmSequence): { mapLines: EmMapLines; driveDbs: CodegenArtifact[] } {
   const inst = emDbName(seq.sclName);
-  const name = mapFcName(seq.sclName);
 
   // G1-2/G1-3: telegram-FB emissions per detected drive
   const emissions = seq.drives.map((d) => buildDriveEmission(seq, d));
@@ -348,22 +349,13 @@ function writeMapFc(seq: EmSequence): { artifact: CodegenArtifact; driveDbs: Cod
         ? `   "${p.tag}" := "${inst}".${p.name};   // %${p.address}`
         : `   // TODO wire actuator ${p.name} (${p.telegramNote ?? "no address in spec"})`,
     );
-  const content = [
-    `FUNCTION "${name}" : Void`,
-    `{ S7_Optimized_Access := 'TRUE' }`,
-    `VERSION : 0.1`,
-    ...(tempVars.length ? [`   VAR_TEMP`, ...tempVars, `   END_VAR`, ``] : []),
-    `BEGIN`,
-    `   // sensor feedback: physical input -> instance DB`,
-    ...sensorLines,
-    `   // actuator commands: instance DB -> physical output`,
-    ...actuatorLines,
-    ...(driveLines.length ? [``, ...driveLines] : []),
-    `END_FUNCTION`,
-    ``,
-  ].join("\n");
   return {
-    artifact: { name, type: "FC", filename: `${name}.scl`, content, dependencies: [inst], folder: PROGRAM, layer: "em", ownerId: seq.emId, ownerName: seq.emName },
+    mapLines: {
+      emName: seq.sclName,
+      inputLines: sensorLines,
+      outputLines: [...actuatorLines, ...(driveLines.length ? [``, ...driveLines] : [])],
+      tempVars,
+    },
     driveDbs,
   };
 }
@@ -384,30 +376,32 @@ function writeInstanceDb(seq: EmSequence): CodegenArtifact {
   return { name, type: "DB", filename: `${name}.db`, content, dependencies: [fbName], folder: PROGRAM, layer: "em", ownerId: seq.emId, ownerName: seq.emName };
 }
 
-/** OB1 call lines: instantiate the FB from its CMD DB, then run its MAP FC. */
+/** Management-FC call line: instantiate the FB from its CMD DB. */
 function buildCallLines(seq: EmSequence): string[] {
   const inst = emDbName(seq.sclName);
   const { callBindings } = buildCommandSeam(seq.sclName, commandPins(seq));
-  return [`   "${inst}"(${callBindings.join(", ")});`, `   "MAP_${seq.sclName}"();`];
+  return [`   "${inst}"(${callBindings.join(", ")});`];
 }
 
-/** Serialize an EmSequence into its 5 SCL artifacts plus OB1 call lines. Pure;
- *  no IO, no AI. The FB step bodies are deterministic stubs inside stable
- *  AI-fill regions, so the bundle always compiles before any AI fill. */
+/** Serialize an EmSequence into its 4 SCL artifacts (FB, State UDT, CMD DB,
+ *  instance DB — plus drive telegram DBs), the EM-instance call line, and the
+ *  routed IO map lines (G5-4). Pure; no IO, no AI. The FB step bodies are
+ *  deterministic stubs inside stable AI-fill regions, so the bundle always
+ *  compiles before any AI fill. */
 export function writeEmArtifacts(seq: EmSequence): {
-  artifacts: CodegenArtifact[]; callLines: string[];
+  artifacts: CodegenArtifact[]; callLines: string[]; mapLines: EmMapLines;
 } {
-  const map = writeMapFc(seq);
+  const map = buildEmMapLines(seq);
   return {
     artifacts: [
       writeFb(seq),
       writeStateUdt(seq),
       writeCmdDb(seq),
-      map.artifact,
       writeInstanceDb(seq),
       // G1-2: drive telegram-FB instance DBs ride the EM bundle
       ...map.driveDbs,
     ],
     callLines: buildCallLines(seq),
+    mapLines: map.mapLines,
   };
 }
