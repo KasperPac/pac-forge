@@ -7,13 +7,13 @@ import { EmStateDiagram } from "@/components/code-builder/em-state-diagram";
 import type { CodeBuilderArtifactView } from "@/types/code-builder";
 import type { EmStateV2, EmTransitionV2 } from "@/types/spec-contract-v2";
 
-type Tab = "code" | "flow" | "state" | "map" | "udt" | "instdb";
+type Tab = "code" | "flow" | "state" | "udt" | "instdb";
 
 export function ArtifactViewer({
   artifact, related, editable, onContentChange, states = [], transitions = [],
 }: {
   artifact: CodeBuilderArtifactView | null;
-  /** Other artifacts owned by the same module (for UDT / Map / Inst DB tabs). */
+  /** Other artifacts owned by the same module (for UDT / Inst DB tabs). */
   related: CodeBuilderArtifactView[];
   editable: boolean;
   onContentChange: (content: string) => void;
@@ -33,7 +33,6 @@ export function ArtifactViewer({
   const diagrams = useMemo(() => (canFlow ? parseFbFlow(content) : []), [canFlow, content]);
 
   const hasState = isEm && states.length > 0;
-  const mapFc = isEm ? related.find((r) => r.type === "FC" && r.artifact_name.startsWith("MAP_")) : undefined;
   const udt = related.find((r) => r.type === "UDT");
   const instDb = isEm
     ? related.find((r) => r.type === "DB" && r.artifact_name.startsWith("EM_") && r.artifact_name.endsWith("_DB"))
@@ -47,7 +46,6 @@ export function ArtifactViewer({
     { id: "code", label: "Code", show: true },
     { id: "flow", label: "Flow", show: canFlow },
     { id: "state", label: "State", show: hasState },
-    { id: "map", label: "Map", show: !!mapFc },
     { id: "udt", label: "UDT", show: !!udt },
     { id: "instdb", label: "Inst DB", show: !!instDb },
   ];
@@ -81,7 +79,6 @@ export function ArtifactViewer({
         )}
         {tab === "flow" && <div className="h-full overflow-auto"><FbFlowRenderer diagrams={diagrams} /></div>}
         {tab === "state" && <EmStateDiagram states={states} transitions={transitions} />}
-        {tab === "map" && <pre className="h-full overflow-auto p-3 text-[11px] font-mono">{mapFc ? (mapFc.edited_content ?? mapFc.generated_content) : ""}</pre>}
         {tab === "udt" && <pre className="h-full overflow-auto p-3 text-[11px] font-mono">{udt ? (udt.edited_content ?? udt.generated_content) : ""}</pre>}
         {tab === "instdb" && <pre className="h-full overflow-auto p-3 text-[11px] font-mono">{instDb ? (instDb.edited_content ?? instDb.generated_content) : ""}</pre>}
       </div>

@@ -28,15 +28,14 @@ const emRelated: CodeBuilderArtifactView[] = [
   emFb,
   view({ artifact_name: "EM_Carriage_State", type: "UDT", layer: "em", owner_id: "em1" }),
   view({ artifact_name: "Carriage_CMD", type: "DB", layer: "em", owner_id: "em1" }),
-  view({ artifact_name: "MAP_Carriage", type: "FC", layer: "em", owner_id: "em1", generated_content: "FUNCTION MAP" }),
   view({ artifact_name: "EM_Carriage_DB", type: "DB", layer: "em", owner_id: "em1" }),
 ];
 
 describe("ArtifactViewer — EM artifact", () => {
-  it("shows State/Map and hides Flow", () => {
+  it("shows State and hides Flow", () => {
     render(<ArtifactViewer artifact={emFb} related={emRelated} editable={false} onContentChange={() => {}} states={states} transitions={transitions} />);
     expect(screen.getByRole("tab", { name: "State" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Map" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Map" })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Flow" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "State" }));

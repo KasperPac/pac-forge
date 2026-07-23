@@ -3,11 +3,11 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { BuilderStepper } from "@/components/code-builder/builder-stepper";
 
 describe("BuilderStepper", () => {
-  it("enables Device and EM, disables Unit and Export", () => {
+  it("enables Device, EM and Unit, disables Export", () => {
     render(<BuilderStepper active="device" />);
     expect(screen.getByTestId("step-device")).not.toBeDisabled();
     expect(screen.getByTestId("step-em")).not.toBeDisabled();
-    expect(screen.getByTestId("step-unit")).toBeDisabled();
+    expect(screen.getByTestId("step-unit")).not.toBeDisabled();
     expect(screen.getByTestId("step-export")).toBeDisabled();
   });
 
@@ -17,6 +17,8 @@ describe("BuilderStepper", () => {
     fireEvent.click(screen.getByTestId("step-em"));
     expect(onSelect).toHaveBeenCalledWith("em");
     fireEvent.click(screen.getByTestId("step-unit"));
-    expect(onSelect).toHaveBeenCalledTimes(1); // disabled click ignored
+    expect(onSelect).toHaveBeenCalledWith("unit");
+    fireEvent.click(screen.getByTestId("step-export"));
+    expect(onSelect).toHaveBeenCalledTimes(2); // disabled click ignored
   });
 });

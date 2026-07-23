@@ -104,9 +104,9 @@ export default function CodeBuilderPage() {
         <h1 className="font-mono text-sm font-semibold">{spec?.doc_code}</h1>
         <div className="ml-4">
           <BuilderStepper
-            active={activeLayer === "em" ? "em" : "device"}
+            active={activeLayer === "em" ? "em" : activeLayer === "unit" ? "unit" : "device"}
             onSelect={(step) => {
-              if (step === "device" || step === "em") {
+              if (step === "device" || step === "em" || step === "unit") {
                 setActiveLayer(step);
                 setSelected(null);
                 setEditing(false);
@@ -209,7 +209,7 @@ export default function CodeBuilderPage() {
               })}
             </div>
           )}
-          {current?.type === "FB" && (
+          {activeLayer !== "unit" && current?.type === "FB" && (
             <div className="border-t p-2">
               <PromoteLibraryPanel
                 artifact={current}

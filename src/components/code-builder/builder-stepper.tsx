@@ -6,7 +6,7 @@ export type BuilderStep = "device" | "em" | "unit" | "export";
 const STEPS: { id: BuilderStep; label: string; enabled: boolean }[] = [
   { id: "device", label: "Device", enabled: true },
   { id: "em", label: "EM", enabled: true },
-  { id: "unit", label: "Unit", enabled: false },
+  { id: "unit", label: "Unit", enabled: true },
   { id: "export", label: "Export", enabled: false },
 ];
 
