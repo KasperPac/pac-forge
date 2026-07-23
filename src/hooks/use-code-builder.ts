@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabase";
 import { loadSpecContract } from "@/lib/spec-builder/contract";
 import { compileContract, filterByLayer } from "@/lib/spec-builder/codegen";
 import type { CodegenLayer } from "@/lib/spec-builder/codegen";
+import { carryOverCustomRegions, loadPriorEditsSupabase } from "@/lib/spec-builder/custom-region-carryover";
 import {
   buildEmUiModel,
   type CodeBuilderUnitGroup, type CodeBuilderEmInfo,
@@ -46,7 +47,24 @@ async function compileAndReconcile(
   const result = compileContract(contract, templates);
   const compiled = filterByLayer(result.artifacts, layer);
 
-  const upserts = toUpserts({ specId, revision, compiled, existing });
+  // G5-4 §3: an FC_<Unit>_Process artifact with no row yet for this revision
+  // (i.e. this is its first compile at this revision) may still have a prior
+  // revision's hand-authored custom region — carry it over so it lands as
+  // this row's edited_content, not lost behind the fresh generation.
+  const existingNames = new Set(existing.map((r) => r.artifact_name));
+  const freshArtifacts = compiled.filter((a) => !existingNames.has(a.name));
+  const carryOver = await carryOverCustomRegions(
+    freshArtifacts.map((a) => ({ name: a.name, content: a.content })),
+    specId, revision, loadPriorEditsSupabase,
+  );
+  result.warnings.push(...carryOver.warnings);
+
+  const upserts: (ReturnType<typeof toUpserts>[number] & { edited_content?: string })[] =
+    toUpserts({ specId, revision, compiled, existing });
+  for (const u of upserts) {
+    const merged = carryOver.contents.get(u.artifact_name);
+    if (merged !== undefined) u.edited_content = merged;
+  }
   if (upserts.length) {
     const { error } = await supabase
       .from(TABLE)

@@ -10,6 +10,7 @@ import { supabase } from "@/lib/supabase";
 import { loadSpecContract } from "@/lib/spec-builder/contract";
 import { compileContract } from "@/lib/spec-builder/codegen";
 import { deriveIoTags, IO_TAG_TABLE_NAME } from "@/lib/spec-builder/codegen/io-tag-table";
+import { carryOverCustomRegions, loadPriorEditsSupabase } from "@/lib/spec-builder/custom-region-carryover";
 import { DEFAULT_BRIDGE_CONFIG } from "@/lib/tia-bridge-contract";
 import type { CreateMigrationTagsResponse, MigrationTagDto } from "@/lib/tia-bridge-contract";
 import { useFbTemplates } from "@/hooks/use-fb-templates";
@@ -70,6 +71,17 @@ export function useSendCodeToTia(specId: string | undefined, revision: number | 
           .map((r) => [r.artifact_name as string, r.edited_content as string]),
       );
 
+      // G5-4 §3: a Process FC without a current-revision edit may still have
+      // a prior revision's hand-authored custom region — carry it forward so
+      // it ships in `sources`, not just the fresh (region-blanked) generation.
+      const carryOver = await carryOverCustomRegions(
+        result.artifacts.map((a) => ({ name: a.name, content: a.content })),
+        specId, revision, loadPriorEditsSupabase,
+      );
+      for (const [name, content] of carryOver.contents) {
+        if (!edits.has(name)) edits.set(name, content);
+      }
+
       const sorted = [...result.artifacts].sort(
         (a, b) => (TYPE_ORDER[a.type] ?? 9) - (TYPE_ORDER[b.type] ?? 9),
       );
@@ -88,7 +100,7 @@ export function useSendCodeToTia(specId: string | undefined, revision: number | 
         countsByType,
         editedBlocks,
         ioTags: ioTagDerivation.tags,
-        warnings: [...result.warnings, ...ioTagDerivation.warnings],
+        warnings: [...result.warnings, ...ioTagDerivation.warnings, ...carryOver.warnings],
       };
       setPlan(next);
       return next;

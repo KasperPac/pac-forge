@@ -59,6 +59,10 @@ vi.mock("@/lib/spec-builder/contract", () => ({
 vi.mock("@/hooks/use-fb-templates", () => ({
   useFbTemplates: () => ({ data: [] }),
 }));
+// Two distinct query chains share `supabase.from("code_builder_artifacts")`:
+// the current-revision edits lookup (`.select().eq().eq()`) and the
+// custom-region carry-over loader (`.select().eq().lt().in().not().order()`).
+// Both hang off the same first `.eq()` call, so it must offer both branches.
 vi.mock("@/lib/supabase", () => ({
   supabase: {
     from: () => ({
@@ -67,6 +71,13 @@ vi.mock("@/lib/supabase", () => ({
           eq: async () => ({
             data: [{ artifact_name: "EM_Belt", edited_content: "FUNCTION_BLOCK \"EM_Belt\"\n// hand-tuned\nEND_FUNCTION_BLOCK\n" }],
             error: null,
+          }),
+          lt: () => ({
+            in: () => ({
+              not: () => ({
+                order: async () => ({ data: [], error: null }),
+              }),
+            }),
           }),
         }),
       }),
