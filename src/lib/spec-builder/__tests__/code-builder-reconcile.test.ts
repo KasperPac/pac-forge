@@ -95,4 +95,29 @@ describe("reconcileArtifacts", () => {
     expect(v.review_status).toBeNull();
     expect(v.review_findings).toEqual([]);
   });
+
+  it("attaches artifactWarnings to the matching row's warnings (e.g. custom-region carry-over)", () => {
+    const artifactWarnings = new Map([
+      ["CM_Motor_M01_DB", ["custom-region markers missing/mangled in the previous edit — region NOT carried over"]],
+    ]);
+    const [v] = reconcileArtifacts({
+      specId: "s1", revision: 2, compiled: [artifact({})], existing: [], artifactWarnings,
+    });
+    expect(v.warnings).toEqual([
+      "custom-region markers missing/mangled in the previous edit — region NOT carried over",
+    ]);
+  });
+
+  it("does not leak a warning onto an artifact the map doesn't name", () => {
+    const artifactWarnings = new Map([["SOME_OTHER_FC", ["irrelevant"]]]);
+    const [v] = reconcileArtifacts({
+      specId: "s1", revision: 2, compiled: [artifact({})], existing: [], artifactWarnings,
+    });
+    expect(v.warnings).toEqual([]);
+  });
+
+  it("defaults warnings to empty when artifactWarnings is omitted", () => {
+    const [v] = reconcileArtifacts({ specId: "s1", revision: 2, compiled: [artifact({})], existing: [] });
+    expect(v.warnings).toEqual([]);
+  });
 });

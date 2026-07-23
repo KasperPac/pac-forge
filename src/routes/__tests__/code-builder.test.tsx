@@ -43,7 +43,7 @@ function emView(p: Record<string, unknown>) {
     artifact_name: "X", layer: "em", owner_id: "em1", owner_name: "Carriage",
     type: "FB", filename: "X.scl", folder: "Program blocks", dependencies: [],
     generated_content: "", edited_content: null, status: "pending", drift: false,
-    regionDrift: [], acknowledged_warnings: [], review_status: null, review_findings: [],
+    regionDrift: [], warnings: [], acknowledged_warnings: [], review_status: null, review_findings: [],
     ...p,
   };
 }
@@ -119,5 +119,43 @@ describe("CodeBuilderPage", () => {
     expect(screen.getByTestId("fb-quality-gates")).toBeInTheDocument();
     const approveBtn = screen.getByRole("button", { name: /approve/i });
     expect(approveBtn).toBeDisabled();
+  });
+
+  it("renders an artifact-scoped warning (e.g. custom-region carry-over) and acknowledges it via acknowledgeWarning", async () => {
+    // Not an EM FB — a device-layer artifact carrying a compile-time
+    // advisory (mirrors an FC_*_Process carry-over warning), to prove this
+    // surface is NOT gated to the EM safety gate.
+    const ackMutate = vi.fn();
+    mockSpec.mockReturnValue({ data: { confirmation_status: "confirmed", doc_code: "DOC" } });
+    mockCb.mockReturnValue({
+      artifacts: {
+        data: [
+          emView({
+            artifact_name: "FC_Process_Unit_Process", layer: "device", type: "FC",
+            owner_id: null, owner_name: null,
+            warnings: ["custom-region markers missing/mangled in the previous edit — region NOT carried over"],
+            acknowledged_warnings: [],
+          }),
+        ],
+      },
+      approve: { mutate: vi.fn(), isPending: false },
+      saveEdit: { mutate: vi.fn(), isPending: false },
+      acknowledgeWarning: { mutate: ackMutate, isPending: false },
+      saveReview: { mutate: vi.fn(), isPending: false },
+      revision: 2,
+      unitGroups: [],
+      emById: {},
+    });
+    wrap(<CodeBuilderPage />);
+    fireEvent.click(await screen.findByText("FC_Process_Unit_Process"));
+    expect(screen.getByTestId("artifact-warnings")).toBeInTheDocument();
+    expect(screen.getByText(/region NOT carried over/)).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId(
+      "ack-artifact-warning-custom-region markers missing/mangled in the previous edit — region NOT carried over",
+    ));
+    expect(ackMutate).toHaveBeenCalledWith({
+      artifactName: "FC_Process_Unit_Process",
+      warningKeys: ["custom-region markers missing/mangled in the previous edit — region NOT carried over"],
+    });
   });
 });

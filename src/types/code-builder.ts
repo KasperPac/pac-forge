@@ -41,6 +41,11 @@ export interface CodeBuilderArtifactView {
   drift: boolean;
   /** AI-fill region ids whose body changed on recompile (subset of `drift`). */
   regionDrift: string[];
+  /** Compile-time advisories scoped to this specific artifact (e.g. a
+   *  custom-region carry-over that couldn't merge) — computed live, not
+   *  persisted. Acknowledgeable via `acknowledged_warnings`/`acknowledgeWarning`
+   *  like any other warning, using the warning text itself as the key. */
+  warnings: string[];
   acknowledged_warnings: string[];
   review_status: "pass" | "findings" | null;
   review_findings: ReviewFinding[];

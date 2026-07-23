@@ -34,6 +34,28 @@ describe("carryOverCustomRegions", () => {
     expect(warnings[0]).toMatch(/NOT carried over/);
   });
 
+  it("also attaches the mangled-marker warning to its specific artifact via warningsByArtifact", async () => {
+    const { warningsByArtifact } = await carryOverCustomRegions(
+      [{ name: "FC_Process_Unit_Process", content: freshProcess }, { name: "Main", content: "OB" }],
+      "spec-1", 2, async () => [{ artifact_name: "FC_Process_Unit_Process", edited_content: "mangled" }],
+    );
+    expect(warningsByArtifact.get("FC_Process_Unit_Process")).toEqual([
+      "custom-region markers missing/mangled in the previous edit — region NOT carried over",
+    ]);
+    // Only the affected artifact gets an entry — no blanket/global warning.
+    expect(warningsByArtifact.has("Main")).toBe(false);
+    expect(warningsByArtifact.size).toBe(1);
+  });
+
+  it("does not populate warningsByArtifact on a clean merge", async () => {
+    const { warningsByArtifact } = await carryOverCustomRegions(
+      [{ name: "FC_Process_Unit_Process", content: freshProcess }],
+      "spec-1", 2,
+      async () => [{ artifact_name: "FC_Process_Unit_Process", edited_content: editedPrev }],
+    );
+    expect(warningsByArtifact.size).toBe(0);
+  });
+
   it("no-ops when there are no Process FCs or no prior edits", async () => {
     const r = await carryOverCustomRegions([{ name: "Main", content: "OB" }], "s", 2, async () => []);
     expect(r.contents.size).toBe(0);

@@ -4,6 +4,14 @@
 // custom region in each FC_<Unit>_Process must survive into the fresh
 // generation. The row loader is injected (Supabase in the hooks) so this
 // stays pure and testable.
+//
+// `warnings` (flat, prefixed with the artifact name) feeds the send-to-TIA
+// plan's warnings list. `warningsByArtifact` feeds the Code Builder view:
+// `use-code-builder.ts` attaches it per-artifact via `reconcileArtifacts`'s
+// `artifactWarnings` so a mangled-region warning renders on (and is
+// acknowledgeable against) the SPECIFIC affected FC_*_Process artifact —
+// the same `acknowledged_warnings`/`acknowledgeWarning` mechanism already
+// used for safety-gate warnings, generalized to any artifact.
 import { supabase } from "@/lib/supabase";
 import { mergeCustomRegion } from "./codegen/custom-region";
 
@@ -17,21 +25,24 @@ export async function carryOverCustomRegions(
   specId: string,
   revision: number,
   loadPriorEdits: PriorEditLoader,
-): Promise<{ contents: Map<string, string>; warnings: string[] }> {
+): Promise<{ contents: Map<string, string>; warnings: string[]; warningsByArtifact: Map<string, string[]> }> {
   const contents = new Map<string, string>();
   const warnings: string[] = [];
+  const warningsByArtifact = new Map<string, string[]>();
   const processFcs = artifacts.filter((a) => PROCESS_FC.test(a.name));
-  if (!processFcs.length) return { contents, warnings };
+  if (!processFcs.length) return { contents, warnings, warningsByArtifact };
   const prior = await loadPriorEdits(specId, revision, processFcs.map((a) => a.name));
   const byName = new Map(prior.map((r) => [r.artifact_name, r.edited_content]));
   for (const a of processFcs) {
     const prev = byName.get(a.name);
     if (!prev) continue;
     const { content, warning } = mergeCustomRegion(a.content, prev);
-    if (warning) warnings.push(`${a.name}: ${warning}`);
-    else if (content !== a.content) contents.set(a.name, content);
+    if (warning) {
+      warnings.push(`${a.name}: ${warning}`);
+      warningsByArtifact.set(a.name, [...(warningsByArtifact.get(a.name) ?? []), warning]);
+    } else if (content !== a.content) contents.set(a.name, content);
   }
-  return { contents, warnings };
+  return { contents, warnings, warningsByArtifact };
 }
 
 /**

@@ -11,6 +11,9 @@ export interface ReconcileInput {
   compiled: CodegenArtifact[];
   /** Stored rows for the same (spec_id, revision). */
   existing: CodeBuilderArtifactRow[];
+  /** Artifact-name → compile-time advisory messages (e.g. custom-region
+   *  carry-over failures) to attach to the matching view row's `warnings`. */
+  artifactWarnings?: Map<string, string[]>;
 }
 
 /**
@@ -41,6 +44,7 @@ export function reconcileArtifacts(input: ReconcileInput): CodeBuilderArtifactVi
       status: prior?.status ?? "pending",
       drift,
       regionDrift,
+      warnings: input.artifactWarnings?.get(a.name) ?? [],
       acknowledged_warnings: prior?.acknowledged_warnings ?? [],
       review_status: prior?.review_status ?? null,
       review_findings: prior?.review_findings ?? [],

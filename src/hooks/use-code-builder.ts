@@ -61,7 +61,10 @@ async function compileAndReconcile(
     freshArtifacts.map((a) => ({ name: a.name, content: a.content })),
     specId, revision, loadPriorEditsSupabase,
   );
-  result.warnings.push(...carryOver.warnings);
+  // A mangled-region warning is attached to its specific artifact's view row
+  // below (via reconcileArtifacts' `artifactWarnings`) — that is what makes
+  // it reach the UI. `compileContract`'s own `result.warnings` has no reader
+  // in this hook, so carry-over warnings are NOT pushed there too.
 
   // The main batch is left completely untouched — every row shares the same
   // key set (no `edited_content`), so supabase-js's column union can't null
@@ -81,7 +84,7 @@ async function compileAndReconcile(
       .upsert(carryOverUpserts, { onConflict: "spec_id,revision,artifact_name" });
     if (error) throw error;
   }
-  return reconcileArtifacts({ specId, revision, compiled, existing });
+  return reconcileArtifacts({ specId, revision, compiled, existing, artifactWarnings: carryOver.warningsByArtifact });
 }
 
 export function useCodeBuilder(specId: string | undefined, layer: CodegenLayer = "device") {

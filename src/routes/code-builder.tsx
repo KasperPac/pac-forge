@@ -169,6 +169,46 @@ export default function CodeBuilderPage() {
               approve.mutate(current.artifact_name);
             }}
           />
+          {/* Compile-time advisories scoped to THIS artifact (e.g. a custom-
+              region carry-over that couldn't merge on a revision bump). Any
+              layer/type — not gated to EM FBs like the safety gate below —
+              since e.g. a carry-over warning lands on an FC_*_Process. Reuses
+              the same acknowledged_warnings/acknowledgeWarning mechanism as
+              the safety gate, keyed by the warning text itself. */}
+          {current && (current.warnings ?? []).length > 0 && (
+            <div className="flex flex-col gap-1.5 border-t p-3 text-[11px]" data-testid="artifact-warnings">
+              <span className="font-semibold">Warnings</span>
+              {current.warnings.map((w) => {
+                const done = current.acknowledged_warnings.includes(w);
+                return (
+                  <div
+                    key={w}
+                    className="flex items-start justify-between gap-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-400"
+                  >
+                    <span>{w}</span>
+                    {done ? (
+                      <span className="shrink-0 text-[9px] text-muted-foreground">acknowledged</span>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 shrink-0 text-[9px]"
+                        data-testid={`ack-artifact-warning-${w}`}
+                        onClick={() =>
+                          acknowledgeWarning.mutate({
+                            artifactName: current.artifact_name,
+                            warningKeys: [...current.acknowledged_warnings, w],
+                          })
+                        }
+                      >
+                        Acknowledge
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
           {current?.type === "FB" && (
             <div className="border-t p-2">
               <PromoteLibraryPanel
