@@ -30,3 +30,12 @@ export const driveDbName = (fbName: string, cmScl: string): string => `${fbName}
 /** Project-level IO conditioning layer (G1-4b). */
 export const IO_COND_DB = "IO_Cond";
 export const IO_COND_FB = "FB_IO_Conditioning";
+
+/** G5-4 layer scaffolding (Pac Program Structure Standard v1). */
+export const FC_INPUTS = "FC_Inputs";
+export const FC_OUTPUTS = "FC_Outputs";
+export const FC_MAINTENANCE = "FC_Maintenance";
+export const FOLDER_SYSTEM = "00_System";
+export const FOLDER_LIBRARY = "Library";
+export const unitProcessFcName = (unitScl: string): string => `FC_${unitScl}_Process`;
+export const unitManagementFcName = (unitScl: string): string => `FC_${unitScl}_Management`;
