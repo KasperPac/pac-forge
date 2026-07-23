@@ -1,30 +1,40 @@
 // src/lib/spec-builder/codegen/ob1-writer.ts
+//
+// G5-4 — Main is a fixed scan-cycle table of contents. It NEVER grows except
+// by two lines per unit; all content lives in the layer / unit FCs.
 import type { CodegenArtifact } from "./types";
-
-const FOLDER = "Program blocks";
+import { FC_INPUTS, FC_MAINTENANCE, FC_OUTPUTS, unitManagementFcName, unitProcessFcName } from "./naming";
 
 /** Minimal handle on a compiled Unit for the OB1 call tree. */
 export interface UnitCallRef {
   sclName: string;
 }
 
-/** Emit OB1: device/EM instance calls first, then each Unit's S/A sequencer. */
-export function writeOb1(deviceCallLines: string[], units: UnitCallRef[]): CodegenArtifact {
-  const unitCalls = units.map((u) => `   "UC_${u.sclName}"(db := "DB_${u.sclName}");`);
-  const deps: string[] = [];
-  for (const u of units) { deps.push(`UC_${u.sclName}`, `DB_${u.sclName}`); }
+/** Emit the layer-ordered Main of the Pac Program Structure Standard v1. */
+export function writeOb1(units: UnitCallRef[]): CodegenArtifact {
+  const processCalls = units.map((u) => `   "${unitProcessFcName(u.sclName)}"();`);
+  const managementCalls = units.map((u) => `   "${unitManagementFcName(u.sclName)}"();`);
+  const deps = [
+    FC_INPUTS, FC_OUTPUTS, FC_MAINTENANCE,
+    ...units.flatMap((u) => [unitProcessFcName(u.sclName), unitManagementFcName(u.sclName)]),
+  ];
   const content = [
     `ORGANIZATION_BLOCK "Main"`,
     `{ S7_Optimized_Access := 'TRUE' }`,
     `VERSION : 0.1`,
     `BEGIN`,
-    `   // --- Control / Equipment module instances ---`,
-    ...deviceCallLines,
+    `   "${FC_INPUTS}"();   // conditioning + input mapping`,
     ``,
-    `   // --- Unit sequencers ---`,
-    ...unitCalls,
+    `   // --- process layer: unit brains decide ---`,
+    ...processCalls,
+    ``,
+    `   // --- management layer: instances execute ---`,
+    ...managementCalls,
+    ``,
+    `   "${FC_OUTPUTS}"();   // output mapping + drive telegrams`,
+    `   "${FC_MAINTENANCE}"();   // overrides — always the last call`,
     `END_ORGANIZATION_BLOCK`,
     ``,
   ].join("\n");
-  return { name: "Main", type: "OB", filename: "Main.ob", content, dependencies: deps, folder: FOLDER, layer: "ob1" };
+  return { name: "Main", type: "OB", filename: "Main.ob", content, dependencies: deps, folder: "Program blocks", layer: "ob1" };
 }
