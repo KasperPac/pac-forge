@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { carryOverCustomRegions } from "../custom-region-carryover";
+import { carryOverCustomRegions, buildCarryOverUpserts } from "../custom-region-carryover";
 import { CUSTOM_REGION_BEGIN, CUSTOM_REGION_END } from "../codegen/custom-region";
 
 const freshProcess = [
@@ -37,5 +37,39 @@ describe("carryOverCustomRegions", () => {
   it("no-ops when there are no Process FCs or no prior edits", async () => {
     const r = await carryOverCustomRegions([{ name: "Main", content: "OB" }], "s", 2, async () => []);
     expect(r.contents.size).toBe(0);
+  });
+});
+
+describe("buildCarryOverUpserts", () => {
+  const base = [
+    { spec_id: "s", revision: 2, artifact_name: "FC_Process_Unit_Process", layer: "unit", generated_content: "fresh" },
+    { spec_id: "s", revision: 2, artifact_name: "Main", layer: "ob1", generated_content: "OB" },
+  ];
+
+  it("returns only carried-over rows, each with edited_content plus its original base fields", () => {
+    const contents = new Map([["FC_Process_Unit_Process", "merged"]]);
+    const result = buildCarryOverUpserts(base, contents);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({
+      spec_id: "s", revision: 2, artifact_name: "FC_Process_Unit_Process", layer: "unit",
+      generated_content: "fresh", edited_content: "merged",
+    });
+  });
+
+  it("every row in the batch carries the same key set (edited_content on all, none omitted)", () => {
+    const contents = new Map([
+      ["FC_Process_Unit_Process", "merged-1"],
+      ["Main", "merged-2"],
+    ]);
+    const result = buildCarryOverUpserts(base, contents);
+    expect(result).toHaveLength(2);
+    for (const row of result) {
+      expect(Object.prototype.hasOwnProperty.call(row, "edited_content")).toBe(true);
+      expect(typeof row.edited_content).toBe("string");
+    }
+  });
+
+  it("returns an empty array when nothing carried over", () => {
+    expect(buildCarryOverUpserts(base, new Map())).toEqual([]);
   });
 });

@@ -87,6 +87,13 @@ export function SendToTiaPanel({
 
         {error && <p className="text-xs text-destructive">{error}</p>}
         {sendError && <p className="text-xs text-destructive">{sendError}</p>}
+        {plan && plan.warnings.length > 0 && (
+          <div className="space-y-0.5">
+            {plan.warnings.map((w, i) => (
+              <p key={i} className="text-xs text-amber-600">{w}</p>
+            ))}
+          </div>
+        )}
 
         {plan && !compileResult && (
           <ScrollArea className="h-40 rounded-md border">

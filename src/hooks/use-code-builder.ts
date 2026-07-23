@@ -3,7 +3,9 @@ import { supabase } from "@/lib/supabase";
 import { loadSpecContract } from "@/lib/spec-builder/contract";
 import { compileContract, filterByLayer } from "@/lib/spec-builder/codegen";
 import type { CodegenLayer } from "@/lib/spec-builder/codegen";
-import { carryOverCustomRegions, loadPriorEditsSupabase } from "@/lib/spec-builder/custom-region-carryover";
+import {
+  carryOverCustomRegions, buildCarryOverUpserts, loadPriorEditsSupabase,
+} from "@/lib/spec-builder/custom-region-carryover";
 import {
   buildEmUiModel,
   type CodeBuilderUnitGroup, type CodeBuilderEmInfo,
@@ -47,28 +49,36 @@ async function compileAndReconcile(
   const result = compileContract(contract, templates);
   const compiled = filterByLayer(result.artifacts, layer);
 
-  // G5-4 §3: an FC_<Unit>_Process artifact with no row yet for this revision
-  // (i.e. this is its first compile at this revision) may still have a prior
-  // revision's hand-authored custom region — carry it over so it lands as
-  // this row's edited_content, not lost behind the fresh generation.
-  const existingNames = new Set(existing.map((r) => r.artifact_name));
-  const freshArtifacts = compiled.filter((a) => !existingNames.has(a.name));
+  // G5-4 §3: an FC_<Unit>_Process artifact with no CURRENT-revision edit yet
+  // (either no row at all, or a row whose edited_content is still null/empty
+  // — e.g. a pre-feature row) may still have a prior revision's hand-authored
+  // custom region — carry it over so it lands as this row's edited_content,
+  // not lost behind the fresh generation. Aligned with use-send-code-to-tia's
+  // gate so the two surfaces never disagree on which rows need carry-over.
+  const editedNames = new Set(existing.filter((r) => r.edited_content).map((r) => r.artifact_name));
+  const freshArtifacts = compiled.filter((a) => !editedNames.has(a.name));
   const carryOver = await carryOverCustomRegions(
     freshArtifacts.map((a) => ({ name: a.name, content: a.content })),
     specId, revision, loadPriorEditsSupabase,
   );
   result.warnings.push(...carryOver.warnings);
 
-  const upserts: (ReturnType<typeof toUpserts>[number] & { edited_content?: string })[] =
-    toUpserts({ specId, revision, compiled, existing });
-  for (const u of upserts) {
-    const merged = carryOver.contents.get(u.artifact_name);
-    if (merged !== undefined) u.edited_content = merged;
-  }
+  // The main batch is left completely untouched — every row shares the same
+  // key set (no `edited_content`), so supabase-js's column union can't null
+  // out a sibling's saved edit. Carry-over rows are upserted SEPARATELY, as
+  // their own homogeneous batch (see buildCarryOverUpserts doc comment).
+  const upserts = toUpserts({ specId, revision, compiled, existing });
   if (upserts.length) {
     const { error } = await supabase
       .from(TABLE)
       .upsert(upserts, { onConflict: "spec_id,revision,artifact_name" });
+    if (error) throw error;
+  }
+  const carryOverUpserts = buildCarryOverUpserts(upserts, carryOver.contents);
+  if (carryOverUpserts.length) {
+    const { error } = await supabase
+      .from(TABLE)
+      .upsert(carryOverUpserts, { onConflict: "spec_id,revision,artifact_name" });
     if (error) throw error;
   }
   return reconcileArtifacts({ specId, revision, compiled, existing });
