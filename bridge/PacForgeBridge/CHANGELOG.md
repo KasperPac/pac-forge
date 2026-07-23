@@ -4,6 +4,34 @@ Every bridge change bumps `BridgeVersion` in `TiaPortalService.cs` (semver:
 new capability = minor, fix = patch) and gets an entry here. The running
 version is visible at `GET /tia/status`.
 
+## 1.4.2 — 2026-07-23
+
+PLCSIM Advanced API bound to the installed runtime version:
+
+- `PacForgeBridge.csproj` referenced the PLCSIM Advanced **6.0** Runtime API DLL;
+  the dev/commissioning machine runs PLCSIM Advanced **7.0**. The managed API is
+  versioned per release and must match the running runtime, so `RegisterInstance`
+  could bind against the wrong runtime. HintPath swapped to
+  `...\PLCSIMADV\API\7.0\Siemens.Simatic.Simulation.Runtime.Api.x64.dll`. No
+  App.config binding redirect exists for this assembly, so the reference swap +
+  rebuild is sufficient. Enables the automated PLCSIM-Advanced test loop
+  (`PlcsimService` + app `use-plcsim-runner`) to drive the generated program.
+  (V20 bridge only — `PlcsimService` is `#if !TIA_V18`.)
+
+## 1.4.1 — 2026-07-23
+
+Stale-project fix — disposed handle defeated the lazy-attach guard:
+
+- `IsProjectOpen` / `HasProjectOpen` now probe the cached project handle and
+  re-acquire `Projects[0]` when it is stale, instead of a plain `_project != null`
+  check. When TIA closes/reopens/switches a project (e.g. the user reopening the
+  scratch project after the Openness whitelist Accept), the old COM object is
+  disposed but the cached reference stays non-null; the lazy-attach guard
+  (`if (!IsProjectOpen) Connect()`) then skipped the reconnect and the next member
+  access threw "Access to a disposed object of type 'Siemens.Engineering.Project'".
+  Surfaced on `POST /tia/migration/create-tags` (the first TIA-touching call in the
+  Send-to-TIA flow, G9-W4) with a 500; the same hole affected all ~15 guard sites.
+
 ## 1.4.0 — 2026-07-23
 
 G5-4 program-structure standard — folder-aware reimport:

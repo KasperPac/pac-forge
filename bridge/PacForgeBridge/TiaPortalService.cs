@@ -41,8 +41,64 @@ namespace PacForgeBridge
         private bool _disposed;
 
         public bool IsConnected => _tiaPortal != null;
-        public bool HasProjectOpen => _project != null;
-        public bool IsProjectOpen => _project != null;
+        public bool HasProjectOpen => EnsureProjectFresh();
+        public bool IsProjectOpen => EnsureProjectFresh();
+
+        /// <summary>
+        /// Verify the cached <see cref="_project"/> handle is still alive and points at the
+        /// currently-open project, refreshing it from the live Projects composition when it is not.
+        ///
+        /// When TIA closes / reopens / switches a project (e.g. the user reopening the scratch
+        /// project after the Openness whitelist Accept), the old COM object is disposed but our
+        /// cached reference stays non-null. A plain <c>_project != null</c> check then passes, the
+        /// lazy-attach guard (<c>if (!IsProjectOpen) Connect()</c>) is skipped, and the next member
+        /// access throws "Access to a disposed object of type 'Siemens.Engineering.Project'".
+        ///
+        /// Probing the handle here and re-acquiring Projects[0] fixes every guard site at once and
+        /// keeps the "always operate on the currently-open project" contract that Connect() relies on.
+        /// Returns true when a usable project is open.
+        /// </summary>
+        private bool EnsureProjectFresh()
+        {
+            if (_tiaPortal == null) return false;
+
+            try
+            {
+                var projects = _tiaPortal.Projects;
+
+                // Probe the cached handle — a disposed/closed project throws on any member access.
+                if (_project != null)
+                {
+                    try { var probe = _project.Name; }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[TIA] Cached project handle is stale ({ex.GetType().Name}); refreshing from Projects[0].");
+                        _project = null;
+                    }
+                }
+
+                // (Re)acquire from the live Projects composition.
+                if (_project == null && projects.Count > 0)
+                {
+                    _project = projects[0];
+                    Console.WriteLine($"[TIA] EnsureProjectFresh: picked up open project: {_project.Name}");
+                }
+                else if (_project != null && projects.Count == 0)
+                {
+                    _project = null;
+                }
+
+                return _project != null;
+            }
+            catch (Exception ex)
+            {
+                // The portal instance itself is stale — clear it so Connect() rebuilds it.
+                Console.WriteLine($"[TIA] EnsureProjectFresh: portal instance is stale ({ex.GetType().Name}: {ex.Message}); clearing.");
+                _tiaPortal = null;
+                _project = null;
+                return false;
+            }
+        }
         public CompileResultDto LastCompileResult { get; private set; }
         public Dictionary<string, string> LastImportedSources { get; private set; } = new Dictionary<string, string>();
 
@@ -108,7 +164,7 @@ namespace PacForgeBridge
                 Connected = connected,
                 TiaVersion = tiaVersion,
                 TiaProjectOpen = projectOpen,
-                BridgeVersion = "1.4.0",   // bump on EVERY bridge change + add a CHANGELOG.md entry
+                BridgeVersion = "1.4.2",   // bump on EVERY bridge change + add a CHANGELOG.md entry
                 SourcePlcFamily = sourcePlcFamily,
                 SourceCpuTypeId = sourceCpuTypeId,
             };
