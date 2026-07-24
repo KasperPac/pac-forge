@@ -13,6 +13,7 @@
 ## Global Constraints
 
 - All generation logic MUST be generic across machine types — no project-specific device names, sequences, or fault conditions (CLAUDE.md "All Changes Must Be Generic"). Golden tests cover ≥2 distinct machine types.
+- **Input model = the reconciled `SpecContractV2`** (via `loadSpecContract`) + `CodegenResult` (via `compileContract`) — NOT the Forge wizard's `ForgeControlModuleEntry` (being retired). Devices are nested `contract.hierarchy.units[!excluded].equipment_modules[].control_modules[]` with fields `control_module_id/_name/_class` and `io_signals[].tag/.signal_type` (`DI|DO|AI|AO|internal`). Instance DBs are `CodegenArtifact.type === "DB"` matched by `ownerId`. EM state tags use `emDbName(sclIdent(emName))` from codegen `naming.ts` so tag paths stay in lockstep with generated code.
 - Deterministic only — NO AI in the generation path.
 - TS strict: `import type` for type-only imports; no `enum` (use `as const` / string unions); no unused locals/params.
 - Pure builder/emitter modules: no React, no IO, no `Date.now()` inside the pure functions — the timestamp/note is passed in by the caller.
@@ -31,8 +32,14 @@
 - Test: `src/lib/spec-builder/dashboard/__tests__/dashboard-model.devices.test.ts`
 
 **Interfaces:**
-- Consumes: `SpecContractV2` (`src/types/spec-contract-v2.ts`), `CodegenResult`/`CodegenArtifact` (`src/lib/spec-builder/codegen/types.ts`), `FbTemplate` (`src/types/fb-template`), the existing `parseFbInterface`/`interfacePins` (`src/lib/spec-builder/fb-interface.ts`).
-- Produces: the `DashboardModel` type and `buildDevices(contract, compile, templates): { devices: DashDevice[]; warnings: string[] }`.
+- Consumes: `SpecContractV2`, `ControlModuleV2`, `SignalType` (`@/types/spec-contract-v2`), `CodegenResult`/`CodegenArtifact` (`@/lib/spec-builder/codegen/types`).
+- Produces: the `DashboardModel` type and `buildDevices(contract, compile): { devices: DashDevice[]; warnings: string[] }`.
+
+**REAL CONTRACT SHAPE (verified — do not use the Forge `ForgeControlModuleEntry` model, which is being retired):**
+- Devices live at `contract.hierarchy.units[]` (skip `unit.excluded`) → `unit.equipment_modules[]` → `em.control_modules[]`.
+- `ControlModuleV2` fields: `control_module_id`, `control_module_name`, `control_module_class`, `is_safety`, `description`, `io_signals: IoSignalV2[]`. There is **no** `tag`/`device_type`/`fb_template_id` on the CM.
+- `IoSignalV2` fields: `tag` (the PLC symbol — NOT `tag_name`), `signal_type` (`"DI"|"DO"|"AI"|"AO"|"internal"`), `io_address`, `description`, `source`.
+- Instance DBs: `CodegenArtifact.type === "DB"` (there is **no** `"instance_db"` literal); match to a CM via `artifact.ownerId === control_module_id` (often absent in the synthesize path — `instanceDb` is nullable/display-only).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -43,40 +50,53 @@ import { buildDevices } from "@/lib/spec-builder/dashboard/dashboard-model";
 import type { SpecContractV2 } from "@/types/spec-contract-v2";
 import type { CodegenResult } from "@/lib/spec-builder/codegen/types";
 
-// Minimal fixture: one motor control module with a run command + run feedback.
+// Minimal fixture in the REAL contract shape: one motor CM under a unit/EM.
 const contract = {
-  control_modules: [
-    {
-      id: "cm1", name: "Conveyor Motor", tag: "M01", device_type: "motor",
-      io_signals: [
-        { tag_name: "M01_Run", signal_type: "DO", description: "Run output" },
-        { tag_name: "M01_Fbk", signal_type: "DI", description: "Run feedback" },
-      ],
-      fb_template_id: null,
-    },
-  ],
-  equipment_modules: [],
+  hierarchy: {
+    units: [
+      {
+        unit_id: "u1", unit_name: "Line", excluded: false,
+        equipment_modules: [
+          {
+            equipment_module_id: "em1", equipment_module_name: "Drive",
+            control_modules: [
+              {
+                control_module_id: "cm1", control_module_name: "Conveyor Motor",
+                control_module_class: "motor", is_safety: false, description: "",
+                io_signals: [
+                  { tag: "M01_Run", signal_type: "DO", io_address: "Q0.0", description: "Run output", source: "wired" },
+                  { tag: "M01_Fbk", signal_type: "DI", io_address: "I0.0", description: "Run feedback", source: "wired" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  equipment_modules: {}, alarms: [], faults: [], io_list: [],
 } as unknown as SpecContractV2;
 
 const compile = {
   artifacts: [
-    { name: "InstM01", type: "instance_db", filename: "InstM01.db", content: "",
-      dependencies: [], folder: "Devices", layer: "device" },
+    { name: "EM_Drive_DB", type: "DB", filename: "EM_Drive_DB.db", content: "",
+      dependencies: [], folder: "Devices", layer: "em", ownerId: "cm1" },
   ],
   warnings: [],
 } as unknown as CodegenResult;
 
 describe("buildDevices", () => {
-  it("emits one device with typed signals and a command", () => {
-    const { devices, warnings } = buildDevices(contract, compile, []);
+  it("emits one device with typed signals, a command, and its instance DB", () => {
+    const { devices, warnings } = buildDevices(contract, compile);
     expect(devices).toHaveLength(1);
     const d = devices[0];
-    expect(d.tag).toBe("M01");
+    expect(d.name).toBe("Conveyor Motor");
     expect(d.deviceType).toBe("motor");
+    expect(d.instanceDb).toBe("EM_Drive_DB");
     // DI/DO signals become live-read tags with a Bool type
     expect(d.signals.map((s) => s.id)).toContain("M01_Fbk");
     expect(d.signals.every((s) => s.type === "Bool")).toBe(true);
-    // a DO signal is drivable as a command
+    // a DO signal is drivable as a momentary command
     expect(d.commands.map((c) => c.tag)).toContain("M01_Run");
     expect(warnings).toEqual([]);
   });
@@ -178,49 +198,54 @@ export interface DashboardModel {
 
 ```ts
 // src/lib/spec-builder/dashboard/dashboard-model.ts
-import type { SpecContractV2 } from "@/types/spec-contract-v2";
+import type { SpecContractV2, SignalType } from "@/types/spec-contract-v2";
 import type { CodegenResult } from "@/lib/spec-builder/codegen/types";
-import type { FbTemplate } from "@/types/fb-template";
-import type { DashDevice, DashTag, DashCommand } from "@/types/commissioning-dashboard";
+import type { DashDevice, DashTag, DashCommand, DashTagType } from "@/types/commissioning-dashboard";
 
-/** DI/DO/DB signals are digital in this pass → Bool. (Analog handled in a later task.) */
-function signalType(): "Bool" { return "Bool"; }
+/** DI/DO → Bool; AI/AO → Real. ("internal" signals are skipped in Plan 1.) */
+function dashType(sig: SignalType): DashTagType {
+  return sig === "AI" || sig === "AO" ? "Real" : "Bool";
+}
 
 export function buildDevices(
   contract: SpecContractV2,
   compile: CodegenResult,
-  _templates: FbTemplate[],
 ): { devices: DashDevice[]; warnings: string[] } {
   const warnings: string[] = [];
-  const instByTag = new Map<string, string>();
+  // instance DBs by owning control-module id, from the compile result
+  const dbByOwner = new Map<string, string>();
   for (const a of compile.artifacts) {
-    if (a.type === "instance_db" && a.ownerId) instByTag.set(a.ownerId, a.name);
+    if (a.type === "DB" && a.ownerId) dbByOwner.set(a.ownerId, a.name);
   }
 
-  const devices: DashDevice[] = (contract.control_modules ?? []).map((cm) => {
-    const signals: DashTag[] = [];
-    const commands: DashCommand[] = [];
-    for (const sig of cm.io_signals ?? []) {
-      if (!sig.tag_name) continue;
-      const tag: DashTag = { id: sig.tag_name, type: signalType(), label: sig.description || sig.tag_name };
-      signals.push(tag);
-      // Outputs (DO) are operator-drivable as momentary commands.
-      if (sig.signal_type === "DO") {
-        commands.push({ tag: sig.tag_name, type: "Bool", label: sig.description || sig.tag_name, momentary: true });
+  const devices: DashDevice[] = [];
+  for (const unit of contract.hierarchy.units) {
+    if (unit.excluded) continue;
+    for (const em of unit.equipment_modules) {
+      for (const cm of em.control_modules) {
+        const signals: DashTag[] = [];
+        const commands: DashCommand[] = [];
+        for (const sig of cm.io_signals) {
+          if (sig.signal_type === "internal") continue;
+          signals.push({ id: sig.tag, type: dashType(sig.signal_type), label: sig.description || sig.tag });
+          // Outputs (DO) are operator-drivable as momentary commands.
+          if (sig.signal_type === "DO") {
+            commands.push({ tag: sig.tag, type: "Bool", label: sig.description || sig.tag, momentary: true });
+          }
+        }
+        if (signals.length === 0) warnings.push(`Device ${cm.control_module_name}: no IO signals — nothing to display`);
+        devices.push({
+          id: cm.control_module_id,
+          name: cm.control_module_name,
+          tag: cm.control_module_name, // contract CMs carry no short tag; name doubles as the label
+          deviceType: cm.control_module_class,
+          instanceDb: dbByOwner.get(cm.control_module_id) ?? null,
+          signals,
+          commands,
+        });
       }
     }
-    if (signals.length === 0) warnings.push(`Device ${cm.tag}: no IO signals — nothing to display`);
-    return {
-      id: cm.id,
-      name: cm.name,
-      tag: cm.tag,
-      deviceType: cm.device_type,
-      instanceDb: instByTag.get(cm.id) ?? null,
-      signals,
-      commands,
-    };
-  });
-
+  }
   return { devices, warnings };
 }
 ```
@@ -246,8 +271,10 @@ git commit -m "feat(dashboard): DashboardModel types + device derivation (G7-9)"
 - Test: `src/lib/spec-builder/dashboard/__tests__/dashboard-model.ems.test.ts`
 
 **Interfaces:**
-- Consumes: `buildEmUiModel` (`src/lib/spec-builder/code-builder-em-ui-model.ts`) which yields `{ unitGroups, emById }` with per-EM `{ states, transitions }`.
+- Consumes: `buildEmUiModel` (`@/lib/spec-builder/code-builder-em-ui-model`) → `{ unitGroups: {unitId,unitName,emIds:string[]}[], emById: Record<id,{emId,emName,states:EmStateV2[],transitions:EmTransitionV2[]}> }`; `emDbName` (`@/lib/spec-builder/codegen/naming`); `sclIdent` (`@/lib/spec-builder/codegen/sa-builder`).
 - Produces: `buildEms(contract): { ems: DashEm[]; warnings: string[] }`.
+
+**REAL shapes (verified):** `EmStateV2` = `{ state_id, name, kind, ... }`; `EmTransitionV2` = `{ transition_id, from_state_id, to_state_id, trigger, guard }` (transitions reference state *ids*, not names — map through the state list). `emDbName(emScl)` returns `EM_<emScl>_DB` and its `.state` member is the codegen/HMI state binding, so the dashboard's state tag is exactly `${emDbName(sclIdent(emName))}.state` — reusing codegen's own naming keeps tag paths in lockstep.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -258,27 +285,32 @@ import { buildEms } from "@/lib/spec-builder/dashboard/dashboard-model";
 import type { SpecContractV2 } from "@/types/spec-contract-v2";
 
 const contract = {
-  control_modules: [],
   hierarchy: {
     units: [
-      { id: "u1", name: "Line", excluded: false,
-        equipment_modules: [{ id: "em1", name: "Drive" }] },
+      { unit_id: "u1", unit_name: "Line", excluded: false,
+        equipment_modules: [{ equipment_module_id: "em1", equipment_module_name: "Drive", control_modules: [] }] },
     ],
   },
-  equipment_modules: [
-    { id: "em1", name: "Drive",
-      states: [{ name: "Idle" }, { name: "Execute" }],
-      transitions: [{ from: "Idle", to: "Execute", command: "start" }] },
-  ],
+  equipment_modules: {
+    em1: {
+      states: [
+        { state_id: "s0", name: "Idle", kind: "idle" },
+        { state_id: "s1", name: "Execute", kind: "active" },
+      ],
+      transitions: [{ transition_id: "t1", from_state_id: "s0", to_state_id: "s1", trigger: {}, guard: [] }],
+    },
+  },
 } as unknown as SpecContractV2;
 
 describe("buildEms", () => {
-  it("emits an EM with an ordered state list and a state tag", () => {
+  it("emits an EM with an ordered state list, a state tag, and name-mapped transitions", () => {
     const { ems } = buildEms(contract);
     expect(ems).toHaveLength(1);
     expect(ems[0].stateTag).toBe("EM_Drive_DB.state");
+    expect(ems[0].unit).toBe("Line");
     expect(ems[0].states.map((s) => s.name)).toEqual(["Idle", "Execute"]);
     expect(ems[0].states[0].index).toBe(0);
+    expect(ems[0].transitions[0]).toMatchObject({ from: "Idle", to: "Execute" });
   });
 });
 ```
@@ -293,33 +325,37 @@ Expected: FAIL — `buildEms` not exported.
 ```ts
 // append to dashboard-model.ts
 import { buildEmUiModel } from "@/lib/spec-builder/code-builder-em-ui-model";
+import { emDbName } from "@/lib/spec-builder/codegen/naming";
+import { sclIdent } from "@/lib/spec-builder/codegen/sa-builder";
 import type { DashEm, DashEmState, DashEmTransition } from "@/types/commissioning-dashboard";
-
-/** EM instance-DB naming matches codegen: EM_<Name>_DB with the name sanitised. */
-function emDbName(name: string): string {
-  return `EM_${name.replace(/[^A-Za-z0-9]/g, "_")}_DB`;
-}
 
 export function buildEms(contract: SpecContractV2): { ems: DashEm[]; warnings: string[] } {
   const warnings: string[] = [];
   const ui = buildEmUiModel(contract);
   const ems: DashEm[] = [];
   for (const group of ui.unitGroups) {
-    for (const emRef of group.ems) {
-      const info = ui.emById[emRef.id];
-      const states: DashEmState[] = (info?.states ?? []).map((s, i) => ({ index: i, name: s.name }));
-      const transitions: DashEmTransition[] = (info?.transitions ?? []).map((t) => ({
-        from: t.from, to: t.to, label: t.command ?? t.label ?? "",
+    for (const emId of group.emIds) {
+      const info = ui.emById[emId];
+      if (!info) continue;
+      const states: DashEmState[] = info.states.map((s, i) => ({ index: i, name: s.name }));
+      const nameById = new Map(info.states.map((s) => [s.state_id, s.name]));
+      const transitions: DashEmTransition[] = info.transitions.map((t) => ({
+        from: nameById.get(t.from_state_id) ?? t.from_state_id,
+        to: nameById.get(t.to_state_id) ?? t.to_state_id,
+        label: "", // trigger/guard formatting deferred to Plan 2
       }));
-      if (states.length === 0) warnings.push(`EM ${emRef.name}: no state machine — state view will be empty`);
+      if (states.length === 0) warnings.push(`EM ${info.emName}: no state machine — state view will be empty`);
       ems.push({
-        id: emRef.id,
-        name: emRef.name,
+        id: emId,
+        name: info.emName,
         unit: group.unitName,
-        stateTag: `${emDbName(emRef.name)}.state`,
+        // `.state` value is the CASE-order index; the states array is in that
+        // same order, so stateLabel(index) resolves correctly. Reusing
+        // emDbName(sclIdent(name)) keeps the tag identical to generated code.
+        stateTag: `${emDbName(sclIdent(info.emName))}.state`,
         states,
         transitions,
-        commands: [], // command pins derived in a later task once contract seam is confirmed
+        commands: [], // EM command pins derived in Plan 2 once the CMD seam is wired
       });
     }
   }
@@ -327,7 +363,7 @@ export function buildEms(contract: SpecContractV2): { ems: DashEm[]; warnings: s
 }
 ```
 
-> NOTE for implementer: confirm the exact `buildEmUiModel` return field names (`unitGroups[].ems`, `.unitName`, `emById[id].states[].name`, `.transitions[].from/to/command`) against `code-builder-em-ui-model.ts` and adjust the property reads if they differ. The shape is asserted by this task's test, so a mismatch fails here, not downstream.
+> NOTE for implementer: `sclIdent` is exported from `sa-builder.ts`. If importing it there pulls in heavy transitive deps that slow the suite, it is fine to leave as-is for Plan 1 — do not relocate it. The state-index↔array-order assumption is verified live against the sim in Plan 2; do not add PLC-specific index remapping here.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -350,8 +386,8 @@ git commit -m "feat(dashboard): EM state/transition derivation (G7-9)"
 - Test: `src/lib/spec-builder/dashboard/__tests__/dashboard-model.test.ts`
 
 **Interfaces:**
-- Consumes: `instantiateSimRules` (`src/lib/plcsim-test-instantiate.ts`), the contract fault model (`control_modules[].io_signals` flagged as fault + `FaultRefSchema`/fault fan-in).
-- Produces: `buildDashboardModel(input: DashboardBuildInput): DashboardModel`, where `DashboardBuildInput = { contract, compile, templates, project }` and `project = { name; specId; revision; generatedNote }`.
+- Consumes: `contract.faults: FaultRow[]` (`{ fault_code, description, triggered_by_tag, severity: "warning"|"fault"|"critical", affected_control_modules, action_text }`) and `contract.alarms: AlarmRow[]` (`{ id, tier_id, tag, description, ... }`).
+- Produces: `buildDashboardModel(input: DashboardBuildInput): DashboardModel`, where `DashboardBuildInput = { contract, compile, project }` and `project = { name; specId; revision; generatedNote }`. (No `templates` — device/EM/alarm derivation needs none.)
 
 - [ ] **Step 1: Write the failing test**
 
@@ -363,30 +399,49 @@ import type { SpecContractV2 } from "@/types/spec-contract-v2";
 import type { CodegenResult } from "@/lib/spec-builder/codegen/types";
 
 const contract = {
-  control_modules: [
-    { id: "cm1", name: "Motor", tag: "M01", device_type: "motor",
-      io_signals: [
-        { tag_name: "M01_Run", signal_type: "DO", description: "Run" },
-        { tag_name: "M01_Trip", signal_type: "DI", description: "Overload trip", is_fault: true },
-      ], fb_template_id: null },
+  hierarchy: {
+    units: [
+      { unit_id: "u1", unit_name: "Line", excluded: false,
+        equipment_modules: [
+          { equipment_module_id: "em1", equipment_module_name: "Drive",
+            control_modules: [
+              { control_module_id: "cm1", control_module_name: "Motor", control_module_class: "motor",
+                is_safety: false, description: "",
+                io_signals: [
+                  { tag: "M01_Run", signal_type: "DO", io_address: "Q0.0", description: "Run", source: "wired" },
+                  { tag: "M01_Fbk", signal_type: "DI", io_address: "I0.0", description: "Running feedback", source: "wired" },
+                ] },
+            ] },
+        ] },
+    ],
+  },
+  equipment_modules: {},
+  alarms: [],
+  faults: [
+    { fault_code: "F01", description: "Motor overload trip", triggered_by_tag: "M01_Trip",
+      severity: "fault", affected_control_modules: ["cm1"], action_text: "stop" },
   ],
-  equipment_modules: [],
-  hierarchy: { units: [] },
+  io_list: [],
 } as unknown as SpecContractV2;
 const compile = { artifacts: [], warnings: [] } as unknown as CodegenResult;
 
 describe("buildDashboardModel", () => {
   const model = buildDashboardModel({
-    contract, compile, templates: [],
+    contract, compile,
     project: { name: "Test Machine", specId: "s1", revision: 3, generatedNote: "generated 2026-07-24" },
   });
 
-  it("collects a fault signal into alarms", () => {
+  it("collects a fault into alarms with severity→class + hi trigger", () => {
     expect(model.alarms.map((a) => a.tag)).toContain("M01_Trip");
-    expect(model.alarms[0].trigger).toBe("hi");
+    expect(model.alarms[0]).toMatchObject({ trigger: "hi", class: "Fault" });
   });
 
-  it("readTags is the deduped union of device + em + alarm + setpoint tags", () => {
+  it("builds a command→feedback sim rule for the motor", () => {
+    expect(model.simRules).toHaveLength(1);
+    expect(model.simRules[0]).toMatchObject({ triggerTag: "M01_Run", responseTag: "M01_Fbk", delayMs: 500 });
+  });
+
+  it("readTags is the deduped union of device + em + alarm tags", () => {
     const ids = model.readTags.map((t) => t.id);
     expect(ids).toContain("M01_Run");
     expect(ids).toContain("M01_Trip");
@@ -410,52 +465,63 @@ Expected: FAIL — `buildDashboardModel` not exported.
 ```ts
 // append to dashboard-model.ts
 import type {
-  DashboardModel, DashAlarm, DashSetpoint, DashSimRule, DashTag,
+  DashboardModel, DashDevice, DashAlarm, DashSetpoint, DashSimRule, DashTag,
 } from "@/types/commissioning-dashboard";
 
 export interface DashboardBuildInput {
   contract: SpecContractV2;
   compile: CodegenResult;
-  templates: FbTemplate[];
   project: { name: string; specId: string; revision: number; generatedNote: string };
 }
 
 function buildAlarms(contract: SpecContractV2): DashAlarm[] {
   const alarms: DashAlarm[] = [];
-  for (const cm of contract.control_modules ?? []) {
-    for (const sig of cm.io_signals ?? []) {
-      if (!sig.tag_name) continue;
-      // A signal explicitly flagged as a fault raises an alarm when it goes active.
-      if ((sig as { is_fault?: boolean }).is_fault) {
-        alarms.push({ tag: sig.tag_name, trigger: "hi", class: "Fault", text: sig.description || `${cm.name} fault` });
-      }
-    }
+  // Faults carry the trigger tag + severity — the primary alarm source.
+  for (const f of contract.faults ?? []) {
+    alarms.push({
+      tag: f.triggered_by_tag,
+      trigger: "hi",
+      class: f.severity === "warning" ? "Warning" : "Fault",
+      text: f.description || f.fault_code,
+    });
+  }
+  // Alarm rows add anything not already covered by a fault.
+  for (const a of contract.alarms ?? []) {
+    if (alarms.some((x) => x.tag === a.tag)) continue;
+    alarms.push({ tag: a.tag, trigger: "hi", class: "Fault", text: a.description || a.tag });
   }
   return alarms;
 }
 
 function buildSetpoints(_contract: SpecContractV2): DashSetpoint[] {
-  // Writable CMD sp_ members are surfaced once the command-DB seam is confirmed;
-  // Plan 1 emits an empty list (Settings page renders "no setpoints").
+  // Writable <EM>_CMD sp_* members are surfaced in Plan 2 once the command-DB
+  // seam is wired; Plan 1 emits an empty list (Settings renders "no setpoints").
   return [];
 }
 
-function buildSimRules(contract: SpecContractV2, devices: { id: string; commands: { tag: string }[] }[]): DashSimRule[] {
-  // Deterministic default rule per motor-like device: DO command → DI feedback after 500 ms.
+function buildSimRules(contract: SpecContractV2, devices: DashDevice[]): DashSimRule[] {
+  // Deterministic default rule per device that has a DO command AND a genuine
+  // run/running feedback DI: feedback follows the command after 500 ms.
   const rules: DashSimRule[] = [];
-  for (const cm of contract.control_modules ?? []) {
-    const dev = devices.find((d) => d.id === cm.id);
-    const cmd = dev?.commands[0];
-    const fbk = (cm.io_signals ?? []).find(
-      (s) => s.signal_type === "DI" && /fbk|feedback|run|running/i.test(s.description || s.tag_name || ""),
-    );
-    if (cmd && fbk?.tag_name) {
-      rules.push({
-        deviceId: cm.id, triggerTag: cmd.tag, triggerValue: true,
-        responseTag: fbk.tag_name, responseValue: true, responseType: "Bool",
-        delayMs: 500, faultInjectable: true,
-        description: `${cm.name}: ${fbk.tag_name} follows ${cmd.tag} after 500 ms`,
-      });
+  const byId = new Map(devices.map((d) => [d.id, d]));
+  for (const unit of contract.hierarchy.units) {
+    if (unit.excluded) continue;
+    for (const em of unit.equipment_modules) {
+      for (const cm of em.control_modules) {
+        const dev = byId.get(cm.control_module_id);
+        const cmd = dev?.commands[0];
+        const fbk = cm.io_signals.find(
+          (s) => s.signal_type === "DI" && /\b(fbk|feedback|running|run)\b/i.test(s.description || s.tag),
+        );
+        if (cmd && fbk) {
+          rules.push({
+            deviceId: cm.control_module_id, triggerTag: cmd.tag, triggerValue: true,
+            responseTag: fbk.tag, responseValue: true, responseType: "Bool",
+            delayMs: 500, faultInjectable: true,
+            description: `${cm.control_module_name}: ${fbk.tag} follows ${cmd.tag} after 500 ms`,
+          });
+        }
+      }
     }
   }
   return rules;
@@ -473,7 +539,7 @@ function unionReadTags(model: Omit<DashboardModel, "readTags" | "warnings">): Da
 }
 
 export function buildDashboardModel(input: DashboardBuildInput): DashboardModel {
-  const { devices, warnings: dw } = buildDevices(input.contract, input.compile, input.templates);
+  const { devices, warnings: dw } = buildDevices(input.contract, input.compile);
   const { ems, warnings: ew } = buildEms(input.contract);
   const alarms = buildAlarms(input.contract);
   const setpoints = buildSetpoints(input.contract);
@@ -1163,9 +1229,9 @@ export function useGenerateDashboard() {
       setGenerating(true);
       try {
         const contract = await loadSpecContract(specId);
-        const compile = compileContract(contract, templates);
+        const compile = compileContract(contract, templates); // templates still needed by the compiler
         const model = buildDashboardModel({
-          contract, compile, templates,
+          contract, compile,
           project: { name: project.name, specId, revision: project.revision, generatedNote: project.generatedNote },
         });
         setWarnings(model.warnings);
@@ -1320,31 +1386,56 @@ git commit -m "feat(dashboard): Code Builder commissioning-dashboard panel (G7-9
 - [ ] **Step 1: Write the two fixtures**
 
 ```ts
-// fixtures/conveyor-contract.ts — a 2-conveyor line
+// fixtures/conveyor-contract.ts — a 2-conveyor line (real nested contract shape)
 import type { SpecContractV2 } from "@/types/spec-contract-v2";
-export const conveyorContract = {
-  control_modules: [
-    { id: "c1", name: "Infeed Conveyor", tag: "CV01", device_type: "conveyor",
-      io_signals: [{ tag_name: "CV01_Run", signal_type: "DO", description: "Run" },
-                   { tag_name: "CV01_Fbk", signal_type: "DI", description: "Running feedback" }], fb_template_id: null },
-    { id: "c2", name: "Outfeed Conveyor", tag: "CV02", device_type: "conveyor",
-      io_signals: [{ tag_name: "CV02_Run", signal_type: "DO", description: "Run" },
-                   { tag_name: "CV02_Fbk", signal_type: "DI", description: "Running feedback" }], fb_template_id: null },
+const cm = (id: string, name: string, run: string, fbk: string) => ({
+  control_module_id: id, control_module_name: name, control_module_class: "conveyor",
+  is_safety: false, description: "",
+  io_signals: [
+    { tag: run, signal_type: "DO", io_address: "Q0.0", description: "Run", source: "wired" },
+    { tag: fbk, signal_type: "DI", io_address: "I0.0", description: "Running feedback", source: "wired" },
   ],
-  equipment_modules: [], hierarchy: { units: [] },
+});
+export const conveyorContract = {
+  hierarchy: {
+    units: [
+      { unit_id: "u1", unit_name: "Transfer", excluded: false,
+        equipment_modules: [
+          { equipment_module_id: "em1", equipment_module_name: "Infeed",
+            control_modules: [cm("c1", "Infeed Conveyor", "CV01_Run", "CV01_Fbk")] },
+          { equipment_module_id: "em2", equipment_module_name: "Outfeed",
+            control_modules: [cm("c2", "Outfeed Conveyor", "CV02_Run", "CV02_Fbk")] },
+        ] },
+    ],
+  },
+  equipment_modules: {}, alarms: [], faults: [], io_list: [],
 } as unknown as SpecContractV2;
 ```
 
 ```ts
-// fixtures/filler-contract.ts — a filling station with a fault input
+// fixtures/filler-contract.ts — a filling station with a fault (no run feedback)
 import type { SpecContractV2 } from "@/types/spec-contract-v2";
 export const fillerContract = {
-  control_modules: [
-    { id: "f1", name: "Fill Valve", tag: "VLV01", device_type: "valve",
-      io_signals: [{ tag_name: "VLV01_Open", signal_type: "DO", description: "Open" },
-                   { tag_name: "VLV01_Ovl", signal_type: "DI", description: "Overpressure trip", is_fault: true }], fb_template_id: null },
+  hierarchy: {
+    units: [
+      { unit_id: "u1", unit_name: "Fill Station", excluded: false,
+        equipment_modules: [
+          { equipment_module_id: "em1", equipment_module_name: "Filler",
+            control_modules: [
+              { control_module_id: "f1", control_module_name: "Fill Valve", control_module_class: "valve",
+                is_safety: false, description: "",
+                io_signals: [
+                  { tag: "VLV01_Open", signal_type: "DO", io_address: "Q1.0", description: "Open", source: "wired" },
+                ] },
+            ] },
+        ] },
+    ],
+  },
+  equipment_modules: {}, alarms: [], io_list: [],
+  faults: [
+    { fault_code: "F10", description: "Overpressure trip", triggered_by_tag: "VLV01_Ovl",
+      severity: "fault", affected_control_modules: ["f1"], action_text: "close" },
   ],
-  equipment_modules: [], hierarchy: { units: [] },
 } as unknown as SpecContractV2;
 ```
 
@@ -1362,17 +1453,18 @@ const empty = { artifacts: [], warnings: [] } as unknown as CodegenResult;
 const proj = { name: "X", specId: "s", revision: 1, generatedNote: "n" };
 
 describe("generic across machine types", () => {
-  it("conveyor line: 2 devices, 2 sim rules, no hardcoded names leaked", () => {
-    const m = buildDashboardModel({ contract: conveyorContract, compile: empty, templates: [], project: proj });
+  it("conveyor line: 2 devices, 2 sim rules, 0 alarms", () => {
+    const m = buildDashboardModel({ contract: conveyorContract, compile: empty, project: proj });
     expect(m.devices).toHaveLength(2);
     expect(m.simRules).toHaveLength(2);
     expect(m.alarms).toHaveLength(0);
   });
 
   it("filler: 1 device, 1 fault alarm, 0 sim rules (no run-feedback signal)", () => {
-    const m = buildDashboardModel({ contract: fillerContract, compile: empty, templates: [], project: proj });
+    const m = buildDashboardModel({ contract: fillerContract, compile: empty, project: proj });
     expect(m.devices).toHaveLength(1);
     expect(m.alarms.map((a) => a.tag)).toEqual(["VLV01_Ovl"]);
+    expect(m.simRules).toHaveLength(0);
   });
 });
 ```
