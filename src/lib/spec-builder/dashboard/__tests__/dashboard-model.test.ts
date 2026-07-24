@@ -88,4 +88,37 @@ describe("buildDashboardModel", () => {
     expect(model.project.name).toBe("Test Machine");
     expect(model.project.revision).toBe(3);
   });
+
+  it("skips a fault with an empty triggered_by_tag: no alarm, no \"\" entry in readTags", () => {
+    const emptyTagContract = {
+      hierarchy: {
+        units: [
+          { unit_id: "u1", unit_name: "Line", excluded: false,
+            equipment_modules: [
+              { equipment_module_id: "em1", equipment_module_name: "Drive",
+                control_modules: [
+                  { control_module_id: "cm1", control_module_name: "Motor", control_module_class: "motor",
+                    is_safety: false, description: "",
+                    io_signals: [
+                      { tag: "M01_Run", signal_type: "DO", io_address: "Q0.0", description: "Run", source: "wired" },
+                    ] },
+                ] },
+            ] },
+        ],
+      },
+      equipment_modules: {},
+      alarms: [],
+      faults: [
+        { fault_code: "F02", description: "Untagged fault", triggered_by_tag: "",
+          severity: "fault", affected_control_modules: ["cm1"], action_text: "stop" },
+      ],
+      io_list: [],
+    } as unknown as SpecContractV2;
+    const m = buildDashboardModel({
+      contract: emptyTagContract, compile,
+      project: { name: "Test Machine", specId: "s1", revision: 3, generatedNote: "generated 2026-07-24" },
+    });
+    expect(m.alarms).toHaveLength(0);
+    expect(m.readTags.map((t) => t.id)).not.toContain("");
+  });
 });

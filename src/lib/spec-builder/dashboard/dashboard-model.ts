@@ -7,6 +7,7 @@ import type {
 import { buildEmUiModel } from "@/lib/spec-builder/code-builder-em-ui-model";
 import { emDbName } from "@/lib/spec-builder/codegen/naming";
 import { sclIdent } from "@/lib/spec-builder/codegen/sa-builder";
+import { orderStates } from "@/lib/spec-builder/codegen/step-order";
 
 /** DI/DO → Bool; AI/AO → Real. ("internal" signals are skipped in Plan 1.) */
 function dashType(sig: SignalType): DashTagType {
@@ -63,7 +64,8 @@ export function buildEms(contract: SpecContractV2): { ems: DashEm[]; warnings: s
     for (const emId of group.emIds) {
       const info = ui.emById[emId];
       if (!info) continue;
-      const states: DashEmState[] = info.states.map((s, i) => ({ index: i, name: s.name }));
+      const ordered = orderStates(info.states, info.transitions);
+      const states: DashEmState[] = ordered.map((s, i) => ({ index: i, name: s.name }));
       const nameById = new Map(info.states.map((s) => [s.state_id, s.name]));
       const transitions: DashEmTransition[] = info.transitions.map((t) => ({
         from: nameById.get(t.from_state_id) ?? t.from_state_id,
@@ -75,9 +77,9 @@ export function buildEms(contract: SpecContractV2): { ems: DashEm[]; warnings: s
         id: emId,
         name: info.emName,
         unit: group.unitName,
-        // `.state` value is the CASE-order index; the states array is in that
-        // same order, so stateLabel(index) resolves correctly. Reusing
-        // emDbName(sclIdent(name)) keeps the tag identical to generated code.
+        // states are ordered with codegen's orderStates() so index i matches
+        // the generated .state CASE selector. Reusing emDbName(sclIdent(name))
+        // keeps the tag identical to generated code.
         stateTag: `${emDbName(sclIdent(info.emName))}.state`,
         states,
         transitions,
@@ -98,6 +100,7 @@ function buildAlarms(contract: SpecContractV2): DashAlarm[] {
   const alarms: DashAlarm[] = [];
   // Faults carry the trigger tag + severity — the primary alarm source.
   for (const f of contract.faults ?? []) {
+    if (!f.triggered_by_tag) continue;
     alarms.push({
       tag: f.triggered_by_tag,
       trigger: "hi",
@@ -107,6 +110,7 @@ function buildAlarms(contract: SpecContractV2): DashAlarm[] {
   }
   // Alarm rows add anything not already covered by a fault.
   for (const a of contract.alarms ?? []) {
+    if (!a.tag) continue;
     if (alarms.some((x) => x.tag === a.tag)) continue;
     alarms.push({ tag: a.tag, trigger: "hi", class: "Fault", text: a.description || a.tag });
   }

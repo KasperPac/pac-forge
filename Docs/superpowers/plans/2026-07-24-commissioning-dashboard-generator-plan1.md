@@ -327,6 +327,7 @@ Expected: FAIL — `buildEms` not exported.
 import { buildEmUiModel } from "@/lib/spec-builder/code-builder-em-ui-model";
 import { emDbName } from "@/lib/spec-builder/codegen/naming";
 import { sclIdent } from "@/lib/spec-builder/codegen/sa-builder";
+import { orderStates } from "@/lib/spec-builder/codegen/step-order";
 import type { DashEm, DashEmState, DashEmTransition } from "@/types/commissioning-dashboard";
 
 export function buildEms(contract: SpecContractV2): { ems: DashEm[]; warnings: string[] } {
@@ -337,7 +338,8 @@ export function buildEms(contract: SpecContractV2): { ems: DashEm[]; warnings: s
     for (const emId of group.emIds) {
       const info = ui.emById[emId];
       if (!info) continue;
-      const states: DashEmState[] = info.states.map((s, i) => ({ index: i, name: s.name }));
+      const ordered = orderStates(info.states, info.transitions);
+      const states: DashEmState[] = ordered.map((s, i) => ({ index: i, name: s.name }));
       const nameById = new Map(info.states.map((s) => [s.state_id, s.name]));
       const transitions: DashEmTransition[] = info.transitions.map((t) => ({
         from: nameById.get(t.from_state_id) ?? t.from_state_id,
@@ -349,9 +351,9 @@ export function buildEms(contract: SpecContractV2): { ems: DashEm[]; warnings: s
         id: emId,
         name: info.emName,
         unit: group.unitName,
-        // `.state` value is the CASE-order index; the states array is in that
-        // same order, so stateLabel(index) resolves correctly. Reusing
-        // emDbName(sclIdent(name)) keeps the tag identical to generated code.
+        // states are ordered with codegen's orderStates() so index i matches
+        // the generated .state CASE selector. Reusing emDbName(sclIdent(name))
+        // keeps the tag identical to generated code.
         stateTag: `${emDbName(sclIdent(info.emName))}.state`,
         states,
         transitions,
@@ -363,7 +365,7 @@ export function buildEms(contract: SpecContractV2): { ems: DashEm[]; warnings: s
 }
 ```
 
-> NOTE for implementer: `sclIdent` is exported from `sa-builder.ts`. If importing it there pulls in heavy transitive deps that slow the suite, it is fine to leave as-is for Plan 1 — do not relocate it. The state-index↔array-order assumption is verified live against the sim in Plan 2; do not add PLC-specific index remapping here.
+> NOTE for implementer: `sclIdent` is exported from `sa-builder.ts`. If importing it there pulls in heavy transitive deps that slow the suite, it is fine to leave as-is for Plan 1 — do not relocate it. The generated EM instance-DB `.state` value is the index produced by `orderStates()` (BFS from the safe state) — the same helper `em-builder.ts` uses to order states for codegen — so `buildEms` must run authored states through `orderStates()` before indexing; do not add a second, divergent ordering here.
 
 - [ ] **Step 4: Run test to verify it passes**
 
