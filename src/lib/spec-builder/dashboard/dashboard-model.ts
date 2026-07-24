@@ -1,6 +1,9 @@
 import type { SpecContractV2, SignalType } from "@/types/spec-contract-v2";
 import type { CodegenResult } from "@/lib/spec-builder/codegen/types";
-import type { DashDevice, DashTag, DashCommand, DashTagType } from "@/types/commissioning-dashboard";
+import type { DashDevice, DashTag, DashCommand, DashTagType, DashEm, DashEmState, DashEmTransition } from "@/types/commissioning-dashboard";
+import { buildEmUiModel } from "@/lib/spec-builder/code-builder-em-ui-model";
+import { emDbName } from "@/lib/spec-builder/codegen/naming";
+import { sclIdent } from "@/lib/spec-builder/codegen/sa-builder";
 
 /** DI/DO → Bool; AI/AO → Real. ("internal" signals are skipped in Plan 1.) */
 function dashType(sig: SignalType): DashTagType {
@@ -47,4 +50,37 @@ export function buildDevices(
     }
   }
   return { devices, warnings };
+}
+
+export function buildEms(contract: SpecContractV2): { ems: DashEm[]; warnings: string[] } {
+  const warnings: string[] = [];
+  const ui = buildEmUiModel(contract);
+  const ems: DashEm[] = [];
+  for (const group of ui.unitGroups) {
+    for (const emId of group.emIds) {
+      const info = ui.emById[emId];
+      if (!info) continue;
+      const states: DashEmState[] = info.states.map((s, i) => ({ index: i, name: s.name }));
+      const nameById = new Map(info.states.map((s) => [s.state_id, s.name]));
+      const transitions: DashEmTransition[] = info.transitions.map((t) => ({
+        from: nameById.get(t.from_state_id) ?? t.from_state_id,
+        to: nameById.get(t.to_state_id) ?? t.to_state_id,
+        label: "", // trigger/guard formatting deferred to Plan 2
+      }));
+      if (states.length === 0) warnings.push(`EM ${info.emName}: no state machine — state view will be empty`);
+      ems.push({
+        id: emId,
+        name: info.emName,
+        unit: group.unitName,
+        // `.state` value is the CASE-order index; the states array is in that
+        // same order, so stateLabel(index) resolves correctly. Reusing
+        // emDbName(sclIdent(name)) keeps the tag identical to generated code.
+        stateTag: `${emDbName(sclIdent(info.emName))}.state`,
+        states,
+        transitions,
+        commands: [], // EM command pins derived in Plan 2 once the CMD seam is wired
+      });
+    }
+  }
+  return { ems, warnings };
 }
