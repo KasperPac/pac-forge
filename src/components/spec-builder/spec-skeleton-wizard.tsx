@@ -30,11 +30,12 @@ import type {
   AlarmTier,
 } from "@/types/spec-builder";
 import { migrateUnitConfig, getUnitControlModuleCount } from "@/types/spec-builder";
-import type { OperatorMode, SafetyGateV2 } from "@/types/spec-contract-v2";
+import type { OperatorMode, SafetyGateV2, HardwareModelV1 } from "@/types/spec-contract-v2";
 import { seedDefaultModes, suggestSafetyGates } from "@/lib/spec-builder/wizard-machine-layer";
 import { buildHierarchyFromTags } from "@/lib/spec-builder/instrument-parser";
 import { mintUnitConfigUuids } from "@/lib/spec-builder/mint-uuids";
 import { MachineHierarchyTable } from "./machine-hierarchy-table";
+import { HardwareStep, emptyHardware, plcModelFromHardware } from "./hardware-step";
 import { cn } from "@/lib/utils";
 
 const HMI_OPTIONS = ["WinCC Unified", "WinCC Comfort", "None", "Other"];
@@ -44,6 +45,7 @@ const COMMS_OPTIONS = ["OPC UA", "PROFINET", "Ethernet/IP", "None"];
 const WIZARD_STEPS = [
   "Document Metadata",
   "Control System",
+  "Hardware",
   "Machine Hierarchy",
   "Machine Modes",
   "Safety Gates",
@@ -80,6 +82,11 @@ export function SpecSkeletonWizard({ spec, register, onComplete }: Props) {
     hmi_type: spec.hmi_type ?? "",
     comms_protocol: spec.comms_protocol ?? "",
   });
+
+  // Step 3 — Hardware model (seed empty; existing value wins)
+  const [hardware, setHardware] = useState<HardwareModelV1>(
+    () => (spec.hardware as HardwareModelV1 | null) ?? emptyHardware(),
+  );
 
   // Step 3 — Machine hierarchy (seeded from register tags).
   // Mint UUIDs for every unit/EM/CM id so `confirmed_units` is uuid-keyed:
@@ -123,25 +130,28 @@ export function SpecSkeletonWizard({ spec, register, onComplete }: Props) {
 
   const canNext = (() => {
     if (step === 0) return meta.doc_code.trim() && meta.title.trim() && meta.client_name.trim();
-    if (step === 1) return control.plc_model.trim();
-    if (step === 2) return units.some((s) => !s.excluded && s.equipment_modules.length > 0);
-    if (step === 3) return modes.length > 0 && modes.filter((m) => m.is_default).length === 1;
-    if (step === 4) return true; // safety gates optional
-    if (step === 5) return alarmTiers.length > 0;
+    if (step === 1) return true; // control system fields optional
+    if (step === 2) return true; // hardware optional (fit warnings are advisory)
+    if (step === 3) return units.some((s) => !s.excluded && s.equipment_modules.length > 0);
+    if (step === 4) return modes.length > 0 && modes.filter((m) => m.is_default).length === 1;
+    if (step === 5) return true; // safety gates optional
+    if (step === 6) return alarmTiers.length > 0;
     return true;
   })();
 
   const handleNext = useCallback(async () => {
-    if (step < 6) {
+    if (step < 7) {
       setStep((s) => s + 1);
       return;
     }
-    // Step 7 — confirm: save everything, mark ready, and flip the project to
+    // Step 8 — confirm: save everything, mark ready, and flip the project to
     // "confirmed" so the unconfirmed lock clears and downstream phases unlock.
     await updateSpec.mutateAsync({
       id: spec.id,
       ...meta,
       ...control,
+      plc_model: plcModelFromHardware(hardware),
+      hardware,
       confirmed_units: units,
       confirmed_modes: modes,
       safety_gates: safetyGates,
@@ -149,7 +159,7 @@ export function SpecSkeletonWizard({ spec, register, onComplete }: Props) {
       confirmation_status: "confirmed",
     });
     onComplete();
-  }, [step, spec.id, meta, control, units, modes, safetyGates, alarmTiers, updateSpec, onComplete]);
+  }, [step, spec.id, meta, control, hardware, units, modes, safetyGates, alarmTiers, updateSpec, onComplete]);
 
   const handleBack = () => setStep((s) => Math.max(0, s - 1));
 
@@ -269,6 +279,13 @@ Return ONLY a JSON array matching this TypeScript interface:
         {step === 0 && <StepMetadata meta={meta} onChange={setMeta} />}
         {step === 1 && <StepControlSystem control={control} onChange={setControl} />}
         {step === 2 && (
+          <HardwareStep
+            hardware={hardware}
+            onChange={setHardware}
+            signals={register.tags.map((t) => ({ signal_type: t.signal_type }))}
+          />
+        )}
+        {step === 3 && (
           <MachineHierarchyTable
             units={units}
             availableTags={register.tags}
@@ -277,8 +294,8 @@ Return ONLY a JSON array matching this TypeScript interface:
             inferring={inferringHierarchy}
           />
         )}
-        {step === 3 && <StepMachineModes modes={modes} onChange={setModes} />}
-        {step === 4 && (
+        {step === 4 && <StepMachineModes modes={modes} onChange={setModes} />}
+        {step === 5 && (
           <StepSafetyGates
             gates={safetyGates}
             onChange={setSafetyGates}
@@ -288,8 +305,8 @@ Return ONLY a JSON array matching this TypeScript interface:
             )}
           />
         )}
-        {step === 5 && <StepAlarmConfig tiers={alarmTiers} onChange={setAlarmTiers} />}
-        {step === 6 && (
+        {step === 6 && <StepAlarmConfig tiers={alarmTiers} onChange={setAlarmTiers} />}
+        {step === 7 && (
           <StepReview
             meta={meta}
             control={control}
@@ -318,8 +335,8 @@ Return ONLY a JSON array matching this TypeScript interface:
           disabled={!canNext || updateSpec.isPending}
         >
           {updateSpec.isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
-          {step === 6 ? "Confirm & Save" : "Next"}
-          {step < 6 && <ChevronRight className="h-3.5 w-3.5 ml-1" />}
+          {step === 7 ? "Confirm & Save" : "Next"}
+          {step < 7 && <ChevronRight className="h-3.5 w-3.5 ml-1" />}
         </Button>
       </div>
     </div>
@@ -379,13 +396,6 @@ interface ControlForm {
 function StepControlSystem({ control, onChange }: { control: ControlForm; onChange: (c: ControlForm) => void }) {
   return (
     <div className="grid gap-3 max-w-lg">
-      <Field
-        label="PLC Model *"
-        id="plc_model"
-        value={control.plc_model}
-        onChange={(v) => onChange({ ...control, plc_model: v })}
-        placeholder="e.g. Siemens S7-1500 CPU 1517F"
-      />
       <div className="grid gap-1.5">
         <Label className="text-xs">HMI Type</Label>
         <Select value={control.hmi_type} onValueChange={(v) => onChange({ ...control, hmi_type: v })}>
