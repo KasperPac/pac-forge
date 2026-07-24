@@ -1,6 +1,9 @@
 import type { SpecContractV2, SignalType } from "@/types/spec-contract-v2";
 import type { CodegenResult } from "@/lib/spec-builder/codegen/types";
-import type { DashDevice, DashTag, DashCommand, DashTagType, DashEm, DashEmState, DashEmTransition } from "@/types/commissioning-dashboard";
+import type {
+  DashDevice, DashTag, DashCommand, DashTagType, DashEm, DashEmState, DashEmTransition,
+  DashboardModel, DashAlarm, DashSetpoint, DashSimRule,
+} from "@/types/commissioning-dashboard";
 import { buildEmUiModel } from "@/lib/spec-builder/code-builder-em-ui-model";
 import { emDbName } from "@/lib/spec-builder/codegen/naming";
 import { sclIdent } from "@/lib/spec-builder/codegen/sa-builder";
@@ -83,4 +86,85 @@ export function buildEms(contract: SpecContractV2): { ems: DashEm[]; warnings: s
     }
   }
   return { ems, warnings };
+}
+
+export interface DashboardBuildInput {
+  contract: SpecContractV2;
+  compile: CodegenResult;
+  project: { name: string; specId: string; revision: number; generatedNote: string };
+}
+
+function buildAlarms(contract: SpecContractV2): DashAlarm[] {
+  const alarms: DashAlarm[] = [];
+  // Faults carry the trigger tag + severity — the primary alarm source.
+  for (const f of contract.faults ?? []) {
+    alarms.push({
+      tag: f.triggered_by_tag,
+      trigger: "hi",
+      class: f.severity === "warning" ? "Warning" : "Fault",
+      text: f.description || f.fault_code,
+    });
+  }
+  // Alarm rows add anything not already covered by a fault.
+  for (const a of contract.alarms ?? []) {
+    if (alarms.some((x) => x.tag === a.tag)) continue;
+    alarms.push({ tag: a.tag, trigger: "hi", class: "Fault", text: a.description || a.tag });
+  }
+  return alarms;
+}
+
+function buildSetpoints(_contract: SpecContractV2): DashSetpoint[] {
+  // Writable <EM>_CMD sp_* members are surfaced in Plan 2 once the command-DB
+  // seam is wired; Plan 1 emits an empty list (Settings renders "no setpoints").
+  return [];
+}
+
+function buildSimRules(contract: SpecContractV2, devices: DashDevice[]): DashSimRule[] {
+  // Deterministic default rule per device that has a DO command AND a genuine
+  // run/running feedback DI: feedback follows the command after 500 ms.
+  const rules: DashSimRule[] = [];
+  const byId = new Map(devices.map((d) => [d.id, d]));
+  for (const unit of contract.hierarchy.units) {
+    if (unit.excluded) continue;
+    for (const em of unit.equipment_modules) {
+      for (const cm of em.control_modules) {
+        const dev = byId.get(cm.control_module_id);
+        const cmd = dev?.commands[0];
+        const fbk = cm.io_signals.find(
+          (s) => s.signal_type === "DI" && /\b(fbk|feedback|running|run)\b/i.test(s.description || s.tag),
+        );
+        if (cmd && fbk) {
+          rules.push({
+            deviceId: cm.control_module_id, triggerTag: cmd.tag, triggerValue: true,
+            responseTag: fbk.tag, responseValue: true, responseType: "Bool",
+            delayMs: 500, faultInjectable: true,
+            description: `${cm.control_module_name}: ${fbk.tag} follows ${cmd.tag} after 500 ms`,
+          });
+        }
+      }
+    }
+  }
+  return rules;
+}
+
+function unionReadTags(model: Omit<DashboardModel, "readTags" | "warnings">): DashTag[] {
+  const seen = new Map<string, DashTag>();
+  const add = (t: DashTag) => { if (!seen.has(t.id)) seen.set(t.id, t); };
+  for (const d of model.devices) d.signals.forEach(add);
+  for (const d of model.devices) d.commands.forEach((c) => add({ id: c.tag, type: c.type, label: c.label }));
+  for (const e of model.ems) add({ id: e.stateTag, type: "Int", label: `${e.name} state` });
+  for (const a of model.alarms) add({ id: a.tag, type: "Bool", label: a.text });
+  for (const s of model.setpoints) add({ id: s.tag, type: s.type, label: s.label });
+  return [...seen.values()];
+}
+
+export function buildDashboardModel(input: DashboardBuildInput): DashboardModel {
+  const { devices, warnings: dw } = buildDevices(input.contract, input.compile);
+  const { ems, warnings: ew } = buildEms(input.contract);
+  const alarms = buildAlarms(input.contract);
+  const setpoints = buildSetpoints(input.contract);
+  const simRules = buildSimRules(input.contract, devices);
+  const partial = { project: input.project, devices, ems, alarms, setpoints, simRules };
+  const readTags = unionReadTags(partial);
+  return { ...partial, readTags, warnings: [...dw, ...ew] };
 }
