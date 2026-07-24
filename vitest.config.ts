@@ -9,7 +9,10 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
-    css: false,
+    // CSS processing is disabled for plain component imports (perf — no postcss in tests),
+    // but `?raw` imports (e.g. dashboard runtime bundling) must return real file contents,
+    // not the empty-string stub vitest's CSS disabler substitutes by default.
+    css: { include: [/\?raw$/] },
     include: ["src/**/*.test.{ts,tsx}"],
   },
 });
