@@ -1,0 +1,17 @@
+/* src/lib/spec-builder/dashboard/runtime/styles.css */
+:root { font-family: system-ui, "Segoe UI", sans-serif; }
+body { margin: 0; background: #f5f6f8; color: #1c2b33; }
+.dash-header { padding: 8px 16px; background: #3050A0; color: #fff; }
+.dash-title { margin: 12px 16px 0; }
+.dash-status { margin: 4px 16px 12px; font-size: 12px; color: #59636d; }
+section { margin: 0 16px 20px; }
+.dash-card { display: inline-block; vertical-align: top; min-width: 200px; margin: 6px; padding: 10px;
+  background: #fff; border: 1px solid #d5dbe0; border-radius: 8px; }
+.dash-card-title { font-weight: 600; margin-bottom: 6px; }
+.dash-cmd { margin: 2px 4px 8px 0; padding: 6px 10px; background: #3050A0; color: #fff; border: 0; border-radius: 6px; cursor: pointer; }
+.dash-sig { display: flex; justify-content: space-between; font-size: 13px; padding: 1px 0; }
+.dash-sig-val { font-family: "JetBrains Mono", monospace; }
+.dash-em { display: flex; justify-content: space-between; max-width: 360px; padding: 3px 0; }
+.dash-alarm { padding: 4px 8px; border-radius: 4px; margin: 2px 0; }
+.dash-fault { background: #fde2e1; }
+.dash-warning { background: #fdf3d2; }

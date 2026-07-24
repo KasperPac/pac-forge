@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Commissioning Dashboard</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="dash-header">
+    <label>Transport
+      <select id="dash-transport">
+        <option value="bridge">Sim (bridge)</option>
+        <option value="webapi">PLC (Web API)</option>
+      </select>
+    </label>
+  </header>
+  <main id="dash-root">loading…</main>
+  <script src="dash-model.js"></script>
+  <script src="plc-transport.js"></script>
+  <script src="dashboard-app.js"></script>
+  <script>
+    (function () {
+      var model = window.__DASH_MODEL__;
+      var sel = document.getElementById("dash-transport");
+      function boot() {
+        var kind = sel.value;
+        var transport = window.PlcTransport.create(kind, {});
+        window.DashApp.start(document.getElementById("dash-root"), model, transport);
+      }
+      sel.onchange = function () { location.reload(); };
+      boot();
+    })();
+  </script>
+</body>
+</html>
