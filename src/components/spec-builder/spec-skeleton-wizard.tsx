@@ -310,6 +310,7 @@ Return ONLY a JSON array matching this TypeScript interface:
           <StepReview
             meta={meta}
             control={control}
+            hardware={hardware}
             units={units}
             modes={modes}
             safetyGates={safetyGates}
@@ -654,6 +655,7 @@ function StepAlarmConfig({
 function StepReview({
   meta,
   control,
+  hardware,
   units,
   modes,
   safetyGates,
@@ -661,6 +663,7 @@ function StepReview({
 }: {
   meta: MetaForm;
   control: ControlForm;
+  hardware: HardwareModelV1;
   units: UnitConfig[];
   modes: OperatorMode[];
   safetyGates: SafetyGateV2[];
@@ -693,7 +696,7 @@ function StepReview({
         <p className="text-xs font-semibold text-muted-foreground uppercase">Control System</p>
         <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
           <span className="text-muted-foreground">PLC</span>
-          <span>{control.plc_model}</span>
+          <span>{plcModelFromHardware(hardware) || "—"}</span>
           <span className="text-muted-foreground">HMI</span>
           <span>{control.hmi_type || "—"}</span>
           <span className="text-muted-foreground">Comms</span>
