@@ -70,6 +70,7 @@ import {
   type RecipeModelV1,
   type UpstreamCommsV1,
   type ApplianceModelV1,
+  type HardwareModelV1,
 } from "@/types/spec-contract-v2";
 import { validateEmStateMachine, validateCommandBehavior } from "@/lib/spec-builder/em-state-machine";
 import { validateUnitCoordination } from "@/lib/spec-builder/unit-coordination";
@@ -862,6 +863,7 @@ export async function loadSpecContract(
       (projectRow.unit_coordination as Record<string, UnitCoordinationV1> | null) ??
       undefined,
     engineering: (projectRow.engineering as EngineeringDataV1 | null) ?? undefined,
+    hardware: (projectRow.hardware as HardwareModelV1 | null) ?? undefined,
     maintenance: (projectRow.maintenance as MaintenanceV1 | null) ?? undefined,
     authorization:
       (projectRow.authorization as AuthorizationV1 | null) ?? undefined,
