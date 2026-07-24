@@ -17,6 +17,7 @@ import { ArtifactPanel } from "@/components/code-builder/artifact-panel";
 import { FbQualityGates } from "@/components/code-builder/fb-quality-gates";
 import { FbVersionHistory } from "@/components/code-builder/fb-version-history";
 import { HmiBuildPanel } from "@/components/code-builder/hmi-build-panel";
+import { CommissioningDashboardPanel } from "@/components/code-builder/commissioning-dashboard-panel";
 import { PromoteLibraryPanel } from "@/components/code-builder/promote-library-panel";
 import { SendToTiaPanel } from "@/components/code-builder/send-to-tia-panel";
 import { useCodeBuilderVersions } from "@/hooks/use-code-builder-versions";
@@ -117,6 +118,9 @@ export default function CodeBuilderPage() {
         <div className="ml-auto flex items-center gap-2">
           {specId && <SendToTiaPanel specId={specId} revision={revision} />}
           {specId && <HmiBuildPanel specId={specId} projectName={spec?.title} />}
+          {specId && spec && revision !== undefined && (
+            <CommissioningDashboardPanel specId={specId} projectName={spec.title} revision={revision} />
+          )}
           <Badge variant="outline" className="text-[10px]">
             Phase 4 — Code Builder
           </Badge>
