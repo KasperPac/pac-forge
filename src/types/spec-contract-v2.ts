@@ -1712,6 +1712,49 @@ export const EngineeringDataV1Schema = z.object({
 export type EngineeringDataV1 = z.infer<typeof EngineeringDataV1Schema>;
 
 // ============================================================
+// Hardware model (G0-16) — CPU + racks/modules, authored manually at the
+// skeleton stage. Tier-2 realization data. Signal types are IEC (dialect.ts
+// rule); Siemens DQ/AQ only appear at emission sites. Design:
+// Docs/superpowers/specs/2026-07-24-hardware-in-fds-design.md
+// ============================================================
+
+export const HardwareSignalTypeSchema = z.enum(["DI", "DO", "AI", "AO"]);
+export type HardwareSignalType = z.infer<typeof HardwareSignalTypeSchema>;
+
+export const HardwareModuleSchema = z.object({
+  slot: z.number().int().nonnegative(),
+  module_type: z.string().min(1),
+  order_number: z.string().optional(),
+  channel_count: z.number().int().positive().optional(),
+  signal_type: HardwareSignalTypeSchema.optional(),
+  description: z.string().optional(),
+});
+export type HardwareModule = z.infer<typeof HardwareModuleSchema>;
+
+export const HardwareRackSchema = z.object({
+  rack: z.number().int().nonnegative(),
+  modules: z.array(HardwareModuleSchema).default([]),
+});
+export type HardwareRack = z.infer<typeof HardwareRackSchema>;
+
+export const HardwareCpuSchema = z.object({
+  cpu_type: z.string().min(1),
+  cpu_order_number: z.string().optional(),
+  firmware: z.string().optional(),
+});
+export type HardwareCpu = z.infer<typeof HardwareCpuSchema>;
+
+export const HardwareModelV1Schema = z.object({
+  platform: z.literal("SIEMENS_TIA"),
+  tia_version: z.string().optional(),
+  cpu: HardwareCpuSchema,
+  racks: z.array(HardwareRackSchema).default([]),
+  render_in_docx: z.boolean().optional(),
+  notes: z.string().optional(),
+});
+export type HardwareModelV1 = z.infer<typeof HardwareModelV1Schema>;
+
+// ============================================================
 
 export const SpecContractV2Schema = z.object({
   schema_version: z.literal(3),
@@ -1734,6 +1777,8 @@ export const SpecContractV2Schema = z.object({
   unit_coordination: z.record(z.string(), UnitCoordinationV1Schema).optional(),
   // G0-1: tier-2 Engineering Data. Absent until authored.
   engineering: EngineeringDataV1Schema.optional(),
+  // G0-16: hardware model. Absent until authored.
+  hardware: HardwareModelV1Schema.optional(),
   // G0-5: maintenance capabilities. Absent until authored.
   maintenance: MaintenanceV1Schema.optional(),
   // G0-10: role ladder. Absent until authored.
