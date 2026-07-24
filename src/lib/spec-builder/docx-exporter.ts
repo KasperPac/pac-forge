@@ -19,7 +19,7 @@ import {
   VerticalAlign,
 } from "docx";
 import type { SpecProject, SpecSection } from "@/types/spec-builder";
-import type { Hierarchy, SpecContractV2 } from "@/types/spec-contract-v2";
+import type { Hierarchy, HardwareModelV1, SpecContractV2 } from "@/types/spec-contract-v2";
 import { groupUnitStatesByEm, buildEmOperationView, permissiveParts } from "./operating-sequence";
 import {
   buildHierarchyTable,
@@ -242,7 +242,25 @@ function renderDocumentControl(section: SpecSection): (Paragraph | Table)[] {
   return children;
 }
 
-function renderSystemOverview(section: SpecSection): (Paragraph | Table)[] {
+export function hardwareBomData(hardware: HardwareModelV1): { cpuLine: string; moduleRows: string[][] } {
+  const cpu = hardware.cpu;
+  const cpuLine = [
+    cpu.cpu_type,
+    cpu.cpu_order_number ? `(${cpu.cpu_order_number})` : "",
+    cpu.firmware ? `firmware ${cpu.firmware}` : "",
+    hardware.tia_version ? `TIA ${hardware.tia_version}` : "",
+  ].filter(Boolean).join(" · ");
+  const moduleRows = hardware.racks.flatMap((r) =>
+    r.modules.map((m) => [
+      String(r.rack), String(m.slot), m.module_type,
+      m.signal_type ?? "", m.channel_count != null ? String(m.channel_count) : "",
+      m.order_number ?? "",
+    ]),
+  );
+  return { cpuLine, moduleRows };
+}
+
+function renderSystemOverview(section: SpecSection, hardware?: HardwareModelV1): (Paragraph | Table)[] {
   const c = section.content_json as unknown as SystemOverviewContent;
   const children: (Paragraph | Table)[] = [];
 
@@ -257,6 +275,28 @@ function renderSystemOverview(section: SpecSection): (Paragraph | Table)[] {
   // Hardware description
   children.push(heading("1.2 Hardware Configuration", HeadingLevel.HEADING_2));
   children.push(...prose(c.hardware_description ?? ""));
+
+  if (hardware?.render_in_docx) {
+    const { cpuLine, moduleRows } = hardwareBomData(hardware);
+    children.push(...prose(`CPU: ${cpuLine}`));
+    if (moduleRows.length) {
+      children.push(new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        borders: TABLE_BORDERS,
+        rows: [
+          headerRow(["Rack", "Slot", "Module", "Type", "Ch", "Order No."]),
+          ...moduleRows.map((r) => new TableRow({
+            children: [
+              tableCell(r[0], { width: 10 }), tableCell(r[1], { width: 10 }),
+              tableCell(r[2], { width: 40 }), tableCell(r[3], { width: 12 }),
+              tableCell(r[4], { width: 10 }), tableCell(r[5], { width: 18 }),
+            ],
+          })),
+        ],
+      }));
+      children.push(spacer());
+    }
+  }
 
   // IO summary table
   children.push(heading("1.3 I/O Summary", HeadingLevel.HEADING_2));
@@ -1113,7 +1153,7 @@ export async function buildSpecDocx(
 
     // Section 1 — System Overview
     const sysOverview = sections.find((s) => s.section_type === "system_overview");
-    if (sysOverview) children.push(...renderSystemOverview(sysOverview));
+    if (sysOverview) children.push(...renderSystemOverview(sysOverview, spec.hardware ?? undefined));
 
     // Section 2 — Control Philosophy
     const ctrlPhil = sections.find((s) => s.section_type === "control_philosophy");
