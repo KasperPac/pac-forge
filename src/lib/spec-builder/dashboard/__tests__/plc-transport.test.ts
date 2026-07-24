@@ -44,4 +44,36 @@ describe("plc-transport bridge adapter", () => {
     expect(body.method).toBe("PlcProgram.Write");
     expect(body.params.var).toBe('"DB"."member"');
   });
+
+  it("throws when the bridge write-tag endpoint reports failure", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      json: async () => ({ success: false, message: "not connected" }),
+    }));
+    const T = loadTransport();
+    const t = T.create("bridge", { fetch: fetchMock, baseUrl: "http://localhost:5102" });
+    await expect(t.write("DB.x", true, "Bool")).rejects.toThrow(/not connected/);
+  });
+
+  it("collapses a per-tag bridge read error to null", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ values: [{ tag_name: "DB.x", error: true }] }),
+    }));
+    const T = loadTransport();
+    const t = T.create("bridge", { fetch: fetchMock, baseUrl: "http://localhost:5102" });
+    const out = await t.read([{ id: "DB.x", type: "Bool" }]);
+    expect(out["DB.x"]).toBeNull();
+  });
+
+  it("collapses an errored Web API batch row to null", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => [{ id: 1, error: { code: 1, message: "bad" } }],
+    }));
+    const T = loadTransport();
+    const t = T.create("webapi", { fetch: fetchMock, baseUrl: "", token: "abc" });
+    const out = await t.read([{ id: "DB.x", type: "Bool" }]);
+    expect(out["DB.x"]).toBeNull();
+  });
 });

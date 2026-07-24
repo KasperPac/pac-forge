@@ -39,10 +39,12 @@
         return res;
       },
       write: async function (tag, value, type) {
-        await f(base + "/tia/plcsim/write-tag", {
+        var r = await f(base + "/tia/plcsim/write-tag", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ tag_name: stripQuotes(tag), value: value, data_type: type }),
         });
+        var j = await r.json();
+        if (!j.success) throw new Error(j.message || "write failed");
       },
     };
   }
