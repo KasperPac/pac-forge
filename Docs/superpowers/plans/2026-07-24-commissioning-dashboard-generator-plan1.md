@@ -500,8 +500,13 @@ function buildSetpoints(_contract: SpecContractV2): DashSetpoint[] {
 }
 
 function buildSimRules(contract: SpecContractV2, devices: DashDevice[]): DashSimRule[] {
-  // Deterministic default rule per device that has a DO command AND a genuine
-  // run/running feedback DI: feedback follows the command after 500 ms.
+  // Deterministic default rule per device that has EXACTLY ONE DO command AND
+  // a genuine run/running feedback DI: feedback follows the command after
+  // 500 ms. Devices with 0 or ≥2 commands are skipped — with multiple DOs
+  // (bidirectional actuators: extend/retract, open/close, fwd/rev) there is
+  // no way to tell which command correlates with the matched feedback, and a
+  // wrong (backwards) rule is worse than none. Bidirectional pairing is
+  // deferred to Plan 2, where the sim engine consumes these rules.
   const rules: DashSimRule[] = [];
   const byId = new Map(devices.map((d) => [d.id, d]));
   for (const unit of contract.hierarchy.units) {
@@ -509,11 +514,11 @@ function buildSimRules(contract: SpecContractV2, devices: DashDevice[]): DashSim
     for (const em of unit.equipment_modules) {
       for (const cm of em.control_modules) {
         const dev = byId.get(cm.control_module_id);
-        const cmd = dev?.commands[0];
         const fbk = cm.io_signals.find(
           (s) => s.signal_type === "DI" && /\b(fbk|feedback|running|run)\b/i.test(s.description || s.tag),
         );
-        if (cmd && fbk) {
+        if (dev && dev.commands.length === 1 && fbk) {
+          const cmd = dev.commands[0];
           rules.push({
             deviceId: cm.control_module_id, triggerTag: cmd.tag, triggerValue: true,
             responseTag: fbk.tag, responseValue: true, responseType: "Bool",

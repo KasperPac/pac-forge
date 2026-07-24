@@ -46,6 +46,37 @@ describe("buildDashboardModel", () => {
     expect(model.simRules[0]).toMatchObject({ triggerTag: "M01_Run", responseTag: "M01_Fbk", delayMs: 500 });
   });
 
+  it("emits no sim rule for a device with two DO commands (bidirectional pairing deferred to Plan 2)", () => {
+    const bidirContract = {
+      hierarchy: {
+        units: [
+          { unit_id: "u1", unit_name: "Line", excluded: false,
+            equipment_modules: [
+              { equipment_module_id: "em1", equipment_module_name: "Actuator",
+                control_modules: [
+                  { control_module_id: "cm2", control_module_name: "Cylinder", control_module_class: "cylinder",
+                    is_safety: false, description: "",
+                    io_signals: [
+                      { tag: "CYL01_Extend", signal_type: "DO", io_address: "Q0.1", description: "Extend", source: "wired" },
+                      { tag: "CYL01_Retract", signal_type: "DO", io_address: "Q0.2", description: "Retract", source: "wired" },
+                      { tag: "CYL01_AtExtend", signal_type: "DI", io_address: "I0.1", description: "At extend feedback", source: "wired" },
+                    ] },
+                ] },
+            ] },
+        ],
+      },
+      equipment_modules: {},
+      alarms: [],
+      faults: [],
+      io_list: [],
+    } as unknown as SpecContractV2;
+    const m = buildDashboardModel({
+      contract: bidirContract, compile,
+      project: { name: "Test Machine", specId: "s1", revision: 3, generatedNote: "generated 2026-07-24" },
+    });
+    expect(m.simRules).toHaveLength(0);
+  });
+
   it("readTags is the deduped union of device + em + alarm tags", () => {
     const ids = model.readTags.map((t) => t.id);
     expect(ids).toContain("M01_Run");
