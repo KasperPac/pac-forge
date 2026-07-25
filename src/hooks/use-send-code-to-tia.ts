@@ -5,7 +5,7 @@
  * deletes + reimports each block, then compiles everything; TIA must be
  * OFFLINE and open with the target project.
  */
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { loadSpecContract } from "@/lib/spec-builder/contract";
 import { compileContract } from "@/lib/spec-builder/codegen";
@@ -14,12 +14,16 @@ import { carryOverCustomRegions, loadPriorEditsSupabase } from "@/lib/spec-build
 import {
   cpuOrderNumberFromHardware,
   ioModulesFromHardware,
+  ioTagsFromMigrationTags,
 } from "@/lib/spec-builder/tia-provision-inputs";
+import { connectProvisionWs, type ProvisionStep } from "@/lib/tia-provision-progress";
 import { DEFAULT_BRIDGE_CONFIG } from "@/lib/tia-bridge-contract";
 import type {
   CreateMigrationTagsResponse,
   IoModuleDto,
   MigrationTagDto,
+  ProvisionProjectRequest,
+  ProvisionProjectResponse,
 } from "@/lib/tia-bridge-contract";
 import { useFbTemplates } from "@/hooks/use-fb-templates";
 import { useReimportCompile } from "@/hooks/use-reimport-compile";
@@ -156,6 +160,77 @@ export function useSendCodeToTia(specId: string | undefined, revision: number | 
   const [creatingTags, setCreatingTags] = useState(false);
   const [tagResult, setTagResult] = useState<CreateMigrationTagsResponse | null>(null);
 
+  const [provisioning, setProvisioning] = useState(false);
+  const [provisionSteps, setProvisionSteps] = useState<ProvisionStep[]>([]);
+  const [provisionResult, setProvisionResult] = useState<ProvisionProjectResponse | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+
+  /**
+   * Build a NEW TIA project (hardware + program) from the FDS in one bridge
+   * call. Unlike `send`, this needs no open project — the bridge creates it.
+   */
+  const provisionFresh = useCallback(
+    async (
+      sendPlan: CodeSendPlan,
+      opts: { projectPath: string; projectName: string },
+    ): Promise<ProvisionProjectResponse | null> => {
+      setProvisioning(true);
+      setProvisionSteps([]);
+      setProvisionResult(null);
+      setError(null);
+
+      const provisionId = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+      // Connect before the POST so no early progress events are missed.
+      wsRef.current = await connectProvisionWs(provisionId, (next) => setProvisionSteps(next));
+
+      const body: ProvisionProjectRequest = {
+        tia_project_path: opts.projectPath,
+        project_name: opts.projectName,
+        cpu_order_number: sendPlan.provision.cpuOrderNumber,
+        provision_id: provisionId,
+        io_modules: sendPlan.provision.ioModules,
+        io_tags: ioTagsFromMigrationTags(sendPlan.ioTags),
+        sources: sendPlan.sources,
+        // `sources` is insertion-ordered UDT → FB → FC → DB → OB (buildPlan).
+        import_order: Object.keys(sendPlan.sources),
+      };
+
+      try {
+        const response = await fetch(`${DEFAULT_BRIDGE_CONFIG.baseUrl}/tia/provision-project`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          // Creating hardware + importing a full program + compiling runs to
+          // minutes on Openness; matches the reimport path's ceiling.
+          signal: AbortSignal.timeout(600_000),
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`Fresh project build failed (${response.status}): ${text}`);
+        }
+        const result = (await response.json()) as ProvisionProjectResponse;
+        setProvisionResult(result);
+        if (!result.success) setError(result.message);
+        return result;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setError(
+          msg.includes("timed out") || msg.includes("TimeoutError")
+            ? "TIA Portal is taking longer than expected. The project may still be building — check TIA Portal directly."
+            : msg.startsWith("Fresh project build failed")
+              ? msg
+              : `Fresh project build failed: ${msg}`,
+        );
+        return null;
+      } finally {
+        wsRef.current?.close();
+        wsRef.current = null;
+        setProvisioning(false);
+      }
+    },
+    [],
+  );
+
   const send = useCallback(
     async (sendPlan: CodeSendPlan) => {
       // G9-W4: physical IO tags must exist before the blocks that reference
@@ -192,5 +267,9 @@ export function useSendCodeToTia(specId: string | undefined, revision: number | 
     tagResult,
     compileResult: reimport.data ?? null,
     sendError: reimport.error ? String(reimport.error) : null,
+    provisionFresh,
+    provisioning,
+    provisionSteps,
+    provisionResult,
   };
 }

@@ -88,6 +88,18 @@ vi.mock("@/lib/supabase", () => ({
 const fetchMock = vi.fn();
 vi.stubGlobal("fetch", fetchMock);
 
+class FakeWebSocket {
+  onopen: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  onmessage: ((evt: { data: string }) => void) | null = null;
+  close = vi.fn();
+  constructor() {
+    // Open on the next microtask so `await connectProvisionWs(...)` resolves.
+    queueMicrotask(() => this.onopen?.());
+  }
+}
+vi.stubGlobal("WebSocket", FakeWebSocket);
+
 function wrapper({ children }: { children: ReactNode }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
@@ -206,6 +218,67 @@ describe("useSendCodeToTia", () => {
     await act(async () => { plan = await result.current.buildPlan(); });
     expect(plan.provision.cpuOrderNumber).toBeUndefined();
     expect(plan.provision.ioModules).toEqual([]);
+  });
+
+  it("POSTs the plan's sources and tags to /tia/provision-project", async () => {
+    const { loadSpecContract } = await import("@/lib/spec-builder/contract");
+    vi.mocked(loadSpecContract).mockResolvedValueOnce({
+      ...contract,
+      hardware: {
+        platform: "SIEMENS_TIA",
+        cpu: { cpu_type: "S7-1516", cpu_order_number: "6ES7 516-3AN02-0AB0/V2.9" },
+        racks: [{ rack: 0, modules: [{ slot: 1, module_type: "DI 16x24VDC", order_number: "6ES7 521-1BH50-0AA0" }] }],
+      },
+    } as unknown as SpecContractV2);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true, created: true, project_file_path: "C:\\TIA\\M1\\M1.ap20",
+        message: "Created project 'M1' with PLC_1", warnings: [],
+        compile_result: { success: true, errors: [], warnings: [], compiled_at: "" },
+      }),
+    });
+
+    const { result } = renderHook(() => useSendCodeToTia("spec-1", 1), { wrapper });
+    let plan!: Awaited<ReturnType<typeof result.current.buildPlan>>;
+    await act(async () => { plan = await result.current.buildPlan(); });
+    await act(async () => {
+      await result.current.provisionFresh(plan, { projectPath: "C:\\TIA", projectName: "M1" });
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5102/tia/provision-project",
+      expect.objectContaining({ method: "POST" }),
+    );
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.tia_project_path).toBe("C:\\TIA");
+    expect(body.project_name).toBe("M1");
+    expect(body.cpu_order_number).toBe("6ES7 516-3AN02-0AB0/V2.9");
+    expect(body.io_modules).toEqual([
+      { mlfb: "6ES7 521-1BH50-0AA0", rack: 0, slot: 1, description: "DI 16x24VDC" },
+    ]);
+    // MigrationTagDto → IoTagDto
+    expect(body.io_tags[0]).toEqual({ name: "M01_Run", data_type: "Bool", logical_address: "%Q0.0" });
+    // The whole program rides along, in dependency order.
+    expect(Object.keys(body.sources)).toContain("EM_Belt");
+    expect(body.import_order).toEqual(Object.keys(body.sources));
+    expect(body.import_order[body.import_order.length - 1]).toBe("Main");
+    expect(typeof body.provision_id).toBe("string");
+    expect(result.current.provisionResult?.created).toBe(true);
+  });
+
+  it("surfaces a bridge failure without throwing", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 500, text: async () => "TIA offline" });
+    const { result } = renderHook(() => useSendCodeToTia("spec-1", 1), { wrapper });
+    let plan!: Awaited<ReturnType<typeof result.current.buildPlan>>;
+    await act(async () => { plan = await result.current.buildPlan(); });
+    let resp: unknown;
+    await act(async () => {
+      resp = await result.current.provisionFresh(plan, { projectPath: "C:\\TIA", projectName: "M1" });
+    });
+    expect(resp).toBeNull();
+    expect(result.current.error).toContain("Fresh project build failed");
+    expect(result.current.provisioning).toBe(false);
   });
 
   it("aborts the send when tag creation fails, surfacing the error", async () => {
