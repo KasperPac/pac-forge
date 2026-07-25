@@ -241,6 +241,10 @@ export interface IoSignal {
   signal_type: string;
   io_address: string;
   description: string;
+  // Rides confirmed_units already (contract.ts reads it); declared here so the
+  // G0-18 addressing collector can exclude telegram signals type-safely.
+  // Absent means "wired" — the same default contract.ts applies.
+  source?: "wired" | "network_telegram";
   // G0-2 per-signal model (optional; rides confirmed_units into the contract —
   // digital-only polarity/conditioning, analog-only scaling per io-signal-model.ts)
   polarity?: IoPolarity;
