@@ -164,7 +164,7 @@ namespace PacForgeBridge
                 Connected = connected,
                 TiaVersion = tiaVersion,
                 TiaProjectOpen = projectOpen,
-                BridgeVersion = "1.4.2",   // bump on EVERY bridge change + add a CHANGELOG.md entry
+                BridgeVersion = "1.5.0",   // bump on EVERY bridge change + add a CHANGELOG.md entry
                 SourcePlcFamily = sourcePlcFamily,
                 SourceCpuTypeId = sourceCpuTypeId,
             };
@@ -439,6 +439,13 @@ namespace PacForgeBridge
                 response.ProjectFilePath = existingFile;
                 response.Success = true;
                 response.Message = $"Opened existing project: {_project.Name}";
+                // A pre-existing project is never partially updated through this
+                // path — the caller must use the reimport flow instead.
+                if (request.Sources != null && request.Sources.Count > 0)
+                {
+                    response.Warnings.Add(
+                        "Project already existed - program NOT imported. Use Import + compile against the open project, or choose a different folder/name.");
+                }
                 return response;
             }
 
@@ -530,17 +537,31 @@ namespace PacForgeBridge
                 response.Warnings.AddRange(demoResult.Warnings);
             }
 
+            // Import the generated program. Absent Sources => hardware-only
+            // provision, exactly as before.
+            bool hasSources = request.Sources != null && request.Sources.Count > 0;
+            if (hasSources)
+            {
+                // The module/tag steps already AddRange'd their warnings — clear
+                // before reuse so they are not reported twice.
+                demoResult.Warnings.Clear();
+                Emit("Importing program blocks", 80);
+                ImportSourcesIntoPlc(plcSoftware, request.Sources, request.ImportOrder, demoResult);
+                response.Warnings.AddRange(demoResult.Warnings);
+            }
+
             Emit("Saving project", 90);
             SaveProject();
 
-            // Compile hardware configuration to validate CPU + modules
-            Emit("Compiling hardware", 95);
+            // Compile hardware (and software, when a program was imported).
+            Emit(hasSources ? "Compiling program" : "Compiling hardware", 95);
             try
             {
                 var compileResult = CompileAll(plcSoftware);
+                response.CompileResult = compileResult;
                 if (!compileResult.Success)
                 {
-                    response.Warnings.Add($"Hardware compile warnings: {compileResult.Errors.Count} error(s), {compileResult.Warnings.Count} warning(s)");
+                    response.Warnings.Add($"Compile: {compileResult.Errors.Count} error(s), {compileResult.Warnings.Count} warning(s)");
                 }
             }
             catch (Exception ex)
@@ -551,7 +572,9 @@ namespace PacForgeBridge
             response.Created = true;
             response.ProjectFilePath = _project.Path?.FullName;
             response.Success = true;
-            response.Message = $"Created project '{_project.Name}' with {device.Name}";
+            response.Message = hasSources
+                ? $"Created project '{_project.Name}' with {device.Name} and {demoResult.ImportedBlocks.Count} block(s)"
+                : $"Created project '{_project.Name}' with {device.Name}";
             Emit("Complete", 100, complete: true);
             Console.WriteLine($"[TIA] Provision complete: {response.ProjectFilePath}");
             return response;
@@ -1541,9 +1564,82 @@ namespace PacForgeBridge
         }
 
         /// <summary>
+        /// Delete the auto-created OB1, then write each source to a temp .scl and
+        /// import it in ImportOrder. Shared by ProvisionProject (the current path)
+        /// and CreateProjectWithSources (deprecated). Warnings are collected per
+        /// block so one bad source does not abort the whole import.
+        /// </summary>
+        private void ImportSourcesIntoPlc(
+            PlcSoftware plcSoftware,
+            Dictionary<string, string> sources,
+            List<string> importOrder,
+            DemoResult result)
+        {
+            // The generated program supplies its own OB1; the auto-created Main
+            // would collide on import.
+            try
+            {
+                PlcBlock existingMain = plcSoftware.BlockGroup.Blocks.Find("Main");
+                if (existingMain != null)
+                {
+                    Console.WriteLine("[TIA] Deleting auto-created OB1 (Main) before import...");
+                    existingMain.Delete();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TIA] Warning: Could not delete existing OB1: {ex.Message}");
+            }
+
+            string tempDir = Path.Combine(Path.GetTempPath(), "PacForge", "proj_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                LastImportedSources.Clear();
+                foreach (var kvp in sources)
+                {
+                    LastImportedSources[kvp.Key] = kvp.Value;
+                }
+
+                var order = (importOrder != null && importOrder.Count > 0)
+                    ? importOrder
+                    : new List<string>(sources.Keys);
+
+                foreach (string name in order)
+                {
+                    if (!sources.ContainsKey(name))
+                    {
+                        result.Warnings.Add($"{name}: not found in sources, skipping");
+                        continue;
+                    }
+
+                    string filePath = Path.Combine(tempDir, name + ".scl");
+                    File.WriteAllText(filePath, sources[name], new UTF8Encoding(true));
+
+                    try
+                    {
+                        var generated = ImportArtifact(plcSoftware, name, filePath, "Program blocks");
+                        result.ImportedBlocks.AddRange(generated);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[TIA] Warning importing {name}: {ex.Message}");
+                        result.Warnings.Add($"{name}: {ex.Message}");
+                    }
+                }
+            }
+            finally
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+        }
+
+        /// <summary>
         /// Create a new TIA project and import provided SCL sources.
         /// Generic method — the frontend supplies the sources and import order.
         /// </summary>
+        [Obsolete("Use ProvisionProject with Sources/ImportOrder - parameterized CPU, module plugging and WS progress. Endpoint kept for back-compat.")]
         public DemoResult CreateProjectWithSources(string projectDir, string projectName, Dictionary<string, string> sources, List<string> importOrder, List<IoModuleDto> ioModules = null, List<IoTagDto> ioTags = null)
         {
             var result = new DemoResult();
@@ -1577,70 +1673,18 @@ namespace PacForgeBridge
                 CreateIoTags(plcSoftware, ioTags, result);
             }
 
-            // Step 3d: Delete auto-created OB1
-            try
-            {
-                PlcBlock existingMain = plcSoftware.BlockGroup.Blocks.Find("Main");
-                if (existingMain != null)
-                {
-                    Console.WriteLine("[TIA] Deleting auto-created OB1 (Main) before import...");
-                    existingMain.Delete();
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[TIA] Warning: Could not delete existing OB1: {ex.Message}");
-            }
+            // Step 3d + 4: delete auto-OB1 and import the sources (shared helper)
+            ImportSourcesIntoPlc(plcSoftware, sources, importOrder, result);
 
-            // Step 4: Write SCL files to temp and import in order
-            string tempDir = Path.Combine(Path.GetTempPath(), "PacForge", "proj_" + Guid.NewGuid().ToString("N").Substring(0, 8));
-            Directory.CreateDirectory(tempDir);
+            // Step 5: Compile
+            Console.WriteLine("[TIA] Compiling project...");
+            result.CompileResult = CompileAll(plcSoftware);
 
-            try
-            {
-                LastImportedSources.Clear();
-                foreach (var kvp in sources)
-                {
-                    LastImportedSources[kvp.Key] = kvp.Value;
-                }
+            // Step 6: Save
+            SaveProject();
 
-                foreach (string name in importOrder)
-                {
-                    if (!sources.ContainsKey(name))
-                    {
-                        result.Warnings.Add($"{name}: not found in sources, skipping");
-                        continue;
-                    }
-
-                    string filePath = Path.Combine(tempDir, name + ".scl");
-                    File.WriteAllText(filePath, sources[name], new UTF8Encoding(true));
-
-                    try
-                    {
-                        var generated = ImportArtifact(plcSoftware, name, filePath, "Program blocks");
-                        result.ImportedBlocks.AddRange(generated);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"[TIA] Warning importing {name}: {ex.Message}");
-                        result.Warnings.Add($"{name}: {ex.Message}");
-                    }
-                }
-
-                // Step 5: Compile
-                Console.WriteLine("[TIA] Compiling project...");
-                result.CompileResult = CompileAll(plcSoftware);
-
-                // Step 6: Save
-                SaveProject();
-
-                result.Success = true;
-                result.ProjectPath = _project.Path?.FullName;
-            }
-            finally
-            {
-                try { Directory.Delete(tempDir, true); } catch { }
-            }
+            result.Success = true;
+            result.ProjectPath = _project.Path?.FullName;
 
             return result;
         }

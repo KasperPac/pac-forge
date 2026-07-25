@@ -971,7 +971,11 @@ namespace PacForgeBridge
 
                 Console.WriteLine($"[DEMO] Creating project with {request.Sources.Count} source(s): {projectName} in {projectPath}");
 
+                // Deprecated path kept for back-compat; new work routes to
+                // /tia/provision-project (parameterized CPU + WS progress).
+#pragma warning disable 618
                 var result = _tiaService.CreateProjectWithSources(projectPath, projectName, request.Sources, importOrder, request.IoModules, request.IoTags);
+#pragma warning restore 618
 
                 await WriteJson(res, 200, new TiaActionResponse
                 {

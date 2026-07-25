@@ -141,6 +141,8 @@ namespace PacForgeBridge
         public string ProvisionId { get; set; }       // Correlation ID for WS events
         public List<IoModuleDto> IoModules { get; set; }
         public List<IoTagDto> IoTags { get; set; }
+        public Dictionary<string, string> Sources { get; set; }  // name -> SCL; when present the program is imported too
+        public List<string> ImportOrder { get; set; }            // dependency order: UDT -> FB -> FC -> DB -> OB
     }
 
     public class ProvisionProjectResponse
@@ -150,6 +152,7 @@ namespace PacForgeBridge
         public string ProjectFilePath { get; set; }  // Full path to .ap* file
         public string Message { get; set; }
         public List<string> Warnings { get; set; } = new List<string>();
+        public CompileResultDto CompileResult { get; set; }      // present when Sources were supplied
     }
 
     public class TiaActionResponse

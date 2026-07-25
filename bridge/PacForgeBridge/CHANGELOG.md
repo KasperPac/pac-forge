@@ -4,6 +4,27 @@ Every bridge change bumps `BridgeVersion` in `TiaPortalService.cs` (semver:
 new capability = minor, fix = patch) and gets an entry here. The running
 version is visible at `GET /tia/status`.
 
+## 1.5.0 — 2026-07-25
+
+Fresh-project build — `ProvisionProject` now builds hardware **and** software:
+
+- `ProvisionProjectRequest` gains optional `Sources` (name → SCL) and
+  `ImportOrder`. When present, the generated program is imported after the IO
+  tag step and the final compile covers HW + SW, so a runnable project is
+  created from the FDS in one call (G9-W9).
+- `ProvisionProjectResponse` gains `CompileResult`, so the app renders per-block
+  compile errors from a fresh build the same way it does for a reimport.
+- The SCL-import block (delete auto-OB1 → temp `.scl` → `ImportArtifact` in
+  order) is extracted into the shared private `ImportSourcesIntoPlc`, used by
+  both `ProvisionProject` and `CreateProjectWithSources`.
+- Existing-project safety: when a project already exists at the target path the
+  bridge still opens it and returns `Created=false`, and now adds a warning that
+  the program was NOT imported. A pre-existing project is never partially
+  updated through this path.
+- `CreateProjectWithSources` marked `[Obsolete]` — it hardcodes the CPU and has
+  no progress streaming. The endpoint stays for back-compat; new work uses
+  `ProvisionProject`.
+
 ## 1.4.2 — 2026-07-23
 
 PLCSIM Advanced API bound to the installed runtime version:
