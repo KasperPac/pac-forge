@@ -59,10 +59,17 @@ import { SpecContractPatchSchema, validateSpecContractPatch } from "@/lib/spec-b
 import { buildValidationFailureTurn } from "@/lib/spec-builder/validation-failure-turn";
 import { useSourceSectionsForEm } from "@/hooks/use-source-sections";
 
-/** The FDS co-author is the brains of the pipeline — pinned to Fable 5
- * (always-on thinking; the generate edge function ignores thinking deltas
- * when streaming and extracts the text block non-streaming). */
-const FDS_CO_AUTHOR_MODEL = "claude-fable-5";
+/** The FDS co-author is the brains of the pipeline — pinned to Opus 5.
+ * Thinking is on by default (the generate edge function ignores thinking
+ * deltas when streaming and finds the text block explicitly non-streaming,
+ * so `content[0]` being a thinking block is already handled).
+ *
+ * Opus 5 over Fable 5: half the token cost ($5/$25 vs $10/$50), and Fable is
+ * tuned for long-horizon autonomous runs where a single request can take
+ * minutes — the wrong shape for an interactive Stage A/B interview. Fable
+ * also requires 30-day data retention. Fable remains the higher-capability
+ * tier if the co-author ever needs it. */
+const FDS_CO_AUTHOR_MODEL = "claude-opus-5";
 
 /** Which stage of the co-author interview is active for this EM. */
 export type FdsConversationStage = "state_machine" | "behavior";
