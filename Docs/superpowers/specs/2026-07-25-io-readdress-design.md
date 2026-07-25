@@ -83,9 +83,14 @@ it appears.
 
 ### 2. `src/components/spec-builder/io-addressing-panel.tsx` (new)
 
-Props `{ hardware, units, onApply }`. Computes the plan in a `useMemo`, renders
-the changed-row diff (`tag`, `from → to`) plus any engine warnings, and offers
-one Apply.
+Props `{ hardware, units, onApply }`. Renders the changed-row diff (`tag`,
+`from → to`) plus any engine warnings, and offers one Apply.
+
+The plan itself comes from `useIoAddressingPlan` in
+`src/hooks/use-io-addressing-plan.ts`, shared with the Review-step drift banner
+so the two cannot disagree about what "matches the hardware" means. It lives in
+its own module rather than beside the panel because `react-refresh/only-export-components`
+rejects a file exporting both a component and a hook.
 
 **All-or-nothing.** Channel assignment is positional — skipping one signal does
 not free its channel — so applying a subset would produce a layout that

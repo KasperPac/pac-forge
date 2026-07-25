@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import {
+  AlertTriangle,
   ChevronLeft,
   ChevronRight,
   Check,
@@ -38,6 +39,7 @@ import { mintUnitConfigUuids } from "@/lib/spec-builder/mint-uuids";
 import { MachineHierarchyTable } from "./machine-hierarchy-table";
 import { HardwareStep, emptyHardware, plcModelFromHardware } from "./hardware-step";
 import { IoAddressingPanel } from "./io-addressing-panel";
+import { useIoAddressingPlan } from "@/hooks/use-io-addressing-plan";
 import { applyIoAddresses, applyRegisterAddresses } from "@/lib/spec-builder/io-addressing-apply";
 import type { IoAddressingPlan } from "@/lib/spec-builder/io-addressing";
 import { cn } from "@/lib/utils";
@@ -698,8 +700,28 @@ function StepReview({
     0,
   );
 
+  // Re-run the layout: pure and free, so Review always reflects the rack as
+  // currently declared — catching hand-edited addresses and anything wired
+  // after Apply (G0-18).
+  const ioDrift = useIoAddressingPlan(hardware, units).assignments.filter((a) => a.changed);
+
   return (
     <div className="space-y-4 max-w-lg">
+      {ioDrift.length > 0 && (
+        <Card
+          data-testid="io-addressing-drift"
+          className="p-3 border-amber-500/50 bg-amber-500/5 space-y-1"
+        >
+          <div className="flex items-center gap-1.5 text-xs font-medium text-amber-700">
+            <AlertTriangle className="h-3.5 w-3.5" /> {ioDrift.length} IO{" "}
+            {ioDrift.length === 1 ? "signal does" : "signals do"} not match the declared hardware
+          </div>
+          <p className="text-[11px] text-amber-800">
+            Go back to the Hardware step and re-address, or confirm as-is if the addresses are
+            deliberate.
+          </p>
+        </Card>
+      )}
       <Card className="p-3 space-y-2">
         <p className="text-xs font-semibold text-muted-foreground uppercase">Document</p>
         <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">

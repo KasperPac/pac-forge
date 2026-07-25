@@ -9,25 +9,13 @@
  * describe a rack that does not exist.
  * Design: Docs/superpowers/specs/2026-07-25-io-readdress-design.md
  */
-import { useMemo } from "react";
 import { AlertTriangle, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { planIoAddressing, type IoAddressingPlan } from "@/lib/spec-builder/io-addressing";
-import { collectAddressableSignals } from "@/lib/spec-builder/io-addressing-apply";
+import { useIoAddressingPlan } from "@/hooks/use-io-addressing-plan";
+import type { IoAddressingPlan } from "@/lib/spec-builder/io-addressing";
 import type { HardwareModelV1 } from "@/types/spec-contract-v2";
 import type { UnitConfig } from "@/types/spec-builder";
-
-/** Shared by the panel and the Review-step drift banner. Pure and cheap. */
-export function useIoAddressingPlan(
-  hardware: HardwareModelV1 | null | undefined,
-  units: UnitConfig[],
-): IoAddressingPlan {
-  return useMemo(
-    () => planIoAddressing(hardware, collectAddressableSignals(units)),
-    [hardware, units],
-  );
-}
 
 interface Props {
   hardware: HardwareModelV1;

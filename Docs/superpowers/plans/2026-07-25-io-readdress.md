@@ -564,6 +564,8 @@ git commit -m "test(spec-builder): pin re-addressed hierarchy to the derived TIA
   - `useIoAddressingPlan(hardware: HardwareModelV1 | null | undefined, units: UnitConfig[]): IoAddressingPlan` — shared with Task 6's drift banner.
   - `IoAddressingPanel({ hardware, units, onApply }: { hardware: HardwareModelV1; units: UnitConfig[]; onApply: (plan: IoAddressingPlan) => void })`
 
+> **As built:** `useIoAddressingPlan` ships in `src/hooks/use-io-addressing-plan.ts`, not beside the panel — `react-refresh/only-export-components` rejects a module that exports both a component and a hook. Import it from `@/hooks/use-io-addressing-plan` in both Task 4 and Task 6.
+
 `IoAddressingPlan` is `{ modules: ModuleAddressPlan[]; assignments: IoAssignment[]; warnings: string[] }`.
 
 - [ ] **Step 1: Write the failing tests**

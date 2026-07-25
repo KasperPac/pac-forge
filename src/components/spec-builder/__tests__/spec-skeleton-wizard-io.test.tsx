@@ -90,4 +90,13 @@ describe("SpecSkeletonWizard — IO re-addressing", () => {
     // Re-planning after apply finds nothing left to move.
     expect(screen.getByRole("button", { name: /match/i })).toBeDisabled();
   });
+
+  it("flags drift on Review when addresses no longer match the rack", () => {
+    render(<SpecSkeletonWizard spec={spec} register={register} onComplete={vi.fn()} />);
+    // Walk to Review & Confirm (step index 7) without applying.
+    for (let i = 0; i < 7; i++) {
+      fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    }
+    expect(screen.getByTestId("io-addressing-drift")).toHaveTextContent(/1 .*(signal|address)/i);
+  });
 });
