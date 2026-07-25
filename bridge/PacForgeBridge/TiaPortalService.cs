@@ -164,7 +164,7 @@ namespace PacForgeBridge
                 Connected = connected,
                 TiaVersion = tiaVersion,
                 TiaProjectOpen = projectOpen,
-                BridgeVersion = "1.5.0",   // bump on EVERY bridge change + add a CHANGELOG.md entry
+                BridgeVersion = "1.6.0",   // bump on EVERY bridge change + add a CHANGELOG.md entry
                 SourcePlcFamily = sourcePlcFamily,
                 SourceCpuTypeId = sourceCpuTypeId,
             };
@@ -577,6 +577,50 @@ namespace PacForgeBridge
                 : $"Created project '{_project.Name}' with {device.Name}";
             Emit("Complete", 100, complete: true);
             Console.WriteLine($"[TIA] Provision complete: {response.ProjectFilePath}");
+            return response;
+        }
+
+        /// <summary>
+        /// Search TIA's installed hardware catalogue (G0-17).
+        ///
+        /// The catalogue hangs off the TiaPortal itself, not off a project, so this
+        /// only needs an attached portal — no project has to be open. Passing a
+        /// typeIdentifier uses the second Find overload, which returns only entries
+        /// that are pluggable into that type (e.g. the modules a given CPU accepts).
+        /// </summary>
+        public HardwareCatalogResponse FindCatalogEntries(string filter, string typeIdentifier)
+        {
+            var response = new HardwareCatalogResponse();
+
+            // Portal-only attach: the catalogue is available with nothing open.
+            Connect(preferAttach: true);
+            if (_tiaPortal == null)
+                throw new InvalidOperationException("Not attached to TIA Portal.");
+
+            var catalog = _tiaPortal.HardwareCatalog;
+            IList<Siemens.Engineering.HW.HardwareCatalog.CatalogEntry> entries =
+                string.IsNullOrWhiteSpace(typeIdentifier)
+                    ? catalog.Find(filter ?? "")
+                    : catalog.Find(filter ?? "", typeIdentifier);
+
+            foreach (var e in entries)
+            {
+                response.Entries.Add(new CatalogEntryDto
+                {
+                    ArticleNumber = Convert.ToString(e.ArticleNumber),
+                    TypeName = Convert.ToString(e.TypeName),
+                    Description = Convert.ToString(e.Description),
+                    CatalogPath = Convert.ToString(e.CatalogPath),
+                    TypeIdentifier = Convert.ToString(e.TypeIdentifier),
+                    Version = Convert.ToString(e.Version),
+                });
+            }
+
+            response.Count = response.Entries.Count;
+            response.Success = true;
+            response.Message = $"{response.Count} catalogue entr{(response.Count == 1 ? "y" : "ies")} for filter '{filter}'"
+                + (string.IsNullOrWhiteSpace(typeIdentifier) ? "" : $" pluggable into '{typeIdentifier}'");
+            Console.WriteLine($"[TIA] Catalogue: {response.Message}");
             return response;
         }
 

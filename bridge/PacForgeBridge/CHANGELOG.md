@@ -4,6 +4,37 @@ Every bridge change bumps `BridgeVersion` in `TiaPortalService.cs` (semver:
 new capability = minor, fix = patch) and gets an entry here. The running
 version is visible at `GET /tia/status`.
 
+## 1.6.0 — 2026-07-25
+
+Hardware catalogue browsing — `GET /tia/hardware-catalog` (G0-17):
+
+- `?filter=<string>&typeIdentifier=<string>` wraps `TiaPortal.HardwareCatalog.Find`.
+  The catalogue hangs off the **portal**, not a project, so this needs an attached
+  TIA only — nothing has to be open. Returns `CatalogEntryDto[]` with
+  `article_number`, `type_name`, `description`, `catalog_path`, `type_identifier`
+  and `version`.
+- Compiles for both V20 and the V18 twin — `HardwareCatalog.Find` exists in both
+  Openness versions, so no `#if TIA_V18` guard is needed.
+
+Verified live against TIA V20 on 2026-07-25:
+
+- **`filter` is a substring match over article number AND type name.**
+  `filter=DI 16` matches `SM 1221 DI16 x 24VDC` by name; `filter=6ES7 516`
+  returns 138 entries.
+- **`typeIdentifier` is a real compatibility filter, not a hint.** `DI 16`
+  unfiltered returns 100 entries including S7-**1200** `SM 1221` cards; the same
+  filter passed an S7-1500 CPU's type identifier returns 19, all S7-1500 `SM 521`.
+  Incompatible cards are excluded rather than flagged.
+- **`type_identifier` is exactly the string `Devices.CreateWithItem` expects** —
+  `OrderNumber:6ES7 516-3AN00-0AB0/V1.0`, prefix and firmware suffix included.
+  This is the important one: it means the installed firmware is *known* rather
+  than guessed, so the `VERSION_SUFFIXES` ladder-try in `PlugIoModules` and the
+  CPU fallback ladder in `ProvisionProject` become unnecessary for any hardware
+  picked from the catalogue.
+- One `article_number` repeats once per available firmware version, and
+  ruggedized SIPLUS variants (`6AG1…` / `6AG2…`) sort alongside standard `6ES7…`
+  parts — consumers should group by article number and prefer standard parts.
+
 ## 1.5.0 — 2026-07-25
 
 Fresh-project build — `ProvisionProject` now builds hardware **and** software:

@@ -155,6 +155,31 @@ namespace PacForgeBridge
         public CompileResultDto CompileResult { get; set; }      // present when Sources were supplied
     }
 
+    // --- Hardware catalogue (G0-17) ---
+
+    /// <summary>
+    /// One entry from TIA's installed hardware catalogue. ArticleNumber is the
+    /// MLFB the provision path needs; TypeIdentifier feeds the compatibility
+    /// filter for the next pick (CPU -> pluggable modules).
+    /// </summary>
+    public class CatalogEntryDto
+    {
+        public string ArticleNumber { get; set; }
+        public string TypeName { get; set; }
+        public string Description { get; set; }
+        public string CatalogPath { get; set; }
+        public string TypeIdentifier { get; set; }
+        public string Version { get; set; }
+    }
+
+    public class HardwareCatalogResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+        public int Count { get; set; }
+        public List<CatalogEntryDto> Entries { get; set; } = new List<CatalogEntryDto>();
+    }
+
     public class TiaActionResponse
     {
         public bool Success { get; set; }

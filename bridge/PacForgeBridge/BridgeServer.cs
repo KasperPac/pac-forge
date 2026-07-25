@@ -329,6 +329,23 @@ namespace PacForgeBridge
                     return;
                 }
 
+                // Route: GET /tia/hardware-catalog?filter=X&typeIdentifier=Y — browse the
+                // installed hardware catalogue. Needs an attached portal only; no open project.
+                if (method == "GET" && path == "/tia/hardware-catalog")
+                {
+                    try
+                    {
+                        await WriteJson(res, 200, _tiaService.FindCatalogEntries(
+                            req.QueryString["filter"] ?? "",
+                            req.QueryString["typeIdentifier"] ?? ""));
+                    }
+                    catch (Exception ex)
+                    {
+                        await WriteJson(res, 500, new TiaActionResponse { Success = false, Message = ex.Message });
+                    }
+                    return;
+                }
+
                 // Route: POST /tia/demo/motor-control
                 if (method == "POST" && path == "/tia/demo/motor-control")
                 {
