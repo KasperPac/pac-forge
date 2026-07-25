@@ -349,6 +349,30 @@ export function getBridgeConfigForVersion(tiaVersion: string | null | undefined)
 
 // --- Provision Project ---
 
+/**
+ * GET /tia/hardware-catalog?filter=X&typeIdentifier=Y (G0-17)
+ * Browse TIA's installed hardware catalogue. Needs an attached portal only —
+ * no project has to be open. `filter` is a substring match over article number
+ * AND type name; passing `typeIdentifier` restricts results to parts pluggable
+ * into that type (e.g. only the modules a given CPU accepts).
+ */
+export interface CatalogEntryDto {
+  article_number: string;
+  type_name: string;
+  description: string;
+  catalog_path: string;
+  /** `OrderNumber:6ES7 516-3AN00-0AB0/V1.0` — what CreateWithItem expects. */
+  type_identifier: string;
+  version: string;
+}
+
+export interface HardwareCatalogResponse {
+  success: boolean;
+  message: string;
+  count: number;
+  entries: CatalogEntryDto[];
+}
+
 export interface IoModuleDto {
   mlfb: string;     // Order number, e.g. "6ES7 521-1BH50-0AA0"
   rack: number;
