@@ -26,6 +26,7 @@ import type { PromptLayerMeta } from "@/hooks/use-generation";
 import type {
   SpecProject,
   InstrumentRegister,
+  InstrumentTag,
   UnitConfig,
   AlarmTier,
 } from "@/types/spec-builder";
@@ -36,6 +37,9 @@ import { buildHierarchyFromTags } from "@/lib/spec-builder/instrument-parser";
 import { mintUnitConfigUuids } from "@/lib/spec-builder/mint-uuids";
 import { MachineHierarchyTable } from "./machine-hierarchy-table";
 import { HardwareStep, emptyHardware, plcModelFromHardware } from "./hardware-step";
+import { IoAddressingPanel } from "./io-addressing-panel";
+import { applyIoAddresses, applyRegisterAddresses } from "@/lib/spec-builder/io-addressing-apply";
+import type { IoAddressingPlan } from "@/lib/spec-builder/io-addressing";
 import { cn } from "@/lib/utils";
 
 const HMI_OPTIONS = ["WinCC Unified", "WinCC Comfort", "None", "Other"];
@@ -88,6 +92,13 @@ export function SpecSkeletonWizard({ spec, register, onComplete }: Props) {
     () => (spec.hardware as HardwareModelV1 | null) ?? emptyHardware(),
   );
 
+  // The register's addresses are seeded from the import, then re-addressed in
+  // session by applyIoAddressing below — `assignTagToSignal` copies io_address
+  // straight off these tags, so a tag wired on the Hierarchy step must not
+  // arrive stale. The instrument_registers row itself is never written: it is
+  // the as-received import and keeps its provenance (G0-18).
+  const [registerTags, setRegisterTags] = useState<InstrumentTag[]>(() => register.tags);
+
   // Step 3 — Machine hierarchy (seeded from register tags).
   // Mint UUIDs for every unit/EM/CM id so `confirmed_units` is uuid-keyed:
   // foreign-spec requirement binding writes uuid-typed `spec_source_sections`
@@ -100,6 +111,14 @@ export function SpecSkeletonWizard({ spec, register, onComplete }: Props) {
     return mintUnitConfigUuids(seed);
   });
   const [inferringHierarchy, setInferringHierarchy] = useState(false);
+
+  // Spec follows hardware: the declared rack is the source of truth. Explicit,
+  // all-or-nothing, and applied to the hierarchy and the register together so
+  // neither copy can go stale relative to the other (G0-18).
+  const applyIoAddressing = useCallback((plan: IoAddressingPlan) => {
+    setSubsystems((prev) => applyIoAddresses(prev, plan.assignments));
+    setRegisterTags((prev) => applyRegisterAddresses(prev, plan.assignments));
+  }, []);
 
   // Step 4 — Machine modes (extensible; seed Production/Maintenance (G0-9)).
   const [modes, setModes] = useState<OperatorMode[]>(() => {
@@ -168,7 +187,7 @@ export function SpecSkeletonWizard({ spec, register, onComplete }: Props) {
     setInferringHierarchy(true);
     try {
       const controller = new AbortController();
-      const tagSummary = register.tags.map((t) => ({
+      const tagSummary = registerTags.map((t) => ({
         tag: t.tag,
         device_type: t.device_type,
         description: t.description,
@@ -229,11 +248,11 @@ Return ONLY a JSON array matching this TypeScript interface:
       setSubsystems(mintUnitConfigUuids(parsed));
     } catch {
       // Fallback to deterministic hierarchy builder
-      setSubsystems(mintUnitConfigUuids(buildHierarchyFromTags(register.tags)));
+      setSubsystems(mintUnitConfigUuids(buildHierarchyFromTags(registerTags)));
     } finally {
       setInferringHierarchy(false);
     }
-  }, [register.tags]);
+  }, [registerTags]);
 
   return (
     <div className="space-y-4">
@@ -279,16 +298,19 @@ Return ONLY a JSON array matching this TypeScript interface:
         {step === 0 && <StepMetadata meta={meta} onChange={setMeta} />}
         {step === 1 && <StepControlSystem control={control} onChange={setControl} />}
         {step === 2 && (
-          <HardwareStep
-            hardware={hardware}
-            onChange={setHardware}
-            signals={register.tags.map((t) => ({ signal_type: t.signal_type }))}
-          />
+          <div className="space-y-3">
+            <HardwareStep
+              hardware={hardware}
+              onChange={setHardware}
+              signals={registerTags.map((t) => ({ signal_type: t.signal_type }))}
+            />
+            <IoAddressingPanel hardware={hardware} units={units} onApply={applyIoAddressing} />
+          </div>
         )}
         {step === 3 && (
           <MachineHierarchyTable
             units={units}
-            availableTags={register.tags}
+            availableTags={registerTags}
             onChange={setSubsystems}
             onInferHierarchy={inferHierarchy}
             inferring={inferringHierarchy}
