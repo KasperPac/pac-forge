@@ -168,6 +168,46 @@ describe("useSendCodeToTia", () => {
     expect(body.folders["Main"]).toBeUndefined(); // root stays unmapped
   });
 
+  it("derives provision inputs from contract.hardware", async () => {
+    const { loadSpecContract } = await import("@/lib/spec-builder/contract");
+    vi.mocked(loadSpecContract).mockResolvedValueOnce({
+      ...contract,
+      hardware: {
+        platform: "SIEMENS_TIA",
+        cpu: { cpu_type: "S7-1516", cpu_order_number: "6ES7 516-3AN02-0AB0", firmware: "V2.9" },
+        racks: [
+          {
+            rack: 0,
+            modules: [
+              { slot: 1, module_type: "DI 16x24VDC", order_number: "6ES7 521-1BH50-0AA0" },
+              { slot: 2, module_type: "DQ 16x24VDC" },
+            ],
+          },
+        ],
+      },
+    } as unknown as SpecContractV2);
+
+    const { result } = renderHook(() => useSendCodeToTia("spec-1", 1), { wrapper });
+    let plan!: Awaited<ReturnType<typeof result.current.buildPlan>>;
+    await act(async () => { plan = await result.current.buildPlan(); });
+
+    expect(plan.provision.cpuOrderNumber).toBe("6ES7 516-3AN02-0AB0/V2.9");
+    expect(plan.provision.ioModules).toEqual([
+      { mlfb: "6ES7 521-1BH50-0AA0", rack: 0, slot: 1, description: "DI 16x24VDC" },
+    ]);
+    expect(plan.provision.missingOrderNumbers).toEqual(["DQ 16x24VDC"]);
+    // The un-pluggable module is surfaced to the operator, not swallowed.
+    expect(plan.warnings.some((w) => w.includes("DQ 16x24VDC"))).toBe(true);
+  });
+
+  it("leaves cpuOrderNumber undefined when no hardware is authored", async () => {
+    const { result } = renderHook(() => useSendCodeToTia("spec-1", 1), { wrapper });
+    let plan!: Awaited<ReturnType<typeof result.current.buildPlan>>;
+    await act(async () => { plan = await result.current.buildPlan(); });
+    expect(plan.provision.cpuOrderNumber).toBeUndefined();
+    expect(plan.provision.ioModules).toEqual([]);
+  });
+
   it("aborts the send when tag creation fails, surfacing the error", async () => {
     fetchMock.mockResolvedValueOnce({ ok: false, status: 500, text: async () => "boom" });
     const { result } = renderHook(() => useSendCodeToTia("spec-1", 1), { wrapper });

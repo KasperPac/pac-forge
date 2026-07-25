@@ -11,12 +11,29 @@ import { loadSpecContract } from "@/lib/spec-builder/contract";
 import { compileContract } from "@/lib/spec-builder/codegen";
 import { deriveIoTags, IO_TAG_TABLE_NAME } from "@/lib/spec-builder/codegen/io-tag-table";
 import { carryOverCustomRegions, loadPriorEditsSupabase } from "@/lib/spec-builder/custom-region-carryover";
+import {
+  cpuOrderNumberFromHardware,
+  ioModulesFromHardware,
+} from "@/lib/spec-builder/tia-provision-inputs";
 import { DEFAULT_BRIDGE_CONFIG } from "@/lib/tia-bridge-contract";
-import type { CreateMigrationTagsResponse, MigrationTagDto } from "@/lib/tia-bridge-contract";
+import type {
+  CreateMigrationTagsResponse,
+  IoModuleDto,
+  MigrationTagDto,
+} from "@/lib/tia-bridge-contract";
 import { useFbTemplates } from "@/hooks/use-fb-templates";
 import { useReimportCompile } from "@/hooks/use-reimport-compile";
 
 const TYPE_ORDER: Record<string, number> = { UDT: 0, FB: 1, FC: 2, DB: 3, OB: 4 };
+
+/** What a fresh-project build needs from the FDS's hardware model (G9-W9). */
+export interface ProvisionInputs {
+  /** undefined ⇒ no CPU resolvable; the fresh build must stay disabled. */
+  cpuOrderNumber?: string;
+  ioModules: IoModuleDto[];
+  /** module_type of modules with no order number — reported, not plugged. */
+  missingOrderNumbers: string[];
+}
 
 export interface CodeSendPlan {
   /** name → SCL, insertion-ordered for import (UDTs first, OB last). */
@@ -29,6 +46,8 @@ export interface CodeSendPlan {
   editedBlocks: string[];
   /** Physical IO tags to create in TIA before import (G9-W4). */
   ioTags: MigrationTagDto[];
+  /** Fresh-project build inputs derived from contract.hardware (G9-W9). */
+  provision: ProvisionInputs;
   warnings: string[];
 }
 
@@ -100,13 +119,29 @@ export function useSendCodeToTia(specId: string | undefined, revision: number | 
         countsByType[a.type] = (countsByType[a.type] ?? 0) + 1;
       }
       const ioTagDerivation = deriveIoTags(contract);
+      const provisionIo = ioModulesFromHardware(contract.hardware);
+      const provisionWarnings = provisionIo.missingOrderNumbers.length
+        ? [
+            `Hardware: ${provisionIo.missingOrderNumbers.join(", ")} have no order number and cannot be plugged into a fresh project.`,
+          ]
+        : [];
       const next: CodeSendPlan = {
         sources,
         folders,
         countsByType,
         editedBlocks,
         ioTags: ioTagDerivation.tags,
-        warnings: [...result.warnings, ...ioTagDerivation.warnings, ...carryOver.warnings],
+        provision: {
+          cpuOrderNumber: cpuOrderNumberFromHardware(contract.hardware),
+          ioModules: provisionIo.modules,
+          missingOrderNumbers: provisionIo.missingOrderNumbers,
+        },
+        warnings: [
+          ...result.warnings,
+          ...ioTagDerivation.warnings,
+          ...carryOver.warnings,
+          ...provisionWarnings,
+        ],
       };
       setPlan(next);
       return next;

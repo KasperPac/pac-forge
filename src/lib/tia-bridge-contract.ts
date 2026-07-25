@@ -374,6 +374,10 @@ export interface ProvisionProjectRequest {
   provision_id?: string;     // Correlation ID for WS progress events
   io_modules?: IoModuleDto[];
   io_tags?: IoTagDto[];
+  /** name → SCL. When present the bridge imports the program and compiles HW+SW. */
+  sources?: Record<string, string>;
+  /** Import order — dependency-ordered (UDT → FB → FC → DB → OB). */
+  import_order?: string[];
 }
 
 export interface ProvisionProjectResponse {
@@ -382,6 +386,8 @@ export interface ProvisionProjectResponse {
   project_file_path: string;
   message: string;
   warnings: string[];
+  /** Present when `sources` were supplied — the HW+SW compile outcome. */
+  compile_result?: CompileResult;
 }
 
 // --- PLCSIM Advanced Endpoints ---
