@@ -54,8 +54,13 @@ export function HardwareStep({
     onChange({ ...hardware, racks });
   };
 
+  /* Next free slot is max+1, not length+1 — deleting a row from the middle used
+   * to hand the next card an already-occupied slot, and the collision only
+   * surfaced as unplugged hardware in TIA. */
+  const nextSlot = () => modules.reduce((max, m) => Math.max(max, m.slot), 0) + 1;
+
   const addModule = () =>
-    setModules([...modules, { slot: modules.length + 1, module_type: "" }]);
+    setModules([...modules, { slot: nextSlot(), module_type: "" }]);
   const removeModule = (i: number) => setModules(modules.filter((_, j) => j !== i));
   const updateModule = (i: number, patch: Partial<(typeof modules)[number]>) =>
     setModules(modules.map((m, j) => (j === i ? { ...m, ...patch } : m)));
@@ -136,7 +141,7 @@ export function HardwareStep({
             setModules([
               ...modules,
               {
-                slot: modules.length + 1,
+                slot: nextSlot(),
                 module_type: product.typeName,
                 order_number: product.articleNumber,
                 // Firmware is known from the catalogue, so the bridge never has

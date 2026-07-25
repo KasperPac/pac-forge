@@ -67,3 +67,35 @@ describe("validateHardwareFit", () => {
     expect(w[0].kind).toBe("capacity");
   });
 });
+
+describe("validateHardwareFit — slot conflicts (G0-17)", () => {
+  it("flags two modules sharing a slot, since only one gets plugged", () => {
+    // Capacity is satisfied on every class, so nothing else would catch this.
+    const warnings = validateHardwareFit(
+      hw([
+        { slot: 2, module_type: "DQ 16x24VDC", channel_count: 16, signal_type: "DO" },
+        { slot: 3, module_type: "AI 8xU/I", channel_count: 8, signal_type: "AI" },
+        { slot: 3, module_type: "DI 16x24VDC", channel_count: 16, signal_type: "DI" },
+      ]),
+      [{ signal_type: "DI" }, { signal_type: "DO" }, { signal_type: "AI" }],
+    );
+    const conflict = warnings.find((w) => w.kind === "slot_conflict");
+    expect(conflict).toBeDefined();
+    expect(conflict!.message).toContain("slot 3");
+    expect(conflict!.message).toContain("AI 8xU/I");
+    expect(conflict!.message).toContain("DI 16x24VDC");
+    // and it is reported ahead of capacity warnings — it invalidates them
+    expect(warnings[0].kind).toBe("slot_conflict");
+  });
+
+  it("stays quiet when every module has its own slot", () => {
+    const warnings = validateHardwareFit(
+      hw([
+        { slot: 1, module_type: "DI 16x24VDC", channel_count: 16, signal_type: "DI" },
+        { slot: 2, module_type: "DQ 16x24VDC", channel_count: 16, signal_type: "DO" },
+      ]),
+      [],
+    );
+    expect(warnings.filter((w) => w.kind === "slot_conflict")).toEqual([]);
+  });
+});

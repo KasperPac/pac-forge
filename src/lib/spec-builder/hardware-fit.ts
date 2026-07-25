@@ -13,8 +13,9 @@ import { convertSignalDirection } from "@/lib/spec-builder/dialect";
 export type FitSignal = { signal_type: string };
 
 export type HardwareFitWarning = {
-  kind: "capacity" | "type_incompatibility";
-  signal_class: HardwareSignalType;
+  kind: "capacity" | "type_incompatibility" | "slot_conflict";
+  /** Absent for warnings that aren't about one signal class (e.g. slot conflicts). */
+  signal_class?: HardwareSignalType;
   message: string;
 };
 
@@ -55,6 +56,28 @@ export function validateHardwareFit(
   }
 
   const warnings: HardwareFitWarning[] = [];
+
+  /* Two modules cannot share a slot. TIA plugs by rack/slot, so a collision
+   * means one card silently never gets plugged — and because the fit check
+   * below counts channels regardless of slot, capacity still reads as
+   * satisfied. Listed first: it invalidates everything after it. */
+  for (const rack of hardware.racks) {
+    const bySlot = new Map<number, string[]>();
+    for (const m of rack.modules) {
+      const names = bySlot.get(m.slot) ?? [];
+      names.push(m.module_type?.trim() || "(unnamed)");
+      bySlot.set(m.slot, names);
+    }
+    for (const [slot, names] of bySlot) {
+      if (names.length > 1) {
+        warnings.push({
+          kind: "slot_conflict",
+          message: `Rack ${rack.rack} slot ${slot}: ${names.length} modules (${names.join(", ")}) — only one will be plugged.`,
+        });
+      }
+    }
+  }
+
   for (const cls of CLASSES) {
     if (demand[cls] === 0) continue;
     if (moduleCount[cls] === 0) {
