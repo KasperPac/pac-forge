@@ -116,7 +116,13 @@ export default function CodeBuilderPage() {
           />
         </div>
         <div className="ml-auto flex items-center gap-2">
-          {specId && <SendToTiaPanel specId={specId} revision={revision} />}
+          {specId && (
+            <SendToTiaPanel
+              specId={specId}
+              revision={revision}
+              defaultProjectName={spec?.doc_code ?? spec?.title}
+            />
+          )}
           {specId && <HmiBuildPanel specId={specId} projectName={spec?.title} />}
           {specId && spec && revision !== undefined && (
             <CommissioningDashboardPanel specId={specId} projectName={spec.title} revision={revision} />
