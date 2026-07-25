@@ -84,6 +84,30 @@ describe("ioModulesFromHardware", () => {
   it("returns empty results for absent hardware", () => {
     expect(ioModulesFromHardware(undefined)).toEqual({ modules: [], missingOrderNumbers: [] });
   });
+
+  it("attaches the deterministic start address so TIA cannot auto-assign elsewhere", () => {
+    const result = ioModulesFromHardware(
+      hw({
+        racks: [
+          {
+            rack: 0,
+            modules: [
+              { slot: 2, module_type: "DQ 16", order_number: "6ES7 522-1BH00-0AB0", channel_count: 16, signal_type: "DO" },
+              { slot: 3, module_type: "AI 8", order_number: "6ES7 531-7QF00-0AB0", channel_count: 8, signal_type: "AI" },
+              { slot: 4, module_type: "DI 16", order_number: "6ES7 521-1BH00-0AB0", channel_count: 16, signal_type: "DI" },
+            ],
+          },
+        ],
+      }),
+    );
+    // Output space starts fresh; the AI card eats input bytes 0-15, so the DI
+    // card must follow it at byte 16 — %I and %IW share one space.
+    expect(result.modules.map((m) => [m.slot, m.start_address])).toEqual([
+      [2, 0],
+      [3, 0],
+      [4, 16],
+    ]);
+  });
 });
 
 describe("ioTagsFromMigrationTags", () => {

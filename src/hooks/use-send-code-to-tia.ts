@@ -193,6 +193,9 @@ export function useSendCodeToTia(specId: string | undefined, revision: number | 
         sources: sendPlan.sources,
         // `sources` is insertion-ordered UDT → FB → FC → DB → OB (buildPlan).
         import_order: Object.keys(sendPlan.sources),
+        // Without this a fresh project is flat in "Program blocks", unlike the
+        // reimport path which has always honoured the folder map.
+        folders: sendPlan.folders,
       };
 
       try {

@@ -264,6 +264,9 @@ describe("useSendCodeToTia", () => {
     expect(body.import_order).toEqual(Object.keys(body.sources));
     expect(body.import_order[body.import_order.length - 1]).toBe("Main");
     expect(typeof body.provision_id).toBe("string");
+    // Folder map rides along, else a fresh project is flat in "Program blocks"
+    // while the reimport path produces a foldered tree (G0-18).
+    expect(body.folders["EM_Belt"]).toMatch(/\/FB$/);
     expect(result.current.provisionResult?.created).toBe(true);
   });
 

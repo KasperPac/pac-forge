@@ -123,6 +123,9 @@ namespace PacForgeBridge
         public int Rack { get; set; }
         public int Slot { get; set; }
         public string Description { get; set; }
+        // Byte offset to pin the module's IO range to (G0-18). Null leaves TIA's
+        // auto-assignment alone; set it so the range matches the generated tags.
+        public int? StartAddress { get; set; }
     }
 
     public class IoTagDto
@@ -143,6 +146,9 @@ namespace PacForgeBridge
         public List<IoTagDto> IoTags { get; set; }
         public Dictionary<string, string> Sources { get; set; }  // name -> SCL; when present the program is imported too
         public List<string> ImportOrder { get; set; }            // dependency order: UDT -> FB -> FC -> DB -> OB
+        // name -> destination folder. Omitted names land in the root "Program
+        // blocks", matching the reimport path's behaviour.
+        public Dictionary<string, string> Folders { get; set; }
     }
 
     public class ProvisionProjectResponse

@@ -8,6 +8,7 @@
  */
 import type { HardwareModelV1 } from "@/types/spec-contract-v2";
 import type { IoModuleDto, IoTagDto, MigrationTagDto } from "@/lib/tia-bridge-contract";
+import { planIoAddressing } from "@/lib/spec-builder/io-addressing";
 
 /**
  * CPU family → MLFB order number, firmware-suffixed. Matched by substring so
@@ -57,17 +58,36 @@ export function cpuOrderNumberFromHardware(
   return undefined;
 }
 
-/** Flatten racks → modules the bridge can plug, reporting the ones it can't. */
+/**
+ * Flatten racks → modules the bridge can plug, reporting the ones it can't.
+ *
+ * Each module also carries the byte offset from the deterministic layout, so
+ * the bridge pins its IO range instead of letting TIA auto-assign — otherwise
+ * the ranges and the generated tags line up only by coincidence (G0-18). The
+ * layout depends on the hardware alone, so no signals are needed here.
+ */
 export function ioModulesFromHardware(
   hardware: HardwareModelV1 | null | undefined,
 ): ProvisionIoModules {
   const modules: IoModuleDto[] = [];
   const missingOrderNumbers: string[] = [];
+
+  const layout = planIoAddressing(hardware, []);
+  const startAddressOf = (rack: number, slot: number) =>
+    layout.modules.find((m) => m.rack === rack && m.slot === slot)?.start_address;
+
   for (const rack of hardware?.racks ?? []) {
     for (const mod of rack.modules ?? []) {
       const mlfb = mod.order_number?.trim();
       if (mlfb) {
-        modules.push({ mlfb, rack: rack.rack, slot: mod.slot, description: mod.module_type });
+        const start = startAddressOf(rack.rack, mod.slot);
+        modules.push({
+          mlfb,
+          rack: rack.rack,
+          slot: mod.slot,
+          description: mod.module_type,
+          ...(start === undefined ? {} : { start_address: start }),
+        });
       } else {
         missingOrderNumbers.push(mod.module_type);
       }

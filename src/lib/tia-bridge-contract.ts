@@ -378,6 +378,9 @@ export interface IoModuleDto {
   rack: number;
   slot: number;
   description?: string;
+  /** Byte offset to pin the module's IO range to (G0-18). Omitted leaves TIA's
+   *  auto-assignment alone, which only matches the generated tags by luck. */
+  start_address?: number;
 }
 
 export interface IoTagDto {
@@ -402,6 +405,9 @@ export interface ProvisionProjectRequest {
   sources?: Record<string, string>;
   /** Import order — dependency-ordered (UDT → FB → FC → DB → OB). */
   import_order?: string[];
+  /** name → destination folder. Unmapped blocks land in the root "Program
+   *  blocks", matching the reimport path. */
+  folders?: Record<string, string>;
 }
 
 export interface ProvisionProjectResponse {

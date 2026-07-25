@@ -164,7 +164,7 @@ namespace PacForgeBridge
                 Connected = connected,
                 TiaVersion = tiaVersion,
                 TiaProjectOpen = projectOpen,
-                BridgeVersion = "1.6.1",   // bump on EVERY bridge change + add a CHANGELOG.md entry
+                BridgeVersion = "1.7.0",   // bump on EVERY bridge change + add a CHANGELOG.md entry
                 SourcePlcFamily = sourcePlcFamily,
                 SourceCpuTypeId = sourceCpuTypeId,
             };
@@ -561,7 +561,7 @@ namespace PacForgeBridge
                 // before reuse so they are not reported twice.
                 demoResult.Warnings.Clear();
                 Emit("Importing program blocks", 80);
-                ImportSourcesIntoPlc(plcSoftware, request.Sources, request.ImportOrder, demoResult);
+                ImportSourcesIntoPlc(plcSoftware, request.Sources, request.ImportOrder, demoResult, request.Folders);
                 response.Warnings.AddRange(demoResult.Warnings);
             }
 
@@ -1650,7 +1650,8 @@ namespace PacForgeBridge
             PlcSoftware plcSoftware,
             Dictionary<string, string> sources,
             List<string> importOrder,
-            DemoResult result)
+            DemoResult result,
+            Dictionary<string, string> folders = null)
         {
             // The generated program supplies its own OB1; the auto-created Main
             // would collide on import.
@@ -1694,9 +1695,16 @@ namespace PacForgeBridge
                     string filePath = Path.Combine(tempDir, name + ".scl");
                     File.WriteAllText(filePath, sources[name], new UTF8Encoding(true));
 
+                    // Same folder rule as the reimport path: an unmapped block
+                    // lands in the root, anything mapped goes to its subfolder.
+                    string destination = "Program blocks";
+                    string mapped;
+                    if (folders != null && folders.TryGetValue(name, out mapped) && !string.IsNullOrEmpty(mapped))
+                        destination = mapped;
+
                     try
                     {
-                        var generated = ImportArtifact(plcSoftware, name, filePath, "Program blocks");
+                        var generated = ImportArtifact(plcSoftware, name, filePath, destination);
                         result.ImportedBlocks.AddRange(generated);
                     }
                     catch (Exception ex)
@@ -1813,6 +1821,7 @@ namespace PacForgeBridge
                 string moduleName = mod.Description ?? $"IO_Slot{targetSlot}";
                 bool plugged = false;
                 string lastError = "";
+                DeviceItem pluggedResult = null;
 
                 if (targetSlot != mod.Slot)
                     Console.WriteLine($"[TIA]   Slot {mod.Slot} is reserved (CPU/PSU), using slot {targetSlot} instead");
@@ -1838,6 +1847,7 @@ namespace PacForgeBridge
                         Console.WriteLine($"[TIA]   Trying {orderNumber} in slot {targetSlot}...");
                         DeviceItem pluggedItem = rack.PlugNew(orderNumber, moduleName, targetSlot);
                         Console.WriteLine($"[TIA]   OK: {pluggedItem.Name} in slot {targetSlot}");
+                        pluggedResult = pluggedItem;
                         plugged = true;
                         break;
                     }
@@ -1856,6 +1866,7 @@ namespace PacForgeBridge
                             Console.WriteLine($"[TIA]   Trying {orderWithVer} in slot {targetSlot}...");
                             DeviceItem pluggedItem = rack.PlugNew(orderWithVer, moduleName, targetSlot);
                             Console.WriteLine($"[TIA]   OK: {pluggedItem.Name} in slot {targetSlot}");
+                            pluggedResult = pluggedItem;
                             plugged = true;
                             break;
                         }
@@ -1893,6 +1904,7 @@ namespace PacForgeBridge
                                 {
                                     DeviceItem pluggedItem = rack.PlugNew(orderWithVer, moduleName, targetSlot);
                                     Console.WriteLine($"[TIA]   RETRY OK: {pluggedItem.Name} in slot {targetSlot} with {version}");
+                                    pluggedResult = pluggedItem;
                                     plugged = true;
                                     break;
                                 }
@@ -1907,6 +1919,11 @@ namespace PacForgeBridge
 
                 if (plugged)
                 {
+                    // Pin the IO range BEFORE re-acquiring the rack — the plugged
+                    // item handle is still valid here (G0-18).
+                    if (mod.StartAddress.HasValue && pluggedResult != null)
+                        ApplyStartAddress(pluggedResult, mod.StartAddress.Value, targetSlot, result);
+
                     nextAvailableSlot = targetSlot + 1;
                     // Re-acquire rack reference after every successful plug —
                     // PlugNew modifies the device tree, invalidating the old rack object
@@ -1923,6 +1940,48 @@ namespace PacForgeBridge
                     result.Warnings.Add(warning);
                     nextAvailableSlot = targetSlot + 1;
                 }
+            }
+        }
+
+        /// <summary>
+        /// Pin a plugged module's IO range to the address the app computed (G0-18).
+        ///
+        /// Without this TIA auto-assigns ranges in plug order, so the generated
+        /// tags only line up by luck. Addresses can sit on the module item or on a
+        /// child item depending on the card, so both are searched. Failure is a
+        /// warning, not a throw — a mis-addressed rack is still worth reporting
+        /// with the rest of the build rather than aborting it.
+        /// </summary>
+        private void ApplyStartAddress(DeviceItem item, int startAddress, int slot, DemoResult result)
+        {
+            try
+            {
+                var targets = new List<Siemens.Engineering.HW.Address>();
+                foreach (Siemens.Engineering.HW.Address a in item.Addresses) targets.Add(a);
+                if (targets.Count == 0)
+                {
+                    foreach (DeviceItem child in item.DeviceItems)
+                        foreach (Siemens.Engineering.HW.Address a in child.Addresses)
+                            targets.Add(a);
+                }
+
+                if (targets.Count == 0)
+                {
+                    result.Warnings.Add($"Slot {slot}: no addressable IO range found — left at TIA's default.");
+                    return;
+                }
+
+                foreach (var addr in targets)
+                {
+                    Console.WriteLine($"[TIA]   Slot {slot}: {addr.IoType} {addr.StartAddress} -> {startAddress} (len {addr.Length})");
+                    addr.StartAddress = startAddress;
+                }
+            }
+            catch (Exception ex)
+            {
+                string warning = $"Slot {slot}: could not set start address {startAddress} ({ex.Message}) — left at TIA's default.";
+                Console.WriteLine($"[TIA]   WARNING: {warning}");
+                result.Warnings.Add(warning);
             }
         }
 

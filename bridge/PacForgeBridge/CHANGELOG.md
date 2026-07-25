@@ -4,6 +4,25 @@ Every bridge change bumps `BridgeVersion` in `TiaPortalService.cs` (semver:
 new capability = minor, fix = patch) and gets an entry here. The running
 version is visible at `GET /tia/status`.
 
+## 1.7.0 — 2026-07-25
+
+Fresh builds now match the reimport path's structure and addressing (G0-18):
+
+- **`ProvisionProjectRequest.Folders`** — `ImportSourcesIntoPlc` hardcoded every
+  block's destination to `Program blocks`, so a freshly built project came out
+  flat while `ReimportAndCompile` had always honoured a folder map. It now takes
+  the same map and applies the same rule (unmapped blocks stay in the root).
+- **`IoModuleDto.StartAddress`** — `PlugIoModules` called `PlugNew` and stopped,
+  leaving TIA to auto-assign each card's IO range in plug order while the tags
+  were created at the app's addresses. They matched only by luck. When
+  `StartAddress` is supplied the plugged module's range is pinned to it via
+  `Siemens.Engineering.HW.Address.StartAddress`.
+
+`ApplyStartAddress` searches the module item and then its children (cards differ
+in where the address sits) and downgrades any failure to a warning — a
+mis-addressed rack is worth reporting alongside the rest of the build rather
+than aborting it.
+
 ## 1.6.1 — 2026-07-25
 
 Two fixes found during the G0-16/G0-17 live FAT:
