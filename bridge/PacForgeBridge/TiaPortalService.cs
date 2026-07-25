@@ -164,7 +164,7 @@ namespace PacForgeBridge
                 Connected = connected,
                 TiaVersion = tiaVersion,
                 TiaProjectOpen = projectOpen,
-                BridgeVersion = "1.6.0",   // bump on EVERY bridge change + add a CHANGELOG.md entry
+                BridgeVersion = "1.6.1",   // bump on EVERY bridge change + add a CHANGELOG.md entry
                 SourcePlcFamily = sourcePlcFamily,
                 SourceCpuTypeId = sourceCpuTypeId,
             };
@@ -449,6 +449,21 @@ namespace PacForgeBridge
                 return response;
             }
 
+            // TIA holds one project at a time, so Projects.Create fails with an
+            // opaque Openness error when something else is already open. Say what
+            // to do instead — and never close the user's project for them.
+            if (_project != null)
+            {
+                string openName = null;
+                try { openName = _project.Name; } catch { /* stale handle — treat as closed */ }
+                if (!string.IsNullOrEmpty(openName))
+                {
+                    throw new InvalidOperationException(
+                        $"TIA Portal already has project '{openName}' open. Close it in TIA before building a new project, "
+                        + "or use Import + compile to send the program into the open project instead.");
+                }
+            }
+
             // Create new project — TIA creates cleanFolder\projectName\projectName.ap*
             Emit("Creating TIA project", 15);
             Console.WriteLine($"[TIA] Provision: creating new project '{projectName}' in {cleanFolder}");
@@ -598,10 +613,28 @@ namespace PacForgeBridge
                 throw new InvalidOperationException("Not attached to TIA Portal.");
 
             var catalog = _tiaPortal.HardwareCatalog;
-            IList<Siemens.Engineering.HW.HardwareCatalog.CatalogEntry> entries =
-                string.IsNullOrWhiteSpace(typeIdentifier)
-                    ? catalog.Find(filter ?? "")
-                    : catalog.Find(filter ?? "", typeIdentifier);
+            Func<string, IList<Siemens.Engineering.HW.HardwareCatalog.CatalogEntry>> search =
+                f => string.IsNullOrWhiteSpace(typeIdentifier)
+                    ? catalog.Find(f)
+                    : catalog.Find(f, typeIdentifier);
+
+            string wanted = filter ?? "";
+            var entries = search(wanted);
+
+            // Openness' Find is CASE-SENSITIVE: '6es7 521' returns nothing while
+            // '6ES7 521' returns 23. Article numbers are uppercase in the catalogue
+            // but engineers type them lowercase, so retry uppercased when a search
+            // comes back empty. Tried as-typed first so mixed-case product names
+            // ("DI 16x24VDC HF") still match.
+            if (entries.Count == 0)
+            {
+                string upper = wanted.ToUpperInvariant();
+                if (!string.Equals(upper, wanted, StringComparison.Ordinal))
+                {
+                    Console.WriteLine($"[TIA] Catalogue: 0 for '{wanted}', retrying as '{upper}'");
+                    entries = search(upper);
+                }
+            }
 
             foreach (var e in entries)
             {

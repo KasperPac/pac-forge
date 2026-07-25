@@ -4,6 +4,21 @@ Every bridge change bumps `BridgeVersion` in `TiaPortalService.cs` (semver:
 new capability = minor, fix = patch) and gets an entry here. The running
 version is visible at `GET /tia/status`.
 
+## 1.6.1 — 2026-07-25
+
+Two fixes found during the G0-16/G0-17 live FAT:
+
+- **Catalogue search was case-sensitive.** Openness' `HardwareCatalog.Find` matches
+  case-sensitively: `6es7 521` returned 0 entries where `6ES7 521` returned 23, so
+  anyone typing an article number in lower case saw an empty catalogue. The filter
+  is now tried as typed, then retried uppercased when the first pass is empty —
+  as-typed first so mixed-case product names (`DI 16x24VDC HF`) still match.
+- **`ProvisionProject` gave an opaque error when a project was already open.** TIA
+  holds one project at a time, so `Projects.Create` fails when something else is
+  open. It now checks first and returns an actionable message naming the open
+  project and the two ways forward (close it, or use Import + compile). It
+  deliberately does **not** close the project itself — that is the user's call.
+
 ## 1.6.0 — 2026-07-25
 
 Hardware catalogue browsing — `GET /tia/hardware-catalog` (G0-17):
