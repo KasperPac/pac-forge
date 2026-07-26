@@ -20,13 +20,24 @@ export interface IoTagDerivation {
   warnings: string[];
 }
 
-/** S7-1500 tag data type per FDS signal type. `internal` has no physical tag. */
-const DATA_TYPE: Partial<Record<SignalType, string>> = {
+/**
+ * S7-1500 tag data type per FDS signal type. `internal` has no physical tag.
+ *
+ * Exported because this is the ONLY truth about what type a physical tag has in
+ * the PLC — anything that reads or writes these tags (the commissioning
+ * dashboard's transport, for one) must ask the same question of the same map.
+ * A second, independent mapping is not a duplicate, it is a future silent bug:
+ * the dashboard shipped `AI/AO → Real` against these `Int` tags and every
+ * analog read failed, showing "—" on every project.
+ */
+export const PLC_TAG_DATA_TYPE: Partial<Record<SignalType, string>> = {
   DI: "Bool",
   DO: "Bool",
   AI: "Int",
   AO: "Int",
 };
+
+const DATA_TYPE = PLC_TAG_DATA_TYPE;
 
 /** Normalize an FDS io_address to TIA absolute notation (leading %). */
 function normalizeAddress(addr: string): string {

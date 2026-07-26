@@ -1,10 +1,18 @@
 export type DashTagType = "Bool" | "Int" | "DInt" | "Real" | "Word" | "Time";
 
+/**
+ * What a signal means to the mimic, so a tile can be coloured without knowing
+ * any project's naming. `fault` is taken from the contract's fault/alarm list
+ * where possible rather than guessed from the tag text.
+ */
+export type DashSignalRole = "command" | "feedback" | "fault" | "value";
+
 export interface DashTag {
   /** canonical symbolic name, UNQUOTED, e.g. "EM_Drive_DB.state" or "M01_Fbk" */
   id: string;
   type: DashTagType;
   label: string;
+  role?: DashSignalRole;
 }
 
 export interface DashCommand {
@@ -20,6 +28,9 @@ export interface DashDevice {
   name: string;
   tag: string;
   deviceType: string;
+  /** ISA-88 placement — the mimic groups the plant by these. */
+  unit: string;
+  em: string;
   instanceDb: string | null;
   signals: DashTag[];
   commands: DashCommand[];
@@ -67,9 +78,27 @@ export interface DashSimRule {
   description: string;
 }
 
+/**
+ * One physical IO point, for the IO page. Carries the absolute address so the
+ * page doubles as the commissioning check that the spec's addresses are the
+ * ones actually in the PLC (G0-18).
+ */
+export interface DashIoPoint {
+  tag: string;
+  /** DI | DO | AI | AO — the IO class, used to group the page. */
+  signalType: string;
+  type: DashTagType;
+  /** absolute address as authored, e.g. "%I16.0"; empty when unaddressed */
+  address: string;
+  label: string;
+  deviceName: string;
+}
+
 export interface DashboardModel {
   project: { name: string; specId: string; revision: number; generatedNote: string };
   devices: DashDevice[];
+  /** every wired physical point, ordered DI → DO → AI → AO */
+  io: DashIoPoint[];
   ems: DashEm[];
   alarms: DashAlarm[];
   setpoints: DashSetpoint[];

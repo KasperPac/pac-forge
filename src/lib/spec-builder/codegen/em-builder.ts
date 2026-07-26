@@ -16,7 +16,17 @@ const OUTPUT_TYPES = new Set<string>(["DO", "AO"]);
 const ANALOG_TYPES = new Set<string>(["AI", "AO"]);
 // G0-9/G2 seam: 6 command pins (the G2 design's full set) — clear/abort
 // let the coordinator's aborting/clearing states command members for real.
-const CMD_PINS = ["cmd_start", "cmd_stop", "cmd_hold", "cmd_reset", "cmd_clear", "cmd_abort"];
+/**
+ * The PackML command pins every EM FB exposes on its `<EM>_CMD` seam.
+ *
+ * Exported because anything that DRIVES an EM (the commissioning dashboard's
+ * sequence controls, for one) has to write exactly these members — a second,
+ * hand-maintained list would write to tags that do not exist the moment this
+ * one changes.
+ */
+export const EM_CMD_PINS = ["cmd_start", "cmd_stop", "cmd_hold", "cmd_reset", "cmd_clear", "cmd_abort"];
+
+const CMD_PINS = EM_CMD_PINS;
 
 /** Pick legacy action prose, else the first structured action's prose. */
 function stepProse(s: PhaseStep): string {
