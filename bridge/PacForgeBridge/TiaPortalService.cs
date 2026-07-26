@@ -164,7 +164,7 @@ namespace PacForgeBridge
                 Connected = connected,
                 TiaVersion = tiaVersion,
                 TiaProjectOpen = projectOpen,
-                BridgeVersion = "1.7.0",   // bump on EVERY bridge change + add a CHANGELOG.md entry
+                BridgeVersion = "1.9.0",   // bump on EVERY bridge change + add a CHANGELOG.md entry
                 SourcePlcFamily = sourcePlcFamily,
                 SourceCpuTypeId = sourceCpuTypeId,
             };
@@ -536,6 +536,13 @@ namespace PacForgeBridge
             PlcSoftware plcSoftware = GetPlcSoftware();
             var demoResult = new DemoResult { DeviceName = device.Name };
 
+            // A CPU with no node address cannot be downloaded to at all (G9-W10),
+            // so address it before anything else is built on top.
+            Emit("Addressing the CPU interface", 50);
+            EnsureCpuNetworkAddress(device, demoResult);
+            response.Warnings.AddRange(demoResult.Warnings);
+            demoResult.Warnings.Clear();
+
             // Plug IO modules
             if (request.IoModules != null && request.IoModules.Count > 0)
             {
@@ -739,6 +746,11 @@ namespace PacForgeBridge
             if (_project == null)
                 return new DownloadResultDto { Success = false, Message = "No project open." };
 
+            // Declared out here so the catch blocks can report it too — otherwise a
+            // download that throws claims simulation support was off when it was on.
+            bool simulationEnabled = false;
+            string simulationError = null;
+
             try
             {
                 // 1. Get CPU DeviceItem + PlcSoftware
@@ -773,42 +785,58 @@ namespace PacForgeBridge
                     }
                     catch { }
                 }
-                // This must be set BEFORE compiling — blocks compiled without it can't be simulated
+                // This must be set BEFORE compiling — blocks compiled without it can't
+                // be simulated.
+                //
+                // It is a PROJECT-level property, not a device/software attribute
+                // (G9-W11). The previous PlcSoftware → DeviceItem → Device SetAttribute
+                // cascade could never work on V20: all three throw, and because the
+                // failure was only a Console line, a compile that produced
+                // non-simulatable blocks still reported Success/0 errors.
+                //   P:Siemens.Engineering.ProjectBase.IsSimulationDuringBlockCompilationEnabled
+                //   "To indicate whether Support for Simulation during block compilation
+                //    is enabled for the project"
+#if !TIA_V18
                 try
                 {
-                    // Try on PlcSoftware first (V18 typical location)
+                    _project.IsSimulationDuringBlockCompilationEnabled = true;
+                    simulationEnabled = true;
+                    Console.WriteLine("[TIA] Simulation support enabled on the project.");
+                }
+                catch (Exception exSim)
+                {
+                    simulationError = exSim.Message;
+                }
+#else
+                // V18 exposes it as an attribute on the PlcSoftware.
+                try
+                {
                     plcSoftware.SetAttribute("SupportSimulationDuringBlockCompilation", true);
+                    simulationEnabled = true;
                     Console.WriteLine("[TIA] Simulation support enabled on PlcSoftware.");
                 }
-                catch
+                catch (Exception exSim)
                 {
-                    try
-                    {
-                        // Try on the CPU DeviceItem
-                        cpuDevice.SetAttribute("SupportSimulationDuringBlockCompilation", true);
-                        Console.WriteLine("[TIA] Simulation support enabled on CPU DeviceItem.");
-                    }
-                    catch
-                    {
-                        try
-                        {
-                            // Try on the parent Device
-                            var parentDevice = cpuDevice.Parent as Device;
-                            if (parentDevice == null)
-                                parentDevice = cpuDevice.Parent?.Parent as Device;
-                            if (parentDevice != null)
-                            {
-                                parentDevice.SetAttribute("SupportSimulationDuringBlockCompilation", true);
-                                Console.WriteLine("[TIA] Simulation support enabled on Device.");
-                            }
-                        }
-                        catch (Exception ex3)
-                        {
-                            Console.WriteLine($"[TIA] WARNING: Could not set simulation flag automatically: {ex3.Message}");
-                            Console.WriteLine("[TIA] Please enable it manually: Project tree → PLC → Properties → Protection & Security → Support simulation during block compilation");
-                        }
-                    }
+                    simulationError = exSim.Message;
                 }
+#endif
+                if (!simulationEnabled)
+                {
+                    Console.WriteLine($"[TIA] WARNING: Could not enable simulation support: {simulationError}");
+                    Console.WriteLine("[TIA] Please enable it manually: Project tree → PLC → Properties → Protection & Security → Support simulation during block compilation");
+                }
+
+                // 2b. Make sure the CPU is reachable. Projects built before G9-W10 —
+                // and any hand-made project — carry no node address, which shows up
+                // as "Connect to module <PLC> failed" at download time rather than
+                // anything that names the real problem. Idempotent, so an authored
+                // address is preserved.
+                var netResult = new DemoResult { DeviceName = cpuDevice.Name };
+                Device cpuOwner = cpuDevice.Parent as Device ?? cpuDevice.Parent?.Parent as Device;
+                if (cpuOwner != null)
+                    EnsureCpuNetworkAddress(cpuOwner, netResult);
+                else
+                    Console.WriteLine("[TIA] Could not resolve the CPU's owning Device — skipping node-address check.");
 
                 // 3. Compile hardware + software (recompile with simulation flag)
                 var compilable = plcSoftware.GetService<ICompilable>();
@@ -919,15 +947,55 @@ namespace PacForgeBridge
                 if (targetIface == null)
                     return new DownloadResultDto { Success = false, Message = "No PLC target on PLCSIM interface." };
 
-                // Try to find a ConfigurationAddress on the target (implements IConfiguration)
-                IConfiguration downloadConfig = targetIface; // default: use TargetInterface
+                // Pick the most specific routing available. A bare TargetInterface
+                // carries no node address, and Download() then fails with
+                // "Connect to module <PLC> failed" — so an address always wins.
+                //
+                // On this rack the address is published under the interface's SUBNET,
+                // not under the target interface (target '1 X1' reports 0 addresses
+                // while subnet 'PN/IE_1' reports 192.168.0.1), so the subnets must be
+                // searched too — checking only the target is what left the download
+                // unroutable (G9-W10).
+                IConfiguration downloadConfig = null;
 
-                // If the target has addresses, prefer an address (more specific routing)
                 foreach (ConfigurationAddress addr in targetIface.Addresses)
                 {
                     Console.WriteLine($"[TIA] Using target address: '{addr.Name}' = {addr.Address}");
                     downloadConfig = addr;
                     break;
+                }
+
+                if (downloadConfig == null)
+                {
+                    foreach (ConfigurationSubnet sn in plcsimInterface.Subnets)
+                    {
+                        foreach (ConfigurationAddress addr in sn.Addresses)
+                        {
+                            Console.WriteLine($"[TIA] Using subnet address: '{sn.Name}' → '{addr.Name}' = {addr.Address}");
+                            downloadConfig = addr;
+                            break;
+                        }
+                        if (downloadConfig != null) break;
+                    }
+                }
+
+                if (downloadConfig == null)
+                {
+                    foreach (ConfigurationAddress addr in plcsimInterface.Addresses)
+                    {
+                        Console.WriteLine($"[TIA] Using direct interface address: '{addr.Name}' = {addr.Address}");
+                        downloadConfig = addr;
+                        break;
+                    }
+                }
+
+                if (downloadConfig == null)
+                {
+                    // Nothing addressable anywhere — fall back to the target interface so
+                    // the attempt still happens, but say why it is likely to fail.
+                    Console.WriteLine("[TIA] WARNING: no node address on target, subnets or interface — " +
+                        "falling back to the bare target interface; expect 'Connect to module' to fail.");
+                    downloadConfig = targetIface;
                 }
 
                 Console.WriteLine($"[TIA] Download config type: {downloadConfig.GetType().Name}");
@@ -938,9 +1006,20 @@ namespace PacForgeBridge
                     downloadConfig,
                     delegate(Siemens.Engineering.Download.Configurations.DownloadConfiguration preConfig)
                     {
-                        Console.WriteLine($"[TIA] Pre-download prompt: {preConfig.Message}");
-                        // Handle known pre-download prompts by accepting them
-                        // Common prompts: "Stop modules", "Overwrite existing data", etc.
+                        // Log the TYPE as well as the message — an unanswered prompt is
+                        // indistinguishable from no prompt at all otherwise.
+                        Console.WriteLine($"[TIA] Pre-download prompt [{preConfig.GetType().Name}]: {preConfig.Message}");
+#if !TIA_V18
+                        // "Download to: CPU / PLCSIM Advanced". Left unanswered, TIA
+                        // targets the real CPU, which is not there (G9-W10).
+                        var targetForSoftware = preConfig as Siemens.Engineering.Download.Configurations.TargetForSoftware;
+                        if (targetForSoftware != null)
+                        {
+                            targetForSoftware.CurrentSelection =
+                                Siemens.Engineering.Download.Configurations.TargetForSoftwareSelections.PlcSimulationAdvanced;
+                            Console.WriteLine("[TIA]   → answered: PlcSimulationAdvanced");
+                        }
+#endif
                     },
                     delegate(Siemens.Engineering.Download.Configurations.DownloadConfiguration postConfig)
                     {
@@ -966,11 +1045,13 @@ namespace PacForgeBridge
                 return new DownloadResultDto
                 {
                     Success = success,
-                    Message = success
+                    Message = (success
                         ? $"Download complete ({warnCount} warnings)"
-                        : $"Download failed with {errCount} errors",
+                        : $"Download failed with {errCount} errors")
+                        + (simulationEnabled ? "" : " — WARNING: simulation support was NOT enabled, blocks are not simulatable"),
                     Warnings = warnCount,
                     Errors = errCount,
+                    SimulationSupportEnabled = simulationEnabled,
                 };
             }
             catch (Siemens.Engineering.EngineeringException ex)
@@ -988,6 +1069,7 @@ namespace PacForgeBridge
                     Success = false,
                     Message = $"Download failed: {ex.Message}" +
                         (ex.InnerException != null ? $" → {ex.InnerException.Message}" : ""),
+                    SimulationSupportEnabled = simulationEnabled,
                 };
             }
             catch (Exception ex)
@@ -999,6 +1081,7 @@ namespace PacForgeBridge
                 {
                     Success = false,
                     Message = $"Download failed: {ex.Message}",
+                    SimulationSupportEnabled = simulationEnabled,
                 };
             }
         }
@@ -1789,6 +1872,89 @@ namespace PacForgeBridge
             "/V0.4", "/V0.3", "/V0.2", "/V0.1", "/V0.0",
             "/V6.0", "/V5.1", "/V5.2",
         };
+
+        /// <summary>Default node address for a generated CPU — the Siemens factory
+        /// default for an S7-1500 PROFINET interface. Used because the FDS has
+        /// nowhere to carry an authored IP yet (G9-W10); when HardwareCpuSchema
+        /// gains the field this becomes the fallback, not the only source.</summary>
+        private const string DefaultCpuIpAddress = "192.168.0.1";
+        private const string DefaultSubnetName = "PN/IE_1";
+
+        /// <summary>Find the first PROFINET/Ethernet node on a device, recursing
+        /// through the rack the same way the CPU and PlcSoftware lookups do.</summary>
+        private static Node FindFirstNetworkNode(IEnumerable<DeviceItem> items)
+        {
+            foreach (DeviceItem item in items)
+            {
+                NetworkInterface itf = item.GetService<NetworkInterface>();
+                if (itf != null && itf.Nodes.Count > 0)
+                    return itf.Nodes[0];
+
+                Node nested = FindFirstNetworkNode(item.DeviceItems);
+                if (nested != null)
+                    return nested;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Give the CPU's PROFINET interface a node address and attach it to a subnet.
+        ///
+        /// Without this a generated project cannot be downloaded to ANYTHING — PLCSIM
+        /// or real hardware. TIA's download configuration enumerates zero target
+        /// addresses and zero subnets, and the download dies with the unhelpful
+        /// "Connect to module PLC_1 failed." (G9-W10).
+        ///
+        /// Idempotent by design: an interface that already carries an address and a
+        /// subnet is left untouched, so re-provisioning or re-downloading never
+        /// renumbers a rack someone has already commissioned.
+        /// </summary>
+        private void EnsureCpuNetworkAddress(Device device, DemoResult result)
+        {
+            try
+            {
+                Node node = FindFirstNetworkNode(device.DeviceItems);
+                if (node == null)
+                {
+                    string msg = "CPU has no PROFINET interface — cannot assign a node address; download will fail.";
+                    Console.WriteLine("[TIA] " + msg);
+                    result?.Warnings.Add(msg);
+                    return;
+                }
+
+                string existing = null;
+                try { existing = node.GetAttribute("Address") as string; } catch { }
+
+                if (string.IsNullOrWhiteSpace(existing))
+                {
+                    node.SetAttribute("Address", DefaultCpuIpAddress);
+                    Console.WriteLine($"[TIA] CPU node address set to {DefaultCpuIpAddress}.");
+                }
+                else
+                {
+                    Console.WriteLine($"[TIA] CPU node address already set ({existing}) — left as authored.");
+                }
+
+                if (node.ConnectedSubnet == null)
+                {
+                    node.CreateAndConnectToSubnet(DefaultSubnetName);
+                    Console.WriteLine($"[TIA] CPU node connected to new subnet '{DefaultSubnetName}'.");
+                }
+                else
+                {
+                    Console.WriteLine($"[TIA] CPU node already on subnet '{node.ConnectedSubnet.Name}'.");
+                }
+            }
+            catch (Exception ex)
+            {
+                // A rack that cannot be addressed is worth reporting alongside the
+                // rest of the build rather than aborting it — same rule as
+                // ApplyStartAddress.
+                string msg = $"Could not assign CPU node address/subnet: {ex.Message}";
+                Console.WriteLine("[TIA] " + msg);
+                result?.Warnings.Add(msg);
+            }
+        }
 
         private void PlugIoModules(Device device, List<IoModuleDto> ioModules, DemoResult result)
         {

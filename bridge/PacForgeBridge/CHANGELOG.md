@@ -4,6 +4,62 @@ Every bridge change bumps `BridgeVersion` in `TiaPortalService.cs` (semver:
 new capability = minor, fix = patch) and gets an entry here. The running
 version is visible at `GET /tia/status`.
 
+## 1.9.0 — 2026-07-26
+
+Simulation support is a **project** property, not a device attribute (G9-W11):
+
+- **`IsSimulationDuringBlockCompilationEnabled`** — `DownloadToPlcsim` tried
+  `SetAttribute("SupportSimulationDuringBlockCompilation", …)` on PlcSoftware, then
+  the CPU DeviceItem, then the Device. On V20 **all three throw** — the last with
+  *"not supported by type 'Siemens.Engineering.HW.DeviceImpl'"*. The V20 catalogue
+  documents it as `Siemens.Engineering.ProjectBase.IsSimulationDuringBlockCompilationEnabled`,
+  *"whether Support for Simulation during block compilation is enabled for the
+  project"*. Now set there. V18 keeps the PlcSoftware attribute via `#if TIA_V18`.
+- **`DownloadResultDto.SimulationSupportEnabled`** — the old failure was a
+  `Console.WriteLine` only, so a compile that produced non-simulatable blocks still
+  returned Success with 0 errors and nothing downstream could tell. The outcome is
+  now on the response and, when false, called out in `Message` too.
+- **Pre-download prompts are answered, and logged with their type.**
+  `TargetForSoftware` ("download to CPU or PLCSIM Advanced") was being logged and
+  ignored, leaving TIA aimed at the real CPU. It is now answered with
+  `TargetForSoftwareSelections.PlcSimulationAdvanced`.
+
+## 1.8.1 — 2026-07-26
+
+- **Download routing searches subnets, not just the target interface.** With a
+  subnet in place the node address is published under
+  `ConfigurationPcInterface.Subnets[].Addresses`, while the target interface
+  itself still reports zero (`Target '1 X1' → Addresses: 0`,
+  `Subnet 'PN/IE_1' → 192.168.0.1`). `DownloadToPlcsim` only ever inspected the
+  target, so it fell back to passing a bare `ConfigurationTargetInterface` — which
+  has no node to reach, and `Download()` failed with `"Connect to module PLC_1
+  failed."` It now prefers, in order: a target address → a subnet address → a
+  direct interface address, and only then the bare target — logging a warning in
+  that last case instead of failing silently (G9-W10).
+
+## 1.8.0 — 2026-07-26
+
+Generated projects are now reachable — nothing could be downloaded to them before (G9-W10):
+
+- **`EnsureCpuNetworkAddress`** — a provisioned CPU had no node address and the
+  project had no subnet, so TIA's download configuration enumerated
+  `Target '1 X1' → Addresses: 0, Subnets: 0` and every download died with
+  `"Connect to module PLC_1 failed."` The CPU's first PROFINET node is now given
+  an address and connected to a subnet.
+- Called from **`ProvisionProject`** (fresh builds are born addressable) and from
+  **`DownloadToPlcsim`** (projects built before this, and hand-made ones, are
+  repaired in place rather than failing with an error that names the wrong thing).
+
+The address defaults to `192.168.0.1` on subnet `PN/IE_1` — the Siemens factory
+default — because `HardwareCpuSchema` has nowhere to carry an authored IP yet.
+The check is idempotent: an interface that already has an address, or is already
+on a subnet, is left exactly as authored, so re-provisioning never renumbers a
+commissioned rack. Failures downgrade to warnings, matching `ApplyStartAddress`.
+
+Known, not fixed here: `SupportSimulationDuringBlockCompilation` still cannot be
+set on V20 — all three fallbacks throw and the failure is only a console line, so
+a clean compile does not imply the blocks are simulatable (G9-W11).
+
 ## 1.7.0 — 2026-07-25
 
 Fresh builds now match the reimport path's structure and addressing (G0-18):

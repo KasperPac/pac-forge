@@ -666,6 +666,14 @@ namespace PacForgeBridge
         public string Message { get; set; }
         public int Warnings { get; set; }
         public int Errors { get; set; }
+
+        /// <summary>
+        /// Whether "Support simulation during block compilation" was actually
+        /// enabled before the compile. False means the blocks are NOT simulatable
+        /// no matter what the compile reported — previously this failure was a
+        /// console line only, so a clean compile looked like a good one (G9-W11).
+        /// </summary>
+        public bool SimulationSupportEnabled { get; set; }
     }
 
     // --- Internal Job State ---
