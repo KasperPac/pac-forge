@@ -1,12 +1,24 @@
 # Handover — IO addressing (G0-18) + what shipped 2026-07-25
 
-**Branch:** `master`, 15 commits **local, unpushed**. **Bridge:** v1.7.0.
-
-Pick-up point for finishing the IO mapping. Everything below was FAT'd on live TIA V20 unless marked otherwise.
+> ## ⚠️ SUPERSEDED — do not action this document
+>
+> **G0-18 is complete and FAT'd** (2026-07-26). The "one thing left to do" below was built,
+> tested and verified on live TIA; all commits are pushed. Current handover:
+> **`Docs/HANDOVER-PLCSIM-AND-HMI.md`**.
+>
+> Two corrections, kept because the figures below are wrong and were acted on:
+> - **"Moves needed" was 14; the correct answer is 20** (hand-verified against the raw
+>   `confirmed_units` rows). It assumed the six DI signals already at `%I16.0–16.5` would stay
+>   put, but positional assignment pushes them to `%I16.5–%I17.2` because five other DI
+>   signals precede them in hierarchy order. The card *ranges* below are correct.
+> - **The DI card was at slot 3, colliding with the AI card**, not slot 4. It has since been
+>   moved to slot 4 and saved. The computed layout is identical either way.
+>
+> Retained for the "Facts learned the hard way" section, which is still accurate.
 
 ---
 
-## The one thing left to do
+## The one thing left to do — ✅ DONE, see the superseding handover
 
 **Write the computed IO addresses back onto the spec.** Nothing does this yet, so a rebuild today still produces mismatched tags — cards get pinned correctly, the stored spec still holds its old addresses.
 
