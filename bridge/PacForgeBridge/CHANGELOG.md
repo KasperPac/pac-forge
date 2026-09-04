@@ -4,6 +4,29 @@ Every bridge change bumps `BridgeVersion` in `TiaPortalService.cs` (semver:
 new capability = minor, fix = patch) and gets an entry here. The running
 version is visible at `GET /tia/status`.
 
+## 1.10.0 — 2026-09-04
+
+TIA Portal **V21** build — `PacForgeBridge.V21.csproj`, define `TIA_V21`, port **5104**
+(G9-W13). Sits beside the V20 build (5102) and the V18 twin (5103).
+
+- **V21 Openness is split into per-product assemblies** under
+  `Portal V21\PublicAPI\V21\net48\`: `Siemens.Engineering.Base` (core, Compiler,
+  Download, Library, HW), `.Step7` (SW.*, HW.Features), `.WinCC` (classic `Hmi.*`)
+  and `.WinCCUnified` (`HmiUnified.*`). There is no `Siemens.Engineering.dll` or
+  `Siemens.Engineering.Hmi.dll`. The csproj references the four directly with
+  `Private=false`; `App.config` carries a `codeBase` per assembly with the **new
+  public key token `29bfe5fdf4ba5d3b`** (V20's was `d29ec89bac048f84`).
+- **`IsSimulationDuringBlockCompilationEnabled` moved** off `ProjectBase` onto the
+  `Siemens.Engineering.SW.PlcSimulationSettingsProvider` service —
+  `_project.GetService<PlcSimulationSettingsProvider>()`. Only API change needed;
+  every namespace the bridge imports still exists.
+- `DetectInstalledVersion()` reports `V21`; `FindWinccGraphicsZip()` looks in
+  `Portal V21` first; the `*.ap*` resolver message names `.ap21`.
+- The `Siemens.Collaboration.Net` Openness.Extensions NuGet (pinned `20.*`, never
+  used in code) is left out of this build. PLCSIM Advanced 7.0 reference unchanged.
+- Build with `dotnet build bridge/PacForgeBridge/PacForgeBridge.V21.csproj` (the
+  three projects share `obj/`, so build them one at a time).
+
 ## 1.9.0 — 2026-07-26
 
 Simulation support is a **project** property, not a device attribute (G9-W11):

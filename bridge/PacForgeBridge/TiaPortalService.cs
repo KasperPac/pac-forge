@@ -164,7 +164,7 @@ namespace PacForgeBridge
                 Connected = connected,
                 TiaVersion = tiaVersion,
                 TiaProjectOpen = projectOpen,
-                BridgeVersion = "1.9.0",   // bump on EVERY bridge change + add a CHANGELOG.md entry
+                BridgeVersion = "1.10.0",   // bump on EVERY bridge change + add a CHANGELOG.md entry
                 SourcePlcFamily = sourcePlcFamily,
                 SourceCpuTypeId = sourceCpuTypeId,
             };
@@ -376,7 +376,7 @@ namespace PacForgeBridge
                     if (System.Text.RegularExpressions.Regex.IsMatch(ext, @"\.ap\d+$"))
                         return f;
                 }
-                throw new FileNotFoundException($"No TIA Portal project file (*.ap17/18/19/20) found in: {path}");
+                throw new FileNotFoundException($"No TIA Portal project file (*.ap17/18/19/20/21) found in: {path}");
             }
 
             // Not a file or folder — pass through and let TIA give the error
@@ -796,7 +796,25 @@ namespace PacForgeBridge
                 //   P:Siemens.Engineering.ProjectBase.IsSimulationDuringBlockCompilationEnabled
                 //   "To indicate whether Support for Simulation during block compilation
                 //    is enabled for the project"
-#if !TIA_V18
+#if TIA_V21
+                // V21 moved the flag off ProjectBase onto a project service:
+                //   T:Siemens.Engineering.SW.PlcSimulationSettingsProvider
+                //   "Service provider for simulation during block compilation in project"
+                //   P:...PlcSimulationSettingsProvider.IsSimulationDuringBlockCompilationEnabled
+                try
+                {
+                    var simSettings = _project.GetService<Siemens.Engineering.SW.PlcSimulationSettingsProvider>();
+                    if (simSettings == null)
+                        throw new InvalidOperationException("PlcSimulationSettingsProvider service is not available on this project.");
+                    simSettings.IsSimulationDuringBlockCompilationEnabled = true;
+                    simulationEnabled = true;
+                    Console.WriteLine("[TIA] Simulation support enabled on the project (V21 PlcSimulationSettingsProvider).");
+                }
+                catch (Exception exSim)
+                {
+                    simulationError = exSim.Message;
+                }
+#elif !TIA_V18
                 try
                 {
                     _project.IsSimulationDuringBlockCompilationEnabled = true;
@@ -1718,6 +1736,8 @@ namespace PacForgeBridge
         {
 #if TIA_V18
             return "V18";
+#elif TIA_V21
+            return "V21";
 #else
             return "V20";
 #endif

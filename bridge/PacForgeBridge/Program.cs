@@ -61,6 +61,9 @@ namespace PacForgeBridge
 #if TIA_V18
             int port = 5103;
             string bridgeVersion = "V18";
+#elif TIA_V21
+            int port = 5104;
+            string bridgeVersion = "V21";
 #else
             int port = 5102;
             string bridgeVersion = "V20";

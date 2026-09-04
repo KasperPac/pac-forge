@@ -707,7 +707,7 @@ namespace PacForgeBridge
         private string FindWinccGraphicsZip()
         {
             string basePath = @"C:\Program Files\Siemens\Automation";
-            string[] versions = { "Portal V20", "Portal V19", "Portal V18", "Portal V17" };
+            string[] versions = { "Portal V21", "Portal V20", "Portal V19", "Portal V18", "Portal V17" };
             foreach (var v in versions)
             {
                 string zipPath = Path.Combine(basePath, v, "lib", "Graphics", "Graphics_All.zip");

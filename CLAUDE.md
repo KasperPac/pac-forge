@@ -16,16 +16,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Model Selection (suggest per task)
 
-**At the start of any non-trivial task, suggest the model tier that fits it** (one line — e.g. _"This is codegen-writer work; recommend Opus 4.8"_), then proceed. Claude Code can't switch models itself — the user toggles with `/model`, so this is a recommendation, not an automatic switch. Default is **Opus 4.8**; only suggest another tier when the task clearly fits it.
+**At the start of any non-trivial task, suggest the model tier that fits it** (one line — e.g. _"This is codegen-writer work; recommend Opus 5"_), then proceed. Claude Code can't switch models itself — the user toggles with `/model`, so this is a recommendation, not an automatic switch. Default is **Opus 5** (or whatever the latest Opus is); only suggest another tier when the task clearly fits it.
 
 | Model (`id`) | $/1M in·out | Use for |
 |---|---|---|
-| **Opus 4.8** (`claude-opus-4-8`) — default | $5 · $25 | Deterministic SCL/HMI writers (G1–G6), FDS contract (G0), safety-gate & compile-correctness logic, the .NET TIA bridge, multi-file debugging — anything correctness-critical or cross-file. |
-| **Sonnet 5** (`claude-sonnet-5`) | $3 · $15 | Well-scoped, lower-risk work: UI wiring, tests, mechanical refactors, docs/tracking, prompt-text edits. Near-Opus quality, faster/cheaper. |
-| **Fable 5** (`claude-fable-5`) | $10 · $50 | Only the hardest long-horizon, cross-cutting efforts where Opus stalls. 2× Opus cost + different API surface (always-on thinking, 30-day data-retention requirement) — never a default. |
+| **Opus 5** (`claude-opus-5`) — default | $5 · $25 | Deterministic SCL/HMI writers (G1–G6), FDS contract (G0), safety-gate & compile-correctness logic, the .NET TIA bridge, multi-file debugging — anything correctness-critical or cross-file. Thinking is on by default; tune depth with effort rather than switching tiers. |
+| **Sonnet 5** (`claude-sonnet-5`) | $2 · $10 | Well-scoped, lower-risk work: UI wiring, tests, mechanical refactors, docs/tracking, prompt-text edits. Near-Opus quality, faster/cheaper. |
+| **Fable 5.1** (`claude-fable-5-1`) | $10 · $50 | Only the hardest long-horizon, cross-cutting efforts where Opus stalls. 2× Opus cost + different API surface (always-on thinking, no forced tool_choice, 30-day data-retention requirement) — never a default. |
 | **Haiku 4.5** (`claude-haiku-4-5`) | $1 · $5 | Trivial mechanical sweeps — renames, lint, find/replace. |
 
-Rule of thumb for this roadmap: **correctness-critical or multi-file → Opus 4.8; scoped/mechanical → Sonnet 5 (or Haiku for trivial); reserve Fable 5 for the genuinely hard.**
+Rule of thumb for this roadmap: **correctness-critical or multi-file → Opus 5; scoped/mechanical → Sonnet 5 (or Haiku for trivial); reserve Fable 5.1 for the genuinely hard.** Prices are the Anthropic first-party rates as of 2026-09 — re-check with the `claude-api` skill before quoting them.
 
 ---
 
@@ -261,7 +261,8 @@ The bridge (`bridge/PacForgeBridge/`) is a .NET Framework 4.8 console app that w
 - **Versioning (MANDATORY)**: any change to the bridge must bump `BridgeVersion` in `TiaPortalService.cs` (semver: features = minor, fixes = patch) AND add an entry to `bridge/PacForgeBridge/CHANGELOG.md` describing what the version includes
 - **Live commissioning workflow**: `POST /tia/reimport-compile` `{sources:{name:scl}}` deletes+reimports each block then compiles all; `POST /tia/export-sources` dumps every block. When an FB interface changes, include its instance DB in the same request (delete+recreate resets DB values on download — warn the user). TIA must be OFFLINE for any compile/save ("operation not permitted in online mode")
 - **WinCC Unified HMI endpoints** (`TiaPortalService.HmiUnified.cs`): `POST /tia/hmi/build` (JSON spec: tags/screens/items/alarms/editItems, dynamizations incl. `singleBit` color mapping), `GET /tia/hmi/inspect` (structure + per-tag connection/PlcTag), `GET /tia/hmi/screen?name=X&props=1` (recursive property-graph dump — the discovery tool for any element option). See `Docs/WINCC-UNIFIED-OPENNESS-DISCOVERY.md` for the option-discovery method, binding rules, and capability map
-- **Bridge rebuild quirks**: build `bridge/PacForgeBridge/PacForgeBridge.csproj` only (the solution also builds a V18 twin whose exe is often running/locked); every rebuild changes the exe checksum → TIA re-prompts the Openness whitelist on next connect (user must click Accept); the bridge attaches lazily on first endpoint call, so `/tia/status` shows `connected:false` after restart until something touches TIA
+- **Three builds, one per Portal version**: `PacForgeBridge.csproj` (V20, port 5102), `PacForgeBridge.V18.csproj` (`TIA_V18`, 5103) and `PacForgeBridge.V21.csproj` (`TIA_V21`, 5104 — V21 Openness is split into `Siemens.Engineering.Base/.Step7/.WinCC/.WinCCUnified` under `Portal V21\PublicAPI\V21\net48\`, new public key token). Match the build to the project's `.apNN` extension. TIA refuses project directory paths over 143 characters — expose long Dropbox paths through a `mklink /J` junction
+- **Bridge rebuild quirks**: build one csproj at a time (the three share `obj/`; the V18 twin's exe is often running/locked); every rebuild changes the exe checksum → TIA re-prompts the Openness whitelist on next connect (user must click Accept); the bridge attaches lazily on first endpoint call, so `/tia/status` shows `connected:false` after restart until something touches TIA
 - **Openness is slow per item-edit** (~5–10 s): batches of ~90 screen-item edits run >10 min — run them in background; an HTTP client timeout does NOT mean the batch failed (verify by re-inspecting, force a save with an empty `/tia/hmi/build` call)
 
 ### Path Aliases

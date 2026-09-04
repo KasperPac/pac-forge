@@ -1,0 +1,64 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net481</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <RootNamespace>PacForgeBridge</RootNamespace>
+    <AssemblyName>PacForgeBridge.V21</AssemblyName>
+    <DefineConstants>TIA_V21</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
+  </ItemGroup>
+
+  <!--
+    TIA Portal V21 Openness is split into per-product assemblies under
+    Portal V21\PublicAPI\V21\net48\ — there is no Siemens.Engineering.dll or
+    Siemens.Engineering.Hmi.dll any more. Namespace → assembly:
+      Siemens.Engineering, .Compiler, .Connection, .Download, .Library.*, .HW  → Base
+      Siemens.Engineering.SW.*, .HW.Features                                  → Step7
+      Siemens.Engineering.Hmi.*  (classic WinCC)                              → WinCC
+      Siemens.Engineering.HmiUnified.*                                        → WinCCUnified
+    Private=false: the runtime resolves them through the codeBase entries in
+    App.config (publicKeyToken 29bfe5fdf4ba5d3b, version 21.0.0.0).
+    The Siemens.Collaboration.Net Openness.Extensions NuGet (pinned 20.*) is
+    never used in code and is deliberately left out of this build.
+  -->
+  <ItemGroup>
+    <Reference Include="Siemens.Engineering.Base">
+      <HintPath>C:\Program Files\Siemens\Automation\Portal V21\PublicAPI\V21\net48\Siemens.Engineering.Base.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+    <Reference Include="Siemens.Engineering.Step7">
+      <HintPath>C:\Program Files\Siemens\Automation\Portal V21\PublicAPI\V21\net48\Siemens.Engineering.Step7.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+    <Reference Include="Siemens.Engineering.WinCC">
+      <HintPath>C:\Program Files\Siemens\Automation\Portal V21\PublicAPI\V21\net48\Siemens.Engineering.WinCC.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+    <Reference Include="Siemens.Engineering.WinCCUnified">
+      <HintPath>C:\Program Files\Siemens\Automation\Portal V21\PublicAPI\V21\net48\Siemens.Engineering.WinCCUnified.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+    <Reference Include="Siemens.Simatic.Simulation.Runtime.Api.x64">
+      <HintPath>C:\Program Files (x86)\Common Files\Siemens\PLCSIMADV\API\7.0\Siemens.Simatic.Simulation.Runtime.Api.x64.dll</HintPath>
+      <Private>true</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+  </ItemGroup>
+
+</Project>
