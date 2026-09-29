@@ -4,6 +4,33 @@ Every bridge change bumps `BridgeVersion` in `TiaPortalService.cs` (semver:
 new capability = minor, fix = patch) and gets an entry here. The running
 version is visible at `GET /tia/status`.
 
+## 1.11.0 — 2026-09-29
+
+Mesh bind and bearer token, so the hosted Pac Hub can compile on an engineer's own
+bridge over NetBird (PHUB-210). Defaults are unchanged: no flags = `localhost` only, no auth.
+
+- **`--bind <host>`** — adds `http://<host>:{port}/` to the listener. `localhost` is always
+  kept, so local tools still work. **`--bind mesh`** finds this machine's NetBird address
+  (the `wt0` adapter, else the first IPv4 in `100.64.0.0/10`) and binds that; it exits with
+  a message if NetBird is not connected.
+- **`--token <value>`** or env **`PAC_BRIDGE_TOKEN`** — when set, every request except
+  `GET /tia/status` must carry `Authorization: Bearer <value>`; otherwise **401**
+  `{"error":"unauthorised"}`. Compared in constant time (SHA-256 digests). This includes
+  localhost callers and `/tia/ws`, so a local tool talking to a token-protected bridge must
+  send the header too.
+- **One-time URL reservation.** Binding a non-localhost address as a normal user needs a
+  urlacl. Without it `HttpListener` fails with access denied, and the bridge prints the
+  exact command. Run it once per machine, elevated:
+
+  ```
+  netsh http add urlacl url=http://<netbird-ip>:<port>/ user=Everyone
+  ```
+
+  then start the bridge: `PacForgeBridge.exe --bind mesh --token <token>`
+  (ports: V20 5102, V18 5103, V21 5104). If the machine's NetBird address changes, add a
+  reservation for the new one.
+- CORS now allows the `Authorization` header.
+
 ## 1.10.0 — 2026-09-04
 
 TIA Portal **V21** build — `PacForgeBridge.V21.csproj`, define `TIA_V21`, port **5104**

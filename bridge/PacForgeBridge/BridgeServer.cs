@@ -22,11 +22,27 @@ namespace PacForgeBridge
         private readonly PlcsimService _plcsimService;
 #endif
         private CancellationTokenSource _cts;
+        private readonly int _port;
+        private readonly string _bindHost;
+        private readonly string _token;
 
         public BridgeServer(int port, JobExecutor jobExecutor, WebSocketHandler wsHandler, TiaPortalService tiaService)
+            : this(port, jobExecutor, wsHandler, tiaService, "localhost", null)
         {
+        }
+
+        /// <param name="bindHost">Listener host besides localhost (PHUB-210: the NetBird address for --bind mesh).</param>
+        /// <param name="token">When set, every request except GET /tia/status must carry "Authorization: Bearer &lt;token&gt;".</param>
+        public BridgeServer(int port, JobExecutor jobExecutor, WebSocketHandler wsHandler, TiaPortalService tiaService, string bindHost, string token)
+        {
+            _port = port;
+            _bindHost = string.IsNullOrWhiteSpace(bindHost) ? "localhost" : bindHost;
+            _token = string.IsNullOrEmpty(token) ? null : token;
             _listener = new HttpListener();
+            // localhost is always kept so local tools still work.
             _listener.Prefixes.Add($"http://localhost:{port}/");
+            if (!IsLocalHost(_bindHost))
+                _listener.Prefixes.Add($"http://{_bindHost}:{port}/");
             _jobExecutor = jobExecutor;
             _wsHandler = wsHandler;
             _tiaService = tiaService;
@@ -38,7 +54,18 @@ namespace PacForgeBridge
         public void Start()
         {
             _cts = new CancellationTokenSource();
-            _listener.Start();
+            try
+            {
+                _listener.Start();
+            }
+            catch (HttpListenerException ex) when (ex.ErrorCode == 5 && !IsLocalHost(_bindHost))
+            {
+                // Access denied: a non-localhost prefix needs a URL reservation (one-time, elevated).
+                Console.WriteLine($"[HTTP] Access denied binding http://{_bindHost}:{_port}/.");
+                Console.WriteLine("[HTTP] Run this once in an elevated prompt, then start the bridge again:");
+                Console.WriteLine($"  netsh http add urlacl url=http://{_bindHost}:{_port}/ user=Everyone");
+                throw;
+            }
             Task.Run(() => AcceptLoop(_cts.Token));
         }
 
@@ -81,13 +108,22 @@ namespace PacForgeBridge
             // CORS headers for Vite dev server
             res.Headers.Add("Access-Control-Allow-Origin", "*");
             res.Headers.Add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-            res.Headers.Add("Access-Control-Allow-Headers", "Content-Type");
+            res.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
             // Handle preflight
             if (req.HttpMethod == "OPTIONS")
             {
                 res.StatusCode = 204;
                 res.Close();
+                return;
+            }
+
+            // Bearer token (PHUB-210): everything but GET /tia/status needs it when one is configured.
+            if (_token != null
+                && !(req.HttpMethod == "GET" && req.Url.AbsolutePath.TrimEnd('/') == "/tia/status")
+                && !BridgeAccess.IsAuthorised(req.Headers["Authorization"], _token))
+            {
+                try { await WriteJson(res, 401, new { error = "unauthorised" }); } catch { }
                 return;
             }
 
@@ -1728,6 +1764,12 @@ namespace PacForgeBridge
             if (string.IsNullOrWhiteSpace(json)) return null;
             try { return JsonConvert.DeserializeObject<T>(json); }
             catch { return null; }
+        }
+
+        private static bool IsLocalHost(string host)
+        {
+            return string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase)
+                || host == "127.0.0.1";
         }
 
         private static async Task WriteJson(HttpListenerResponse res, int statusCode, object body)

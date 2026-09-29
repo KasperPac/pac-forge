@@ -79,10 +79,16 @@ namespace PacForgeBridge
             catch (Exception ex) { Console.WriteLine($"[Bridge] log tee unavailable: {ex.Message}"); }
 
             // Parse command-line arguments
+            string bind = null;
+            string token = Environment.GetEnvironmentVariable("PAC_BRIDGE_TOKEN");
             for (int i = 0; i < args.Length - 1; i++)
             {
                 if (args[i] == "--port" && int.TryParse(args[i + 1], out int p))
                     port = p;
+                if (args[i] == "--bind")
+                    bind = args[i + 1];
+                if (args[i] == "--token")
+                    token = args[i + 1];
                 if (args[i] == "--validate-hardware-parsers")
                 {
                     HardwareParserValidator.Run(args[i + 1]);
@@ -99,7 +105,17 @@ namespace PacForgeBridge
             var tiaService = new TiaPortalService();
             var wsHandler = new WebSocketHandler();
             var jobExecutor = new JobExecutor(tiaService, wsHandler);
-            var server = new BridgeServer(port, jobExecutor, wsHandler, tiaService);
+            string bindHost;
+            try
+            {
+                bindHost = BridgeAccess.ResolveBindHost(bind);
+            }
+            catch (InvalidOperationException ex)
+            {
+                Console.WriteLine($"[BRIDGE] {ex.Message}");
+                return;
+            }
+            var server = new BridgeServer(port, jobExecutor, wsHandler, tiaService, bindHost, token);
 
             // Redirect Console.Out so every WriteLine is also broadcast over WebSocket
             Console.SetOut(new ConsoleBroadcastWriter(Console.Out, wsHandler));
@@ -122,6 +138,9 @@ namespace PacForgeBridge
                 // Print status
                 var status = tiaService.GetStatus();
                 Console.WriteLine($"  HTTP:      http://localhost:{port}");
+                if (!string.Equals(bindHost, "localhost", StringComparison.OrdinalIgnoreCase))
+                    Console.WriteLine($"  Mesh:      http://{bindHost}:{port}");
+                Console.WriteLine($"  Auth:      {(string.IsNullOrEmpty(token) ? "none (no --token / PAC_BRIDGE_TOKEN)" : "bearer token required (except GET /tia/status)")}");
                 Console.WriteLine($"  WebSocket: ws://localhost:{port}/tia/ws");
                 Console.WriteLine($"  TIA Portal: {status.TiaVersion ?? "Not detected"}");
                 Console.WriteLine();
