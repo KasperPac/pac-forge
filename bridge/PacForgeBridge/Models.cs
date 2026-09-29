@@ -644,6 +644,26 @@ namespace PacForgeBridge
 
     // --- Migration Block Reimport ---
 
+    /// <summary>POST /tia/import-scl: SCL sources (name -> text) generated into the open project.</summary>
+    public class ImportSclRequest
+    {
+        [Newtonsoft.Json.JsonProperty("sources")]
+        public Dictionary<string, string> Sources { get; set; } = new Dictionary<string, string>();
+        [Newtonsoft.Json.JsonProperty("import_order")]
+        public List<string> ImportOrder { get; set; } = new List<string>();
+        [Newtonsoft.Json.JsonProperty("compile")]
+        public bool Compile { get; set; } = false;
+    }
+
+    public class ImportSclResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+        public List<string> Imported { get; set; } = new List<string>();
+        public List<string> Errors { get; set; } = new List<string>();
+        public CompileResultDto CompileResult { get; set; }
+    }
+
     public class ReimportMigrationBlocksRequest
     {
         /// <summary>Map of block name → fixed SimaticML XML to reimport.</summary>

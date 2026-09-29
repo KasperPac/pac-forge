@@ -273,6 +273,13 @@ namespace PacForgeBridge
                     return;
                 }
 
+                // Route: POST /tia/import-scl
+                if (method == "POST" && path == "/tia/import-scl")
+                {
+                    await HandleImportScl(req, res);
+                    return;
+                }
+
                 // Route: POST /tia/import-hmi
                 if (method == "POST" && path == "/tia/import-hmi")
                 {
@@ -449,7 +456,10 @@ namespace PacForgeBridge
                 // Route: POST /tia/plcsim/download — download project to PLCSIM
                 if (method == "POST" && path == "/tia/plcsim/download")
                 {
-                    var result = _tiaService.DownloadToPlcsim();
+                    string dlBody = await ReadBody(req);
+                    string accessPassword = null;
+                    try { var dlReq = Newtonsoft.Json.Linq.JObject.Parse(string.IsNullOrWhiteSpace(dlBody) ? "{}" : dlBody); accessPassword = (string)dlReq["access_password"]; } catch { }
+                    var result = _tiaService.DownloadToPlcsim(accessPassword);
                     await WriteJson(res, result.Success ? 200 : 500, result);
                     return;
                 }
@@ -1348,6 +1358,28 @@ namespace PacForgeBridge
                     Success = false,
                     Message = ex.Message
                 });
+            }
+        }
+
+        private async Task HandleImportScl(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            try
+            {
+                string body = await ReadBody(req);
+                var request = Newtonsoft.Json.JsonConvert.DeserializeObject<ImportSclRequest>(body);
+                if (request == null || request.Sources == null || request.Sources.Count == 0)
+                {
+                    await WriteJson(res, 400, new ImportSclResponse { Success = false, Message = "No sources provided" });
+                    return;
+                }
+                Console.WriteLine($"[SCL] Importing {request.Sources.Count} source(s)...");
+                var result = _tiaService.ImportSclSources(request.Sources, request.ImportOrder, request.Compile);
+                await WriteJson(res, result.Success ? 200 : 500, result);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[SCL] import-scl failed: {ex.Message}");
+                await WriteJson(res, 500, new ImportSclResponse { Success = false, Message = ex.Message });
             }
         }
 

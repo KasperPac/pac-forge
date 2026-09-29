@@ -741,7 +741,7 @@ namespace PacForgeBridge
         /// softbus connection → download → report results.
         /// The PLCSIM instance must already be running (started via /tia/plcsim/start).
         /// </summary>
-        public DownloadResultDto DownloadToPlcsim()
+        public DownloadResultDto DownloadToPlcsim(string accessPassword = null)
         {
             if (_project == null)
                 return new DownloadResultDto { Success = false, Message = "No project open." };
@@ -926,7 +926,7 @@ namespace PacForgeBridge
                 foreach (ConfigurationPcInterface iface in pnMode.PcInterfaces)
                 {
                     Console.WriteLine($"[TIA] PC Interface: '{iface.Name}' (Number={iface.Number})");
-                    if (iface.Name.Contains("PLCSIM"))
+                    if (iface.Name.Contains("PLCSIM") && (plcsimInterface == null || iface.Name.Contains("Advanced")))
                         plcsimInterface = iface;
                 }
 
@@ -1038,10 +1038,39 @@ namespace PacForgeBridge
                             Console.WriteLine("[TIA]   → answered: PlcSimulationAdvanced");
                         }
 #endif
+                        // Standard TIA download prompts, answered the way an engineer would for a simulator target.
+                        var stopModules = preConfig as Siemens.Engineering.Download.Configurations.StopModules;
+                        if (stopModules != null) { stopModules.CurrentSelection = Siemens.Engineering.Download.Configurations.StopModulesSelections.StopAll; Console.WriteLine("[TIA]   → answered: StopAll"); }
+                        var overwriteLang = preConfig as Siemens.Engineering.Download.Configurations.OverwriteTargetLanguages;
+                        if (overwriteLang != null) { overwriteLang.Checked = true; Console.WriteLine("[TIA]   → answered: overwrite target languages"); }
+                        var consistent = preConfig as Siemens.Engineering.Download.Configurations.ConsistentBlocksDownload;
+                        if (consistent != null) { consistent.CurrentSelection = Siemens.Engineering.Download.Configurations.ConsistentBlocksDownloadSelections.ConsistentDownload; Console.WriteLine("[TIA]   → answered: ConsistentDownload"); }
+                        var alarmTexts = preConfig as Siemens.Engineering.Download.Configurations.AlarmTextLibrariesDownload;
+                        if (alarmTexts != null) { alarmTexts.CurrentSelection = Siemens.Engineering.Download.Configurations.AlarmTextLibrariesDownloadSelections.ConsistentDownload; Console.WriteLine("[TIA]   → answered: alarm texts ConsistentDownload"); }
+                        var check = preConfig as Siemens.Engineering.Download.Configurations.CheckBeforeDownload;
+                        if (check != null) { check.Checked = true; Console.WriteLine("[TIA]   → answered: Checked"); }
+                        var differentTarget = preConfig as Siemens.Engineering.Download.Configurations.DifferentTargetConfiguration;
+                        if (differentTarget != null) { differentTarget.CurrentSelection = Siemens.Engineering.Download.Configurations.DifferentTargetConfigurationSelections.AcceptAll; Console.WriteLine("[TIA]   → answered: AcceptAll (different target configuration)"); }
+                        var upgrade = preConfig as Siemens.Engineering.Download.Configurations.UpgradeTargetDevice;
+                        if (upgrade != null) { upgrade.Checked = true; Console.WriteLine("[TIA]   → answered: upgrade target device"); }
+                        var pw = preConfig as Siemens.Engineering.Download.Configurations.ModuleWriteAccessPassword;
+                        if (pw != null)
+                        {
+                            if (string.IsNullOrEmpty(accessPassword)) { Console.WriteLine("[TIA]   → access password required but none supplied (pass access_password in the request)"); }
+                            else
+                            {
+                                var secure = new System.Security.SecureString();
+                                foreach (char ch in accessPassword) secure.AppendChar(ch);
+                                pw.SetPassword(secure);
+                                Console.WriteLine("[TIA]   → answered: access password supplied");
+                            }
+                        }
                     },
                     delegate(Siemens.Engineering.Download.Configurations.DownloadConfiguration postConfig)
                     {
-                        Console.WriteLine($"[TIA] Post-download prompt: {postConfig.Message}");
+                        Console.WriteLine($"[TIA] Post-download prompt [{postConfig.GetType().Name}]: {postConfig.Message}");
+                        var start = postConfig as Siemens.Engineering.Download.Configurations.StartModules;
+                        if (start != null) { start.CurrentSelection = Siemens.Engineering.Download.Configurations.StartModulesSelections.StartModule; Console.WriteLine("[TIA]   → answered: StartModule"); }
                     },
                     Siemens.Engineering.Download.DownloadOptions.Software
                 );
@@ -1393,6 +1422,50 @@ namespace PacForgeBridge
         /// Import a LAD block from SimaticML XML into the open project and optionally compile it.
         /// Uses PlcBlockGroup.Blocks.Import() — different from the SCL external source path.
         /// </summary>
+        /// <summary>
+        /// Generate blocks from SCL source text into the open project (ExternalSourceGroup path,
+        /// same as ImportArtifact). Existing blocks of the same name are replaced by the source.
+        /// </summary>
+        public ImportSclResponse ImportSclSources(Dictionary<string, string> sources, List<string> importOrder, bool compile)
+        {
+            if (!IsConnected || !IsProjectOpen)
+                throw new InvalidOperationException("TIA Portal not connected or no project open.");
+            var result = new ImportSclResponse { Success = true };
+            PlcSoftware plcSoftware = GetPlcSoftware();
+            string tempDir = Path.Combine(Path.GetTempPath(), "PacForge", "scl_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var order = (importOrder != null && importOrder.Count > 0) ? importOrder : new List<string>(sources.Keys);
+                foreach (string name in order)
+                {
+                    if (!sources.ContainsKey(name)) { result.Errors.Add($"{name}: not in sources"); continue; }
+                    string filePath = Path.Combine(tempDir, name + ".scl");
+                    File.WriteAllText(filePath, sources[name], new UTF8Encoding(true));
+                    try
+                    {
+                        var generated = ImportArtifact(plcSoftware, name, filePath, "Program blocks");
+                        result.Imported.AddRange(generated);
+                        Console.WriteLine($"[SCL] Imported {name}: {string.Join(", ", generated)}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[SCL] Import failed for {name}: {ex.Message}");
+                        result.Errors.Add($"{name}: {ex.Message}");
+                    }
+                }
+                if (compile)
+                    result.CompileResult = CompileAll(plcSoftware);
+            }
+            finally
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+            if (result.Errors.Count > 0 && result.Imported.Count == 0) result.Success = false;
+            result.Message = $"Imported {result.Imported.Count} block(s), {result.Errors.Count} error(s)";
+            return result;
+        }
+
         public ImportLadResponse ImportLadBlock(string xmlContent, string blockName, string blockType, bool compile, string destinationFolder = null)
         {
             if (_project == null)

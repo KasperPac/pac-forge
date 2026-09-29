@@ -68,6 +68,15 @@ namespace PacForgeBridge
             int port = 5102;
             string bridgeVersion = "V20";
 #endif
+            // Tee the console to %TEMP%\PacForgeridge-<port>.log so callers can read the diagnostics.
+            try
+            {
+                string logDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "PacForge");
+                System.IO.Directory.CreateDirectory(logDir);
+                var logWriter = new System.IO.StreamWriter(System.IO.Path.Combine(logDir, $"bridge-{port}.log"), true, new System.Text.UTF8Encoding(false)) { AutoFlush = true };
+                Console.SetOut(new TeeWriter(Console.Out, logWriter));
+            }
+            catch (Exception ex) { Console.WriteLine($"[Bridge] log tee unavailable: {ex.Message}"); }
 
             // Parse command-line arguments
             for (int i = 0; i < args.Length - 1; i++)
@@ -146,5 +155,17 @@ namespace PacForgeBridge
                 Console.WriteLine("[BRIDGE] Shutdown complete.");
             }
         }
+    }
+
+    /// <summary>Writes to two TextWriters (console + log file).</summary>
+    public class TeeWriter : System.IO.TextWriter
+    {
+        private readonly System.IO.TextWriter _a, _b;
+        public TeeWriter(System.IO.TextWriter a, System.IO.TextWriter b) { _a = a; _b = b; }
+        public override System.Text.Encoding Encoding => _a.Encoding;
+        public override void Write(char value) { _a.Write(value); _b.Write(value); }
+        public override void Write(string value) { _a.Write(value); _b.Write(value); }
+        public override void WriteLine(string value) { _a.WriteLine(value); _b.WriteLine(value); }
+        public override void Flush() { _a.Flush(); _b.Flush(); }
     }
 }

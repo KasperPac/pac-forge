@@ -67,21 +67,42 @@ namespace PacForgeBridge
             {
                 if (_instance != null)
                 {
-                    result.Success = true;
-                    result.Message = $"Already connected to instance '{_instanceName}'";
-                    result.OperatingState = _instance.OperatingState.ToString();
-                    return result;
+                    string st = "";
+                    try { st = _instance.OperatingState.ToString(); } catch { st = "(invalid handle)"; }
+                    if ((st == "Run" || st == "Stop") && string.Equals(_instanceName, instanceName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        result.Success = true;
+                        result.Message = $"Already connected to instance '{_instanceName}'";
+                        result.OperatingState = st;
+                        return result;
+                    }
+                    Console.WriteLine($"[PLCSIM] Dropping stale handle to '{_instanceName}' (state {st}).");
+                    _instance = null; _instanceName = null;
                 }
 
                 if (cpuType == 0) cpuType = CpuTypes.S7_1515; // default
                 Console.WriteLine($"[PLCSIM] Registering instance '{instanceName}' (CPU type: 0x{cpuType:X})...");
 
-                _instance = SimulationRuntimeManager.RegisterInstance((ECPUType)cpuType, instanceName);
-                Console.WriteLine("[PLCSIM] Instance registered.");
+                bool exists = false;
+                try { foreach (var info in SimulationRuntimeManager.RegisteredInstanceInfo) if (string.Equals(info.Name, instanceName, StringComparison.OrdinalIgnoreCase)) exists = true; } catch { }
+                if (exists)
+                {
+                    _instance = SimulationRuntimeManager.CreateInterface(instanceName);
+                    Console.WriteLine($"[PLCSIM] Attached to existing instance '{instanceName}' (CPU {_instance.CPUType}, state {_instance.OperatingState}).");
+                }
+                else
+                {
+                    _instance = SimulationRuntimeManager.RegisterInstance((ECPUType)cpuType, instanceName);
+                    Console.WriteLine("[PLCSIM] Instance registered.");
+                }
 
                 Console.WriteLine("[PLCSIM] Powering on...");
-                ERuntimeErrorCode powerRc = _instance.PowerOn((uint)timeoutMs);
-                if (powerRc != ERuntimeErrorCode.OK && powerRc != ERuntimeErrorCode.WarningAlreadyExists)
+                ERuntimeErrorCode powerRc = ERuntimeErrorCode.OK;
+                string preState = "";
+                try { preState = _instance.OperatingState.ToString(); } catch { }
+                if (preState != "Run" && preState != "Stop")
+                    powerRc = _instance.PowerOn((uint)timeoutMs);
+                if (powerRc != ERuntimeErrorCode.OK && powerRc != ERuntimeErrorCode.WarningAlreadyExists && powerRc != ERuntimeErrorCode.WarningTrialModeActive)
                 {
                     result.Message = $"PowerOn failed: {powerRc}";
                     _lastError = powerRc.ToString();
