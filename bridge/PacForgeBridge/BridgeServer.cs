@@ -173,6 +173,20 @@ namespace PacForgeBridge
                     return;
                 }
 
+                // Route: POST /tia/compile  (PHUB-231)
+                if (method == "POST" && path == "/tia/compile")
+                {
+                    await HandleCompile(res);
+                    return;
+                }
+
+                // Route: POST /tia/save  (PHUB-231)
+                if (method == "POST" && path == "/tia/save")
+                {
+                    await HandleSave(res);
+                    return;
+                }
+
 #if !TIA_V18
                 // Route: POST /tia/hmi/build — generate WinCC Unified HMI from a JSON spec
                 if (method == "POST" && path == "/tia/hmi/build")
@@ -1409,7 +1423,7 @@ namespace PacForgeBridge
                     return;
                 }
                 Console.WriteLine($"[SCL] Importing {request.Sources.Count} source(s)...");
-                var result = _tiaService.ImportSclSources(request.Sources, request.ImportOrder, request.Compile);
+                var result = _tiaService.ImportSclSources(request.Sources, request.ImportOrder, request.Compile, request.Folders);
                 await WriteJson(res, result.Success ? 200 : 500, result);
             }
             catch (Exception ex)
@@ -1599,6 +1613,46 @@ namespace PacForgeBridge
                     Success = false,
                     Message = ex.Message
                 });
+            }
+        }
+
+        private async Task HandleCompile(HttpListenerResponse res)
+        {
+            try
+            {
+                if (!_tiaService.IsProjectOpen) _tiaService.Connect(preferAttach: true);
+                if (!_tiaService.IsProjectOpen)
+                {
+                    await WriteJson(res, 400, new TiaActionResponse { Success = false, Message = "No TIA project open." });
+                    return;
+                }
+                Console.WriteLine("[TIA] Compile (PHUB-231)");
+                await WriteJson(res, 200, _tiaService.CompileProject());
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TIA] Compile failed: {ex.Message}");
+                await WriteJson(res, 500, new TiaActionResponse { Success = false, Message = ex.Message });
+            }
+        }
+
+        private async Task HandleSave(HttpListenerResponse res)
+        {
+            try
+            {
+                if (!_tiaService.IsProjectOpen) _tiaService.Connect(preferAttach: true);
+                if (!_tiaService.IsProjectOpen)
+                {
+                    await WriteJson(res, 400, new TiaActionResponse { Success = false, Message = "No TIA project open." });
+                    return;
+                }
+                _tiaService.SaveProject();
+                await WriteJson(res, 200, new TiaActionResponse { Success = true, Message = "Project saved" });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TIA] Save failed: {ex.Message}");
+                await WriteJson(res, 500, new TiaActionResponse { Success = false, Message = ex.Message });
             }
         }
 

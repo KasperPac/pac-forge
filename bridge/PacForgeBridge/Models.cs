@@ -653,6 +653,9 @@ namespace PacForgeBridge
         public List<string> ImportOrder { get; set; } = new List<string>();
         [Newtonsoft.Json.JsonProperty("compile")]
         public bool Compile { get; set; } = false;
+        /// <summary>PHUB-231: block name → destination folder; absent or blank = "Program blocks".</summary>
+        [Newtonsoft.Json.JsonProperty("folders")]
+        public Dictionary<string, string> Folders { get; set; } = new Dictionary<string, string>();
     }
 
     public class ImportSclResponse

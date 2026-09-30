@@ -164,7 +164,7 @@ namespace PacForgeBridge
                 Connected = connected,
                 TiaVersion = tiaVersion,
                 TiaProjectOpen = projectOpen,
-                BridgeVersion = "1.11.0",   // bump on EVERY bridge change + add a CHANGELOG.md entry
+                BridgeVersion = "1.12.0",   // bump on EVERY bridge change + add a CHANGELOG.md entry
                 SourcePlcFamily = sourcePlcFamily,
                 SourceCpuTypeId = sourceCpuTypeId,
             };
@@ -1283,8 +1283,9 @@ namespace PacForgeBridge
                     block = group?.Blocks.Find(blockName);
                 }
 
+                // PHUB-231: a block in any subfolder, found without naming (and so never creating) a folder.
                 if (block == null)
-                    block = plcSoftware.BlockGroup.Blocks.Find(blockName);
+                    block = FindBlockRecursive(plcSoftware.BlockGroup, blockName);
 
                 if (block == null)
                 {
@@ -1426,7 +1427,7 @@ namespace PacForgeBridge
         /// Generate blocks from SCL source text into the open project (ExternalSourceGroup path,
         /// same as ImportArtifact). Existing blocks of the same name are replaced by the source.
         /// </summary>
-        public ImportSclResponse ImportSclSources(Dictionary<string, string> sources, List<string> importOrder, bool compile)
+        public ImportSclResponse ImportSclSources(Dictionary<string, string> sources, List<string> importOrder, bool compile, Dictionary<string, string> folders = null)
         {
             if (!IsConnected || !IsProjectOpen)
                 throw new InvalidOperationException("TIA Portal not connected or no project open.");
@@ -1444,7 +1445,10 @@ namespace PacForgeBridge
                     File.WriteAllText(filePath, sources[name], new UTF8Encoding(true));
                     try
                     {
-                        var generated = ImportArtifact(plcSoftware, name, filePath, "Program blocks");
+                        string destination = "Program blocks";
+                        if (folders != null && folders.TryGetValue(name, out string mapped) && !string.IsNullOrEmpty(mapped))
+                            destination = mapped;
+                        var generated = ImportArtifact(plcSoftware, name, filePath, destination);
                         result.Imported.AddRange(generated);
                         Console.WriteLine($"[SCL] Imported {name}: {string.Join(", ", generated)}");
                     }
@@ -1562,6 +1566,17 @@ namespace PacForgeBridge
             Console.WriteLine("[TIA] Saving project...");
             _project.Save();
             Console.WriteLine("[TIA] Project saved.");
+        }
+
+        /// <summary>
+        /// Compile the PLC software and return the result (PHUB-231). Unlike reimport-compile,
+        /// nothing is imported, deleted or saved.
+        /// </summary>
+        public CompileResultDto CompileProject()
+        {
+            if (!IsConnected || !IsProjectOpen)
+                throw new InvalidOperationException("TIA Portal not connected or no project open.");
+            return CompileAll(GetPlcSoftware());
         }
 
         /// <summary>

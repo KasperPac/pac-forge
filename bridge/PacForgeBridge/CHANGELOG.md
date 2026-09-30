@@ -4,6 +4,18 @@ Every bridge change bumps `BridgeVersion` in `TiaPortalService.cs` (semver:
 new capability = minor, fix = patch) and gets an entry here. The running
 version is visible at `GET /tia/status`.
 
+## 1.12.0 — 2026-09-30
+
+Compile and save as their own routes, so Pac Hub's PLC conversation can write a change, compile
+it and save it without `reimport-compile`, which deletes a block before importing it (PHUB-231).
+
+- **`POST /tia/compile`** — compiles the PLC software and answers `CompileResultDto`. Imports,
+  deletes and saves nothing.
+- **`POST /tia/save`** — saves the open project.
+- **`import-scl` `folders`** — block name → destination folder; absent keeps `"Program blocks"`.
+- **`export-block-xml`** — finds a block in any subfolder when no folder is given, so a read never
+  names (and so never creates) a folder.
+
 ## 1.11.0 — 2026-09-29
 
 Mesh bind and bearer token, so the hosted Pac Hub can compile on an engineer's own
