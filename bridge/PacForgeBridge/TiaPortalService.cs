@@ -164,7 +164,7 @@ namespace PacForgeBridge
                 Connected = connected,
                 TiaVersion = tiaVersion,
                 TiaProjectOpen = projectOpen,
-                BridgeVersion = "1.12.0",   // bump on EVERY bridge change + add a CHANGELOG.md entry
+                BridgeVersion = "1.12.1",   // bump on EVERY bridge change + add a CHANGELOG.md entry
                 SourcePlcFamily = sourcePlcFamily,
                 SourceCpuTypeId = sourceCpuTypeId,
             };
@@ -1394,7 +1394,12 @@ namespace PacForgeBridge
                     try
                     {
                         File.WriteAllText(tempFile, xmlContent, System.Text.Encoding.UTF8);
-                        var imported = plcSoftware.BlockGroup.Blocks.Import(
+                        // PHUB-231: replace an existing block in the folder that holds it; a new block goes to the root.
+                        // A block's Parent is its owning group (PlcBlockGroup), not the PlcBlockComposition.
+                        PlcBlock existing = FindBlockRecursive(plcSoftware.BlockGroup, blockName);
+                        PlcBlockGroup owner = existing != null ? existing.Parent as PlcBlockGroup : null;
+                        PlcBlockComposition target = owner != null ? owner.Blocks : plcSoftware.BlockGroup.Blocks;
+                        var imported = target.Import(
                             new FileInfo(tempFile),
                             ImportOptions.Override);
 

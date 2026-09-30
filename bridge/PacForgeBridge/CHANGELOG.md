@@ -4,6 +4,12 @@ Every bridge change bumps `BridgeVersion` in `TiaPortalService.cs` (semver:
 new capability = minor, fix = patch) and gets an entry here. The running
 version is visible at `GET /tia/status`.
 
+## 1.12.1 — 2026-09-30
+
+- **`POST /tia/migration/reimport-blocks`** replaces a block in the folder that holds it, so a
+  LAD/FBD edit or a revert of a block in a subfolder no longer fails with "already exists" or leaves
+  a duplicate in the root (PHUB-231). New blocks still go to the root.
+
 ## 1.12.0 — 2026-09-30
 
 Compile and save as their own routes, so Pac Hub's PLC conversation can write a change, compile
