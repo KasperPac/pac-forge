@@ -4,6 +4,17 @@ Every bridge change bumps `BridgeVersion` in `TiaPortalService.cs` (semver:
 new capability = minor, fix = patch) and gets an entry here. The running
 version is visible at `GET /tia/status`.
 
+## 1.12.2 — 2026-10-01
+
+- **SCL imports never delete an engineer's external source** (PHUB-231). Every SCL import
+  (`import-scl`, `reimport-compile`, `/tia/jobs`, provision) goes through `ImportArtifact`, which
+  first deleted any external source named like the block — an engineer's own included — then
+  created its own under that name and deleted it. It now creates its temporary source as
+  `<block>__pachub_<8 hex>` and deletes only that one, also when generation throws; an external
+  source already in the project is never found, replaced or deleted. A temporary source that
+  cannot be deleted is logged, not reported as a failed import (the blocks were generated).
+  Pac Hub's PLC conversation requires 1.12.2.
+
 ## 1.12.1 — 2026-09-30
 
 - **`POST /tia/migration/reimport-blocks`** replaces a block in the folder that holds it, so a

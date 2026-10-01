@@ -164,7 +164,7 @@ namespace PacForgeBridge
                 Connected = connected,
                 TiaVersion = tiaVersion,
                 TiaProjectOpen = projectOpen,
-                BridgeVersion = "1.12.1",   // bump on EVERY bridge change + add a CHANGELOG.md entry
+                BridgeVersion = "1.12.2",   // bump on EVERY bridge change + add a CHANGELOG.md entry
                 SourcePlcFamily = sourcePlcFamily,
                 SourceCpuTypeId = sourceCpuTypeId,
             };
@@ -1153,10 +1153,11 @@ namespace PacForgeBridge
                 targetGroup = GetOrCreateBlockGroup(plcSoftware.BlockGroup, destinationFolder);
             }
 
-            // Remove existing external source with same name (if leftover from previous run)
-            string sourceName = Path.GetFileNameWithoutExtension(sclFilePath);
-            PlcExternalSource existing = plcSoftware.ExternalSourceGroup.ExternalSources.Find(sourceName);
-            existing?.Delete();
+            // A temporary external source under a name of our own: an external source already in
+            // the project (an engineer's, named like the block) is never found, replaced or deleted.
+            // Only this one is deleted afterwards (PHUB-231, 1.12.2).
+            string sourceName = Path.GetFileNameWithoutExtension(sclFilePath)
+                + "__pachub_" + Guid.NewGuid().ToString("N").Substring(0, 8);
 
             // Store source content for compile-fix chat + debug log interface
             try
@@ -1187,15 +1188,24 @@ namespace PacForgeBridge
             PlcExternalSource source = plcSoftware.ExternalSourceGroup.ExternalSources
                 .CreateFromFile(sourceName, sclFilePath);
 
-            // Step 2: Generate blocks from source
+            // Step 2: Generate blocks from source. Step 3: delete our temporary source — and only
+            // it — whether or not generation threw, so a failed import leaves none behind.
             IList<IEngineeringObject> generated;
-            if (targetGroup != null)
+            try
             {
-                generated = source.GenerateBlocksFromSource(targetGroup, GenerateBlockOption.KeepOnError);
+                if (targetGroup != null)
+                {
+                    generated = source.GenerateBlocksFromSource(targetGroup, GenerateBlockOption.KeepOnError);
+                }
+                else
+                {
+                    generated = source.GenerateBlocksFromSource(GenerateBlockOption.KeepOnError);
+                }
             }
-            else
+            finally
             {
-                generated = source.GenerateBlocksFromSource(GenerateBlockOption.KeepOnError);
+                try { source.Delete(); }
+                catch (Exception ex) { Console.WriteLine($"[TIA] Warning: could not delete temporary external source {sourceName}: {ex.Message}"); }
             }
 
             // Collect generated names
@@ -1208,9 +1218,6 @@ namespace PacForgeBridge
             }
 
             Console.WriteLine($"[TIA] Generated {generated.Count} object(s) from {artifactName}: {string.Join(", ", generatedNames)}");
-
-            // Step 3: Clean up external source
-            source.Delete();
 
             return generatedNames;
         }
