@@ -219,17 +219,29 @@ namespace PacForgeBridge
         }
 
         /// <summary>
-        /// POST /tia/project/archive (spec §5 step 6): the open project archived, compressed, into a Dropbox
-        /// folder as a new .zap. A file that already exists is somebody's master. It is refused before TIA is
-        /// asked anything, and nothing is ever overwritten. TIA is never started for an archive: with none
-        /// running there is no working copy open to archive.
+        /// POST /tia/project/archive (spec §5 step 6): the open working copy archived, compressed, into its PLC's
+        /// Dropbox folder (`…\50 PLC\&lt;nn&gt; &lt;name&gt;`, which must exist and is never created) as a new .zap.
+        /// TIA writes it outside Dropbox, in `&lt;plc&gt;\.pachub\archive-staging\`, and only the finished file is put
+        /// in the Dropbox folder, in one rename that fails when the name is taken: a partial archive never
+        /// shows there as anybody's newest master. A file already there is somebody's master: it is refused
+        /// before TIA is asked anything and again at the rename, and nothing is ever overwritten. TIA is never
+        /// started for an archive. Success is only ever the archive at its target.
         /// </summary>
         public ArchiveProjectResponse ArchiveProject(ArchiveProjectRequest request)
         {
             lock (_vcLock)
             {
-                string targetDir = DropboxLocal.Resolve(DropboxLocal.Root(), request.TargetDir);
+                // Everything the request names is checked before TIA is asked anything.
+                string dropboxRoot = DropboxLocal.Root();
+                string targetDir = ArchiveTargetDir(DropboxLocal.Resolve(dropboxRoot, request.TargetDir), request.TargetDir);
                 string baseName = ArchiveBaseName(request.FileName);
+                string plcDir = PlcDirOfWorkingCopy(request.WorkingCopyPath);
+                if (!string.Equals(Path.GetFileName(plcDir), Path.GetFileName(targetDir), StringComparison.OrdinalIgnoreCase))
+                    throw new BridgeBadRequestException($"The working copy belongs to PLC folder '{Path.GetFileName(plcDir)}', not '{Path.GetFileName(targetDir)}'; nothing was archived.");
+                if (DropboxLocal.IsInside(plcDir, dropboxRoot))
+                    throw new BridgeRefusalException("JOBS_ROOT_IN_DROPBOX", $"The working copy {request.WorkingCopyPath} is inside Dropbox ({dropboxRoot}); an archive is written outside Dropbox first, so nothing was archived.");
+                if (!Directory.Exists(targetDir))
+                    throw new BridgeRefusalException("DROPBOX_NOT_LOCAL", $"{targetDir} is not on this workstation. Make sure Dropbox syncs the job folder (Selective Sync does not exclude it) and archive again; nothing was archived.");
                 string target = Path.Combine(targetDir, baseName + ".zap" + EditionVersion);
                 if (File.Exists(target))
                     throw new BridgeRefusalException("ARCHIVE_EXISTS", $"{target} already exists; nothing was overwritten.");
@@ -240,22 +252,77 @@ namespace PacForgeBridge
                 if (_project == null)
                     throw new InvalidOperationException("TIA has no project open; open the working copy and archive again.");
                 string open = _project.Path?.FullName ?? "";
-                if (!string.IsNullOrWhiteSpace(request.WorkingCopyPath) && !SamePath(open, request.WorkingCopyPath))
+                if (!SamePath(open, request.WorkingCopyPath))
                     throw new BridgeRefusalException("NOT_WORKING_COPY", $"TIA has {_project.Name} ({open}) open, which isn't the working copy ({request.WorkingCopyPath}); nothing was archived.");
 
-                Directory.CreateDirectory(targetDir);
+                string staging = Path.Combine(plcDir, ".pachub", "archive-staging");
+                DropboxLocal.TryClearStaging(staging);
+                Directory.CreateDirectory(staging);
                 try
                 {
-                    _project.Archive(new DirectoryInfo(targetDir), baseName, ProjectArchivationMode.Compressed);
+                    try
+                    {
+                        _project.Archive(new DirectoryInfo(staging), baseName, ProjectArchivationMode.Compressed);
+                    }
+                    catch (Exception ex)
+                    {
+                        throw new InvalidOperationException($"TIA would not archive {_project.Name}: {ex.Message} (if the project has unsaved changes, save it in TIA, then archive again); nothing was put in Dropbox.", ex);
+                    }
+                    string staged = Path.Combine(staging, baseName + ".zap" + EditionVersion);
+                    if (!File.Exists(staged))
+                    {
+                        string[] wrote = Directory.GetFileSystemEntries(staging).Select(Path.GetFileName).ToArray();
+                        throw new InvalidOperationException($"TIA archived {_project.Name} without writing {Path.GetFileName(staged)} to {staging} (it wrote {(wrote.Length == 0 ? "nothing" : string.Join(", ", wrote))}); nothing was put in Dropbox.");
+                    }
+                    if (!DropboxLocal.PlaceNewFile(staged, target))
+                        throw new BridgeRefusalException("ARCHIVE_EXISTS", $"{target} already exists (it appeared while the project was being archived); nothing was overwritten.");
+                    if (!File.Exists(target))
+                        throw new InvalidOperationException($"{staged} was moved to {target}, but nothing is there now; archive again.");
                 }
-                catch (Exception ex) when (!(ex is BridgeRefusalException))
+                finally
                 {
-                    throw new InvalidOperationException($"TIA would not archive {_project.Name}: {ex.Message} (a project with unsaved changes cannot be archived: save it in TIA, then archive again)", ex);
+                    DropboxLocal.TryClearStaging(staging);
                 }
-                string written = File.Exists(target) ? target : (Directory.GetFiles(targetDir, baseName + ".zap*").FirstOrDefault() ?? target);
-                Console.WriteLine($"[VC] Archived {_project.Name} to {written}");
-                return new ArchiveProjectResponse { Success = true, Path = written };
+                Console.WriteLine($"[VC] Archived {_project.Name} to {target}");
+                return new ArchiveProjectResponse { Success = true, Path = target };
             }
+        }
+
+        /// <summary>A Dropbox folder an archive may go to: a PLC's folder, `…\50 PLC\&lt;nn&gt; &lt;name&gt;`. Anything else
+        /// is the caller's bad input (400).</summary>
+        private static string ArchiveTargetDir(string resolved, string requested)
+        {
+            string dir = resolved.TrimEnd(Path.DirectorySeparatorChar);
+            string parent = Path.GetFileName(Path.GetDirectoryName(dir) ?? "");
+            if (!PlcFolderPattern.IsMatch(Path.GetFileName(dir)) || !string.Equals(parent, "50 PLC", StringComparison.OrdinalIgnoreCase))
+                throw new BridgeBadRequestException($"'{requested}' is not a PLC folder in a job's 50 PLC (expected Pac/Jobs/<Customer>/<JOB> - <name>/50 PLC/<nn> <name>); nothing was archived.");
+            return dir;
+        }
+
+        /// <summary>
+        /// The PLC folder a working copy belongs to: the parent of the nearest `Project` folder above it whose own
+        /// name is a PLC folder's (`&lt;nn&gt; &lt;name&gt;`), as prepare lays it out. A path that is missing,
+        /// malformed, relative or under no such folder is the caller's bad input (400).
+        /// </summary>
+        private static string PlcDirOfWorkingCopy(string workingCopyPath)
+        {
+            string full;
+            try
+            {
+                if (string.IsNullOrWhiteSpace(workingCopyPath) || !Path.IsPathRooted(workingCopyPath))
+                    throw new BridgeBadRequestException($"'{workingCopyPath}' is not a working copy path (expected <jobs root>\\<Customer>\\<JOB>\\<nn> <name>\\Project\\…\\<name>.apNN).");
+                full = Path.GetFullPath(workingCopyPath);
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+            {
+                throw new BridgeBadRequestException($"'{workingCopyPath}' is not a working copy path: {ex.Message}");
+            }
+            for (DirectoryInfo dir = new FileInfo(full).Directory; dir?.Parent != null; dir = dir.Parent)
+            {
+                if (string.Equals(dir.Name, "Project", StringComparison.OrdinalIgnoreCase) && PlcFolderPattern.IsMatch(dir.Parent.Name))
+                    return dir.Parent.FullName;
+            }
+            throw new BridgeBadRequestException($"'{workingCopyPath}' is not in a PLC folder's Project\\ (<jobs root>\\<Customer>\\<JOB>\\<nn> <name>\\Project\\…).");
         }
 
         /// <summary>The archive's name without any .zapNN; the caller adds this edition's. A name that is blank or

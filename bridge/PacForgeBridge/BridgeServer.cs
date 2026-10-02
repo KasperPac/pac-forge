@@ -1708,9 +1708,9 @@ namespace PacForgeBridge
             ArchiveProjectRequest request = null;
             try { request = Json.Deserialize<ArchiveProjectRequest>(await ReadBody(req)); }
             catch (JsonException) { }
-            if (request == null || string.IsNullOrWhiteSpace(request.TargetDir) || string.IsNullOrWhiteSpace(request.FileName))
+            if (request == null || string.IsNullOrWhiteSpace(request.TargetDir) || string.IsNullOrWhiteSpace(request.FileName) || string.IsNullOrWhiteSpace(request.WorkingCopyPath))
             {
-                await WriteJson(res, 400, new ArchiveProjectResponse { Success = false, Message = "target_dir and file_name are required." });
+                await WriteJson(res, 400, new ArchiveProjectResponse { Success = false, Message = "target_dir, file_name and working_copy_path are required." });
                 return;
             }
             try

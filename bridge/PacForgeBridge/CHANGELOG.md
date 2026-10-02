@@ -31,20 +31,36 @@ The working copy for Pac Hub's PLC conversation (PHUB-232, pac-hub spec
   `MULTI_PLC_PROJECT`, records the PLC in `job.json` (doc code; CPU order number as the model), and
   creates the `Pac Hub` VCI workspace at `Export\` (not on V18). An online-only Dropbox file is
   downloaded by reading it; one that will not download is `DROPBOX_NOT_LOCAL`.
-- **`POST /tia/project/archive`** `{ target_dir, file_name, working_copy_path? }`. Archives the
-  open project (`Project.Archive`, compressed) into a Dropbox folder as
-  `<file_name>.zap<edition>`. A file already there is refused `ARCHIVE_EXISTS` before TIA is asked
-  anything, and nothing is overwritten. An open project that is not `working_copy_path` is
-  refused `NOT_WORKING_COPY`. A project with unsaved changes is refused in TIA's words. TIA is
-  never started to archive: with none running, or no project open, it answers 500.
+- **`POST /tia/project/archive`** `{ target_dir, file_name, working_copy_path }`. Archives the
+  open working copy (`Project.Archive`, compressed) as `<file_name>.zap<edition>` into its PLC's
+  Dropbox folder. `target_dir` must be a `50 PLC\<nn> <name>` folder that exists (it is never
+  created; one that is not on this workstation is `DROPBOX_NOT_LOCAL`), and the working copy's
+  PLC folder (the parent of its `Project\`) must have the same name and lie outside Dropbox
+  (`JOBS_ROOT_IN_DROPBOX`). TIA writes the archive
+  outside Dropbox, in `<plc>\.pachub\archive-staging\`, and only the finished file is put in the
+  Dropbox folder, in one rename that fails when the name is taken (from another volume: a copy
+  under a `.pachub-partial` name, then that rename). So a partial archive never shows in Dropbox
+  as anybody's newest master. A file already there is refused `ARCHIVE_EXISTS`, before TIA is
+  asked anything and again at the rename, and nothing is overwritten. An open project that is not
+  `working_copy_path` is refused `NOT_WORKING_COPY`. A TIA failure (unsaved changes, say) answers
+  500 in TIA's words, as does an archive TIA did not write. Success is only ever the file at its
+  target. TIA is never started to archive: with none running, or no project open, it answers 500.
+- **Bridge shutdown never closes a project** (`TiaPortalService.Dispose`). It used to close the
+  open project, discarding the engineer's unsaved changes, on every bridge stop. Now it only
+  disposes the TiaPortal object: an attached TIA is detached and keeps running with its project
+  untouched. A TIA the bridge started itself (no TIA was running when it connected) still exits
+  with the bridge.
 - **`/tia/status` `pac_hub_vc_version`**: `pac-hub-vc --version`, absent when it is not installed
   (prepare then refuses `VC_TOOL_MISSING`, as it does for a missing git, gh or Node).
 - Refusals answer `409 { success:false, refused, message }`. Bad input (fields missing, a
-  `dropbox_job_path` or `target_dir` that is absolute or leaves Dropbox, a `plc_folder` that is
-  not in `50 PLC`, a `file_name` that is not a file name) answers `400 { success:false, message }`.
+  `dropbox_job_path` or `target_dir` that is absolute or leaves Dropbox, a `target_dir` that is not
+  a `50 PLC\<nn> <name>` folder, a `plc_folder` that is not in `50 PLC`, a `file_name` that is not
+  a file name, a `working_copy_path` that is malformed or in no PLC folder's `Project\`, or one
+  whose PLC folder is not the target's) answers `400 { success:false, message }`.
   A named refusal from `pac-hub-vc ensure` (`REPO_NOT_FAST_FORWARD`, `REPO_NOT_ON_MAIN`,
-  `GITHUB_UNAVAILABLE`, `VC_TOOL_MISSING`) passes through under its name. An ensure with no JSON result (a usage error
-  prints none, even under `--json`) is a 500 carrying its exit code and stderr, never a success.
+  `GITHUB_UNAVAILABLE`, `VC_TOOL_MISSING`) passes through under its name. An ensure with no JSON
+  result (a usage error prints none, even under `--json`) is a 500 carrying its exit code and
+  stderr, never a success.
   `PAC_DROPBOX_ROOT` overrides the Dropbox root read from `%LOCALAPPDATA%\Dropbox\info.json`
   (`business.root_path`).
 - **`pac-hub-vc` is started directly, never through cmd.exe** (`PacHubVc`). A `pac-hub-vc.cmd`

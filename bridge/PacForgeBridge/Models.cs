@@ -148,7 +148,7 @@ namespace PacForgeBridge
         public string TargetDir { get; set; }
         /// <summary>The archive's name; any .zapNN on it is replaced by this edition's.</summary>
         public string FileName { get; set; }
-        /// <summary>When given, the open project must be this one.</summary>
+        /// <summary>Required. The open project must be this one, and its PLC folder (the parent of Project\) the target's.</summary>
         public string WorkingCopyPath { get; set; }
     }
 

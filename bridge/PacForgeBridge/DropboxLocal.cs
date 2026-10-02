@@ -12,7 +12,8 @@ namespace PacForgeBridge
     /// The root comes from %LOCALAPPDATA%\Dropbox\info.json (business.root_path); PAC_DROPBOX_ROOT
     /// overrides it, for a scratch run. An online-only file is downloaded by reading it. One that will not
     /// download in time, or that Dropbox cannot serve, is DROPBOX_NOT_LOCAL. A working copy made from it is
-    /// built in a staging folder and moved into place only once complete (ClearStaging, MoveIntoPlace).
+    /// built in a staging folder and moved into place only once complete (ClearStaging, MoveIntoPlace). An
+    /// archive going the other way is written outside Dropbox and put in place whole (PlaceNewFile).
     /// </summary>
     internal static class DropboxLocal
     {
@@ -77,7 +78,8 @@ namespace PacForgeBridge
             }
         }
 
-        /// <summary>ClearStaging after a failed copy or retrieve, best effort: what stays is cleared at the next Start.</summary>
+        /// <summary>A staging folder cleared best effort (after a failed copy or retrieve, around an archive): what
+        /// stays is cleared the next time that folder is used.</summary>
         public static void TryClearStaging(string staging)
         {
             try
@@ -86,8 +88,64 @@ namespace PacForgeBridge
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[VC] Could not clear {staging} yet ({ex.Message.Trim()}); the next Start clears it.");
+                Console.WriteLine($"[VC] Could not clear {staging} yet ({ex.Message.Trim()}); it is cleared the next time it is used.");
             }
+        }
+
+        /// <summary>
+        /// Puts a finished file into a (Dropbox) folder under its final name, never over a file already there and
+        /// never with a partial file under that name. On the same volume it is one rename (MoveFileEx with neither
+        /// COPY_ALLOWED nor REPLACE_EXISTING): the name appears complete, or not at all because it is taken. On
+        /// another volume it is copied to a temporary name that is no .zapNN (`&lt;name&gt;.&lt;8 hex&gt;.pachub-partial`,
+        /// beside the target) and that is renamed; the temporary file goes on every path. False when the name is
+        /// taken (nothing was changed); any other failure throws. A source that was copied stays for the caller to
+        /// clear.
+        /// </summary>
+        public static bool PlaceNewFile(string staged, string target)
+        {
+            int error = Rename(staged, target);
+            if (error == ErrorNotSameDevice)
+            {
+                string partial = target + "." + Guid.NewGuid().ToString("N").Substring(0, 8) + ".pachub-partial";
+                try
+                {
+                    File.Copy(staged, partial, false);
+                    error = Rename(partial, target);
+                }
+                finally
+                {
+                    try
+                    {
+                        if (File.Exists(partial)) File.Delete(partial);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[VC] Could not delete the partial copy {partial} ({ex.Message.Trim()}); delete it by hand.");
+                    }
+                }
+            }
+            if (error == 0) return true;
+            if (error == ErrorAlreadyExists || error == ErrorFileExists) return false;
+            throw new IOException($"Could not move {staged} to {target}: {new System.ComponentModel.Win32Exception(error).Message}", unchecked((int)0x80070000) | error);
+        }
+
+        private const int ErrorFileExists = 80;
+        private const int ErrorAlreadyExists = 183;
+        private const int ErrorNotSameDevice = 17;
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", EntryPoint = "MoveFileExW", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+        private static extern bool MoveFileEx(string existingFileName, string newFileName, int flags);
+
+        /// <summary>One rename, never a copy and never over an existing file: 0, or the Win32 error.</summary>
+        private static int Rename(string from, string to) =>
+            MoveFileEx(LongPath(from), LongPath(to), 0) ? 0 : System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+
+        /// <summary>The \\?\ form, so a Dropbox path past 260 characters still moves.</summary>
+        private static string LongPath(string path)
+        {
+            string full = Path.GetFullPath(path);
+            if (full.StartsWith(@"\\?\", StringComparison.Ordinal)) return full;
+            return full.StartsWith(@"\\", StringComparison.Ordinal) ? @"\\?\UNC\" + full.Substring(2) : @"\\?\" + full;
         }
 
         /// <summary>
@@ -99,13 +157,14 @@ namespace PacForgeBridge
         {
             Directory.CreateDirectory(Path.GetDirectoryName(target));
             if (Directory.Exists(target)) DeleteTree(target);
+            var waited = System.Diagnostics.Stopwatch.StartNew();
             for (int attempt = 1; ; attempt++)
             {
                 try
                 {
                     Directory.Move(staged, target);
                     if (attempt > 1)
-                        Console.WriteLine($"[VC] Moved {staged} into place on attempt {attempt}, {(attempt - 1) * 250} ms after the first (the window is 5 s).");
+                        Console.WriteLine($"[VC] Moved {staged} into place on attempt {attempt}, {waited.ElapsedMilliseconds} ms after the first (the window is 5 s).");
                     return;
                 }
                 catch (Exception ex) when ((ex is IOException || ex is UnauthorizedAccessException) && attempt < 20)

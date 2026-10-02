@@ -4440,30 +4440,23 @@ END_ORGANIZATION_BLOCK
             }
         }
 
+        /// <summary>
+        /// Bridge shutdown (PHUB-232). Never closes a project: the one open in TIA is the engineer's, unsaved
+        /// edits and all, and Project.Close() would discard them. Only the TiaPortal object is disposed: an
+        /// attached TIA is detached and keeps running with its project untouched. A TIA the bridge started
+        /// itself (Connect with none running) exits with it, as Openness ends the TIA it started.
+        /// </summary>
         public void Dispose()
         {
             if (_disposed) return;
             _disposed = true;
-
-            try
-            {
-                if (_project != null)
-                {
-                    Console.WriteLine("[TIA] Closing project...");
-                    _project.Close();
-                    _project = null;
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[TIA] Error closing project: {ex.Message}");
-            }
+            _project = null;
 
             try
             {
                 _tiaPortal?.Dispose();
                 _tiaPortal = null;
-                Console.WriteLine("[TIA] TIA Portal disposed.");
+                Console.WriteLine("[TIA] TIA Portal released; no project was closed.");
             }
             catch (Exception ex)
             {
