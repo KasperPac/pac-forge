@@ -68,6 +68,49 @@ The working copy for Pac Hub's PLC conversation (PHUB-232, pac-hub spec
   `CommandLineToArgvW` rules. `PAC_HUB_VC` names the CLI's `bin\pac-hub-vc.mjs` (or an exe) instead.
   A run never outlasts its timeout. That holds while its output is drained too, even when a process it
   started keeps that output open.
+- **`POST /tia/vc/check`** `{ repo_path, plc_folder, retrieved_from? }` (PHUB-232 §6). With
+  `retrieved_from` (the archive prepare retrieved the working copy from) it first has
+  `pac-hub-vc base --from-archive` record that archive's base when none is recorded. Then it exports
+  the whole PLC (blocks, PLC data types, tag tables; SimaticML, never SIMATIC SD; an SCL block as SCL
+  where TIA offers it) through the `Pac Hub` VCI workspace into `<repo>\<plc>\Export\`, removes export
+  files no object wrote any more (a deleted object reads as a deletion), and runs
+  `pac-hub-vc status --json`. An object VCI has not mapped yet whose file is already in `Export\` (git
+  has it from another workstation) is connected to that file, in that file's format, and written over,
+  so its format in git never changes. A block or type that does not compile refuses the export before
+  anything is written (`export: refused_not_compiling`, named in `not_compiling`) and the state is
+  `unverified` / `unverified_behind` (base against latest only; `diverged` stays `diverged`).
+  Know-how-protected blocks and types are named in `skipped`, and a protected block's file in git is
+  kept. Answers `{ success, state, export, base, latest, latest_author, latest_date, local_changes,
+  newer_changes: [{ object, author, sha }], skipped, not_compiling }`; a status with no state Pac Hub
+  knows is refused, never guessed.
+- **`POST /tia/vc/commit`** `{ repo_path, plc_folder, objects: [{ kind: block|tag_table, name }],
+  changes, subject, author_name, author_email, agent }` (§7). Exports only the objects a change
+  touched and runs `pac-hub-vc commit --change … --agent … --subject … --author … --push --json`. A block
+  that does not compile answers `outcome: deferred`; anything pac-hub-vc could not do is
+  `outcome: failed` with its reason; `committed` (or nothing new: `idle`) answers `committed` with
+  its `sha`. A push the remote rejected stays a local commit (`pushed: false`, pac-hub-vc's reason
+  untouched, never a pull or a force). Free text is flattened to one line and passed verbatim through
+  `PacHubVc` (new `PacHubVc.Json`).
+- **`POST /tia/vc/update`** `{ repo_path, plc_folder }` (§6, Update from Git). Exports, lets
+  `pac-hub-vc update` fast-forward the repo and list the changed files, imports them with the existing
+  paths (import-scl, reimport-blocks, type and tag-table import; a deleted object is deleted; anything
+  else, a technology object say, is named in `not_imported`), compiles, saves, and has
+  `pac-hub-vc base --set` record the base only when every file landed. Answers `{ success, imported,
+  deleted, not_imported, compile, base_written }`; `already up to date` when there is nothing newer.
+- The three version-control routes run only on the PLC's working copy: the project TIA has open must
+  be under `<repo>\<plc>\Project\`, else `NOT_WORKING_COPY` (checked again before each import, the
+  compile and the save of an update), so nothing is exported from, imported into or saved over
+  another project. TIA is never started for them: with none running, or no project
+  open, they answer 409 saying so. `repo_path` must be a job repo under the jobs root and
+  `plc_folder` one of its `<nn> <name>` folders, both existing, else 400. They take the VC lock, as
+  prepare and archive do; no git runs in the bridge. A refusal answers 409 `{ success:false, refused?,
+  message }` (`refused` only for a name Pac Hub knows: `NOT_WORKING_COPY`, `VC_TOOL_MISSING`,
+  `REPO_NOT_FAST_FORWARD`, `VC_DIVERGED`, `VC_BEHIND`; any other pac-hub-vc refusal is its message).
+- **V18 bridges do not support version-controlled conversations** (the bridge drives VCI on V20 and
+  later only): the V18 build answers all three routes 409 "Version control export needs TIA Portal V20 or later;
+  this bridge is built for V18.", so Pac Hub's Start, which runs the check, refuses on a V18 bridge.
+- `pac-hub-vc`'s JSON is read with strings kept as printed: an ISO date such as status's `latestDate`
+  is no longer turned into a `DateTime` and back into this machine's local format.
 
 ## 1.12.2 — 2026-10-01
 

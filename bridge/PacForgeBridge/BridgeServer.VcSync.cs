@@ -1,0 +1,414 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Threading.Tasks;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+
+namespace PacForgeBridge
+{
+    public class VcCheckRequest
+    {
+        public string RepoPath { get; set; }
+        public string PlcFolder { get; set; }
+        /// <summary>The Dropbox archive /tia/vc/prepare retrieved the working copy from, when it did (ruling 9).</summary>
+        public string RetrievedFrom { get; set; }
+    }
+
+    public class VcCommitRequest
+    {
+        public string RepoPath { get; set; }
+        public string PlcFolder { get; set; }
+        public List<VcObjectRef> Objects { get; set; }
+        public List<string> Changes { get; set; }
+        public string Subject { get; set; }
+        public string AuthorName { get; set; }
+        public string AuthorEmail { get; set; }
+        public string Agent { get; set; }
+    }
+
+    public class VcNewerChange
+    {
+        public string Object { get; set; }
+        public string Author { get; set; }
+        public string Sha { get; set; }
+    }
+
+    public class VcCheckResponse
+    {
+        public bool Success { get; set; }
+        public string Refused { get; set; }
+        public string Message { get; set; }
+        public string State { get; set; }
+        public string Export { get; set; }
+        public string Base { get; set; }
+        public string Latest { get; set; }
+        public string LatestAuthor { get; set; }
+        public string LatestDate { get; set; }
+        public List<string> LocalChanges { get; set; }
+        public List<VcNewerChange> NewerChanges { get; set; }
+        public List<string> Skipped { get; set; }
+        public List<string> NotCompiling { get; set; }
+    }
+
+    public class VcCommitResponse
+    {
+        public bool Success { get; set; }
+        public string Refused { get; set; }
+        public string Message { get; set; }
+        public string Outcome { get; set; }
+        public string Sha { get; set; }
+        public bool Pushed { get; set; }
+        public string Reason { get; set; }
+    }
+
+    public class VcUpdateResponse
+    {
+        public bool Success { get; set; }
+        public string Refused { get; set; }
+        public string Message { get; set; }
+        public List<string> Imported { get; set; } = new List<string>();
+        public List<string> Deleted { get; set; } = new List<string>();
+        public List<string> NotImported { get; set; } = new List<string>();
+        public CompileResultDto Compile { get; set; }
+        public bool BaseWritten { get; set; }
+    }
+
+    /// <summary>
+    /// PLC conversation version control (PHUB-232 §6–7). The bridge drives TIA; every git operation runs
+    /// inside pac-hub-vc (D4), read back from its --json output through PacHubVc. Nothing here runs git.
+    /// Each route validates its paths, then does its TIA and pac-hub-vc work under the service's VC lock, as
+    /// prepare and archive do, and only on the PLC's working copy. A refusal answers 409 { success:false,
+    /// refused?, message } (refused only for a name Pac Hub knows), bad input 400, a failure 500.
+    /// </summary>
+    public partial class BridgeServer
+    {
+        /// <summary>Refusal names Pac Hub carries by name (its BRIDGE_REFUSALS); any other pac-hub-vc refusal is its message alone.</summary>
+        private static readonly HashSet<string> VcHubRefusals = new HashSet<string> { "VC_TOOL_MISSING", "REPO_NOT_FAST_FORWARD", "VC_DIVERGED", "VC_BEHIND" };
+
+        /// <summary>The states pac-hub-vc status answers (vc-storage-git's SyncState).</summary>
+        private static readonly HashSet<string> VcStates = new HashSet<string> { "latest", "local_edits", "behind", "diverged" };
+
+        private sealed class VcAnswer
+        {
+            public JObject Json;
+            public string Refused;
+            public string Message;
+        }
+
+        /// <summary>
+        /// Runs pac-hub-vc through PacHubVc and reads its JSON. A missing pac-hub-vc (or Node) is VC_TOOL_MISSING by
+        /// name; a timeout, a process that would not start, or no JSON at all is a message; <c>{ refused, message }</c>
+        /// from pac-hub-vc is a refusal, and <c>{ error }</c> a failure in its own words.
+        /// </summary>
+        private static VcAnswer RunVcJson(List<string> args, int timeoutMs)
+        {
+            JObject json;
+            int exitCode;
+            string error;
+            try
+            {
+                json = PacHubVc.Json(args, timeoutMs, out exitCode, out error);
+            }
+            catch (BridgeRefusalException refusal)
+            {
+                return new VcAnswer { Refused = refusal.Name, Message = refusal.Message };
+            }
+            catch (Exception ex)
+            {
+                return new VcAnswer { Message = "pac-hub-vc " + args[0] + " could not run: " + ex.Message };
+            }
+            if (json == null) return new VcAnswer { Message = "pac-hub-vc " + args[0] + " gave no result: " + (error ?? ("exit code " + exitCode)) };
+            JToken refused = json["refused"];
+            if (refused != null && refused.Type == JTokenType.String)
+            {
+                string name = (string)refused;
+                return new VcAnswer { Json = json, Refused = VcHubRefusals.Contains(name) ? name : null, Message = (string)json["message"] ?? name };
+            }
+            JToken failed = json["error"];
+            if (failed != null && failed.Type == JTokenType.String)
+                return new VcAnswer { Json = json, Message = "pac-hub-vc " + args[0] + " failed: " + (string)failed };
+            return new VcAnswer { Json = json };
+        }
+
+        /// <summary>
+        /// Free text bound for pac-hub-vc, flattened to one line (CR/LF and runs of whitespace to one space). Nothing
+        /// else changes: PacHubVc passes `"`, `%` and the rest verbatim (CommandLineToArgvW quoting, no cmd.exe).
+        /// </summary>
+        private static string VcText(string s)
+        {
+            return string.Join(" ", (s ?? "").Split(new[] { ' ', '\t', '\r', '\n', '\v', '\f' }, StringSplitOptions.RemoveEmptyEntries));
+        }
+
+        private static string VcAuthorPart(string s)
+        {
+            return VcText(s).Replace("<", "").Replace(">", "");
+        }
+
+        /// <summary>
+        /// One version-control route: V18 answers 409 (VCI export needs V20 or later) before anything; the paths are
+        /// checked (400) before the lock is taken; the work runs under the VC lock. A named refusal is 409 with its
+        /// name, anything that throws 500.
+        /// </summary>
+        private async Task AnswerVc<T>(HttpListenerResponse res, string what, string repoPath, string plcFolder,
+            Func<string, T> work, Func<string, string, T> failure, Func<T, bool> succeeded)
+        {
+            try
+            {
+                if (!TiaPortalService.VcSupported)
+                {
+                    await WriteJson(res, 409, failure(null, TiaPortalService.VcUnsupported));
+                    return;
+                }
+                string plcDir = TiaPortalService.VcPlcDir(repoPath, plcFolder);
+                T answer = _tiaService.VcLocked(() => work(plcDir));
+                await WriteJson(res, succeeded(answer) ? 200 : 409, answer);
+            }
+            catch (BridgeBadRequestException bad)
+            {
+                Console.WriteLine($"[VC] {what} bad request: {bad.Message}");
+                await WriteJson(res, 400, failure(null, bad.Message));
+            }
+            catch (BridgeRefusalException refusal)
+            {
+                Console.WriteLine($"[VC] {what} refused {refusal.Name}: {refusal.Message}");
+                await WriteJson(res, 409, failure(refusal.Name, refusal.Message));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[VC] {what} failed: {ex.Message}");
+                await WriteJson(res, 500, failure(null, ex.Message));
+            }
+        }
+
+        /// <summary>The request body, or null when it is missing or not JSON (the caller answers 400).</summary>
+        private static async Task<T> ReadVcBody<T>(HttpListenerRequest req) where T : class
+        {
+            try { return Json.Deserialize<T>(await ReadBody(req)); }
+            catch (JsonException) { return null; }
+        }
+
+        private async Task HandleVcCheck(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            var request = await ReadVcBody<VcCheckRequest>(req);
+            if (request == null || string.IsNullOrWhiteSpace(request.RepoPath) || string.IsNullOrWhiteSpace(request.PlcFolder))
+            {
+                await WriteJson(res, 400, new VcCheckResponse { Success = false, Message = "repo_path and plc_folder are required." });
+                return;
+            }
+            Console.WriteLine($"[VC] Check {request.RepoPath} {request.PlcFolder} (PHUB-232)");
+            await AnswerVc(res, "check", request.RepoPath, request.PlcFolder, plcDir => VcCheck(request, plcDir),
+                (name, message) => new VcCheckResponse { Success = false, Refused = name, Message = message }, a => a.Success);
+        }
+
+        /// <summary>§6: the whole PLC exported through the workspace, then read against git by pac-hub-vc status.</summary>
+        private VcCheckResponse VcCheck(VcCheckRequest request, string plcDir)
+        {
+            string unready = _tiaService.VcWorkingCopyUnready(plcDir);
+            if (unready != null) return new VcCheckResponse { Success = false, Message = unready };
+            string repo = Path.GetDirectoryName(plcDir);
+
+            // Ruling 9: a working copy retrieved from an archive takes its base from the archive's name. pac-hub-vc
+            // keeps a base already recorded, and a name with none leaves the no-base rule to status.
+            if (!string.IsNullOrWhiteSpace(request.RetrievedFrom))
+            {
+                VcAnswer fromArchive = RunVcJson(new List<string> { "base", "--repo", repo, "--plc", request.PlcFolder, "--from-archive", VcText(request.RetrievedFrom), "--json" }, 60000);
+                if (fromArchive.Message != null) Console.WriteLine("[VC] base from " + request.RetrievedFrom + " not recorded: " + fromArchive.Message);
+            }
+
+            string exportDir = VcExportDir(plcDir);
+            Console.WriteLine("[VC] check: full export into " + exportDir);
+            VcExportResult export = _tiaService.VcExportAll(exportDir);
+            if (export.Error != null) return new VcCheckResponse { Success = false, Message = export.Error };
+
+            var args = new List<string> { "status", "--repo", repo, "--plc", request.PlcFolder, "--json" };
+            if (export.RefusedNotCompiling) args.Add("--base-only");
+            VcAnswer status = RunVcJson(args, 180000);
+            if (status.Message != null) return new VcCheckResponse { Success = false, Refused = status.Refused, Message = status.Message };
+            return VcCheckAnswer(status.Json, export);
+        }
+
+        /// <summary>
+        /// The check's answer from pac-hub-vc status and the export. An export refused because the project does not
+        /// compile reads base against latest only (§6 rows 5–6): unverified, or unverified_behind; a clone diverged
+        /// from its remote stays diverged. A status with no state Pac Hub knows is a failure, never a guess.
+        /// </summary>
+        private static VcCheckResponse VcCheckAnswer(JObject s, VcExportResult export)
+        {
+            string state = s["state"] != null && s["state"].Type == JTokenType.String ? (string)s["state"] : null;
+            if (state == null || !VcStates.Contains(state))
+                return new VcCheckResponse { Success = false, Message = "pac-hub-vc status answered no state Pac Hub knows (" + (state ?? "none") + ")." };
+            if (export.RefusedNotCompiling && state != "diverged") state = state == "behind" ? "unverified_behind" : "unverified";
+            return new VcCheckResponse
+            {
+                Success = true,
+                State = state,
+                Export = export.RefusedNotCompiling ? "refused_not_compiling" : "ok",
+                Base = (string)s["base"],
+                Latest = (string)s["latest"],
+                LatestAuthor = (string)s["latestAuthor"],
+                LatestDate = (string)s["latestDate"],
+                LocalChanges = s["localChanges"] is JArray local ? local.ToObject<List<string>>() : new List<string>(),
+                NewerChanges = s["newerChanges"] is JArray newer ? newer.ToObject<List<VcNewerChange>>() : new List<VcNewerChange>(),
+                Skipped = export.Skipped,
+                NotCompiling = export.Inconsistent,
+            };
+        }
+
+        private async Task HandleVcCommit(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            var request = await ReadVcBody<VcCommitRequest>(req);
+            if (request == null || string.IsNullOrWhiteSpace(request.RepoPath) || string.IsNullOrWhiteSpace(request.PlcFolder) || string.IsNullOrWhiteSpace(request.Subject))
+            {
+                await WriteJson(res, 400, new VcCommitResponse { Success = false, Message = "repo_path, plc_folder and subject are required." });
+                return;
+            }
+            if ((request.Objects ?? new List<VcObjectRef>()).Any(o => o == null || (o.Kind != "block" && o.Kind != "tag_table") || string.IsNullOrWhiteSpace(o.Name)))
+            {
+                await WriteJson(res, 400, new VcCommitResponse { Success = false, Message = "Each of objects needs kind 'block' or 'tag_table' and a name." });
+                return;
+            }
+            Console.WriteLine($"[VC] Commit {request.RepoPath} {request.PlcFolder}: {string.Join(", ", request.Changes ?? new List<string>())} (PHUB-232)");
+            await AnswerVc(res, "commit", request.RepoPath, request.PlcFolder, plcDir => VcCommit(request, plcDir),
+                (name, message) => new VcCommitResponse { Success = false, Refused = name, Message = message }, a => a.Success);
+        }
+
+        /// <summary>§7: the change's objects exported, then committed and pushed by pac-hub-vc. A rejected push is final (ruling 1).</summary>
+        private VcCommitResponse VcCommit(VcCommitRequest request, string plcDir)
+        {
+            string unready = _tiaService.VcWorkingCopyUnready(plcDir);
+            if (unready != null) return new VcCommitResponse { Success = false, Message = unready };
+
+            string exportDir = VcExportDir(plcDir);
+            VcExportResult export = _tiaService.VcExportObjects(exportDir, request.Objects ?? new List<VcObjectRef>());
+            if (export.RefusedNotCompiling)
+                return new VcCommitResponse { Success = true, Outcome = "deferred", Reason = string.Join(", ", export.Inconsistent) + " does not compile" };
+            if (export.Error != null) return new VcCommitResponse { Success = true, Outcome = "failed", Reason = export.Error };
+
+            // 240 s: the hub gives the whole request 300 s, the export included, and must hear the outcome.
+            VcAnswer commit = RunVcJson(VcCommitArgs(request, Path.GetDirectoryName(plcDir)), 240000);
+            return VcCommitAnswer(commit);
+        }
+
+        /// <summary>`pac-hub-vc commit … --push --json` for the repo the request's paths resolved to: one --change per
+        /// ref, free text flattened to one line.</summary>
+        private static List<string> VcCommitArgs(VcCommitRequest request, string repo)
+        {
+            var args = new List<string> { "commit", "--repo", repo, "--plc", request.PlcFolder, "--source", "offline", "--trigger", "plc-conversation", "--subject", VcText(request.Subject), "--push", "--json" };
+            foreach (string change in request.Changes ?? new List<string>())
+            {
+                if (string.IsNullOrWhiteSpace(change)) continue;
+                args.Add("--change");
+                args.Add(VcText(change));
+            }
+            if (!string.IsNullOrWhiteSpace(request.Agent)) { args.Add("--agent"); args.Add(VcText(request.Agent)); }
+            if (!string.IsNullOrWhiteSpace(request.AuthorName)) { args.Add("--author"); args.Add(VcAuthorPart(request.AuthorName) + " <" + VcAuthorPart(request.AuthorEmail) + ">"); }
+            return args;
+        }
+
+        /// <summary>What pac-hub-vc commit came to: committed (or idle: nothing new, HEAD pushed when it was not yet)
+        /// is landed; anything else, or no result, is failed with its reason. A push the remote rejected stays
+        /// committed with pushed:false and pac-hub-vc's reason, untouched (ruling 1).</summary>
+        private static VcCommitResponse VcCommitAnswer(VcAnswer commit)
+        {
+            if (commit.Json == null || commit.Json["outcome"] == null)
+                return new VcCommitResponse { Success = true, Outcome = "failed", Reason = commit.Refused != null ? commit.Refused + ": " + commit.Message : (commit.Message ?? "pac-hub-vc commit answered no outcome") };
+            JObject j = commit.Json;
+            string outcome = (string)j["outcome"];
+            bool landed = outcome == "committed" || outcome == "idle";
+            return new VcCommitResponse
+            {
+                Success = true,
+                Outcome = landed ? "committed" : "failed",
+                Sha = (string)j["sha"],
+                Pushed = landed && ((bool?)j["pushed"] ?? false),
+                Reason = (string)j["reason"] ?? (outcome == "idle" ? "no changes" : landed ? null : "pac-hub-vc commit answered " + (outcome ?? "no outcome")),
+            };
+        }
+
+        private async Task HandleVcUpdate(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            var request = await ReadVcBody<VcCheckRequest>(req);
+            if (request == null || string.IsNullOrWhiteSpace(request.RepoPath) || string.IsNullOrWhiteSpace(request.PlcFolder))
+            {
+                await WriteJson(res, 400, new VcUpdateResponse { Success = false, Message = "repo_path and plc_folder are required." });
+                return;
+            }
+            Console.WriteLine($"[VC] Update from Git {request.RepoPath} {request.PlcFolder} (PHUB-232)");
+            await AnswerVc(res, "update", request.RepoPath, request.PlcFolder, plcDir => VcUpdate(request, plcDir),
+                (name, message) => new VcUpdateResponse { Success = false, Refused = name, Message = message }, a => a.Success);
+        }
+
+        /// <summary>§6 Update from Git: export, let pac-hub-vc fast-forward and list the files, import them, compile, save, record the base.</summary>
+        private VcUpdateResponse VcUpdate(VcCheckRequest request, string plcDir)
+        {
+            string unready = _tiaService.VcWorkingCopyUnready(plcDir);
+            if (unready != null) return new VcUpdateResponse { Success = false, Message = unready };
+            string repo = Path.GetDirectoryName(plcDir);
+
+            // Exported first, so pac-hub-vc update checks the working copy as it is now, not as it was at Start.
+            string exportDir = VcExportDir(plcDir);
+            VcExportResult export = _tiaService.VcExportAll(exportDir);
+            if (export.Error != null) return new VcUpdateResponse { Success = false, Message = export.Error };
+            if (export.RefusedNotCompiling)
+                return new VcUpdateResponse { Success = false, Message = "The project does not compile (" + string.Join(", ", export.Inconsistent) + "), so Pac Hub cannot tell whether the working copy has edits; make it compile, then press Update from Git again." };
+
+            VcAnswer prepared = RunVcJson(new List<string> { "update", "--repo", repo, "--plc", request.PlcFolder, "--json" }, 180000);
+            if (prepared.Message != null) return new VcUpdateResponse { Success = false, Refused = prepared.Refused, Message = prepared.Message };
+            string outcome = (string)prepared.Json["outcome"];
+            if (outcome == "up-to-date") return new VcUpdateResponse { Success = true, Message = "already up to date" };
+            string latest = (string)prepared.Json["latest"];
+            if (outcome != "ready" || string.IsNullOrWhiteSpace(latest))
+                return new VcUpdateResponse { Success = false, Message = "pac-hub-vc update answered " + (outcome ?? "no outcome") + (string.IsNullOrWhiteSpace(latest) ? " with no latest commit" : "") + "; nothing was imported." };
+
+            List<VcUpdateFile> files = VcUpdateFilesOf(prepared.Json);
+            Console.WriteLine("[VC] update: " + files.Count + " file(s) from git, to " + latest);
+            VcImportResult imported = _tiaService.VcImportFiles(exportDir, files);
+            CompileResultDto compile = null;
+            string message = null;
+            _tiaService.RequireVcWorkingCopy(plcDir);
+            try
+            {
+                compile = _tiaService.CompileProject();
+            }
+            catch (Exception ex)
+            {
+                // What was imported is saved all the same; the compile is reported as not run.
+                message = "The project was not compiled after the update: " + ex.Message;
+                Console.WriteLine("[VC] " + message);
+            }
+            _tiaService.RequireVcWorkingCopy(plcDir);
+            _tiaService.SaveProject();
+
+            // The base moves only when every file landed: a partial import leaves the copy on its old base, and the re-check says so.
+            bool baseWritten = false;
+            if (imported.NotImported.Count == 0)
+            {
+                VcAnswer written = RunVcJson(new List<string> { "base", "--repo", repo, "--plc", request.PlcFolder, "--set", latest, "--json" }, 60000);
+                baseWritten = written.Message == null && written.Json["base"] != null && written.Json["base"].Type == JTokenType.String
+                    && string.Equals((string)written.Json["base"], latest, StringComparison.OrdinalIgnoreCase);
+                if (!baseWritten) Console.WriteLine("[VC] update: the base was not recorded: " + (written.Message ?? "pac-hub-vc base answered no base"));
+            }
+            return new VcUpdateResponse
+            {
+                Success = true, Message = message, Imported = imported.Imported, Deleted = imported.Deleted, NotImported = imported.NotImported,
+                Compile = compile, BaseWritten = baseWritten,
+            };
+        }
+
+        /// <summary>The files pac-hub-vc update lists. One with no path or object is kept, to be named in not_imported.</summary>
+        private static List<VcUpdateFile> VcUpdateFilesOf(JObject json)
+        {
+            var files = json["files"] is JArray list ? list.ToObject<List<VcUpdateFile>>() : new List<VcUpdateFile>();
+            return files.Select(f => f ?? new VcUpdateFile()).ToList();
+        }
+
+        /// <summary>&lt;plc&gt;\Export, the Pac Hub workspace's root (prepare made it; made again when it has gone).</summary>
+        private static string VcExportDir(string plcDir)
+        {
+            return Directory.CreateDirectory(Path.Combine(plcDir, "Export")).FullName;
+        }
+    }
+}

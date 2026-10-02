@@ -141,12 +141,20 @@ namespace PacForgeBridge
             return sb.Append('"').ToString();
         }
 
-        /// <summary>The last stdout line that is a JSON object, or null.</summary>
+        /// <summary>The last stdout line that is a JSON object, or null. Strings stay the strings pac-hub-vc printed: an
+        /// ISO date (status's latestDate) is not turned into a DateTime and back into this machine's local format.</summary>
         public static JObject LastJson(string stdout)
         {
             string last = (stdout ?? "").Split('\n').Select(l => l.Trim()).LastOrDefault(l => l.StartsWith("{"));
             if (last == null) return null;
-            try { return JObject.Parse(last); }
+            try
+            {
+                using (var reader = new Newtonsoft.Json.JsonTextReader(new StringReader(last)) { DateParseHandling = Newtonsoft.Json.DateParseHandling.None })
+                {
+                    JObject json = JObject.Load(reader);
+                    return reader.Read() ? null : json;
+                }
+            }
             catch (Newtonsoft.Json.JsonException) { return null; }
         }
 
@@ -226,6 +234,20 @@ namespace PacForgeBridge
                 });
             }
             return _version;
+        }
+
+        /// <summary>
+        /// PHUB-232 Phase 3: any `pac-hub-vc … --json` command, on Run and LastJson — the last JSON object it printed
+        /// (null when none or when it timed out), its exit code, and why it gave none (the timeout, or the first
+        /// stderr line). A missing pac-hub-vc (or Node) is VC_TOOL_MISSING by name, as Ensure throws it.
+        /// </summary>
+        public static JObject Json(IList<string> args, int timeoutMs, out int exitCode, out string error)
+        {
+            PacHubVcResult r = Run(args, timeoutMs);
+            if (r.Missing) throw new BridgeRefusalException("VC_TOOL_MISSING", r.Stderr);
+            exitCode = r.ExitCode;
+            error = r.TimedOut ? r.Stderr : FirstLine(r.Stderr);
+            return r.TimedOut ? null : LastJson(r.Stdout);
         }
 
         private static bool Locate(out string fileName, out string script, out string missing)

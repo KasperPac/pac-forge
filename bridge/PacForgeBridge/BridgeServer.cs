@@ -12,7 +12,7 @@ using Newtonsoft.Json;
 
 namespace PacForgeBridge
 {
-    public class BridgeServer
+    public partial class BridgeServer
     {
         private readonly HttpListener _listener;
         private readonly JobExecutor _jobExecutor;
@@ -198,6 +198,25 @@ namespace PacForgeBridge
                 if (method == "POST" && path == "/tia/project/archive")
                 {
                     await HandleProjectArchive(req, res);
+                    return;
+                }
+
+                // Routes: PLC conversation version control (PHUB-232). Answered on every build; V18 says it cannot.
+                if (method == "POST" && path == "/tia/vc/check")
+                {
+                    await HandleVcCheck(req, res);
+                    return;
+                }
+
+                if (method == "POST" && path == "/tia/vc/commit")
+                {
+                    await HandleVcCommit(req, res);
+                    return;
+                }
+
+                if (method == "POST" && path == "/tia/vc/update")
+                {
+                    await HandleVcUpdate(req, res);
                     return;
                 }
 
