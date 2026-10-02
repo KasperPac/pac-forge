@@ -104,6 +104,8 @@ namespace PacForgeBridge
                 try
                 {
                     Directory.Move(staged, target);
+                    if (attempt > 1)
+                        Console.WriteLine($"[VC] Moved {staged} into place on attempt {attempt}, {(attempt - 1) * 250} ms after the first (the window is 5 s).");
                     return;
                 }
                 catch (Exception ex) when ((ex is IOException || ex is UnauthorizedAccessException) && attempt < 20)

@@ -133,6 +133,7 @@ namespace PacForgeBridge
                             // had nothing open, just checked), so it is closed again to be moved into place.
                             Project retrieved = _tiaPortal.Projects.Retrieve(new FileInfo(master.Location), new DirectoryInfo(staging));
                             stagedFile = retrieved.Path.FullName;
+                            Console.WriteLine($"[VC] Retrieved {Path.GetFileName(master.Location)} into {stagedFile}");
                             retrieved.Close();
                             _project = null;
                         }
