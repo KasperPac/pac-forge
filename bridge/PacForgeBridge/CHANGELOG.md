@@ -4,6 +4,37 @@ Every bridge change bumps `BridgeVersion` in `TiaPortalService.cs` (semver:
 new capability = minor, fix = patch) and gets an entry here. The running
 version is visible at `GET /tia/status`.
 
+## 1.13.0 — 2026-10-01
+
+The working copy for Pac Hub's PLC conversation (PHUB-232, pac-hub spec
+`2026-10-01-pac-hub-plc-version-control-design.md` §5).
+
+- **`POST /tia/vc/prepare`** `{ job, customer, job_name, dropbox_job_path, plc_folder? }`. It picks
+  the PLC from the job's Dropbox `50 PLC`, and with several and none given it refuses
+  `PLC_CHOICE_NEEDED` with `plcs`. It runs `pac-hub-vc ensure` for the job repo under
+  `PAC_JOBS_ROOT` (default `C:\PacTechGit`). A working copy, or with none the newest master, of
+  another TIA version is refused `WRONG_TIA_VERSION` before TIA is asked anything. It is never
+  retrieved, copied, opened or upgraded, so a master cannot become a newer TIA version by accident.
+  When TIA has another project open it refuses `NOT_WORKING_COPY` before anything is opened,
+  closed, saved or copied. When the working copy
+  `<repo>\<nn> <name>\Project\` is absent, it makes it from the newest master: a `.zap` through
+  `Projects.Retrieve` (answered as `retrieved_from`, the archive's file name; null otherwise), or a
+  copy of an `.ap` project folder. It opens the working copy when TIA has nothing open, refuses
+  `MULTI_PLC_PROJECT`, records the PLC in `job.json` (doc code; CPU order number as the model), and
+  creates the `Pac Hub` VCI workspace at `Export\` (not on V18). An online-only Dropbox file is
+  downloaded by reading it; one that will not download is `DROPBOX_NOT_LOCAL`.
+- **`/tia/status` `pac_hub_vc_version`**: `pac-hub-vc --version`, absent when it is not installed
+  (prepare then refuses `VC_TOOL_MISSING`, as it does for a missing git, gh or Node).
+- Refusals answer `409 { success:false, refused, message }`. A named refusal from
+  `pac-hub-vc ensure` (`REPO_NOT_FAST_FORWARD`, `REPO_NOT_ON_MAIN`, `GITHUB_UNAVAILABLE`,
+  `VC_TOOL_MISSING`) passes through under its name. An ensure with no JSON result (a usage error
+  prints none, even under `--json`) is a 500 carrying its exit code and stderr, never a success.
+  `PAC_DROPBOX_ROOT` overrides the Dropbox root read from `%LOCALAPPDATA%\Dropbox\info.json`
+  (`business.root_path`).
+- **`pac-hub-vc` is started directly, never through cmd.exe** (`PacHubVc`). A `pac-hub-vc.cmd`
+  shim on PATH is read for the script it names, which `node.exe` runs. Each argument is quoted by the
+  `CommandLineToArgvW` rules. `PAC_HUB_VC` names the CLI's `bin\pac-hub-vc.mjs` (or an exe) instead.
+
 ## 1.12.2 — 2026-10-01
 
 - **SCL imports never delete an engineer's external source** (PHUB-231). Every SCL import

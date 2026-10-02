@@ -187,6 +187,13 @@ namespace PacForgeBridge
                     return;
                 }
 
+                // Route: POST /tia/vc/prepare  (PHUB-232)
+                if (method == "POST" && path == "/tia/vc/prepare")
+                {
+                    await HandleVcPrepare(req, res);
+                    return;
+                }
+
 #if !TIA_V18
                 // Route: POST /tia/hmi/build — generate WinCC Unified HMI from a JSON spec
                 if (method == "POST" && path == "/tia/hmi/build")
@@ -1653,6 +1660,34 @@ namespace PacForgeBridge
             {
                 Console.WriteLine($"[TIA] Save failed: {ex.Message}");
                 await WriteJson(res, 500, new TiaActionResponse { Success = false, Message = ex.Message });
+            }
+        }
+
+        private async Task HandleVcPrepare(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            VcPrepareRequest request = null;
+            try { request = Json.Deserialize<VcPrepareRequest>(await ReadBody(req)); }
+            catch (JsonException) { }
+            if (request == null || string.IsNullOrWhiteSpace(request.Job) || string.IsNullOrWhiteSpace(request.Customer)
+                || string.IsNullOrWhiteSpace(request.JobName) || string.IsNullOrWhiteSpace(request.DropboxJobPath))
+            {
+                await WriteJson(res, 400, new VcPrepareResponse { Success = false, Message = "job, customer, job_name and dropbox_job_path are required." });
+                return;
+            }
+            try
+            {
+                Console.WriteLine($"[VC] Prepare {request.Job} {request.PlcFolder ?? "(PLC not chosen)"} (PHUB-232)");
+                await WriteJson(res, 200, _tiaService.PrepareWorkingCopy(request));
+            }
+            catch (BridgeRefusalException refusal)
+            {
+                Console.WriteLine($"[VC] Prepare refused {refusal.Name}: {refusal.Message}");
+                await WriteJson(res, 409, new VcPrepareResponse { Success = false, Refused = refusal.Name, Message = refusal.Message, Plcs = refusal.Plcs ?? new List<VcPlcDto>() });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[VC] Prepare failed: {ex.Message}");
+                await WriteJson(res, 500, new VcPrepareResponse { Success = false, Message = ex.Message });
             }
         }
 

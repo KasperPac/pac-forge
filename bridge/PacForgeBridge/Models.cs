@@ -86,6 +86,8 @@ namespace PacForgeBridge
         public string SourcePlcFamily { get; set; }
         /// <summary>e.g. "OrderNumber:6ES7 317-2EK14-0AB0/V3.3" — CPU slot TypeIdentifier</summary>
         public string SourceCpuTypeId { get; set; }
+        /// <summary>PHUB-232: `pac-hub-vc --version` on this workstation; absent when it is not installed.</summary>
+        public string PacHubVcVersion { get; set; }
     }
 
     // --- TIA Action Requests/Responses ---
@@ -99,6 +101,44 @@ namespace PacForgeBridge
     public class OpenProjectRequest
     {
         public string ProjectPath { get; set; }
+    }
+
+    // --- PHUB-232: the working copy for Pac Hub's PLC conversation ---
+
+    public class VcPrepareRequest
+    {
+        public string Job { get; set; }
+        public string Customer { get; set; }
+        public string JobName { get; set; }
+        /// <summary>Relative to the Dropbox root, forward slashes: Pac/Jobs/&lt;Customer&gt;/&lt;JOB&gt; - &lt;name&gt;.</summary>
+        public string DropboxJobPath { get; set; }
+        /// <summary>"&lt;nn&gt; &lt;name&gt;" under 50 PLC; absent = the only one.</summary>
+        public string PlcFolder { get; set; }
+    }
+
+    public class VcPlcDto
+    {
+        public string Folder { get; set; }
+        public string Number { get; set; }
+        public string Name { get; set; }
+        public string DocCode { get; set; }
+    }
+
+    public class VcPrepareResponse
+    {
+        public bool Success { get; set; }
+        public string Refused { get; set; }
+        public string Message { get; set; }
+        public string RepoPath { get; set; }
+        public string PlcFolder { get; set; }
+        public string WorkingCopyPath { get; set; }
+        /// <summary>"none" | "working_copy" — "other" is always the NOT_WORKING_COPY refusal.</summary>
+        public string TiaOpen { get; set; }
+        public bool Opened { get; set; }
+        /// <summary>The archive's file name when this call retrieved the working copy from a .zap, else null (sent as null).</summary>
+        [JsonProperty("retrieved_from", NullValueHandling = NullValueHandling.Include)]
+        public string RetrievedFrom { get; set; }
+        public List<VcPlcDto> Plcs { get; set; } = new List<VcPlcDto>();
     }
 
     public class DemoRequest
