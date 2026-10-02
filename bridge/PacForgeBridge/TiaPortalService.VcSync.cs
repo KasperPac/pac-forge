@@ -281,11 +281,15 @@ namespace PacForgeBridge
             return VcAreas.ToDictionary(a => a, a => new HashSet<string>(StringComparer.OrdinalIgnoreCase));
         }
 
-        /// <summary>The block user group a block file's folder names (posix, below Program blocks); null for the root of
-        /// Program blocks, which is never a user group of its own.</summary>
+        /// <summary>
+        /// The block folder a block file's groups (posix, below Program blocks) name, in the form both import paths hand
+        /// on, <c>Program blocks/&lt;groups&gt;</c>: GetOrCreateBlockGroup (SimaticML) and ImportArtifact (SCL) strip that one
+        /// leading "Program blocks/", so a root user group that is itself called "Program blocks" is kept. Null for the
+        /// root of Program blocks, which is never a user group of its own.
+        /// </summary>
         private static string VcBlockGroupPath(string groups)
         {
-            return string.IsNullOrEmpty(groups) ? null : groups;
+            return string.IsNullOrEmpty(groups) ? null : "Program blocks/" + groups;
         }
 
         /// <summary>
@@ -711,12 +715,12 @@ namespace PacForgeBridge
 
         private void ImportVcBlock(PlcSoftware plc, string full, string name, string groups, VcImportResult result)
         {
-            string folder = groups == "" ? "Program blocks" : "Program blocks/" + groups;
+            string groupPath = VcBlockGroupPath(groups);
             if (full.EndsWith(".scl", StringComparison.OrdinalIgnoreCase))
             {
                 ImportSclResponse scl = ImportSclSources(
                     new Dictionary<string, string> { { name, File.ReadAllText(full) } },
-                    new List<string> { name }, false, new Dictionary<string, string> { { name, folder } });
+                    new List<string> { name }, false, new Dictionary<string, string> { { name, groupPath ?? "Program blocks" } });
                 if (scl.Errors.Count > 0) result.NotImported.Add(string.Join("; ", scl.Errors)); else result.Imported.Add(name);
                 return;
             }
@@ -730,8 +734,8 @@ namespace PacForgeBridge
                 return;
             }
             // A new block goes into the folder git has it in, so the next export writes it to the same path. One at the
-            // root of Program blocks goes into the root group: never a user group named "Program blocks".
-            string groupPath = VcBlockGroupPath(groups);
+            // root of Program blocks goes into the root group (never a user group named "Program blocks"); one under a
+            // root user group that is called "Program blocks" goes into that group, not one level up.
             PlcBlockUserGroup group = groupPath == null ? null : GetOrCreateBlockGroup(plc.BlockGroup, groupPath);
             PlcBlockComposition target = group != null ? group.Blocks : plc.BlockGroup.Blocks;
             target.Import(new FileInfo(full), ImportOptions.Override);

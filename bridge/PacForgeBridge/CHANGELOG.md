@@ -111,7 +111,10 @@ The working copy for Pac Hub's PLC conversation (PHUB-232, pac-hub spec
   paths (import-scl, reimport-blocks, type and tag-table import; a deleted object is deleted; anything
   else, a technology object say, is named in `not_imported`), compiles, saves, and has
   `pac-hub-vc base --set` record the base only when every file landed and is saved. A new block at the
-  root of Program blocks lands at the root (never in a user group named "Program blocks"); `deleted`
+  root of Program blocks lands at the root (never in a user group named "Program blocks"), and one
+  under a root user group that is itself called "Program blocks" lands in that group, not one level
+  up: `GetOrCreateBlockGroup` strips exactly one leading `Program blocks/` and is handed the same
+  `Program blocks/<groups>` folder on the SimaticML path as on the SCL path; `deleted`
   names only objects that were in TIA. Answers `{ success, imported, deleted, not_imported, compile,
   base_written, saved }`; `already up to date` when there is nothing newer.
 - The three version-control routes run only on the PLC's working copy: the project TIA has open must

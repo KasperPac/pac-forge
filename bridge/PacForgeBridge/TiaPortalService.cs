@@ -1616,17 +1616,10 @@ namespace PacForgeBridge
         /// </summary>
         private PlcBlockUserGroup GetOrCreateBlockGroup(PlcBlockSystemGroup root, string folderPath)
         {
-            // Strip leading "Program blocks/" if present
-            string path = folderPath;
-            if (path.StartsWith("Program blocks/", StringComparison.OrdinalIgnoreCase))
-                path = path.Substring("Program blocks/".Length);
-            if (path.StartsWith("Program blocks\\", StringComparison.OrdinalIgnoreCase))
-                path = path.Substring("Program blocks\\".Length);
-
-            if (string.IsNullOrEmpty(path))
+            string[] parts = BlockGroupParts(folderPath);
+            if (parts.Length == 0)
                 return null;
 
-            string[] parts = path.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
             PlcBlockUserGroupComposition currentGroups = root.Groups;
             PlcBlockUserGroup currentGroup = null;
 
@@ -1643,6 +1636,19 @@ namespace PacForgeBridge
             }
 
             return currentGroup;
+        }
+
+        /// <summary>
+        /// The user groups a block folder path names below Program blocks. One leading "Program blocks/" (or
+        /// "Program blocks\"), the system group itself, is stripped, and only one: a user group of that name further
+        /// in is a real group (PHUB-232: a block under a root user group called "Program blocks" lands in it).
+        /// </summary>
+        private static string[] BlockGroupParts(string folderPath)
+        {
+            string path = folderPath ?? "";
+            if (path.StartsWith("Program blocks/", StringComparison.OrdinalIgnoreCase) || path.StartsWith("Program blocks\\", StringComparison.OrdinalIgnoreCase))
+                path = path.Substring("Program blocks/".Length);
+            return path.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
         }
 
         /// <summary>
