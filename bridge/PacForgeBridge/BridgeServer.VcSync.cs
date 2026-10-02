@@ -252,14 +252,16 @@ namespace PacForgeBridge
         /// work's own save (Update from Git's) included; a failure after a save is thrown on as
         /// VcFailedAfterSaveException, so its 409 or 500 answer says so too.
         /// </summary>
-        private T VcKeepingSaved<T>(string plcDir, string what, Func<bool, T> work, Action<T> markSaved) where T : class
+        private T VcKeepingSaved<T>(string plcDir, string what, Func<bool?, T> work, Action<T> markSaved) where T : class
         {
-            bool modifiedBefore = _tiaService.VcProjectModified();
+            // The work is told the flag as read (null: it could not be read); the save rule counts unread as modified.
+            bool? flagBefore = _tiaService.VcReadModified();
+            bool modifiedBefore = flagBefore != false;
             int savesBefore = _tiaService.VcSaves;
             T answer;
             try
             {
-                answer = work(modifiedBefore);
+                answer = work(flagBefore);
             }
             catch (Exception ex)
             {
@@ -471,11 +473,18 @@ namespace PacForgeBridge
         /// <summary>
         /// Update from Git refuses a working copy with unsaved changes, read before any VCI work (Ruling 42): it ends
         /// in a save, and the engineer's unsaved edits are never saved for them. Nothing is exported, imported or
-        /// compiled and the base is not recorded. Null when the copy has none.
+        /// compiled and the base is not recorded. UNSAVED_CHANGES only when the modified flag really reads true; a flag
+        /// that could not be read (null) is refused in plain words, with no name. Null when the copy has none.
         /// </summary>
-        private static VcUpdateResponse VcUnsavedRefusal(bool modifiedBefore)
+        private static VcUpdateResponse VcUnsavedRefusal(bool? modifiedBefore)
         {
-            if (!modifiedBefore) return null;
+            if (modifiedBefore == false) return null;
+            if (modifiedBefore == null)
+                return new VcUpdateResponse
+                {
+                    Success = false,
+                    Message = "The bridge could not read the working copy's modified flag from TIA, so it cannot tell whether the project has unsaved changes; save the project in TIA, then press Update from Git again. Nothing was exported, imported or compiled.",
+                };
             return new VcUpdateResponse
             {
                 Success = false,

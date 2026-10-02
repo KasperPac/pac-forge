@@ -135,7 +135,9 @@ The working copy for Pac Hub's PLC conversation (PHUB-232, pac-hub spec
   `saved: true` on its 409 or 500. One that had unsaved changes before is
   never saved: they are the engineer's. Update from Git refuses such a copy up front, 409
   `refused: UNSAVED_CHANGES` ("save the project in TIA, then press Update from Git again"): nothing
-  is exported, imported or compiled, and the base is not recorded.
+  is exported, imported or compiled, and the base is not recorded. The name is given only when the
+  flag really reads true: a modified flag the bridge cannot read is refused the same way with no name,
+  in words that say it could not read the project's modified flag (and such a copy is never saved).
 - **Cross-origin guard on the new routes.** `/tia/vc/*` and `/tia/project/archive` answer 403
   `{ success:false, message }` ("… refuses a request from a web page …") to any request that carries an
   `Origin` header, unless it presents a valid bridge token; with no token configured they always do. The

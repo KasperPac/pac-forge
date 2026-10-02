@@ -148,20 +148,30 @@ namespace PacForgeBridge
         }
 
         /// <summary>
-        /// Ruling 34: whether the open project has unsaved changes (<c>ProjectBase.IsModified</c>), read before any VCI
-        /// work. One that cannot be read counts as modified, so it is never saved.
+        /// Ruling 34: the open project's modified flag (<c>ProjectBase.IsModified</c>) as TIA reads it, or null when it
+        /// cannot be read: no project is open, or TIA would not say.
         /// </summary>
-        public bool VcProjectModified()
+        public bool? VcReadModified()
         {
+            if (_project == null) return null;
             try
             {
-                return _project == null || _project.IsModified;
+                return _project.IsModified;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[VC] Could not read whether the project has unsaved changes ({ex.Message}); it will not be saved.");
-                return true;
+                Console.WriteLine($"[VC] Could not read the project's modified flag ({ex.Message}); it will not be saved.");
+                return null;
             }
+        }
+
+        /// <summary>
+        /// Ruling 34: whether the open project counts as having unsaved changes, read before any VCI work. One whose
+        /// modified flag cannot be read counts as modified, so it is never saved.
+        /// </summary>
+        public bool VcProjectModified()
+        {
+            return VcReadModified() != false;
         }
 
         /// <summary>How many times VcSaveWhatVcChanged has saved the working copy. A route compares it before and after its
