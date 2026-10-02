@@ -194,6 +194,13 @@ namespace PacForgeBridge
                     return;
                 }
 
+                // Route: POST /tia/project/archive  (PHUB-232)
+                if (method == "POST" && path == "/tia/project/archive")
+                {
+                    await HandleProjectArchive(req, res);
+                    return;
+                }
+
 #if !TIA_V18
                 // Route: POST /tia/hmi/build — generate WinCC Unified HMI from a JSON spec
                 if (method == "POST" && path == "/tia/hmi/build")
@@ -1693,6 +1700,38 @@ namespace PacForgeBridge
             {
                 Console.WriteLine($"[VC] Prepare failed: {ex.Message}");
                 await WriteJson(res, 500, new VcPrepareResponse { Success = false, Message = ex.Message });
+            }
+        }
+
+        private async Task HandleProjectArchive(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            ArchiveProjectRequest request = null;
+            try { request = Json.Deserialize<ArchiveProjectRequest>(await ReadBody(req)); }
+            catch (JsonException) { }
+            if (request == null || string.IsNullOrWhiteSpace(request.TargetDir) || string.IsNullOrWhiteSpace(request.FileName))
+            {
+                await WriteJson(res, 400, new ArchiveProjectResponse { Success = false, Message = "target_dir and file_name are required." });
+                return;
+            }
+            try
+            {
+                Console.WriteLine($"[VC] Archive to {request.TargetDir}/{request.FileName} (PHUB-232)");
+                await WriteJson(res, 200, _tiaService.ArchiveProject(request));
+            }
+            catch (BridgeBadRequestException bad)
+            {
+                Console.WriteLine($"[VC] Archive bad request: {bad.Message}");
+                await WriteJson(res, 400, new ArchiveProjectResponse { Success = false, Message = bad.Message });
+            }
+            catch (BridgeRefusalException refusal)
+            {
+                Console.WriteLine($"[VC] Archive refused {refusal.Name}: {refusal.Message}");
+                await WriteJson(res, 409, new ArchiveProjectResponse { Success = false, Refused = refusal.Name, Message = refusal.Message });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[VC] Archive failed: {ex.Message}");
+                await WriteJson(res, 500, new ArchiveProjectResponse { Success = false, Message = ex.Message });
             }
         }
 

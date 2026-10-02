@@ -135,10 +135,29 @@ namespace PacForgeBridge
         /// <summary>"none" | "working_copy" — "other" is always the NOT_WORKING_COPY refusal.</summary>
         public string TiaOpen { get; set; }
         public bool Opened { get; set; }
-        /// <summary>The archive's file name when this call retrieved the working copy from a .zap, else null (sent as null).</summary>
+        /// <summary>The file name of the .zap the working copy was retrieved from, read from &lt;plc&gt;\.pachub\retrieved-from
+        /// on every prepare, not only the one that retrieved it; null when it was copied from an .ap folder (sent as null).</summary>
         [JsonProperty("retrieved_from", NullValueHandling = NullValueHandling.Include)]
         public string RetrievedFrom { get; set; }
         public List<VcPlcDto> Plcs { get; set; } = new List<VcPlcDto>();
+    }
+
+    public class ArchiveProjectRequest
+    {
+        /// <summary>Relative to the Dropbox root: Pac/Jobs/&lt;Customer&gt;/&lt;JOB&gt; - &lt;name&gt;/50 PLC/&lt;nn&gt; &lt;name&gt;.</summary>
+        public string TargetDir { get; set; }
+        /// <summary>The archive's name; any .zapNN on it is replaced by this edition's.</summary>
+        public string FileName { get; set; }
+        /// <summary>When given, the open project must be this one.</summary>
+        public string WorkingCopyPath { get; set; }
+    }
+
+    public class ArchiveProjectResponse
+    {
+        public bool Success { get; set; }
+        public string Refused { get; set; }
+        public string Message { get; set; }
+        public string Path { get; set; }
     }
 
     public class DemoRequest

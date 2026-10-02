@@ -106,18 +106,21 @@ namespace PacForgeBridge
                         $"TIA has {openName} ({openPath}) open, which isn't the working copy ({workingCopy ?? projectDir}); close it and press Start.");
 
                 // 5. The working copy: used as is, or made once from the newest master (step 3).
-                //    `retrievedFrom` names the archive it came from; Phase 3 reads the base from that name.
                 //    It is made in <plc>\.pachub\staging\ (git-ignored, and never searched for a working
                 //    copy) and moved into Project\ only once complete. A copy or retrieve cut short, by a
                 //    timeout or by the bridge or machine going down, leaves nothing in Project\ to be taken
                 //    for a working copy at the next Start; what it left in staging is cleared then.
+                //    A working copy retrieved from a .zap has the archive's file name recorded in
+                //    <plc>\.pachub\retrieved-from once it is in Project\. Phase 3 reads the base from that name,
+                //    so every prepare reports it from there (`retrieved_from`): a step below that fails after the
+                //    move, or a later Start, never loses it. A new working copy forgets the old record first.
                 bool opened = false;
-                string retrievedFrom = null;
                 if (workingCopy == null)
                 {
                     if (plc.DocCode == null) plc.DocCode = DocCodeOf(Path.GetFileName(master.Location));
                     string staging = Path.Combine(plcDir, ".pachub", "staging");
                     DropboxLocal.ClearStaging(staging);
+                    ForgetRetrievedFrom(plcDir);
                     Directory.CreateDirectory(staging);
                     if (master.IsArchive)
                     {
@@ -141,7 +144,7 @@ namespace PacForgeBridge
                         string landed = Path.Combine(projectDir, Path.GetFileNameWithoutExtension(stagedFile));
                         DropboxLocal.MoveIntoPlace(Path.GetDirectoryName(stagedFile), landed);
                         workingCopy = Path.Combine(landed, Path.GetFileName(stagedFile));
-                        retrievedFrom = Path.GetFileName(master.Location);
+                        RecordRetrievedFrom(plcDir, Path.GetFileName(master.Location));
                     }
                     else
                     {
@@ -208,10 +211,87 @@ namespace PacForgeBridge
                     WorkingCopyPath = workingCopy,
                     TiaOpen = tiaOpen,
                     Opened = opened,
-                    RetrievedFrom = retrievedFrom,
+                    RetrievedFrom = RetrievedFromRecord(plcDir),
                     Plcs = plcs,
                 };
             }
+        }
+
+        /// <summary>
+        /// POST /tia/project/archive (spec §5 step 6): the open project archived, compressed, into a Dropbox
+        /// folder as a new .zap. A file that already exists is somebody's master. It is refused before TIA is
+        /// asked anything, and nothing is ever overwritten. TIA is never started for an archive: with none
+        /// running there is no working copy open to archive.
+        /// </summary>
+        public ArchiveProjectResponse ArchiveProject(ArchiveProjectRequest request)
+        {
+            lock (_vcLock)
+            {
+                string targetDir = DropboxLocal.Resolve(DropboxLocal.Root(), request.TargetDir);
+                string baseName = ArchiveBaseName(request.FileName);
+                string target = Path.Combine(targetDir, baseName + ".zap" + EditionVersion);
+                if (File.Exists(target))
+                    throw new BridgeRefusalException("ARCHIVE_EXISTS", $"{target} already exists; nothing was overwritten.");
+
+                if (TiaPortal.GetProcesses().Count == 0)
+                    throw new InvalidOperationException("TIA Portal is not running; open the working copy and archive again.");
+                Connect(preferAttach: true);
+                if (_project == null)
+                    throw new InvalidOperationException("TIA has no project open; open the working copy and archive again.");
+                string open = _project.Path?.FullName ?? "";
+                if (!string.IsNullOrWhiteSpace(request.WorkingCopyPath) && !SamePath(open, request.WorkingCopyPath))
+                    throw new BridgeRefusalException("NOT_WORKING_COPY", $"TIA has {_project.Name} ({open}) open, which isn't the working copy ({request.WorkingCopyPath}); nothing was archived.");
+
+                Directory.CreateDirectory(targetDir);
+                try
+                {
+                    _project.Archive(new DirectoryInfo(targetDir), baseName, ProjectArchivationMode.Compressed);
+                }
+                catch (Exception ex) when (!(ex is BridgeRefusalException))
+                {
+                    throw new InvalidOperationException($"TIA would not archive {_project.Name}: {ex.Message} (a project with unsaved changes cannot be archived: save it in TIA, then archive again)", ex);
+                }
+                string written = File.Exists(target) ? target : (Directory.GetFiles(targetDir, baseName + ".zap*").FirstOrDefault() ?? target);
+                Console.WriteLine($"[VC] Archived {_project.Name} to {written}");
+                return new ArchiveProjectResponse { Success = true, Path = written };
+            }
+        }
+
+        /// <summary>The archive's name without any .zapNN; the caller adds this edition's. A name that is blank or
+        /// holds a character no file name may is the caller's bad input (400).</summary>
+        private static string ArchiveBaseName(string fileName)
+        {
+            string baseName = ArchiveExtension.Replace((fileName ?? "").Trim(), "");
+            if (baseName.Length == 0 || baseName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+                throw new BridgeBadRequestException($"'{fileName}' is not a file name.");
+            return baseName;
+        }
+
+        /// <summary>&lt;plc&gt;\.pachub\retrieved-from: the file name of the .zap the working copy in Project\ was
+        /// retrieved from (Ruling 31). It sits beside the base marker, git-ignored with the rest of .pachub.</summary>
+        private static string RetrievedFromFile(string plcDir) => Path.Combine(plcDir, ".pachub", "retrieved-from");
+
+        private static void RecordRetrievedFrom(string plcDir, string archiveName)
+        {
+            string file = RetrievedFromFile(plcDir);
+            Directory.CreateDirectory(Path.GetDirectoryName(file));
+            File.WriteAllText(file, archiveName + Environment.NewLine);
+        }
+
+        private static void ForgetRetrievedFrom(string plcDir)
+        {
+            string file = RetrievedFromFile(plcDir);
+            if (File.Exists(file)) File.Delete(file);
+        }
+
+        /// <summary>The archive name recorded for the working copy, or null: none was recorded, so it was copied
+        /// from an .ap project folder.</summary>
+        private static string RetrievedFromRecord(string plcDir)
+        {
+            string file = RetrievedFromFile(plcDir);
+            if (!File.Exists(file)) return null;
+            string name = File.ReadAllText(file).Trim();
+            return name.Length == 0 ? null : name;
         }
 
         private static string JobsRoot()

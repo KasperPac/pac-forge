@@ -20,21 +20,30 @@ The working copy for Pac Hub's PLC conversation (PHUB-232, pac-hub spec
   When TIA has another project open it refuses `NOT_WORKING_COPY` before anything is opened,
   closed, saved or copied, and again if one is opened while the master downloads. When the working copy
   `<repo>\<nn> <name>\Project\` is absent, it makes it from the newest master: a `.zap` through
-  `Projects.Retrieve` (answered as `retrieved_from`, the archive's file name; null otherwise), or a
-  copy of an `.ap` project folder. Either is made in `<repo>\<nn> <name>\.pachub\staging\` and
-  moved into `Project\` only once complete, so a copy cut short is never taken for a working copy.
+  `Projects.Retrieve`, or a copy of an `.ap` project folder. Either is made in
+  `<repo>\<nn> <name>\.pachub\staging\` and moved into `Project\` only once complete, so a copy
+  cut short is never taken for a working copy. A retrieved working copy has the archive's file
+  name recorded in `<repo>\<nn> <name>\.pachub\retrieved-from` once it is in `Project\`, and
+  every prepare answers it as `retrieved_from` (null for a copied one), not only the one that
+  retrieved, so a failure after the move or a later Start never loses it.
   Leftover staging is cleared at the next prepare; staging still held by an unfinished copy is
   `DROPBOX_NOT_LOCAL` ("try again in a minute"). It opens the working copy when TIA has nothing open, refuses
   `MULTI_PLC_PROJECT`, records the PLC in `job.json` (doc code; CPU order number as the model), and
   creates the `Pac Hub` VCI workspace at `Export\` (not on V18). An online-only Dropbox file is
   downloaded by reading it; one that will not download is `DROPBOX_NOT_LOCAL`.
+- **`POST /tia/project/archive`** `{ target_dir, file_name, working_copy_path? }`. Archives the
+  open project (`Project.Archive`, compressed) into a Dropbox folder as
+  `<file_name>.zap<edition>`. A file already there is refused `ARCHIVE_EXISTS` before TIA is asked
+  anything, and nothing is overwritten. An open project that is not `working_copy_path` is
+  refused `NOT_WORKING_COPY`. A project with unsaved changes is refused in TIA's words. TIA is
+  never started to archive: with none running, or no project open, it answers 500.
 - **`/tia/status` `pac_hub_vc_version`**: `pac-hub-vc --version`, absent when it is not installed
   (prepare then refuses `VC_TOOL_MISSING`, as it does for a missing git, gh or Node).
 - Refusals answer `409 { success:false, refused, message }`. Bad input (fields missing, a
-  `dropbox_job_path` that is absolute or leaves Dropbox, a `plc_folder` that is not in `50 PLC`)
-  answers `400 { success:false, message }`. A named refusal from
-  `pac-hub-vc ensure` (`REPO_NOT_FAST_FORWARD`, `REPO_NOT_ON_MAIN`, `GITHUB_UNAVAILABLE`,
-  `VC_TOOL_MISSING`) passes through under its name. An ensure with no JSON result (a usage error
+  `dropbox_job_path` or `target_dir` that is absolute or leaves Dropbox, a `plc_folder` that is
+  not in `50 PLC`, a `file_name` that is not a file name) answers `400 { success:false, message }`.
+  A named refusal from `pac-hub-vc ensure` (`REPO_NOT_FAST_FORWARD`, `REPO_NOT_ON_MAIN`,
+  `GITHUB_UNAVAILABLE`, `VC_TOOL_MISSING`) passes through under its name. An ensure with no JSON result (a usage error
   prints none, even under `--json`) is a 500 carrying its exit code and stderr, never a success.
   `PAC_DROPBOX_ROOT` overrides the Dropbox root read from `%LOCALAPPDATA%\Dropbox\info.json`
   (`business.root_path`).
