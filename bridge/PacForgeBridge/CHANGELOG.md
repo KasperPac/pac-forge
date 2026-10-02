@@ -89,8 +89,12 @@ The working copy for Pac Hub's PLC conversation (PHUB-232, pac-hub spec
   newer_changes: [{ object, author, sha }], skipped, not_compiling, saved }`; a status with no state
   Pac Hub knows is refused, never guessed.
 - **`POST /tia/vc/commit`** `{ repo_path, plc_folder, objects: [{ kind: block|tag_table, name }],
-  changes, subject, author_name, author_email, agent }` (§7). Exports only the objects a change
-  touched and runs `pac-hub-vc commit --change … --agent … --subject … --author … --push --json`. A block
+  changes, subject, author_name, author_email, agent, expect_base? }` (§7). Exports only the objects a change
+  touched and runs `pac-hub-vc commit --change … --agent … --subject … --author … --push --json`. With
+  `expect_base` (the conversation's base: 40 lowercase hex digits, anything else 400) it adds
+  `--expect-base <sha>`, so pac-hub-vc commits only while HEAD is still that commit; its refusal
+  (`outcome: refused`, `HEAD_MOVED: …`, nothing staged) answers `outcome: failed` with that reason
+  verbatim. Without it there is no guard. A block
   that does not compile answers `outcome: deferred`; anything pac-hub-vc could not do is
   `outcome: failed` with its reason; `committed` answers `committed` with its `sha`, and nothing new
   (`idle`) answers `committed` with no `sha` and pac-hub-vc's reason when it gives one (an earlier

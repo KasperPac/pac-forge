@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -27,6 +28,9 @@ namespace PacForgeBridge
         public string AuthorName { get; set; }
         public string AuthorEmail { get; set; }
         public string Agent { get; set; }
+        /// <summary>The conversation's base (40 hex), when it has one: pac-hub-vc commits only while HEAD is still that
+        /// commit (`--expect-base`), else refuses HEAD_MOVED. Absent or null: no guard.</summary>
+        public string ExpectBase { get; set; }
     }
 
     public class VcNewerChange
@@ -99,6 +103,9 @@ namespace PacForgeBridge
 
         /// <summary>The states pac-hub-vc status answers (vc-storage-git's SyncState).</summary>
         private static readonly HashSet<string> VcStates = new HashSet<string> { "latest", "local_edits", "behind", "diverged" };
+
+        /// <summary>A full commit sha as git prints it (`expect_base`): 40 lowercase hex digits and nothing else.</summary>
+        private static readonly Regex VcSha = new Regex(@"\A[0-9a-f]{40}\z");
 
         private sealed class VcAnswer
         {
@@ -325,6 +332,11 @@ namespace PacForgeBridge
                 await WriteJson(res, 400, new VcCommitResponse { Success = false, Message = "Each of objects needs kind 'block' or 'tag_table' and a name." });
                 return;
             }
+            if (request.ExpectBase != null && !VcSha.IsMatch(request.ExpectBase))
+            {
+                await WriteJson(res, 400, new VcCommitResponse { Success = false, Message = "expect_base must be a commit sha of 40 lowercase hex digits; nothing was exported or committed." });
+                return;
+            }
             Console.WriteLine($"[VC] Commit {request.RepoPath} {request.PlcFolder}: {string.Join(", ", request.Changes ?? new List<string>())} (PHUB-232)");
             await AnswerVc(res, "commit", request.RepoPath, request.PlcFolder, plcDir => VcCommit(request, plcDir),
                 (name, message) => new VcCommitResponse { Success = false, Refused = name, Message = message }, a => a.Success);
@@ -355,7 +367,8 @@ namespace PacForgeBridge
         }
 
         /// <summary>`pac-hub-vc commit … --push --json` for the repo the request's paths resolved to: one --change per
-        /// ref, free text flattened to one line.</summary>
+        /// ref, free text flattened to one line, and `--expect-base` with the conversation's base when the hub sent one
+        /// (validated as a sha before the route ran).</summary>
         private static List<string> VcCommitArgs(VcCommitRequest request, string repo)
         {
             var args = new List<string> { "commit", "--repo", repo, "--plc", request.PlcFolder, "--source", "offline", "--trigger", "plc-conversation", "--subject", VcText(request.Subject), "--push", "--json" };
@@ -372,6 +385,8 @@ namespace PacForgeBridge
                 args.Add("--author");
                 args.Add(VcAuthorPart(request.AuthorName) + " <" + VcAuthorPart(request.AuthorEmail) + ">");
             }
+            // The commit guard: pac-hub-vc refuses HEAD_MOVED, before anything is staged, when HEAD is not this base.
+            if (request.ExpectBase != null) { args.Add("--expect-base"); args.Add(request.ExpectBase); }
             return args;
         }
 
@@ -380,7 +395,8 @@ namespace PacForgeBridge
         /// rejected stays committed with pushed:false and pac-hub-vc's reason, untouched (ruling 1). <c>idle</c>: nothing
         /// new to commit, so committed with no sha (HEAD is not this change's commit), and pac-hub-vc's reason when it
         /// gave one, else "no changes": an earlier offline commit whose push the remote rejected still reaches the hub
-        /// as "remote moved; not fast-forward". Anything else, or no result, is failed with its reason, never pushed.
+        /// as "remote moved; not fast-forward". Anything else, or no result, is failed with its reason, never pushed:
+        /// the commit guard's <c>{ outcome: refused, reason: "HEAD_MOVED: …" }</c> answers failed with that reason verbatim.
         /// </summary>
         private static VcCommitResponse VcCommitAnswer(VcAnswer commit)
         {
