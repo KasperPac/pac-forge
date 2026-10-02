@@ -1679,6 +1679,11 @@ namespace PacForgeBridge
                 Console.WriteLine($"[VC] Prepare {request.Job} {request.PlcFolder ?? "(PLC not chosen)"} (PHUB-232)");
                 await WriteJson(res, 200, _tiaService.PrepareWorkingCopy(request));
             }
+            catch (BridgeBadRequestException bad)
+            {
+                Console.WriteLine($"[VC] Prepare bad request: {bad.Message}");
+                await WriteJson(res, 400, new VcPrepareResponse { Success = false, Message = bad.Message });
+            }
             catch (BridgeRefusalException refusal)
             {
                 Console.WriteLine($"[VC] Prepare refused {refusal.Name}: {refusal.Message}");

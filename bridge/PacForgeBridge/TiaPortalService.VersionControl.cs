@@ -53,8 +53,15 @@ namespace PacForgeBridge
         {
             lock (_vcLock)
             {
-                // 1. The job's PLC folders in Dropbox, and which one. Nothing has been touched yet.
-                string jobDir = DropboxLocal.Resolve(DropboxLocal.Root(), request.DropboxJobPath);
+                // 1. The job's PLC folders in Dropbox, and which one. Nothing has been touched yet. A jobs root
+                //    inside Dropbox is refused first: git and Dropbox both sync, and running both over one
+                //    folder corrupts the repo.
+                string dropboxRoot = DropboxLocal.Root();
+                string jobsRoot = JobsRoot();
+                if (DropboxLocal.IsInside(jobsRoot, dropboxRoot))
+                    throw new BridgeRefusalException("JOBS_ROOT_IN_DROPBOX",
+                        $"The jobs root {jobsRoot} is inside Dropbox ({dropboxRoot}). The job repo must live outside Dropbox, e.g. C:\\PacTechGit: git and Dropbox both sync, and running both over one folder corrupts the repo. Point PAC_JOBS_ROOT outside Dropbox, restart the bridge and press Start again.");
+                string jobDir = DropboxLocal.Resolve(dropboxRoot, request.DropboxJobPath);
                 string plcRoot = Path.Combine(jobDir, "50 PLC");
                 if (!Directory.Exists(plcRoot))
                     throw new BridgeRefusalException("DROPBOX_NOT_LOCAL", $"{plcRoot} is not on this workstation. Make sure Dropbox syncs the job folder (Selective Sync does not exclude it) and press Start again.");
@@ -65,7 +72,6 @@ namespace PacForgeBridge
 
                 // 2. The job repo: pac-hub-vc ensure (found, cloned or initialised; pull --ff-only), with the
                 //    chosen PLC recorded in job.json, along with the doc code its newest master's name carries.
-                string jobsRoot = JobsRoot();
                 JObject ensured = PacHubVc.Ensure(request.Job, request.Customer, request.JobName, jobsRoot,
                     new PacHubVc.PlcEntry { Number = plc.Number, Name = plc.Name, DocCode = plc.DocCode });
                 MergeDocCodes(plcs, ensured);
@@ -101,55 +107,66 @@ namespace PacForgeBridge
 
                 // 5. The working copy: used as is, or made once from the newest master (step 3).
                 //    `retrievedFrom` names the archive it came from; Phase 3 reads the base from that name.
+                //    It is made in <plc>\.pachub\staging\ (git-ignored, and never searched for a working
+                //    copy) and moved into Project\ only once complete. A copy or retrieve cut short, by a
+                //    timeout or by the bridge or machine going down, leaves nothing in Project\ to be taken
+                //    for a working copy at the next Start; what it left in staging is cleared then.
                 bool opened = false;
                 string retrievedFrom = null;
                 if (workingCopy == null)
                 {
                     if (plc.DocCode == null) plc.DocCode = DocCodeOf(Path.GetFileName(master.Location));
-                    Directory.CreateDirectory(projectDir);
+                    string staging = Path.Combine(plcDir, ".pachub", "staging");
+                    DropboxLocal.ClearStaging(staging);
+                    Directory.CreateDirectory(staging);
                     if (master.IsArchive)
                     {
                         DropboxLocal.Hydrate(master.Location, HydrateTimeout);
-                        Connect(preferAttach: true);
+                        ConnectWithNothingOpen();
+                        string stagedFile;
                         try
                         {
-                            // Retrieve unpacks the archive and opens it; TIA had nothing open (step 3).
-                            _project = _tiaPortal.Projects.Retrieve(new FileInfo(master.Location), new DirectoryInfo(projectDir));
+                            // Retrieve unpacks the archive and opens it. That project is this call's own (TIA
+                            // had nothing open, just checked), so it is closed again to be moved into place.
+                            Project retrieved = _tiaPortal.Projects.Retrieve(new FileInfo(master.Location), new DirectoryInfo(staging));
+                            stagedFile = retrieved.Path.FullName;
+                            retrieved.Close();
+                            _project = null;
                         }
                         catch
                         {
-                            DeleteContents(projectDir);
+                            DropboxLocal.TryClearStaging(staging);
                             throw;
                         }
-                        workingCopy = _project.Path.FullName;
-                        opened = true;
+                        string landed = Path.Combine(projectDir, Path.GetFileNameWithoutExtension(stagedFile));
+                        DropboxLocal.MoveIntoPlace(Path.GetDirectoryName(stagedFile), landed);
+                        workingCopy = Path.Combine(landed, Path.GetFileName(stagedFile));
                         retrievedFrom = Path.GetFileName(master.Location);
                     }
                     else
                     {
-                        string target = Path.Combine(projectDir, Path.GetFileName(master.Location));
+                        string staged = Path.Combine(staging, Path.GetFileName(master.Location));
                         try
                         {
-                            DropboxLocal.CopyDirectory(master.Location, target, HydrateTimeout);
+                            DropboxLocal.CopyDirectory(master.Location, staged, HydrateTimeout);
                         }
                         catch
                         {
-                            // A half copy must never be taken for a working copy at the next Start.
-                            DeleteContents(projectDir);
+                            DropboxLocal.TryClearStaging(staging);
                             throw;
                         }
-                        workingCopy = FindProjectFileOrNull(projectDir)
-                            ?? throw new InvalidOperationException($"{target} holds no .ap project file after the copy.");
+                        string landed = Path.Combine(projectDir, Path.GetFileName(master.Location));
+                        DropboxLocal.MoveIntoPlace(staged, landed);
+                        workingCopy = FindProjectFileOrNull(landed)
+                            ?? throw new InvalidOperationException($"{landed} holds no .ap project file after the copy.");
                     }
                     Console.WriteLine($"[VC] Working copy {workingCopy} made from {master.Location}");
                 }
 
                 // 6. Open it when TIA has nothing open. Never OpenProject: that closes what is open.
-                if (!opened && tiaOpen == "none")
+                if (tiaOpen == "none")
                 {
-                    Connect(preferAttach: true);
-                    if (_project != null)
-                        throw new BridgeRefusalException("NOT_WORKING_COPY", $"TIA opened {_project.Name} while the working copy was being prepared; close it and press Start.");
+                    ConnectWithNothingOpen();
                     _project = _tiaPortal.Projects.Open(new FileInfo(workingCopy));
                     opened = true;
                 }
@@ -230,7 +247,7 @@ namespace PacForgeBridge
             {
                 VcPlcDto named = plcs.FirstOrDefault(p => string.Equals(p.Folder, requested.Trim(), StringComparison.OrdinalIgnoreCase));
                 if (named == null)
-                    throw new InvalidOperationException($"50 PLC has no folder '{requested}' (it has {string.Join(", ", plcs.Select(p => p.Folder))}).");
+                    throw new BridgeBadRequestException($"50 PLC has no folder '{requested}' (it has {string.Join(", ", plcs.Select(p => p.Folder))}).");
                 return named;
             }
             if (plcs.Count == 1) return plcs[0];
@@ -250,13 +267,13 @@ namespace PacForgeBridge
             {
                 Match m = ArchiveExtension.Match(file);
                 if (!m.Success) continue;
-                masters.Add(new PlcMaster { Location = file, IsArchive = true, Version = int.Parse(m.Groups[1].Value), NameDate = DateOf(Path.GetFileName(file)), WrittenUtc = File.GetLastWriteTimeUtc(file) });
+                masters.Add(new PlcMaster { Location = file, IsArchive = true, Version = VersionIn(m), NameDate = DateOf(Path.GetFileName(file)), WrittenUtc = File.GetLastWriteTimeUtc(file) });
             }
             foreach (string sub in Directory.GetDirectories(dir))
             {
                 string ap = Directory.GetFiles(sub).FirstOrDefault(f => ProjectExtension.IsMatch(f));
                 if (ap == null) continue;
-                masters.Add(new PlcMaster { Location = sub, IsArchive = false, Version = int.Parse(ProjectExtension.Match(ap).Groups[1].Value), NameDate = DateOf(Path.GetFileName(sub)), WrittenUtc = File.GetLastWriteTimeUtc(ap) });
+                masters.Add(new PlcMaster { Location = sub, IsArchive = false, Version = VersionOf(ap), NameDate = DateOf(Path.GetFileName(sub)), WrittenUtc = File.GetLastWriteTimeUtc(ap) });
             }
             return masters
                 .OrderByDescending(x => x.NameDate ?? "", StringComparer.Ordinal)
@@ -276,18 +293,24 @@ namespace PacForgeBridge
             return m.Success ? m.Groups[1].Value : null;
         }
 
-        private static int VersionOf(string projectFile)
+        private static int VersionOf(string projectFile) => VersionIn(ProjectExtension.Match(projectFile));
+
+        /// <summary>The NN of an .apNN or .zapNN match, or -1 when it cannot be read: never taken for this edition.</summary>
+        private static int VersionIn(Match m)
         {
-            Match m = ProjectExtension.Match(projectFile);
-            return m.Success ? int.Parse(m.Groups[1].Value) : EditionVersion;
+            int version;
+            return m.Success && int.TryParse(m.Groups[1].Value, out version) ? version : -1;
         }
 
         /// <summary>A project of another TIA version is WRONG_TIA_VERSION, never upgraded: opening a master in
-        /// a newer TIA would turn the job's master into that version. Pac Hub passes over to the next bridge.</summary>
+        /// a newer TIA would turn the job's master into that version. Pac Hub passes over to the next bridge.
+        /// A version that cannot be read is refused the same way (fails closed).</summary>
         private static void RequireEdition(int version, string what)
         {
-            if (version != EditionVersion)
-                throw new BridgeRefusalException("WRONG_TIA_VERSION", $"{what} is a TIA Portal V{version} project and this is the V{EditionVersion} bridge; nothing was retrieved, copied, opened or upgraded. Start the V{version} bridge and press Start again.");
+            if (version == EditionVersion) return;
+            if (version < 0)
+                throw new BridgeRefusalException("WRONG_TIA_VERSION", $"The TIA Portal version of {what} cannot be read from its name (.apNN or .zapNN) and this is the V{EditionVersion} bridge; nothing was retrieved, copied, opened or upgraded.");
+            throw new BridgeRefusalException("WRONG_TIA_VERSION", $"{what} is a TIA Portal V{version} project and this is the V{EditionVersion} bridge; nothing was retrieved, copied, opened or upgraded. Start the V{version} bridge and press Start again.");
         }
 
         private static string FindProjectFileOrNull(string dir)
@@ -299,8 +322,10 @@ namespace PacForgeBridge
                 .FirstOrDefault();
         }
 
-        /// <summary>"none", "working_copy" or "other". Attaches to a running TIA and reads Projects[0];
-        /// opens, closes and saves nothing, and starts no TIA.</summary>
+        /// <summary>"none", "working_copy" or "other". Attaches to a running TIA and reads Projects[0]; opens,
+        /// closes and saves nothing. With no TIA attached and none running it answers "none" and starts none.
+        /// Otherwise it goes through Connect, which attaches, or starts TIA when the one attached earlier has
+        /// gone and none is running.</summary>
         private string WhatTiaHasOpen(string workingCopy, out string openName, out string openPath)
         {
             openName = null;
@@ -311,6 +336,16 @@ namespace PacForgeBridge
             openName = _project.Name;
             openPath = _project.Path?.FullName ?? "";
             return workingCopy != null && SamePath(openPath, workingCopy) ? "working_copy" : "other";
+        }
+
+        /// <summary>Connects (attaching to the running TIA, or starting it) and refuses NOT_WORKING_COPY when a
+        /// project has been opened since step 4: a retrieve or open would otherwise land beside it. A hydrate
+        /// before a retrieve can take minutes.</summary>
+        private void ConnectWithNothingOpen()
+        {
+            Connect(preferAttach: true);
+            if (_project != null)
+                throw new BridgeRefusalException("NOT_WORKING_COPY", $"TIA opened {_project.Name} ({_project.Path?.FullName}) while the working copy was being prepared; close it and press Start.");
         }
 
         private static bool SamePath(string a, string b)
@@ -360,19 +395,6 @@ namespace PacForgeBridge
                 VcPlcDto dto = plcs.FirstOrDefault(x => string.Equals(x.Folder, (string)p["folder"], StringComparison.OrdinalIgnoreCase));
                 string code = (string)p["docCode"];
                 if (dto != null && !string.IsNullOrWhiteSpace(code)) dto.DocCode = code;
-            }
-        }
-
-        private static void DeleteContents(string dir)
-        {
-            try
-            {
-                foreach (string sub in Directory.GetDirectories(dir)) Directory.Delete(sub, true);
-                foreach (string file in Directory.GetFiles(dir)) File.Delete(file);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[VC] Could not clear {dir}: {ex.Message}");
             }
         }
 

@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 
 namespace PacForgeBridge
@@ -22,8 +23,15 @@ namespace PacForgeBridge
         }
     }
 
+    /// <summary>The caller's request names something that cannot be (PHUB-232), answered 400 { success:false, message }.</summary>
+    public class BridgeBadRequestException : Exception
+    {
+        public BridgeBadRequestException(string message) : base(message) { }
+    }
+
     /// <summary>What running pac-hub-vc came to. Missing: pac-hub-vc (or Node, for its script) could not be
-    /// found, and Stderr says which. TimedOut: it was stopped at the timeout.</summary>
+    /// found, and Stderr says which. TimedOut: it was stopped at the timeout, or it exited but its output was
+    /// still held open (by a process it started) at the timeout, so its result was never read.</summary>
     public class PacHubVcResult
     {
         public bool Missing;
@@ -77,6 +85,8 @@ namespace PacForgeBridge
                 StandardOutputEncoding = Encoding.UTF8,
                 StandardErrorEncoding = Encoding.UTF8,
             };
+            string what = args.Count > 0 ? args[0] : "";
+            Stopwatch clock = Stopwatch.StartNew();
             using (Process p = Process.Start(psi))
             {
                 var stdout = p.StandardOutput.ReadToEndAsync();
@@ -84,13 +94,20 @@ namespace PacForgeBridge
                 if (!p.WaitForExit(timeoutMs))
                 {
                     KillTree(p.Id);
-                    string what = args.Count > 0 ? args[0] : "";
                     return new PacHubVcResult { TimedOut = true, ExitCode = -1, Stdout = "", Stderr = $"pac-hub-vc {what} did not finish within {timeoutMs / 1000} s and was stopped." };
                 }
-                p.WaitForExit();
+                // The output ends when the last holder of the pipes closes them, and a process pac-hub-vc
+                // started that outlives it can hold them open. So the drain gets only what is left of the
+                // timeout (at least DrainFloorMs, for a run that ended just before it).
+                long left = Math.Max(DrainFloorMs, timeoutMs - clock.ElapsedMilliseconds);
+                if (!Task.WaitAll(new Task[] { stdout, stderr }, (int)Math.Min(left, int.MaxValue)))
+                    return new PacHubVcResult { TimedOut = true, ExitCode = -1, Stdout = "", Stderr = $"pac-hub-vc {what} exited (code {p.ExitCode}), but a process it started still held its output open at the {timeoutMs / 1000} s timeout, so its result was not read." };
                 return new PacHubVcResult { ExitCode = p.ExitCode, Stdout = stdout.Result, Stderr = stderr.Result };
             }
         }
+
+        /// <summary>The least time the output gets to drain after pac-hub-vc exits.</summary>
+        private const int DrainFloorMs = 2000;
 
         /// <summary>One argument as CommandLineToArgvW reads it back (the rule above the class).</summary>
         public static string Quote(string arg)
