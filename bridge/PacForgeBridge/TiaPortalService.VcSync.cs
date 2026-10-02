@@ -307,6 +307,23 @@ namespace PacForgeBridge
             return removed;
         }
 
+        /// <summary>Removes <c>&lt;name&gt;.xml</c> and <c>&lt;name&gt;.scl</c> from one folder (not below it): what an export
+        /// that threw left where no file of the object was before.</summary>
+        private static void RemoveVcPayloadsIn(string dir, string name)
+        {
+            foreach (string file in new[] { Path.Combine(dir, name + ".xml"), Path.Combine(dir, name + ".scl") })
+            {
+                try
+                {
+                    if (File.Exists(file)) File.Delete(file);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[VC] Could not remove {file}, left by an export that failed ({ex.Message}).");
+                }
+            }
+        }
+
         /// <summary>A payload file (<c>&lt;name&gt;.xml</c> or <c>.scl</c>) already in a folder, the newest when both are; or null.</summary>
         private static string VcPayloadIn(string dir, string name)
         {
@@ -578,8 +595,8 @@ namespace PacForgeBridge
         /// One object through the workspace. Mapped already: synchronised project → workspace. Not mapped, with a file
         /// already at its path (git has it from another workstation's export): connected to that file in the file's
         /// own format and synchronised over it, so the format git holds does not change. Otherwise exported new. An
-        /// object TIA offers no usable format for (an F-block, say) is skipped by name and its file in git kept; it
-        /// never fails the export.
+        /// object TIA offers no usable format for, or whose ExportObject / ConnectObject throws although a format was
+        /// offered (an F-block, say), is skipped by name and its file in git kept; it never fails the export.
         /// </summary>
         private void ExportOne(Workspace ws, IEngineeringObject obj, string plcName, string area, string groups, string name, bool scl, string exportDir, VcExportResult result, HashSet<string> expected, Dictionary<string, HashSet<string>> keep)
         {
@@ -614,15 +631,24 @@ namespace PacForgeBridge
                         return;
                     }
                     Console.WriteLine($"[VC] {name}: formats offered {string.Join(", ", formats)}; {(existing != null ? "connecting to " + VcRelative(exportDir, existing) : "exporting")} as {format}");
-                    if (existing != null)
+                    try
                     {
-                        mapped = ws.ConnectObject(obj, new DirectoryInfo(relDir), name, format);
-                        mapped.Synchronize(SynchronizationMode.ProjectToWorkspace);
+                        mapped = existing != null
+                            ? ws.ConnectObject(obj, new DirectoryInfo(relDir), name, format)
+                            : ws.ExportObject(obj, new DirectoryInfo(relDir), name, format);
                     }
-                    else
+                    catch (Exception ex)
                     {
-                        mapped = ws.ExportObject(obj, new DirectoryInfo(relDir), name, format);
+                        // TIA listed a format but would not export or connect the object (an F-block, say): it is
+                        // skipped by name, as a know-how-protected one is, and git's file is kept. A file the failed
+                        // export left where there was none is not the object's export, so it goes.
+                        if (existing == null) RemoveVcPayloadsIn(Path.Combine(exportDir, relDir), name);
+                        Console.WriteLine($"[VC] {name}: skipped — TIA offered {format} but would not {(existing != null ? "connect" : "export")} it ({ex.Message}); its file in git is kept.");
+                        result.Skipped.Add(name);
+                        keep[area].Add(name);
+                        return;
                     }
+                    if (existing != null) mapped.Synchronize(SynchronizationMode.ProjectToWorkspace);
                 }
                 string mappedDir = null;
                 string mappedName = null;

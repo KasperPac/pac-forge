@@ -83,8 +83,10 @@ The working copy for Pac Hub's PLC conversation (PHUB-232, pac-hub spec
   so its format in git never changes. A block or type that does not compile refuses the export before
   anything is written (`export: refused_not_compiling`, named in `not_compiling`) and the state is
   `unverified` / `unverified_behind` (base against latest only; `diverged` stays `diverged`).
-  Know-how-protected blocks and types, and any object TIA offers no SimaticML format for (an F-block,
-  say), are named in `skipped` and never fail the export; their files in git are kept, in every area.
+  Know-how-protected blocks and types, any object TIA offers no SimaticML format for (an F-block,
+  say), and any whose `ExportObject` / `ConnectObject` throws although a format was offered, are named
+  in `skipped` and never fail the export (check or commit); their files in git are kept, in every area,
+  and a file a failed export left where the object had none is removed.
   Answers `{ success, state, export, base, latest, latest_author, latest_date, local_changes,
   newer_changes: [{ object, author, sha }], skipped, not_compiling, saved }`; a status with no state
   Pac Hub knows is refused, never guessed.
