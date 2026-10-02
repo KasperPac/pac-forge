@@ -127,6 +127,24 @@ namespace PacForgeBridge
                 return;
             }
 
+            // Cross-origin guard (PHUB-232): a web page never reaches the 1.13.0 routes that write the job repo,
+            // GitHub or Dropbox without the token. Pac Hub calls them from its server, with no Origin.
+            string guarded = req.Url.AbsolutePath.TrimEnd('/');
+            if (IsCrossOriginRefused(guarded, req.Headers["Origin"], req.Headers["Authorization"], _token))
+            {
+                Console.WriteLine($"[HTTP] Refused {req.HttpMethod} {guarded} from a web page (Origin: {req.Headers["Origin"]}): no valid bridge token.");
+                try
+                {
+                    await WriteJson(res, 403, new
+                    {
+                        success = false,
+                        message = $"{guarded} refuses a request from a web page: it carries an Origin header and no valid bridge token. This route writes the job repo, GitHub or Dropbox, so a browser reaches it only with the token; Pac Hub calls it from its server, with no Origin. Nothing was done.",
+                    });
+                }
+                catch { }
+                return;
+            }
+
             try
             {
                 string path = req.Url.AbsolutePath.TrimEnd('/');
@@ -1916,6 +1934,21 @@ namespace PacForgeBridge
             if (string.IsNullOrWhiteSpace(json)) return null;
             try { return JsonConvert.DeserializeObject<T>(json); }
             catch { return null; }
+        }
+
+        /// <summary>
+        /// Whether the cross-origin guard refuses a request (PHUB-232): one to /tia/vc/* or /tia/project/archive that
+        /// carries an Origin header (a browser sends one with every POST; a server-side caller such as Pac Hub none) is
+        /// refused unless it presents the configured token, and always when no token is configured. Every other route,
+        /// and any request with no Origin, is left as it was.
+        /// </summary>
+        private static bool IsCrossOriginRefused(string path, string origin, string authorization, string token)
+        {
+            if (origin == null) return false;
+            bool guarded = (path ?? "").StartsWith("/tia/vc/", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(path, "/tia/project/archive", StringComparison.OrdinalIgnoreCase);
+            if (!guarded) return false;
+            return string.IsNullOrEmpty(token) || !BridgeAccess.IsAuthorised(authorization, token);
         }
 
         private static bool IsLocalHost(string host)

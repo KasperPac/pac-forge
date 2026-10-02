@@ -129,6 +129,13 @@ The working copy for Pac Hub's PLC conversation (PHUB-232, pac-hub spec
   never saved: they are the engineer's. Update from Git refuses such a copy up front, 409
   `refused: UNSAVED_CHANGES` ("save the project in TIA, then press Update from Git again"): nothing
   is exported, imported or compiled, and the base is not recorded.
+- **Cross-origin guard on the new routes.** `/tia/vc/*` and `/tia/project/archive` answer 403
+  `{ success:false, message }` ("… refuses a request from a web page …") to any request that carries an
+  `Origin` header, unless it presents a valid bridge token; with no token configured they always do. The
+  bridge sends `Access-Control-Allow-Origin: *` and the token is optional, so without this any web page
+  could post to them drive-by: commit and push, prepare's `gh repo create` and clone, an archive into
+  Dropbox. Pac Hub calls them from its server and sends no `Origin`, so it is unaffected. Every older
+  route answers as in 1.12.x.
 - **V18 bridges do not support version-controlled conversations** (the bridge drives VCI on V20 and
   later only): the V18 build answers all three routes 409 "Version control export needs TIA Portal V20 or later;
   this bridge is built for V18.", so Pac Hub's Start, which runs the check, refuses on a V18 bridge.
