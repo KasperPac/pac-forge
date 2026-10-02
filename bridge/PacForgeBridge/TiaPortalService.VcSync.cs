@@ -164,6 +164,10 @@ namespace PacForgeBridge
             }
         }
 
+        /// <summary>How many times VcSaveWhatVcChanged has saved the working copy. A route compares it before and after its
+        /// work (all under the VC lock) to say whether the bridge saved, also when the work threw after a save.</summary>
+        public int VcSaves { get; private set; }
+
         /// <summary>
         /// Ruling 34, after VCI work (export, connect, synchronise, import), on every path: the working copy is saved when
         /// it had no unsaved changes before the work and has some now, because only this work made them. One that had
@@ -182,6 +186,7 @@ namespace PacForgeBridge
                 RequireVcWorkingCopy(plcDir);
                 if (!VcProjectModified()) return false;
                 SaveProject();
+                VcSaves++;
                 Console.WriteLine($"[VC] {what}: saved the working copy (it had no unsaved changes before this {what}).");
                 return true;
             }

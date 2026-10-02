@@ -130,7 +130,9 @@ The working copy for Pac Hub's PLC conversation (PHUB-232, pac-hub spec
 - **Ruling 34: VCI work never leaves the working copy unsaved behind the engineer's back.** Check,
   commit and update read `Project.IsModified` before any VCI work. Afterwards, on every path
   (failures and early returns included), a working copy that had no unsaved changes and has some now
-  is saved, because only this route changed it (`saved: true`). One that had unsaved changes before is
+  is saved, because only this route changed it (`saved: true`). A route that fails after the bridge
+  saved the copy (Update from Git's own save, or the save after VCI work that threw) still says
+  `saved: true` on its 409 or 500. One that had unsaved changes before is
   never saved: they are the engineer's. Update from Git refuses such a copy up front, 409
   `refused: UNSAVED_CHANGES` ("save the project in TIA, then press Update from Git again"): nothing
   is exported, imported or compiled, and the base is not recorded.

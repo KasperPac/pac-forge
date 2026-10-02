@@ -183,10 +183,10 @@ namespace PacForgeBridge
         /// <summary>
         /// One version-control route: V18 answers 409 (VCI export needs V20 or later) before anything; the paths are
         /// checked (400) before the lock is taken; the work runs under the VC lock. A named refusal is 409 with its
-        /// name, anything that throws 500.
+        /// name, anything that throws 500, and either says <c>saved</c> when the bridge had saved the working copy.
         /// </summary>
         private async Task AnswerVc<T>(HttpListenerResponse res, string what, string repoPath, string plcFolder,
-            Func<string, T> work, Func<string, string, T> failure, Func<T, bool> succeeded)
+            Func<string, T> work, Func<string, string, T> failure, Func<T, bool> succeeded, Action<T> markSaved)
         {
             try
             {
@@ -199,43 +199,77 @@ namespace PacForgeBridge
                 T answer = _tiaService.VcLocked(() => work(plcDir));
                 await WriteJson(res, succeeded(answer) ? 200 : 409, answer);
             }
-            catch (BridgeBadRequestException bad)
-            {
-                Console.WriteLine($"[VC] {what} bad request: {bad.Message}");
-                await WriteJson(res, 400, failure(null, bad.Message));
-            }
-            catch (BridgeRefusalException refusal)
-            {
-                Console.WriteLine($"[VC] {what} refused {refusal.Name}: {refusal.Message}");
-                await WriteJson(res, 409, failure(refusal.Name, refusal.Message));
-            }
             catch (Exception ex)
             {
-                Console.WriteLine($"[VC] {what} failed: {ex.Message}");
-                await WriteJson(res, 500, failure(null, ex.Message));
+                int status;
+                T answer = VcFailureAnswer(what, ex, failure, markSaved, out status);
+                await WriteJson(res, status, answer);
             }
+        }
+
+        /// <summary>
+        /// A route's work threw after the bridge had saved the working copy (Ruling 34: Update from Git's own save, or
+        /// the save after VCI work that failed). The failure is the inner exception; its answer says <c>saved: true</c>.
+        /// </summary>
+        private sealed class VcFailedAfterSaveException : Exception
+        {
+            public VcFailedAfterSaveException(Exception cause) : base(cause.Message, cause) { }
+        }
+
+        /// <summary>The answer to a route that threw: 400 for bad input, 409 with its name for a refusal, anything else
+        /// 500; one that threw after the bridge saved the working copy says so (<c>saved: true</c>).</summary>
+        private static T VcFailureAnswer<T>(string what, Exception ex, Func<string, string, T> failure, Action<T> markSaved, out int status)
+        {
+            var afterSave = ex as VcFailedAfterSaveException;
+            Exception cause = afterSave != null && afterSave.InnerException != null ? afterSave.InnerException : ex;
+            var refusal = cause as BridgeRefusalException;
+            string saved = afterSave != null ? " (the working copy was saved first)" : "";
+            if (cause is BridgeBadRequestException)
+            {
+                status = 400;
+                Console.WriteLine($"[VC] {what} bad request: {cause.Message}");
+            }
+            else if (refusal != null)
+            {
+                status = 409;
+                Console.WriteLine($"[VC] {what} refused {refusal.Name}: {refusal.Message}{saved}");
+            }
+            else
+            {
+                status = 500;
+                Console.WriteLine($"[VC] {what} failed: {cause.Message}{saved}");
+            }
+            T answer = failure(refusal?.Name, cause.Message);
+            if (afterSave != null) markSaved(answer);
+            return answer;
         }
 
         /// <summary>
         /// Ruling 34 around a route's VCI work (export, connect, synchronise, import): whether the working copy had
         /// unsaved changes is read before the work; afterwards, on every path (early returns and failures included),
         /// one that had none and has some now is saved, since only this work made them, and one that had some is never
-        /// saved, because they are the engineer's. The answer says whether the bridge saved it.
+        /// saved, because they are the engineer's. The answer says whether the bridge saved it during the route, the
+        /// work's own save (Update from Git's) included; a failure after a save is thrown on as
+        /// VcFailedAfterSaveException, so its 409 or 500 answer says so too.
         /// </summary>
         private T VcKeepingSaved<T>(string plcDir, string what, Func<bool, T> work, Action<T> markSaved) where T : class
         {
             bool modifiedBefore = _tiaService.VcProjectModified();
-            T answer = null;
+            int savesBefore = _tiaService.VcSaves;
+            T answer;
             try
             {
                 answer = work(modifiedBefore);
-                return answer;
             }
-            finally
+            catch (Exception ex)
             {
-                bool didSave = _tiaService.VcSaveWhatVcChanged(plcDir, modifiedBefore, what);
-                if (answer != null && didSave) markSaved(answer);
+                _tiaService.VcSaveWhatVcChanged(plcDir, modifiedBefore, what);
+                if (_tiaService.VcSaves != savesBefore) throw new VcFailedAfterSaveException(ex);
+                throw;
             }
+            _tiaService.VcSaveWhatVcChanged(plcDir, modifiedBefore, what);
+            if (answer != null && _tiaService.VcSaves != savesBefore) markSaved(answer);
+            return answer;
         }
 
         /// <summary>The request body, or null when it is missing or not JSON (the caller answers 400).</summary>
@@ -255,7 +289,7 @@ namespace PacForgeBridge
             }
             Console.WriteLine($"[VC] Check {request.RepoPath} {request.PlcFolder} (PHUB-232)");
             await AnswerVc(res, "check", request.RepoPath, request.PlcFolder, plcDir => VcCheck(request, plcDir),
-                (name, message) => new VcCheckResponse { Success = false, Refused = name, Message = message }, a => a.Success);
+                (name, message) => new VcCheckResponse { Success = false, Refused = name, Message = message }, a => a.Success, a => a.Saved = true);
         }
 
         /// <summary>§6: the whole PLC exported through the workspace, then read against git by pac-hub-vc status.</summary>
@@ -339,7 +373,7 @@ namespace PacForgeBridge
             }
             Console.WriteLine($"[VC] Commit {request.RepoPath} {request.PlcFolder}: {string.Join(", ", request.Changes ?? new List<string>())} (PHUB-232)");
             await AnswerVc(res, "commit", request.RepoPath, request.PlcFolder, plcDir => VcCommit(request, plcDir),
-                (name, message) => new VcCommitResponse { Success = false, Refused = name, Message = message }, a => a.Success);
+                (name, message) => new VcCommitResponse { Success = false, Refused = name, Message = message }, a => a.Success, a => a.Saved = true);
         }
 
         /// <summary>§7: the change's objects exported, then committed and pushed by pac-hub-vc. A rejected push is final (ruling 1).</summary>
@@ -422,7 +456,7 @@ namespace PacForgeBridge
             }
             Console.WriteLine($"[VC] Update from Git {request.RepoPath} {request.PlcFolder} (PHUB-232)");
             await AnswerVc(res, "update", request.RepoPath, request.PlcFolder, plcDir => VcUpdate(request, plcDir),
-                (name, message) => new VcUpdateResponse { Success = false, Refused = name, Message = message }, a => a.Success);
+                (name, message) => new VcUpdateResponse { Success = false, Refused = name, Message = message }, a => a.Success, a => a.Saved = true);
         }
 
         /// <summary>§6 Update from Git: export, let pac-hub-vc fast-forward and list the files, import them, compile, save, record the base.</summary>
