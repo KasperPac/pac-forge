@@ -51,6 +51,8 @@ namespace PacForgeBridge
         public List<VcNewerChange> NewerChanges { get; set; }
         public List<string> Skipped { get; set; }
         public List<string> NotCompiling { get; set; }
+        /// <summary>Ruling 34: the bridge saved the working copy, because only this route's VCI work had modified it.</summary>
+        public bool Saved { get; set; }
     }
 
     public class VcCommitResponse
@@ -62,6 +64,11 @@ namespace PacForgeBridge
         public string Sha { get; set; }
         public bool Pushed { get; set; }
         public string Reason { get; set; }
+        /// <summary>Objects of the change that were not exported (know-how protected, not in TIA, or no format VCI can
+        /// export them as); absent when none.</summary>
+        public List<string> Skipped { get; set; }
+        /// <summary>Ruling 34: the bridge saved the working copy, because only this route's VCI work had modified it.</summary>
+        public bool Saved { get; set; }
     }
 
     public class VcUpdateResponse
@@ -74,6 +81,8 @@ namespace PacForgeBridge
         public List<string> NotImported { get; set; } = new List<string>();
         public CompileResultDto Compile { get; set; }
         public bool BaseWritten { get; set; }
+        /// <summary>Ruling 34: the bridge saved the working copy (it had no unsaved changes before the update).</summary>
+        public bool Saved { get; set; }
     }
 
     /// <summary>
@@ -121,16 +130,33 @@ namespace PacForgeBridge
                 return new VcAnswer { Message = "pac-hub-vc " + args[0] + " could not run: " + ex.Message };
             }
             if (json == null) return new VcAnswer { Message = "pac-hub-vc " + args[0] + " gave no result: " + (error ?? ("exit code " + exitCode)) };
-            JToken refused = json["refused"];
-            if (refused != null && refused.Type == JTokenType.String)
-            {
-                string name = (string)refused;
-                return new VcAnswer { Json = json, Refused = VcHubRefusals.Contains(name) ? name : null, Message = (string)json["message"] ?? name };
-            }
-            JToken failed = json["error"];
-            if (failed != null && failed.Type == JTokenType.String)
-                return new VcAnswer { Json = json, Message = "pac-hub-vc " + args[0] + " failed: " + (string)failed };
+            string name = JsonString(json["refused"]);
+            if (name != null)
+                return new VcAnswer { Json = json, Refused = VcHubRefusals.Contains(name) ? name : null, Message = JsonMessage(json["message"]) ?? name };
+            string failed = JsonMessage(json["error"]);
+            if (failed != null)
+                return new VcAnswer { Json = json, Message = "pac-hub-vc " + args[0] + " failed: " + failed };
             return new VcAnswer { Json = json };
+        }
+
+        /// <summary>A string pac-hub-vc printed, or null: an absent key, a JSON null and any other type read as null,
+        /// never a cast exception.</summary>
+        private static string JsonString(JToken token)
+        {
+            return token != null && token.Type == JTokenType.String ? (string)token : null;
+        }
+
+        /// <summary>A message pac-hub-vc printed: its string, or any other value as compact JSON; null when absent or null.</summary>
+        private static string JsonMessage(JToken token)
+        {
+            if (token == null || token.Type == JTokenType.Null) return null;
+            return token.Type == JTokenType.String ? (string)token : token.ToString(Formatting.None);
+        }
+
+        /// <summary>The strings of a JSON array (anything else in it left out); an absent or non-array value is none.</summary>
+        private static List<string> JsonStrings(JToken token)
+        {
+            return token is JArray list ? list.Where(t => t.Type == JTokenType.String).Select(t => (string)t).ToList() : new List<string>();
         }
 
         /// <summary>
@@ -183,6 +209,28 @@ namespace PacForgeBridge
             }
         }
 
+        /// <summary>
+        /// Ruling 34 around a route's VCI work (export, connect, synchronise, import): whether the working copy had
+        /// unsaved changes is read before the work; afterwards, on every path (early returns and failures included),
+        /// one that had none and has some now is saved, since only this work made them, and one that had some is never
+        /// saved, because they are the engineer's. The answer says whether the bridge saved it.
+        /// </summary>
+        private T VcKeepingSaved<T>(string plcDir, string what, Func<bool, T> work, Action<T> markSaved) where T : class
+        {
+            bool modifiedBefore = _tiaService.VcProjectModified();
+            T answer = null;
+            try
+            {
+                answer = work(modifiedBefore);
+                return answer;
+            }
+            finally
+            {
+                bool didSave = _tiaService.VcSaveWhatVcChanged(plcDir, modifiedBefore, what);
+                if (answer != null && didSave) markSaved(answer);
+            }
+        }
+
         /// <summary>The request body, or null when it is missing or not JSON (the caller answers 400).</summary>
         private static async Task<T> ReadVcBody<T>(HttpListenerRequest req) where T : class
         {
@@ -208,6 +256,11 @@ namespace PacForgeBridge
         {
             string unready = _tiaService.VcWorkingCopyUnready(plcDir);
             if (unready != null) return new VcCheckResponse { Success = false, Message = unready };
+            return VcKeepingSaved(plcDir, "check", modifiedBefore => VcCheckWorkingCopy(request, plcDir), a => a.Saved = true);
+        }
+
+        private VcCheckResponse VcCheckWorkingCopy(VcCheckRequest request, string plcDir)
+        {
             string repo = Path.GetDirectoryName(plcDir);
 
             // Ruling 9: a working copy retrieved from an archive takes its base from the archive's name. pac-hub-vc
@@ -237,21 +290,23 @@ namespace PacForgeBridge
         /// </summary>
         private static VcCheckResponse VcCheckAnswer(JObject s, VcExportResult export)
         {
-            string state = s["state"] != null && s["state"].Type == JTokenType.String ? (string)s["state"] : null;
+            string state = JsonString(s["state"]);
             if (state == null || !VcStates.Contains(state))
-                return new VcCheckResponse { Success = false, Message = "pac-hub-vc status answered no state Pac Hub knows (" + (state ?? "none") + ")." };
+                return new VcCheckResponse { Success = false, Message = "pac-hub-vc status answered no state Pac Hub knows (" + (JsonMessage(s["state"]) ?? "none") + ")." };
             if (export.RefusedNotCompiling && state != "diverged") state = state == "behind" ? "unverified_behind" : "unverified";
             return new VcCheckResponse
             {
                 Success = true,
                 State = state,
                 Export = export.RefusedNotCompiling ? "refused_not_compiling" : "ok",
-                Base = (string)s["base"],
-                Latest = (string)s["latest"],
-                LatestAuthor = (string)s["latestAuthor"],
-                LatestDate = (string)s["latestDate"],
-                LocalChanges = s["localChanges"] is JArray local ? local.ToObject<List<string>>() : new List<string>(),
-                NewerChanges = s["newerChanges"] is JArray newer ? newer.ToObject<List<VcNewerChange>>() : new List<VcNewerChange>(),
+                Base = JsonString(s["base"]),
+                Latest = JsonString(s["latest"]),
+                LatestAuthor = JsonString(s["latestAuthor"]),
+                LatestDate = JsonString(s["latestDate"]),
+                LocalChanges = JsonStrings(s["localChanges"]),
+                NewerChanges = s["newerChanges"] is JArray newer
+                    ? newer.OfType<JObject>().Select(n => new VcNewerChange { Object = JsonString(n["object"]), Author = JsonString(n["author"]), Sha = JsonString(n["sha"]) }).ToList()
+                    : new List<VcNewerChange>(),
                 Skipped = export.Skipped,
                 NotCompiling = export.Inconsistent,
             };
@@ -280,16 +335,23 @@ namespace PacForgeBridge
         {
             string unready = _tiaService.VcWorkingCopyUnready(plcDir);
             if (unready != null) return new VcCommitResponse { Success = false, Message = unready };
+            return VcKeepingSaved(plcDir, "commit", modifiedBefore => VcCommitWorkingCopy(request, plcDir), a => a.Saved = true);
+        }
 
+        private VcCommitResponse VcCommitWorkingCopy(VcCommitRequest request, string plcDir)
+        {
             string exportDir = VcExportDir(plcDir);
             VcExportResult export = _tiaService.VcExportObjects(exportDir, request.Objects ?? new List<VcObjectRef>());
+            List<string> skipped = export.Skipped.Count > 0 ? export.Skipped : null;
             if (export.RefusedNotCompiling)
-                return new VcCommitResponse { Success = true, Outcome = "deferred", Reason = string.Join(", ", export.Inconsistent) + " does not compile" };
-            if (export.Error != null) return new VcCommitResponse { Success = true, Outcome = "failed", Reason = export.Error };
+                return new VcCommitResponse { Success = true, Outcome = "deferred", Reason = string.Join(", ", export.Inconsistent) + " does not compile", Skipped = skipped };
+            if (export.Error != null) return new VcCommitResponse { Success = true, Outcome = "failed", Reason = export.Error, Skipped = skipped };
 
             // 240 s: the hub gives the whole request 300 s, the export included, and must hear the outcome.
             VcAnswer commit = RunVcJson(VcCommitArgs(request, Path.GetDirectoryName(plcDir)), 240000);
-            return VcCommitAnswer(commit);
+            VcCommitResponse answer = VcCommitAnswer(commit);
+            answer.Skipped = skipped;
+            return answer;
         }
 
         /// <summary>`pac-hub-vc commit … --push --json` for the repo the request's paths resolved to: one --change per
@@ -304,28 +366,33 @@ namespace PacForgeBridge
                 args.Add(VcText(change));
             }
             if (!string.IsNullOrWhiteSpace(request.Agent)) { args.Add("--agent"); args.Add(VcText(request.Agent)); }
-            if (!string.IsNullOrWhiteSpace(request.AuthorName)) { args.Add("--author"); args.Add(VcAuthorPart(request.AuthorName) + " <" + VcAuthorPart(request.AuthorEmail) + ">"); }
+            // The author goes as "Name <email>" only when both are given; otherwise pac-hub-vc uses the repo's identity.
+            if (!string.IsNullOrWhiteSpace(VcAuthorPart(request.AuthorName)) && !string.IsNullOrWhiteSpace(VcAuthorPart(request.AuthorEmail)))
+            {
+                args.Add("--author");
+                args.Add(VcAuthorPart(request.AuthorName) + " <" + VcAuthorPart(request.AuthorEmail) + ">");
+            }
             return args;
         }
 
-        /// <summary>What pac-hub-vc commit came to: committed (or idle: nothing new, HEAD pushed when it was not yet)
-        /// is landed; anything else, or no result, is failed with its reason. A push the remote rejected stays
-        /// committed with pushed:false and pac-hub-vc's reason, untouched (ruling 1).</summary>
+        /// <summary>
+        /// What pac-hub-vc commit came to. <c>committed</c>: this change's commit, its sha and push. A push the remote
+        /// rejected stays committed with pushed:false and pac-hub-vc's reason, untouched (ruling 1). <c>idle</c>: nothing
+        /// new to commit, so committed with no sha (HEAD is not this change's commit) and reason "no changes". Anything
+        /// else, or no result, is failed with its reason, never pushed.
+        /// </summary>
         private static VcCommitResponse VcCommitAnswer(VcAnswer commit)
         {
-            if (commit.Json == null || commit.Json["outcome"] == null)
+            string outcome = commit.Json == null ? null : JsonString(commit.Json["outcome"]);
+            if (outcome == null)
                 return new VcCommitResponse { Success = true, Outcome = "failed", Reason = commit.Refused != null ? commit.Refused + ": " + commit.Message : (commit.Message ?? "pac-hub-vc commit answered no outcome") };
             JObject j = commit.Json;
-            string outcome = (string)j["outcome"];
-            bool landed = outcome == "committed" || outcome == "idle";
-            return new VcCommitResponse
-            {
-                Success = true,
-                Outcome = landed ? "committed" : "failed",
-                Sha = (string)j["sha"],
-                Pushed = landed && ((bool?)j["pushed"] ?? false),
-                Reason = (string)j["reason"] ?? (outcome == "idle" ? "no changes" : landed ? null : "pac-hub-vc commit answered " + (outcome ?? "no outcome")),
-            };
+            bool pushed = j["pushed"] != null && j["pushed"].Type == JTokenType.Boolean && (bool)j["pushed"];
+            if (outcome == "committed")
+                return new VcCommitResponse { Success = true, Outcome = "committed", Sha = JsonString(j["sha"]), Pushed = pushed, Reason = JsonMessage(j["reason"]) };
+            if (outcome == "idle")
+                return new VcCommitResponse { Success = true, Outcome = "committed", Sha = null, Pushed = pushed, Reason = "no changes" };
+            return new VcCommitResponse { Success = true, Outcome = "failed", Sha = null, Pushed = false, Reason = JsonMessage(j["reason"]) ?? "pac-hub-vc commit answered " + outcome };
         }
 
         private async Task HandleVcUpdate(HttpListenerRequest req, HttpListenerResponse res)
@@ -346,6 +413,16 @@ namespace PacForgeBridge
         {
             string unready = _tiaService.VcWorkingCopyUnready(plcDir);
             if (unready != null) return new VcUpdateResponse { Success = false, Message = unready };
+            return VcKeepingSaved(plcDir, "update", modifiedBefore => VcUpdateWorkingCopy(request, plcDir, modifiedBefore), a => a.Saved = true);
+        }
+
+        /// <summary>
+        /// The update itself. A working copy that had unsaved changes before it (the engineer's) is imported into and
+        /// compiled but never saved (Ruling 34), and then its base is not recorded either: the base moves only with the
+        /// imports saved, so a re-check afterwards reads behind and pressing Update again, once saved, records it.
+        /// </summary>
+        private VcUpdateResponse VcUpdateWorkingCopy(VcCheckRequest request, string plcDir, bool modifiedBefore)
+        {
             string repo = Path.GetDirectoryName(plcDir);
 
             // Exported first, so pac-hub-vc update checks the working copy as it is now, not as it was at Start.
@@ -357,17 +434,17 @@ namespace PacForgeBridge
 
             VcAnswer prepared = RunVcJson(new List<string> { "update", "--repo", repo, "--plc", request.PlcFolder, "--json" }, 180000);
             if (prepared.Message != null) return new VcUpdateResponse { Success = false, Refused = prepared.Refused, Message = prepared.Message };
-            string outcome = (string)prepared.Json["outcome"];
+            string outcome = JsonString(prepared.Json["outcome"]);
             if (outcome == "up-to-date") return new VcUpdateResponse { Success = true, Message = "already up to date" };
-            string latest = (string)prepared.Json["latest"];
+            string latest = JsonString(prepared.Json["latest"]);
             if (outcome != "ready" || string.IsNullOrWhiteSpace(latest))
-                return new VcUpdateResponse { Success = false, Message = "pac-hub-vc update answered " + (outcome ?? "no outcome") + (string.IsNullOrWhiteSpace(latest) ? " with no latest commit" : "") + "; nothing was imported." };
+                return new VcUpdateResponse { Success = false, Message = "pac-hub-vc update answered " + (JsonMessage(prepared.Json["outcome"]) ?? "no outcome") + (string.IsNullOrWhiteSpace(latest) ? " with no latest commit" : "") + "; nothing was imported." };
 
             List<VcUpdateFile> files = VcUpdateFilesOf(prepared.Json);
             Console.WriteLine("[VC] update: " + files.Count + " file(s) from git, to " + latest);
             VcImportResult imported = _tiaService.VcImportFiles(exportDir, files);
             CompileResultDto compile = null;
-            string message = null;
+            var notes = new List<string>();
             _tiaService.RequireVcWorkingCopy(plcDir);
             try
             {
@@ -376,33 +453,44 @@ namespace PacForgeBridge
             catch (Exception ex)
             {
                 // What was imported is saved all the same; the compile is reported as not run.
-                message = "The project was not compiled after the update: " + ex.Message;
-                Console.WriteLine("[VC] " + message);
+                notes.Add("The project was not compiled after the update: " + ex.Message);
+                Console.WriteLine("[VC] " + notes[notes.Count - 1]);
             }
             _tiaService.RequireVcWorkingCopy(plcDir);
-            _tiaService.SaveProject();
+            bool saved = _tiaService.VcSaveWhatVcChanged(plcDir, modifiedBefore, "update");
+            if (modifiedBefore)
+                notes.Add("The working copy had unsaved changes before Update from Git, so Pac Hub did not save it and did not record the base; save it in TIA, then press Update from Git again.");
 
-            // The base moves only when every file landed: a partial import leaves the copy on its old base, and the re-check says so.
+            // The base moves only when every file landed and is saved: a partial or unsaved import leaves the copy on
+            // its old base, and the re-check reads behind (objects already equal to latest count as landed), so pressing
+            // Update from Git again resumes it.
             bool baseWritten = false;
-            if (imported.NotImported.Count == 0)
+            if (imported.NotImported.Count == 0 && !modifiedBefore && (saved || !_tiaService.VcProjectModified()))
             {
                 VcAnswer written = RunVcJson(new List<string> { "base", "--repo", repo, "--plc", request.PlcFolder, "--set", latest, "--json" }, 60000);
-                baseWritten = written.Message == null && written.Json["base"] != null && written.Json["base"].Type == JTokenType.String
-                    && string.Equals((string)written.Json["base"], latest, StringComparison.OrdinalIgnoreCase);
+                string recorded = written.Message == null ? JsonString(written.Json["base"]) : null;
+                baseWritten = recorded != null && string.Equals(recorded, latest, StringComparison.OrdinalIgnoreCase);
                 if (!baseWritten) Console.WriteLine("[VC] update: the base was not recorded: " + (written.Message ?? "pac-hub-vc base answered no base"));
             }
             return new VcUpdateResponse
             {
-                Success = true, Message = message, Imported = imported.Imported, Deleted = imported.Deleted, NotImported = imported.NotImported,
-                Compile = compile, BaseWritten = baseWritten,
+                Success = true, Message = notes.Count == 0 ? null : string.Join(" ", notes), Imported = imported.Imported, Deleted = imported.Deleted,
+                NotImported = imported.NotImported, Compile = compile, BaseWritten = baseWritten, Saved = saved,
             };
         }
 
-        /// <summary>The files pac-hub-vc update lists. One with no path or object is kept, to be named in not_imported.</summary>
+        /// <summary>The files pac-hub-vc update lists, read field by field. An entry that is not an object, or lacks a
+        /// path or object, is kept, to be named in not_imported.</summary>
         private static List<VcUpdateFile> VcUpdateFilesOf(JObject json)
         {
-            var files = json["files"] is JArray list ? list.ToObject<List<VcUpdateFile>>() : new List<VcUpdateFile>();
-            return files.Select(f => f ?? new VcUpdateFile()).ToList();
+            if (!(json["files"] is JArray list)) return new List<VcUpdateFile>();
+            return list.Select(t => t as JObject).Select(o => o == null ? new VcUpdateFile() : new VcUpdateFile
+            {
+                Path = JsonString(o["path"]),
+                Object = JsonString(o["object"]),
+                Kind = JsonString(o["kind"]),
+                Removed = o["removed"] != null && o["removed"].Type == JTokenType.Boolean && (bool)o["removed"],
+            }).ToList();
         }
 
         /// <summary>&lt;plc&gt;\Export, the Pac Hub workspace's root (prepare made it; made again when it has gone).</summary>

@@ -105,9 +105,8 @@ namespace PacForgeBridge
         public string VcWorkingCopyUnready(string plcDir)
         {
             if (!VcSupported) return VcUnsupported;
-            if (TiaPortal.GetProcesses().Count == 0)
+            if (!AttachToRunningTia())
                 return "TIA Portal is not running; open the working copy in TIA and try again.";
-            Connect(preferAttach: true);
             if (_project == null)
                 return "TIA has no project open; open the working copy in TIA and try again.";
             string projectDir = Path.Combine(plcDir, "Project");
@@ -116,6 +115,81 @@ namespace PacForgeBridge
                 throw new BridgeRefusalException("NOT_WORKING_COPY",
                     $"TIA has {_project.Name} ({open}) open, which isn't the working copy in {projectDir}; nothing was exported, committed or imported.");
             return null;
+        }
+
+        /// <summary>
+        /// Attach-only connect for the version-control routes: the TIA already attached when it is still alive,
+        /// else the first running TIA Portal, with the project it has open (or none). There is no start path at all:
+        /// with no TIA running it answers false and nothing is started.
+        /// </summary>
+        private bool AttachToRunningTia()
+        {
+            if (_tiaPortal != null)
+            {
+                try
+                {
+                    ProjectComposition projects = _tiaPortal.Projects;
+                    _project = projects.Count > 0 ? projects[0] : null;
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[VC] The attached TIA Portal is gone ({ex.GetType().Name}); attaching again.");
+                    _tiaPortal = null;
+                    _project = null;
+                }
+            }
+            IList<TiaPortalProcess> processes = TiaPortal.GetProcesses();
+            if (processes.Count == 0) return false;
+            Console.WriteLine($"[VC] Attaching to the running TIA Portal (PID {processes[0].Id}).");
+            _tiaPortal = processes[0].Attach();
+            _project = _tiaPortal.Projects.Count > 0 ? _tiaPortal.Projects[0] : null;
+            return true;
+        }
+
+        /// <summary>
+        /// Ruling 34: whether the open project has unsaved changes (<c>ProjectBase.IsModified</c>), read before any VCI
+        /// work. One that cannot be read counts as modified, so it is never saved.
+        /// </summary>
+        public bool VcProjectModified()
+        {
+            try
+            {
+                return _project == null || _project.IsModified;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[VC] Could not read whether the project has unsaved changes ({ex.Message}); it will not be saved.");
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// Ruling 34, after VCI work (export, connect, synchronise, import), on every path: the working copy is saved when
+        /// it had no unsaved changes before the work and has some now, because only this work made them. One that had
+        /// unsaved changes before is never saved: they are the engineer's. Never throws (it runs in a finally); answers
+        /// whether it saved.
+        /// </summary>
+        public bool VcSaveWhatVcChanged(string plcDir, bool modifiedBefore, string what)
+        {
+            try
+            {
+                if (modifiedBefore)
+                {
+                    if (VcProjectModified()) Console.WriteLine($"[VC] {what}: the working copy had unsaved changes before, so it was not saved.");
+                    return false;
+                }
+                RequireVcWorkingCopy(plcDir);
+                if (!VcProjectModified()) return false;
+                SaveProject();
+                Console.WriteLine($"[VC] {what}: saved the working copy (it had no unsaved changes before this {what}).");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[VC] {what}: the working copy was not saved: {ex.Message}");
+                return false;
+            }
         }
 
         /// <summary>
@@ -187,19 +261,50 @@ namespace PacForgeBridge
             }
         }
 
-        /// <summary>SimaticML, never SIMATIC SD. An SCL block keeps an SCL format where TIA offers one, as V18's VCI wrote it.</summary>
+        /// <summary>SimaticML, never SIMATIC SD. An SCL block keeps an SCL format where TIA offers one, as V18's VCI wrote it.
+        /// Null when TIA offers no usable format: VCI cannot export the object (an F-block, say), and it is skipped by name.</summary>
         private static string PickVcFormat(IEnumerable<string> offered, bool scl)
         {
-            var all = (offered ?? Enumerable.Empty<string>()).ToList();
-            var usable = all.Where(f => f.IndexOf("SD", StringComparison.OrdinalIgnoreCase) < 0).ToList();
+            var usable = (offered ?? Enumerable.Empty<string>()).Where(f => f != null && f.IndexOf("SD", StringComparison.OrdinalIgnoreCase) < 0).ToList();
             if (scl)
             {
                 string sclFormat = usable.FirstOrDefault(f => f.IndexOf("SCL", StringComparison.OrdinalIgnoreCase) >= 0);
                 if (sclFormat != null) return sclFormat;
             }
-            string ml = usable.FirstOrDefault(f => f.IndexOf("SimaticML", StringComparison.OrdinalIgnoreCase) >= 0);
-            if (ml != null) return ml;
-            throw new InvalidOperationException("TIA offers no SimaticML export for this object (offered: " + string.Join(", ", all) + ")");
+            return usable.FirstOrDefault(f => f.IndexOf("SimaticML", StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        /// <summary>Per area, the objects a full export skipped (know-how protected, or nothing VCI can export them as):
+        /// their files in git are kept, never removed as stale.</summary>
+        private static Dictionary<string, HashSet<string>> NewVcKeep()
+        {
+            return VcAreas.ToDictionary(a => a, a => new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        }
+
+        /// <summary>The block user group a block file's folder names (posix, below Program blocks); null for the root of
+        /// Program blocks, which is never a user group of its own.</summary>
+        private static string VcBlockGroupPath(string groups)
+        {
+            return string.IsNullOrEmpty(groups) ? null : groups;
+        }
+
+        /// <summary>
+        /// A block a change deleted: its export files (<c>&lt;name&gt;.xml</c> / <c>.scl</c> anywhere in its area) are removed,
+        /// so the deletion lands in this change's commit. The caller has made sure no object of that name, in any case,
+        /// is left in TIA. Answers how many it removed.
+        /// </summary>
+        private static int RemoveVcExportsNamed(string areaRoot, string name, string exportDir, VcExportResult result)
+        {
+            if (!Directory.Exists(areaRoot)) return 0;
+            int removed = 0;
+            foreach (string file in Directory.EnumerateFiles(areaRoot, "*", SearchOption.AllDirectories).ToList())
+            {
+                if (!IsVcPayload(file) || !string.Equals(Path.GetFileNameWithoutExtension(file), name, StringComparison.OrdinalIgnoreCase)) continue;
+                File.Delete(file);
+                result.Removed.Add(VcRelative(exportDir, file));
+                removed++;
+            }
+            return removed;
         }
 
         /// <summary>A payload file (<c>&lt;name&gt;.xml</c> or <c>.scl</c>) already in a folder, the newest when both are; or null.</summary>
@@ -231,19 +336,21 @@ namespace PacForgeBridge
 
         /// <summary>
         /// After a full export: a payload file in one of the three areas that no object wrote any more is a deleted
-        /// object, and is removed so the deletion reads as one. A know-how-protected block's file (VCI exports none)
-        /// is kept: it was skipped, not deleted.
+        /// object, and is removed so the deletion reads as one. The file of an object the export skipped (know-how
+        /// protected, or nothing VCI can export it as) is kept, in whichever area: it was skipped, not deleted.
         /// </summary>
-        private static void RemoveStaleExports(string plcRoot, HashSet<string> expected, HashSet<string> keepBlocks, string exportDir, VcExportResult result)
+        private static void RemoveStaleExports(string plcRoot, HashSet<string> expected, Dictionary<string, HashSet<string>> keep, string exportDir, VcExportResult result)
         {
             foreach (string area in VcAreas)
             {
                 string root = Path.Combine(plcRoot, area);
                 if (!Directory.Exists(root)) continue;
+                HashSet<string> kept;
+                keep.TryGetValue(area, out kept);
                 foreach (string file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).ToList())
                 {
                     if (!IsVcPayload(file) || expected.Contains(Path.GetFullPath(file))) continue;
-                    if (area == "Program blocks" && keepBlocks.Contains(Path.GetFileNameWithoutExtension(file))) continue;
+                    if (kept != null && kept.Contains(Path.GetFileNameWithoutExtension(file))) continue;
                     File.Delete(file);
                     result.Removed.Add(VcRelative(exportDir, file));
                 }
@@ -297,23 +404,23 @@ namespace PacForgeBridge
 
             string plcName = GetCpuDeviceItem().Name;
             var expected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, HashSet<string>> keep = NewVcKeep();
             foreach (var b in blocks)
             {
-                // VCI drops know-how-protected blocks silently; they are named here, as a coverage gap (§11).
-                if (b.Key.IsKnowHowProtected) { result.Skipped.Add(b.Key.Name); keep.Add(b.Key.Name); continue; }
-                ExportOne(ws, b.Key, plcName, "Program blocks", b.Value, b.Key.Name, b.Key.ProgrammingLanguage == ProgrammingLanguage.SCL, exportDir, result, expected);
+                // VCI drops know-how-protected objects silently; they are named here, as a coverage gap (§11), and their files kept.
+                if (b.Key.IsKnowHowProtected) { result.Skipped.Add(b.Key.Name); keep["Program blocks"].Add(b.Key.Name); continue; }
+                ExportOne(ws, b.Key, plcName, "Program blocks", b.Value, b.Key.Name, b.Key.ProgrammingLanguage == ProgrammingLanguage.SCL, exportDir, result, expected, keep);
                 if (result.Error != null) return result;
             }
             foreach (var t in types)
             {
-                if (t.Key.IsKnowHowProtected) { result.Skipped.Add(t.Key.Name); continue; }
-                ExportOne(ws, t.Key, plcName, "PLC data types", t.Value, t.Key.Name, false, exportDir, result, expected);
+                if (t.Key.IsKnowHowProtected) { result.Skipped.Add(t.Key.Name); keep["PLC data types"].Add(t.Key.Name); continue; }
+                ExportOne(ws, t.Key, plcName, "PLC data types", t.Value, t.Key.Name, false, exportDir, result, expected, keep);
                 if (result.Error != null) return result;
             }
             foreach (var t in tables)
             {
-                ExportOne(ws, t.Key, plcName, "PLC tags", t.Value, t.Key.Name, false, exportDir, result, expected);
+                ExportOne(ws, t.Key, plcName, "PLC tags", t.Value, t.Key.Name, false, exportDir, result, expected, keep);
                 if (result.Error != null) return result;
             }
             RemoveStaleExports(Path.Combine(exportDir, plcName), expected, keep, exportDir, result);
@@ -321,7 +428,11 @@ namespace PacForgeBridge
             return result;
         }
 
-        /// <summary>Export only the objects a change touched (§7.1). Any block that does not compile defers the commit.</summary>
+        /// <summary>
+        /// Export only the objects a change touched (§7.1). Any block that does not compile defers the commit. A block
+        /// the change deleted (none of that name, in any case, is left in TIA) has its export file removed, so the
+        /// deletion lands in this change's commit.
+        /// </summary>
         public VcExportResult VcExportObjects(string exportDir, IList<VcObjectRef> objects)
         {
             var result = new VcExportResult();
@@ -334,6 +445,7 @@ namespace PacForgeBridge
 
             var blocks = new List<KeyValuePair<PlcBlock, string>>();
             var tables = new List<KeyValuePair<PlcTagTable, string>>();
+            var gone = new List<string>();
             foreach (VcObjectRef o in objects)
             {
                 if (o.Kind == "tag_table")
@@ -344,7 +456,8 @@ namespace PacForgeBridge
                 else
                 {
                     var b = FindBlockWithPath(plc.BlockGroup, "", o.Name);
-                    if (b.Key == null || b.Key.IsKnowHowProtected) result.Skipped.Add(o.Name);
+                    if (b.Key == null) { if (AnyBlockNamed(plc.BlockGroup, o.Name)) result.Skipped.Add(o.Name); else gone.Add(o.Name); }
+                    else if (b.Key.IsKnowHowProtected) result.Skipped.Add(o.Name);
                     else if (!b.Key.IsConsistent) result.Inconsistent.Add(o.Name);
                     else blocks.Add(b);
                 }
@@ -352,19 +465,35 @@ namespace PacForgeBridge
             if (result.Inconsistent.Count > 0) { result.RefusedNotCompiling = true; return result; }
 
             var expected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, HashSet<string>> keep = NewVcKeep();
             foreach (var b in blocks)
             {
-                ExportOne(ws, b.Key, plcName, "Program blocks", b.Value, b.Key.Name, b.Key.ProgrammingLanguage == ProgrammingLanguage.SCL, exportDir, result, expected);
+                ExportOne(ws, b.Key, plcName, "Program blocks", b.Value, b.Key.Name, b.Key.ProgrammingLanguage == ProgrammingLanguage.SCL, exportDir, result, expected, keep);
                 if (result.Error != null) return result;
             }
             foreach (var t in tables)
             {
-                ExportOne(ws, t.Key, plcName, "PLC tags", t.Value, t.Key.Name, false, exportDir, result, expected);
+                ExportOne(ws, t.Key, plcName, "PLC tags", t.Value, t.Key.Name, false, exportDir, result, expected, keep);
                 if (result.Error != null) return result;
             }
+            foreach (string name in gone)
+            {
+                if (RemoveVcExportsNamed(Path.Combine(exportDir, plcName, "Program blocks"), name, exportDir, result) == 0) result.Skipped.Add(name);
+                else Console.WriteLine($"[VC] {name} is no longer in TIA; its export file was removed, so the commit records the deletion.");
+            }
             if (result.Skipped.Count > 0)
-                Console.WriteLine($"[VC] Not exported (not in TIA, or know-how protected): {string.Join(", ", result.Skipped)}");
+                Console.WriteLine($"[VC] Not exported (not in TIA, know-how protected, or no format VCI can export): {string.Join(", ", result.Skipped)}");
             return result;
+        }
+
+        /// <summary>Whether any block is named <paramref name="name"/>, ignoring case (Find may not).</summary>
+        private static bool AnyBlockNamed(PlcBlockGroup group, string name)
+        {
+            foreach (PlcBlock block in group.Blocks)
+                if (string.Equals(block.Name, name, StringComparison.OrdinalIgnoreCase)) return true;
+            foreach (PlcBlockUserGroup child in group.Groups)
+                if (AnyBlockNamed(child, name)) return true;
+            return false;
         }
 
         /// <summary>
@@ -448,9 +577,11 @@ namespace PacForgeBridge
         /// <summary>
         /// One object through the workspace. Mapped already: synchronised project → workspace. Not mapped, with a file
         /// already at its path (git has it from another workstation's export): connected to that file in the file's
-        /// own format and synchronised over it, so the format git holds does not change. Otherwise exported new.
+        /// own format and synchronised over it, so the format git holds does not change. Otherwise exported new. An
+        /// object TIA offers no usable format for (an F-block, say) is skipped by name and its file in git kept; it
+        /// never fails the export.
         /// </summary>
-        private void ExportOne(Workspace ws, IEngineeringObject obj, string plcName, string area, string groups, string name, bool scl, string exportDir, VcExportResult result, HashSet<string> expected)
+        private void ExportOne(Workspace ws, IEngineeringObject obj, string plcName, string area, string groups, string name, bool scl, string exportDir, VcExportResult result, HashSet<string> expected, Dictionary<string, HashSet<string>> keep)
         {
             string relDir = VcRel(plcName, area, groups);
             try
@@ -462,10 +593,26 @@ namespace PacForgeBridge
                 }
                 else
                 {
-                    List<string> formats = (ws.GetSupportedFileFormats(obj) ?? Enumerable.Empty<string>()).ToList();
+                    List<string> formats;
+                    try
+                    {
+                        formats = (ws.GetSupportedFileFormats(obj) ?? Enumerable.Empty<string>()).ToList();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[VC] {name}: TIA lists no version-control format for it ({ex.Message}).");
+                        formats = new List<string>();
+                    }
                     string existing = VcPayloadIn(Path.Combine(exportDir, relDir), name);
                     bool asScl = existing != null ? existing.EndsWith(".scl", StringComparison.OrdinalIgnoreCase) : scl;
                     string format = PickVcFormat(formats, asScl);
+                    if (format == null)
+                    {
+                        Console.WriteLine($"[VC] {name}: skipped — TIA offers no SimaticML format for it (offered: {(formats.Count == 0 ? "none" : string.Join(", ", formats))}); its file in git is kept.");
+                        result.Skipped.Add(name);
+                        keep[area].Add(name);
+                        return;
+                    }
                     Console.WriteLine($"[VC] {name}: formats offered {string.Join(", ", formats)}; {(existing != null ? "connecting to " + VcRelative(exportDir, existing) : "exporting")} as {format}");
                     if (existing != null)
                     {
@@ -556,8 +703,10 @@ namespace PacForgeBridge
                 if (r.Errors.Count > 0) result.NotImported.Add(string.Join("; ", r.Errors)); else result.Imported.Add(name);
                 return;
             }
-            // A new block goes into the folder git has it in, so the next export writes it to the same path.
-            PlcBlockUserGroup group = GetOrCreateBlockGroup(plc.BlockGroup, folder);
+            // A new block goes into the folder git has it in, so the next export writes it to the same path. One at the
+            // root of Program blocks goes into the root group: never a user group named "Program blocks".
+            string groupPath = VcBlockGroupPath(groups);
+            PlcBlockUserGroup group = groupPath == null ? null : GetOrCreateBlockGroup(plc.BlockGroup, groupPath);
             PlcBlockComposition target = group != null ? group.Blocks : plc.BlockGroup.Blocks;
             target.Import(new FileInfo(full), ImportOptions.Override);
             result.Imported.Add(name);
@@ -595,11 +744,14 @@ namespace PacForgeBridge
             {
                 string[] parts = (f.Path ?? "").Split('/');
                 string area = parts.Length > 1 ? parts[1] : "";
-                if (area == "Program blocks") { PlcBlock b = FindBlockRecursive(plc.BlockGroup, f.Object); if (b != null) b.Delete(); }
-                else if (area == "PLC data types") { PlcType t = FindTypeRecursive(plc.TypeGroup, f.Object); if (t != null) t.Delete(); }
-                else if (area == "PLC tags") { var t = FindTagTableWithPath(plc.TagTableGroup, "", f.Object); if (t.Key != null) t.Key.Delete(); }
+                bool existed;
+                if (area == "Program blocks") { PlcBlock b = FindBlockRecursive(plc.BlockGroup, f.Object); existed = b != null; if (existed) b.Delete(); }
+                else if (area == "PLC data types") { PlcType t = FindTypeRecursive(plc.TypeGroup, f.Object); existed = t != null; if (existed) t.Delete(); }
+                else if (area == "PLC tags") { var t = FindTagTableWithPath(plc.TagTableGroup, "", f.Object); existed = t.Key != null; if (existed) t.Key.Delete(); }
                 else { result.NotImported.Add(f.Object + ": " + area + " is not deleted from git"); return; }
-                result.Deleted.Add(f.Object);
+                // Deleted names only an object that was in TIA; one already gone needed nothing.
+                if (existed) result.Deleted.Add(f.Object);
+                else Console.WriteLine($"[VC] update: {f.Object} was removed in git and is not in TIA either; nothing to delete.");
             }
             catch (Exception ex)
             {
