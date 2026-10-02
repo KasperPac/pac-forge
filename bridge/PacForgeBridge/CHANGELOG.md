@@ -26,6 +26,10 @@ The working copy for Pac Hub's PLC conversation (PHUB-232, pac-hub spec
   name recorded in `<repo>\<nn> <name>\.pachub\retrieved-from` once it is in `Project\`, and
   every prepare answers it as `retrieved_from` (null for a copied one), not only the one that
   retrieved, so a failure after the move or a later Start never loses it.
+  Making a new working copy (from a `.zap` or an `.ap` folder) also deletes the old copy's base,
+  `<repo>\<nn> <name>\.pachub\base`, with the old `retrieved-from`: kept, `base --from-archive` would
+  keep it, and the next Start could commit "as found" a master older than git, reverting committed
+  work. A working copy used as is keeps both.
   Leftover staging is cleared at the next prepare; staging still held by an unfinished copy is
   `DROPBOX_NOT_LOCAL` ("try again in a minute"). It opens the working copy when TIA has nothing open, refuses
   `MULTI_PLC_PROJECT`, records the PLC in `job.json` (doc code; CPU order number as the model), and

@@ -113,7 +113,10 @@ namespace PacForgeBridge
                 //    A working copy retrieved from a .zap has the archive's file name recorded in
                 //    <plc>\.pachub\retrieved-from once it is in Project\. Phase 3 reads the base from that name,
                 //    so every prepare reports it from there (`retrieved_from`): a step below that fails after the
-                //    move, or a later Start, never loses it. A new working copy forgets the old record first.
+                //    move, or a later Start, never loses it. A new working copy forgets the old record first,
+                //    and the old copy's base with it (`<plc>\.pachub\base`): that base belonged to the copy that
+                //    is gone, and kept, `base --from-archive` would keep it and the next Start could commit "as
+                //    found" a master older than git. A working copy used as is keeps both.
                 bool opened = false;
                 if (workingCopy == null)
                 {
@@ -121,6 +124,7 @@ namespace PacForgeBridge
                     string staging = Path.Combine(plcDir, ".pachub", "staging");
                     DropboxLocal.ClearStaging(staging);
                     ForgetRetrievedFrom(plcDir);
+                    ForgetBase(plcDir);
                     Directory.CreateDirectory(staging);
                     if (master.IsArchive)
                     {
@@ -350,6 +354,20 @@ namespace PacForgeBridge
         {
             string file = RetrievedFromFile(plcDir);
             if (File.Exists(file)) File.Delete(file);
+        }
+
+        /// <summary>&lt;plc&gt;\.pachub\base: the commit the working copy in Project\ was last in step with, written by
+        /// `pac-hub-vc base` (git-ignored with the rest of .pachub). The bridge only ever deletes it.</summary>
+        private static string BaseFile(string plcDir) => Path.Combine(plcDir, ".pachub", "base");
+
+        /// <summary>A new working copy starts with no base (Important 1): the old copy's is deleted, so the check's
+        /// `base --from-archive` records the new copy's own, or status applies its no-base rule.</summary>
+        private static void ForgetBase(string plcDir)
+        {
+            string file = BaseFile(plcDir);
+            if (!File.Exists(file)) return;
+            File.Delete(file);
+            Console.WriteLine($"[VC] Deleted {file}: it was the base of a working copy that is no longer there.");
         }
 
         /// <summary>The archive name recorded for the working copy, or null: none was recorded, so it was copied
