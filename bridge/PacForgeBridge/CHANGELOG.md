@@ -89,12 +89,13 @@ The working copy for Pac Hub's PLC conversation (PHUB-232, pac-hub spec
   touched and runs `pac-hub-vc commit --change … --agent … --subject … --author … --push --json`. A block
   that does not compile answers `outcome: deferred`; anything pac-hub-vc could not do is
   `outcome: failed` with its reason; `committed` answers `committed` with its `sha`, and nothing new
-  (`idle`) answers `committed` with no `sha` and reason `no changes`. A push the remote rejected stays
-  a local commit (`pushed: false`, pac-hub-vc's reason untouched, never a pull or a force). A block the
-  change deleted (none of that name, in any case, is left in TIA) has its export file removed, so the
-  deletion lands in this commit. Objects not exported are named in `skipped`. `--author` goes only
-  with both a name and an email. Free text is flattened to one line and passed verbatim through
-  `PacHubVc` (new `PacHubVc.Json`).
+  (`idle`) answers `committed` with no `sha` and pac-hub-vc's reason when it gives one (an earlier
+  offline commit whose push was rejected keeps `remote moved; not fast-forward`), else `no changes`.
+  A push the remote rejected stays a local commit (`pushed: false`, pac-hub-vc's reason untouched,
+  never a pull or a force). A block the change deleted (none of that name, in any case, is left in
+  TIA) has its export file removed, so the deletion lands in this commit. Objects not exported are
+  named in `skipped`. `--author` goes only with both a name and an email. Free text is flattened to
+  one line and passed verbatim through `PacHubVc` (new `PacHubVc.Json`).
 - **`POST /tia/vc/update`** `{ repo_path, plc_folder }` (§6, Update from Git). Exports, lets
   `pac-hub-vc update` fast-forward the repo and list the changed files, imports them with the existing
   paths (import-scl, reimport-blocks, type and tag-table import; a deleted object is deleted; anything
@@ -111,13 +112,15 @@ The working copy for Pac Hub's PLC conversation (PHUB-232, pac-hub spec
   `plc_folder` one of its `<nn> <name>` folders, both existing, else 400. They take the VC lock, as
   prepare and archive do; no git runs in the bridge. A refusal answers 409 `{ success:false, refused?,
   message }` (`refused` only for a name Pac Hub knows: `NOT_WORKING_COPY`, `VC_TOOL_MISSING`,
-  `REPO_NOT_FAST_FORWARD`, `VC_DIVERGED`, `VC_BEHIND`; any other pac-hub-vc refusal is its message).
+  `REPO_NOT_FAST_FORWARD`, `VC_DIVERGED`, `VC_BEHIND`; any other pac-hub-vc refusal is its message),
+  plus update's own `UNSAVED_CHANGES`.
 - **Ruling 34: VCI work never leaves the working copy unsaved behind the engineer's back.** Check,
   commit and update read `Project.IsModified` before any VCI work. Afterwards, on every path
   (failures and early returns included), a working copy that had no unsaved changes and has some now
   is saved, because only this route changed it (`saved: true`). One that had unsaved changes before is
-  never saved: they are the engineer's. An update into such a copy imports and compiles but neither
-  saves nor records the base, and says so; once the engineer saves, Update from Git resumes.
+  never saved: they are the engineer's. Update from Git refuses such a copy up front, 409
+  `refused: UNSAVED_CHANGES` ("save the project in TIA, then press Update from Git again"): nothing
+  is exported, imported or compiled, and the base is not recorded.
 - **V18 bridges do not support version-controlled conversations** (the bridge drives VCI on V20 and
   later only): the V18 build answers all three routes 409 "Version control export needs TIA Portal V20 or later;
   this bridge is built for V18.", so Pac Hub's Start, which runs the check, refuses on a V18 bridge.

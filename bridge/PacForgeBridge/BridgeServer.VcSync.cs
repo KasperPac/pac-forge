@@ -378,8 +378,9 @@ namespace PacForgeBridge
         /// <summary>
         /// What pac-hub-vc commit came to. <c>committed</c>: this change's commit, its sha and push. A push the remote
         /// rejected stays committed with pushed:false and pac-hub-vc's reason, untouched (ruling 1). <c>idle</c>: nothing
-        /// new to commit, so committed with no sha (HEAD is not this change's commit) and reason "no changes". Anything
-        /// else, or no result, is failed with its reason, never pushed.
+        /// new to commit, so committed with no sha (HEAD is not this change's commit), and pac-hub-vc's reason when it
+        /// gave one, else "no changes": an earlier offline commit whose push the remote rejected still reaches the hub
+        /// as "remote moved; not fast-forward". Anything else, or no result, is failed with its reason, never pushed.
         /// </summary>
         private static VcCommitResponse VcCommitAnswer(VcAnswer commit)
         {
@@ -391,7 +392,7 @@ namespace PacForgeBridge
             if (outcome == "committed")
                 return new VcCommitResponse { Success = true, Outcome = "committed", Sha = JsonString(j["sha"]), Pushed = pushed, Reason = JsonMessage(j["reason"]) };
             if (outcome == "idle")
-                return new VcCommitResponse { Success = true, Outcome = "committed", Sha = null, Pushed = pushed, Reason = "no changes" };
+                return new VcCommitResponse { Success = true, Outcome = "committed", Sha = null, Pushed = pushed, Reason = JsonMessage(j["reason"]) ?? "no changes" };
             return new VcCommitResponse { Success = true, Outcome = "failed", Sha = null, Pushed = false, Reason = JsonMessage(j["reason"]) ?? "pac-hub-vc commit answered " + outcome };
         }
 
@@ -413,15 +414,28 @@ namespace PacForgeBridge
         {
             string unready = _tiaService.VcWorkingCopyUnready(plcDir);
             if (unready != null) return new VcUpdateResponse { Success = false, Message = unready };
-            return VcKeepingSaved(plcDir, "update", modifiedBefore => VcUpdateWorkingCopy(request, plcDir, modifiedBefore), a => a.Saved = true);
+            // Ruling 42: a working copy with unsaved changes (the engineer's) is refused before any VCI work.
+            return VcKeepingSaved(plcDir, "update", modifiedBefore => VcUnsavedRefusal(modifiedBefore) ?? VcUpdateWorkingCopy(request, plcDir), a => a.Saved = true);
         }
 
         /// <summary>
-        /// The update itself. A working copy that had unsaved changes before it (the engineer's) is imported into and
-        /// compiled but never saved (Ruling 34), and then its base is not recorded either: the base moves only with the
-        /// imports saved, so a re-check afterwards reads behind and pressing Update again, once saved, records it.
+        /// Update from Git refuses a working copy with unsaved changes, read before any VCI work (Ruling 42): it ends
+        /// in a save, and the engineer's unsaved edits are never saved for them. Nothing is exported, imported or
+        /// compiled and the base is not recorded. Null when the copy has none.
         /// </summary>
-        private VcUpdateResponse VcUpdateWorkingCopy(VcCheckRequest request, string plcDir, bool modifiedBefore)
+        private static VcUpdateResponse VcUnsavedRefusal(bool modifiedBefore)
+        {
+            if (!modifiedBefore) return null;
+            return new VcUpdateResponse
+            {
+                Success = false,
+                Refused = "UNSAVED_CHANGES",
+                Message = "The working copy has unsaved changes in TIA; save the project in TIA, then press Update from Git again. Nothing was exported, imported or compiled.",
+            };
+        }
+
+        /// <summary>The update itself, on a working copy that had no unsaved changes before it.</summary>
+        private VcUpdateResponse VcUpdateWorkingCopy(VcCheckRequest request, string plcDir)
         {
             string repo = Path.GetDirectoryName(plcDir);
 
@@ -457,15 +471,13 @@ namespace PacForgeBridge
                 Console.WriteLine("[VC] " + notes[notes.Count - 1]);
             }
             _tiaService.RequireVcWorkingCopy(plcDir);
-            bool saved = _tiaService.VcSaveWhatVcChanged(plcDir, modifiedBefore, "update");
-            if (modifiedBefore)
-                notes.Add("The working copy had unsaved changes before Update from Git, so Pac Hub did not save it and did not record the base; save it in TIA, then press Update from Git again.");
+            bool saved = _tiaService.VcSaveWhatVcChanged(plcDir, false, "update");
 
             // The base moves only when every file landed and is saved: a partial or unsaved import leaves the copy on
             // its old base, and the re-check reads behind (objects already equal to latest count as landed), so pressing
             // Update from Git again resumes it.
             bool baseWritten = false;
-            if (imported.NotImported.Count == 0 && !modifiedBefore && (saved || !_tiaService.VcProjectModified()))
+            if (imported.NotImported.Count == 0 && (saved || !_tiaService.VcProjectModified()))
             {
                 VcAnswer written = RunVcJson(new List<string> { "base", "--repo", repo, "--plc", request.PlcFolder, "--set", latest, "--json" }, 60000);
                 string recorded = written.Message == null ? JsonString(written.Json["base"]) : null;
