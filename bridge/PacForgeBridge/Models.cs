@@ -130,7 +130,10 @@ namespace PacForgeBridge
         public string Refused { get; set; }
         public string Message { get; set; }
         public string RepoPath { get; set; }
+        /// <summary>The PLC's folder in the job repo, "&lt;nn&gt; &lt;name&gt;" as job.json records it (PHUB-269).</summary>
         public string PlcFolder { get; set; }
+        /// <summary>The PLC's folder in the job's Dropbox 50 PLC, as named there; it need not match PlcFolder (PHUB-269).</summary>
+        public string DropboxPlcFolder { get; set; }
         public string WorkingCopyPath { get; set; }
         /// <summary>"none" | "working_copy" — "other" is always the NOT_WORKING_COPY refusal.</summary>
         public string TiaOpen { get; set; }

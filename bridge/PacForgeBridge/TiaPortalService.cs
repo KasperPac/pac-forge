@@ -164,7 +164,7 @@ namespace PacForgeBridge
                 Connected = connected,
                 TiaVersion = tiaVersion,
                 TiaProjectOpen = projectOpen,
-                BridgeVersion = "1.13.0",   // bump on EVERY bridge change + add a CHANGELOG.md entry
+                BridgeVersion = "1.13.1",   // bump on EVERY bridge change + add a CHANGELOG.md entry
                 PacHubVcVersion = PacHubVc.InstalledVersion(),
                 SourcePlcFamily = sourcePlcFamily,
                 SourceCpuTypeId = sourceCpuTypeId,

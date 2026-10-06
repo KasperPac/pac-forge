@@ -76,7 +76,10 @@ namespace PacForgeBridge
                     new PacHubVc.PlcEntry { Number = plc.Number, Name = plc.Name, DocCode = plc.DocCode });
                 MergeDocCodes(plcs, ensured);
                 string repoPath = (string)ensured["repoPath"];
-                string plcDir = Path.Combine(repoPath, plc.Folder);
+                // The repo folder is the one job.json records for the PLC's number, not the Dropbox folder's
+                // name: "02 - Beam (横梁)" in Dropbox is "02 Beam" in the repo (PHUB-269).
+                string repoFolder = RepoFolderOf(ensured, plc);
+                string plcDir = Path.Combine(repoPath, repoFolder);
                 string projectDir = Path.Combine(plcDir, "Project");
                 string workingCopy = FindProjectFileOrNull(projectDir);
 
@@ -212,7 +215,8 @@ namespace PacForgeBridge
                     Success = true,
                     Message = message,
                     RepoPath = repoPath,
-                    PlcFolder = plc.Folder,
+                    PlcFolder = repoFolder,
+                    DropboxPlcFolder = plc.Folder,
                     WorkingCopyPath = workingCopy,
                     TiaOpen = tiaOpen,
                     Opened = opened,
@@ -553,12 +557,21 @@ namespace PacForgeBridge
         }
 
         /// <summary>job.json's doc code wins over one read from a master's name.</summary>
+        /// <summary>The repo folder ensure recorded for this PLC's number (PHUB-269: a PLC is its number).</summary>
+        private static string RepoFolderOf(JObject ensured, VcPlcDto plc)
+        {
+            string folder = (ensured["plcs"] as JArray)?.FirstOrDefault(p => (string)p["number"] == plc.Number)?["folder"]?.ToString();
+            if (string.IsNullOrWhiteSpace(folder))
+                throw new InvalidOperationException($"pac-hub-vc ensure did not record PLC {plc.Number} ({plc.Folder}) in job.json.");
+            return folder;
+        }
+
         private static void MergeDocCodes(List<VcPlcDto> plcs, JObject ensured)
         {
             if (!(ensured["plcs"] is JArray list)) return;
             foreach (JToken p in list)
             {
-                VcPlcDto dto = plcs.FirstOrDefault(x => string.Equals(x.Folder, (string)p["folder"], StringComparison.OrdinalIgnoreCase));
+                VcPlcDto dto = plcs.FirstOrDefault(x => x.Number == (string)p["number"]);
                 string code = (string)p["docCode"];
                 if (dto != null && !string.IsNullOrWhiteSpace(code)) dto.DocCode = code;
             }

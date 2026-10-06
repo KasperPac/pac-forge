@@ -4,6 +4,18 @@ Every bridge change bumps `BridgeVersion` in `TiaPortalService.cs` (semver:
 new capability = minor, fix = patch) and gets an entry here. The running
 version is visible at `GET /tia/status`.
 
+## 1.13.1 — 2026-10-06
+
+A PLC is its number (PHUB-269). `POST /tia/vc/prepare` took the Dropbox folder name for the repo
+folder, so `50 PLC - Beam (横梁)` became a second PLC 02, `02 - Beam (横梁)`, beside the
+`02 Beam` the repo already had, and the working copy landed outside that PLC's history.
+
+- The repo folder is the one `pac-hub-vc ensure` records in job.json for the PLC's number
+  (`plc_folder`); ensure matches a PLC by number and keeps its recorded name.
+- **`dropbox_plc_folder`** (new) is the folder in the job's Dropbox `50 PLC`, as named there. Pac Hub
+  archives the working copy back to it; it need not equal `plc_folder`.
+- Doc codes from job.json are merged into `plcs` by number.
+
 ## 1.13.0 — 2026-10-01
 
 The working copy for Pac Hub's PLC conversation (PHUB-232, pac-hub spec
