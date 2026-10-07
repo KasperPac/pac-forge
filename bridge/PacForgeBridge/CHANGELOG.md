@@ -4,6 +4,12 @@ Every bridge change bumps `BridgeVersion` in `TiaPortalService.cs` (semver:
 new capability = minor, fix = patch) and gets an entry here. The running
 version is visible at `GET /tia/status`.
 
+## 1.13.3 — 2026-10-08
+
+The startup banner prints the bridge's real version (PHUB-310). It read `PacForge TIA Bridge v1.0`
+whatever the build, so a stale bridge looked the same as a current one. The version now lives once,
+in `TiaPortalService.Version`, and both the banner and `GET /tia/status` read it.
+
 ## 1.13.2 — 2026-10-07
 
 The bridge never closes a project with unsaved changes (PHUB-252). Openness closes a project without

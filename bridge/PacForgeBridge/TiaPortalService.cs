@@ -36,6 +36,9 @@ namespace PacForgeBridge
 {
     public partial class TiaPortalService : IDisposable
     {
+        // Bump on EVERY bridge change + add a CHANGELOG.md entry. /tia/status and the startup banner both read it.
+        public const string Version = "1.13.3";
+
         private TiaPortal _tiaPortal;
         private Project _project;
         private bool _disposed;
@@ -167,7 +170,7 @@ namespace PacForgeBridge
                 Connected = connected,
                 TiaVersion = tiaVersion,
                 TiaProjectOpen = projectOpen,
-                BridgeVersion = "1.13.2",   // bump on EVERY bridge change + add a CHANGELOG.md entry
+                BridgeVersion = Version,
                 PacHubVcVersion = PacHubVc.InstalledVersion(),
                 SourcePlcFamily = sourcePlcFamily,
                 SourceCpuTypeId = sourceCpuTypeId,

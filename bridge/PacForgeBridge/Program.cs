@@ -97,7 +97,7 @@ namespace PacForgeBridge
             }
 
             Console.WriteLine("==============================================");
-            Console.WriteLine($"  PacForge TIA Bridge v1.0  [{bridgeVersion}]");
+            Console.WriteLine($"  PacForge TIA Bridge {TiaPortalService.Version}  [{bridgeVersion}]");
             Console.WriteLine("==============================================");
             Console.WriteLine();
 
