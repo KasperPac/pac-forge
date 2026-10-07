@@ -143,6 +143,7 @@ namespace PacForgeBridge
             if (processes.Count == 0) return false;
             Console.WriteLine($"[VC] Attaching to the running TIA Portal (PID {processes[0].Id}).");
             _tiaPortal = processes[0].Attach();
+            _attached = true;
             _project = _tiaPortal.Projects.Count > 0 ? _tiaPortal.Projects[0] : null;
             return true;
         }

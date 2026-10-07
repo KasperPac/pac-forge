@@ -934,6 +934,11 @@ namespace PacForgeBridge
                     Message = "Disconnected from TIA Portal"
                 });
             }
+            catch (BridgeRefusalException refusal)
+            {
+                Console.WriteLine($"[TIA] Disconnect refused {refusal.Name}: {refusal.Message}");
+                await WriteJson(res, 409, new { success = false, refused = refusal.Name, message = refusal.Message });
+            }
             catch (Exception ex)
             {
                 await WriteJson(res, 500, new TiaActionResponse
@@ -973,6 +978,11 @@ namespace PacForgeBridge
                         ["project_path"] = request.ProjectPath
                     }
                 });
+            }
+            catch (BridgeRefusalException refusal)
+            {
+                Console.WriteLine($"[TIA] Open project refused {refusal.Name}: {refusal.Message}");
+                await WriteJson(res, 409, new { success = false, refused = refusal.Name, message = refusal.Message });
             }
             catch (Exception ex)
             {

@@ -39,6 +39,9 @@ namespace PacForgeBridge
         private TiaPortal _tiaPortal;
         private Project _project;
         private bool _disposed;
+        /// <summary>The portal is the engineer's running TIA, attached to — not one the bridge started (PHUB-252).
+        /// Its project is theirs: the bridge releases it and never closes it.</summary>
+        private bool _attached;
 
         public bool IsConnected => _tiaPortal != null;
         public bool HasProjectOpen => EnsureProjectFresh();
@@ -164,7 +167,7 @@ namespace PacForgeBridge
                 Connected = connected,
                 TiaVersion = tiaVersion,
                 TiaProjectOpen = projectOpen,
-                BridgeVersion = "1.13.1",   // bump on EVERY bridge change + add a CHANGELOG.md entry
+                BridgeVersion = "1.13.2",   // bump on EVERY bridge change + add a CHANGELOG.md entry
                 PacHubVcVersion = PacHubVc.InstalledVersion(),
                 SourcePlcFamily = sourcePlcFamily,
                 SourceCpuTypeId = sourceCpuTypeId,
@@ -250,6 +253,7 @@ namespace PacForgeBridge
                 {
                     Console.WriteLine($"[TIA] Attaching to running TIA Portal (PID: {processes[0].Id})...");
                     _tiaPortal = processes[0].Attach();
+                    _attached = true;
                     Console.WriteLine("[TIA] Attached successfully.");
 
                     // If a project is already open, grab it
@@ -268,15 +272,28 @@ namespace PacForgeBridge
             var mode = withUi ? TiaPortalMode.WithUserInterface : TiaPortalMode.WithoutUserInterface;
             Console.WriteLine($"[TIA] Starting TIA Portal ({(withUi ? "with UI" : "headless")})...");
             _tiaPortal = new TiaPortal(mode);
+            _attached = false;
             Console.WriteLine("[TIA] TIA Portal started.");
         }
 
         /// <summary>
-        /// Disconnect from TIA Portal — close project and dispose instance.
-        /// Unlike Dispose(), this allows reconnecting afterwards.
+        /// Disconnect from TIA Portal. Unlike Dispose(), this allows reconnecting afterwards. An attached portal is
+        /// the engineer's: it is released and its project stays open as they left it (PHUB-252). A portal the bridge
+        /// started closes its project first, refused UNSAVED_CHANGES while that project has unsaved changes.
         /// </summary>
         public void Disconnect()
         {
+            if (_attached)
+            {
+                _project = null;
+                try { _tiaPortal?.Dispose(); }
+                catch (Exception ex) { Console.WriteLine($"[TIA] Error releasing TIA Portal: {ex.Message}"); }
+                _tiaPortal = null;
+                _attached = false;
+                Console.WriteLine("[TIA] Released the attached TIA Portal; its project was left open.");
+                return;
+            }
+            RefuseClosingUnsaved("disconnect");
             try
             {
                 if (_project != null)
@@ -306,6 +323,22 @@ namespace PacForgeBridge
                 Console.WriteLine($"[TIA] Error disconnecting: {ex.Message}");
                 _tiaPortal = null;
             }
+        }
+
+        /// <summary>
+        /// PHUB-252: Openness closes a project without saving, so the bridge never closes one with unsaved changes.
+        /// One whose modified flag cannot be read counts as modified (as Ruling 34 reads it for VC). Nothing open:
+        /// nothing to lose.
+        /// </summary>
+        private void RefuseClosingUnsaved(string what)
+        {
+            if (_project == null) return;
+            bool? modified = VcReadModified();
+            if (modified == false) return;
+            string name = _project.Name;
+            throw new BridgeRefusalException("UNSAVED_CHANGES", modified == null
+                ? $"The bridge could not read whether {name} has unsaved changes, so it will not close it to {what}; save it in TIA, then try again."
+                : $"{name} has unsaved changes in TIA; the bridge will not close it to {what}. Save it (or close it yourself), then try again.");
         }
 
         /// <summary>
@@ -344,7 +377,8 @@ namespace PacForgeBridge
                     return;
                 }
 
-                // Close current project first
+                // Close current project first — never one with unsaved changes (PHUB-252)
+                RefuseClosingUnsaved("open another project");
                 Console.WriteLine($"[TIA] Closing current project: {_project.Name}");
                 _project.Close();
                 _project = null;

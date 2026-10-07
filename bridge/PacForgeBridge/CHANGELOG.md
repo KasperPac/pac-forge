@@ -4,6 +4,17 @@ Every bridge change bumps `BridgeVersion` in `TiaPortalService.cs` (semver:
 new capability = minor, fix = patch) and gets an entry here. The running
 version is visible at `GET /tia/status`.
 
+## 1.13.2 — 2026-10-07
+
+The bridge never closes a project with unsaved changes (PHUB-252). Openness closes a project without
+saving, so `POST /tia/disconnect` and `POST /tia/open-project` could throw away an engineer's edits.
+
+- **Attached to the engineer's TIA, `POST /tia/disconnect` only releases it**, as shutdown already did;
+  their project stays open as they left it. A portal the bridge started still closes its project.
+- **Closing a project with unsaved changes is refused** `409 { success:false, refused:"UNSAVED_CHANGES",
+  message }` — on disconnect from a portal the bridge started, and on `open-project` with another project
+  open. A modified flag TIA will not report counts as modified (as Ruling 34 reads it for VC).
+
 ## 1.13.1 — 2026-10-06
 
 A PLC is its number (PHUB-269). `POST /tia/vc/prepare` took the Dropbox folder name for the repo
