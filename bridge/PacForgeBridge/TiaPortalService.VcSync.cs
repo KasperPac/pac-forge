@@ -247,6 +247,19 @@ namespace PacForgeBridge
             return groups == "" ? Path.Combine(plcName, area) : Path.Combine(plcName, area, groups);
         }
 
+        /// <summary>The folder ExportObject / ConnectObject are given. TIA V21 refuses a relative one ("The argument
+        /// 'relativeWorkspaceDirectoryPath' cannot be a relative path", PHUB-311) although its documentation says the
+        /// path is relative to the workspace root, so V21 gets the absolute folder inside the workspace. V20 keeps the
+        /// relative form, unverified there either way.</summary>
+        private static DirectoryInfo VcWorkspaceDir(string exportDir, string relDir)
+        {
+#if TIA_V21
+            return new DirectoryInfo(Path.Combine(exportDir, relDir));
+#else
+            return new DirectoryInfo(relDir);
+#endif
+        }
+
         private static bool IsVcPayload(string file)
         {
             return file.EndsWith(".xml", StringComparison.OrdinalIgnoreCase) || file.EndsWith(".scl", StringComparison.OrdinalIgnoreCase);
@@ -654,8 +667,8 @@ namespace PacForgeBridge
                     try
                     {
                         mapped = existing != null
-                            ? ws.ConnectObject(obj, new DirectoryInfo(relDir), name, format)
-                            : ws.ExportObject(obj, new DirectoryInfo(relDir), name, format);
+                            ? ws.ConnectObject(obj, VcWorkspaceDir(exportDir, relDir), name, format)
+                            : ws.ExportObject(obj, VcWorkspaceDir(exportDir, relDir), name, format);
                     }
                     catch (Exception ex)
                     {

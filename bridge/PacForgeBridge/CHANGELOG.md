@@ -1,8 +1,16 @@
 # PacForge Bridge Changelog
 
-Every bridge change bumps `BridgeVersion` in `TiaPortalService.cs` (semver:
+Every bridge change bumps `TiaPortalService.Version` (semver:
 new capability = minor, fix = patch) and gets an entry here. The running
-version is visible at `GET /tia/status`.
+version is visible at `GET /tia/status` and in the startup banner.
+
+## 1.13.4 — 2026-10-08
+
+On TIA V21 the VCI export works (PHUB-311). Every `Workspace.ExportObject` and `ConnectObject` threw
+"The argument 'relativeWorkspaceDirectoryPath' cannot be a relative path" — 49 of 49 on MCR-2601 Beam — so
+every object was skipped and a change applied through the conversation was not committed. V21 now gets the absolute folder
+inside the workspace; its own documentation still says the path is relative to the workspace root. V20 keeps
+the relative form, which no live run has confirmed either way.
 
 ## 1.13.3 — 2026-10-08
 
