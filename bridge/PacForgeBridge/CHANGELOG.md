@@ -4,6 +4,15 @@ Every bridge change bumps `TiaPortalService.Version` (semver:
 new capability = minor, fix = patch) and gets an entry here. The running
 version is visible at `GET /tia/status` and in the startup banner.
 
+## 1.13.7 — 2026-10-09
+
+The version-control export gives TIA V21 the folder form it accepts (PHUB-311). Probed live against MCR-2601 Beam: V21's
+`Workspace.ExportObject` / `ConnectObject` refuse a relative folder ("cannot be a relative path") and the absolute
+folder under the workspace root ("Relative Directory Path is Invalid"), and take the folder relative to the root
+written with a leading separator and no drive — `\PLC_1\PLC tags` — mirroring the object's place in the project.
+1.13.4's absolute folder is replaced by that form. (Also learned: `MappedObject.Delete()` is a silent no-op unless
+it runs under `ExclusiveAccess` and a committed `Transaction`; nothing in the bridge deletes a mapping today.)
+
 ## 1.13.6 — 2026-10-09
 
 The archive keeps its `.zap21` on V21 (PHUB-316). `Project.Archive` was given the bare name and V21 wrote a file

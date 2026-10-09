@@ -247,14 +247,16 @@ namespace PacForgeBridge
             return groups == "" ? Path.Combine(plcName, area) : Path.Combine(plcName, area, groups);
         }
 
-        /// <summary>The folder ExportObject / ConnectObject are given. TIA V21 refuses a relative one ("The argument
-        /// 'relativeWorkspaceDirectoryPath' cannot be a relative path", PHUB-311) although its documentation says the
-        /// path is relative to the workspace root, so V21 gets the absolute folder inside the workspace. V20 keeps the
-        /// relative form, unverified there either way.</summary>
+        /// <summary>The folder ExportObject / ConnectObject are given (PHUB-311). Probed live on TIA V21, 2026-10-09: a
+        /// relative folder is refused ("The argument 'relativeWorkspaceDirectoryPath' cannot be a relative path"), and so
+        /// is the absolute folder under the root ("Relative Directory Path is Invalid"); what V21 takes is the folder
+        /// relative to the workspace root written with a leading separator and no drive — `\PLC_1\PLC tags` — and it
+        /// must mirror the object's place in the project (a folder that does not, `\_scratch`, is refused the same
+        /// way). V20 keeps the plain relative form, which no live run has confirmed either way.</summary>
         private static DirectoryInfo VcWorkspaceDir(string exportDir, string relDir)
         {
 #if TIA_V21
-            return new DirectoryInfo(Path.Combine(exportDir, relDir));
+            return new DirectoryInfo(Path.DirectorySeparatorChar + relDir.TrimStart('\\', '/'));
 #else
             return new DirectoryInfo(relDir);
 #endif
