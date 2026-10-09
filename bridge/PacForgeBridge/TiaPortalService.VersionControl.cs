@@ -244,8 +244,9 @@ namespace PacForgeBridge
                 string targetDir = ArchiveTargetDir(DropboxLocal.Resolve(dropboxRoot, request.TargetDir), request.TargetDir);
                 string baseName = ArchiveBaseName(request.FileName);
                 string plcDir = PlcDirOfWorkingCopy(request.WorkingCopyPath);
-                if (!string.Equals(Path.GetFileName(plcDir), Path.GetFileName(targetDir), StringComparison.OrdinalIgnoreCase))
-                    throw new BridgeBadRequestException($"The working copy belongs to PLC folder '{Path.GetFileName(plcDir)}', not '{Path.GetFileName(targetDir)}'; nothing was archived.");
+                // A PLC is its number (PHUB-269): the repo's `02 Beam` and Dropbox's `02 - Beam (横梁)` are one PLC.
+                if (!SamePlc(Path.GetFileName(plcDir), Path.GetFileName(targetDir)))
+                    throw new BridgeBadRequestException($"The working copy belongs to PLC {Path.GetFileName(plcDir)}, not to the Dropbox PLC folder '{Path.GetFileName(targetDir)}'; nothing was archived.");
                 if (DropboxLocal.IsInside(plcDir, dropboxRoot))
                     throw new BridgeRefusalException("JOBS_ROOT_IN_DROPBOX", $"The working copy {request.WorkingCopyPath} is inside Dropbox ({dropboxRoot}); an archive is written outside Dropbox first, so nothing was archived.");
                 if (!Directory.Exists(targetDir))
@@ -294,6 +295,15 @@ namespace PacForgeBridge
                 Console.WriteLine($"[VC] Archived {_project.Name} to {target}");
                 return new ArchiveProjectResponse { Success = true, Path = target };
             }
+        }
+
+        /// <summary>Whether two PLC folder names are the same PLC: the same `&lt;nn&gt;`. The repo folder and the job's Dropbox
+        /// folder are named apart (`02 Beam`, `02 - Beam (横梁)`), so the names themselves are never compared (PHUB-316).</summary>
+        private static bool SamePlc(string repoFolder, string dropboxFolder)
+        {
+            Match repo = PlcFolderPattern.Match(repoFolder ?? "");
+            Match dropbox = PlcFolderPattern.Match(dropboxFolder ?? "");
+            return repo.Success && dropbox.Success && repo.Groups[1].Value == dropbox.Groups[1].Value;
         }
 
         /// <summary>A Dropbox folder an archive may go to: a PLC's folder, `…\50 PLC\&lt;nn&gt; &lt;name&gt;`. Anything else

@@ -4,6 +4,13 @@ Every bridge change bumps `TiaPortalService.Version` (semver:
 new capability = minor, fix = patch) and gets an entry here. The running
 version is visible at `GET /tia/status` and in the startup banner.
 
+## 1.13.5 — 2026-10-09
+
+An archive goes to its PLC's Dropbox folder when the two are named apart (PHUB-316). `POST /tia/project/archive`
+refused MCR-2601 Beam with "The working copy belongs to PLC folder '02 Beam', not '02 - Beam (横梁)'": it compared
+the repo folder's name with the Dropbox folder's, which 1.13.1 (PHUB-269) had made free to differ. The two are now
+the same PLC when their `<nn>` matches; a working copy is still refused for another PLC's folder.
+
 ## 1.13.4 — 2026-10-08
 
 On TIA V21 the VCI export works (PHUB-311). Every `Workspace.ExportObject` and `ConnectObject` threw
