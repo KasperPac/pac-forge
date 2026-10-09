@@ -4,6 +4,13 @@ Every bridge change bumps `TiaPortalService.Version` (semver:
 new capability = minor, fix = patch) and gets an entry here. The running
 version is visible at `GET /tia/status` and in the startup banner.
 
+## 1.13.6 — 2026-10-09
+
+The archive keeps its `.zap21` on V21 (PHUB-316). `Project.Archive` was given the bare name and V21 wrote a file
+with no extension, which the archive route then could not find. It is now given the whole file name
+(`<name>.zap<edition>`, as TIA's own docs describe the argument), and the one file TIA writes into the emptied
+staging folder is the archive whatever an edition names it; it lands in Dropbox under the requested name.
+
 ## 1.13.5 — 2026-10-09
 
 An archive goes to its PLC's Dropbox folder when the two are named apart (PHUB-316). `POST /tia/project/archive`

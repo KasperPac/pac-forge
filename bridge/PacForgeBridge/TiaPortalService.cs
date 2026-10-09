@@ -37,7 +37,7 @@ namespace PacForgeBridge
     public partial class TiaPortalService : IDisposable
     {
         // Bump on EVERY bridge change + add a CHANGELOG.md entry. /tia/status and the startup banner both read it.
-        public const string Version = "1.13.5";
+        public const string Version = "1.13.6";
 
         private TiaPortal _tiaPortal;
         private Project _project;

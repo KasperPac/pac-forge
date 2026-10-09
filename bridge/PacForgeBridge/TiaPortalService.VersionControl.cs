@@ -269,19 +269,25 @@ namespace PacForgeBridge
                 Directory.CreateDirectory(staging);
                 try
                 {
+                    string fileName = baseName + ".zap" + EditionVersion;
                     try
                     {
-                        _project.Archive(new DirectoryInfo(staging), baseName, ProjectArchivationMode.Compressed);
+                        // The name is the archive's whole file name: V21 writes exactly what it is given and adds no
+                        // extension (PHUB-316 — given the bare name it wrote a file with none).
+                        _project.Archive(new DirectoryInfo(staging), fileName, ProjectArchivationMode.Compressed);
                     }
                     catch (Exception ex)
                     {
                         throw new InvalidOperationException($"TIA would not archive {_project.Name}: {ex.Message} (if the project has unsaved changes, save it in TIA, then archive again); nothing was put in Dropbox.", ex);
                     }
-                    string staged = Path.Combine(staging, baseName + ".zap" + EditionVersion);
+                    // Staging was emptied before TIA was asked, so the one file in it is the archive, whatever name an
+                    // edition gave it; it lands in Dropbox under the name this request asked for.
+                    string[] files = Directory.GetFiles(staging);
+                    string staged = files.Length == 1 ? files[0] : Path.Combine(staging, fileName);
                     if (!File.Exists(staged))
                     {
                         string[] wrote = Directory.GetFileSystemEntries(staging).Select(Path.GetFileName).ToArray();
-                        throw new InvalidOperationException($"TIA archived {_project.Name} without writing {Path.GetFileName(staged)} to {staging} (it wrote {(wrote.Length == 0 ? "nothing" : string.Join(", ", wrote))}); nothing was put in Dropbox.");
+                        throw new InvalidOperationException($"TIA archived {_project.Name} without writing {fileName} to {staging} (it wrote {(wrote.Length == 0 ? "nothing" : string.Join(", ", wrote))}); nothing was put in Dropbox.");
                     }
                     if (!DropboxLocal.PlaceNewFile(staged, target))
                         throw new BridgeRefusalException("ARCHIVE_EXISTS", $"{target} already exists (it appeared while the project was being archived); nothing was overwritten.");
