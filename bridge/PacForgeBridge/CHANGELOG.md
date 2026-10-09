@@ -4,6 +4,14 @@ Every bridge change bumps `TiaPortalService.Version` (semver:
 new capability = minor, fix = patch) and gets an entry here. The running
 version is visible at `GET /tia/status` and in the startup banner.
 
+## 1.13.8 — 2026-10-09
+
+An object whose git file already matches it is versioned on V21 (PHUB-311). V21 throws on
+`MappedObject.Synchronize` when the mapping's compare status is equal ("Synchronize cannot be called on a workspace
+mapping that has a compare status of equal") where V20 did nothing, which stopped MCR-2601 Beam's Start at
+LCamHdl_CreateCamBasic. A mapping is now synchronised only when its status is not equal; an equal one's file is
+already the export.
+
 ## 1.13.7 — 2026-10-09
 
 The version-control export gives TIA V21 the folder form it accepts (PHUB-311). Probed live against MCR-2601 Beam: V21's

@@ -626,6 +626,25 @@ namespace PacForgeBridge
             return null;
         }
 
+        /// <summary>A mapping's file brought up to the project. V21 refuses to synchronise a mapping whose file already
+        /// equals the object ("Synchronize cannot be called on a workspace mapping that has a compare status of equal",
+        /// PHUB-311) where V20 did nothing, so an equal mapping is left as it is — its file is already the export.</summary>
+        private static void SyncToWorkspace(MappedObject mapped)
+        {
+            CompareState state;
+            try { state = mapped.GetStatus().CompareState; }
+            catch { state = CompareState.Unknown; }
+            if (state == CompareState.Equal) return;
+            try
+            {
+                mapped.Synchronize(SynchronizationMode.ProjectToWorkspace);
+            }
+            catch (Exception ex) when (ex.Message.IndexOf("compare status of equal", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                // Equal after all (the status read raced the file): nothing to write.
+            }
+        }
+
         /// <summary>
         /// One object through the workspace. Mapped already: synchronised project → workspace. Not mapped, with a file
         /// already at its path (git has it from another workstation's export): connected to that file in the file's
@@ -641,7 +660,7 @@ namespace PacForgeBridge
                 MappedObject mapped = ws.MappedObjects.Find(obj);
                 if (mapped != null)
                 {
-                    mapped.Synchronize(SynchronizationMode.ProjectToWorkspace);
+                    SyncToWorkspace(mapped);
                 }
                 else
                 {
@@ -683,7 +702,7 @@ namespace PacForgeBridge
                         keep[area].Add(name);
                         return;
                     }
-                    if (existing != null) mapped.Synchronize(SynchronizationMode.ProjectToWorkspace);
+                    if (existing != null) SyncToWorkspace(mapped);
                 }
                 string mappedDir = null;
                 string mappedName = null;
