@@ -198,6 +198,15 @@ namespace PacForgeBridge
         public string Comment { get; set; }        // Optional description
     }
 
+    // PHUB-317: a PLC user constant, created in the provisioned project's tag table before the program
+    // is imported (Silio M2 P3: the Siemens LSQL AnalyzeTokens reads LSQL_NUMBER_OF_COLUMNS_MAX).
+    public class UserConstantDto
+    {
+        public string Name { get; set; }      // e.g. "LSQL_NUMBER_OF_COLUMNS_MAX"
+        public string DataType { get; set; }  // e.g. "Int"
+        public string Value { get; set; }     // e.g. "15"
+    }
+
     public class ProvisionProjectRequest
     {
         public string TiaProjectPath { get; set; }    // Folder path, e.g. C:\...\50 PLC\01 Project Name
@@ -206,6 +215,7 @@ namespace PacForgeBridge
         public string ProvisionId { get; set; }       // Correlation ID for WS events
         public List<IoModuleDto> IoModules { get; set; }
         public List<IoTagDto> IoTags { get; set; }
+        public List<UserConstantDto> UserConstants { get; set; }  // PHUB-317: created before the sources are imported
         public Dictionary<string, string> Sources { get; set; }  // name -> SCL; when present the program is imported too
         public List<string> ImportOrder { get; set; }            // dependency order: UDT -> FB -> FC -> DB -> OB
         // name -> destination folder. Omitted names land in the root "Program

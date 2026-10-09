@@ -4,6 +4,16 @@ Every bridge change bumps `TiaPortalService.Version` (semver:
 new capability = minor, fix = patch) and gets an entry here. The running
 version is visible at `GET /tia/status` and in the startup banner.
 
+## 1.14.0 — 2026-10-09
+
+`POST /tia/provision-project` creates PLC user constants (PHUB-317). A new `user_constants:
+[{ name, data_type, value }]` is created in the "PacForge IO Tags" table, after the IO tags and before
+the sources are imported, with `PlcTagTable.UserConstants.Create(name, type, value)`. A constant that
+cannot be created comes back as a warning `Could not create constant '<name>' …`. Pac Hub's `qualify`
+needs it for the Siemens LSQL `AnalyzeTokens`, which reads `LSQL_NUMBER_OF_COLUMNS_MAX` — a constant
+the Siemens sources do not define. An older bridge ignores the field, so qualify refuses one below
+1.14.0 whenever it has constants to create.
+
 ## 1.13.8 — 2026-10-09
 
 An object whose git file already matches it is versioned on V21 (PHUB-311). V21 throws on

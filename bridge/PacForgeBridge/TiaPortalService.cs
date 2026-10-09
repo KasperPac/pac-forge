@@ -37,7 +37,7 @@ namespace PacForgeBridge
     public partial class TiaPortalService : IDisposable
     {
         // Bump on EVERY bridge change + add a CHANGELOG.md entry. /tia/status and the startup banner both read it.
-        public const string Version = "1.13.8";
+        public const string Version = "1.14.0";
 
         private TiaPortal _tiaPortal;
         private Project _project;
@@ -594,6 +594,15 @@ namespace PacForgeBridge
             {
                 Emit("Creating IO tag table", 75);
                 CreateIoTags(plcSoftware, request.IoTags, demoResult);
+                response.Warnings.AddRange(demoResult.Warnings);
+            }
+
+            // PLC user constants (PHUB-317), before the program that reads them is imported.
+            if (request.UserConstants != null && request.UserConstants.Count > 0)
+            {
+                Emit("Creating user constants", 78);
+                demoResult.Warnings.Clear();
+                CreateUserConstants(plcSoftware, request.UserConstants, demoResult);
                 response.Warnings.AddRange(demoResult.Warnings);
             }
 
@@ -2366,6 +2375,36 @@ namespace PacForgeBridge
             }
 
             Console.WriteLine($"[TIA] Created {created}/{ioTags.Count} PLC tag(s).");
+        }
+
+        /// <summary>
+        /// Create PLC user constants in the "PacForge IO Tags" table (PHUB-317). A constant that cannot
+        /// be created is a warning "Could not create constant '...'", which qualify reads as an import
+        /// failure, so the run stops instead of compiling without it.
+        /// </summary>
+        private void CreateUserConstants(PlcSoftware plcSoftware, List<UserConstantDto> constants, DemoResult result)
+        {
+            PlcTagTable tagTable = plcSoftware.TagTableGroup.TagTables.Find("PacForge IO Tags")
+                ?? plcSoftware.TagTableGroup.TagTables.Create("PacForge IO Tags");
+            foreach (var constant in constants)
+            {
+                if (string.IsNullOrWhiteSpace(constant.Name) || string.IsNullOrWhiteSpace(constant.DataType) || string.IsNullOrWhiteSpace(constant.Value))
+                {
+                    result.Warnings.Add($"Could not create constant '{constant.Name}': a name, a data type and a value are all required");
+                    continue;
+                }
+                try
+                {
+                    tagTable.UserConstants.Create(constant.Name.Trim(), NormalizeDataType(constant.DataType), constant.Value.Trim());
+                    Console.WriteLine($"[TIA]   Constant: {constant.Name} {constant.DataType} = {constant.Value}");
+                }
+                catch (Exception ex)
+                {
+                    string warning = $"Could not create constant '{constant.Name}' ({constant.DataType} {constant.Value}): {ex.Message}";
+                    Console.WriteLine($"[TIA]   WARNING: {warning}");
+                    result.Warnings.Add(warning);
+                }
+            }
         }
 
         /// <summary>
