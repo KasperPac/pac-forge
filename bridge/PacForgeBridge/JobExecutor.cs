@@ -107,6 +107,13 @@ namespace PacForgeBridge
 
         private void ExecuteJob(JobState job)
         {
+            _tiaService.OperationGate.Wait();
+            try { if (_running && !job.CancellationRequested) ExecuteJobExclusive(job); }
+            finally { _tiaService.OperationGate.Release(); }
+        }
+
+        private void ExecuteJobExclusive(JobState job)
+        {
             Console.WriteLine($"[JOBS] Executing job: {job.JobId} ({job.JobType})");
             job.Status = "RUNNING";
             job.StartedAt = DateTime.UtcNow;

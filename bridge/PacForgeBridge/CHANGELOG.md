@@ -4,6 +4,23 @@ Every bridge change bumps `TiaPortalService.Version` (semver:
 new capability = minor, fix = patch) and gets an entry here. The running
 version is visible at `GET /tia/status` and in the startup banner.
 
+## 1.15.0 — 2026-11-09
+
+PHUB-580 adds authenticated `POST /tia/blocks/delete` preview/apply for unused standard
+FB/FC blocks on V21. An expiring one-use preview binds exact project/PLC, user-block
+inventory and XML content fingerprints. Fresh text-only native references must show
+zero incoming uses, a separate known-used call control must succeed, and the complete
+native inventory must contain zero instances. Safety, system, protected, inconsistent,
+OB and DB targets are refused. Apply requires an offline saved working copy, archives
+XML before deletion, compiles, verifies the survivor inventory and saves. Failures attempt
+every restoration and verify content, inventory and compile before saving recovery.
+An optional code-memory warning gate supports bench memory cleanup. No PLC download,
+value writes or connection-state changes are made. V18/V20 refuse this operation.
+
+HTTP TIA operations and queued jobs now share an operation gate so project switching or
+imports cannot interleave with deletion. WebSockets and job queue/status/cancel remain
+outside that gate. Details and limitations: `Docs/TIA_BLOCK_DELETE.md`.
+
 ## 1.14.0 — 2026-10-09
 
 `POST /tia/provision-project` creates PLC user constants (PHUB-317). A new `user_constants:
