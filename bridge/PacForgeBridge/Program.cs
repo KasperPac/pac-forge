@@ -150,6 +150,7 @@ namespace PacForgeBridge
                 Console.WriteLine($"  POST /tia/connect           Connect to TIA Portal");
                 Console.WriteLine($"  POST /tia/disconnect        Disconnect TIA Portal");
                 Console.WriteLine($"  POST /tia/open-project      Open TIA project");
+                Console.WriteLine($"  POST /tia/blocks/delete     Preview/apply unused FB/FC deletion (V21)");
                 Console.WriteLine($"  POST /tia/demo/motor-control Create motor demo");
                 Console.WriteLine($"  POST /tia/demo/create       Create project from SCL");
                 Console.WriteLine($"  POST /tia/jobs              Submit job");
@@ -170,7 +171,11 @@ namespace PacForgeBridge
                 jobExecutor.Stop();
                 server.Stop();
                 wsHandler.CloseAll().Wait();
-                tiaService.Dispose();
+                // A 5-second worker join does not establish that active HTTP/jobs have finished.
+                // Stop accepting work, then drain the shared TIA gate before releasing its session.
+                tiaService.OperationGate.Wait();
+                try { tiaService.Dispose(); }
+                finally { tiaService.OperationGate.Release(); }
                 Console.WriteLine("[BRIDGE] Shutdown complete.");
             }
         }

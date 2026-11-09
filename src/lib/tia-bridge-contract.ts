@@ -12,6 +12,41 @@ import type { TiaManifest, TiaJobType, TiaJobStatus, CompileResult } from "@/typ
 
 // --- REST API Endpoints ---
 
+/** Bridge >=1.15.0, V21 only. Preview is default; apply uses the server's unexpired plan. */
+export interface DeleteUnusedBlocksRequest {
+  expected_project_path: string;
+  plc_name: string;
+  dry_run?: boolean;
+  blocks?: Array<{ name: string; kind: "FB" | "FC"; number: number }>;
+  control_block?: string;
+  control_caller?: string;
+  require_code_memory_fit?: boolean;
+  plan_id?: string;
+  confirm_delete?: boolean;
+}
+
+export interface DeleteUnusedBlocksResponse {
+  success: boolean;
+  dry_run?: boolean;
+  plan_id?: string;
+  expires_utc?: string;
+  project_path?: string;
+  plc_name?: string;
+  archive?: string;
+  warning?: string;
+  error?: string;
+  saved?: boolean;
+  downloaded?: false;
+  plc_value_writes?: 0;
+  blocks?: Array<{ name: string; kind: "FB" | "FC"; number: number; fingerprint: string; work_bytes: number }>;
+  removed?: DeleteUnusedBlocksResponse["blocks"];
+  removed_code_bytes?: number;
+  compile?: CompileResult;
+  recovery_complete?: boolean;
+  recovery_errors?: string[];
+  candidate_usable?: boolean;
+}
+
 /**
  * POST /tia/jobs
  * Submit a new TIA job for execution.
@@ -869,4 +904,3 @@ export interface ExtractedDriveTelegram {
   /** Formatted output address range. */
   output_address: string | null;
 }
-

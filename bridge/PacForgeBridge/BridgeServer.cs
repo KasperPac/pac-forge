@@ -130,6 +130,16 @@ namespace PacForgeBridge
             // Cross-origin guard (PHUB-232): a web page never reaches the 1.13.0 routes that write the job repo,
             // GitHub or Dropbox without the token. Pac Hub calls them from its server, with no Origin.
             string guarded = req.Url.AbsolutePath.TrimEnd('/');
+            // PHUB-580: this destructive route always requires configured authentication, including localhost.
+            if (guarded == "/tia/blocks/delete")
+            {
+                try { BlockDeletePolicy.RequireAuthentication(_token, BridgeAccess.IsAuthorised(req.Headers["Authorization"], _token)); }
+                catch (InvalidOperationException ex)
+                {
+                    await WriteJson(res, 403, new {success=false,error=ex.Message});
+                    return;
+                }
+            }
             if (IsCrossOriginRefused(guarded, req.Headers["Origin"], req.Headers["Authorization"], _token))
             {
                 Console.WriteLine($"[HTTP] Refused {req.HttpMethod} {guarded} from a web page (Origin: {req.Headers["Origin"]}): no valid bridge token.");
@@ -145,10 +155,36 @@ namespace PacForgeBridge
                 return;
             }
 
+            bool operationGateHeld = false;
             try
             {
                 string path = req.Url.AbsolutePath.TrimEnd('/');
                 string method = req.HttpMethod;
+                // Job submission/poll/cancel and WebSockets do not touch TIA. The worker takes the same gate.
+                if (path != "/tia/ws" && path != "/tia/jobs" && !path.StartsWith("/tia/jobs/", StringComparison.Ordinal))
+                {
+                    await _tiaService.OperationGate.WaitAsync();
+                    operationGateHeld = true;
+                    if (_cts.IsCancellationRequested)
+                    {
+                        await WriteJson(res, 503, new {success=false,error="Bridge is stopping; no TIA operation was started."});
+                        return;
+                    }
+                }
+
+                if (method == "POST" && path == "/tia/blocks/delete")
+                {
+                    if (req.ContentLength64 > 65536) { await WriteJson(res, 400, new {success=false,error="Request too large."}); return; }
+                    string body = await ReadBody(req);
+                    if (body.Length > 65536) { await WriteJson(res, 400, new {success=false,error="Request too large."}); return; }
+                    try
+                    {
+                        var deletion = _tiaService.DeleteUnusedBlocks(Json.Deserialize<BlockDeleteRequest>(body));
+                        await WriteJson(res, 200, deletion);
+                    }
+                    catch (Exception ex) { await WriteJson(res, 409, new {success=false,error=ex.Message,downloaded=false,plc_value_writes=0}); }
+                    return;
+                }
 
                 // Route: POST /tia/browse-file
                 if (method == "POST" && path == "/tia/browse-file")
@@ -633,6 +669,10 @@ namespace PacForgeBridge
                     await WriteJson(res, 500, new { error = ex.Message });
                 }
                 catch { }
+            }
+            finally
+            {
+                if (operationGateHeld) _tiaService.OperationGate.Release();
             }
         }
 
@@ -1956,7 +1996,8 @@ namespace PacForgeBridge
         {
             if (origin == null) return false;
             bool guarded = (path ?? "").StartsWith("/tia/vc/", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(path, "/tia/project/archive", StringComparison.OrdinalIgnoreCase);
+                || string.Equals(path, "/tia/project/archive", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(path, "/tia/blocks/delete", StringComparison.OrdinalIgnoreCase);
             if (!guarded) return false;
             return string.IsNullOrEmpty(token) || !BridgeAccess.IsAuthorised(authorization, token);
         }
